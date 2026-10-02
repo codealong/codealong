@@ -8,7 +8,7 @@
 //! pinned as the drag leaves its window and follows the pointer until the button comes up
 //! (`drag_out`); let go back over that window, the drag pinned nothing.
 //!
-//! Each card is its own window, made the way the bar is (bar.rs): a non-activating panel, so a
+//! Each card is its own window, made the way the bar is (panel.rs): a non-activating panel, so a
 //! click in one leaves the app you're in active and never takes the keyboard. It gets what it
 //! shows cut from the board, and only when that changed, as the bar gets its feed. What's pinned
 //! and where each card was left are kept in `desktop.json` next to the config.
@@ -19,21 +19,21 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 
-use crate::bar::native;
 use crate::config::{support_dir, Theme};
 use crate::geometry::{clamp, place, screen_for, screen_holding, Rect, EDGE, TOP_GAP};
 use crate::model::{Board, Lane, PrItem};
+use crate::panel;
 use crate::todos::{Label, Todo};
 
 /// Cards' windows are `desktop-1`, `desktop-2`… in the order they were made since launch.
 pub const PREFIX: &str = "desktop-";
 /// A card's window before its page has measured it: the card and room for its shadow.
 const START: (f64, f64) = (304.0, 80.0);
-/// How often cards are put back up if macOS left them off the Space in front, and where they
-/// were moved to is written down.
-const CHECK_EVERY: Duration = Duration::from_secs(1);
+/// A card's panel, as the floating bar's: it never has the keyboard and says it's key, so its
+/// page gets hover and tooltips; it stays where it's put; and Mission Control leaves it in place.
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: panel::Level::Card, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true };
 /// Where the pointer holds a card it drags off the bar, from the window's top left: on the card's
 /// first line, a little in from its left edge.
 const GRAB: (f64, f64) = (36.0, 26.0);
@@ -135,7 +135,7 @@ struct Inner {
     /// The windows made into panels and put on screen, with the class each had before, which it
     /// gets back before it's destroyed. Until then, nothing may show one: a window once shown as
     /// a window stays off full-screen Spaces.
-    placed: HashMap<String, Option<native::Original>>,
+    placed: HashMap<String, Option<panel::Original>>,
     /// Numbers the windows.
     made: u64,
     /// A card moved, or what one shows got a new title, since `desktop.json` was written.
@@ -290,7 +290,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
     }
     let handle = app.clone();
     std::thread::Builder::new().name("codealong-desktop".into()).spawn(move || loop {
-        std::thread::sleep(CHECK_EVERY);
+        std::thread::sleep(panel::CHECK_EVERY);
         let app = handle.clone();
         if handle.run_on_main_thread(move || keep_up(&app)).is_err() {
             break;
@@ -312,26 +312,8 @@ fn add(app: &AppHandle, pin: Pin) -> String {
 /// Makes a card's window, hidden, then on the main thread turns it into a panel and shows it
 /// where it was left, or in a free spot on the screen the pointer is on.
 fn make_window(app: &AppHandle, label: &str) -> Result<()> {
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-        .title("Codealong")
-        .initialization_script("window.__CODEALONG_DESKTOP__ = true;")
-        .inner_size(START.0, START.1)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .skip_taskbar(true)
-        .focusable(false)
-        .focused(false)
-        .accept_first_mouse(true)
-        // Up over other apps, where WebKit would slow its timers and drawing.
-        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
-        .visible(false)
-        .build()?;
+    let page = panel::Page { title: "Codealong", script: "window.__CODEALONG_DESKTOP__ = true;", size: START, focusable: false, first_mouse: true };
+    panel::builder(app, label, page).build()?;
     let (handle, label) = (app.clone(), label.to_string());
     app.run_on_main_thread(move || place_and_show(&handle, &label))?;
     Ok(())
@@ -341,11 +323,10 @@ fn make_window(app: &AppHandle, label: &str) -> Result<()> {
 fn place_and_show(app: &AppHandle, label: &str) {
     let (Some(state), Some(window)) = (app.try_state::<Desktop>(), app.get_webview_window(label)) else { return };
     // A panel before it's first shown: one shown as a window stays off full-screen Spaces.
-    let original = native::make_panel(&window);
-    native::prepare(&window);
-    let screens = native::screens();
+    let original = panel::make(&window, PANEL);
+    let screens = panel::screens();
     // The page may have sized the window already.
-    let (w, h) = native::frame(&window).map_or(START, |f| (f.w, f.h));
+    let (w, h) = panel::frame(&window).map_or(START, |f| (f.w, f.h));
     let frame = {
         let Ok(mut inner) = state.inner.lock() else { return };
         let others: Vec<Rect> = inner.cards.iter().filter(|(l, _)| l != label).filter_map(|(_, p)| p.frame).collect();
@@ -355,7 +336,7 @@ fn place_and_show(app: &AppHandle, label: &str) {
         let frame = match left {
             Some(r) => r,
             None => {
-                let at = native::pointer().and_then(|p| screen_holding(p, &screens)).or(screens.first().copied()).map(|s| s.visible);
+                let at = panel::pointer().and_then(|p| screen_holding(p, &screens)).or(screens.first().copied()).map(|s| s.visible);
                 let Some(screen) = at else { return };
                 new_frame(w, h, screen, &others)
             }
@@ -365,14 +346,14 @@ fn place_and_show(app: &AppHandle, label: &str) {
         inner.save();
         frame
     };
-    native::set_frame(&window, frame);
-    native::show(&window);
+    panel::set_frame(&window, frame);
+    panel::show(&window);
 }
 
 /// Writes down where a card's window is now. On the main thread.
 fn remember_frame(app: &AppHandle, label: &str) {
     let (Some(state), Some(window)) = (app.try_state::<Desktop>(), app.get_webview_window(label)) else { return };
-    let Some(frame) = native::frame(&window) else { return };
+    let Some(frame) = panel::frame(&window) else { return };
     if let Ok(mut inner) = state.inner.lock() {
         if let Some((_, pin)) = inner.cards.iter_mut().find(|(l, _)| l == label) {
             if pin.frame != Some(frame) {
@@ -393,7 +374,7 @@ pub fn pin(app: &AppHandle, what: Pinned, at: Option<Rect>) -> Result<String> {
         app.run_on_main_thread(move || {
             let placed = handle.try_state::<Desktop>().is_some_and(|s| s.inner.lock().is_ok_and(|i| i.placed.contains_key(&shown)));
             if let (true, Some(w)) = (placed, handle.get_webview_window(&shown)) {
-                native::show(&w);
+                panel::show(&w);
             }
         })?;
         return Ok(label);
@@ -421,7 +402,7 @@ pub fn held_at(p: (f64, f64), (w, h): (f64, f64)) -> Rect {
 /// thread.
 pub fn drag_out(app: &AppHandle, what: Pinned, home: &str) {
     let Some(state) = app.try_state::<Desktop>() else { return };
-    let Some(p) = native::pointer() else { return };
+    let Some(p) = panel::pointer() else { return };
     let existing = state.inner.lock().ok().and_then(|i| i.cards.iter().find(|(_, pin)| pin.what == what).map(|(l, pin)| (l.clone(), pin.frame)));
     let n = {
         let Ok(mut d) = state.drag.lock() else { return };
@@ -463,7 +444,7 @@ fn at_home(app: &AppHandle, home: &str, p: (f64, f64)) -> bool {
     if home == crate::bar::LABEL {
         return crate::bar::covers(app, p);
     }
-    app.get_webview_window(home).is_some_and(|w| w.is_visible().unwrap_or(false) && native::frame(&w).is_some_and(|f| f.contains(p)))
+    app.get_webview_window(home).is_some_and(|w| w.is_visible().unwrap_or(false) && panel::frame(&w).is_some_and(|f| f.contains(p)))
 }
 
 /// What a dragged card does while the button is down, by where the pointer is.
@@ -532,8 +513,8 @@ enum Step {
 /// window. On the main thread.
 fn follow_drag(app: &AppHandle, n: u64) {
     let Some(state) = app.try_state::<Desktop>() else { return };
-    let Some(p) = native::pointer() else { return };
-    let down = native::button_down();
+    let Some(p) = panel::pointer() else { return };
+    let down = panel::button_down();
     let Some(home) = state.drag.lock().ok().filter(|d| d.n == n).map(|d| d.home.clone()) else { return };
     let home_now = at_home(app, &home, p);
     let mut left = None;
@@ -600,9 +581,9 @@ fn follow_drag(app: &AppHandle, n: u64) {
 fn park_card(app: &AppHandle, label: &str, made: bool, before: Option<Rect>) {
     let Some(window) = app.get_webview_window(label) else { return };
     if made {
-        native::set_alpha(&window, 0.0);
+        panel::set_alpha(&window, 0.0);
     } else if let Some(before) = before {
-        native::set_frame(&window, before);
+        panel::set_frame(&window, before);
         remember_frame(app, label);
     }
 }
@@ -610,14 +591,14 @@ fn park_card(app: &AppHandle, label: &str, made: bool, before: Option<Rect>) {
 /// A card put away can be seen again. On the main thread.
 fn show_card(app: &AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
-        native::set_alpha(&window, 1.0);
+        panel::set_alpha(&window, 1.0);
     }
 }
 
 /// Moves a card so the pointer at `p` holds it. On the main thread.
 fn move_card(app: &AppHandle, label: &str, p: (f64, f64)) {
     let (Some(state), Some(window)) = (app.try_state::<Desktop>(), app.get_webview_window(label)) else { return };
-    let size = native::frame(&window).map_or(START, |f| (f.w, f.h));
+    let size = panel::frame(&window).map_or(START, |f| (f.w, f.h));
     let frame = held_at(p, size);
     let placed = {
         let Ok(mut inner) = state.inner.lock() else { return };
@@ -629,7 +610,7 @@ fn move_card(app: &AppHandle, label: &str, p: (f64, f64)) {
     };
     // Until it's placed, the frame it's placed at is the one just written down.
     if placed {
-        native::set_frame(&window, frame);
+        panel::set_frame(&window, frame);
     }
 }
 
@@ -642,7 +623,7 @@ fn drop_card(app: &AppHandle, what: Option<Pinned>, label: &str, made: bool, bef
             (true, Some(what), _) => unpin(app, &what),
             (false, _, Some(before)) => {
                 if let Some(w) = app.get_webview_window(label) {
-                    native::set_frame(&w, before);
+                    panel::set_frame(&w, before);
                 }
                 remember_frame(app, label);
             }
@@ -651,12 +632,12 @@ fn drop_card(app: &AppHandle, what: Option<Pinned>, label: &str, made: bool, bef
         return;
     }
     let Some(window) = app.get_webview_window(label) else { return };
-    native::set_alpha(&window, 1.0);
-    let Some(frame) = native::frame(&window) else { return };
-    let Some(screen) = screen_for(frame, &native::screens()) else { return };
+    panel::set_alpha(&window, 1.0);
+    let Some(frame) = panel::frame(&window) else { return };
+    let Some(screen) = screen_for(frame, &panel::screens()) else { return };
     let kept = clamp(frame, screen);
     if kept != frame {
-        native::set_frame(&window, kept);
+        panel::set_frame(&window, kept);
     }
     remember_frame(app, label);
 }
@@ -677,7 +658,7 @@ pub fn unpin(app: &AppHandle, what: &Pinned) {
     let _ = app.run_on_main_thread(move || {
         let Some(w) = handle.get_webview_window(&label) else { return };
         if let Some(original) = original {
-            native::unmake_panel(&w, original);
+            panel::unmake(&w, original);
         }
         let _ = w.destroy();
     });
@@ -750,11 +731,11 @@ pub fn fit(app: &AppHandle, label: &str, width: f64, height: f64) {
     let (handle, label) = (app.clone(), label.to_string());
     let _ = app.run_on_main_thread(move || {
         let Some(window) = handle.get_webview_window(&label) else { return };
-        let Some(current) = native::frame(&window) else { return };
-        let Some(screen) = screen_for(current, &native::screens()) else { return };
+        let Some(current) = panel::frame(&window) else { return };
+        let Some(screen) = screen_for(current, &panel::screens()) else { return };
         let next = place(current, width.ceil(), height.ceil(), screen);
         if next != current {
-            native::set_frame(&window, next);
+            panel::set_frame(&window, next);
             // Keeping its top edge doesn't move the window as Tauri sees it, so no Moved comes;
             // the next card placed needs its real height.
             remember_frame(&handle, &label);
@@ -777,8 +758,8 @@ fn keep_up(app: &AppHandle) {
     for (label, frame) in &cards {
         let Some(window) = app.get_webview_window(label) else { continue };
         let covered = frame.is_some_and(|f| cards.iter().any(|(l, o)| l != label && o.is_some_and(|o| overlap(f, o))));
-        if !covered && !native::on_screen(&window) {
-            native::show(&window);
+        if !covered && !panel::on_screen(&window) {
+            panel::show(&window);
         }
     }
 }

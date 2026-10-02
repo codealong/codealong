@@ -31,16 +31,15 @@ use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tauri::menu::{CheckMenuItem, MenuItemKind, PredefinedMenuItem, WINDOW_SUBMENU_ID};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent, Wry};
+use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent, Wry};
 
 use crate::config::support_dir;
 use crate::geometry::{clamp, place, screen_for, screen_holding, PageRect, Rect, Screen, CARD_MARGIN, TOP_GAP};
+use crate::panel::{self, Level};
 
 pub const LABEL: &str = "bar";
 const MENU_ID: &str = "floating-bar";
 const NOTCH_MENU_ID: &str = "notch-bar";
-/// How often the bar checks that it's up (when on) and writes down where it was moved to.
-const CHECK_EVERY: Duration = Duration::from_secs(1);
 /// How often the pointer is looked at while the bar is docked, to take clicks on the shape only.
 const POINTER_EVERY: Duration = Duration::from_millis(40);
 /// The bar's size before its page has measured itself.
@@ -50,6 +49,11 @@ const START: (f64, f64) = (240.0, 48.0);
 const DRAWN_NOTCH_WIDTH: f64 = 180.0;
 /// The drawn notch's height where the menu bar is hidden and says nothing of its own.
 const DRAWN_NOTCH_HEIGHT: f64 = 24.0;
+/// The bar's panel: it has the keyboard only while it's asked to (docked, with a session under
+/// its pills) and says it's key the rest of the time, so its page gets hover and tooltips; it
+/// stays where it's put, over the menu bar when it's docked; and Mission Control leaves it in
+/// place. It starts at the floating bar's level, and `place_for` moves it when it docks.
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: Level::FloatingBar, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true };
 
 /// Where the bar shows: floating where you put it, docked in the notch, or not at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +101,14 @@ pub fn notch_of(frame: Rect, visible: Rect, safe_top: f64, sides: Option<(f64, f
             Notch { x: frame.x + frame.w / 2.0, top: frame.top(), width: DRAWN_NOTCH_WIDTH, height, real: false }
         }
     }
+}
+
+/// The notch the bar docks into: the first screen's with one, else one drawn on the screen with
+/// the menu bar. On the main thread.
+fn notch() -> Option<Notch> {
+    let tops = panel::tops();
+    let of = |t: &panel::Top| notch_of(t.screen.frame, t.screen.visible, t.safe_top, Some(t.sides));
+    tops.iter().map(of).find(|n| n.real).or_else(|| tops.first().map(of))
 }
 
 /// The docked bar's frame at a size: centered on the notch, its top at the top of the screen.
@@ -189,35 +201,16 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         keys: AtomicBool::new(false),
     });
 
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-        .title("Codealong bar")
-        .initialization_script("window.__CODEALONG_BAR__ = true;")
-        .inner_size(START.0, START.1)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .skip_taskbar(true)
-        .focusable(false)
-        .focused(false)
-        .accept_first_mouse(true)
-        // WebKit slows a page's timers and drawing while its app isn't frontmost, which for a
-        // bar that's up over other apps is nearly always: updates and hovers came late.
-        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
-        .visible(false)
-        .build()?;
-    let _ = native::make_panel(&window);
-    native::prepare(&window);
-    if let Some(r) = start_frame(frame, &native::screens()) {
-        native::set_frame(&window, r);
+    let page = panel::Page { title: "Codealong bar", script: "window.__CODEALONG_BAR__ = true;", size: START, focusable: false, first_mouse: true };
+    let window = panel::builder(app, LABEL, page).build()?;
+    // The bar is never destroyed, so the class it had isn't kept.
+    let _ = panel::make(&window, PANEL);
+    if let Some(r) = start_frame(frame, &panel::screens()) {
+        panel::set_frame(&window, r);
     }
     if mode != Mode::Off {
         place_for(app, &window, mode);
-        native::show(&window);
+        panel::show(&window);
     }
 
     let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, mode == Mode::Floating, None::<&str>)?;
@@ -245,7 +238,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 
     let handle = app.clone();
     std::thread::Builder::new().name("codealong-bar".into()).spawn(move || loop {
-        std::thread::sleep(CHECK_EVERY);
+        std::thread::sleep(panel::CHECK_EVERY);
         let app = handle.clone();
         if handle.run_on_main_thread(move || keep_up(&app)).is_err() {
             break;
@@ -278,17 +271,17 @@ fn watch_pointer(app: &AppHandle) {
     let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
         return;
     };
-    let (Some(frame), Some(p), Some(shape)) = (native::frame(&bar), native::pointer(), state.shape.lock().ok().and_then(|s| *s)) else {
+    let (Some(frame), Some(p), Some(shape)) = (panel::frame(&bar), panel::pointer(), state.shape.lock().ok().and_then(|s| *s)) else {
         return;
     };
     let on = on_shape(p, frame, shape);
     // A press that began on the shape is the shape's until it's let go: text being selected in
     // the session it shows, a scroll bar being dragged.
-    if !on && native::button_down() && state.on_shape.load(Ordering::Relaxed) {
+    if !on && panel::button_down() && state.on_shape.load(Ordering::Relaxed) {
         return;
     }
     if state.on_shape.swap(on, Ordering::Relaxed) != on {
-        native::set_clickable(&bar, on);
+        panel::set_clickable(&bar, on);
         let _ = app.emit_to(LABEL, "notch-pointer", on);
     }
 }
@@ -314,9 +307,9 @@ pub fn set_keys(app: &AppHandle, on: bool) {
         return;
     }
     if on {
-        native::take_keys(&bar);
+        panel::take_keys(&bar);
     } else {
-        native::drop_keys(&bar);
+        panel::drop_keys(&bar);
     }
 }
 
@@ -330,7 +323,7 @@ fn lost_keys(app: &AppHandle) {
     if !state.keys.swap(false, Ordering::Relaxed) {
         return;
     }
-    native::drop_keys(&bar);
+    panel::drop_keys(&bar);
     let _ = app.emit_to(LABEL, "notch-keys", false);
 }
 
@@ -341,13 +334,13 @@ fn keep_up(app: &AppHandle) {
         return;
     };
     let mode = state.saved.lock().map(|s| s.mode()).unwrap_or(Mode::Off);
-    if mode != Mode::Off && !native::on_screen(&bar) {
-        native::show(&bar);
+    if mode != Mode::Off && !panel::on_screen(&bar) {
+        panel::show(&bar);
     }
     // Docked, the bar follows the notch: a display plugged in or out, the lid closed, the menu
     // bar's height changed.
     if mode == Mode::Notch {
-        let now = native::notch();
+        let now = notch();
         let before = state.notch.lock().ok().and_then(|n| *n);
         if now != before {
             place_for(app, &bar, Mode::Notch);
@@ -378,7 +371,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
             if state.saved.lock().map(|s| s.mode() != Mode::Floating).unwrap_or(true) {
                 return;
             }
-            let Some(frame) = native::frame(&bar) else { return };
+            let Some(frame) = panel::frame(&bar) else { return };
             if let Ok(mut saved) = state.saved.lock() {
                 saved.frame = Some(frame);
                 state.moved.store(true, Ordering::Relaxed);
@@ -393,16 +386,16 @@ pub fn fit(app: &AppHandle, width: f64, height: f64) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let Some(bar) = handle.get_webview_window(LABEL) else { return };
-        let Some(current) = native::frame(&bar) else { return };
-        let next = match (mode_of(&handle), native::notch()) {
+        let Some(current) = panel::frame(&bar) else { return };
+        let next = match (mode_of(&handle), notch()) {
             (Mode::Notch, Some(n)) => notch_frame(n, width.ceil(), height.ceil()),
             _ => {
-                let Some(screen) = screen_for(current, &native::screens()) else { return };
+                let Some(screen) = screen_for(current, &panel::screens()) else { return };
                 place(current, width.ceil(), height.ceil(), screen)
             }
         };
         if next != current {
-            native::set_frame(&bar, next);
+            panel::set_frame(&bar, next);
         }
     });
 }
@@ -428,7 +421,7 @@ pub fn publish(app: &AppHandle, board: &crate::model::Board) {
 
 /// The bar's window frame, in screen points. On the main thread.
 pub fn frame(app: &AppHandle) -> Option<Rect> {
-    native::frame(&app.get_webview_window(LABEL)?)
+    panel::frame(&app.get_webview_window(LABEL)?)
 }
 
 /// The frame the peek opens by (peek.rs `place`): the floating bar's window, whose card sits
@@ -469,7 +462,7 @@ pub fn mode_of(app: &AppHandle) -> Mode {
 pub fn mode_view(app: &AppHandle) -> ModeView {
     let mode = mode_of(app);
     let keep_open = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.keep_open)).unwrap_or(false);
-    ModeView { mode, notch: (mode == Mode::Notch).then(native::notch).flatten(), keep_open }
+    ModeView { mode, notch: (mode == Mode::Notch).then(notch).flatten(), keep_open }
 }
 
 /// Keeps the docked bar open, or lets it close again once the pointer is off it, and tells every
@@ -523,28 +516,28 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
         // bar ever has the keyboard.
         if let Some(state) = handle.try_state::<Bar>() {
             if state.keys.swap(false, Ordering::Relaxed) {
-                native::drop_keys(&bar);
+                panel::drop_keys(&bar);
             }
             state.on_shape.store(true, Ordering::Relaxed);
             if let Ok(mut s) = state.shape.lock() {
                 *s = None;
             }
         }
-        native::set_clickable(&bar, true);
+        panel::set_clickable(&bar, true);
         match mode {
             Mode::Off => {
                 let _ = bar.hide();
             }
             Mode::Floating => {
-                native::set_level(&bar, false);
-                if let Some(r) = start_frame(floating_frame, &native::screens()) {
-                    native::set_frame(&bar, r);
+                panel::set_level(&bar, Level::FloatingBar);
+                if let Some(r) = start_frame(floating_frame, &panel::screens()) {
+                    panel::set_frame(&bar, r);
                 }
-                native::show(&bar);
+                panel::show(&bar);
             }
             Mode::Notch => {
                 place_for(&handle, &bar, Mode::Notch);
-                native::show(&bar);
+                panel::show(&bar);
             }
         }
         let view = mode_view(&handle);
@@ -556,13 +549,13 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
 /// Puts the bar at its level and place for how it shows: docked, centered on the notch at the
 /// size it has (the page sizes it to its shape), and the notch remembered. On the main thread.
 fn place_for(app: &AppHandle, bar: &tauri::WebviewWindow, mode: Mode) {
-    native::set_level(bar, mode == Mode::Notch);
+    panel::set_level(bar, if mode == Mode::Notch { Level::DockedBar } else { Level::FloatingBar });
     if mode != Mode::Notch {
         return;
     }
-    let notch = native::notch();
-    if let (Some(n), Some(current)) = (notch, native::frame(bar)) {
-        native::set_frame(bar, notch_frame(n, current.w, current.h));
+    let notch = notch();
+    if let (Some(n), Some(current)) = (notch, panel::frame(bar)) {
+        panel::set_frame(bar, notch_frame(n, current.w, current.h));
     }
     if let Some(state) = app.try_state::<Bar>() {
         if let Ok(mut slot) = state.notch.lock() {
@@ -582,338 +575,6 @@ pub fn target_app(target_id: &str, terminal: &str, host: Option<&'static str>, o
         "attach" | "resume" => crate::launch::bundle_id(terminal),
         "chrome" => Some(crate::chrome::BUNDLE_ID),
         _ => own,
-    }
-}
-
-/// The bar's panel, shared with the cards pinned to the desktop (desktop.rs), which float the same way.
-#[cfg(target_os = "macos")]
-pub(crate) mod native {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::OnceLock;
-
-    use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
-    use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
-    use tauri::WebviewWindow;
-
-    use super::{Notch, Rect, Screen};
-
-    /// The window's NSWindow, on the main thread only.
-    fn ns(w: &WebviewWindow) -> Option<&NSWindow> {
-        MainThreadMarker::new()?;
-        let ptr = w.ns_window().ok()? as *const NSWindow;
-        // SAFETY: Tauri hands out the window's own NSWindow, which lives as long as the window,
-        // and this is the main thread, where AppKit expects to be called.
-        unsafe { ptr.as_ref() }
-    }
-
-    /// The panel that has the keyboard or is taking it, if any: the docked bar, while it shows a
-    /// session to answer (`take_keys`). The floating bar and the cards on the desktop never do.
-    static ENGAGED: AtomicUsize = AtomicUsize::new(0);
-
-    fn engaged(this: *const AnyObject) -> bool {
-        ENGAGED.load(Ordering::Relaxed) == this as usize
-    }
-
-    /// NSPanel that never becomes main and becomes key only while it's asked to (`take_keys`), so
-    /// the board keeps the keyboard and its place, but says it's key when asked. WebKit treats a
-    /// page whose window isn't key as inactive: it sends such a page's mouse moves only to
-    /// scrollbars, so pills never showed hover, `:hover` stayed on whatever was last clicked, and
-    /// no tooltip ever appeared. Keys still go to the app's real key window, and menu commands
-    /// skip the bar (`front_window` in lib.rs). While it has the keyboard or is taking it, it
-    /// answers truthfully, so AppKit sees a panel that isn't key yet and makes it so, as the
-    /// peek's panel does (peek.rs).
-    fn panel_class() -> &'static AnyClass {
-        static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
-        CLASS.get_or_init(|| {
-            extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
-                Bool::NO
-            }
-            extern "C" fn can_be_key(this: &AnyObject, _: Sel) -> Bool {
-                Bool::new(engaged(this))
-            }
-            extern "C" fn is_key(this: &AnyObject, _: Sel) -> Bool {
-                if !engaged(this) {
-                    return Bool::YES;
-                }
-                // SAFETY: NSWindow's own `- (BOOL)isKeyWindow`, asked of the panel it was asked of.
-                unsafe { msg_send![super(this, NSPanel::class()), isKeyWindow] }
-            }
-            // Where it's put is where it goes: docked, the bar sits over the menu bar, which
-            // AppKit would otherwise keep a window below.
-            extern "C" fn as_asked(_: &AnyObject, _: Sel, frame: NSRect, _: *const AnyObject) -> NSRect {
-                frame
-            }
-            match ClassBuilder::new(c"CodealongBarPanel", NSPanel::class()) {
-                Some(mut builder) => {
-                    // SAFETY: the overrides match NSWindow's `- (BOOL)canBecome…Window` and
-                    // `- (BOOL)isKeyWindow`.
-                    unsafe {
-                        builder.add_method(sel!(canBecomeKeyWindow), can_be_key as extern "C" fn(_, _) -> _);
-                        builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
-                        builder.add_method(sel!(isKeyWindow), is_key as extern "C" fn(_, _) -> _);
-                        builder.add_method(sel!(constrainFrameRect:toScreen:), as_asked as extern "C" fn(_, _, _, _) -> _);
-                    }
-                    builder.register()
-                }
-                None => AnyClass::get(c"CodealongBarPanel").unwrap_or(NSPanel::class()),
-            }
-        })
-    }
-
-    /// The class a window had before `make_panel` swapped it.
-    pub struct Original(&'static AnyClass);
-
-    /// Turns the bar's window into a non-activating panel, the only kind macOS puts on another
-    /// app's full-screen Space. Tauri makes windows, so the class is swapped after the fact. WebKit
-    /// asks again whether the window is key each time it's ordered on screen, which `show` does
-    /// after this, so the page counts as active from the bar's first showing.
-    ///
-    /// Returns the class it replaced, which a window must get back before it's destroyed
-    /// (`unmake_panel`). The bar never is.
-    pub fn make_panel(w: &WebviewWindow) -> Option<Original> {
-        let n = ns(w)?;
-        let obj: &AnyObject = n;
-        let panel = panel_class();
-        let original = obj.class();
-        // NSPanel keeps no storage of its own beyond NSWindow's, so the swap needs no more room
-        // than tao's window already has; if that ever changes, the bar stays a plain window.
-        if panel.instance_size() > original.instance_size() {
-            return None;
-        }
-        // SAFETY: the object is tao's NSWindow subclass, at least as large as the panel class,
-        // which only adds methods. tao reads its own ivar only when focusability changes, which
-        // the bar never does after it's made.
-        unsafe { AnyObject::set_class(obj, panel) };
-        n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
-        // Panels hide when their app deactivates unless told not to.
-        n.setHidesOnDeactivate(false);
-        // The bar is up over other apps, so Codealong is nearly always in the background, and
-        // macOS shows a background app's tooltips only in windows that allow them.
-        n.setAllowsToolTipsWhenApplicationIsInactive(true);
-        Some(Original(original))
-    }
-
-    /// Takes a panel off the screen and gives its window back the class `make_panel` replaced,
-    /// so it can be destroyed. WebKit watches the window through key-value observing, which is
-    /// itself a swap of the window's class (to `NSKVONotifying_TaoWindow`) made when the page went
-    /// in; taking the page out of a window with the panel's class instead raises "Cannot remove
-    /// an observer … because it is not registered", an exception that aborts the app.
-    pub fn unmake_panel(w: &WebviewWindow, original: Original) {
-        let Some(n) = ns(w) else { return };
-        n.orderOut(None);
-        n.setStyleMask(n.styleMask() & !NSWindowStyleMask::NonactivatingPanel);
-        // SAFETY: the class the object had before, which make_panel checked is no larger than it.
-        unsafe { AnyObject::set_class(n, original.0) };
-    }
-
-    /// Makes the panel the key window, and its webview the first responder, so the page's keys
-    /// reach what it focused. Codealong stays inactive: the app you're in keeps its menu bar.
-    pub fn take_keys(w: &WebviewWindow) {
-        let Some(n) = ns(w) else { return };
-        ENGAGED.store(n as *const NSWindow as usize, Ordering::Relaxed);
-        n.makeKeyWindow();
-        let window = w.clone();
-        let _ = w.with_webview(move |webview| {
-            let Some(n) = ns(&window) else { return };
-            let ptr = webview.inner() as *const NSResponder;
-            // SAFETY: on macOS `inner` is the webview's WKWebView, an NSResponder that lives as
-            // long as the window; this runs on the main thread.
-            if let Some(view) = unsafe { ptr.as_ref() } {
-                n.makeFirstResponder(Some(view));
-            }
-        });
-    }
-
-    /// Hands the keyboard back to the app you're in, with the panel still up. A key panel gives
-    /// the keyboard up when it's ordered out and at no other time AppKit offers, so it's ordered
-    /// out and in again in one turn of the run loop, which the screen shows as nothing: AppKit
-    /// sends a turn's window changes to the screen together. It comes back saying it's key, as
-    /// it does whenever it hasn't the keyboard, so its page still gets the pointer.
-    pub fn drop_keys(w: &WebviewWindow) {
-        let Some(n) = ns(w) else { return };
-        // Ordered out while it still answers truthfully, so AppKit sees a key panel going.
-        if engaged(n as *const NSWindow as *const AnyObject) && n.isKeyWindow() {
-            n.orderOut(None);
-        }
-        ENGAGED.store(0, Ordering::Relaxed);
-        // WebKit reads whether the window is key as it's ordered on screen.
-        n.orderFrontRegardless();
-    }
-
-    fn rect(r: NSRect) -> Rect {
-        Rect { x: r.origin.x, y: r.origin.y, w: r.size.width, h: r.size.height }
-    }
-
-    /// Above other apps' floating panels too (the status item level, still under menus), on every
-    /// Space and over full-screen apps, left in place by Mission Control, kept out of ⌘` and the
-    /// Window menu, and still up when Codealong is hidden (⌘H).
-    pub fn prepare(w: &WebviewWindow) {
-        if let Some(n) = ns(w) {
-            n.setLevel(NSStatusWindowLevel);
-            n.setCollectionBehavior(
-                n.collectionBehavior()
-                    | NSWindowCollectionBehavior::CanJoinAllSpaces
-                    | NSWindowCollectionBehavior::Stationary
-                    | NSWindowCollectionBehavior::IgnoresCycle
-                    | NSWindowCollectionBehavior::FullScreenAuxiliary,
-            );
-            n.setExcludedFromWindowsMenu(true);
-            n.setCanHide(false);
-        }
-    }
-
-    /// Docked in the notch the bar sits over the menu bar (level 24) and its status items (25), as
-    /// the notch apps do; floating, at the status item level like other apps' floating panels.
-    pub fn set_level(w: &WebviewWindow, docked: bool) {
-        if let Some(n) = ns(w) {
-            n.setLevel(if docked { NSMainMenuWindowLevel + 2 } else { NSStatusWindowLevel });
-        }
-    }
-
-    /// Whether the window takes the pointer's clicks and moves or lets them through to what's under it.
-    pub fn set_clickable(w: &WebviewWindow, clickable: bool) {
-        if let Some(n) = ns(w) {
-            n.setIgnoresMouseEvents(!clickable);
-        }
-    }
-
-    /// Just under the cards pinned to the desktop (and the floating bar), over other apps' windows.
-    pub fn set_under_cards(w: &WebviewWindow) {
-        if let Some(n) = ns(w) {
-            n.setLevel(NSStatusWindowLevel - 1);
-        }
-    }
-
-    /// Takes the window off the screen.
-    pub fn hide(w: &WebviewWindow) {
-        if let Some(n) = ns(w) {
-            n.orderOut(None);
-        }
-    }
-
-    /// Shows and hides the window at once, without AppKit's scaling it in: what it draws is placed
-    /// by the screen, and is off its place while the window is scaled.
-    pub fn no_animation(w: &WebviewWindow) {
-        if let Some(n) = ns(w) {
-            n.setAnimationBehavior(NSWindowAnimationBehavior::None);
-        }
-    }
-
-    /// The notch the bar docks into: the first screen's with one, else one drawn on the screen with
-    /// the menu bar.
-    pub fn notch() -> Option<Notch> {
-        let mtm = MainThreadMarker::new()?;
-        let all = NSScreen::screens(mtm);
-        let screens: Vec<_> = (0..all.count()).map(|i| all.objectAtIndex(i)).collect();
-        let of = |s: &NSScreen| {
-            let (left, right) = (s.auxiliaryTopLeftArea().size.width, s.auxiliaryTopRightArea().size.width);
-            super::notch_of(rect(s.frame()), rect(s.visibleFrame()), s.safeAreaInsets().top, Some((left, right)))
-        };
-        screens.iter().map(|s| of(s)).find(|n| n.real).or_else(|| screens.first().map(|s| of(s)))
-    }
-
-    /// Brings the bar up without making it key or activating Codealong, whichever app is in front.
-    pub fn show(w: &WebviewWindow) {
-        if let Some(n) = ns(w) {
-            n.orderFrontRegardless();
-        }
-    }
-
-    /// Ordered in and some part of it on screen. The bar sits above ordinary windows, so when it's
-    /// ordered in but can't be seen, macOS kept it off the Space in front.
-    pub fn on_screen(w: &WebviewWindow) -> bool {
-        ns(w).map(|n| n.isVisible() && n.occlusionState().contains(NSWindowOcclusionState::Visible)).unwrap_or(true)
-    }
-
-    pub fn frame(w: &WebviewWindow) -> Option<Rect> {
-        ns(w).map(|n| rect(n.frame()))
-    }
-
-    pub fn set_frame(w: &WebviewWindow, r: Rect) {
-        if let Some(n) = ns(w) {
-            n.setFrame_display(NSRect::new(NSPoint::new(r.x, r.y), NSSize::new(r.w, r.h)), true);
-        }
-    }
-
-    /// How much of the window shows through: 0 leaves it up, where it was, and unseen.
-    pub fn set_alpha(w: &WebviewWindow, alpha: f64) {
-        if let Some(n) = ns(w) {
-            if n.alphaValue() != alpha {
-                n.setAlphaValue(alpha);
-            }
-        }
-    }
-
-    /// Every screen, the one with the menu bar first.
-    pub fn screens() -> Vec<Screen> {
-        let Some(mtm) = MainThreadMarker::new() else { return Vec::new() };
-        let all = NSScreen::screens(mtm);
-        (0..all.count()).map(|i| all.objectAtIndex(i)).map(|s| Screen { frame: rect(s.frame()), visible: rect(s.visibleFrame()) }).collect()
-    }
-
-    /// Where the pointer is, in screen points.
-    pub fn pointer() -> Option<(f64, f64)> {
-        MainThreadMarker::new()?;
-        let p = NSEvent::mouseLocation();
-        Some((p.x, p.y))
-    }
-
-    /// The mouse's main button is down, whichever app has the click.
-    pub fn button_down() -> bool {
-        NSEvent::pressedMouseButtons() & 1 != 0
-    }
-}
-
-/// Elsewhere the bar is an ordinary always-on-top window, left where it opens.
-#[cfg(not(target_os = "macos"))]
-pub(crate) mod native {
-    use tauri::WebviewWindow;
-
-    use super::{Rect, Screen};
-
-    pub struct Original;
-
-    pub fn make_panel(_: &WebviewWindow) -> Option<Original> {
-        None
-    }
-    pub fn set_level(_: &WebviewWindow, _: bool) {}
-    pub fn set_clickable(_: &WebviewWindow, _: bool) {}
-    pub fn take_keys(w: &WebviewWindow) {
-        let _ = w.set_focus();
-    }
-    pub fn drop_keys(_: &WebviewWindow) {}
-    pub fn set_under_cards(_: &WebviewWindow) {}
-    pub fn no_animation(_: &WebviewWindow) {}
-    pub fn hide(w: &WebviewWindow) {
-        let _ = w.hide();
-    }
-    pub fn notch() -> Option<super::Notch> {
-        None
-    }
-    pub fn unmake_panel(_: &WebviewWindow, _: Original) {}
-    pub fn prepare(_: &WebviewWindow) {}
-    pub fn show(w: &WebviewWindow) {
-        let _ = w.show();
-    }
-    pub fn on_screen(w: &WebviewWindow) -> bool {
-        w.is_visible().unwrap_or(true)
-    }
-
-    pub fn frame(_: &WebviewWindow) -> Option<Rect> {
-        None
-    }
-    pub fn set_frame(_: &WebviewWindow, _: Rect) {}
-    pub fn set_alpha(_: &WebviewWindow, _: f64) {}
-    pub fn screens() -> Vec<Screen> {
-        Vec::new()
-    }
-    pub fn pointer() -> Option<(f64, f64)> {
-        None
-    }
-    pub fn button_down() -> bool {
-        false
     }
 }
 

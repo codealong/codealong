@@ -407,7 +407,7 @@ pub fn drag(app: &AppHandle, dx: f64, dy: f64) {
 fn follow_drag(app: &AppHandle, n: u64) {
     let (Some(state), Some(window)) = (app.try_state::<Peek>(), app.get_webview_window(LABEL)) else { return };
     let Some(p) = native::pointer() else { return };
-    let down = crate::bar::native::button_down();
+    let down = crate::panel::button_down();
     let frame = {
         let Ok(mut s) = state.inner.lock() else { return };
         if s.drags != n || !s.visible {

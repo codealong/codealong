@@ -4,7 +4,7 @@
 //! screen, just under the cards, that lets every click through (DesktopLines.tsx draws them).
 //! It covers the whole screen so a card dragged about only redraws the lines, never resizes the
 //! window, which WebKit shows a frame late. It's made the first time two such cards are on the
-//! desktop and never destroyed, as the bar isn't (bar.rs's `make_panel`).
+//! desktop and never destroyed, as the bar isn't (panel.rs's `make`).
 
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -12,13 +12,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::bar::native;
 use crate::config::Theme;
 use crate::desktop;
 use crate::geometry::{screen_at, PageRect, Rect, Screen, CARD_MARGIN};
 use crate::model::Board;
+use crate::panel;
 
 pub const LABEL: &str = "lineage";
 /// How far a line can bow out past the cards it joins, with its arrowhead (lineage.ts's
@@ -29,6 +29,8 @@ const EVERY: Duration = Duration::from_millis(40);
 /// How long the emptied page gets to draw nothing before its window goes: WebKit doesn't draw a
 /// window that's off the screen, so it would show the old lines for a moment when it came back.
 const EMPTIED: Duration = Duration::from_millis(150);
+/// The window's panel is made as a card's is (desktop.rs), and then put just under the cards.
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: panel::Level::Card, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true };
 
 /// A line as the page gets it, its cards in the window's points, from its top left, y down.
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -105,34 +107,18 @@ pub fn publish(app: &AppHandle, board: &Board) {
 }
 
 fn make_window(app: &AppHandle) -> Result<()> {
-    WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-        .title("Codealong")
-        .initialization_script("window.__CODEALONG_LINEAGE__ = true;")
-        .inner_size(100.0, 100.0)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .skip_taskbar(true)
-        .focusable(false)
-        .focused(false)
-        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
-        .visible(false)
-        .build()?;
+    // Every click goes through it, so there's no first one to count.
+    let page = panel::Page { title: "Codealong", script: "window.__CODEALONG_LINEAGE__ = true;", size: (100.0, 100.0), focusable: false, first_mouse: false };
+    panel::builder(app, LABEL, page).build()?;
     let handle = app.clone();
     app.run_on_main_thread(move || {
         let (Some(st), Some(w)) = (handle.try_state::<Lineage>(), handle.get_webview_window(LABEL)) else { return };
         // A panel before it's first shown, as the cards are, so it goes onto full-screen Spaces
         // with them. It's never destroyed, so the class it had isn't kept.
-        let _ = native::make_panel(&w);
-        native::prepare(&w);
-        native::set_under_cards(&w);
-        native::set_clickable(&w, false);
-        native::no_animation(&w);
+        let _ = panel::make(&w, PANEL);
+        panel::set_level(&w, panel::Level::Lines);
+        panel::set_clickable(&w, false);
+        panel::no_animation(&w);
         if let Ok(mut s) = st.state.lock() {
             s.ready = true;
         };
@@ -184,12 +170,12 @@ fn follow(app: &AppHandle, n: u64, label: &str) {
         (s.pairs.clone(), s.theme)
     };
     let cards = desktop::session_cards(app);
-    let frame_of = |l: &str| app.get_webview_window(l).and_then(|w| native::frame(&w));
+    let frame_of = |l: &str| app.get_webview_window(l).and_then(|w| panel::frame(&w));
     let Some((key, on)) = cards.iter().find(|(l, _)| l == label).and_then(|(l, k)| Some((k, frame_of(l)?))) else {
         return stop(app, n);
     };
     // The pointer went off the card without the page saying so (a card that went away under it).
-    if !native::pointer().is_some_and(|p| on.contains(p)) {
+    if !panel::pointer().is_some_and(|p| on.contains(p)) {
         return stop(app, n);
     }
     let card_of = |k: &str| cards.iter().find(|(_, x)| x == k).and_then(|(l, _)| frame_of(l));
@@ -205,7 +191,7 @@ fn follow(app: &AppHandle, n: u64, label: &str) {
     if ties.is_empty() {
         return clear(app);
     }
-    let Some(screen) = screen_at(on.center(), &native::screens()) else { return clear(app) };
+    let Some(screen) = screen_at(on.center(), &panel::screens()) else { return clear(app) };
     let (frame, lines) = layout(&ties, screen);
     if lines.is_empty() {
         return clear(app);
@@ -243,10 +229,10 @@ fn show(app: &AppHandle, frame: Rect, feed: Feed) {
         let _ = app.emit_to(LABEL, "lineage-feed", &feed);
     }
     if place {
-        native::set_frame(&w, frame);
+        panel::set_frame(&w, frame);
     }
-    if !native::on_screen(&w) {
-        native::show(&w);
+    if !panel::on_screen(&w) {
+        panel::show(&w);
     }
 }
 
@@ -271,7 +257,7 @@ fn clear(app: &AppHandle) {
             let (Some(st), Some(w)) = (app.try_state::<Lineage>(), app.get_webview_window(LABEL)) else { return };
             // Unless lines came back meanwhile.
             if st.state.lock().is_ok_and(|s| s.shown.lines.is_empty()) {
-                native::hide(&w);
+                panel::hide(&w);
             }
         });
     });

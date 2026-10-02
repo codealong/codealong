@@ -19,6 +19,7 @@ mod antigravity;
 mod codex;
 mod opencode;
 mod origins;
+mod panel;
 mod peek;
 mod config;
 mod detect;
@@ -379,7 +380,7 @@ fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<
         return Ok(());
     }
     // The pill is in the window that asked: the bar, or a card on the desktop.
-    let pill = pill.and_then(|p| bar::native::frame(&window).map(|host| (host, p)));
+    let pill = pill.and_then(|p| panel::frame(&window).map(|host| (host, p)));
     peek::open(&app, target, pill, focus.unwrap_or(false) || rename, rename).map_err(|e| e.to_string())
 }
 
@@ -782,7 +783,7 @@ fn notch_keys(app: tauri::AppHandle, on: bool) {
 /// is (kept.rs): the card as the bar's page measured it, in its window's points from the top left.
 #[tauri::command]
 fn keep_notch_session(app: tauri::AppHandle, window: tauri::WebviewWindow, key: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    let host = bar::native::frame(&window).ok_or_else(|| "The bar isn't there.".to_string())?;
+    let host = panel::frame(&window).ok_or_else(|| "The bar isn't there.".to_string())?;
     let card = geometry::PageRect { x, y, w, h }.to_screen(host);
     kept::keep(&app, key, card, true).map(|_| ()).map_err(|e| e.to_string())
 }
