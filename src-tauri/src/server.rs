@@ -213,7 +213,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(peers.ask(&device, &request, params, Duration::from_secs(40))),
         Request::Send { key, text, from } => answered(crate::send_here(engine, &key, &text, crate::send::Sender::Agent(from))),
-        Request::Show { reveal } => match crate::bar::show_main(app, Some(reveal)) {
+        Request::Show { reveal } => match crate::front::show_main(app, Some(reveal)) {
             // A bare binary isn't what its ID opens: that's whichever bundle has it.
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
             Err(e) => Reply::err(e.to_string()),

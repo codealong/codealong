@@ -217,7 +217,7 @@ fn add_menu(app: &AppHandle) -> tauri::Result<()> {
                 let _ = app.emit_to(w.label(), "check-updates", ());
             }
             None => {
-                let _ = crate::bar::show_main(app, None);
+                let _ = crate::front::show_main(app, None);
                 let _ = app.emit_to("main", "check-updates", ());
             }
         }

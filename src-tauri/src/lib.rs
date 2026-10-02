@@ -33,6 +33,7 @@ mod engine;
 mod fixtures;
 mod geometry;
 mod flash;
+mod front;
 mod ghpoll;
 mod git;
 mod harness;
@@ -345,7 +346,7 @@ fn fit_bar(app: tauri::AppHandle, width: f64, height: f64) {
 /// Brings the main window forward; `reveal` is a session or PR for it to select.
 #[tauri::command]
 fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result<(), String> {
-    bar::show_main(&app, reveal).map_err(|e| e.to_string())
+    front::show_main(&app, reveal).map_err(|e| e.to_string())
 }
 
 /// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the
@@ -355,12 +356,12 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
     if let Some(key) = target_id.strip_prefix("s|").and_then(|t| t.strip_suffix("|hosted")) {
         // Codealong runs it: its panel in the main window is where it lives.
         engine.mark_seen(vec![key.to_string()]);
-        return bar::show_main(&app, Some(serde_json::json!({ "kind": "session", "laneId": lane_id, "key": key }))).map_err(|e| e.to_string());
+        return front::show_main(&app, Some(serde_json::json!({ "kind": "session", "laneId": lane_id, "key": key }))).map_err(|e| e.to_string());
     }
     let from = flash::pointer();
     engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
     if let Some(bundle) = target_app(&engine, &lane_id, &target_id) {
-        bar::bring_forward(&app, bundle);
+        front::bring_forward(&app, bundle);
     }
     flash_focused(&app, &engine, &lane_id, &target_id, from);
     Ok(())
@@ -568,7 +569,7 @@ fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, pe
     let started = start_and_link(&engine, &spec)?;
     note_start(&engine, &spec);
     if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
-        bar::bring_forward(&app, bundle);
+        front::bring_forward(&app, bundle);
     }
     Ok(started)
 }
@@ -846,7 +847,7 @@ fn run_in_terminal(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: 
     let label = window.label();
     if [bar::LABEL, quick::LABEL, peek::LABEL].contains(&label) || label.starts_with(desktop::PREFIX) || label.starts_with(kept::PREFIX) {
         if let Some(bundle) = launch::bundle_id(&apps.terminal_id) {
-            bar::bring_forward(&app, bundle);
+            front::bring_forward(&app, bundle);
         }
     }
     Ok(())
@@ -1231,7 +1232,7 @@ fn add_settings_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
                 let _ = app.emit_to(w.label(), "settings", ());
             }
             None => {
-                let _ = bar::show_main(app, None);
+                let _ = front::show_main(app, None);
                 let _ = app.emit_to("main", "settings", ());
             }
         }
@@ -1266,7 +1267,7 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
                 let _ = app.emit_to(w.label(), id, ());
             }
             None => {
-                let _ = bar::show_main(app, None);
+                let _ = front::show_main(app, None);
                 // Close idle terminals is a dialog, so the main window opens it.
                 if id == CLOSE_IDLE_MENU_ID {
                     let _ = app.emit_to("main", id, ());
@@ -1460,7 +1461,7 @@ pub fn run() {
             // The Dock icon brings the main window back after it was closed.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
-                let _ = bar::show_main(app, None);
+                let _ = front::show_main(app, None);
             }
         });
 }

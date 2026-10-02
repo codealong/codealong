@@ -18,7 +18,7 @@
 //! with one exception: docked, a click on a session's pill shows the session under the pills, to
 //! read and answer there, and for as long as that's up the bar has the keyboard (`set_keys`),
 //! as the peek has under the floating bar. After it opens a session, Codealong asks macOS to
-//! bring that app forward (`bring_forward`).
+//! bring that app forward (`front::bring_forward`).
 //!
 //! Closing the main window hides it and the app keeps running with the bar; the Dock icon and the
 //! bar's mark bring it back. Whether the bar is on, where you left it and whether it stays open
@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tauri::menu::{CheckMenuItem, MenuItemKind, PredefinedMenuItem, WINDOW_SUBMENU_ID};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent, Wry};
@@ -585,30 +585,6 @@ pub fn target_app(target_id: &str, terminal: &str, host: Option<&'static str>, o
     }
 }
 
-/// After the bar opened something, asks macOS to bring that app forward. A click in the bar leaves
-/// Codealong inactive, and macOS may refuse an inactive app; the open itself has already happened.
-pub fn bring_forward(app: &AppHandle, bundle_id: &'static str) {
-    let _ = app.run_on_main_thread(move || native::activate_app(bundle_id));
-}
-
-/// Whether the app with this bundle ID is the active one, the app whose menus are in the menu bar.
-/// Asked afresh each time, from any thread.
-pub fn app_active(bundle_id: &str) -> bool {
-    native::app_active(bundle_id)
-}
-
-/// Brings the main window forward. `reveal` (a session or PR) goes to its page, which selects it.
-pub fn show_main(app: &AppHandle, reveal: Option<serde_json::Value>) -> Result<()> {
-    let main = app.get_webview_window("main").ok_or_else(|| anyhow!("The main window is gone."))?;
-    let _ = main.unminimize();
-    main.show()?;
-    main.set_focus()?;
-    if let Some(r) = reveal {
-        app.emit_to("main", "reveal", r)?;
-    }
-    Ok(())
-}
-
 /// The bar's panel, shared with the cards pinned to the desktop (desktop.rs), which float the same way.
 #[cfg(target_os = "macos")]
 pub(crate) mod native {
@@ -617,8 +593,8 @@ pub(crate) mod native {
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
-    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+    use objc2_app_kit::{NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
     use tauri::WebviewWindow;
 
     use super::{Notch, Rect, Screen};
@@ -764,21 +740,6 @@ pub(crate) mod native {
         ENGAGED.store(0, Ordering::Relaxed);
         // WebKit reads whether the window is key as it's ordered on screen.
         n.orderFrontRegardless();
-    }
-
-    /// Asks the running app with this bundle ID to come forward.
-    pub fn activate_app(bundle_id: &str) {
-        let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
-        if apps.count() > 0 {
-            #[allow(deprecated)]
-            let _ = apps.objectAtIndex(0).activateWithOptions(NSApplicationActivationOptions::empty());
-        }
-    }
-
-    /// A running app's record is as it was when it was fetched, so each ask fetches it again.
-    pub fn app_active(bundle_id: &str) -> bool {
-        let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
-        apps.count() > 0 && apps.objectAtIndex(0).isActive()
     }
 
     fn rect(r: NSRect) -> Rect {
@@ -932,10 +893,6 @@ pub(crate) mod native {
         None
     }
     pub fn unmake_panel(_: &WebviewWindow, _: Original) {}
-    pub fn activate_app(_: &str) {}
-    pub fn app_active(_: &str) -> bool {
-        false
-    }
     pub fn prepare(_: &WebviewWindow) {}
     pub fn show(w: &WebviewWindow) {
         let _ = w.show();

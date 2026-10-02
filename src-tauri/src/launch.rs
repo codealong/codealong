@@ -501,7 +501,7 @@ const FOLLOW_WAIT: Duration = Duration::from_secs(2);
 /// the desktop you're on, by AppKit's notes on `moveToActiveSpace`). The terminals raise the
 /// window first and become active after: Ghostty's `activate window` is `makeKeyAndOrderFront`,
 /// then `NSApp.activate`, and after a click in the bar it's active only once Codealong asks
-/// macOS (`bar::bring_forward`). An app made active with one window on the desktop you're on
+/// macOS (`front::bring_forward`). An app made active with one window on the desktop you're on
 /// and the raised one on another needn't take you anywhere. So this waits for the app to be
 /// active and raises the tab again, which moves nothing when it's in front already. A newer
 /// click drops it, as it drops a focus still waiting its turn. The switch itself isn't checked
@@ -524,7 +524,7 @@ fn app_active(app: &str) -> bool {
     if let Some(active) = stage::app_active(app) {
         return active;
     }
-    crate::bar::app_active(app)
+    crate::front::app_active(app)
 }
 
 /// Waits for `ready` to say yes. False when `dropped` does first, or `limit` runs out.
