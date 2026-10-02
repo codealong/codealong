@@ -30,6 +30,7 @@ use serde_json::Value;
 
 use crate::config::Config;
 use crate::model::Board;
+use crate::store;
 use crate::util::{now_ms, truncate};
 
 /// What a copy is told before its first question, so it answers instead of carrying on with
@@ -280,8 +281,8 @@ pub fn past(key: &str) -> Vec<Kept> {
 }
 
 /// Forgets a kept side conversation.
-pub fn forget(id: &str) {
-    forget_in(&store_path(), id);
+pub fn forget(id: &str) -> Result<()> {
+    forget_in(&store_path(), id)
 }
 
 // ---- keeping ----
@@ -290,23 +291,13 @@ fn store_path() -> PathBuf {
     crate::config::support_dir().join("sides.json")
 }
 
-/// One writer at a time: each reads the file, changes it and writes it whole.
-static STORE: Mutex<()> = Mutex::new(());
+/// What the file holds, for the error when it doesn't read as that.
+const WHAT: &str = "a list of side conversations";
 
+/// What's kept, to show: a file that doesn't parse shows as nothing kept. Only a change to it
+/// is turned away (`keep_in`, `forget_in`).
 fn load(path: &Path) -> Vec<Kept> {
-    std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
-}
-
-fn save(path: &Path, all: &[Kept]) {
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(text) = serde_json::to_vec_pretty(all) {
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(tmp, path);
-        }
-    }
+    store::read_or_default(path)
 }
 
 /// A side conversation as it's kept: the turns that have ended. None before the first has.
@@ -317,20 +308,24 @@ fn kept_of(o: &Open) -> Option<Kept> {
 
 fn keep(kept: Option<Kept>) {
     if let Some(k) = kept.filter(|_| KEEPS.load(Ordering::Relaxed)) {
-        keep_in(&store_path(), k);
+        // Nobody waits on this as a turn ends, so a failure is a notice.
+        let path = store_path();
+        let _ = store::noted(&path, keep_in(&path, k));
     }
 }
 
 /// Writes a side conversation in place of what was kept of it, the latest last, and lets the
-/// oldest go past `KEPT`.
-fn keep_in(path: &Path, kept: Kept) {
-    let _one = STORE.lock().unwrap_or_else(|e| e.into_inner());
-    let mut all = load(path);
-    all.retain(|k| k.id != kept.id);
-    all.push(kept);
-    let extra = all.len().saturating_sub(KEPT);
-    all.drain(..extra);
-    save(path, &all);
+/// oldest go past `KEPT`. A file that doesn't parse is an error and is left as it is: every
+/// conversation kept so far is in it.
+fn keep_in(path: &Path, kept: Kept) -> Result<()> {
+    store::change(path, WHAT, |all: &mut Vec<Kept>| {
+        all.retain(|k| k.id != kept.id);
+        all.push(kept);
+        let extra = all.len().saturating_sub(KEPT);
+        all.drain(..extra);
+        true
+    })?;
+    Ok(())
 }
 
 fn past_in(path: &Path, key: &str) -> Vec<Kept> {
@@ -339,14 +334,13 @@ fn past_in(path: &Path, key: &str) -> Vec<Kept> {
     of
 }
 
-fn forget_in(path: &Path, id: &str) {
-    let _one = STORE.lock().unwrap_or_else(|e| e.into_inner());
-    let mut all = load(path);
-    let before = all.len();
-    all.retain(|k| k.id != id);
-    if all.len() != before {
-        save(path, &all);
-    }
+fn forget_in(path: &Path, id: &str) -> Result<()> {
+    store::change(path, WHAT, |all: &mut Vec<Kept>| {
+        let before = all.len();
+        all.retain(|k| k.id != id);
+        all.len() != before
+    })?;
+    Ok(())
 }
 
 // ---- the copies ----
@@ -690,23 +684,43 @@ mod tests {
         let path = dir.join("sides.json");
         let kept = |id: &str, key: &str, last_at: i64, answer: &str| Kept { id: id.into(), key: key.into(), title: "A session".into(), started_at: 1, last_at, turns: vec![Turn { question: "why?".into(), answer: answer.into(), done: true, at: 1, ..Default::default() }] };
         assert!(past_in(&path, "claude:c:1").is_empty());
-        keep_in(&path, kept("a", "claude:c:1", 10, "Because."));
-        keep_in(&path, kept("b", "codex:x:2", 20, "No."));
-        keep_in(&path, kept("c", "claude:c:1", 30, "Yes."));
+        keep_in(&path, kept("a", "claude:c:1", 10, "Because.")).unwrap();
+        keep_in(&path, kept("b", "codex:x:2", 20, "No.")).unwrap();
+        keep_in(&path, kept("c", "claude:c:1", 30, "Yes.")).unwrap();
         // A follow-up is written in place of what was kept of its conversation.
-        keep_in(&path, kept("a", "claude:c:1", 40, "Because, and more."));
+        keep_in(&path, kept("a", "claude:c:1", 40, "Because, and more.")).unwrap();
         let of = past_in(&path, "claude:c:1");
         assert_eq!(of.iter().map(|k| (k.id.as_str(), k.turns[0].answer.as_str())).collect::<Vec<_>>(), [("a", "Because, and more."), ("c", "Yes.")]);
         assert_eq!(load(&path).len(), 3);
-        forget_in(&path, "a");
+        forget_in(&path, "a").unwrap();
         assert_eq!(past_in(&path, "claude:c:1").iter().map(|k| k.id.as_str()).collect::<Vec<_>>(), ["c"]);
         // Only the latest are kept.
         for i in 0..KEPT + 5 {
-            keep_in(&path, kept(&format!("n{i}"), "claude:c:9", 100 + i as i64, "ok"));
+            keep_in(&path, kept(&format!("n{i}"), "claude:c:9", 100 + i as i64, "ok")).unwrap();
         }
         let all = load(&path);
         assert_eq!(all.len(), KEPT);
         assert_eq!((all[0].id.as_str(), all[KEPT - 1].id.clone()), ("n5", format!("n{}", KEPT + 4)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// sides.json holds every conversation kept: one that doesn't read (another build's shape, a
+    /// write cut short) isn't started over from the turn that just ended.
+    #[test]
+    fn a_kept_file_that_does_not_read_is_never_written_over() {
+        let dir = store::test_dir("sides-unreadable");
+        let path = dir.join("sides.json");
+        let kept = |id: &str| Kept { id: id.into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at: 2, turns: vec![Turn { question: "why?".into(), answer: "Because.".into(), done: true, at: 1, ..Default::default() }] };
+        keep_in(&path, kept("a")).unwrap();
+        for bytes in [r#"{"version":2,"kept":[]}"#, r#"[{"id":"a","key":"claude:c:1","#] {
+            std::fs::write(&path, bytes).unwrap();
+            let e = keep_in(&path, kept("b")).unwrap_err().to_string();
+            assert!(e.starts_with("sides.json doesn't read as a list of side conversations"), "{e}");
+            assert!(forget_in(&path, "a").is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+            // Nothing to show meanwhile.
+            assert!(past_in(&path, "claude:c:1").is_empty());
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

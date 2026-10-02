@@ -1053,8 +1053,8 @@ fn side_past(key: String) -> Vec<side::Kept> {
 
 /// Forgets a kept side conversation.
 #[tauri::command(async)]
-fn side_forget(id: String) {
-    side::forget(&id);
+fn side_forget(id: String) -> Result<(), String> {
+    side::forget(&id).map_err(|e| format!("{e:#}"))
 }
 
 /// Ends a session's side conversation: its copy stops, and what was said is kept to read.
