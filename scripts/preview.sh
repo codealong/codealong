@@ -96,34 +96,21 @@ mkdir -p "$dir"
 rm -rf "$dir/assets"
 cp -R dist/. "$dir/"
 cp scripts/preview/fake-tauri.js "$dir/"
-rm -f "$dir/todos-fixture.json"
-if [ -n "${PREVIEW_TODOS:-}" ]; then
-  cp "$PREVIEW_TODOS" "$dir/todos-fixture.json"
-fi
-rm -f "$dir/insights-fixture.json"
-if [ -n "${PREVIEW_INSIGHTS:-}" ]; then
-  cp "$PREVIEW_INSIGHTS" "$dir/insights-fixture.json"
-fi
-rm -f "$dir/route-fixture.json"
-if [ -n "${PREVIEW_ROUTE:-}" ]; then
-  cp "$PREVIEW_ROUTE" "$dir/route-fixture.json"
-fi
-rm -f "$dir/canvas-fixture.json"
-if [ -n "${PREVIEW_CANVAS:-}" ]; then
-  cp "$PREVIEW_CANVAS" "$dir/canvas-fixture.json"
-fi
-rm -f "$dir/usage-fixture.json"
-rm -f "$dir/devices-fixture.json"
-rm -f "$dir/notices-fixture.json"
-if [ -n "${PREVIEW_NOTICES:-}" ]; then
-  cp "$PREVIEW_NOTICES" "$dir/notices-fixture.json"
-fi
-if [ -n "${PREVIEW_DEVICES:-}" ]; then
-  cp "$PREVIEW_DEVICES" "$dir/devices-fixture.json"
-fi
-if [ -n "${PREVIEW_USAGE:-}" ]; then
-  cp "$PREVIEW_USAGE" "$dir/usage-fixture.json"
-fi
+# What a PREVIEW_* variable names goes beside the page under the name fake-tauri.js reads, and
+# the last run's is taken away.
+fixture() {
+  rm -f "$dir/$1-fixture.json"
+  if [ -n "$2" ]; then
+    cp "$2" "$dir/$1-fixture.json"
+  fi
+}
+fixture todos "${PREVIEW_TODOS:-}"
+fixture insights "${PREVIEW_INSIGHTS:-}"
+fixture route "${PREVIEW_ROUTE:-}"
+fixture canvas "${PREVIEW_CANVAS:-}"
+fixture usage "${PREVIEW_USAGE:-}"
+fixture devices "${PREVIEW_DEVICES:-}"
+fixture notices "${PREVIEW_NOTICES:-}"
 "$bin" --snapshot >"$dir/board.json" 2>/dev/null
 # The floating bar gets its own small feed from the engine, not the board.
 { [ "$view" = bar ] || [ "$view" = notch ]; } && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
@@ -153,10 +140,17 @@ setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('code
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 size="${PREVIEW_SIZE:-1440,900}"
+# The windows that float over the desktop render on a stand-in for it: `on_desktop <the page's
+# class> [a layer over it]`.
+backdrop="linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))"
+on_desktop() {
+  setup="$setup</script><style>html.$1{background:${2:-}$backdrop!important}</style><script>"
+}
 if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1100,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.
-  setup="$setup window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${size%%,*}});</script><style>html.is-bar{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+  setup="$setup window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${size%%,*}});"
+  on_desktop is-bar
 fi
 if [ "$view" = notch ]; then
   size="${PREVIEW_SIZE:-1512,320}"
@@ -171,15 +165,18 @@ if [ "$view" = notch ]; then
     screen=982
   fi
   # Headless Chrome's screen is 800 by 600 whatever the window; the bar fits itself to the screen.
-  setup="$setup window.__CODEALONG_BAR__=true; window.__BAR_MODE__={mode:'notch',notch:$notch};Object.defineProperty(screen,'availWidth',{value:$width});Object.defineProperty(screen,'height',{value:$screen});</script><style>html.is-bar{background:linear-gradient(rgba(236,236,238,0.82) 0 ${menu}px,transparent ${menu}px),linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+  setup="$setup window.__CODEALONG_BAR__=true; window.__BAR_MODE__={mode:'notch',notch:$notch};Object.defineProperty(screen,'availWidth',{value:$width});Object.defineProperty(screen,'height',{value:$screen});"
+  on_desktop is-bar "linear-gradient(rgba(236,236,238,0.82) 0 ${menu}px,transparent ${menu}px),"
 fi
 if [ "$view" = quick ]; then
   size="${PREVIEW_SIZE:-760,640}"
-  setup="$setup window.__CODEALONG_QUICK__=true;</script><style>html.is-quick{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+  setup="$setup window.__CODEALONG_QUICK__=true;"
+  on_desktop is-quick
 fi
 if [ "$view" = desktop ]; then
   size="${PREVIEW_SIZE:-360,300}"
-  setup="$setup window.__CODEALONG_DESKTOP__=true; window.__CODEALONG_PIN__='${PREVIEW_PIN:-session}';</script><style>html.is-desktop{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+  setup="$setup window.__CODEALONG_DESKTOP__=true; window.__CODEALONG_PIN__='${PREVIEW_PIN:-session}';"
+  on_desktop is-desktop
 fi
 if [ "$view" = lineage ]; then
   size="${PREVIEW_SIZE:-1440,420}"
@@ -188,11 +185,13 @@ if [ "$view" = lineage ]; then
 fi
 if [ "$view" = peek ]; then
   size="${PREVIEW_SIZE:-520,640}"
-  setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_PEEK__=true;</script><style>html.is-peek{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+  setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_PEEK__=true;"
+  on_desktop is-peek
 fi
 if [ "$view" = kept ]; then
   size="${PREVIEW_SIZE:-640,720}"
-  setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_KEPT__=true;</script><style>html.is-peek{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+  setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_KEPT__=true;"
+  on_desktop is-peek
 fi
 tail=""
 if [ -n "${PREVIEW_INIT:-}" ]; then
