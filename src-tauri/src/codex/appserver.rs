@@ -87,7 +87,7 @@ pub struct NewThread {
 /// Makes a thread in `cwd` that the Codex app can open, without running a turn in it. A new
 /// thread's rollout isn't written until something is in its history, and the app can't open a
 /// thread without one, so a short note goes in first. The first turn then goes to the app
-/// (`send::codex_start_turn`), which runs it as if you'd typed it there.
+/// (`ipc::codex_start_turn`), which runs it as if you'd typed it there.
 pub fn new_thread(codex_home: &Path, cwd: &Path, model: Option<&str>) -> Result<NewThread> {
     with_server(codex_home, |s| make_thread(s, cwd, model))
 }
@@ -192,7 +192,7 @@ mod tests {
         let home = crate::util::home().join(".codex");
         let t = new_thread(&home, Path::new(&folder), None).unwrap();
         let model = t.model.as_deref().map(|m| (m, t.effort.as_deref()));
-        crate::send::codex_start_turn(&home, &t.id, "Reply with just the word pong.", model).unwrap();
+        crate::codex::ipc::codex_start_turn(&home, &t.id, "Reply with just the word pong.", model).unwrap();
         println!("thread {}", t.id);
     }
 

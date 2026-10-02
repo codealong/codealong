@@ -2,7 +2,8 @@
 //! `claude-code-sessions/<account>/<org>/`, naming the CLI session it runs (`cliSessionId`),
 //! whether you archived it there (`isArchived`) and the permission mode you run it in
 //! (`permissionMode`). The app has no way for another program to archive a session, so
-//! Codealong reads these to hide what you archived in the app.
+//! Codealong reads these to hide what you archived in the app, and to open a session there by
+//! the app's own id.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -113,6 +114,31 @@ impl Records {
     }
 }
 
+/// Opens a session in the Claude app. A session the app runs is selected by the app's own ID
+/// (`code/continue` takes only `local_…` IDs); any other is imported first (`resume`).
+pub fn claude_app_url(cli_session_id: &str) -> String {
+    claude_app_url_in(&records_dir(), cli_session_id)
+}
+
+fn claude_app_url_in(records: &Path, cli_session_id: &str) -> String {
+    match claude_app_session(records, cli_session_id) {
+        Some(local) => format!("claude://code/continue?session={}", urlencoding::encode(&local)),
+        None => format!("claude://resume?session={}", urlencoding::encode(cli_session_id)),
+    }
+}
+
+/// The Claude app's ID for the session running `cli_session_id`, from its records (newest first,
+/// since that's usually the one; only files that mention the session are parsed).
+fn claude_app_session(records: &Path, cli_session_id: &str) -> Option<String> {
+    record_files(records).into_iter().find_map(|(path, _)| {
+        let text = std::fs::read_to_string(&path).ok()?;
+        if !text.contains(cli_session_id) {
+            return None;
+        }
+        parse_record(&text, &path).filter(|r| r.cli_session_id == cli_session_id).map(|r| r.local_id)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +172,20 @@ mod tests {
         // Only the app's own IDs name a file: nothing reaches outside the records.
         assert_eq!(permission_mode(&root, "local_../../x"), None);
         assert_eq!(permission_mode(&root, "7a-b2"), None);
+    }
+
+    #[test]
+    fn finds_the_claude_app_session_for_a_cli_session() {
+        let root = std::env::temp_dir().join(format!("codealong-records-{}", std::process::id()));
+        let org = root.join("acct").join("org");
+        std::fs::create_dir_all(&org).unwrap();
+        std::fs::write(org.join("local_aaa.json"), r#"{"sessionId":"local_aaa","cliSessionId":"11111111-0000-0000-0000-000000000000"}"#).unwrap();
+        std::fs::write(org.join("local_bbb.json"), r#"{"sessionId":"local_bbb","cliSessionId":"87412567-2cd2-4c10-8635-d144e1c53c78"}"#).unwrap();
+        assert_eq!(claude_app_url_in(&root, "87412567-2cd2-4c10-8635-d144e1c53c78"), "claude://code/continue?session=local_bbb");
+        assert_eq!(claude_app_url_in(&root, "22222222-0000-0000-0000-000000000000"), "claude://resume?session=22222222-0000-0000-0000-000000000000");
+        let _ = std::fs::remove_dir_all(&root);
+        // With no records at all, the app imports the session.
+        let empty = std::env::temp_dir().join("codealong-no-records");
+        assert_eq!(claude_app_url_in(&empty, "87412567-2cd2"), "claude://resume?session=87412567-2cd2");
     }
 }

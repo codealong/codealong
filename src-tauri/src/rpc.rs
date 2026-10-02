@@ -1,5 +1,5 @@
 //! A child process that speaks JSON lines: one JSON message a line on its stdin, one a line on
-//! its stdout. Codex's app-server (appserver.rs), the Agent Client Protocol adapters (acp.rs)
+//! its stdout. Codex's app-server (codex/appserver.rs), the Agent Client Protocol adapters (acp.rs)
 //! and a side conversation's copy of a session (side.rs) are such processes, and each goes
 //! through here: one way to start the process, read its lines on a thread, give an answer to
 //! the request that asked for it, say what its stderr last said when it stops, and kill and

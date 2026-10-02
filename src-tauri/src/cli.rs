@@ -2056,14 +2056,14 @@ fn session_hook(event: &str) {
     }
     let Ok(hook) = serde_json::from_str::<Value>(&input) else { return };
     // Questions and plans are left to the prompt: the app isn't asked about them.
-    if !hook.get("tool_name").and_then(Value::as_str).is_some_and(crate::asks::answers_tool) {
+    if !hook.get("tool_name").and_then(Value::as_str).is_some_and(crate::claude::asks::answers_tool) {
         return;
     }
     // The session's account folder and process, from the environment Claude Code gives its
     // hooks and its registry: the app watches the registry for the prompt going away.
     let home = std::env::var_os("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| crate::util::home().join(".claude"));
-    let pid = hook.get("session_id").and_then(Value::as_str).and_then(|id| crate::asks::session_process(&home, id));
-    if let Some(out) = server::ask_permission(&hook, pid, &home).and_then(|d| crate::asks::hook_output(&d)) {
+    let pid = hook.get("session_id").and_then(Value::as_str).and_then(|id| crate::claude::asks::session_process(&home, id));
+    if let Some(out) = server::ask_permission(&hook, pid, &home).and_then(|d| crate::claude::asks::hook_output(&d)) {
         println!("{out}");
     }
 }

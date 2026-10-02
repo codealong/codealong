@@ -2,8 +2,6 @@
 
 mod acp;
 mod actions;
-mod appserver;
-mod asks;
 mod attachments;
 mod bar;
 mod barfeed;
@@ -13,7 +11,6 @@ mod chrome;
 mod chrometabs;
 mod caret;
 mod claude;
-mod claudeapp;
 mod cli;
 mod antigravity;
 mod codex;

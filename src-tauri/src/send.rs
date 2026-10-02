@@ -27,22 +27,21 @@
 //! It never resumes a session that isn't running, and never leaves a prompt for someone to send.
 
 use std::borrow::Cow;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use serde_json::json;
 
 use crate::attachments::{self, Style};
+use crate::claude::daemon::{daemon_reply, daemon_type};
+use crate::claude::peer::{peer_note, peer_send};
+use crate::codex::ipc::{codex_start_turn, codex_steer_turn};
 use crate::config::{AccountCfg, Config};
 use crate::launch;
 use crate::model::{Board, Session, Status, Surface};
 use crate::procs;
-use crate::start;
 
 /// How a send went, and how one would go; they go back to other devices too, so they're in
 /// codealong-peer.
@@ -91,8 +90,9 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
     }
 }
 
-/// An agent's message without the byline it starts with, as a note of it shows it (claude.rs,
-/// `peer_item`): the byline says whose it is, which the note says already.
+/// An agent's message without the byline it starts with, as a note of it shows it
+/// (claude/conversation.rs, `peer_item`): the byline says whose it is, which the note says
+/// already.
 pub fn without_byline(text: &str) -> &str {
     let t = text.trim();
     let starts = ["This message is from another agent, ", "This message was sent with `codealong session send`"];
@@ -261,7 +261,7 @@ fn join(key: &str, text: &str, send: impl FnOnce() -> Result<Sent>) -> Result<Se
 /// A way in that failed after the prompt may have reached the session, such as typing Ghostty
 /// didn't confirm: no other way is tried, or the session could get it twice.
 #[derive(Debug)]
-struct MayHaveArrived(String);
+pub(crate) struct MayHaveArrived(pub(crate) String);
 
 impl std::fmt::Display for MayHaveArrived {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -366,39 +366,6 @@ fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<Route>> {
     Ok(kept)
 }
 
-/// Claude Code's ways in, best first, from its registry entry and whether its daemon runs.
-/// Pure, so the choice has tests. A live session: its daemon for a background job, its
-/// terminal, then its cross-session socket; one that isn't running: the Claude app for an app
-/// session, else a terminal that resumes it.
-pub fn claude_routes(session: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>, mode: Option<String>) -> Vec<Route> {
-    if !session.live {
-        return vec![if session.surface == Surface::App { Route::ClaudeApp } else { Route::Resume }];
-    }
-    let mut out = Vec::new();
-    let kind = registry.and_then(|r| r.get("kind")).and_then(Value::as_str);
-    let job = registry.and_then(|r| r.get("jobId")).and_then(Value::as_str);
-    if let (Some("bg"), Some(job), Some(socket)) = (kind, job, daemon) {
-        out.push(Route::Daemon { socket: socket.to_path_buf(), key_file: home.join("daemon/control.key"), job: job.to_string() });
-    }
-    if session.surface == Surface::Cli && kind != Some("bg") {
-        if let Some(pid) = session.pid {
-            out.push(Route::Type { pid });
-        }
-    }
-    let peer = registry
-        .filter(|r| r.get("peerProtocol").and_then(Value::as_u64) == Some(1))
-        .and_then(|r| Some((r.get("messagingSocketPath")?.as_str()?, r.get("sessionId")?.as_str()?)));
-    if let Some((socket, id)) = peer {
-        out.push(Route::Peer { socket: socket.to_string(), session_id: id.to_string(), mode });
-    }
-    out
-}
-
-/// A live Claude Code session's registry entry, if it's this session's.
-pub fn claude_registry(home: &Path, session: &Session) -> Option<Value> {
-    session.pid.and_then(|pid| read_registry(home, pid)).filter(|r| r.get("sessionId").and_then(Value::as_str) == Some(session.id.as_str()))
-}
-
 /// One way in: it went, or nothing went and the next way is tried, or it failed. `untyped` is
 /// why typing into the session's terminal didn't work, when that was tried first.
 fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, msg: &Message, untyped: Option<&str>) -> Result<Tried> {
@@ -467,7 +434,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::ClaudeApp => {
             copy(&attachments::expand(text, Style::Path))?;
-            launch::open_url(&launch::claude_app_url(&session.id))?;
+            launch::open_url(&crate::claude::app::claude_app_url(&session.id))?;
             opened(format!("{title} is open in the Claude app and the prompt is on the clipboard. Paste it there to send it."))
         }
         Route::CodexApp => {
@@ -541,24 +508,6 @@ fn ends_in_mention(text: &str) -> bool {
     text.rsplit(char::is_whitespace).next().is_some_and(|word| word.starts_with('@'))
 }
 
-/// What a prompt sent on a session's socket says it did. `untyped` is why it wasn't typed into
-/// the session's terminal, when that was tried first: a session reads a message from another
-/// session as a teammate's, not as yours, so it says it went that way, first, since the bar
-/// shows the start of it. `held`: the session skips permission prompts and the message claims
-/// no mode, so it asks you (or, for an agent's, its user) first.
-fn peer_note(title: &str, untyped: Option<&str>, busy: bool, held: bool, agent: bool) -> String {
-    let lead = match untyped {
-        Some(why) => format!("Sent as a message from Codealong, not typed into {title}: {why}."),
-        None if busy && !held => format!("Sent to {title}; it reads it as it works."),
-        None => format!("Sent to {title}."),
-    };
-    match (held, agent) {
-        (true, false) => format!("{lead} It skips permission prompts, so it asks you in its terminal before taking it."),
-        (true, true) => format!("{lead} It skips permission prompts, so it asks its user in its terminal before taking it."),
-        _ => lead,
-    }
-}
-
 fn quoted(title: &str) -> String {
     format!("“{}”", title.trim())
 }
@@ -567,476 +516,13 @@ fn copy(text: &str) -> Result<()> {
     procs::run_stdin("/usr/bin/pbcopy", &[], text, Duration::from_secs(5)).map(|_| ())
 }
 
-// ---- Claude Code ----
-
-/// A live session's registry entry: `<home>/sessions/<pid>.json`.
-fn read_registry(home: &Path, pid: u32) -> Option<Value> {
-    serde_json::from_str(&std::fs::read_to_string(home.join("sessions").join(format!("{pid}.json"))).ok()?).ok()
-}
-
-/// Claude Code's daemon socket for an account, when its daemon is running.
-pub fn daemon_socket(home: &Path) -> Option<PathBuf> {
-    let path = daemon_socket_path(home, unsafe { libc::getuid() });
-    path.exists().then_some(path)
-}
-
-/// `/tmp/cc-daemon-<uid>/<first 8 hex of sha256(config dir)>/control.sock`. The config dir is
-/// hashed as an absolute path without a trailing slash (`~/.claude2` gave the folder here).
-pub fn daemon_socket_path(home: &Path, uid: u32) -> PathBuf {
-    let dir = home.to_string_lossy();
-    let dir = dir.trim_end_matches('/');
-    let hash = Sha256::digest(dir.as_bytes());
-    let short: String = hash.iter().take(4).map(|b| format!("{b:02x}")).collect();
-    PathBuf::from(format!("/tmp/cc-daemon-{uid}/{short}/control.sock"))
-}
-
-/// The daemon's `reply` request: one JSON line each way.
-pub fn daemon_request(key: &str, job: &str, text: &str) -> String {
-    format!("{}\n", json!({ "proto": 1, "op": "reply", "short": job, "text": text, "auth": key }))
-}
-
-/// Hands the prompt to a background job through Claude Code's daemon, which pastes it into the
-/// job's terminal. A job that's starting up or restarting says so; it's asked again for a
-/// couple of seconds, as Claude Code's own agent view does.
-fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
-    let request = daemon_request(key, job, text);
-    let mut last = String::new();
-    for _ in 0..10 {
-        let mut stream = UnixStream::connect(socket)?;
-        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        stream.write_all(request.as_bytes())?;
-        let mut line = String::new();
-        BufReader::new(&stream).read_line(&mut line)?;
-        let answer: Value = serde_json::from_str(line.trim()).map_err(|_| anyhow!("Claude Code's daemon gave an answer Codealong can't read."))?;
-        if answer.get("ok").and_then(Value::as_bool) == Some(true) {
-            return Ok(());
-        }
-        let code = answer.get("code").and_then(Value::as_str).unwrap_or("");
-        last = answer.get("error").and_then(Value::as_str).unwrap_or(code).to_string();
-        if !matches!(code, "ESTARTING" | "ENOREPLY" | "ERESPAWNING") {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    bail!("Claude Code's daemon didn't take it: {last}")
-}
-
-/// The daemon's `attach` request, as `claude attach` sends it but without a terminal's
-/// capabilities (`caps` is optional, and the job goes on without them as it does with nobody
-/// attached; null is refused).
-pub fn daemon_attach_request(key: &str, job: &str, attach_id: &str) -> String {
-    format!("{}\n", json!({ "proto": 1, "op": "attach", "short": job, "auth": key, "cols": 200, "rows": 50, "attachId": attach_id }))
-}
-
-/// Presses Escape in a background job's terminal. The daemon has no request for it, and its
-/// `reply` pastes text and presses Return.
-pub fn daemon_press_escape(socket: &Path, key_file: &Path, job: &str) -> Result<()> {
-    daemon_type(socket, key_file, job, &[b"\x1b"])
-}
-
-/// Types into a background job's terminal: attaches as `claude attach` does, which hands what
-/// comes after the request line to the job's terminal as typed, writes each of `writes` a moment
-/// apart (a key that arrives with the paste before it is taken as part of the paste), and
-/// detaches. Attaching redraws the job and sizes its terminal to this one; detaching gives a
-/// terminal attached meanwhile its own size back. Once writing has started, a failure may have
-/// left some of it there (`MayHaveArrived`).
-fn daemon_type(socket: &Path, key_file: &Path, job: &str, writes: &[&[u8]]) -> Result<()> {
-    let key = std::fs::read_to_string(key_file).map_err(|_| anyhow!("Codealong can't read the background service's key."))?;
-    let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    stream.write_all(daemon_attach_request(key.trim(), job, &start::new_session_id()).as_bytes())?;
-    // The answer is one line; the job's screen follows it.
-    let mut line = Vec::new();
-    let mut byte = [0u8; 1];
-    while stream.read(&mut byte)? == 1 && byte[0] != b'\n' {
-        line.push(byte[0]);
-    }
-    let answer: Value = serde_json::from_slice(&line).map_err(|_| anyhow!("Claude Code's daemon gave an answer Codealong can't read."))?;
-    if answer.get("ok").and_then(Value::as_bool) != Some(true) {
-        let why = answer.get("error").and_then(Value::as_str).or_else(|| answer.get("code").and_then(Value::as_str)).unwrap_or("no reason given");
-        bail!("Claude Code's daemon didn't let Codealong in: {why}");
-    }
-    // Apart from what attaching writes to the job first (focus, a redraw), so it reads as a key
-    // of its own. The screen is read and dropped meanwhile: the daemon closes a connection whose
-    // unread output piles up.
-    let drain = |stream: &mut UnixStream, for_ms: u64| {
-        let until = Instant::now() + Duration::from_millis(for_ms);
-        let mut chunk = [0u8; 65536];
-        while let Some(left) = until.checked_duration_since(Instant::now()) {
-            let _ = stream.set_read_timeout(Some(left.max(Duration::from_millis(10))));
-            match stream.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => break,
-                Err(_) => break,
-            }
-        }
-    };
-    drain(&mut stream, 200);
-    for (i, bytes) in writes.iter().enumerate() {
-        if i > 0 {
-            drain(&mut stream, 300);
-        }
-        stream.write_all(bytes).map_err(|e| MayHaveArrived(format!("Claude Code's background service stopped taking what Codealong typed into the job partway ({e}): look there before trying again.")))?;
-    }
-    drain(&mut stream, 400);
-    Ok(())
-}
-
-/// The sender's name on what you send, and the line its text starts with. The session's
-/// transcript keeps both (claude.rs, `sent_from_codealong`), which is how its panel knows the
-/// message was yours.
-pub const FROM_CODEALONG: &str = "Codealong";
-pub const FROM_YOU: &str = "Your user sent this to this session from Codealong:";
-
-/// The prompt as a cross-session message. The envelope is the one Claude Code writes for its
-/// own sends (`<cross-session-message from-name="…">`, the body on lines of its own), so the
-/// session shows who it's from: Codealong for what you sent, or `from`, an agent's session, whose
-/// text carries its own byline. `claim` is the permission class it claims (`bypass` or
-/// `prompting`, `from-mode`), which Claude Code compares with the session's own: a session
-/// that skips prompts holds a message that claims none, or another, for you to allow. The
-/// attributes go in the order Claude Code writes them, since it reads the envelope only when
-/// writing it again gives the same text.
-pub fn peer_content(text: &str, claim: Option<&str>, from: Option<&str>) -> String {
-    let (name, body) = match from {
-        Some(name) => (envelope_name(name), text.trim().to_string()),
-        None => (FROM_CODEALONG.to_string(), format!("{FROM_YOU}\n\n{}", text.trim())),
-    };
-    let body = body.replace("</cross-session-message", "<\\/cross-session-message");
-    let mode = claim.map(|m| format!(" from-mode=\"{m}\"")).unwrap_or_default();
-    format!("<cross-session-message from-name=\"{name}\"{mode}>\n{body}\n</cross-session-message>")
-}
-
-/// A sender's name as Claude Code writes `from-name` (2.1.284): without quotes, angle brackets,
-/// or control and format characters, trimmed, and at most 64 characters, a longer one cut with
-/// "…". Anything else would come out different when Claude Code writes the envelope again, and
-/// it would then not read it as one. This keeps letters, digits, spaces and punctuation, which
-/// come out the same.
-fn envelope_name(name: &str) -> String {
-    let kept: String = name
-        .chars()
-        .map(|c| if c.is_whitespace() { ' ' } else { c })
-        .filter(|&c| c.is_alphanumeric() || c == ' ' || (c.is_ascii_punctuation() && !matches!(c, '"' | '<' | '>')) || "“”‘’–—…·".contains(c))
-        .collect();
-    let kept = kept.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
-    let chars: Vec<char> = kept.chars().collect();
-    match chars.len() {
-        0 => "codealong".to_string(),
-        n if n > 64 => chars[..63].iter().collect::<String>().trim_end().to_string() + "…",
-        _ => kept,
-    }
-}
-
-/// The line written to a session's socket. `session_id` makes a session that has since taken
-/// over the pid drop it.
-pub fn peer_frame(session_id: &str, msg_id: &str, text: &str, claim: Option<&str>, from: Option<&str>) -> String {
-    let frame = json!({
-        "msgV": 1,
-        "msg_id": msg_id,
-        "type": "user",
-        "session_id": session_id,
-        "message": { "role": "user", "content": peer_content(text, claim, from) },
-        "priority": "next",
-    });
-    format!("{frame}\n")
-}
-
-/// Nothing comes back on the connection, so a successful write is all there is to see. Claude
-/// Code's own sender waits a moment before closing, so the line is read before the socket goes.
-fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>, from: Option<&str>) -> Result<()> {
-    let frame = peer_frame(session_id, &start::new_session_id(), text, claim, from);
-    // Claude Code caps a line at a million characters.
-    if frame.len() > 1_000_000 {
-        bail!("That's too long to send to another session; shorten it or put it in a file.");
-    }
-    let mut stream = UnixStream::connect(socket).map_err(|e| anyhow!("The session's message socket didn't answer: {e}"))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    stream.write_all(frame.as_bytes())?;
-    stream.flush()?;
-    std::thread::sleep(Duration::from_millis(150));
-    let _ = stream.shutdown(std::net::Shutdown::Both);
-    Ok(())
-}
-
-/// The terminal input that resumes a Claude Code session with a prompt, and the environment
-/// that carries the prompt (`Adapter::resume`).
-pub fn claude_resume_input(account: &AccountCfg, session_id: &str, text: &str) -> (String, Vec<(String, String)>) {
-    let (has_images, has_files) = attachments::kinds(text);
-    let mut input = account.command().to_string();
-    let mut env = Vec::new();
-    for (has, var, dir) in [(has_images, start::IMAGES_VAR, attachments::images_dir()), (has_files, start::FILES_VAR, attachments::files_dir())] {
-        if has {
-            input.push_str(&format!(" --add-dir \"${var}\""));
-            env.push((var.to_string(), dir.to_string_lossy().to_string()));
-        }
-    }
-    input.push_str(&format!(" --resume {session_id} \"${}\"\n", start::PROMPT_VAR));
-    env.push((start::PROMPT_VAR.to_string(), start::as_argument(attachments::expand(text, Style::Mention).trim())));
-    (input, env)
-}
-
-// ---- Codex app ----
-
-/// A frame on the Codex app's IPC socket: a 4-byte little-endian length, then JSON.
-pub fn ipc_frame(message: &Value) -> Vec<u8> {
-    let body = message.to_string().into_bytes();
-    let mut out = (body.len() as u32).to_le_bytes().to_vec();
-    out.extend(body);
-    out
-}
-
-/// Takes one whole frame off the front of `buf`, if one is there.
-pub fn ipc_take(buf: &mut Vec<u8>) -> Option<Value> {
-    if buf.len() < 4 {
-        return None;
-    }
-    let n = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
-    if buf.len() < 4 + n {
-        return None;
-    }
-    let frame: Vec<u8> = buf.drain(..4 + n).skip(4).collect();
-    Some(serde_json::from_slice(&frame).unwrap_or(Value::Null))
-}
-
-/// The request that starts a turn in a thread the app has open, sent to the window that owns it.
-/// The app's router drops a request whose `version` isn't the one it expects for the method
-/// (2 for this one in 0.155), so a changed app fails here rather than doing something else.
-/// A thread with no turns yet needs its model named: the window otherwise sends an empty one,
-/// which the API refuses.
-pub fn codex_start_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str, model: Option<(&str, Option<&str>)>) -> Value {
-    let mut request = json!({
-        "threadId": thread,
-        "input": [{ "type": "text", "text": text, "text_elements": [] }],
-        "clientUserMessageId": message_id,
-    });
-    if let Some((m, effort)) = model {
-        request["model"] = json!(m);
-        if let Some(e) = effort {
-            request["effort"] = json!(e);
-        }
-    }
-    json!({
-        "type": "request",
-        "requestId": request_id,
-        "sourceClientId": client_id,
-        "version": 2,
-        "method": "thread-follower-start-turn",
-        "targetClientId": owner,
-        "timeoutMs": 10_000,
-        "params": {
-            "conversationId": thread,
-            "turnStart": { "request": request, "context": {} },
-        },
-    })
-}
-
-struct Ipc {
-    stream: UnixStream,
-    buf: Vec<u8>,
-    client_id: String,
-}
-
-impl Ipc {
-    fn send(&mut self, message: &Value) -> Result<()> {
-        self.stream.write_all(&ipc_frame(message))?;
-        Ok(())
-    }
-
-    /// Waits for the response to `request_id`. The router also asks every client whether it can
-    /// handle other clients' requests; Codealong can't, and says so at once, or they'd wait on it.
-    fn response(&mut self, request_id: &str, deadline: Instant) -> Result<Value> {
-        loop {
-            while let Some(m) = ipc_take(&mut self.buf) {
-                match m.get("type").and_then(Value::as_str) {
-                    Some("response") if m.get("requestId").and_then(Value::as_str) == Some(request_id) => return Ok(m),
-                    Some("client-discovery-request") => {
-                        let id = m.get("requestId").cloned().unwrap_or(Value::Null);
-                        self.send(&json!({ "type": "client-discovery-response", "requestId": id, "response": { "canHandle": false } }))?;
-                    }
-                    Some("request") => {
-                        let id = m.get("requestId").cloned().unwrap_or(Value::Null);
-                        self.send(&json!({ "type": "response", "requestId": id, "resultType": "error", "error": "no-handler-for-request" }))?;
-                    }
-                    _ => {}
-                }
-            }
-            let left = deadline.checked_duration_since(Instant::now()).ok_or_else(|| anyhow!("Codex didn't answer in time."))?;
-            self.stream.set_read_timeout(Some(left.max(Duration::from_millis(10))))?;
-            let mut chunk = [0u8; 65536];
-            let n = self.stream.read(&mut chunk)?;
-            if n == 0 {
-                bail!("Codex closed the connection.");
-            }
-            self.buf.extend_from_slice(&chunk[..n]);
-        }
-    }
-}
-
-impl Ipc {
-    /// Connects to the socket the Codex app's windows use to reach each other
-    /// (`<CODEX_HOME>/ipc/ipc.sock`) and joins it as a client.
-    fn connect(codex_home: &Path, deadline: Instant) -> Result<Ipc> {
-        let stream = UnixStream::connect(codex_home.join("ipc/ipc.sock")).map_err(|_| anyhow!("The Codex app isn't running."))?;
-        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        let mut ipc = Ipc { stream, buf: Vec::new(), client_id: String::new() };
-        let init = start::new_session_id();
-        ipc.send(&json!({ "type": "request", "requestId": init, "method": "initialize", "params": { "clientType": "codealong" } }))?;
-        let r = ipc.response(&init, deadline)?;
-        ipc.client_id = r.pointer("/result/clientId").and_then(Value::as_str).ok_or_else(|| anyhow!("Codex didn't take Codealong as a client."))?.to_string();
-        Ok(ipc)
-    }
-
-    /// The window that has `thread` loaded, if one answers by `wait`. A window owns only the
-    /// threads it has loaded, and asking about any other goes unanswered until the router gives
-    /// up ten seconds later.
-    fn owner(&mut self, thread: &str, wait: Instant) -> Result<Option<String>> {
-        let find = start::new_session_id();
-        self.send(&json!({
-            "type": "request", "requestId": find, "sourceClientId": self.client_id, "version": 1,
-            "method": "thread-owner-discovery", "params": { "hostId": "local", "conversationId": thread },
-        }))?;
-        Ok(self.response(&find, wait).ok().filter(|r| r.get("resultType").and_then(Value::as_str) == Some("success")).and_then(|r| r.get("handledByClientId").and_then(Value::as_str).map(String::from)))
-    }
-}
-
-/// Starts a turn with `text` in a Codex thread, through the socket the app's windows use to
-/// reach each other. The window that owns the thread runs the turn in the app's own app-server,
-/// so the app shows it as if you'd sent it there. A thread no window has loaded is opened in the
-/// app after a short wait, which loads it and takes it within a couple of seconds, and asked
-/// about again.
-pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Option<(&str, Option<&str>)>) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(18);
-    let mut ipc = Ipc::connect(codex_home, deadline)?;
-    let client = ipc.client_id.clone();
-
-    let mut opened = false;
-    let owner = loop {
-        let wait = (Instant::now() + Duration::from_millis(1500)).min(deadline);
-        if let Some(owner) = ipc.owner(thread, wait)? {
-            if opened {
-                // A window takes a thread as it starts loading it, and a turn that arrives
-                // before its settings are in goes out with an empty model (refused) and the
-                // app's default reviewer. They're in within about a second.
-                std::thread::sleep(Duration::from_secs(2));
-            }
-            break owner;
-        }
-        if Instant::now() >= deadline {
-            bail!("No Codex window took this thread.");
-        }
-        if !opened {
-            launch::open_codex(&launch::codex_thread_url(thread))?;
-            opened = true;
-        }
-        std::thread::sleep(Duration::from_millis(300));
-    };
-
-    let turn = start::new_session_id();
-    ipc.send(&codex_start_request(&turn, &client, &owner, thread, text, &start::new_session_id(), model))?;
-    let r = ipc.response(&turn, deadline)?;
-    if r.get("resultType").and_then(Value::as_str) != Some("success") {
-        bail!("Codex didn't start the turn: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
-    }
-    Ok(())
-}
-
-/// The request that sends a prompt into the turn a thread is taking, sent to the window that
-/// owns it: what the app sends when you steer from a window that doesn't (26.924's code; version
-/// 1). `restoreMessage` is the composer's message as the app makes one for a plain prompt,
-/// which the window reads the thread's folders from and puts back in the box if the steer is
-/// turned down.
-pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str, cwd: &str, at: i64) -> Value {
-    json!({
-        "type": "request",
-        "requestId": request_id,
-        "sourceClientId": client_id,
-        "version": 1,
-        "method": "thread-follower-steer-turn",
-        "targetClientId": owner,
-        "timeoutMs": 10_000,
-        "params": {
-            "conversationId": thread,
-            "clientUserMessageId": message_id,
-            "input": [{ "type": "text", "text": text, "text_elements": [] }],
-            "attachments": [],
-            "restoreMessage": {
-                "id": message_id,
-                "text": text,
-                "context": { "prompt": text, "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": [cwd] },
-                "cwd": cwd,
-                "createdAt": at,
-            },
-        },
-    })
-}
-
-/// Sends `text` into the turn a Codex thread is taking in the app, through the window that runs
-/// it, as the app's own steer does: the turn takes it in at its next step. A thread no window
-/// has loaded isn't running in the app, and one whose turn has ended is turned down; either way
-/// nothing went. No answer once it's asked may mean it went (`MayHaveArrived`).
-pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(12);
-    let mut ipc = Ipc::connect(codex_home, deadline)?;
-    let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!("No Codex window has this thread open, so it isn't running in the app.");
-    };
-    let id = start::new_session_id();
-    ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, text, &start::new_session_id(), cwd, crate::util::now_ms()))?;
-    let unknown = |why: &str| MayHaveArrived(format!("Codealong asked Codex to send this into its running turn and didn't hear how it went ({why}): look there before sending it again."));
-    let r = ipc.response(&id, deadline).map_err(|e| unknown(&e.to_string()))?;
-    if r.get("resultType").and_then(Value::as_str) != Some("success") {
-        let why = r.get("error").and_then(Value::as_str).unwrap_or("no reason given");
-        // The router says these once it has handed the request to the window, which may go on
-        // with it; its other refusals, and the window's own, come before anything is sent.
-        if matches!(why, "request-timeout" | "client-disconnected" | "server-closed") {
-            return Err(unknown(why).into());
-        }
-        bail!("Codex didn't take it into the turn: {why}");
-    }
-    Ok(())
-}
-
-/// The request that stops the turn a thread is taking, sent to the window that owns it: what
-/// the app's own Stop sends from a window that doesn't (`user-stop`, which also pauses the
-/// thread's goal and stops its subagents). Without the turn's id the router expects version 3;
-/// with one, 4 (26.924's code).
-pub fn codex_interrupt_request(request_id: &str, client_id: &str, owner: &str, thread: &str) -> Value {
-    json!({
-        "type": "request",
-        "requestId": request_id,
-        "sourceClientId": client_id,
-        "version": 3,
-        "method": "thread-follower-interrupt-turn",
-        "targetClientId": owner,
-        "timeoutMs": 10_000,
-        "params": { "conversationId": thread, "mode": "user-stop" },
-    })
-}
-
-/// Stops the turn a Codex thread is taking in the app, through the window that runs it. A thread
-/// that's running there is loaded in some window, so one that no window claims isn't running in
-/// the app.
-pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(12);
-    let mut ipc = Ipc::connect(codex_home, deadline)?;
-    let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!("No Codex window has this thread open, so it isn't running in the app.");
-    };
-    let id = start::new_session_id();
-    ipc.send(&codex_interrupt_request(&id, &ipc.client_id.clone(), &owner, thread))?;
-    let r = ipc.response(&id, deadline)?;
-    if r.get("resultType").and_then(Value::as_str) != Some("success") {
-        bail!("Codex didn't stop the turn: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claude::routes::claude_routes;
     use crate::model::{Harness, Session, Status, Surface};
+    use serde_json::Value;
+    use std::time::Instant;
 
     #[test]
     fn a_pasted_prompt_never_ends_in_a_mention() {
@@ -1193,19 +679,6 @@ mod tests {
     }
 
     #[test]
-    fn an_agents_envelope_names_its_session_and_claims_nothing() {
-        let c = peer_content("This message is from another agent…\n\nhi", None, Some("Review the parser"));
-        assert!(c.starts_with("<cross-session-message from-name=\"Review the parser\">\n"), "{c}");
-        assert!(!c.contains("Your user sent this") && !c.contains("from-mode"), "{c}");
-        // Names come out as Claude Code writes them again, or it wouldn't read the envelope.
-        assert_eq!(envelope_name("Fix \"the\" <build>\tnow\u{200b}"), "Fix the build now");
-        assert_eq!(envelope_name("  🙂  "), "codealong");
-        assert_eq!(envelope_name("Déjà vu — “quoted” (#12)"), "Déjà vu — “quoted” (#12)");
-        let long = envelope_name(&"word ".repeat(30));
-        assert!(long.chars().count() <= 64 && long.starts_with("word word") && long.ends_with('…'), "{long}");
-    }
-
-    #[test]
     fn agents_reach_claude_code_only_on_its_socket() {
         let peer = Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None };
         let s = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(42));
@@ -1301,102 +774,12 @@ mod tests {
         assert_eq!(route_for(&s, None, Path::new("/h"), None).unwrap(), vec![Route::Opencode]);
     }
 
-    #[test]
-    fn finds_the_daemon_socket_by_the_config_dirs_hash() {
-        // The first 8 hex of sha256 of the config folder, without a trailing slash (checked
-        // against the folder the daemon made for a real ~/.claude2).
-        assert_eq!(daemon_socket_path(Path::new("/Users/someone/.claude2"), 501), PathBuf::from("/tmp/cc-daemon-501/44bc50fb/control.sock"));
-        assert_eq!(daemon_socket_path(Path::new("/Users/someone/.claude2/"), 501), PathBuf::from("/tmp/cc-daemon-501/44bc50fb/control.sock"));
-    }
-
-    #[test]
-    fn writes_the_daemon_reply_as_one_line() {
-        let line = daemon_request("k", "6e07c149", "two\nlines");
-        assert!(line.ends_with('\n') && line.matches('\n').count() == 1);
-        let v: Value = serde_json::from_str(line.trim()).unwrap();
-        assert_eq!(v, json!({ "proto": 1, "op": "reply", "short": "6e07c149", "text": "two\nlines", "auth": "k" }));
-    }
-
     /// A folder of its own under the system's temporary one, short enough for a socket path.
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("ca-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn presses_escape_in_a_background_job_by_attaching_to_it() {
-        let dir = scratch("attach");
-        let socket = dir.join("c.sock");
-        std::fs::write(dir.join("control.key"), "k\n").unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let daemon = std::thread::spawn(move || {
-            let (mut conn, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(conn.try_clone().unwrap());
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            // The answer, then the job's screen as the daemon starts streaming it.
-            conn.write_all(b"{\"ok\":true,\"op\":\"attach\"}\n\x1b[?1049h\x1b[2J screen").unwrap();
-            let mut typed = Vec::new();
-            reader.read_to_end(&mut typed).unwrap();
-            (serde_json::from_str::<Value>(line.trim()).unwrap(), typed)
-        });
-        daemon_press_escape(&socket, &dir.join("control.key"), "6e07c149").unwrap();
-        let (request, typed) = daemon.join().unwrap();
-        assert_eq!((request["op"].as_str(), request["short"].as_str(), request["auth"].as_str()), (Some("attach"), Some("6e07c149"), Some("k")));
-        // The daemon refuses a null for what it takes as an object or nothing.
-        assert!(request.get("caps").is_none());
-        assert_eq!(typed, b"\x1b");
-
-        // A job the daemon doesn't have is refused, with its reason.
-        let _ = std::fs::remove_file(&socket);
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let daemon = std::thread::spawn(move || {
-            let (mut conn, _) = listener.accept().unwrap();
-            let mut line = String::new();
-            BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
-            conn.write_all(b"{\"ok\":false,\"error\":\"job not found\",\"code\":\"ENOJOB\"}\n").unwrap();
-        });
-        let err = daemon_press_escape(&socket, &dir.join("control.key"), "6e07c149").unwrap_err();
-        daemon.join().unwrap();
-        assert!(err.to_string().contains("job not found"), "{err}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn stops_a_codex_turn_through_the_window_that_owns_the_thread() {
-        let home = scratch("codex");
-        std::fs::create_dir_all(home.join("ipc")).unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
-        let router = std::thread::spawn(move || {
-            let (mut conn, _) = listener.accept().unwrap();
-            let mut buf = Vec::new();
-            let mut chunk = [0u8; 4096];
-            loop {
-                while let Some(m) = ipc_take(&mut buf) {
-                    let id = m["requestId"].clone();
-                    let answer = match m["method"].as_str() {
-                        Some("initialize") => json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "clientId": "me" } }),
-                        Some("thread-owner-discovery") => json!({ "type": "response", "requestId": id, "resultType": "success", "handledByClientId": "window" }),
-                        _ => {
-                            conn.write_all(&ipc_frame(&json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "ok": true } }))).unwrap();
-                            return m;
-                        }
-                    };
-                    conn.write_all(&ipc_frame(&answer)).unwrap();
-                }
-                let n = conn.read(&mut chunk).unwrap();
-                assert!(n > 0, "Codealong hung up before asking to stop");
-                buf.extend_from_slice(&chunk[..n]);
-            }
-        });
-        codex_interrupt_turn(&home, "t1").unwrap();
-        let asked = router.join().unwrap();
-        assert_eq!(asked["method"], "thread-follower-interrupt-turn");
-        assert_eq!((&asked["version"], &asked["sourceClientId"], &asked["targetClientId"]), (&json!(3), &json!("me"), &json!("window")));
-        assert_eq!(asked["params"], json!({ "conversationId": "t1", "mode": "user-stop" }));
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -1462,57 +845,6 @@ mod tests {
     }
 
     #[test]
-    fn asks_the_codex_window_to_steer_as_the_app_does() {
-        let r = codex_steer_request("r", "me", "owner", "t1", "and the docs", "u1", "/r/app", 1_790_000_000_000);
-        assert_eq!((&r["method"], &r["version"], &r["targetClientId"], &r["sourceClientId"]), (&json!("thread-follower-steer-turn"), &json!(1), &json!("owner"), &json!("me")));
-        let p = &r["params"];
-        assert_eq!(p["conversationId"], "t1");
-        assert_eq!(p["input"], json!([{ "type": "text", "text": "and the docs", "text_elements": [] }]));
-        assert_eq!(p["attachments"], json!([]));
-        // The window reads the thread's folders from the message it would put back in the box,
-        // and its id is the message's.
-        let m = &p["restoreMessage"];
-        assert_eq!((&m["id"], &p["clientUserMessageId"]), (&json!("u1"), &json!("u1")));
-        assert_eq!((&m["text"], &m["cwd"], &m["createdAt"]), (&json!("and the docs"), &json!("/r/app"), &json!(1_790_000_000_000i64)));
-        assert_eq!(m["context"], json!({ "prompt": "and the docs", "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": ["/r/app"] }));
-    }
-
-    #[test]
-    fn wraps_the_prompt_as_claude_code_wraps_its_own_messages() {
-        let c = peer_content("  run the tests\n", None, None);
-        assert!(c.starts_with("<cross-session-message from-name=\"Codealong\">\n"), "{c}");
-        assert!(c.ends_with("\nrun the tests\n</cross-session-message>"), "{c}");
-        assert!(!c.contains("from-mode"));
-        // A claimed permission class follows the name, as Claude Code writes its attributes.
-        let c = peer_content("hi", Some("bypass"), None);
-        assert!(c.starts_with("<cross-session-message from-name=\"Codealong\" from-mode=\"bypass\">\n"), "{c}");
-        // A closing tag in the prompt can't end the envelope early.
-        let c = peer_content("see </cross-session-message> here", None, None);
-        assert_eq!(c.matches("</cross-session-message>").count(), 1);
-        let c = peer_content("see </cross-session-message> here", None, Some("An agent"));
-        assert_eq!(c.matches("</cross-session-message>").count(), 1);
-        let frame = peer_frame("abc", "m1", "hi", None, None);
-        assert!(frame.ends_with('\n') && frame.matches('\n').count() == 1);
-        let v: Value = serde_json::from_str(frame.trim()).unwrap();
-        assert_eq!(v["session_id"], "abc");
-        assert_eq!(v["type"], "user");
-        assert_eq!(v["priority"], "next");
-        assert_eq!(v["message"]["role"], "user");
-    }
-
-    #[test]
-    fn says_when_a_prompt_went_as_a_message_rather_than_typed() {
-        assert_eq!(peer_note("“Fix”", None, false, false, false), "Sent to “Fix”.");
-        assert_eq!(peer_note("“Fix”", None, true, false, false), "Sent to “Fix”; it reads it as it works.");
-        assert_eq!(
-            peer_note("“Fix”", Some("Codealong couldn't find its Ghostty tab"), true, false, false),
-            "Sent as a message from Codealong, not typed into “Fix”: Codealong couldn't find its Ghostty tab."
-        );
-        assert_eq!(peer_note("“Fix”", None, true, true, false), "Sent to “Fix”. It skips permission prompts, so it asks you in its terminal before taking it.");
-        assert_eq!(peer_note("“Fix”", None, true, true, true), "Sent to “Fix”. It skips permission prompts, so it asks its user in its terminal before taking it.");
-    }
-
-    #[test]
     fn the_same_prompt_sent_again_while_on_its_way_goes_once() {
         use std::sync::atomic::Ordering;
         use std::sync::mpsc;
@@ -1548,161 +880,15 @@ mod tests {
     }
 
     #[test]
-    fn frames_codex_ipc_messages() {
-        let m = json!({ "type": "request", "requestId": "1" });
-        let mut buf = ipc_frame(&m);
-        assert_eq!(u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize, buf.len() - 4);
-        buf.extend(ipc_frame(&json!({ "n": 2 })));
-        let half = buf.split_off(buf.len() - 3);
-        assert_eq!(ipc_take(&mut buf), Some(m));
-        assert_eq!(ipc_take(&mut buf), None);
-        buf.extend(half);
-        assert_eq!(ipc_take(&mut buf), Some(json!({ "n": 2 })));
-        assert!(buf.is_empty());
-        let r = codex_start_request("r", "me", "owner", "t1", "hello", "u1", None);
-        assert_eq!(r["version"], 2);
-        assert_eq!(r["targetClientId"], "owner");
-        assert_eq!(r["params"]["turnStart"]["request"]["input"][0], json!({ "type": "text", "text": "hello", "text_elements": [] }));
-        assert!(r["params"]["turnStart"]["request"].get("model").is_none());
-        let r = codex_start_request("r", "me", "owner", "t1", "hello", "u1", Some(("gpt-x", Some("high"))));
-        assert_eq!((&r["params"]["turnStart"]["request"]["model"], &r["params"]["turnStart"]["request"]["effort"]), (&json!("gpt-x"), &json!("high")));
-    }
-
-    #[test]
     fn resumes_with_the_prompt_in_the_environment() {
         let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
         let (input, env) = crate::harness::adapter(Harness::Claude).resume(&account, "abc", "-v please").unwrap();
-        assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", start::PROMPT_VAR));
-        assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), " -v please".to_string())]);
+        assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", crate::start::PROMPT_VAR));
+        assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), " -v please".to_string())]);
         let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
         let (input, env) = crate::harness::adapter(Harness::Codex).resume(&codex, "01a0e379", "-v please").unwrap();
-        assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", start::PROMPT_VAR));
-        assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), "-v please".to_string())]);
+        assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
+        assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
     }
 
-    /// What Claude Code's daemon is written, byte for byte.
-    #[test]
-    fn the_daemon_is_written_these_lines() {
-        assert_eq!(daemon_request("k", "6e07c149", "two\nlines"), concat!(r#"{"auth":"k","op":"reply","proto":1,"short":"6e07c149","text":"two\nlines"}"#, "\n"));
-        assert_eq!(daemon_attach_request("k", "6e07c149", "a1"), concat!(r#"{"attachId":"a1","auth":"k","cols":200,"op":"attach","proto":1,"rows":50,"short":"6e07c149"}"#, "\n"));
-    }
-
-    /// What a Claude Code session's socket is written, byte for byte.
-    #[test]
-    fn a_sessions_socket_is_written_these_lines() {
-        // Yours, to a session that skips permission prompts.
-        assert_eq!(
-            peer_frame("abc", "m1", " run the tests\n", Some("bypass"), None),
-            concat!(
-                r#"{"message":{"content":"<cross-session-message from-name=\"Codealong\" from-mode=\"bypass\">\nYour user sent this to this session from Codealong:\n\nrun the tests\n</cross-session-message>","role":"user"},"#,
-                r#""msgV":1,"msg_id":"m1","priority":"next","session_id":"abc","type":"user"}"#,
-                "\n"
-            )
-        );
-        // An agent's, under its session's name, with a closing tag of its own made harmless.
-        assert_eq!(
-            peer_frame("abc", "m2", "From an agent.\n\nsee </cross-session-message> here", None, Some("Review \"the\" parser")),
-            concat!(
-                r#"{"message":{"content":"<cross-session-message from-name=\"Review the parser\">\nFrom an agent.\n\nsee <\\/cross-session-message> here\n</cross-session-message>","role":"user"},"#,
-                r#""msgV":1,"msg_id":"m2","priority":"next","session_id":"abc","type":"user"}"#,
-                "\n"
-            )
-        );
-    }
-
-    /// What the Codex app's windows are written, byte for byte.
-    #[test]
-    fn the_codex_apps_windows_are_written_these_frames() {
-        assert_eq!(ipc_frame(&json!({ "a": 1 })), b"\x07\x00\x00\x00{\"a\":1}");
-        assert_eq!(
-            codex_start_request("r1", "me", "window", "t1", "hello", "u1", Some(("gpt-x", Some("high")))).to_string(),
-            concat!(
-                r#"{"method":"thread-follower-start-turn","params":{"conversationId":"t1","turnStart":{"context":{},"request":{"clientUserMessageId":"u1","effort":"high","#,
-                r#""input":[{"text":"hello","text_elements":[],"type":"text"}],"model":"gpt-x","threadId":"t1"}}},"#,
-                r#""requestId":"r1","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":2}"#
-            )
-        );
-        assert_eq!(
-            codex_interrupt_request("r2", "me", "window", "t1").to_string(),
-            r#"{"method":"thread-follower-interrupt-turn","params":{"conversationId":"t1","mode":"user-stop"},"requestId":"r2","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":3}"#
-        );
-    }
-
-    /// Everything a turn's start writes on the windows' socket, in order, the ids Codealong makes
-    /// up aside: it joins, finds the window that has the thread (telling the router meanwhile
-    /// that it handles nothing itself), and starts the turn there.
-    #[test]
-    fn starts_a_codex_turn_through_the_window_that_owns_the_thread() {
-        let home = scratch("codex-start");
-        std::fs::create_dir_all(home.join("ipc")).unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
-        let router = std::thread::spawn(move || {
-            let (mut conn, _) = listener.accept().unwrap();
-            let mut buf = Vec::new();
-            let mut chunk = [0u8; 4096];
-            let mut heard = Vec::new();
-            loop {
-                while let Some(m) = ipc_take(&mut buf) {
-                    let id = m["requestId"].clone();
-                    let method = m["method"].as_str().map(String::from);
-                    heard.push(m);
-                    let mut say = |v: Value| conn.write_all(&ipc_frame(&v)).unwrap();
-                    match method.as_deref() {
-                        Some("initialize") => say(json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "clientId": "me" } })),
-                        Some("thread-owner-discovery") => {
-                            say(json!({ "type": "client-discovery-request", "requestId": "d1" }));
-                            say(json!({ "type": "request", "requestId": "q1", "method": "something-else" }));
-                            say(json!({ "type": "response", "requestId": id, "resultType": "success", "handledByClientId": "window" }));
-                        }
-                        Some("thread-follower-start-turn") => {
-                            say(json!({ "type": "response", "requestId": id, "resultType": "success", "result": {} }));
-                            return heard;
-                        }
-                        _ => {}
-                    }
-                }
-                let n = conn.read(&mut chunk).unwrap();
-                assert!(n > 0, "Codealong hung up before starting the turn");
-                buf.extend_from_slice(&chunk[..n]);
-            }
-        });
-        codex_start_turn(&home, "t1", "hello", None).unwrap();
-        let mut heard = router.join().unwrap();
-        // The ids are made up afresh each time; the answers to the router's own keep its ids.
-        for m in heard.iter_mut().filter(|m| m.get("method").is_some()) {
-            m["requestId"] = json!("id");
-        }
-        heard[4]["params"]["turnStart"]["request"]["clientUserMessageId"] = json!("id");
-        let wrote: Vec<String> = heard.iter().map(Value::to_string).collect();
-        assert_eq!(
-            wrote,
-            [
-                r#"{"method":"initialize","params":{"clientType":"codealong"},"requestId":"id","type":"request"}"#,
-                r#"{"method":"thread-owner-discovery","params":{"conversationId":"t1","hostId":"local"},"requestId":"id","sourceClientId":"me","type":"request","version":1}"#,
-                r#"{"requestId":"d1","response":{"canHandle":false},"type":"client-discovery-response"}"#,
-                r#"{"error":"no-handler-for-request","requestId":"q1","resultType":"error","type":"response"}"#,
-                r#"{"method":"thread-follower-start-turn","params":{"conversationId":"t1","turnStart":{"context":{},"request":{"clientUserMessageId":"id","input":[{"text":"hello","text_elements":[],"type":"text"}],"threadId":"t1"}}},"requestId":"id","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":2}"#,
-            ]
-        );
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    /// The daemon is written the reply request once, and its refusal comes back with its reason.
-    #[test]
-    fn a_daemon_that_says_no_is_said_so() {
-        let dir = scratch("reply");
-        let socket = dir.join("c.sock");
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let daemon = std::thread::spawn(move || {
-            let (mut conn, _) = listener.accept().unwrap();
-            let mut line = String::new();
-            BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
-            conn.write_all(b"{\"ok\":false,\"error\":\"job not found\",\"code\":\"ENOJOB\"}\n").unwrap();
-            line
-        });
-        let err = daemon_reply(&socket, "k", "6e07c149", "hi").unwrap_err();
-        assert_eq!(daemon.join().unwrap(), daemon_request("k", "6e07c149", "hi"));
-        assert_eq!(err.to_string(), "Claude Code's daemon didn't take it: job not found");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

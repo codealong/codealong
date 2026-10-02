@@ -1,6 +1,6 @@
 //! Where sessions came from, as Codealong saw it happen: a session whose agent ran `codealong
 //! start`, and a fork made from Codealong. The harnesses write most forks down themselves
-//! (claude.rs's `Forks`, Codex's `forked_from_id`, OpenCode's `fork_session_id`), but nothing
+//! (claude/registry.rs's `Forks`, Codex's `forked_from_id`, OpenCode's `fork_session_id`), but nothing
 //! records which session ran the command that started another, nor Claude Code's fork into a
 //! terminal (`--resume --fork-session`), whose transcript doesn't say. Kept in `origins.json`
 //! next to the config; the engine reads it again when it changes (`current`).

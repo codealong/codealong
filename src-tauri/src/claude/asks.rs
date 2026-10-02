@@ -15,15 +15,19 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
+use super::conversation::{claude_input, questions_of};
+use super::transcript::tool_request;
 use crate::model::{Harness, Session, Status};
+use crate::transcript::clip_input;
+use crate::util::{code, one_line};
 
 /// A request as the hook gives it, less what Codealong doesn't use.
 #[derive(Debug, Clone, PartialEq)]
@@ -159,7 +163,7 @@ pub fn overlay(s: &mut Session) {
     let since = if s.status == Status::Needs { s.status_since.unwrap_or(0).max(a.at) } else { a.at };
     s.status = Status::Needs;
     s.status_since = Some(since);
-    s.excerpt = Some(crate::claude::asked_label(&a));
+    s.excerpt = Some(asked_label(&a));
     s.stalled_since = None;
     s.asks = false;
 }
@@ -337,6 +341,102 @@ pub fn account_for<'a>(cfg: &'a crate::config::Config, home: &Path) -> Option<&'
     cfg.accounts.iter().find(|a| a.harness == "claude" && same(&a.home_path()))
 }
 
+/// A permission request the plugin's hook holds in the app, as the panel shows it: a call to
+/// allow, or questions to answer.
+pub(super) fn asked_pending(a: &Asked) -> crate::harness::Pending {
+    let questions = if a.tool == QUESTIONS { questions_of(&a.input) } else { Vec::new() };
+    crate::harness::Pending {
+        id: a.id.clone(),
+        label: asked_label(a),
+        input: questions.is_empty().then(|| clip_input(&claude_input(&a.tool, &a.input))),
+        cannot: None,
+        always: questions.is_empty() && !a.suggestions.is_empty(),
+        plan: false,
+        always_rule: always_text(&a.suggestions),
+        questions,
+    }
+}
+
+/// A held request as a line: the call, or what it asks you.
+pub fn asked_label(a: &Asked) -> String {
+    match questions_of(&a.input).first().filter(|_| a.tool == QUESTIONS) {
+        Some(q) => format!("Asks you · {}", one_line(&q.question, 160)),
+        None => tool_request(&a.tool, &a.input),
+    }
+}
+
+/// Your answers to the questions, as Claude Code takes them: each question answered by its text,
+/// with a label or words of your own, or a list of them where it takes several. Empty answers
+/// and questions it didn't ask are left out; none at all is refused.
+pub(super) fn picked(questions: &[crate::harness::Question], answers: &Value) -> anyhow::Result<serde_json::Map<String, Value>> {
+    let mut out = serde_json::Map::new();
+    for q in questions {
+        let words = |v: &Value| v.as_str().map(str::trim).filter(|t| !t.is_empty()).map(|t| Value::String(t.to_string()));
+        let answer = match answers.get(&q.question) {
+            Some(Value::Array(list)) if q.multi_select => Some(list.iter().filter_map(words).collect::<Vec<_>>()).filter(|l| !l.is_empty()).map(Value::Array),
+            Some(Value::Array(list)) => list.iter().find_map(words),
+            Some(v) => words(v),
+            None => None,
+        };
+        if let Some(a) = answer {
+            out.insert(q.question.clone(), a);
+        }
+    }
+    if out.is_empty() {
+        anyhow::bail!("Pick an answer first.");
+    }
+    Ok(out)
+}
+
+/// What answering Always adds, in a sentence: Claude Code's own suggestions for the call, the
+/// ones its "Yes, and don't ask again" applies (permission updates: rules, a mode, folders).
+pub fn always_text(suggestions: &[Value]) -> Option<String> {
+    let parts: Vec<String> = suggestions
+        .iter()
+        .filter_map(|u| {
+            let s = |k: &str| u.get(k).and_then(Value::as_str);
+            let place = match s("destination") {
+                Some("session") => " for this session",
+                Some("localSettings") => " in this project, for you",
+                Some("projectSettings") => " in this project, for everyone",
+                Some("userSettings") => " everywhere, for you",
+                _ => "",
+            };
+            let list = |k: &str, f: &dyn Fn(&Value) -> Option<String>| -> Vec<String> { u.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(f).collect()).unwrap_or_default() };
+            match s("type")? {
+                "addRules" if s("behavior") == Some("allow") => {
+                    let rules = list("rules", &|r| {
+                        let tool = r.get("toolName")?.as_str()?;
+                        Some(code(&match r.get("ruleContent").and_then(Value::as_str) {
+                            Some(c) => format!("{tool}({c})"),
+                            None => tool.to_string(),
+                        }))
+                    });
+                    (!rules.is_empty()).then(|| format!("Allows {}{place}", rules.join(", ")))
+                }
+                "addDirectories" => {
+                    let dirs = list("directories", &|d| d.as_str().map(|p| code(&crate::util::tilde(Path::new(p)))));
+                    (!dirs.is_empty()).then(|| format!("Allows working in {}{place}", dirs.join(", ")))
+                }
+                "setMode" => {
+                    let mode = match s("mode")? {
+                        "acceptEdits" => "accepting edits",
+                        "default" => "asking first",
+                        "plan" => "plan mode",
+                        "dontAsk" => "not asking",
+                        "auto" => "auto mode",
+                        "bypassPermissions" => "skipping permission prompts",
+                        _ => return None,
+                    };
+                    Some(format!("Switches to {mode}{place}"))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    (!parts.is_empty()).then(|| format!("{}.", parts.join("; ")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,5 +608,47 @@ mod tests {
         assert!(refused("ask-c1", Decision::Answers(json!({}))).contains("allow or deny"));
         assert!(refused("ask-c1", Decision::Always).contains("allow it once"));
         held().retain(|h| h.asked.id != "ask-q1" && h.asked.id != "ask-c1");
+    }
+
+    #[test]
+    fn says_what_always_adds_from_claude_codes_own_suggestions() {
+        // What 2.1.284 suggested for `touch` in the session's folder.
+        let s = serde_json::json!([
+            { "type": "addDirectories", "directories": ["/Users/x/work"], "destination": "session" },
+            { "type": "setMode", "mode": "acceptEdits", "destination": "session" }
+        ]);
+        let s = s.as_array().unwrap();
+        assert_eq!(always_text(s).as_deref(), Some("Allows working in `/Users/x/work` for this session; Switches to accepting edits for this session."));
+        let rules = serde_json::json!([{ "type": "addRules", "rules": [{ "toolName": "Bash", "ruleContent": "npm test:*" }, { "toolName": "WebFetch" }], "behavior": "allow", "destination": "localSettings" }]);
+        assert_eq!(always_text(rules.as_array().unwrap()).as_deref(), Some("Allows `Bash(npm test:*)`, `WebFetch` in this project, for you."));
+        assert_eq!(always_text(&[]), None);
+        assert_eq!(always_text(&[serde_json::json!({ "type": "removeRules" })]), None);
+    }
+
+    #[test]
+    fn a_question_is_answered_with_its_choices_or_your_own_words() {
+        let input = serde_json::json!({ "questions": [
+            { "question": "Which color do you prefer?", "header": "Color", "options": [{ "label": "Red", "description": "The color red" }, { "label": "Blue" }], "multiSelect": false },
+            { "question": "Which days?", "options": [{ "label": "Mon" }, { "label": "Tue" }], "multiSelect": true }
+        ] });
+        let qs = questions_of(&input);
+        assert_eq!(qs.len(), 2);
+        assert_eq!((qs[0].header.as_deref(), qs[0].options[0].description.as_deref(), qs[1].multi_select), (Some("Color"), Some("The color red"), true));
+        let a = Asked { id: "ask-q".into(), session: "abc".into(), agent: None, tool: "AskUserQuestion".into(), input: input.clone(), suggestions: vec![], at: 1 };
+        let p = asked_pending(&a);
+        assert_eq!((p.label.as_str(), p.input, p.always, p.questions.len()), ("Asks you · Which color do you prefer?", None, false, 2));
+        let got = picked(&qs, &serde_json::json!({ "Which color do you prefer?": " Green, please ", "Which days?": ["Mon", "", "Tue"], "Not asked": "x" })).unwrap();
+        assert_eq!(Value::Object(got), serde_json::json!({ "Which color do you prefer?": "Green, please", "Which days?": ["Mon", "Tue"] }));
+        let one = picked(&qs, &serde_json::json!({ "Which color do you prefer?": ["Blue", "Red"] })).unwrap();
+        assert_eq!(one["Which color do you prefer?"], "Blue", "one pick for a question that takes one");
+        assert!(picked(&qs, &serde_json::json!({ "Which days?": [] })).is_err());
+    }
+
+    #[test]
+    fn a_held_request_is_the_call_the_panel_answers() {
+        let a = Asked { id: "ask-9".into(), session: "abc".into(), agent: None, tool: "Bash".into(), input: serde_json::json!({ "command": "touch alpha.txt" }), suggestions: vec![serde_json::json!({ "type": "setMode", "mode": "acceptEdits", "destination": "session" })], at: 1 };
+        let p = asked_pending(&a);
+        assert_eq!((p.id.as_str(), p.label.as_str(), p.input.as_deref(), p.cannot, p.always), ("ask-9", "Bash · `touch alpha.txt`", Some("touch alpha.txt"), None, true));
+        assert_eq!(p.always_rule.as_deref(), Some("Switches to accepting edits for this session."));
     }
 }

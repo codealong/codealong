@@ -82,7 +82,7 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     /// A prompt of yours the session took back before its agent answered, so the agent never
-    /// saw it: Claude Code does that when a turn is stopped before any reply (claude.rs).
+    /// saw it: Claude Code does that when a turn is stopped before any reply (claude/conversation.rs).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub withdrawn: bool,
     /// The questions a call asks you (Claude Code's `AskUserQuestion`), so the panel shows them
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn what_you_send_from_codealong_reads_as_yours() {
         let image = crate::attachments::images_dir().join("0123456789abcdef.png");
-        let from_you = |text: &str| format!("{}\n\n{text}", crate::send::FROM_YOU);
+        let from_you = |text: &str| format!("{}\n\n{text}", crate::claude::peer::FROM_YOU);
         let started = peer_line(false, "Codealong", &from_you("Can you commit this?"));
         let queued = peer_line(true, "Codealong", &from_you(&format!("Also this:\n![image]({})", image.display())));
         let agent = peer_line(true, "Review the parser", "This message is from another agent, “Review the parser” (Claude Code on claude2, session k), sent with `codealong session send`; it isn't from your user.\n\nWhich test fails?");

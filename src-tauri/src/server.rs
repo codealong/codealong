@@ -71,7 +71,7 @@ pub enum Request {
     /// A permission request from Claude Code's `PermissionRequest` hook, its input as the hook
     /// got it, with the session's process and account folder: the connection is held until it's
     /// answered here or where the session runs, and the reply is the decision, or null for none
-    /// (asks.rs).
+    /// (claude/asks.rs).
     PermissionAsk {
         hook: Value,
         #[serde(default)]
@@ -223,24 +223,24 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
     }
 }
 
-/// Holds a hook's permission request until it's answered (asks.rs). No answer comes from here
+/// Holds a hook's permission request until it's answered (claude/asks.rs). No answer comes from here
 /// for a session whose process the hook didn't find (one Codealong runs itself has none: it asks
 /// through its adapter), nor for an account config.toml doesn't list.
 fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, out: &mut UnixStream) {
     let cfg = crate::config::load().ok().flatten().unwrap_or_default();
-    let found = crate::asks::parse(hook, crate::util::now_ms()).zip(pid).zip(home.and_then(|h| crate::asks::account_for(&cfg, std::path::Path::new(h))));
+    let found = crate::claude::asks::parse(hook, crate::util::now_ms()).zip(pid).zip(home.and_then(|h| crate::claude::asks::account_for(&cfg, std::path::Path::new(h))));
     let Some((((asked, record), pid), account)) = found else {
-        crate::asks::reply(out, None);
+        crate::claude::asks::reply(out, None);
         return;
     };
     // A side conversation's copy has nobody to ask: Claude Code refuses the call as soon as
     // the hook returns.
     if crate::side::runs(pid) {
-        crate::asks::reply(out, None);
+        crate::claude::asks::reply(out, None);
         return;
     }
-    let watch = crate::asks::Watch::new(account.home_path(), pid, record);
-    crate::asks::hold(out, asked, watch, &|| engine.hosted_changed());
+    let watch = crate::claude::asks::Watch::new(account.home_path(), pid, record);
+    crate::claude::asks::hold(out, asked, watch, &|| engine.hosted_changed());
 }
 
 fn answered<T: Serialize>(r: std::result::Result<T, String>) -> Reply {

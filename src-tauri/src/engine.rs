@@ -203,7 +203,7 @@ impl Handle {
 
     /// A session Codealong runs started or ended a turn, or asked or stopped asking something;
     /// or a Claude Code session's hook handed the app a permission request, or took it back
-    /// (asks.rs).
+    /// (claude/asks.rs).
     pub fn hosted_changed(&self) {
         let _ = self.tx.send(Msg::Hosted);
     }
@@ -2152,7 +2152,7 @@ impl Engine {
         // requests Claude Code's hook holds here.
         for s in &mut out {
             crate::acp::overlay(s, self.seen.seen_at(&s.key));
-            crate::asks::overlay(s);
+            crate::claude::asks::overlay(s);
             let account = self.cfg.accounts.iter().find(|a| a.name == s.account);
             s.stoppable = crate::harness::stoppable(s, account);
             s.steerable = crate::harness::steerable(s, account);

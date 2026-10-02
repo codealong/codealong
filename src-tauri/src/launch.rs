@@ -577,7 +577,7 @@ pub enum Typed {
 /// Codealong stopped waiting on them.
 ///
 /// `clear` presses Ctrl+C first, where a single key can be pressed, for an idle Claude Code
-/// whose input box may hold a prompt it took back (claude.rs): with text there it clears the box
+/// whose input box may hold a prompt it took back (claude/conversation.rs): with text there it clears the box
 /// and keeps the text in its history; in an empty box it only says to press it again to exit.
 /// Ctrl+L doesn't clear it (2.1.285 binds it to clearing the screen). The key goes a moment
 /// before the paste: arriving together, Claude Code takes both for one paste.
@@ -851,31 +851,6 @@ pub fn reveal(path: &Path) -> Result<()> {
     procs::open(&["-R", &path.to_string_lossy()], Duration::from_secs(10))
 }
 
-/// Opens a session in the Claude app. A session the app runs is selected by the app's own ID
-/// (`code/continue` takes only `local_…` IDs); any other is imported first (`resume`).
-pub fn claude_app_url(cli_session_id: &str) -> String {
-    claude_app_url_in(&home().join("Library/Application Support/Claude/claude-code-sessions"), cli_session_id)
-}
-
-fn claude_app_url_in(records: &Path, cli_session_id: &str) -> String {
-    match claude_app_session(records, cli_session_id) {
-        Some(local) => format!("claude://code/continue?session={}", urlencoding::encode(&local)),
-        None => format!("claude://resume?session={}", urlencoding::encode(cli_session_id)),
-    }
-}
-
-/// The Claude app's ID for the session running `cli_session_id`, from its records (newest first,
-/// since that's usually the one; only files that mention the session are parsed).
-fn claude_app_session(records: &Path, cli_session_id: &str) -> Option<String> {
-    crate::claudeapp::record_files(records).into_iter().find_map(|(path, _)| {
-        let text = std::fs::read_to_string(&path).ok()?;
-        if !text.contains(cli_session_id) {
-            return None;
-        }
-        crate::claudeapp::parse_record(&text, &path).filter(|r| r.cli_session_id == cli_session_id).map(|r| r.local_id)
-    })
-}
-
 /// Opens a `codex://` link in the Codex app that's running. The Codex app ships as
 /// ChatGPT.app now, and an older Codex.app may still be installed with the same scheme.
 pub fn open_codex(url: &str) -> Result<()> {
@@ -916,8 +891,6 @@ mod tests {
 
     #[test]
     fn builds_deep_links() {
-        let empty = std::env::temp_dir().join("codealong-no-records");
-        assert_eq!(claude_app_url_in(&empty, "87412567-2cd2"), "claude://resume?session=87412567-2cd2");
         assert_eq!(codex_thread_url("01a0c4a6"), "codex://threads/01a0c4a6");
         assert_eq!(
             codex_review_url("https://github.com/northwindai/atlas/pull/1037"),
@@ -1324,18 +1297,6 @@ end run
         std::thread::sleep(Duration::from_millis(500));
         let front = osascript(FRONT, &[]).unwrap();
         assert!(front.contains(&back), "the front window holds {}, not {back}", front.trim());
-    }
-
-    #[test]
-    fn finds_the_claude_app_session_for_a_cli_session() {
-        let root = std::env::temp_dir().join(format!("codealong-records-{}", std::process::id()));
-        let org = root.join("acct").join("org");
-        std::fs::create_dir_all(&org).unwrap();
-        std::fs::write(org.join("local_aaa.json"), r#"{"sessionId":"local_aaa","cliSessionId":"11111111-0000-0000-0000-000000000000"}"#).unwrap();
-        std::fs::write(org.join("local_bbb.json"), r#"{"sessionId":"local_bbb","cliSessionId":"87412567-2cd2-4c10-8635-d144e1c53c78"}"#).unwrap();
-        assert_eq!(claude_app_url_in(&root, "87412567-2cd2-4c10-8635-d144e1c53c78"), "claude://code/continue?session=local_bbb");
-        assert_eq!(claude_app_url_in(&root, "22222222-0000-0000-0000-000000000000"), "claude://resume?session=22222222-0000-0000-0000-000000000000");
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
