@@ -370,6 +370,19 @@ pub fn load() -> Result<Option<Config>> {
     read_text()?.map(|text| load_text(&text)).transpose()
 }
 
+/// The settings, the defaults when there's no config.toml yet, and an error when it doesn't
+/// read or parse: for what acts on them, which says so rather than act on settings that aren't
+/// yours.
+pub fn load_strict() -> Result<Config> {
+    Ok(load()?.unwrap_or_default())
+}
+
+/// The settings, or the defaults when there's no config.toml or it doesn't read or parse: for
+/// what goes on either way, and shows the file's error elsewhere (Settings, a notice) if at all.
+pub fn load_or_default() -> Config {
+    load().ok().flatten().unwrap_or_default()
+}
+
 /// config.toml's text, or `None` when there isn't one yet.
 pub fn read_text() -> Result<Option<String>> {
     let path = config_path();

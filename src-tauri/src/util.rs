@@ -7,6 +7,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
+/// An error as a window, the command or another device is told it: with what caused it, which
+/// `to_string` leaves off an `anyhow` error ("Couldn't open the terminal: osascript timed out",
+/// not "Couldn't open the terminal").
+pub fn words(e: impl Into<anyhow::Error>) -> String {
+    format!("{:#}", e.into())
+}
+
 pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -599,6 +606,13 @@ pub fn parallel_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> Option<R> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_error_says_what_caused_it() {
+        let e = anyhow::anyhow!("osascript timed out").context("Couldn't open the terminal");
+        assert_eq!(words(e), "Couldn't open the terminal: osascript timed out");
+        assert_eq!(words(std::io::Error::other("disk full")), "disk full");
+    }
 
     #[test]
     fn reads_the_end_of_a_file_as_whole_lines() {

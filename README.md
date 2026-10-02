@@ -868,7 +868,7 @@ light scan (no git, PRs or visitors).
 | `src/notices.ts`, `src/ui/Notices.tsx` | Notices: what isn't working in the background, the engine's and a window's own, as a chip that can be dismissed |
 | `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
-| `src-tauri/src/actions.rs` | What Codealong does to a session, one table of requests: done here, or asked of the device the session is on, for a window, another device and the `codealong` command alike, with what each may ask for |
+| `src-tauri/src/actions.rs` | What Codealong does to a session or a worktree, or asks of a device, one table of requests: done here, or asked of the device it's on, for a window, another device and the `codealong` command alike, with what each may ask for and what each carries |
 | `src-tauri/src/snapshot.rs` | `codealong --snapshot`: the engine without a window, its modes in one table, for checking what it shows and does |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
 | `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board; Tidy's layouts), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |

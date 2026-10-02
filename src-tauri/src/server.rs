@@ -207,7 +207,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
         Request::IdleTerminals { after_ms } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms)),
         Request::CloseIdle { keys, after_ms } => Reply::ok(crate::idle::close(&engine.board(), &keys, after_ms)),
-        Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(|e| format!("{e:#}"))),
+        Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),
         Request::Devices => Reply::ok(DevicesSummary::of(peers.view())),
         Request::DeviceLink { key } => answered(peers.link(&key)),
         Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),
@@ -219,7 +219,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::Show { reveal } => match crate::front::show_main(app, Some(reveal)) {
             // A bare binary isn't what its ID opens: that's whichever bundle has it.
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
-            Err(e) => Reply::err(e.to_string()),
+            Err(e) => Reply::err(crate::util::words(e)),
         },
         // Held on its connection instead (`connection`).
         Request::PermissionAsk { .. } => Reply::ok(Value::Null),
@@ -230,7 +230,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
 /// for a session whose process the hook didn't find (one Codealong runs itself has none: it asks
 /// through its adapter), nor for an account config.toml doesn't list.
 fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, out: &mut UnixStream) {
-    let cfg = crate::config::load().ok().flatten().unwrap_or_default();
+    let cfg = crate::config::load_or_default();
     let found = crate::claude::asks::parse(hook, crate::util::now_ms()).zip(pid).zip(home.and_then(|h| crate::claude::asks::account_for(&cfg, std::path::Path::new(h))));
     let Some((((asked, record), pid), account)) = found else {
         crate::claude::asks::reply(out, None);

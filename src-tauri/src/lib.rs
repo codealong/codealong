@@ -83,6 +83,7 @@ mod usage;
 mod util;
 
 use tauri::{Emitter, Manager, State};
+use util::words;
 
 /// `Kestrel` → `project-kestrel`: window labels allow letters, digits, `-`, `/`, `:` and `_`.
 fn project_window_label(project: &str) -> String {
@@ -132,17 +133,31 @@ fn open_project_window(app: tauri::AppHandle, window: tauri::WebviewWindow, proj
     builder.build().map(|_| ()).map_err(|e| format!("Couldn't open a window for {project}: {e}"))
 }
 
-#[tauri::command]
+/// Runs a command's body on the blocking pool, for the commands that can wait on a script,
+/// another device, `gh` or curl. Tauri's macro runs a sync command marked `async` inline on one
+/// of the async runtime's few workers, so a handful of them waiting at once would hold up every
+/// other async command.
+async fn blocking<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(body).await.map_err(|e| format!("That stopped partway: {e}"))
+}
+
+/// Off the main thread, as the floating bar's feed and the devices view are: the board is big to
+/// copy and send.
+#[tauri::command(async)]
 fn get_board(engine: State<'_, engine::Handle>) -> model::Board {
     engine.board()
 }
 
-#[tauri::command(async)]
-fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, target_id: String) -> Result<(), String> {
-    let from = flash::pointer();
-    actions::run(&engine, &peers, actions::OPEN, &lane_id, actions::params::Open { target: target_id.clone() })?;
-    flash_focused(&app, &engine, &lane_id, &target_id, from);
-    Ok(())
+#[tauri::command]
+async fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, target_id: String) -> Result<(), String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        let from = flash::pointer();
+        actions::run(&engine, &peers, actions::OPEN, &lane_id, actions::params::Open { target: target_id.clone() })?;
+        flash_focused(&app, &engine, &lane_id, &target_id, from);
+        Ok(())
+    })
+    .await?
 }
 
 /// After a session's terminal came forward, shows where when it's on another screen (flash.rs).
@@ -165,9 +180,10 @@ fn target_app(engine: &engine::Handle, lane_id: &str, target_id: &str) -> Option
     bar::target_app(target_id, &board.apps.terminal_id, host, own)
 }
 
-#[tauri::command(async)]
-fn open_config(engine: State<'_, engine::Handle>) -> Result<(), String> {
-    engine.open_config().map_err(|e| e.to_string())
+#[tauri::command]
+async fn open_config(engine: State<'_, engine::Handle>) -> Result<(), String> {
+    let engine = engine.inner().clone();
+    blocking(move || engine.open_config().map_err(words)).await?
 }
 
 /// The installed editors' app icons, for the Open in menus. Off the main thread: the first
@@ -191,9 +207,10 @@ async fn close_idle_terminals(engine: State<'_, engine::Handle>, keys: Vec<Strin
 
 /// Closes one session from its menu: its terminal tab, or a background job stopped (idle.rs).
 /// Returns what happened, in a sentence.
-#[tauri::command(async)]
-fn close_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
-    actions::run(&engine, &peers, actions::CLOSE, &key, serde_json::json!({})).map(|v| v.as_str().unwrap_or_default().to_string())
+#[tauri::command]
+async fn close_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, actions::CLOSE, &key, serde_json::json!({})).map(|v| v.as_str().unwrap_or_default().to_string())).await?
 }
 
 /// Marks sessions seen, each on the device it's on: its status changes there, and so on every
@@ -230,21 +247,26 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
 /// Sets a worktree's preview URL, and the Chrome profile it opens in over its project's, or
 /// clears them with no URL. Returns the time of the board that shows it, when the engine says
 /// in time.
-#[tauri::command(async)]
-fn set_preview(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, url: Option<String>, port: Option<u16>, chrome_profile: Option<String>) -> Result<Option<i64>, String> {
-    // The sheet gives all of it: no URL takes the preview away, and no profile is its project's.
-    let change = match url {
-        Some(url) => actions::params::Preview { url: Some(url), port: Some(port), chrome_profile: Some(chrome_profile), ..Default::default() },
-        None => actions::params::Preview { clear: true, ..Default::default() },
-    };
-    actions::run(&engine, &peers, actions::PREVIEW, &lane_id, change).map(|v| v["at"].as_i64())
+#[tauri::command]
+async fn set_preview(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, url: Option<String>, port: Option<u16>, chrome_profile: Option<String>) -> Result<Option<i64>, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        // The sheet gives all of it: no URL takes the preview away, and no profile is its project's.
+        let change = match url {
+            Some(url) => actions::params::Preview { url: Some(url), port: Some(port), chrome_profile: Some(chrome_profile), ..Default::default() },
+            None => actions::params::Preview { clear: true, ..Default::default() },
+        };
+        actions::run(&engine, &peers, actions::PREVIEW, &lane_id, change).map(|v| v["at"].as_i64())
+    })
+    .await?
 }
 
 /// Marks a worktree reusable or not (reusable.rs). Returns the time of the board that shows it,
 /// when the engine says in time.
-#[tauri::command(async)]
-fn set_reusable(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, on: bool) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, actions::REUSABLE, &lane_id, actions::params::Reusable { on }).map(|v| v["at"].as_i64())
+#[tauri::command]
+async fn set_reusable(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, on: bool) -> Result<Option<i64>, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, actions::REUSABLE, &lane_id, actions::params::Reusable { on }).map(|v| v["at"].as_i64())).await?
 }
 
 #[tauri::command]
@@ -320,25 +342,29 @@ fn fit_bar(app: tauri::AppHandle, width: f64, height: f64) {
 /// Brings the main window forward; `reveal` is a session or PR for it to select.
 #[tauri::command]
 fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result<(), String> {
-    front::show_main(&app, reveal).map_err(|e| e.to_string())
+    front::show_main(&app, reveal).map_err(words)
 }
 
 /// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the
 /// bar doesn't make Codealong the active app.
-#[tauri::command(async)]
-fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
-    if let Some(key) = target_id.strip_prefix("s|").and_then(|t| t.strip_suffix("|hosted")) {
-        // Codealong runs it: its panel in the main window is where it lives.
-        engine.mark_seen(vec![key.to_string()]);
-        return front::show_main(&app, Some(serde_json::json!({ "kind": "session", "laneId": lane_id, "key": key }))).map_err(|e| e.to_string());
-    }
-    let from = flash::pointer();
-    engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
-    if let Some(bundle) = target_app(&engine, &lane_id, &target_id) {
-        front::bring_forward(&app, bundle);
-    }
-    flash_focused(&app, &engine, &lane_id, &target_id, from);
-    Ok(())
+#[tauri::command]
+async fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
+    let engine = engine.inner().clone();
+    blocking(move || {
+        if let Some(key) = target_id.strip_prefix("s|").and_then(|t| t.strip_suffix("|hosted")) {
+            // Codealong runs it: its panel in the main window is where it lives.
+            engine.mark_seen(vec![key.to_string()]);
+            return front::show_main(&app, Some(serde_json::json!({ "kind": "session", "laneId": lane_id, "key": key }))).map_err(words);
+        }
+        let from = flash::pointer();
+        engine.open(&lane_id, &target_id).map_err(words)?;
+        if let Some(bundle) = target_app(&engine, &lane_id, &target_id) {
+            front::bring_forward(&app, bundle);
+        }
+        flash_focused(&app, &engine, &lane_id, &target_id, from);
+        Ok(())
+    })
+    .await?
 }
 
 /// Shows a session in the floating bar's peek: for a hover over its pill or a click on a card on
@@ -354,7 +380,7 @@ fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<
     }
     // The pill is in the window that asked: the bar, or a card on the desktop.
     let pill = pill.and_then(|p| panel::frame(&window).map(|host| (host, p)));
-    peek::open(&app, target, pill, focus.unwrap_or(false) || rename, rename).map_err(|e| e.to_string())
+    peek::open(&app, target, pill, focus.unwrap_or(false) || rename, rename).map_err(words)
 }
 
 /// A session with its worktree and the apps, as the board has them: for a window that doesn't
@@ -417,7 +443,7 @@ fn peek_drag(app: tauri::AppHandle, dx: f64, dy: f64) {
 /// keeps it from the engine (`peek::drag`).
 #[tauri::command]
 fn keep_session(app: tauri::AppHandle) -> Result<(), String> {
-    kept::keep_peeked(&app).map_err(|e| e.to_string())
+    kept::keep_peeked(&app).map_err(words)
 }
 
 /// The session a kept window shows, for its page.
@@ -451,7 +477,7 @@ fn kept_close(app: tauri::AppHandle, window: tauri::Window) {
 }
 
 /// What the floating bar shows, for its first render; after that it gets `bar-feed` events.
-#[tauri::command]
+#[tauri::command(async)]
 fn bar_feed(engine: State<'_, engine::Handle>) -> barfeed::BarFeed {
     barfeed::feed(&engine.board())
 }
@@ -535,22 +561,27 @@ fn fit_quick(app: tauri::AppHandle, height: f64) {
 /// Starts a session from the quick panel, which has already hidden itself, then asks macOS to
 /// bring the app it started in forward: the panel never makes Codealong the active app. A
 /// worktree on another device starts there, where whatever it opens comes forward.
-#[tauri::command(async)]
-fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
-    let started = actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)?;
-    if peerfeed::split_remote(&spec.lane_id).is_none() {
-        start::note(&engine, &spec);
-        if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
-            front::bring_forward(&app, bundle);
+#[tauri::command]
+async fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        let started = actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)?;
+        if peerfeed::split_remote(&spec.lane_id).is_none() {
+            start::note(&engine, &spec);
+            if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
+                front::bring_forward(&app, bundle);
+            }
         }
-    }
-    Ok(started)
+        Ok(started)
+    })
+    .await?
 }
 
 /// Where what's typed in the quick panel should go, from Jev (route.rs).
-#[tauri::command(async)]
-fn route_quick(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, project: String, text: String) -> Result<route::Route, String> {
-    actions::typed(actions::run_on(&engine, &peers, api::ROUTE, None, actions::params::Route { project, text })?)
+#[tauri::command]
+async fn route_quick(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, project: String, text: String) -> Result<route::Route, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::typed(actions::run_on(&engine, &peers, api::ROUTE, None, actions::params::Route { project, text })?)).await?
 }
 
 /// Sessions whose prompts and replies have every word (search.rs), for the quick panel.
@@ -561,69 +592,87 @@ fn search_text(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>
 
 /// A page of a session's conversation, from its own record (transcript.rs): the newest when
 /// `before` is none, else what came before it.
-#[tauri::command(async)]
-fn session_page(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, before: Option<u64>) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_PAGE, &key, actions::params::Page { before, ..Default::default() })
+#[tauri::command]
+async fn session_page(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, before: Option<u64>) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_PAGE, &key, actions::params::Page { before, ..Default::default() })).await?
 }
 
 /// What a session waiting on you wants to do, when it's a tool call Codealong can answer for it
 /// (`harness::Adapter::pending`).
-#[tauri::command(async)]
-fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_PENDING, &key, actions::params::Session::default())
+#[tauri::command]
+async fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_PENDING, &key, actions::params::Session::default())).await?
 }
 
 /// How a message sent to a session would reach it, for its box's placeholder (send.rs `way_in`).
-#[tauri::command(async)]
-fn session_way(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_WAY, &key, actions::params::Session::default())
+#[tauri::command]
+async fn session_way(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_WAY, &key, actions::params::Session::default())).await?
 }
 
 /// Allows or denies the tool call `id` a session waits on, if it's still the one waiting; or,
 /// with `answers`, answers the questions it asks (`Pending::questions`).
-#[tauri::command(async)]
-fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer, answers: Option<serde_json::Value>) -> Result<String, String> {
-    let said = actions::run(&engine, &peers, api::SESSION_ANSWER, &key, actions::params::Answer { id, answer: Some(answer), answers, ..Default::default() })?;
-    Ok(said.as_str().unwrap_or_default().to_string())
+#[tauri::command]
+async fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer, answers: Option<serde_json::Value>) -> Result<String, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        let said = actions::run(&engine, &peers, api::SESSION_ANSWER, &key, actions::params::Answer { id, answer: Some(answer), answers, ..Default::default() })?;
+        Ok(said.as_str().unwrap_or_default().to_string())
+    })
+    .await?
 }
 
 /// What a session said and did after `after`, as it goes on.
-#[tauri::command(async)]
-fn session_newer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, after: u64) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_NEWER, &key, actions::params::Newer { after, ..Default::default() })
+#[tauri::command]
+async fn session_newer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, after: u64) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_NEWER, &key, actions::params::Newer { after, ..Default::default() })).await?
 }
 
 /// The reply a session Codealong runs is writing, for a panel that opens mid-turn, known by the
 /// key the window has for it.
-#[tauri::command(async)]
-fn session_stream(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Option<acp::Stream> {
-    let got = actions::run(&engine, &peers, api::SESSION_STREAM, &key, actions::params::Session::default()).ok()?;
-    let mut s: acp::Stream = serde_json::from_value(got).ok()?;
-    s.key = key;
-    Some(s)
+#[tauri::command]
+async fn session_stream(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<Option<acp::Stream>, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        let got = actions::run(&engine, &peers, api::SESSION_STREAM, &key, actions::params::Session::default()).ok()?;
+        let mut s: acp::Stream = serde_json::from_value(got).ok()?;
+        s.key = key;
+        Some(s)
+    })
+    .await
 }
 
 /// Stops the turn a session is taking, here or on another device, and says what happened.
-#[tauri::command(async)]
-fn session_cancel(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
-    let said = actions::run(&engine, &peers, api::SESSION_CANCEL, &key, actions::params::Session::default())?;
-    // Devices before stops reached every harness answered with nothing.
-    Ok(said.as_str().unwrap_or("Stopped.").to_string())
+#[tauri::command]
+async fn session_cancel(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        let said = actions::run(&engine, &peers, api::SESSION_CANCEL, &key, actions::params::Session::default())?;
+        // Devices before stops reached every harness answered with nothing.
+        Ok(said.as_str().unwrap_or("Stopped.").to_string())
+    })
+    .await?
 }
 
 /// Sends a prompt to a session that's already going, where it runs (send.rs); `now` sends it
 /// into the turn it's taking at once (Send now). Only Codealong's windows call this, so what it
 /// sends is what you typed. A device from before Send now reads no `now` and sends it as usual.
-#[tauri::command(async)]
-fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String, now: Option<bool>) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_SEND, &key, actions::params::Send { text, now: now.unwrap_or(false), ..Default::default() })
+#[tauri::command]
+async fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String, now: Option<bool>) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_SEND, &key, actions::params::Send { text, now: now.unwrap_or(false), ..Default::default() })).await?
 }
 
 /// What Jev suggests for a todo being written: its project, labels and the todos it waits on
 /// (todojev.rs). Errors when `[jev] todos` is off or there's nothing to ask.
-#[tauri::command(async)]
-fn suggest_todo(engine: State<'_, engine::Handle>, id: Option<String>, title: String, description: String, project: String) -> Result<todojev::Suggested, String> {
-    todojev::suggest(&engine.board(), id.as_deref(), &title, &description, &project).map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn suggest_todo(engine: State<'_, engine::Handle>, id: Option<String>, title: String, description: String, project: String) -> Result<todojev::Suggested, String> {
+    let engine = engine.inner().clone();
+    blocking(move || todojev::suggest(&engine.board(), id.as_deref(), &title, &description, &project).map_err(words)).await?
 }
 
 /// "Looks done" was wrong for this todo, until something linked to it moves on.
@@ -633,21 +682,21 @@ fn dismiss_todo_hint(engine: State<'_, engine::Handle>, id: String) {
 }
 
 /// Whether there's a TypeSafe API key, for Settings. Reads no secret.
-#[tauri::command(async)]
-fn jev_key() -> bool {
-    jev::has_key()
+#[tauri::command]
+async fn jev_key() -> Result<bool, String> {
+    blocking(move || jev::has_key()).await
 }
 
 /// Saves the TypeSafe API key in the keychain, or removes it when it's empty.
-#[tauri::command(async)]
-fn set_jev_key(key: String) -> Result<(), String> {
-    if key.trim().is_empty() { jev::delete_key() } else { jev::save_key(&key) }.map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn set_jev_key(key: String) -> Result<(), String> {
+    blocking(move || if key.trim().is_empty() { jev::delete_key() } else { jev::save_key(&key) }.map_err(words)).await?
 }
 
 /// One small call to TypeSafe, for Settings' Test button.
-#[tauri::command(async)]
-fn test_jev(model: String) -> Result<String, String> {
-    jev::check(model.trim()).map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn test_jev(model: String) -> Result<String, String> {
+    blocking(move || jev::check(model.trim()).map_err(words)).await?
 }
 
 /// The quick panel's shortcut and why it isn't working, if it isn't.
@@ -712,109 +761,127 @@ fn notch_keys(app: tauri::AppHandle, on: bool) {
 fn keep_notch_session(app: tauri::AppHandle, window: tauri::WebviewWindow, key: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let host = panel::frame(&window).ok_or_else(|| "The bar isn't there.".to_string())?;
     let card = geometry::PageRect { x, y, w, h }.to_screen(host);
-    kept::keep(&app, key, card, true).map(|_| ()).map_err(|e| e.to_string())
+    kept::keep(&app, key, card, true).map(|_| ()).map_err(words)
 }
 
 /// A PR's description, reviews and changed files.
-#[tauri::command(async)]
-fn pr_detail(repo: String, number: u64) -> Result<github::PrDetail, String> {
-    github::detail(&repo, number).map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn pr_detail(repo: String, number: u64) -> Result<github::PrDetail, String> {
+    blocking(move || github::detail(&repo, number).map_err(words)).await?
 }
 
 /// A PR the board doesn't list, for a link to it in a conversation: what GitHub says of it, with
 /// the worktrees and sessions here that worked on it.
-#[tauri::command(async)]
-fn pr_card(engine: State<'_, engine::Handle>, repo: String, number: u64) -> Result<model::PrItem, String> {
-    engine.pr_card(&repo, number).map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn pr_card(engine: State<'_, engine::Handle>, repo: String, number: u64) -> Result<model::PrItem, String> {
+    let engine = engine.inner().clone();
+    blocking(move || engine.pr_card(&repo, number).map_err(words)).await?
 }
 
 /// Which of a PR's comments ask for a change, by comment id, from Jev (prasks.rs). Empty while
 /// `[jev] pull_requests` is off or there's no key: the panel just shows no markers.
-#[tauri::command(async)]
-fn pr_comment_asks(title: String, comments: Vec<prasks::CommentIn>) -> Result<std::collections::HashMap<String, f64>, String> {
-    let cfg = config::load().ok().flatten().unwrap_or_default();
-    if !cfg.jev.pull_requests || !jev::has_key() {
-        return Ok(Default::default());
-    }
-    prasks::asks(cfg.jev.model.trim(), &title, &comments).map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn pr_comment_asks(title: String, comments: Vec<prasks::CommentIn>) -> Result<std::collections::HashMap<String, f64>, String> {
+    blocking(move || {
+        let cfg = config::load_or_default();
+        if !cfg.jev.pull_requests || !jev::has_key() {
+            return Ok(Default::default());
+        }
+        prasks::asks(cfg.jev.model.trim(), &title, &comments).map_err(words)
+    })
+    .await?
 }
 
 /// Approves a PR as you. It returns once the board no longer asks for your review, and PRs are
 /// read again for the rest.
-#[tauri::command(async)]
-fn approve_pr(engine: State<'_, engine::Handle>, repo: String, number: u64) -> Result<(), String> {
-    github::approve(&repo, number).map_err(|e| format!("{e:#}"))?;
-    engine.approved(&repo, number);
-    Ok(())
+#[tauri::command]
+async fn approve_pr(engine: State<'_, engine::Handle>, repo: String, number: u64) -> Result<(), String> {
+    let engine = engine.inner().clone();
+    blocking(move || {
+        github::approve(&repo, number).map_err(words)?;
+        engine.approved(&repo, number);
+        Ok(())
+    })
+    .await?
 }
 
 /// Opens a PR in Codex's review.
-#[tauri::command(async)]
-fn review_in_codex(url: String) -> Result<(), String> {
-    launch::open_codex(&launch::codex_review_url(&url)).map_err(|e| e.to_string())
+#[tauri::command]
+async fn review_in_codex(url: String) -> Result<(), String> {
+    blocking(move || launch::open_codex(&launch::codex_review_url(&url)).map_err(words)).await?
 }
 
 /// Opens a web link (from a PR description) in the browser.
-#[tauri::command(async)]
-fn open_url(url: String) -> Result<(), String> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("Only web links open from here.".into());
-    }
-    launch::open_url(&url).map_err(|e| e.to_string())
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    blocking(move || {
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            return Err("Only web links open from here.".into());
+        }
+        launch::open_url(&url).map_err(words)
+    })
+    .await?
 }
 
 /// Runs a command from a session's conversation (a shell block in a reply, or a command the agent
 /// ran) in a new terminal in `cwd`, where the window says it ran or belongs (runcode.rs).
-#[tauri::command(async)]
-fn run_in_terminal(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, cwd: String, text: String) -> Result<(), String> {
-    let dir = std::path::PathBuf::from(&cwd);
-    let (apps, near) = engine.read(|b| (b.apps.clone(), board::terminal_neighbours(&b.lanes, &dir)));
-    runcode::run(&apps, &near, &dir, &text).map_err(|e| format!("{e:#}"))?;
-    // A click in the bar's peek, the quick panel, a card on the desktop or a session kept there
-    // leaves Codealong inactive, and macOS may not bring the terminal forward for an app that isn't.
-    let label = window.label();
-    if [bar::LABEL, quick::LABEL, peek::LABEL].contains(&label) || label.starts_with(desktop::PREFIX) || label.starts_with(kept::PREFIX) {
-        if let Some(bundle) = launch::bundle_id(&apps.terminal_id) {
-            front::bring_forward(&app, bundle);
+#[tauri::command]
+async fn run_in_terminal(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, cwd: String, text: String) -> Result<(), String> {
+    let engine = engine.inner().clone();
+    blocking(move || {
+        let dir = std::path::PathBuf::from(&cwd);
+        let (apps, near) = engine.read(|b| (b.apps.clone(), board::terminal_neighbours(&b.lanes, &dir)));
+        runcode::run(&apps, &near, &dir, &text).map_err(words)?;
+        // A click in the bar's peek, the quick panel, a card on the desktop or a session kept there
+        // leaves Codealong inactive, and macOS may not bring the terminal forward for an app that isn't.
+        let label = window.label();
+        if [bar::LABEL, quick::LABEL, peek::LABEL].contains(&label) || label.starts_with(desktop::PREFIX) || label.starts_with(kept::PREFIX) {
+            if let Some(bundle) = launch::bundle_id(&apps.terminal_id) {
+                front::bring_forward(&app, bundle);
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    })
+    .await?
 }
 
 /// Archives or unarchives a session; returns the time of the board that shows it, as
 /// `mark_seen` does.
-#[tauri::command(async)]
-fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, api::SESSION_ARCHIVE, &key, actions::params::Archive { archived, ..Default::default() }).map(|v| v.as_i64())
+#[tauri::command]
+async fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<Option<i64>, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_ARCHIVE, &key, actions::params::Archive { archived, ..Default::default() }).map(|v| v.as_i64())).await?
 }
 
 /// Names a session where its harness keeps its name, so the harness shows it too. Returns the
 /// time of the board that shows it, as `mark_seen` does.
-#[tauri::command(async)]
-fn rename_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, name: String) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, api::SESSION_RENAME, &key, actions::params::Rename { name, ..Default::default() }).map(|v| v.as_i64())
+#[tauri::command]
+async fn rename_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, name: String) -> Result<Option<i64>, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_RENAME, &key, actions::params::Rename { name, ..Default::default() }).map(|v| v.as_i64())).await?
 }
 
-#[tauri::command(async)]
-fn get_accounts(engine: State<'_, engine::Handle>) -> Result<Vec<model::AccountInfo>, String> {
-    engine.accounts().map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn get_accounts(engine: State<'_, engine::Handle>) -> Result<Vec<model::AccountInfo>, String> {
+    let engine = engine.inner().clone();
+    blocking(move || engine.accounts().map_err(words)).await?
 }
 
 #[tauri::command(async)]
 fn save_accounts(engine: State<'_, engine::Handle>, accounts: Vec<config::AccountCfg>) -> Result<(), String> {
-    engine.save_accounts(accounts).map_err(|e| format!("{e:#}"))
+    engine.save_accounts(accounts).map_err(words)
 }
 
 /// The star on an account in Settings › Accounts: Auto starts preferred accounts first.
 #[tauri::command(async)]
 fn set_preferred(engine: State<'_, engine::Handle>, account: String, preferred: bool) -> Result<(), String> {
-    engine.set_preferred(&account, preferred).map_err(|e| format!("{e:#}"))
+    engine.set_preferred(&account, preferred).map_err(words)
 }
 
 /// Accounts on this Mac that config.toml doesn't list, for Settings › Accounts.
-#[tauri::command(async)]
-fn found_accounts() -> Vec<detect::Found> {
-    detect::unlisted()
+#[tauri::command]
+async fn found_accounts() -> Result<Vec<detect::Found>, String> {
+    blocking(move || detect::unlisted()).await
 }
 
 /// The settings as parsed and config.toml as written, for Settings.
@@ -826,7 +893,7 @@ fn get_config() -> config::ConfigView {
 /// Saves every setting from the Settings form, in place in config.toml.
 #[tauri::command(async)]
 fn save_config(engine: State<'_, engine::Handle>, config: config::Config) -> Result<(), String> {
-    engine.save_config(&config).map_err(|e| format!("{e:#}"))
+    engine.save_config(&config).map_err(words)
 }
 
 /// Where automatic updates stand, for Settings and the sidebar (updates.rs).
@@ -850,28 +917,29 @@ fn restart_to_update(app: tauri::AppHandle) {
 /// Saves config.toml as typed in Settings, once it parses.
 #[tauri::command(async)]
 fn save_config_text(engine: State<'_, engine::Handle>, text: String) -> Result<(), String> {
-    engine.save_config_text(&text).map_err(|e| format!("{e:#}"))
+    engine.save_config_text(&text).map_err(words)
 }
 
-#[tauri::command(async)]
-fn sign_in(engine: State<'_, engine::Handle>, name: String) -> Result<(), String> {
-    engine.sign_in(&name).map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn sign_in(engine: State<'_, engine::Handle>, name: String) -> Result<(), String> {
+    let engine = engine.inner().clone();
+    blocking(move || engine.sign_in(&name).map_err(words)).await?
 }
 
 /// The `codealong` command link and the skill per account, for Settings › Agents.
-#[tauri::command(async)]
-fn agents_status() -> install::AgentsStatus {
-    install::status()
+#[tauri::command]
+async fn agents_status() -> Result<install::AgentsStatus, String> {
+    blocking(move || install::status()).await
 }
 
 /// Links the command and copies the skill for the named accounts, then reports the new state.
-#[tauri::command(async)]
-fn install_agents(command: bool, accounts: Vec<String>) -> Result<install::AgentsStatus, String> {
-    install::install(command, &accounts).map_err(|e| format!("{e:#}"))
+#[tauri::command]
+async fn install_agents(command: bool, accounts: Vec<String>) -> Result<install::AgentsStatus, String> {
+    blocking(move || install::install(command, &accounts).map_err(words)).await?
 }
 
 /// Your other devices as Settings › Devices and the views show them (peers.rs).
-#[tauri::command]
+#[tauri::command(async)]
 fn devices(peers: State<'_, peers::Peers>) -> peers::DevicesView {
     peers.view()
 }
@@ -884,25 +952,29 @@ fn set_device_color(peers: State<'_, peers::Peers>, key: String, color: Option<S
 }
 
 /// Asks one of your devices on your tailnet to link; returns the code both show.
-#[tauri::command(async)]
-fn link_device(peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
-    peers.link(&key)
+#[tauri::command]
+async fn link_device(peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
+    let peers = peers.inner().clone();
+    blocking(move || peers.link(&key)).await?
 }
 
-#[tauri::command(async)]
-fn answer_link(peers: State<'_, peers::Peers>, key: String, accept: bool) -> Result<(), String> {
-    peers.answer_link(&key, accept)
+#[tauri::command]
+async fn answer_link(peers: State<'_, peers::Peers>, key: String, accept: bool) -> Result<(), String> {
+    let peers = peers.inner().clone();
+    blocking(move || peers.answer_link(&key, accept)).await?
 }
 
-#[tauri::command(async)]
-fn unlink_device(peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
-    peers.unlink(&key)
+#[tauri::command]
+async fn unlink_device(peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
+    let peers = peers.inner().clone();
+    blocking(move || peers.unlink(&key)).await?
 }
 
 /// A link code for a device that isn't on your tailnet.
-#[tauri::command(async)]
-fn device_link_code(peers: State<'_, peers::Peers>) -> Result<String, String> {
-    peers.link_code()
+#[tauri::command]
+async fn device_link_code(peers: State<'_, peers::Peers>) -> Result<String, String> {
+    let peers = peers.inner().clone();
+    blocking(move || peers.link_code()).await?
 }
 
 /// A link code as a QR code (SVG) of the link the phone app opens, so a phone's camera links it.
@@ -917,78 +989,93 @@ fn link_qr_svg(code: &str) -> Result<String, String> {
 }
 
 /// Links with the device that made this link code; returns its name.
-#[tauri::command(async)]
-fn link_with_code(peers: State<'_, peers::Peers>, code: String) -> Result<String, String> {
-    peers.link_with_code(&code)
+#[tauri::command]
+async fn link_with_code(peers: State<'_, peers::Peers>, code: String) -> Result<String, String> {
+    let peers = peers.inner().clone();
+    blocking(move || peers.link_with_code(&code)).await?
 }
 
 /// What was said in sessions on your other devices, searched on each of them.
-#[tauri::command(async)]
-fn search_devices(peers: State<'_, peers::Peers>, words: Vec<String>) -> Vec<peers::DeviceFound> {
-    let words = search::tidy(&words);
-    if words.is_empty() {
-        return Vec::new();
-    }
-    peers.search(&words)
+#[tauri::command]
+async fn search_devices(peers: State<'_, peers::Peers>, words: Vec<String>) -> Result<Vec<peers::DeviceFound>, String> {
+    let peers = peers.inner().clone();
+    blocking(move || {
+        let words = search::tidy(&words);
+        if words.is_empty() {
+            return Vec::new();
+        }
+        peers.search(&words)
+    })
+    .await
 }
 
 /// Where each account can start a session, for the new-session sheet.
-#[tauri::command(async)]
-fn start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>) -> Result<start::StartOptions, String> {
-    actions::typed(actions::run_on(&engine, &peers, api::START_OPTIONS, None, serde_json::json!({}))?)
+#[tauri::command]
+async fn start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>) -> Result<start::StartOptions, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::typed(actions::run_on(&engine, &peers, api::START_OPTIONS, None, serde_json::json!({}))?)).await?
 }
 
 /// Starts a session in a worktree: in the terminal, or in the Claude or Codex app. A start from
 /// todos links each of them to the session, or to the next one of that account in the repo when
 /// an app picks the session's ID.
-#[tauri::command(async)]
-fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
-    actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)
+#[tauri::command]
+async fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)).await?
 }
 
 /// Moves a session to another account of its harness (`start::move_to`): a copy goes on in a new
 /// terminal under `account`, and the session is closed and archived. Its card on the desktop and
 /// its kept window show the copy once the board has it, so neither says it's gone meanwhile.
-#[tauri::command(async)]
-fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, account: String) -> Result<start::Started, String> {
-    let got = actions::run(&engine, &peers, actions::MOVE, &key, actions::params::Move { account })?;
-    let started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
-    if let Some(copy) = started.key.clone() {
-        let engine = engine.inner().clone();
-        std::thread::spawn(move || {
-            // Its terminal takes a moment to start Claude Code, which then says it's there.
-            let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-            while !engine.read(|b| b.session(&copy).is_some()) {
-                if std::time::Instant::now() > until {
-                    return;
+#[tauri::command]
+async fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, account: String) -> Result<start::Started, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        let got = actions::run(&engine, &peers, actions::MOVE, &key, actions::params::Move { account })?;
+        let started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
+        if let Some(copy) = started.key.clone() {
+            std::thread::spawn(move || {
+                // Its terminal takes a moment to start Claude Code, which then says it's there.
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+                while !engine.read(|b| b.session(&copy).is_some()) {
+                    if std::time::Instant::now() > until {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                 }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            desktop::follow(&app, &key, &copy);
-            kept::follow(&app, &key, &copy);
-        });
-    }
-    Ok(started)
+                desktop::follow(&app, &key, &copy);
+                kept::follow(&app, &key, &copy);
+            });
+        }
+        Ok(started)
+    })
+    .await?
 }
 
 /// Forks a session: into a new terminal in its folder (`start::fork`), or, `background`, into a
 /// copy that goes on without a window, on `prompt` when there's one (`start::fork_background`).
-#[tauri::command(async)]
-fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, background: Option<bool>, prompt: Option<String>) -> Result<start::Started, String> {
-    let got = if background == Some(true) {
-        actions::run(&engine, &peers, api::SESSION_FORK, &key, actions::params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() })?
-    } else {
-        actions::run(&engine, &peers, actions::FORK_TERMINAL, &key, serde_json::json!({}))?
-    };
-    serde_json::from_value(got).map_err(|e| e.to_string())
+#[tauri::command]
+async fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, background: Option<bool>, prompt: Option<String>) -> Result<start::Started, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || {
+        let got = if background == Some(true) {
+            actions::run(&engine, &peers, api::SESSION_FORK, &key, actions::params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() })?
+        } else {
+            actions::run(&engine, &peers, actions::FORK_TERMINAL, &key, serde_json::json!({}))?
+        };
+        serde_json::from_value(got).map_err(|e| e.to_string())
+    })
+    .await?
 }
 
 /// Asks something about a session on the side (side.rs): a throwaway copy of its conversation
 /// answers, and the session carries on, unaware. Returns the side conversation with the question
 /// in it; the answer comes as `side` events.
-#[tauri::command(async)]
-fn side_ask(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, actions::SIDE_ASK, &key, actions::params::Side { text })
+#[tauri::command]
+async fn side_ask(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, actions::SIDE_ASK, &key, actions::params::Side { text })).await?
 }
 
 /// A session's side conversation, for a window that starts showing the session.
@@ -1006,31 +1093,33 @@ fn side_past(key: String) -> Vec<side::Kept> {
 /// Forgets a kept side conversation.
 #[tauri::command(async)]
 fn side_forget(id: String) -> Result<(), String> {
-    side::forget(&id).map_err(|e| format!("{e:#}"))
+    side::forget(&id).map_err(words)
 }
 
 /// Ends a session's side conversation: its copy stops, and what was said is kept to read.
-#[tauri::command(async)]
-fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
-    actions::run(&engine, &peers, actions::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())
+#[tauri::command]
+async fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, actions::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())).await?
 }
 
 /// Where each account on another device can start a session, asked of that device.
-#[tauri::command(async)]
-fn device_start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, device: String) -> Result<start::StartOptions, String> {
-    actions::typed(actions::run_on(&engine, &peers, api::START_OPTIONS, Some(&device), serde_json::json!({}))?)
+#[tauri::command]
+async fn device_start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, device: String) -> Result<start::StartOptions, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::typed(actions::run_on(&engine, &peers, api::START_OPTIONS, Some(&device), serde_json::json!({}))?)).await?
 }
 
 /// A project's canvas as the window last saved it, or null.
 #[tauri::command(async)]
 fn canvas_load(project: String) -> Result<serde_json::Value, String> {
-    canvas::load(&project).map_err(|e| format!("{e:#}"))
+    canvas::load(&project).map_err(words)
 }
 
 /// Saves a project's canvas.
 #[tauri::command(async)]
 fn canvas_save(project: String, doc: serde_json::Value) -> Result<(), String> {
-    canvas::save(&project, doc).map_err(|e| format!("{e:#}"))
+    canvas::save(&project, doc).map_err(words)
 }
 
 /// A change to a todo or to the labels. Returns the time of the first board that shows it.
@@ -1048,13 +1137,13 @@ fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<attachments::Atta
         return Err("That wasn't a file.".into());
     };
     let name = request.headers().get("x-name").and_then(|v| v.to_str().ok()).and_then(|v| urlencoding::decode(v).ok()).map(|v| v.into_owned()).unwrap_or_default();
-    attachments::keep(bytes, &name).map_err(|e| format!("{e:#}"))
+    attachments::keep(bytes, &name).map_err(words)
 }
 
 /// Keeps a copy of a file dropped from the Finder.
 #[tauri::command(async)]
 fn import_attachment(path: String) -> Result<attachments::Attachment, String> {
-    attachments::import(std::path::Path::new(&path)).map_err(|e| format!("{e:#}"))
+    attachments::import(std::path::Path::new(&path)).map_err(words)
 }
 
 /// Text with its attachments as full paths, for copying a todo as a prompt.
@@ -1064,13 +1153,16 @@ fn expand_attachments(text: String) -> String {
 }
 
 /// Opens a kept attachment in the app that opens its kind (Preview for an image, say).
-#[tauri::command(async)]
-fn open_attachment(path: String) -> Result<(), String> {
-    let file = attachments::locate(&path).ok_or("That isn't one of Codealong's attachments.")?;
-    if !file.exists() {
-        return Err("That attachment is gone: it's cleared 30 days after no todo uses it.".into());
-    }
-    launch::open_url(&file.to_string_lossy()).map_err(|e| e.to_string())
+#[tauri::command]
+async fn open_attachment(path: String) -> Result<(), String> {
+    blocking(move || {
+        let file = attachments::locate(&path).ok_or("That isn't one of Codealong's attachments.")?;
+        if !file.exists() {
+            return Err("That attachment is gone: it's cleared 30 days after no todo uses it.".into());
+        }
+        launch::open_url(&file.to_string_lossy()).map_err(words)
+    })
+    .await?
 }
 
 /// Serves kept images to the windows at `codealong-image://localhost/<name>`. Only names
@@ -1098,7 +1190,7 @@ fn serve_image(request: tauri::http::Request<Vec<u8>>, responder: tauri::UriSche
 /// Saves the theme to config.toml. Every window follows, through the board.
 #[tauri::command(async)]
 fn set_theme(engine: State<'_, engine::Handle>, theme: config::Theme) -> Result<(), String> {
-    engine.set_theme(theme).map_err(|e| format!("{e:#}"))
+    engine.set_theme(theme).map_err(words)
 }
 
 /// The app's own appearance for a theme: `None` lets macOS decide. Window chrome, native menus
@@ -1402,6 +1494,16 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_waiting_command_runs_on_the_blocking_pool_and_says_when_it_broke() {
+        let worker = std::thread::current().id();
+        let (ran_on, n) = tauri::async_runtime::block_on(blocking(|| (std::thread::current().id(), 7))).unwrap();
+        assert_eq!(n, 7);
+        assert_ne!(ran_on, worker, "the body ran off the caller's thread");
+        let err = tauri::async_runtime::block_on(blocking(|| -> u8 { panic!("gone") })).unwrap_err();
+        assert!(err.starts_with("That stopped partway"), "{err}");
+    }
 
     #[test]
     fn another_window_takes_the_first_free_label() {

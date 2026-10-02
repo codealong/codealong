@@ -279,7 +279,7 @@ pub fn options_for(cfg: &Config) -> StartOptions {
 /// The sheet's options for the accounts config.toml has now: what a window's new-session sheet
 /// and another device's get.
 pub fn options_here() -> Result<StartOptions> {
-    Ok(options_for(&config::load()?.unwrap_or_default()))
+    Ok(options_for(&config::load_strict()?))
 }
 
 /// The launch for one start, as its harness takes it (`Adapter::start_in_terminal`,
@@ -471,7 +471,7 @@ pub fn start_and_link(board: &Board, cfg: &Config, spec: &StartSpec, record: imp
 /// Starts a session on this device and links it to its todos through the engine: a window's
 /// start, another device's, and `codealong start` with the app up (server.rs).
 pub fn start_here(engine: &Handle, spec: &StartSpec) -> Result<Started> {
-    let cfg = config::load()?.unwrap_or_default();
+    let cfg = config::load_strict()?;
     start_and_link(&engine.board(), &cfg, spec, |link| {
         engine.todo_started(link.ids, link.lane, link.session, link.pending);
         Ok(())
@@ -481,7 +481,7 @@ pub fn start_here(engine: &Handle, spec: &StartSpec) -> Result<Started> {
 /// Keeps whether a start went into a new worktree, where one was on offer, for Jev's next
 /// suggestion in that repo (starts.rs).
 pub fn note(engine: &Handle, spec: &StartSpec) {
-    let cfg = config::load().ok().flatten().unwrap_or_default();
+    let cfg = config::load_or_default();
     if !offers_worktree(&cfg, spec) {
         return;
     }

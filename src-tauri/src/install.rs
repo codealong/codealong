@@ -156,7 +156,7 @@ pub fn copy_state(src: &Path, dst: &Path) -> CopyState {
 /// the plugin carries the skill. Then every skill copy Codealong made is brought up to date,
 /// unless someone edited it. Accounts and folders without either are left as they are.
 pub fn refresh_installed() {
-    let cfg = config::load().ok().flatten().unwrap_or_default();
+    let cfg = config::load_or_default();
     let shipped = shipped_version();
     for a in cfg.accounts.iter().filter(|a| takes_plugin(a)) {
         let home = a.home_path();
@@ -609,7 +609,7 @@ pub fn account_skill(source: Option<&Path>, a: &AccountCfg) -> AccountSkill {
 /// The command link and every account's skill, as things stand.
 pub fn status() -> AgentsStatus {
     let source = skill_source();
-    let cfg = config::load().ok().flatten().unwrap_or_default();
+    let cfg = config::load_or_default();
     let plugin_version = shipped_version();
     AgentsStatus { command: command_status(), skill_found: source.is_some(), plugin_version, accounts: cfg.accounts.iter().map(|a| account_skill(source.as_deref(), a)).collect(), errors: Vec::new() }
 }
@@ -650,7 +650,7 @@ pub fn run(ask: &Ask) -> Done {
             Err(e) => done.errors.push(format!("The command wasn't linked: {e:#}")),
         }
     }
-    let cfg = config::load().ok().flatten().unwrap_or_default();
+    let cfg = config::load_or_default();
     let source = skill_source();
     for name in &ask.accounts {
         let Some(a) = cfg.accounts.iter().find(|a| &a.name == name) else {

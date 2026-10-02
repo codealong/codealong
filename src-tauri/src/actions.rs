@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 
 use crate::engine::Handle;
 use crate::peers::Peers;
+use crate::util::words;
 use crate::{acp, config, harness, peerfeed, send, transcript};
 
 /// What only happens on the device a session runs on: another device can't ask for them, so
@@ -378,16 +379,13 @@ pub fn answer(engine: &Handle, name: &str, params: Value) -> Result<Value, Strin
 }
 
 fn cfg() -> Result<config::Config, String> {
-    Ok(config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default())
+    Ok(config::load_strict().map_err(words)?)
 }
 
 fn to_value<T: serde::Serialize>(v: T) -> Result<Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
 }
 
-fn words(e: anyhow::Error) -> String {
-    format!("{e:#}")
-}
 
 /// A page of the conversation, from its own record (transcript.rs): the newest without
 /// `before`, else what came before it.

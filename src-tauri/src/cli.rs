@@ -691,7 +691,7 @@ impl Client {
 
     fn cfg(&mut self) -> &Config {
         if self.cfg.is_none() {
-            self.cfg = Some(config::load().ok().flatten().unwrap_or_default());
+            self.cfg = Some(config::load_or_default());
         }
         self.cfg.as_ref().unwrap()
     }

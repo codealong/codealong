@@ -296,7 +296,7 @@ impl Handle {
             bail!("That isn't a session.");
         };
         if let Some(adapter) = harness::named(harness) {
-            let cfg = config::load()?.unwrap_or_default();
+            let cfg = config::load_strict()?;
             let a = cfg.accounts.iter().find(|a| a.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
             adapter.archive(a, id, archived)?;
         }
@@ -312,7 +312,7 @@ impl Handle {
     /// shows it, as `mark_seen_shown` does.
     pub fn rename(&self, key: &str, name: &str) -> Result<Option<i64>> {
         let name = harness::session_name(name)?;
-        let cfg = config::load()?.unwrap_or_default();
+        let cfg = config::load_strict()?;
         let (session, account) = self.read(|b| harness::find(b, &cfg, key).map(|(s, a)| (s.clone(), a.clone())))?;
         let changed = harness::adapter(session.harness).rename(&harness::Ctx { account: &account }, &session, &name)?;
         let (tx, rx) = channel();
@@ -338,7 +338,7 @@ impl Handle {
 
     /// The accounts in config.toml, each with whether it's signed in.
     pub fn accounts(&self) -> Result<Vec<AccountInfo>> {
-        let cfg = config::load()?.unwrap_or_default();
+        let cfg = config::load_strict()?;
         Ok(cfg.accounts.iter().map(usage::describe).collect())
     }
 
@@ -350,7 +350,7 @@ impl Handle {
     /// Stars an account, or takes its star away, in config.toml, and publishes it at once
     /// rather than when the watcher notices the file.
     pub fn set_preferred(&self, account: &str, preferred: bool) -> Result<()> {
-        let mut accounts = config::load()?.unwrap_or_default().accounts;
+        let mut accounts = config::load_strict()?.accounts;
         let a = accounts.iter_mut().find(|a| a.name == account).ok_or_else(|| anyhow::anyhow!("There's no account named {account}."))?;
         a.preferred = preferred;
         config::save_accounts(&accounts)?;
@@ -385,7 +385,7 @@ impl Handle {
 
     /// Opens a terminal window that signs the account in.
     pub fn sign_in(&self, name: &str) -> Result<()> {
-        let cfg = config::load()?.unwrap_or_default();
+        let cfg = config::load_strict()?;
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
         let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
         launch::terminal_open(&cfg.apps.terminal, place, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))

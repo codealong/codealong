@@ -386,7 +386,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
 /// Where typed text goes on this device's board, for its quick panel or a linked phone's:
 /// `route`, with the settings as they stand, and only while `[jev] quick_panel` is on.
 pub fn suggest(board: &Board, project: &str, text: &str) -> Result<Route> {
-    let cfg = crate::config::load()?.unwrap_or_default();
+    let cfg = crate::config::load_strict()?;
     if !cfg.jev.quick_panel {
         bail!("Suggestions in the quick panel are off.");
     }

@@ -424,7 +424,7 @@ pub fn find_all() -> Vec<Found> {
 /// The accounts config.toml doesn't list, each new unless Codealong has read its folder or
 /// been told to leave it: what Settings › Accounts and `codealong config show` list.
 pub fn unlisted() -> Vec<Found> {
-    let accounts = crate::config::load().ok().flatten().map(|c| c.accounts).unwrap_or_default();
+    let accounts = crate::config::load_or_default().accounts;
     not_configured(find_all(), &accounts, &crate::state::known_accounts())
 }
 

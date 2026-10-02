@@ -317,7 +317,7 @@ pub struct SuggestRequest {
 /// What Jev suggests for a todo being written, on this board: its project, labels and the
 /// todos it waits on. An error when `[jev] todos` is off or there's nothing to ask.
 pub fn suggest(board: &Board, id: Option<&str>, title: &str, description: &str, project: &str) -> anyhow::Result<Suggested> {
-    let cfg = crate::config::load()?.unwrap_or_default();
+    let cfg = crate::config::load_strict()?;
     if !cfg.jev.todos {
         anyhow::bail!("Todo suggestions are off.");
     }

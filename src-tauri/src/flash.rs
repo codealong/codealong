@@ -71,7 +71,7 @@ pub fn after_focus(app: &AppHandle, from: Option<(f64, f64)>, bundle_id: &'stati
         if !native::is_newest(ticket) || !elsewhere(from, &window, &native::screens()) {
             return;
         }
-        let move_pointer = crate::config::load().ok().flatten().is_some_and(|c| c.apps.move_pointer);
+        let move_pointer = crate::config::load_or_default().apps.move_pointer;
         if move_pointer {
             native::warp(window.center());
         }

@@ -1545,7 +1545,10 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   neither the `image-png` nor the `image-ico` feature; Tauri's JS types don't list that form, but
   its `transformImage` passes it through. muda shows an item's image 18 points high.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.
-  Commands without `async` run on the main thread.
+  Commands without `async` run on the main thread. A sync command marked `async` runs inline on
+  one of the async runtime's few workers (tauri-macros 2.6 spawns its body as it is), so one that
+  can wait on a script, another device, `gh` or curl goes through lib.rs's `blocking`, which runs
+  it on the blocking pool. Errors go to a window as `util::words`, with what caused them.
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
   feature. `data-tauri-drag-region="deep"` drags from anywhere inside except controls.
 - WebKit holds back ResizeObserver and animation frames while a window is hidden.
