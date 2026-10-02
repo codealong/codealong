@@ -208,6 +208,28 @@ pub fn keep(app: &AppHandle, key: String, card: Rect, keys: bool) -> Result<bool
         return Ok(true);
     }
     let label = add(app, Kept { key, frame: crate::peek::window_for(card) }, keys);
+    open(app, label);
+    Ok(false)
+}
+
+/// Keeps `to` where session `from` is kept: a session moved to another account goes on as a new
+/// session (start.rs `move_to`), and its window goes with it. A page reads the session it keeps
+/// as it loads, so the copy gets a window of its own where the old one was, and the old one
+/// closes. Nothing changes when `to` is kept already.
+pub fn follow(app: &AppHandle, from: &str, to: &str) {
+    let Some(state) = app.try_state::<State>() else { return };
+    let (old, frame) = {
+        let Ok(inner) = state.inner.lock() else { return };
+        let Some((label, kept)) = inner.windows.iter().find(|(_, k)| k.key == from).filter(|_| inner.label_of(to).is_none()) else { return };
+        (label.clone(), kept.frame)
+    };
+    let label = add(app, Kept { key: to.to_string(), frame }, false);
+    open(app, label);
+    close(app, &old);
+}
+
+/// Makes a new kept window, off the main thread, which making a window waits on.
+fn open(app: &AppHandle, label: String) {
     let handle = app.clone();
     std::thread::spawn(move || {
         if let Err(e) = make_window(&handle, &label) {
@@ -219,7 +241,6 @@ pub fn keep(app: &AppHandle, key: String, card: Rect, keys: bool) -> Result<bool
             }
         }
     });
-    Ok(false)
 }
 
 /// Brings a kept session's window up, with the keyboard if `keys`. On the main thread.

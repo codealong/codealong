@@ -82,8 +82,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Move to, in a Claude Code session's right-click menu, moves it to another of your Claude
     Code accounts (one that's signed in): the conversation goes on in a new terminal under that
     account, and the session is closed and archived; its panel and the copy's say where it went.
-    Not mid-turn. The first reply there reads the whole conversation again, since the old
-    account's prompt cache doesn't carry over.
+    The copy is a session of its own, with a new ID, and takes the session's place on its todos,
+    among the pinned sessions, on its card on the desktop and in its kept window. Claude Code
+    keeps the copy once you send it something; until then it shows the conversation it was
+    moved with, and closed before then it's gone, the session staying in Archived. Not mid-turn.
+    The first reply there reads the whole conversation again, since the old account's prompt
+    cache doesn't carry over.
     `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the
     side: a throwaway copy of its conversation answers above the box, and the session carries
     on and never hears of it. The copy reads files and runs commands to answer, and is told to

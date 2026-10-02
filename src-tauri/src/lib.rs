@@ -1026,11 +1026,28 @@ fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
 }
 
 /// Moves a session to another account of its harness (`start::move_to`): a copy goes on in a new
-/// terminal under `account`, and the session is closed and archived.
+/// terminal under `account`, and the session is closed and archived. Its card on the desktop and
+/// its kept window show the copy once the board has it, so neither says it's gone meanwhile.
 #[tauri::command(async)]
-fn move_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, account: String) -> Result<start::Started, String> {
+fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, account: String) -> Result<start::Started, String> {
     let got = actions::run(&engine, &peers, actions::MOVE, &key, serde_json::json!({ "account": account }))?;
-    serde_json::from_value(got).map_err(|e| e.to_string())
+    let started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
+    if let Some(copy) = started.key.clone() {
+        let engine = engine.inner().clone();
+        std::thread::spawn(move || {
+            // Its terminal takes a moment to start Claude Code, which then says it's there.
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while !engine.read(|b| b.session(&copy).is_some()) {
+                if std::time::Instant::now() > until {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            desktop::follow(&app, &key, &copy);
+            kept::follow(&app, &key, &copy);
+        });
+    }
+    Ok(started)
 }
 
 /// Forks a session: into a new terminal in its folder (`start::fork`), or, `background`, into a

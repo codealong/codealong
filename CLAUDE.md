@@ -570,7 +570,9 @@ Claude Code
 - `--resume` takes a transcript's path as well as an ID (2.1.287: an argument ending in `.jsonl`
   is read as a file), from any account's folder, and the copy is written under the account that
   runs it, `--fork-session --session-id` naming it as above. That's how Codealong moves a
-  session to another account (`claude::move_to`). Checked 2026-10-02 between two accounts in
+  session to another account (`claude::move_to`). In a terminal the copy writes its transcript
+  only at its first prompt (checked in tmux): until then the registry has it, and the board
+  shows it with the conversation it was moved with (`Reader::moved_copy`, from origins.json). Checked 2026-10-02 between two accounts in
   different orgs, in a terminal and with `-p`: a Sonnet conversation with signed thinking blocks
   went on under the other account and remembered what it had said, and Haiku took it on too.
   Its first reply there wrote the whole conversation to the cache (about 20k of 30k tokens read

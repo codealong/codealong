@@ -652,6 +652,25 @@ pub fn unpin(app: &AppHandle, what: &Pinned) {
     tell(app);
 }
 
+/// Turns the card that shows session `from` into `to`'s, where it is: a session moved to another
+/// account goes on as a new session (start.rs `move_to`), and its card goes with it. Nothing
+/// changes when `to` has a card already.
+pub fn follow(app: &AppHandle, from: &str, to: &str) {
+    let Some(state) = app.try_state::<Desktop>() else { return };
+    {
+        let Ok(mut inner) = state.inner.lock() else { return };
+        let (from, to) = (Pinned { kind: Kind::Session, key: from.to_string() }, Pinned { kind: Kind::Session, key: to.to_string() });
+        let Some(label) = inner.label_of(&from).filter(|_| inner.label_of(&to).is_none()) else { return };
+        if let Some((_, pin)) = inner.cards.iter_mut().find(|(l, _)| *l == label) {
+            pin.what = to;
+        }
+        // The next publish sends it the copy.
+        inner.sent.remove(&label);
+        inner.save();
+    }
+    tell(app);
+}
+
 /// What's pinned, in the order it was pinned.
 pub fn pinned(app: &AppHandle) -> Vec<Pinned> {
     app.try_state::<Desktop>().and_then(|s| s.inner.lock().ok().map(|i| i.cards.iter().map(|(_, p)| p.what.clone()).collect())).unwrap_or_default()

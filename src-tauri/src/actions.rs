@@ -292,10 +292,24 @@ fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// Moves it to another account of its harness, `account` (`start::move_to`): the copy goes on
 /// in a new terminal, and the session is closed and archived: from here on the conversation is
-/// the copy's.
+/// the copy's, and so are the todos it was on and its place among the pinned sessions.
 fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
-    let started = crate::start::move_to(&engine.board(), &cfg()?, key, &c.text("account")).map_err(words)?;
+    let board = engine.board();
+    let started = crate::start::move_to(&board, &cfg()?, key, &c.text("account")).map_err(words)?;
+    if let Some(copy) = &started.key {
+        for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
+            // The session stays on it too, as one that worked on it.
+            let link = crate::todos::TodoOp::Link { id: t.id.clone(), worktree: None, session: Some(copy.clone()), linked: true };
+            if let Err(e) = engine.todo(link) {
+                eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
+            }
+        }
+        // Before it's archived, which unpins it.
+        if board.pinned.iter().any(|k| k == key) {
+            engine.set_pinned(board.pinned.iter().map(|k| if k == key { copy.clone() } else { k.clone() }).collect());
+        }
+    }
     if let Err(e) = engine.archive(key, true) {
         eprintln!("Moved {key}, but couldn't archive it: {e:#}");
     }

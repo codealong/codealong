@@ -500,7 +500,9 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str) -> Result<Start
             Err(e) => format!(" The old one is still running: {e:#}"),
         }
     };
-    Ok(Started { key: copy.key, message: Some(format!("Moved “{}” to {to}: it goes on in a new terminal in {}.{left}", s.title, lane.callsign)) })
+    // Claude Code writes the copy's transcript at its first prompt: closed before then, the copy is gone.
+    let message = format!("Moved “{}” to {to}: it goes on in a new terminal in {}, and {to} keeps it once you send it something.{left}", s.title, lane.callsign);
+    Ok(Started { key: copy.key, message: Some(message) })
 }
 
 /// The account a session can move to by that name: another account of the session's harness.
