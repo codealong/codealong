@@ -16,6 +16,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::actions;
+use crate::api;
 use crate::attachments;
 use crate::board;
 use crate::config::{self, AccountCfg, Config};
@@ -75,7 +77,7 @@ enum Cmd {
     },
     /// Sessions on the board: every agent, live or not, with its status and where it works. Lists by default; `find` searches.
     Sessions(SessionsArgs),
-    /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), in the Codealong app (`open`), or a message to it where it runs (`send`).
+    /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), in the Codealong app (`open`), a message to it where it runs (`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`).
     Session {
         #[command(subcommand)]
         cmd: SessionCmd,
@@ -132,7 +134,7 @@ enum DevicesCmd {
     Code,
     /// Link with the device that made this link code.
     UseCode { code: String },
-    /// Run a request on a linked device as this device's windows do (session-page, session-newer, session-pending, search, session-send, session-answer, mark-seen, start-options), with its parameters as JSON. For checking a link by hand.
+    /// Run a request on a linked device as this device's windows do (session-page, session-newer, session-pending, search, session-answer, mark-seen, start-options), with its parameters as JSON, less what the command can't ask for (a prompt, which would arrive there as its user's own; an answer other than deny). For checking a link by hand.
     #[command(hide = true)]
     Ask { device: String, method: String, params: Option<String> },
 }
@@ -386,6 +388,31 @@ enum SessionCmd {
     },
     /// Send a message to another session where it runs, on any account or harness. It's never your user's word: the message starts by saying it's from another agent and not the user, which session sent it, and how to answer (`codealong session send <sender's key> "…"`), so an answer arrives in your session as a new message. Claude Code sessions get it on their socket for messages between sessions; one that skips permission prompts takes it at once only from a session that skips them too, and otherwise asks its user first (a Claude app session can't, so nothing is sent). Codex and OpenCode sessions get it as a prompt, typed into their terminal or posted to their service, and queued while they work. Nothing is sent to a session that isn't running, one waiting on its user to answer a prompt, or an Antigravity one.
     Send(SendArgs),
+    /// What a session waits on its user for, when Codealong can see it (`pending`): the tool call it asks to run (`id`, which `session answer` names; `label`, the call in a line; `input`, all of it; `cannot`, why Codealong can't answer it, when it can't) or the questions it asks (`questions`); null when it waits on nothing Codealong can see. Codex records no approvals, so a Codex session never shows one.
+    Pending {
+        /// The session: its key, its id, a unique start of its id, or `me`.
+        key: String,
+    },
+    /// Deny the tool call a session waits on its user to allow, by the id `session pending` shows, if it's still the one waiting: Claude Code ends the turn, as No at its prompt does, and an OpenCode session is told no. Only `deny`: letting a call through, or answering the questions a session asks, is its user's to do, in Codealong or where the session runs.
+    Answer(AnswerArgs),
+    /// Stop the turn a session is taking, as its Stop in Codealong does: the conversation stays, and the session waits for its next message. A command it had handed to the background may keep running. A Claude app or Antigravity session can't be stopped from outside; the error says so.
+    Stop {
+        /// The session: its key, its id, a unique start of its id, or `me`.
+        key: String,
+    },
+    /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
+    Rename {
+        /// The session: its key, its id, a unique start of its id, or `me`.
+        key: String,
+        name: String,
+    },
+    /// Fork a session into a copy that goes on in the background, as /fork in its box in Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread Codealong runs (that one needs the app running). The session carries on unaware. Given a prompt, the copy starts on it; without one it waits for its first message. Prints the copy's key when its harness says it at once.
+    Fork {
+        /// The session: its key, its id, a unique start of its id, or `me`.
+        key: String,
+        /// What the copy starts on.
+        prompt: Option<String>,
+    },
     /// For the Codealong plugin's hooks, with the hook's input on stdin. `permission-request`
     /// hands Claude Code's permission request to the app, to be answered from Codealong as well
     /// as the prompt, and prints the answer for Claude Code. It prints nothing, and exits 0,
@@ -407,6 +434,21 @@ struct SendArgs {
     /// A file to send with it, such as a screenshot or a log: copied into Codealong's store, and the session gets its full path to open (Claude Code's Read tool shows images). Repeatable.
     #[arg(long, value_name = "FILE")]
     attach: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct AnswerArgs {
+    /// The session: its key, its id, a unique start of its id, or `me`.
+    key: String,
+    /// The id of the call it waits on, as `session pending` shows it.
+    id: String,
+    /// What to answer: `deny`, the only answer the command gives.
+    answer: AnswerArg,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum AnswerArg {
+    Deny,
 }
 
 #[derive(Subcommand, Debug)]
@@ -757,21 +799,23 @@ impl Client {
         Ok(started)
     }
 
-    /// Sends a message to a session as the agent `from` (send.rs): through the app, which does
-    /// what its windows do, or from here when it's closed or older than the command.
-    fn send(&mut self, key: &str, text: &str, from: Option<String>) -> Result<crate::send::Sent> {
+    /// One of the app's requests about the session `key` (actions.rs), asked as the command
+    /// (`actions::From::Command`, with `from` the session running it when that's been looked
+    /// for): through the app, which does what its windows do, or from here over the board when
+    /// it's closed or older than the command.
+    fn act(&mut self, name: &str, key: &str, params: Value, from: Option<String>) -> Result<Value> {
         self.note();
         if self.app.is_some() {
-            match server::ask(&Request::Send { key: key.to_string(), text: text.to_string(), from: from.clone() }) {
-                Some(Ok(v)) => return serde_json::from_value(v).context("reading the app's reply"),
-                // An app from before `send` says it doesn't know the request.
+            match server::ask(&Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() }) {
+                Some(Ok(v)) => return Ok(v),
+                // An app from before `run` says it doesn't know the request.
                 Some(Err(e)) if !e.starts_with(server::UNKNOWN_REQUEST) => bail!("{e}"),
                 Some(Err(_)) => {}
                 None => bail!("The app stopped answering."),
             }
         }
-        let cfg = self.cfg().clone();
-        crate::send::send(self.board()?, &cfg, key, text, crate::send::Sender::Agent(from), false)
+        let engine = engine::Handle::over(self.board()?.clone());
+        actions::local(&engine, &actions::From::Command(from), name, key, params).map_err(|e| anyhow!(e))
     }
 
     /// Brings the app's main window forward on a session, worktree, PR or todo (`Reveal` in
@@ -808,6 +852,14 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Show { key } } => session_show(c, &key, json),
         Cmd::Session { cmd: SessionCmd::Open { key } } => session_open(c, &key, json),
         Cmd::Session { cmd: SessionCmd::Send(args) } => session_send(c, args, json),
+        Cmd::Session { cmd: SessionCmd::Pending { key } } => session_pending(c, &key, json),
+        Cmd::Session { cmd: SessionCmd::Answer(a) } => {
+            let AnswerArg::Deny = a.answer;
+            session_act(c, &a.key, api::SESSION_ANSWER, json!({ "id": a.id, "answer": "deny" }), json)
+        }
+        Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, json!({}), json),
+        Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, json!({ "name": name }), json),
+        Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, json!({ "prompt": prompt.unwrap_or_default() }), json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
             session_hook(&event);
             Ok(())
@@ -1486,11 +1538,81 @@ fn session_send(c: &mut Client, a: SendArgs, json: bool) -> Result<()> {
     if text.trim().is_empty() {
         bail!("Give a message, --message-file or --attach.");
     }
-    let sent = c.send(&to, &text, from.clone())?;
+    let sent = serde_json::from_value(c.act(api::SESSION_SEND, &to, json!({ "text": text }), from.clone())?).context("reading what the send said")?;
     if json {
         return print_json(&SendOut { to, from, sent });
     }
     println!("{}", sent.message);
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingOut {
+    session: String,
+    pending: Option<api::Pending>,
+}
+
+fn session_pending(c: &mut Client, key: &str, json: bool) -> Result<()> {
+    let key = resolve_session(c, key)?;
+    let pending = serde_json::from_value(c.act(api::SESSION_PENDING, &key, json!({}), None)?).context("reading what it waits on")?;
+    let out = PendingOut { session: key, pending };
+    if json {
+        return print_json(&out);
+    }
+    let Some(p) = out.pending else {
+        println!("{} waits on nothing Codealong can see.", out.session);
+        return Ok(());
+    };
+    for q in &p.questions {
+        let choices: Vec<&str> = q.options.iter().map(|o| o.label.as_str()).collect();
+        println!("Asks: {} ({})", q.question, choices.join(", "));
+    }
+    if p.questions.is_empty() {
+        println!("Waits to run: {} (id {})", p.label, p.id);
+    }
+    if let Some(input) = p.input.as_deref().filter(|i| !i.trim().is_empty()) {
+        println!("{input}");
+    }
+    if let Some(why) = &p.cannot {
+        println!("Codealong can't answer it: {why}");
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActOut {
+    session: String,
+    /// What happened, in a sentence, when the action says.
+    said: Option<String>,
+    /// A fork's copy, when its harness says it at once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    copy: Option<String>,
+}
+
+/// Stops, renames, forks or denies, through the app's own action (actions.rs), and says what
+/// happened.
+fn session_act(c: &mut Client, key: &str, name: &str, params: Value, json: bool) -> Result<()> {
+    let key = resolve_session(c, key)?;
+    let got = c.act(name, &key, params, None)?;
+    let (said, copy) = match got {
+        Value::String(s) => (Some(s), None),
+        // A fork says what it started (`start::Started`).
+        Value::Object(o) => (o.get("message").and_then(Value::as_str).map(String::from), o.get("key").and_then(Value::as_str).map(String::from)),
+        _ => (None, None),
+    };
+    let said = said.or_else(|| (name == api::SESSION_RENAME).then(|| "Renamed.".to_string()));
+    let out = ActOut { session: key, said, copy };
+    if json {
+        return print_json(&out);
+    }
+    if let Some(said) = &out.said {
+        println!("{said}");
+    }
+    if let Some(copy) = &out.copy {
+        println!("The copy: {copy}");
+    }
     Ok(())
 }
 
@@ -3161,6 +3283,21 @@ mod tests {
         let Cmd::Session { cmd: SessionCmd::Send(s) } = cli.cmd else { panic!() };
         assert_eq!((s.message, s.message_file.as_deref()), (None, Some("-")));
         assert!(Cli::try_parse_from(["codealong", "session", "send", "abc", "hi", "--message-file", "m.txt"]).is_err());
+        // What the command does to a session is what a window does, through the app's actions.
+        let cli = Cli::try_parse_from(["codealong", "session", "answer", "abc", "toolu_1", "deny"]).unwrap();
+        let Cmd::Session { cmd: SessionCmd::Answer(a) } = cli.cmd else { panic!() };
+        assert_eq!((a.key.as_str(), a.id.as_str()), ("abc", "toolu_1"));
+        // Allowing is its user's to do.
+        assert!(Cli::try_parse_from(["codealong", "session", "answer", "abc", "toolu_1", "allow"]).is_err());
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));
+        let cli = Cli::try_parse_from(["codealong", "session", "rename", "abc", "Fix the flaky test"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Rename { ref name, .. } } if name == "Fix the flaky test"));
+        assert!(Cli::try_parse_from(["codealong", "session", "rename", "abc"]).is_err());
+        let cli = Cli::try_parse_from(["codealong", "session", "fork", "abc"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: None, .. } }));
+        let cli = Cli::try_parse_from(["codealong", "session", "fork", "abc", "Try it with the cache off"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: Some(ref p), .. } } if p.starts_with("Try")));
     }
 
     #[test]

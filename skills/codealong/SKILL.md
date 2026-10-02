@@ -138,6 +138,12 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
 - A session moved to another account (Move to, in Codealong) goes on there as a new session
   with a key of its own. A message to the old key is turned away with the new one named, and
   `codealong session show` gives it as `movedTo`: send there, and use that key from then on.
+- When your user asks, `codealong session stop <key>` stops the turn a session is taking,
+  `session rename <key> "<name>"` names it, and `session fork <key> ["<prompt>"]` forks it into
+  a copy that goes on in the background, as its menu in Codealong does. `session pending <key>`
+  says what a session waits on its user for, and `session answer <key> <id> deny` turns that
+  down. Only deny: letting a call through, or answering a session's questions, is its user's
+  to do.
 
 ## PRs
 

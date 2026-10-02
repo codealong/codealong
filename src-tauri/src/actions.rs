@@ -2,9 +2,11 @@
 //! name (what one device asks another: codealong-peer's `api`), what it does on this device, and,
 //! for the few that need someone at the Mac a session runs on, why another device can't ask for
 //! it. A window's command about a session goes through `run`, which does it here or asks the
-//! device the session is on; a linked device's request goes through `answer`, which does it here.
-//! So a request does the same whether a window here, another Mac or a phone asks, and who may
-//! ask for it from elsewhere is `api::REQUESTS`'s to say, once.
+//! device the session is on; a linked device's request goes through `answer`, which does it
+//! here; and the `codealong` command's goes through `run_as` (the app's socket, server.rs) or,
+//! with the app closed, `local`. So a request does the same whether a window here, another Mac,
+//! a phone or the command asks. Who may ask for it from elsewhere is `api::REQUESTS`'s to say,
+//! once, and what the command may not ask for is each request's `command` here.
 
 use std::time::Duration;
 
@@ -24,7 +26,7 @@ pub const SIDE_ASK: &str = "session-side-ask";
 pub const SIDE_CLOSE: &str = "session-side-close";
 
 /// Who's asking.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum From {
     /// A window on this device: you, at this Mac.
     Here,
@@ -32,6 +34,11 @@ pub enum From {
     /// `--snapshot`, which like a device isn't you at a window: what it sends claims nothing of
     /// yours, and nothing is left for someone here to finish.
     Device,
+    /// The `codealong` command on this device, where an agent may have typed it: with the key
+    /// of the session that ran it, when the command found one. It gets what a window has less
+    /// what is its user's alone to do (each request's `command`), and what it sends says it's
+    /// an agent's.
+    Command(Option<String>),
 }
 
 /// A request as a function gets it: `key` names the session on this device (empty for a
@@ -39,7 +46,7 @@ pub enum From {
 pub struct Call<'a> {
     pub key: &'a str,
     pub params: &'a Value,
-    pub from: From,
+    pub from: &'a From,
 }
 
 impl Call<'_> {
@@ -65,64 +72,132 @@ struct Request {
     name: &'static str,
     /// Why another device can't ask for it; None when one can (`api::reach` says which).
     only_here: Option<&'static str>,
+    /// Whether the `codealong` command may ask for it, with these params: why not, when it
+    /// may not.
+    command: fn(&Value) -> Result<(), String>,
     here: fn(&Handle, &Call) -> Result<Value, String>,
 }
 
+/// A request any linked device can make and the command too; each line says what differs.
+const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null) };
+
 const REQUESTS: &[Request] = &[
-    Request { name: api::SESSION_PAGE, only_here: None, here: page },
-    Request { name: api::SESSION_NEWER, only_here: None, here: newer },
-    Request { name: api::SESSION_PENDING, only_here: None, here: pending },
-    Request { name: api::SESSION_WAY, only_here: None, here: way },
-    Request { name: api::SESSION_STREAM, only_here: None, here: stream },
-    Request { name: api::SESSION_ANSWER, only_here: None, here: answer_call },
-    Request { name: api::SESSION_SEND, only_here: None, here: send_prompt },
-    Request { name: api::SESSION_CANCEL, only_here: None, here: cancel },
-    Request { name: api::SESSION_ARCHIVE, only_here: None, here: archive },
-    Request { name: api::SESSION_RENAME, only_here: None, here: rename },
-    Request { name: api::MARK_SEEN, only_here: None, here: mark_seen },
-    Request { name: api::SEARCH, only_here: None, here: search },
-    Request { name: api::ROUTE, only_here: None, here: route },
-    Request { name: api::START_OPTIONS, only_here: None, here: start_options },
-    Request { name: api::START, only_here: None, here: start },
-    Request { name: api::SESSION_FORK, only_here: None, here: fork },
+    Request { name: api::SESSION_PAGE, here: page, ..ANY },
+    Request { name: api::SESSION_NEWER, here: newer, ..ANY },
+    Request { name: api::SESSION_PENDING, here: pending, ..ANY },
+    Request { name: api::SESSION_WAY, here: way, ..ANY },
+    Request { name: api::SESSION_STREAM, here: stream, ..ANY },
+    Request { name: api::SESSION_ANSWER, here: answer_call, command: deny_only, ..ANY },
+    Request { name: api::SESSION_SEND, here: send_prompt, ..ANY },
+    Request { name: api::SESSION_CANCEL, here: cancel, ..ANY },
+    Request { name: api::SESSION_ARCHIVE, here: archive, ..ANY },
+    Request { name: api::SESSION_RENAME, here: rename, ..ANY },
+    Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
+    Request { name: api::SEARCH, here: search, ..ANY },
+    Request { name: api::ROUTE, here: route, ..ANY },
+    Request { name: api::START_OPTIONS, here: start_options, ..ANY },
+    Request { name: api::START, here: start, ..ANY },
+    Request { name: api::SESSION_FORK, here: fork, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
-    Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal },
-    // A move opens a terminal too, and closes the session's own.
-    Request { name: MOVE, only_here: Some("Move it on the Mac it runs on."), here: move_session },
-    Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close },
-    // A side conversation's copy runs on the session's Mac, and its answer goes to the windows there.
-    Request { name: SIDE_ASK, only_here: Some("Ask it on the side on the Mac it runs on."), here: side_ask },
-    Request { name: SIDE_CLOSE, only_here: Some("Its side conversation is on the Mac it runs on."), here: side_close },
+    Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
+    // A move opens a terminal too, and closes the session's own. Which account a conversation
+    // goes on under, and whose usage it spends, is its user's to choose.
+    Request { name: MOVE, only_here: Some("Move it on the Mac it runs on."), here: move_session, command: move_in_windows, ..ANY },
+    Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close, ..ANY },
+    // A side conversation's copy runs on the session's Mac, and its answer goes to the windows
+    // there. The copy may do what its session may without asking, which isn't the command's to
+    // borrow.
+    Request { name: SIDE_ASK, only_here: Some("Ask it on the side on the Mac it runs on."), here: side_ask, command: side_in_windows, ..ANY },
+    Request { name: SIDE_CLOSE, only_here: Some("Its side conversation is on the Mac it runs on."), here: side_close, command: side_in_windows, ..ANY },
 ];
 
 fn find(name: &str) -> Option<&'static Request> {
     REQUESTS.iter().find(|r| r.name == name)
 }
 
-/// Does `name` for the session `key` from a window here: on this device, or, for a session on
-/// another device, by asking that device (with the key it knows the session by).
-pub fn run(engine: &Handle, peers: &Peers, name: &str, key: &str, params: Value) -> Result<Value, String> {
-    let req = find(name).ok_or_else(|| format!("Codealong doesn't know how to {name}."))?;
-    match peerfeed::split_remote(key) {
-        Some((device, own)) => match req.only_here {
-            Some(why) => Err(why.to_string()),
-            None => {
-                let mut params = params;
-                if let Value::Object(m) = &mut params {
-                    m.insert("key".into(), json!(own));
-                }
-                ask(peers, device, name, params)
-            }
-        },
-        None => (req.here)(engine, &Call { key, params: &params, from: From::Here }),
+/// The command may turn down what a session waits on, never let it through: an agent may have
+/// typed it, and allowing a call or answering a question is the session's user's to do. It's
+/// the rule a message from the command goes by too, which isn't sent to a session waiting on
+/// its user (send.rs).
+fn deny_only(params: &Value) -> Result<(), String> {
+    let denies = params.get("answer").and_then(Value::as_str) == Some("deny");
+    let answers = params.get("answers").is_some_and(|a| !a.is_null());
+    match denies && !answers {
+        true => Ok(()),
+        false => Err("Allowing what a session asks, or answering its questions, is its user's to do, in Codealong or where the session runs. The command can only deny it.".into()),
     }
 }
 
+fn side_in_windows(_: &Value) -> Result<(), String> {
+    Err("A side conversation is asked and closed in Codealong's windows.".into())
+}
+
+fn move_in_windows(_: &Value) -> Result<(), String> {
+    Err("A session is moved to another account in Codealong's windows.".into())
+}
+
+/// Does `name` for the session `key` from a window here: on this device, or, for a session on
+/// another device, by asking that device (with the key it knows the session by).
+pub fn run(engine: &Handle, peers: &Peers, name: &str, key: &str, params: Value) -> Result<Value, String> {
+    run_as(engine, peers, &From::Here, name, key, params)
+}
+
+/// `run`, for whoever asks on this device: a window, or the `codealong` command through the
+/// app's socket (server.rs), which may not ask for all a window may.
+pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, key: &str, params: Value) -> Result<Value, String> {
+    let req = asked(from, name, &params)?;
+    match peerfeed::split_remote(key) {
+        Some((device, own)) => {
+            elsewhere(req, from)?;
+            // The command may leave out a request's params; the device reads the key from them.
+            let mut params = if params.is_null() { json!({}) } else { params };
+            if let Value::Object(m) = &mut params {
+                m.insert("key".into(), json!(own));
+            }
+            ask(peers, device, name, params)
+        }
+        None => (req.here)(engine, &Call { key, params: &params, from }),
+    }
+}
+
+/// Whether `from` may have another device do `req`: not what needs someone at the Mac a session
+/// runs on, nor a prompt from the command, which the other device would take as its user's own,
+/// from another of their devices, with nothing to say an agent sent it.
+fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
+    if let Some(why) = req.only_here {
+        return Err(why.to_string());
+    }
+    if req.name == api::SESSION_SEND && matches!(from, From::Command(_)) {
+        return Err("That session is on another device, where a message from the command would arrive as its user's own, so nothing was sent.".into());
+    }
+    Ok(())
+}
+
+/// Whether the command may ask a linked device for `name` itself (server.rs's `device-ask`, for
+/// checking a link by hand): what it may ask for about a session here, and what it may have
+/// another device do. A request this table doesn't know is the other device's to refuse.
+pub fn command_may_ask(name: &str, params: &Value) -> Result<(), String> {
+    let Some(req) = find(name) else { return Ok(()) };
+    let from = From::Command(None);
+    asked(&from, name, params)?;
+    elsewhere(req, &from)
+}
+
 /// Does `name` for the session `key` on this device, as `from` asks it, whatever board the
-/// handle is over: `--snapshot`'s modes go through it over a board read once (snapshot.rs).
-pub fn local(engine: &Handle, from: From, name: &str, key: &str, params: Value) -> Result<Value, String> {
-    let req = find(name).ok_or_else(|| format!("Codealong doesn't know how to {name}."))?;
+/// handle is over: `--snapshot`'s modes go through it over a board read once (snapshot.rs), and
+/// the `codealong` command when the app is closed (cli.rs).
+pub fn local(engine: &Handle, from: &From, name: &str, key: &str, params: Value) -> Result<Value, String> {
+    let req = asked(from, name, &params)?;
     (req.here)(engine, &Call { key, params: &params, from })
+}
+
+/// The request `name`, when `from` may ask for it on this device with these params.
+fn asked(from: &From, name: &str, params: &Value) -> Result<&'static Request, String> {
+    let req = find(name).ok_or_else(|| format!("Codealong doesn't know how to {name}."))?;
+    if matches!(from, From::Command(_)) {
+        (req.command)(params)?;
+    }
+    Ok(req)
 }
 
 /// Asks another device for `name`, waiting as long as its kind takes: a read briefly, an action
@@ -136,7 +211,7 @@ pub fn ask(peers: &Peers, device: &str, name: &str, params: Value) -> Result<Val
 pub fn answer(engine: &Handle, name: &str, params: Value) -> Result<Value, String> {
     let req = find(name).filter(|r| r.only_here.is_none()).ok_or_else(|| format!("Codealong on this device doesn't know how to {name} yet; update it here."))?;
     let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
-    (req.here)(engine, &Call { key: &key, params: &params, from: From::Device })
+    (req.here)(engine, &Call { key: &key, params: &params, from: &From::Device })
 }
 
 fn cfg() -> Result<config::Config, String> {
@@ -207,13 +282,17 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     .map_err(words)
 }
 
-/// Sends it a prompt where it runs (send.rs), into its running turn at once with `now`. From
-/// another device, one that would only open with the prompt ready to send is refused: that
-/// needs someone here.
+/// Sends it a prompt where it runs (send.rs), into its running turn at once with `now`: yours
+/// from a window, an agent's from the command. From another device, one that would only open
+/// with the prompt ready to send is refused: that needs someone here.
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let sender = if c.from == From::Here { send::Sender::You } else { send::Sender::Elsewhere };
+    let sender = match c.from {
+        From::Here => send::Sender::You,
+        From::Device => send::Sender::Elsewhere,
+        From::Command(session) => send::Sender::Agent(session.clone()),
+    };
     let sent = send::send_here(engine, c.session()?, &c.text("text"), sender, c.flag("now")).map_err(words)?;
-    if c.from == From::Device && sent.opened {
+    if *c.from == From::Device && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
     to_value(sent)
@@ -237,7 +316,7 @@ fn cancel(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// The time of this device's board that shows a change, for a window here to know when the
 /// engine has caught up (ahead.ts); none for another device, whose boards keep their own time.
 fn shown_at(c: &Call, at: Option<i64>) -> Value {
-    if c.from == From::Here { json!(at) } else { Value::Null }
+    if *c.from == From::Here { json!(at) } else { Value::Null }
 }
 
 /// Archives it, or unarchives it with `archived: false` (Codex threads in Codex itself).
@@ -258,7 +337,7 @@ fn mark_seen(engine: &Handle, c: &Call) -> Result<Value, String> {
     let keys: Vec<String> = c.params.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok()).unwrap_or_default();
     Ok(match c.from {
         From::Here => json!(engine.mark_seen_shown(keys)),
-        From::Device => {
+        From::Device | From::Command(_) => {
             engine.mark_seen(keys);
             Value::Null
         }
@@ -406,5 +485,45 @@ mod tests {
         assert!(err.contains("update it here"), "{err}");
         let err = answer(&engine, api::SESSION_PAGE, json!({})).unwrap_err();
         assert_eq!(err, "The request names no session.");
+    }
+
+    #[test]
+    fn the_command_gets_what_a_window_has_less_what_is_its_users_to_do() {
+        let engine = Handle::for_tests();
+        let command = From::Command(Some("claude:claude:me".into()));
+        let ask = |name: &str, params: Value| local(&engine, &command, name, "claude:claude:abc", params);
+        // Letting a call through, for good or once, and answering a question are refused before
+        // anything is looked at; a denial gets as far as looking for the session.
+        for params in [json!({ "id": "t1", "answer": "allow" }), json!({ "id": "t1", "answer": "always" }), json!({ "id": "t1", "answer": "deny", "answers": { "Which?": "This" } }), json!({ "id": "t1" })] {
+            let err = ask(api::SESSION_ANSWER, params.clone()).unwrap_err();
+            assert!(err.contains("can only deny"), "{params}: {err}");
+        }
+        let err = ask(api::SESSION_ANSWER, json!({ "id": "t1", "answer": "deny", "answers": null })).unwrap_err();
+        assert!(err.contains("isn't on the board"), "{err}");
+        // A side conversation's copy acts with its session's permissions, and a move chooses
+        // whose usage the conversation spends.
+        for name in [SIDE_ASK, SIDE_CLOSE, MOVE] {
+            assert!(ask(name, json!({ "text": "what changed?", "account": "claude2" })).unwrap_err().contains("in Codealong's windows"), "{name}");
+        }
+        // The rest is the command's as it is a window's: these get as far as the session.
+        for name in [api::SESSION_PENDING, api::SESSION_CANCEL, api::SESSION_RENAME, api::SESSION_FORK, api::SESSION_SEND, CLOSE] {
+            let err = ask(name, json!({ "name": "A name", "text": "hi" })).unwrap_err();
+            assert!(err.contains("isn't on the board"), "{name}: {err}");
+        }
+        // Nor may it have another device do any of that, or send a prompt there, where it would
+        // arrive as the user's own.
+        let deny = json!({ "id": "t1", "answer": "deny" });
+        assert!(command_may_ask(api::SESSION_ANSWER, &deny).is_ok() && command_may_ask(api::SESSION_PAGE, &json!({})).is_ok());
+        assert!(command_may_ask(api::SESSION_ANSWER, &json!({ "id": "t1", "answer": "allow" })).unwrap_err().contains("can only deny"));
+        assert!(command_may_ask(api::SESSION_SEND, &json!({ "text": "hi" })).unwrap_err().contains("arrive as its user's own"));
+        let send = find(api::SESSION_SEND).unwrap();
+        assert!(elsewhere(send, &command).is_err() && elsewhere(send, &From::Here).is_ok());
+        assert!(elsewhere(find(FORK_TERMINAL).unwrap(), &From::Here).unwrap_err().contains("on the Mac it runs on"));
+        // A window may allow, and so may a device, which peers.rs lets through only with remote
+        // control on: both get as far as the session.
+        for from in [From::Here, From::Device] {
+            let err = local(&engine, &from, api::SESSION_ANSWER, "claude:claude:abc", json!({ "id": "t1", "answer": "allow" })).unwrap_err();
+            assert!(err.contains("isn't on the board"), "{from:?}: {err}");
+        }
     }
 }

@@ -195,7 +195,7 @@ fn board_now() -> engine::Handle {
 /// another device asks it: a send isn't yours, and one that would only open the session for
 /// someone to send is an error.
 fn act(name: &str, key: &str, params: Value) -> Result<Value, Stop> {
-    actions::local(&board_now(), From::Device, name, key, params).map_err(Stop::Failed)
+    actions::local(&board_now(), &From::Device, name, key, params).map_err(Stop::Failed)
 }
 
 /// What an action said happened, in its sentence.
@@ -239,7 +239,7 @@ fn side_ask(_: &Args, rest: &[String]) -> Done {
     }
     let engine = board_now();
     for q in questions {
-        if let Err(e) = actions::local(&engine, From::Device, actions::SIDE_ASK, key, json!({ "text": q })) {
+        if let Err(e) = actions::local(&engine, &From::Device, actions::SIDE_ASK, key, json!({ "text": q })) {
             side::close(key);
             return Err(Stop::Failed(e));
         }

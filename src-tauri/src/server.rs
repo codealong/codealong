@@ -17,7 +17,7 @@ use crate::config::support_dir;
 use crate::engine::Handle;
 use crate::peers::Peers;
 use crate::start::StartSpec;
-use crate::todos::{PendingStart, TodoOp};
+use crate::todos::TodoOp;
 
 pub fn path() -> PathBuf {
     support_dir().join("codealong.sock")
@@ -36,8 +36,6 @@ pub enum Request {
     Board,
     /// A change to a todo or the labels; the reply is the time of the board that shows it.
     TodoApply { op: TodoOp },
-    /// A session started for a todo, as `start_session` reports it.
-    TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<PendingStart> },
     /// Starts a session, and links it to its todos.
     Start { spec: StartSpec },
     /// Sessions whose prompts and replies have every word (search.rs).
@@ -58,11 +56,22 @@ pub enum Request {
     DeviceCode,
     /// Links with the device that made this link code; the reply is its name.
     DeviceUseCode { code: String },
-    /// Runs a request on a linked device, as this device's windows do, by its short id.
+    /// Runs a request on a linked device, as this device's windows do, by its short id: what the
+    /// command may ask for (`actions::command_may_ask`).
     DeviceAsk { device: String, request: String, params: Value },
-    /// A message to a session from an agent (`codealong session send`), sent as a window's is
-    /// (send.rs); `from` is the session that ran the command, when it found one.
-    Send { key: String, text: String, from: Option<String> },
+    /// One of the app's requests about a session (actions.rs `REQUESTS`: `session-send`,
+    /// `session-cancel`, `session-fork`…), for the session `key` with `params`, asked as the
+    /// command (`actions::From::Command`): what a window may ask, less what is its user's alone.
+    /// `from` is the session that ran the command, when it found one, which a message says it's
+    /// from (send.rs).
+    Run {
+        name: String,
+        key: String,
+        #[serde(default)]
+        params: Value,
+        #[serde(default)]
+        from: Option<String>,
+    },
     /// Brings the main window forward on a session, worktree, PR or todo (`Reveal` in api.ts), as
     /// the floating bar's Show in Codealong does. The reply is the app's bundle ID, or null when
     /// it runs outside a bundle: macOS may not let an app come forward when nobody clicked in it,
@@ -194,10 +203,6 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
             Ok(at) => Reply::ok(at),
             Err(e) => Reply::err(e),
         },
-        Request::TodoStarted { id, lane, session, pending } => {
-            engine.todo_started(vec![id], lane, session, pending);
-            Reply::ok(true)
-        }
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
         Request::IdleTerminals { after_ms } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms)),
         Request::CloseIdle { keys, after_ms } => Reply::ok(crate::idle::close(&engine.board(), &keys, after_ms)),
@@ -208,8 +213,8 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::DeviceUnlink { key } => answered(peers.unlink(&key)),
         Request::DeviceCode => answered(peers.link_code()),
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
-        Request::DeviceAsk { device, request, params } => answered(peers.ask(&device, &request, params, Duration::from_secs(40))),
-        Request::Send { key, text, from } => answered(crate::send::send_here(engine, &key, &text, crate::send::Sender::Agent(from), false).map_err(|e| format!("{e:#}"))),
+        Request::DeviceAsk { device, request, params } => answered(crate::actions::command_may_ask(&request, &params).and_then(|_| peers.ask(&device, &request, params, Duration::from_secs(40)))),
+        Request::Run { name, key, params, from } => answered(crate::actions::run_as(engine, peers, &crate::actions::From::Command(from), &name, &key, params)),
         Request::Show { reveal } => match crate::front::show_main(app, Some(reveal)) {
             // A bare binary isn't what its ID opens: that's whichever bundle has it.
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
@@ -373,8 +378,10 @@ mod tests {
         assert!(matches!(ask, Request::DeviceAsk { ref request, .. } if request == "search"));
         let answer = serde_json::to_string(&Request::DeviceAnswer { key: "k".into(), accept: true }).unwrap();
         assert!(answer.contains(r#""method":"device-answer""#), "{answer}");
-        let send: Request = serde_json::from_str(r#"{"method":"send","key":"claude:claude:abc","text":"hi","from":null}"#).unwrap();
-        assert!(matches!(send, Request::Send { ref key, from: None, .. } if key == "claude:claude:abc"));
+        let run = serde_json::to_string(&Request::Run { name: "session-send".into(), key: "claude:claude:abc".into(), params: serde_json::json!({ "text": "hi" }), from: None }).unwrap();
+        assert_eq!(run, r#"{"method":"run","name":"session-send","key":"claude:claude:abc","params":{"text":"hi"},"from":null}"#);
+        let stop: Request = serde_json::from_str(r#"{"method":"run","name":"session-cancel","key":"claude:claude:abc"}"#).unwrap();
+        assert!(matches!(stop, Request::Run { ref name, ref params, from: None, .. } if name == "session-cancel" && params.is_null()));
         let show = serde_json::to_string(&Request::Show { reveal: serde_json::json!({"kind": "session", "laneId": "l", "key": "claude:claude:abc"}) }).unwrap();
         assert!(show.contains(r#""method":"show""#) && show.contains(r#""laneId":"l""#), "{show}");
         let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"no"}"#).unwrap();

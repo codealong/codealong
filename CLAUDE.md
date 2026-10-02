@@ -64,13 +64,18 @@ the board", 2026-09-29).
 The engine binary is also the `codealong` command for agents and people (`cli.rs`; `main.rs`
 runs it for any first argument that's one of its subcommands, and starts the app otherwise):
 `status`, `accounts [--usage]`, `whoami`, `todo list|show|add|update|move|start|done|reopen|
-wait|ready|link|unlink|delete|labels`, `sessions [find <words>]`, `session show|open|send`, `worktrees`, `reuse`, `start`,
+wait|ready|link|unlink|delete|labels`, `sessions [find <words>]`, `session show|open|send|pending|answer|stop|rename|fork`, `worktrees`, `reuse`, `start`,
 `config show|check`, `install`. Settings are changed by editing config.toml, not through the
 command: agents edit the file well and keep its comments, and `config check` runs
 `config::parse`'s checks on the result. JSON when piped, tables in a terminal (`--table` forces them). With the app up it
 asks the app over `codealong.sock` (`server.rs`: JSON lines, `status`, `board`, `todo-apply`,
-`todo-started`, `start`, `show`); otherwise `engine::light_snapshot` and `todos::change` (under
-`todos.json.lock`, which the engine takes for its own todo changes too). After changing
+`start`, `run`, `show`); otherwise `engine::light_snapshot` and `todos::change` (under
+`todos.json.lock`, which the engine takes for its own todo changes too). What `session` does to
+a session (`send`, `stop`, `fork`…) is the app's own request in actions.rs, through `run` or,
+with the app closed, `actions::local` over the light board, asked as the command
+(`actions::From::Command`): what a window may, less what each request's `command` rule keeps
+for the session's user (allowing a call or answering a question, a side conversation, a move),
+and a message says it's an agent's. After changing
 `cli.rs`, run `scripts/skill-reference.sh`: it rewrites
 `skills/codealong/references/reference.md` from `--help`, and a cargo test fails while that
 file is stale. `codealong reference` (hidden) prints the same text. A debug binary run with a
@@ -320,8 +325,10 @@ some work is, answer with one.
   `src-tauri/src/actions.rs` (`REQUESTS`: its name and what it does here), and who may ask for it
   from another device is its `Reach` in codealong-peer's `api::REQUESTS` (read, organize, or
   control, which needs remote control on). A window's command goes through `actions::run`, which
-  asks the session's device when it's elsewhere; a device's request through `actions::answer`.
-  A new session action is a line in each, not a command with its own remote branch.
+  asks the session's device when it's elsewhere; a device's request through `actions::answer`;
+  the `codealong` command's through the socket's `run` (`actions::run_as`, `From::Command`),
+  which each request's `command` rule narrows. A new session action is a line in each, not a
+  command with its own remote branch.
 - A terminal is a module under `src-tauri/src/launch/` (`ghostty.rs`, `iterm.rs`,
   `terminal_app.rs`, `tmux.rs`) that knows its scripts and commands, with a struct implementing
   `launch::Terminal`, listed in `launch::TERMINALS`: its name, profile and bundle ID, opening a

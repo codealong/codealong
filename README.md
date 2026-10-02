@@ -628,7 +628,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   session that ran the command; `codealong
   sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
   is running, what it did, where it lives, and which account has room; `codealong session open`
-  brings the main window up on a session's conversation; `codealong start
+  brings the main window up on a session's conversation; `codealong session stop|rename|fork`
+  do what a session's menu does, and `session pending` and `session answer … deny` what its
+  panel does, except letting a call through or answering its questions, which is its user's to
+  do; `codealong start
   --todo <id>` starts a session the way New session does (`--todo` again for several todos in
   one session); `codealong config show|check`
   prints the settings and checks an edited config.toml. With the app running, answers come
@@ -865,6 +868,8 @@ light scan (no git, PRs or visitors).
 | `src/notices.ts`, `src/ui/Notices.tsx` | Notices: what isn't working in the background, the engine's and a window's own, as a chip that can be dismissed |
 | `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
+| `src-tauri/src/actions.rs` | What Codealong does to a session, one table of requests: done here, or asked of the device the session is on, for a window, another device and the `codealong` command alike, with what each may ask for |
+| `src-tauri/src/snapshot.rs` | `codealong --snapshot`: the engine without a window, its modes in one table, for checking what it shows and does |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
 | `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board; Tidy's layouts), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
