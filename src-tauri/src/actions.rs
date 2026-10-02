@@ -69,15 +69,8 @@ pub mod params {
         pub until: Option<i64>,
     }
 
-    /// `worktree-preview`: its URL (none clears it), the port that serves it and the Chrome
-    /// profile it opens in over its project's.
-    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-    #[serde(default, rename_all = "camelCase")]
-    pub struct Preview {
-        pub url: Option<String>,
-        pub port: Option<u16>,
-        pub chrome_profile: Option<String>,
-    }
+    /// `worktree-preview`: what changes in its preview, and what stays.
+    pub use crate::previews::Change as Preview;
 
     /// `worktree-reusable`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -670,18 +663,19 @@ fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
     Ok(shown_at(c, engine.snooze(p.keys, p.until)))
 }
 
-/// Sets the worktree's preview URL and the Chrome profile it opens in, or clears them with no
-/// URL (previews.rs).
+/// Changes the worktree's preview: its URL, port and the Chrome profile it opens in
+/// (`previews::set`). Says whether that changed anything and what it's set to now, and, for a
+/// window here, the time of the board that shows it (`at`).
 fn set_preview(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let p: params::Preview = c.read()?;
-    let at = engine.set_preview(c.key, p.url.as_deref(), p.port, p.chrome_profile.as_deref()).map_err(words)?;
-    Ok(shown_at(c, at))
+    let (set, at) = engine.set_preview(c.key, &c.read::<params::Preview>()?).map_err(words)?;
+    Ok(json!({ "at": shown_at(c, at), "changed": set.changed, "preview": set.preview }))
 }
 
-/// Marks the worktree reusable or not (reusable.rs).
+/// Marks the worktree reusable or not (`reusable::mark`). Says whether that changed it, and the
+/// time of the board that shows it, as `set_preview` does.
 fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let at = engine.set_reusable(c.key, c.read::<params::Reusable>()?.on).map_err(words)?;
-    Ok(shown_at(c, at))
+    let (changed, at) = engine.set_reusable(c.key, c.read::<params::Reusable>()?.on).map_err(words)?;
+    Ok(json!({ "at": shown_at(c, at), "changed": changed }))
 }
 
 #[cfg(test)]

@@ -873,10 +873,11 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
         Cmd::Preview { cmd: PreviewCmd::Show(a) } => preview_show(c, &a.worktree, json),
         Cmd::Preview { cmd: PreviewCmd::Set(a) } => {
-            let profile = if a.no_chrome_profile { Some(None) } else { a.chrome_profile.as_deref().map(Some) };
-            preview_set(c, &a.at.worktree, Some(PreviewTo { url: a.url.as_deref(), port: a.port, profile }), json)
+            // What's left out stays: the URL set (and its port, unless one is given), and the worktree's own profile.
+            let chrome_profile = if a.no_chrome_profile { Some(None) } else { a.chrome_profile.map(Some) };
+            preview_set(c, &a.at.worktree, crate::previews::Change { url: a.url, port: a.port.map(Some), chrome_profile, ..Default::default() }, json)
         }
-        Cmd::Preview { cmd: PreviewCmd::Clear(a) } => preview_set(c, &a.worktree, None, json),
+        Cmd::Preview { cmd: PreviewCmd::Clear(a) } => preview_set(c, &a.worktree, crate::previews::Change { clear: true, ..Default::default() }, json),
         Cmd::Reuse { cmd: ReuseCmd::Show(a) } => reuse_show(c, &a.worktree, json),
         Cmd::Reuse { cmd: ReuseCmd::On(a) } => reuse_set(c, &a.worktree, true, json),
         Cmd::Reuse { cmd: ReuseCmd::Off(a) } => reuse_set(c, &a.worktree, false, json),
@@ -1913,44 +1914,12 @@ struct PreviewSetOut {
     changed: bool,
 }
 
-/// What `preview set` changes. A URL left out keeps the one set, and its port unless one is
-/// given; a profile left out keeps the worktree's own (`Some(None)` takes it away).
-struct PreviewTo<'a> {
-    url: Option<&'a str>,
-    port: Option<u16>,
-    profile: Option<Option<&'a str>>,
-}
-
-/// Sets a worktree's URL and Chrome profile, or clears them with none. The app watches the file.
-fn preview_set(c: &mut Client, worktree: &str, to: Option<PreviewTo>, json: bool) -> Result<()> {
+/// Changes a worktree's URL, port and Chrome profile, or clears them (`previews::set`): through
+/// the app when it's up, as its sheet does, else in the file, which the app watches.
+fn preview_set(c: &mut Client, worktree: &str, change: crate::previews::Change, json: bool) -> Result<()> {
     let id = resolve_worktree(c, worktree)?;
-    let url = to.as_ref().and_then(|t| t.url).map(crate::previews::normalize_url).transpose()?;
-    // Checked before the lock: Chrome's profiles are its own file, and the name kept is the one
-    // Chrome shows.
-    let profile = match to.as_ref().and_then(|t| t.profile) {
-        Some(Some(p)) => Some(Some(crate::chrome::resolve(p)?.id)),
-        Some(None) => Some(None),
-        None => None,
-    };
-    let mut changed = false;
-    let mut result = Ok(());
-    let store = crate::previews::change(|store| {
-        let Some(to) = &to else {
-            changed = store.clear(&id);
-            return changed;
-        };
-        let had = store.get(&id).cloned();
-        let Some(url) = url.clone().or_else(|| had.as_ref().map(|e| e.url.clone())) else {
-            result = Err(anyhow!("{} has no preview URL yet; give one: `codealong preview set <url>`.", tilde(Path::new(&id))));
-            return false;
-        };
-        let port = if to.url.is_some() || to.port.is_some() { to.port } else { had.as_ref().and_then(|e| e.port) };
-        let profile = profile.clone().unwrap_or_else(|| had.as_ref().and_then(|e| e.chrome_profile.clone()));
-        changed = store.set(&id, &url, port, profile.as_deref(), now_ms());
-        changed
-    })?;
-    result?;
-    let e = store.get(&id);
+    let set: crate::previews::Set = serde_json::from_value(c.act(actions::PREVIEW, &id, change, None)?).context("reading what the change did")?;
+    let (e, changed) = (set.preview.as_ref(), set.changed);
     let out = PreviewSetOut { worktree: id.clone(), url: e.map(|e| e.url.clone()), port: e.and_then(|e| e.port), chrome_profile: e.and_then(|e| e.chrome_profile.clone()), changed };
     if json {
         return print_json(&out);
@@ -2032,23 +2001,12 @@ fn reuse_show(c: &mut Client, worktree: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Marks a worktree reusable or not. The app watches the file.
+/// Marks a worktree reusable or not (`reusable::mark`): through the app when it's up, as its
+/// menu does, else in the file, which the app watches.
 fn reuse_set(c: &mut Client, worktree: &str, on: bool, json: bool) -> Result<()> {
     let id = resolve_worktree(c, worktree)?;
-    if crate::peerfeed::split_remote(&id).is_some() {
-        bail!("That worktree is on another device; mark it there.");
-    }
-    {
-        let lane = c.board()?.lanes.iter().find(|l| l.id == id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
-        if on && (lane.project == crate::board::ELSEWHERE || lane.origin == Origin::Folder) {
-            bail!("Only a repo's worktree in one of your projects can be reusable; {} isn't one.", tilde(Path::new(&id)));
-        }
-    }
-    let mut changed = false;
-    crate::reusable::change(|store| {
-        changed = store.set(&id, on, now_ms());
-        changed
-    })?;
+    let done = c.act(actions::REUSABLE, &id, params::Reusable { on }, None)?;
+    let changed = done["changed"].as_bool().unwrap_or(false);
     // What it holds comes from the app, which reads the file once the watcher says: `reuse
     // show` has it then.
     if json {
@@ -3115,38 +3073,30 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
             Err(e) => out.warnings.push(format!("{e:#}")),
         }
     }
-    if a.command || both {
-        match crate::install::link_command(a.bin.as_deref().map(expand)) {
-            Ok(p) => out.command = Some(p.to_string_lossy().into_owned()),
-            Err(e) => out.warnings.push(format!("The command wasn't linked: {e:#}")),
-        }
-    }
-    if a.skill || both {
-        let cfg = c.cfg().clone();
-        let accounts: Vec<&AccountCfg> = cfg.accounts.iter().filter(|x| a.account.is_empty() || a.account.contains(&x.name)).collect();
-        if accounts.is_empty() {
-            bail!("No account matches. `codealong accounts` lists them.");
-        }
-        let source = crate::install::skill_source().ok_or_else(|| anyhow!("The skill folder isn't next to this binary. Run from the app bundle, or from the repo."))?;
-        for acct in accounts {
-            if crate::install::takes_plugin(acct) {
-                match crate::install::install_plugin(acct) {
-                    Ok(()) => out.plugins.push(PluginInstall { account: acct.name.clone(), version: crate::install::plugin_state(&acct.home_path()).version }),
-                    Err(e) => out.warnings.push(format!("{}: the plugin wasn't installed: {e:#}", acct.name)),
-                }
-                continue;
+    let accounts: Vec<String> = match a.skill || both {
+        true => {
+            let names: Vec<String> = c.cfg().accounts.iter().filter(|x| a.account.is_empty() || a.account.contains(&x.name)).map(|x| x.name.clone()).collect();
+            if names.is_empty() {
+                bail!("No account matches. `codealong accounts` lists them.");
             }
-            match crate::install::skill_dir(acct) {
-                // Installing for every account leaves an edited copy alone; naming the account replaces it.
-                Some(dir) if a.account.is_empty() && crate::install::copy_state(&source, &dir).edited => {
-                    out.warnings.push(format!("{}: {} was edited, so it was left alone; `codealong install --skill --account {}` replaces it.", acct.name, tilde(&dir), acct.name));
-                }
-                Some(dir) => match crate::install::copy_skill(&source, &dir) {
-                    Ok(()) => out.skills.push(SkillInstall { account: acct.name.clone(), path: dir.to_string_lossy().into_owned() }),
-                    Err(e) => out.warnings.push(format!("{}: {e:#}", acct.name)),
-                },
-                None => out.warnings.push(format!("{}: {} has no skills folder Codealong knows.", acct.name, acct.harness)),
+            if crate::install::skill_source().is_none() {
+                bail!("The skill folder isn't next to this binary. Run from the app bundle, or from the repo.");
             }
+            names
+        }
+        false => Vec::new(),
+    };
+    // Installing for every account leaves an edited skill copy alone; naming the account replaces it.
+    let ask = crate::install::Ask { command: a.command || both, bin: a.bin.as_deref().map(expand), accounts, keep_edited: a.account.is_empty() };
+    let done = crate::install::run(&ask);
+    out.command = done.command.map(|p| p.to_string_lossy().into_owned());
+    out.warnings.extend(done.errors);
+    let status = crate::install::status();
+    for name in &done.accounts {
+        let Some(acct) = status.accounts.iter().find(|s| &s.name == name) else { continue };
+        match &acct.plugin {
+            Some(plugin) => out.plugins.push(PluginInstall { account: name.clone(), version: plugin.version.clone() }),
+            None => out.skills.push(SkillInstall { account: name.clone(), path: acct.path.clone().unwrap_or_default() }),
         }
     }
     if json {

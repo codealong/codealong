@@ -249,39 +249,31 @@ impl Handle {
         rx.recv_timeout(wait).map_err(|_| "Codealong is busy; the change will show when it catches up.".to_string())?
     }
 
-    /// Sets a worktree's preview URL, or clears it with none, and returns the time of the board
-    /// that shows it, as `mark_seen_shown` does. `port` picks which of the worktree's servers is
-    /// the app, when more than one serves a page, and `chrome_profile` the Chrome profile it
-    /// opens in over its project's.
-    pub fn set_preview(&self, lane_id: &str, url: Option<&str>, port: Option<u16>, chrome_profile: Option<&str>) -> Result<Option<i64>> {
+    /// Changes a worktree's preview (`previews::set`): its URL, which of its servers is the app
+    /// when more than one serves a page, and the Chrome profile it opens in over its project's.
+    /// Returns what changed, and the time of the board that shows it, as `mark_seen_shown` does.
+    pub fn set_preview(&self, lane_id: &str, change: &previews::Change) -> Result<(previews::Set, Option<i64>)> {
         if !self.read(|b| b.lanes.iter().any(|l| l.id == lane_id && l.device.is_none())) {
             bail!("That worktree just changed. Try again.");
         }
-        let url = url.map(previews::normalize_url).transpose()?;
-        let profile = chrome_profile.map(str::trim).filter(|p| !p.is_empty()).map(|p| chrome::resolve(p).map(|p| p.id)).transpose()?;
-        previews::change(|store| match &url {
-            Some(url) => store.set(lane_id, url, port, profile.as_deref(), now_ms()),
-            None => store.clear(lane_id),
-        })?;
+        let set = previews::set(lane_id, change)?;
         let (tx, rx) = channel();
         if self.tx.send(Msg::Previews(tx)).is_err() {
             bail!("Codealong's engine stopped.");
         }
-        Ok(rx.recv_timeout(SHOWN_WAIT).ok())
+        Ok((set, rx.recv_timeout(SHOWN_WAIT).ok()))
     }
 
-    /// Marks a worktree reusable or not (reusable.rs), and returns the time of the board that
-    /// shows it, as `set_preview` does.
-    pub fn set_reusable(&self, lane_id: &str, on: bool) -> Result<Option<i64>> {
-        if !self.read(|b| b.lanes.iter().any(|l| l.id == lane_id && l.device.is_none())) {
-            bail!("That worktree just changed. Try again.");
-        }
-        reusable::change(|store| store.set(lane_id, on, now_ms()))?;
+    /// Marks a worktree reusable or not (`reusable::mark`). Returns whether that changed it, and
+    /// the time of the board that shows it, as `set_preview` does.
+    pub fn set_reusable(&self, lane_id: &str, on: bool) -> Result<(bool, Option<i64>)> {
+        let lane = self.read(|b| b.lanes.iter().find(|l| l.id == lane_id && l.device.is_none()).cloned()).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
+        let changed = reusable::mark(&lane, on)?;
         let (tx, rx) = channel();
         if self.tx.send(Msg::Reusable(tx)).is_err() {
             bail!("Codealong's engine stopped.");
         }
-        Ok(rx.recv_timeout(SHOWN_WAIT).ok())
+        Ok((changed, rx.recv_timeout(SHOWN_WAIT).ok()))
     }
 
     /// "Looks done" was wrong for this todo, for now.

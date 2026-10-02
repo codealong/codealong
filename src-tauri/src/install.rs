@@ -614,43 +614,82 @@ pub fn status() -> AgentsStatus {
     AgentsStatus { command: command_status(), skill_found: source.is_some(), plugin_version, accounts: cfg.accounts.iter().map(|a| account_skill(source.as_deref(), a)).collect(), errors: Vec::new() }
 }
 
-/// Links the command when asked, and puts Codealong in the named accounts: the plugin in a
-/// Claude Code account, the skill in any other. Then reports the new state. Naming an account is
-/// asking for its copy, so an edited skill copy is replaced too. A failure for one account
-/// doesn't stop the others; each is in `errors`.
-pub fn install(command: bool, accounts: &[String]) -> Result<AgentsStatus> {
-    let mut errors = Vec::new();
-    if command {
-        if let Err(e) = link_command(None) {
-            errors.push(format!("The command wasn't linked: {e:#}"));
+/// What an install pass is asked to do.
+#[derive(Debug, Clone, Default)]
+pub struct Ask {
+    /// Link the command, in `bin` when it's given (`link_command`).
+    pub command: bool,
+    pub bin: Option<PathBuf>,
+    /// The accounts to put Codealong in, by name.
+    pub accounts: Vec<String>,
+    /// Leave a skill copy someone edited as it is, as installing for every account does. Naming
+    /// an account is asking for its copy, so it's replaced then.
+    pub keep_edited: bool,
+}
+
+/// What an install pass did.
+#[derive(Debug, Clone, Default)]
+pub struct Done {
+    /// The command's link, when it made one.
+    pub command: Option<PathBuf>,
+    /// The accounts it put Codealong in: the plugin in a Claude Code account, the skill in any
+    /// other.
+    pub accounts: Vec<String>,
+    /// What went wrong, one line each. A failure for one account doesn't stop the others.
+    pub errors: Vec<String>,
+}
+
+/// Links the command when asked, and puts Codealong in the accounts asked for: the plugin in a
+/// Claude Code account, the skill in any other. Settings › Agents and `codealong install` both
+/// come to it.
+pub fn run(ask: &Ask) -> Done {
+    let mut done = Done::default();
+    if ask.command {
+        match link_command(ask.bin.clone()) {
+            Ok(p) => done.command = Some(p),
+            Err(e) => done.errors.push(format!("The command wasn't linked: {e:#}")),
         }
     }
     let cfg = config::load().ok().flatten().unwrap_or_default();
     let source = skill_source();
-    for name in accounts {
+    for name in &ask.accounts {
         let Some(a) = cfg.accounts.iter().find(|a| &a.name == name) else {
-            errors.push(format!("There's no account named {name}."));
+            done.errors.push(format!("There's no account named {name}."));
             continue;
         };
         if takes_plugin(a) {
-            if let Err(e) = install_plugin(a) {
-                errors.push(format!("{}: the plugin wasn't installed: {e:#}", a.name));
+            match install_plugin(a) {
+                Ok(()) => done.accounts.push(a.name.clone()),
+                Err(e) => done.errors.push(format!("{}: the plugin wasn't installed: {e:#}", a.name)),
             }
             continue;
         }
         let (Some(src), Some(dir)) = (source.as_deref(), skill_dir(a)) else {
-            errors.push(match source {
+            done.errors.push(match source {
                 None => format!("{}: the skill folder isn't next to this binary, so it can't be installed.", a.name),
                 Some(_) => format!("{}: {} has no skills folder Codealong knows.", a.name, a.harness),
             });
             continue;
         };
-        if let Err(e) = copy_skill(src, &dir) {
-            errors.push(format!("{}: {e:#}", a.name));
+        if ask.keep_edited && copy_state(src, &dir).edited {
+            done.errors.push(format!("{}: {} was edited, so it was left alone; `codealong install --skill --account {}` replaces it.", a.name, crate::util::tilde(&dir), a.name));
+            continue;
+        }
+        match copy_skill(src, &dir) {
+            Ok(()) => done.accounts.push(a.name.clone()),
+            Err(e) => done.errors.push(format!("{}: {e:#}", a.name)),
         }
     }
+    done
+}
+
+/// Links the command when asked, and puts Codealong in the named accounts (`run`), replacing an
+/// edited skill copy, since naming an account is asking for its copy. Then reports the new state,
+/// with what went wrong in `errors`.
+pub fn install(command: bool, accounts: &[String]) -> Result<AgentsStatus> {
+    let done = run(&Ask { command, accounts: accounts.to_vec(), ..Default::default() });
     let mut out = status();
-    out.errors = errors;
+    out.errors = done.errors;
     Ok(out)
 }
 

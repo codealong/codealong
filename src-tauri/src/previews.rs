@@ -1,8 +1,8 @@
 //! A worktree's app, to open in the browser: the URL set for it, and the server serving it.
 //!
-//! URLs are set by hand, with `codealong preview set` or the worktree's menu, and kept in
-//! `previews.json` next to the config; the command writes it under a lock and the engine
-//! watches it. A URL set by hand is what opens: a project's dev proxy may serve the app at a
+//! URLs are set by hand, with `codealong preview set` or the worktree's menu, both through
+//! `set`, and kept in `previews.json` next to the config; the command asks the app when it's up
+//! and writes the file under a lock when it isn't, and the engine watches it. A URL set by hand is what opens: a project's dev proxy may serve the app at a
 //! name of its own (`https://feature.app.test`), where `localhost:<port>` would fail its
 //! cookies and sign-in. For the same reason a worktree can name the Chrome profile it opens
 //! in, over its project's (chrome.rs).
@@ -85,6 +85,79 @@ impl Store {
         self.previews.retain(|e| e.worktree != worktree);
         self.previews.len() != before
     }
+
+    /// Makes a change to a worktree's preview (`Change`, its URL made whole and its profile
+    /// Chrome's own already): what it gives changes, what it leaves out stays. False when
+    /// nothing changed.
+    fn apply(&mut self, worktree: &str, change: &Change, at: i64) -> Result<bool> {
+        if change.clear {
+            return Ok(self.clear(worktree));
+        }
+        let had = self.get(worktree).cloned();
+        let Some(url) = change.url.clone().or_else(|| had.as_ref().map(|e| e.url.clone())) else {
+            bail!("{} has no preview URL yet; give one: `codealong preview set <url>`.", crate::util::tilde(Path::new(worktree)));
+        };
+        // A new URL's port is its own: the one set was for the URL it replaces.
+        let port = match change.port {
+            Some(port) => port,
+            None if change.url.is_some() => None,
+            None => had.as_ref().and_then(|e| e.port),
+        };
+        let profile = change.chrome_profile.clone().unwrap_or_else(|| had.and_then(|e| e.chrome_profile));
+        Ok(self.set(worktree, &url, port, profile.as_deref(), at))
+    }
+}
+
+/// A change to a worktree's preview, as its sheet in the app and `codealong preview set|clear`
+/// ask for it: what it gives changes, and what it leaves out stays. The sheet gives everything.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Change {
+    /// Takes the URL away, with its port and profile; the rest is then ignored.
+    pub clear: bool,
+    /// The URL, as typed (`normalize_url`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Which of the worktree's servers is the app, or null for none. Left out, the one set
+    /// stays, unless a URL is given.
+    #[serde(deserialize_with = "given", skip_serializing_if = "Option::is_none")]
+    pub port: Option<Option<u16>>,
+    /// The Chrome profile it opens in, as Chrome or you name it, or null (or empty) for its
+    /// project's.
+    #[serde(deserialize_with = "given", skip_serializing_if = "Option::is_none")]
+    pub chrome_profile: Option<Option<String>>,
+}
+
+/// A field that's there, null or not: null takes the value away, where a field left out (the
+/// default) keeps it.
+fn given<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
+}
+
+/// What a change did: whether anything changed, and the preview as it's set now.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Set {
+    pub changed: bool,
+    pub preview: Option<Entry>,
+}
+
+/// Changes a worktree's preview, for the app and the command alike: its URL is made whole and its
+/// profile named as Chrome names it before the file is locked, since Chrome's profiles are a file
+/// of its own.
+pub fn set(worktree: &str, change: &Change) -> Result<Set> {
+    let url = change.url.as_deref().map(normalize_url).transpose()?;
+    let chrome_profile = match &change.chrome_profile {
+        Some(Some(p)) if !p.trim().is_empty() => Some(Some(crate::chrome::resolve(p.trim())?.id)),
+        Some(_) => Some(None),
+        None => None,
+    };
+    let change = Change { url, chrome_profile, ..change.clone() };
+    let mut result = Ok(false);
+    let store = self::change(|store| {
+        result = store.apply(worktree, &change, crate::util::now_ms());
+        matches!(result, Ok(true))
+    })?;
+    Ok(Set { changed: result?, preview: store.get(worktree).cloned() })
 }
 
 /// The store, or an empty one when there's no file. A file that doesn't parse is an error, so
@@ -460,6 +533,35 @@ pub fn watch(send: impl Fn(Vec<Server>) -> bool + Send + 'static) -> Option<Watc
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_keeps_what_it_leaves_out() {
+        let mut s = Store::default();
+        let change = |url: Option<&str>, port: Option<Option<u16>>, profile: Option<Option<&str>>| Change { url: url.map(String::from), port, chrome_profile: profile.map(|p| p.map(String::from)), ..Default::default() };
+        // Nothing to keep yet: a change needs a URL.
+        let err = s.apply("/r/app", &change(None, None, Some(Some("Work"))), 1).unwrap_err();
+        assert!(err.to_string().contains("no preview URL yet"), "{err}");
+        // The sheet gives all of it, which replaces what was there.
+        assert!(s.apply("/r/app", &change(Some("https://app.test"), Some(Some(5173)), Some(Some("Profile 2"))), 1).unwrap());
+        assert!(!s.apply("/r/app", &change(Some("https://app.test"), Some(Some(5173)), Some(Some("Profile 2"))), 2).unwrap(), "nothing changed");
+        // The command's `--chrome-profile` alone keeps the URL and its port.
+        assert!(s.apply("/r/app", &change(None, None, Some(Some("Default"))), 3).unwrap());
+        let e = s.get("/r/app").unwrap();
+        assert_eq!((e.url.as_str(), e.port, e.chrome_profile.as_deref()), ("https://app.test", Some(5173), Some("Default")));
+        // A new URL drops the old one's port, and keeps the profile.
+        assert!(s.apply("/r/app", &change(Some("https://other.test"), None, None), 4).unwrap());
+        let e = s.get("/r/app").unwrap();
+        assert_eq!((e.port, e.chrome_profile.as_deref()), (None, Some("Default")));
+        // A port alone keeps the URL; no profile takes the worktree's own away.
+        assert!(s.apply("/r/app", &change(None, Some(Some(3000)), Some(None)), 5).unwrap());
+        let e = s.get("/r/app").unwrap();
+        assert_eq!((e.url.as_str(), e.port, e.chrome_profile.as_deref()), ("https://other.test", Some(3000), None));
+        assert!(s.apply("/r/app", &Change { clear: true, url: Some("ignored".into()), ..Default::default() }, 6).unwrap());
+        assert!(s.get("/r/app").is_none());
+        // Left out and null read apart: null takes it away.
+        let read: Change = serde_json::from_value(serde_json::json!({ "url": "5173", "chromeProfile": null })).unwrap();
+        assert_eq!((read.port, read.chrome_profile), (None, Some(None)));
+    }
 
     #[test]
     fn urls_are_made_whole() {

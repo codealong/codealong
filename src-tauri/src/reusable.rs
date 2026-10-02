@@ -3,16 +3,18 @@
 //! kept for one piece of work each; Jev suggests new work only in reusable ones (src/route.ts).
 //! A main checkout is reusable unless it's marked otherwise (`board::reusable`).
 //!
-//! Kept in `worktrees.json` next to the config, by path: the command writes it under a lock and
-//! the engine watches it, as it does `previews.json`.
+//! Kept in `worktrees.json` next to the config, by path, and marked through `mark` from the menu
+//! and the command alike: the command asks the app when it's up and writes the file under a
+//! lock when it isn't, and the engine watches it, as it does `previews.json`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
+use crate::model::{Lane, Origin};
 use crate::store;
 
 pub fn path() -> PathBuf {
@@ -65,6 +67,25 @@ pub fn load() -> Result<Store> {
     Ok(store::read(&path(), WHAT)?.unwrap_or_default())
 }
 
+/// Marks a worktree reusable or not, for the app and the command alike. Only a repo's worktree in
+/// one of your projects can be reusable (`board::can_reuse`): a plain folder, or a repo outside
+/// every project, has no work of yours to reuse it for. False when it was marked so already.
+pub fn mark(lane: &Lane, on: bool) -> Result<bool> {
+    if on && !may_be_reusable(lane) {
+        bail!("Only a repo's worktree in one of your projects can be reusable; {} isn't one.", crate::util::tilde(Path::new(&lane.id)));
+    }
+    let mut changed = false;
+    change(|store| {
+        changed = store.set(&lane.id, on, crate::util::now_ms());
+        changed
+    })?;
+    Ok(changed)
+}
+
+fn may_be_reusable(lane: &Lane) -> bool {
+    lane.project != crate::board::ELSEWHERE && lane.origin != Origin::Folder
+}
+
 /// Reads the store under a lock on `worktrees.json.lock`, lets `f` change it, and saves it
 /// through a temporary file when `f` says it changed. Marks of worktrees that are gone go with
 /// it.
@@ -81,6 +102,18 @@ pub fn change(f: impl FnOnce(&mut Store) -> bool) -> Result<Store> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_repos_worktree_in_your_projects_can_be_marked_reusable() {
+        use crate::model::Lane;
+        let elsewhere = Lane { project: crate::board::ELSEWHERE.into(), ..crate::fixtures::lane("/tmp/x", vec![]) };
+        let folder = Lane { origin: Origin::Folder, ..crate::fixtures::lane("/Users/sam/notes", vec![]) };
+        for lane in [elsewhere, folder] {
+            let err = mark(&lane, true).unwrap_err();
+            assert!(err.to_string().contains("Only a repo's worktree"), "{err}");
+        }
+        assert!(may_be_reusable(&crate::fixtures::lane("/r/app", vec![])));
+    }
 
     #[test]
     fn a_mark_replaces_the_one_before_and_says_when_nothing_changed() {

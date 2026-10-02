@@ -232,14 +232,19 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
 /// in time.
 #[tauri::command(async)]
 fn set_preview(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, url: Option<String>, port: Option<u16>, chrome_profile: Option<String>) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, actions::PREVIEW, &lane_id, actions::params::Preview { url, port, chrome_profile }).map(|v| v.as_i64())
+    // The sheet gives all of it: no URL takes the preview away, and no profile is its project's.
+    let change = match url {
+        Some(url) => actions::params::Preview { url: Some(url), port: Some(port), chrome_profile: Some(chrome_profile), ..Default::default() },
+        None => actions::params::Preview { clear: true, ..Default::default() },
+    };
+    actions::run(&engine, &peers, actions::PREVIEW, &lane_id, change).map(|v| v["at"].as_i64())
 }
 
 /// Marks a worktree reusable or not (reusable.rs). Returns the time of the board that shows it,
 /// when the engine says in time.
 #[tauri::command(async)]
 fn set_reusable(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, on: bool) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, actions::REUSABLE, &lane_id, actions::params::Reusable { on }).map(|v| v.as_i64())
+    actions::run(&engine, &peers, actions::REUSABLE, &lane_id, actions::params::Reusable { on }).map(|v| v["at"].as_i64())
 }
 
 #[tauri::command]
