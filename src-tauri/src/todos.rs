@@ -778,17 +778,10 @@ pub fn path() -> PathBuf {
 
 /// An advisory lock on `todos.json.lock`, held through a read-modify-write of the store, so the
 /// app and the `codealong` command never write over each other's change. Released when dropped.
-pub struct Lock(#[allow(dead_code)] std::fs::File);
+pub use crate::store::Lock;
 
 pub fn lock() -> Result<Lock> {
-    use std::os::unix::io::AsRawFd;
-    std::fs::create_dir_all(support_dir())?;
-    let f = std::fs::OpenOptions::new().create(true).write(true).open(path().with_extension("json.lock"))?;
-    // SAFETY: flock on a descriptor this process owns; LOCK_EX waits for the other holder.
-    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        bail!("Couldn't lock todos.json: {}", std::io::Error::last_os_error());
-    }
-    Ok(Lock(f))
+    crate::store::lock(&path())
 }
 
 /// Reads the store under the lock, lets `f` change it, and saves it when `f` says it changed.
@@ -807,26 +800,15 @@ pub fn change<R>(f: impl FnOnce(&mut TodoStore) -> Result<(bool, R)>) -> Result<
 /// doesn't parse is an error, so it's never overwritten with an empty list.
 pub fn load() -> Result<(TodoStore, String)> {
     let p = path();
-    let text = match std::fs::read_to_string(&p) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((TodoStore::default(), String::new())),
-        Err(e) => bail!("Couldn't read {}: {e}", p.display()),
-    };
-    match serde_json::from_str::<TodoStore>(&text) {
-        Ok(s) => Ok((repaired(s), text)),
-        Err(e) => bail!("todos.json doesn't read as a todo list ({e}). Codealong won't change it until it does."),
-    }
+    let Some(text) = crate::store::text(&p)? else { return Ok((TodoStore::default(), String::new())) };
+    Ok((repaired(crate::store::parse(&p, "a todo list", &text)?), text))
 }
 
 /// Writes the store through a temporary file, so the watcher never reads half a file. Returns
 /// the text written.
 pub fn save(store: &TodoStore) -> Result<String> {
     let text = serde_json::to_string_pretty(store)?;
-    std::fs::create_dir_all(support_dir())?;
-    let p = path();
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, &text)?;
-    std::fs::rename(&tmp, &p)?;
+    crate::store::write(&path(), &text)?;
     Ok(text)
 }
 

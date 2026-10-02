@@ -17,7 +17,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,6 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
 use crate::procs;
+use crate::store;
 
 /// How often to look for servers that started. Stopped ones show at once.
 const LOOK_EVERY: Duration = Duration::from_secs(10);
@@ -37,6 +37,9 @@ const TRIES: u8 = 3;
 pub fn path() -> PathBuf {
     support_dir().join("previews.json")
 }
+
+/// What the file holds, for the error when it doesn't read as that.
+const WHAT: &str = "a list of preview URLs";
 
 /// A worktree's URL, set by hand.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -87,35 +90,20 @@ impl Store {
 /// The store, or an empty one when there's no file. A file that doesn't parse is an error, so
 /// it's never overwritten.
 pub fn load() -> Result<Store> {
-    let p = path();
-    match std::fs::read_to_string(&p) {
-        Ok(t) => match serde_json::from_str(&t) {
-            Ok(s) => Ok(s),
-            Err(e) => bail!("previews.json doesn't read as a list of preview URLs ({e}). Codealong won't change it until it does."),
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Store::default()),
-        Err(e) => bail!("Couldn't read {}: {e}", p.display()),
-    }
+    Ok(store::read(&path(), WHAT)?.unwrap_or_default())
 }
 
 /// Reads the store under a lock on `previews.json.lock`, lets `f` change it, and saves it
 /// through a temporary file when `f` says it changed. URLs of worktrees that are gone go with
 /// it.
 pub fn change(f: impl FnOnce(&mut Store) -> bool) -> Result<Store> {
-    std::fs::create_dir_all(support_dir())?;
-    let lock = std::fs::OpenOptions::new().create(true).write(true).open(path().with_extension("json.lock"))?;
-    // SAFETY: flock on a descriptor this process owns; LOCK_EX waits for the other holder.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        bail!("Couldn't lock previews.json: {}", std::io::Error::last_os_error());
-    }
-    let mut store = load()?;
-    if f(&mut store) {
-        store.previews.retain(|e| Path::new(&e.worktree).exists());
-        let tmp = path().with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(&store)?)?;
-        std::fs::rename(&tmp, path())?;
-    }
-    Ok(store)
+    store::change(&path(), WHAT, |s: &mut Store| {
+        let changed = f(s);
+        if changed {
+            s.previews.retain(|e| Path::new(&e.worktree).exists());
+        }
+        changed
+    })
 }
 
 /// A URL as typed, made whole: a port alone (`5173`, `:5173`) is on localhost, a local name

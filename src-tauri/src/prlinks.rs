@@ -4,18 +4,21 @@
 //! engine watches it.
 
 use std::collections::HashMap;
-use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::support_dir;
+use crate::store;
 
 pub fn path() -> PathBuf {
     support_dir().join("pr-links.json")
 }
+
+/// What the file holds, for the error when it doesn't read as that.
+const WHAT: &str = "a list of links";
 
 /// A link made or taken away by hand. An unlink (`linked: false`) keeps the session off the
 /// PR, however it was matched.
@@ -52,33 +55,13 @@ impl LinkStore {
 /// The store, or an empty one when there's no file. A file that doesn't parse is an error, so
 /// it's never overwritten.
 pub fn load() -> Result<LinkStore> {
-    let p = path();
-    match std::fs::read_to_string(&p) {
-        Ok(t) => match serde_json::from_str(&t) {
-            Ok(s) => Ok(s),
-            Err(e) => bail!("pr-links.json doesn't read as a list of links ({e}). Codealong won't change it until it does."),
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(LinkStore::default()),
-        Err(e) => bail!("Couldn't read {}: {e}", p.display()),
-    }
+    Ok(store::read(&path(), WHAT)?.unwrap_or_default())
 }
 
 /// Reads the store under a lock on `pr-links.json.lock`, lets `f` change it, and saves it
 /// through a temporary file when `f` says it changed.
 pub fn change(f: impl FnOnce(&mut LinkStore) -> bool) -> Result<LinkStore> {
-    std::fs::create_dir_all(support_dir())?;
-    let lock = std::fs::OpenOptions::new().create(true).write(true).open(path().with_extension("json.lock"))?;
-    // SAFETY: flock on a descriptor this process owns; LOCK_EX waits for the other holder.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        bail!("Couldn't lock pr-links.json: {}", std::io::Error::last_os_error());
-    }
-    let mut store = load()?;
-    if f(&mut store) {
-        let tmp = path().with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(&store)?)?;
-        std::fs::rename(&tmp, path())?;
-    }
-    Ok(store)
+    store::change(&path(), WHAT, f)
 }
 
 /// How PR keys compare: GitHub's owner and repo names ignore case.
