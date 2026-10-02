@@ -63,6 +63,7 @@ import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './us
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
+import { useLatest } from './latest';
 import { Toasts, useToasts } from './ui/Toasts';
 import { laneInQuery, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
 import { inProject } from './quick';
@@ -252,14 +253,6 @@ export function App() {
   // The session being renamed (ui/RenameDialog.tsx), by key.
   const [renaming, setRenaming] = useState<string | null>(null);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
-  // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
-  // project this window shows. The panel tells this window how the start goes.
-  const projectNow = useRef<string>(ALL_PROJECTS);
-  const newSession = useCallback((at: { laneId: string | null; todo?: string | null; todos?: string[]; prompt?: string }) => {
-    // The quick panel starts sessions on this device; one on another device's worktree starts without one.
-    const laneId = at.laneId && shortOf(at.laneId) ? null : at.laneId;
-    void showQuick({ ...at, laneId, project: projectNow.current, opener: windowLabel() });
-  }, []);
   /** Marks sessions seen, shown at once; the engine turning it down puts them back and says why. */
   const markSeen = useCallback(
     (keys: string[]) => {
@@ -402,7 +395,17 @@ export function App() {
     labelFilter,
     showDoneTodos,
   });
-  projectNow.current = current;
+  // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
+  // project this window shows. The panel tells this window how the start goes.
+  const projectNow = useLatest(current);
+  const newSession = useCallback(
+    (at: { laneId: string | null; todo?: string | null; todos?: string[]; prompt?: string }) => {
+      // The quick panel starts sessions on this device; one on another device's worktree starts without one.
+      const laneId = at.laneId && shortOf(at.laneId) ? null : at.laneId;
+      void showQuick({ ...at, laneId, project: projectNow.current, opener: windowLabel() });
+    },
+    [projectNow],
+  );
 
   // The Canvas view: the project's document, kept up to date with the board once it's been shown.
   const canvasEntities = useMemo(
@@ -499,6 +502,37 @@ export function App() {
     if (key !== undefined) document.getElementById(domIdOf(key))?.scrollIntoView({ block: 'nearest' });
   }, [selected?.key]);
 
+  // The floating bar, the quick panel or a card on the desktop asks to show a session, worktree,
+  // PR or todo here: in its project, with no search hiding it.
+  const reveal = useLatest((r: Reveal) => {
+    // A todo the quick panel found: the Todo view, in its project.
+    if (r.kind === 'todo') {
+      const t = todoStore.todos.find((x) => x.id === r.id);
+      if (t) showTodo(t);
+      return;
+    }
+    const lane = r.kind === 'session' || r.kind === 'worktree' ? lanes.find((l) => l.id === r.laneId) : undefined;
+    const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
+    const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
+    const home = lane?.project ?? pr?.project;
+    if (!home) return;
+    if (current !== ALL_PROJECTS && current !== home) pickProject(home);
+    setQuery('');
+    if (lane && r.kind === 'worktree') {
+      focusLane(lane);
+    } else if (lane && session) {
+      // Its own row in Sessions, with its conversation in the panel, whichever view was showing:
+      // the board would only show its line on its worktree's row.
+      setView('sessions');
+      setBayFilter([]);
+      setSelectedKey(`${lane.id}::${session.key}`);
+    } else if (pr) {
+      setView('prs');
+      setBayFilter([]);
+      setSelectedKey(`pr:${pr.key}`);
+    }
+  });
+
   const open = useCallback((lane: Lane | null, targetId: string | null | undefined) => {
     if (!lane || !targetId) return;
     // A session Codealong runs lives in its panel here: Sessions, with it selected.
@@ -510,7 +544,7 @@ export function App() {
       return;
     }
     openWhere(where(lane, targetId), { report, from: 'main' });
-  }, [report, markSeen, setView]);
+  }, [report, markSeen, setView, reveal]);
 
   const openRow = useCallback(
     (row: Row | null) => {
@@ -632,8 +666,7 @@ export function App() {
   /** Goes back or forward a session. It shows in Sessions: where it's listed, when the list has it
    *  as it's filtered now, else as a session the bar asks for is shown. From a session's box, the
    *  cursor goes to the box of the one gone to. */
-  const travel = useRef<(dir: 'back' | 'forward', box: boolean) => void>(() => {});
-  travel.current = (dir, box) => {
+  const travel = useLatest((dir: 'back' | 'forward', box: boolean) => {
     const key = dir === 'back' ? sessionHistory.goBack() : sessionHistory.goForward();
     const home = key ? homes.get(key) : undefined;
     if (!key || !home) return;
@@ -646,7 +679,7 @@ export function App() {
     }
     sayQueue(null);
     if (box) setBoxFocus(`${home.lane.id}::${key}`);
-  };
+  });
   /** What a history button says: where it goes, and its key. */
   const historyTitle = (to: string | null, word: string, none: string, keys: string) => {
     const title = to ? homes.get(to)?.session.title : null;
@@ -785,8 +818,7 @@ export function App() {
     if (next !== all) runTodo({ op: 'order', ids: next });
   };
 
-  const labelsRef = useRef(todoStore.labels);
-  labelsRef.current = todoStore.labels;
+  const labelsRef = useLatest(todoStore.labels);
   /** Deletes a label everywhere; the toast can bring it back where it was. */
   const deleteLabel = (label: Label) => {
     const at = todoStore.labels.findIndex((l) => l.id === label.id);
@@ -985,8 +1017,7 @@ export function App() {
    * shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
    * session's worktree.
    */
-  const todoItemsRef = useRef(todoMenuItems);
-  todoItemsRef.current = todoMenuItems;
+  const todoItemsRef = useLatest(todoMenuItems);
   const editorIcons = useEditorIcons(board?.apps);
   const editors = board ? { apps: board.apps, icons: editorIcons } : undefined;
   /** What this window can do to a session, for its menu and its keys, which run the same
@@ -1030,8 +1061,7 @@ export function App() {
   });
   const laneMenuSpec = (lane: Lane): MenuSpec => menus.laneMenu(lane, laneCan(lane));
   // The keys run the same actions, as this render has them.
-  const actionsRef = useRef({ session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane: Lane) => menus.laneActions(lane, laneCan(lane)) });
-  actionsRef.current = { session: (lane, s, pin) => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane) => menus.laneActions(lane, laneCan(lane)) };
+  const actionsRef = useLatest({ session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane: Lane) => menus.laneActions(lane, laneCan(lane)) });
   const laneMenu = (lane: Lane) => void showContextMenu(laneMenuSpec(lane)).catch((e: unknown) => setToast(String(e)));
 
   // A worktree's row dragged on the board: among the pinned ones to pin it there or move it, from
@@ -1087,45 +1117,13 @@ export function App() {
     });
   };
 
-  // The floating bar, the quick panel or a card on the desktop asks to show a session, worktree,
-  // PR or todo here: in its project, with no search hiding it.
-  const reveal = useRef<(r: Reveal) => void>(() => {});
-  reveal.current = (r: Reveal) => {
-    // A todo the quick panel found: the Todo view, in its project.
-    if (r.kind === 'todo') {
-      const t = todoStore.todos.find((x) => x.id === r.id);
-      if (t) showTodo(t);
-      return;
-    }
-    const lane = r.kind === 'session' || r.kind === 'worktree' ? lanes.find((l) => l.id === r.laneId) : undefined;
-    const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
-    const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
-    const home = lane?.project ?? pr?.project;
-    if (!home) return;
-    if (current !== ALL_PROJECTS && current !== home) pickProject(home);
-    setQuery('');
-    if (lane && r.kind === 'worktree') {
-      focusLane(lane);
-    } else if (lane && session) {
-      // Its own row in Sessions, with its conversation in the panel, whichever view was showing:
-      // the board would only show its line on its worktree's row.
-      setView('sessions');
-      setBayFilter([]);
-      setSelectedKey(`${lane.id}::${session.key}`);
-    } else if (pr) {
-      setView('prs');
-      setBayFilter([]);
-      setSelectedKey(`pr:${pr.key}`);
-    }
-  };
-  useEffect(() => onReveal((r) => reveal.current(r)), []);
+  useEffect(() => onReveal((r) => reveal.current(r)), [reveal]);
 
   // The Todo view's own keys, bound fresh each render so they see the rows as they are. N adds a
   // todo, X marks one done (or reopens it), W moves it to Waiting or out, D picks its due date,
   // Delete deletes it, ⌃⌘↑ ⌃⌘↓ move it. ⇧↑ ⇧↓ pick the rows above or below too; then X, W and Delete act on all of
   // them, Return starts one session for them, and Escape goes back to one.
-  const todoKeys = useRef<(e: KeyboardEvent, key: string) => boolean>(() => false);
-  todoKeys.current = (e, key) => {
+  const todoKeys = useLatest((e: KeyboardEvent, key: string): boolean => {
     if (view !== 'todo') return false;
     // Reordering moves one todo at a time.
     if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
@@ -1185,7 +1183,7 @@ export function App() {
       return true;
     }
     return false;
-  };
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1410,7 +1408,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
 
   const toggleBay = (f: Filter) => {
     setBayFilter((fs) => (fs.includes(f) ? fs.filter((x) => x !== f) : [...fs, f]));
@@ -1421,9 +1419,8 @@ export function App() {
     openProjectWindow(name, another).catch((e: unknown) => setToast(String(e)));
   };
   // File › New window (⌘⇧N): one more window on the project this one shows.
-  const newWindow = useRef(() => {});
-  newWindow.current = () => openWindow(current, true);
-  useEffect(() => onNewWindow(() => newWindow.current()), []);
+  const newWindow = useLatest(() => openWindow(current, true));
+  useEffect(() => onNewWindow(() => newWindow.current()), [newWindow]);
   // In the switcher, the button on the project you're looking at does the same (its tooltip
   // says ⌘⇧N); on another project it brings that project's window forward if it has one.
   const switcherWindow = (name: string) => openWindow(name, name === current);

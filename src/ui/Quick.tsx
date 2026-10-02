@@ -114,6 +114,7 @@ import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
 import { asText, readStored, strings, useStored, writeStored } from '../stored';
+import { useLatest } from '../latest';
 
 declare global {
   interface Window {
@@ -282,7 +283,8 @@ export function Quick() {
   // one's done, and says how the last one went (`way`, below, once the list is known).
   const [queued, setQueued] = useState(false);
   // Takes back what the reply view's strip says, for the open's script, which runs ahead of
-  // where the queue is set up.
+  // where the queue is set up: a slot the queue fills in below, not a value from above, so it
+  // isn't a useLatest.
   const quiet = useRef(() => {});
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -290,8 +292,7 @@ export function Quick() {
   const card = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const textNow = useRef(text);
-  textNow.current = text;
+  const textNow = useLatest(text);
   const cachedOptions = useRef<{ at: number; options: StartOptions } | null>(null);
   // Jev's answers by project and text, so going back to what you typed doesn't ask again. Each
   // open starts afresh: sessions come and go.
@@ -305,8 +306,7 @@ export function Quick() {
   const [history, setHistory] = useStored<string[]>(HISTORY_KEY, strings, []);
   const [recall, setRecall] = useState<number | null>(null);
   const keepPrompt = (prompt: string) => setHistory((h) => historyWith(h, prompt));
-  const todoIdsNow = useRef(todoIds);
-  todoIdsNow.current = todoIds;
+  const todoIdsNow = useLatest(todoIds);
   // While an open lays the panel out: 'script' when Codealong's script opens it (its height goes
   // back as the script's result), 'page' when the page opened it itself (it sends its height).
   const opening = useRef<'script' | 'page' | null>(null);
@@ -431,7 +431,8 @@ export function Quick() {
       delete window.__quickOpen;
       offHidden();
     };
-  }, []);
+    // Once: the refs are the same objects on every render.
+  }, [textNow, todoIdsNow]);
 
   useEffect(
     () =>
@@ -530,10 +531,8 @@ export function Quick() {
   // What it works through, and what's left after the one showing. Snoozed ones wait their time.
   const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => !r.session.snoozedUntil) : []), [board, queued, current]);
   // Read when a send fails, which can be long after the view went on to another session.
-  const replyKeyNow = useRef(replyKey);
-  replyKeyNow.current = replyKey;
-  const shownNow = useRef(shown);
-  shownNow.current = shown;
+  const replyKeyNow = useLatest(replyKey);
+  const shownNow = useLatest(shown);
 
   /* ---- Who ---- */
 
@@ -757,8 +756,7 @@ export function Quick() {
   const keys = [...rows.map((r) => r.key), COMPOSE];
   // A result dragged out of the panel is pinned to the desktop: a session, a todo, a PR, or the
   // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
-  const rowsNow = useRef(rows);
-  rowsNow.current = rows;
+  const rowsNow = useLatest(rows);
   const drag = useRowDrag({
     desktop: (key) => deskPin(rowsNow.current.find((r) => r.key === key)),
     label: (key) => deskTitle(rowsNow.current.find((r) => r.key === key)),
