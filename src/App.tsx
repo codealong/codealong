@@ -62,6 +62,7 @@ import { historyChord, useSessionHistory } from './history';
 import { QUEUE_CHORDS, queueKey } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { openWhere, where } from './open';
+import { asText, flag, oneOf, strings, useStored } from './stored';
 
 const ELSEWHERE = 'Elsewhere';
 /** The chords Sessions' box hands the list: ⌥↑ ⌥↓ (with ⇧, to what waits on you), ⌃⌘ with a
@@ -220,49 +221,11 @@ function domId(r: { key: string }): string {
   return domIdOf(r.key);
 }
 
-function storedAge(): Age {
-  try {
-    const v = window.localStorage.getItem(AGE_KEY);
-    return AGES.some((a) => a.id === v) ? (v as Age) : 'all';
-  } catch {
-    return 'all';
-  }
-}
-
-function storedSessionSort(): SessionSort {
-  try {
-    const v = window.localStorage.getItem(SESSION_SORT_KEY);
-    return SESSION_SORTS.some((o) => o.id === v) ? (v as SessionSort) : 'status';
-  } catch {
-    return 'status';
-  }
-}
-
-function storedSessionRows(): SessionRows {
-  try {
-    const v = window.localStorage.getItem(SESSION_ROWS_KEY);
-    return SESSION_ROWS.some((o) => o.id === v) ? (v as SessionRows) : 'two';
-  } catch {
-    return 'two';
-  }
-}
-
-function storedView(): View {
-  try {
-    const v = window.localStorage.getItem(VIEW_KEY);
-    return VIEWS.some((x) => x.id === v) ? (v as View) : 'sessions';
-  } catch {
-    return 'sessions';
-  }
-}
-
-function storedProject(): string | null {
-  try {
-    return window.localStorage.getItem(PROJECT_KEY);
-  } catch {
-    return null;
-  }
-}
+// How each remembered choice is read back: one of the ids it can be, else the default.
+const VIEW_STORED = oneOf(VIEWS.map((v) => v.id));
+const AGE_STORED = oneOf(AGES.map((a) => a.id));
+const SORT_STORED = oneOf(SESSION_SORTS.map((o) => o.id));
+const ROWS_STORED = oneOf(SESSION_ROWS.map((o) => o.id));
 
 /** Whether the keyboard is in a text field (other than search, which has keys of its own). */
 function inField(el: Element | null, search: HTMLInputElement | null): boolean {
@@ -282,22 +245,8 @@ export function App() {
   // the sidebar's Devices narrow the views to one of them, and Worktrees can group by device.
   const [devices, setDevices] = useState<DevicesView | null>(null);
   const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>([]);
-  const [groupByDevice, setGroupByDevice] = useState(() => {
-    try {
-      return window.localStorage.getItem(GROUP_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const toggleGroupByDevice = () =>
-    setGroupByDevice((on) => {
-      try {
-        window.localStorage.setItem(GROUP_KEY, on ? '0' : '1');
-      } catch {
-        // Grouping still changes for this window; it just isn't remembered.
-      }
-      return !on;
-    });
+  const [groupByDevice, setGroupByDevice] = useStored(GROUP_KEY, flag, false);
+  const toggleGroupByDevice = () => setGroupByDevice((on) => !on);
   // Other devices' worktrees, with your changes to their sessions too.
   const deviceLanes = useMemo(() => (devices?.enabled ? lanesAhead(devices.lanes, ahead) : []), [devices, ahead]);
   useEffect(() => observe(boardView(engineBoard?.generatedAt ?? null, [engineBoard?.lanes ?? [], devices?.lanes ?? []])), [engineBoard, devices]);
@@ -311,51 +260,22 @@ export function App() {
   // worktrees, todos or PRs: the views say they're being read rather than show nothing, or only
   // the other devices' worktrees, which come in first from what their feeds kept.
   const loading = !loadError && (!engineBoard || engineBoard.loading);
-  const [project, setProject] = useState<string | null>(() => WINDOW_PROJECT ?? storedProject());
+  // A project window keeps its choice to itself; the main window's is remembered.
+  const [project, setProject] = useStored(WINDOW_PROJECT ? null : PROJECT_KEY, asText, WINDOW_PROJECT);
   const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [view, setViewState] = useState<View>(storedView);
-  const [age, setAgeState] = useState<Age>(storedAge);
+  const [view, setView] = useStored<View>(VIEW_KEY, VIEW_STORED, 'sessions');
+  const [age, setAge] = useStored<Age>(AGE_KEY, AGE_STORED, 'all');
   // Panel widths as you last dragged them. The PR panel has its own: it starts out wider.
   const [sidebarWidth, setSidebarWidth] = usePanelWidth(SIDEBAR_WIDTH_KEY);
   // The sidebar folds to a rail of the views and devices (⌃⌘S), and stays as you left it.
-  const [sideCollapsed, setSideCollapsed] = useState(() => {
-    try {
-      return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const toggleSidebar = useCallback(() => {
-    setSideCollapsed((c) => {
-      try {
-        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, c ? '0' : '1');
-      } catch {
-        // It still folds for this window; it just isn't remembered.
-      }
-      return !c;
-    });
-  }, []);
+  const [sideCollapsed, setSideCollapsed] = useStored(SIDEBAR_COLLAPSED_KEY, flag, false);
+  const toggleSidebar = useCallback(() => setSideCollapsed((c) => !c), [setSideCollapsed]);
   // A session's panel in Sessions can take the whole window (⇧⌘F), for working through sessions one
   // after another with the list out of the way; it stays as you left it.
-  const [panelMax, setPanelMax] = useState(() => {
-    try {
-      return window.localStorage.getItem(SESSION_PANEL_MAX_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const togglePanelMax = useCallback(() => {
-    setPanelMax((m) => {
-      try {
-        window.localStorage.setItem(SESSION_PANEL_MAX_KEY, m ? '0' : '1');
-      } catch {
-        // It still expands for this window; it just isn't remembered.
-      }
-      return !m;
-    });
-  }, []);
+  const [panelMax, setPanelMax] = useStored(SESSION_PANEL_MAX_KEY, flag, false);
+  const togglePanelMax = useCallback(() => setPanelMax((m) => !m), [setPanelMax]);
   const [savedViews, setSavedViews] = useState<SavedView[]>(loadSaved);
   useEffect(() => onSavedChange(setSavedViews), []);
   const keepSaved = (next: SavedView[]) => {
@@ -377,14 +297,7 @@ export function App() {
   // less the ones dismissed, which stay dismissed across launches while they still stand.
   const reported = useReportedNotices();
   const allNotices = useMemo(() => [...(board?.notices ?? []), ...reported], [board?.notices, reported]);
-  const [dismissed, setDismissed] = useState<string[]>(() => {
-    try {
-      const v: unknown = JSON.parse(window.localStorage.getItem(DISMISSED_KEY) ?? '[]');
-      return Array.isArray(v) ? v.filter((id): id is string => typeof id === 'string') : [];
-    } catch {
-      return [];
-    }
-  });
+  const [dismissed, setDismissed] = useStored<string[]>(DISMISSED_KEY, strings, []);
   const boardRead = !!board && !board.loading;
   useEffect(() => {
     // Before the board is read it lists none, which isn't their having gone.
@@ -393,14 +306,7 @@ export function App() {
       const kept = keptDismissals(d, allNotices);
       return kept.length === d.length ? d : kept;
     });
-  }, [allNotices, boardRead]);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(DISMISSED_KEY, JSON.stringify(dismissed));
-    } catch {
-      // Storage is full or off: dismissals last until the window closes.
-    }
-  }, [dismissed]);
+  }, [allNotices, boardRead, setDismissed]);
   const notices = useMemo(() => shownNotices(allNotices, dismissed), [allNotices, dismissed]);
   // Settings, open at a section; at one account when a usage chip opened it. ⌘, comes back to
   // the section you left, as macOS settings do.
@@ -532,37 +438,15 @@ export function App() {
   const current = known && project ? project : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
   projectNow.current = current;
 
-  const pickProject = (name: string) => {
-    setProject(name);
-    setBayFilter([]);
-    setShowParked(false);
-    setSelectedKey(null);
-    // A project window keeps its choice to itself; the main window's is remembered.
-    if (WINDOW_PROJECT) return;
-    try {
-      window.localStorage.setItem(PROJECT_KEY, name);
-    } catch {
-      // Private windows can refuse storage; the choice just won't persist.
-    }
-  };
-
-  const setView = useCallback((v: View) => {
-    setViewState(v);
-    try {
-      window.localStorage.setItem(VIEW_KEY, v);
-    } catch {
-      // Storage can be unavailable; the view just won't persist.
-    }
-  }, []);
-
-  const setAge = useCallback((a: Age) => {
-    setAgeState(a);
-    try {
-      window.localStorage.setItem(AGE_KEY, a);
-    } catch {
-      // Storage can be unavailable; the filter just won't persist.
-    }
-  }, []);
+  const pickProject = useCallback(
+    (name: string) => {
+      setProject(name);
+      setBayFilter([]);
+      setShowParked(false);
+      setSelectedKey(null);
+    },
+    [setProject],
+  );
 
   // Pinned sessions head the Sessions view and pinned worktrees the Worktrees view, each in
   // your order.
@@ -570,25 +454,9 @@ export function App() {
   const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
   const prPins = usePins(board?.pinnedPrs, setPinnedPrs, setToast);
   // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
-  const [sessionSort, setSessionSortState] = useState<SessionSort>(storedSessionSort);
-  const setSessionSort = useCallback((sort: SessionSort) => {
-    setSessionSortState(sort);
-    try {
-      window.localStorage.setItem(SESSION_SORT_KEY, sort);
-    } catch {
-      // Storage can be unavailable; the order just won't persist.
-    }
-  }, []);
+  const [sessionSort, setSessionSort] = useStored<SessionSort>(SESSION_SORT_KEY, SORT_STORED, 'status');
   // How much each session's row says: two lines, or one.
-  const [sessionLines, setSessionLinesState] = useState<SessionRows>(storedSessionRows);
-  const setSessionLines = useCallback((rows: SessionRows) => {
-    setSessionLinesState(rows);
-    try {
-      window.localStorage.setItem(SESSION_ROWS_KEY, rows);
-    } catch {
-      // Storage can be unavailable; the rows just won't stay that way.
-    }
-  }, []);
+  const [sessionLines, setSessionLines] = useStored<SessionRows>(SESSION_ROWS_KEY, ROWS_STORED, 'two');
 
   // Archived sessions leave every view but the Archived list.
   const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], deviceLanes, deviceFilter), [board?.lanes, deviceLanes, deviceFilter]);
@@ -1769,7 +1637,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, toggleSidebar, panelMax, togglePanelMax]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next. The new session isn't selected when it shows up: by then you may

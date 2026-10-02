@@ -38,6 +38,7 @@ import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, openWords } from '../open';
 import { dueWords } from '../due';
+import { asText, readStored, writeStored } from '../stored';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -63,14 +64,6 @@ const DRAG_AFTER = 6;
 
 const GROUP_GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const GROUP_WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
-
-function storedProject(): string {
-  try {
-    return window.localStorage.getItem(PROJECT_KEY) ?? ALL_PROJECTS;
-  } catch {
-    return ALL_PROJECTS;
-  }
-}
 
 /** The pill's class for a status: errors are red, the rest of Needs you amber. */
 function tone(status: Status): string {
@@ -362,7 +355,7 @@ export function Bar() {
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
   // Fonts load after the first layout; pills are measured again once they have.
   const [fontsReady, setFontsReady] = useState(false);
-  const [project, setProject] = useState(storedProject);
+  const [project, setProject] = useState(() => readStored(PROJECT_KEY, asText, ALL_PROJECTS));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   // How many of the bar's menus are up: docked in the notch, it stays open under them.
   const [menusUp, setMenusUp] = useState(0);
@@ -757,11 +750,7 @@ export function Bar() {
 
   const pickProject = (name: string) => {
     setProject(name);
-    try {
-      window.localStorage.setItem(PROJECT_KEY, name);
-    } catch {
-      // Storage can be unavailable; the choice just won't be remembered.
-    }
+    writeStored(PROJECT_KEY, asText, name);
   };
 
   const projectMenu = (e: MouseEvent<HTMLButtonElement>) => {

@@ -27,6 +27,7 @@ import type { Moment } from '../mark';
 import type { LogoStatus, Status } from '../types';
 import { MarkLive } from './MarkLive';
 import { cx, Icon, StatusGlyph } from './primitives';
+import { readStored, writeStored, type Codec } from '../stored';
 
 /** How long the pointer rests on the closed notch before it opens, and is off it before it
  *  closes. */
@@ -37,25 +38,16 @@ const SIZE_KEY = 'codealong.notch.size';
 /** How far an edge moves with the button down before it sizes the session rather than clicks. */
 const SIZE_AFTER = 3;
 
-function storedSize(): Size | null {
-  try {
-    const v: unknown = JSON.parse(window.localStorage.getItem(SIZE_KEY) ?? 'null');
+/** The size you dragged the session to, as JSON; one that doesn't read is none. */
+const SIZE_STORED: Codec<Size | null> = {
+  parse: (raw) => {
+    const v: unknown = JSON.parse(raw);
     if (!v || typeof v !== 'object') return null;
     const { w, h } = v as { w?: unknown; h?: unknown };
     return typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0 ? { w, h } : null;
-  } catch {
-    return null;
-  }
-}
-
-function keepSize(size: Size | null): void {
-  try {
-    if (size) window.localStorage.setItem(SIZE_KEY, JSON.stringify(size));
-    else window.localStorage.removeItem(SIZE_KEY);
-  } catch {
-    // Storage can be unavailable; the size just won't outlast the window.
-  }
-}
+  },
+  format: (size) => (size ? JSON.stringify(size) : null),
+};
 
 const GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
@@ -126,7 +118,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
     return () => window.removeEventListener('resize', resized);
   }, []);
   // The size you dragged the session to, if you have: its width, and its height under the pills.
-  const [want, setWant] = useState<Size | null>(storedSize);
+  const [want, setWant] = useState<Size | null>(() => readStored(SIZE_KEY, SIZE_STORED, null));
   // An edge is being dragged: the shape follows the pointer, with no easing to catch up.
   const [sizing, setSizing] = useState(false);
   const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want);
@@ -276,12 +268,12 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
     const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to);
     const kept = { w: s.session.w, h: s.session.h - s.pills.h };
     setWant(kept);
-    keepSize(kept);
+    writeStored(SIZE_KEY, SIZE_STORED, kept);
   };
   /** A double-click on an edge gives the session its usual size back. */
   const resetSize = () => {
     setWant(null);
-    keepSize(null);
+    writeStored(SIZE_KEY, SIZE_STORED, null);
   };
   const grip = (edge: NotchEdge) => (
     <div className={`ca-notch-grip is-${edge}`} aria-hidden="true" onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} onDoubleClick={resetSize} />

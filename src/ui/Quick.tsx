@@ -106,6 +106,7 @@ import { UsageMeter } from './UsageBar';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
+import { asText, readStored, strings, useStored, writeStored } from '../stored';
 
 declare global {
   interface Window {
@@ -167,23 +168,6 @@ const ROUTE_AFTER_MS = 350;
 const TEXT_AFTER_MS = 150;
 /** How long typing has to pause before the list may shrink to what it shows. */
 const SETTLE_MS = 600;
-
-function storedHistory(): string[] {
-  try {
-    const v: unknown = JSON.parse(window.localStorage.getItem(HISTORY_KEY) ?? '[]');
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function storedProject(): string | null {
-  try {
-    return window.localStorage.getItem(PROJECT_KEY);
-  } catch {
-    return null;
-  }
-}
 
 /** Why Auto starts the account and model it does. `fallback`: it isn't one of the preferred
  *  accounts, which are all near a limit. */
@@ -266,7 +250,7 @@ export function Quick() {
   // How tall the window can be on its screen; the card keeps within it and the list scrolls.
   const [room, setRoom] = useState<number | null>(null);
   const [opener, setOpener] = useState<string | null>(null);
-  const [project, setProject] = useState<string>(() => storedProject() ?? ALL_PROJECTS);
+  const [project, setProject] = useState<string>(() => readStored(PROJECT_KEY, asText, ALL_PROJECTS));
   const [text, setText] = useState('');
   const [laneId, setLaneId] = useState<string | null>(null);
   // The agent menu's choice; null is the first it offers, Auto where there's one.
@@ -320,19 +304,9 @@ export function Quick() {
   // Prompts you sent, started or saved, newest first, kept across restarts. ↑ walks back through
   // the draft and then these; `recall` is where it is, and holds while the text is what it
   // brought back.
-  const [history, setHistory] = useState<string[]>(storedHistory);
+  const [history, setHistory] = useStored<string[]>(HISTORY_KEY, strings, []);
   const [recall, setRecall] = useState<number | null>(null);
-  const keepPrompt = (prompt: string) => {
-    setHistory((h) => {
-      const next = historyWith(h, prompt);
-      try {
-        window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-      } catch {
-        // Storage can be unavailable; the prompt just won't come back after a restart.
-      }
-      return next;
-    });
-  };
+  const keepPrompt = (prompt: string) => setHistory((h) => historyWith(h, prompt));
   const todoIdsNow = useRef(todoIds);
   todoIdsNow.current = todoIds;
   // While an open lays the panel out: 'script' when Codealong's script opens it (its height goes
@@ -373,7 +347,7 @@ export function Quick() {
         routes.current.clear();
         setOpener(ctx.opener ?? null);
         setError(null);
-        setProject(ctx.project ?? storedProject() ?? ALL_PROJECTS);
+        setProject(ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS));
         setLaneId(ctx.laneId ?? null);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
         if (textNow.current.trim()) setDraft({ text: textNow.current, todos: todoIdsNow.current });
@@ -514,11 +488,7 @@ export function Quick() {
     setProject(name);
     setActiveKey(null);
     setPicker(null);
-    try {
-      window.localStorage.setItem(PROJECT_KEY, name);
-    } catch {
-      // Storage can be unavailable; the choice just won't be remembered.
-    }
+    writeStored(PROJECT_KEY, asText, name);
     refocus();
   };
   const counts = useMemo(() => (board ? projectCounts(board, [...projects.map((p) => p.name), ALL_PROJECTS]) : {}), [board, projects]);

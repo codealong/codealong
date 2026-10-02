@@ -2,34 +2,22 @@
 // double-click it to put the panel back to its default width. Each panel's width is kept in
 // localStorage, like the view and the age filter.
 
-import { useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useStored, type Codec } from '../stored';
 import { cx } from './primitives';
+
+/** A width as a number of pixels; none, or one that doesn't read, is the panel's default. */
+const WIDTH_STORED: Codec<number | null> = {
+  parse: (raw) => {
+    const width = Number(raw);
+    return Number.isFinite(width) && width > 0 ? width : undefined;
+  },
+  format: (width) => (width == null ? null : String(width)),
+};
 
 /** A panel's width as you last left it, and a setter that saves it. Null means the default. */
 export function usePanelWidth(key: string): [number | null, (width: number | null) => void] {
-  const [width, setWidth] = useState<number | null>(() => storedWidth(key));
-  const save = useCallback(
-    (next: number | null) => {
-      setWidth(next);
-      try {
-        if (next == null) window.localStorage.removeItem(key);
-        else window.localStorage.setItem(key, String(next));
-      } catch {
-        // Storage can be unavailable; the width just won't persist.
-      }
-    },
-    [key],
-  );
-  return [width, save];
-}
-
-function storedWidth(key: string): number | null {
-  try {
-    const width = Number(window.localStorage.getItem(key));
-    return Number.isFinite(width) && width > 0 ? width : null;
-  } catch {
-    return null;
-  }
+  return useStored(key, WIDTH_STORED, null);
 }
 
 /**

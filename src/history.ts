@@ -2,7 +2,8 @@
 // forward again (⌃- and ⌃⇧-, as in VS Code). It works as a browser's history does: looking at a
 // session from somewhere back in the list drops what was ahead.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { useStored, type Codec } from './stored';
 
 export interface History {
   /** Session keys, oldest first. */
@@ -65,6 +66,9 @@ export function parseHistory(text: string | null): History {
   }
 }
 
+/** How a window's history is kept: as JSON, read back by `parseHistory`. */
+const HISTORY_STORED: Codec<History> = { parse: parseHistory, format: (h) => JSON.stringify(h) };
+
 /** ⌃- and ⌃⇧-, back and forward through the sessions you looked at, as VS Code has them. The key
  *  goes by what it types or where it is, so a layout that puts - elsewhere has it too. */
 export function historyChord(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'altKey'>): boolean {
@@ -86,24 +90,7 @@ export interface SessionHistory {
  * the way back.
  */
 export function useSessionHistory(shown: string | null, ok: (key: string) => boolean, storageKey: string): SessionHistory {
-  const [history, setHistory] = useState<History>(() => {
-    try {
-      return parseHistory(window.localStorage.getItem(storageKey));
-    } catch {
-      return NO_HISTORY;
-    }
-  });
-  const keep = useCallback(
-    (h: History) => {
-      setHistory(h);
-      try {
-        window.localStorage.setItem(storageKey, JSON.stringify(h));
-      } catch {
-        // Storage can be unavailable; the history just won't outlast the window.
-      }
-    },
-    [storageKey],
-  );
+  const [history, keep] = useStored<History>(storageKey, HISTORY_STORED, NO_HISTORY);
   // The latest, for the timer and for a key pressed before the next render.
   const now = useRef(history);
   now.current = history;
