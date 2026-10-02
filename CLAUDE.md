@@ -668,6 +668,14 @@ Claude Code
   `answers` keyed by each question's text, a choice's label or your own words, several as a list
   (older versions joined them into one string with commas). Declined, the result is an error,
   "The user doesn't want to proceed…", with `toolUseResult` the string "User rejected tool use".
+- An `Artifact` call (input `file_path`, or `type_url` and `title`, and an `action` when it isn't
+  a publish) that published, made or opened an artifact has `toolUseResult: {url, title,
+  artifact_id, updated, seq, version, path, icon, audience…}` on its result line: `url` is
+  `https://claude.ai/artifact/<id>`, `seq` the version's number (older versions wrote none),
+  `updated` false on the first publish. One made from a type says `created_from_type: true`
+  with no `artifact_id`; `open` says `opened: true`; a read keeps `url` and `title` under `read`
+  (beside `artifactRead`), and a list has `artifacts`. Checked on about 130 calls here,
+  2026-10-02. `claude::artifact_of` makes the link the conversation shows (`Item.link`).
 - A peer message to a session that bypasses permissions is held ("Held message from another
   session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
   its terminal isn't held. Under the Claude app (stream-json) a hold is only a `{"type":

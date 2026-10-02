@@ -489,8 +489,10 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             }
             let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
             let results: Vec<&Value> = parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("tool_result")).collect();
-            // The line's `toolUseResult` is its one result's: for questions, what you answered.
+            // The line's `toolUseResult` is its one result's: for questions, what you answered,
+            // and for an artifact, where it is.
             let answers = if results.len() == 1 { answers_of(v.pointer("/toolUseResult/answers")) } else { Default::default() };
+            let link = if results.len() == 1 { artifact_of(v.get("toolUseResult")) } else { None };
             results
                 .into_iter()
                 .map(|p| Item {
@@ -498,6 +500,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                     output: Some(clip_output(&text_of(p.get("content").unwrap_or(&Value::Null)))),
                     failed: p.get("is_error").and_then(Value::as_bool) == Some(true),
                     answers: answers.clone(),
+                    link: link.clone(),
                     ..item(at, "result", "")
                 })
                 .collect()
@@ -1806,6 +1809,34 @@ fn answers_of(v: Option<&Value>) -> std::collections::BTreeMap<String, Vec<Strin
         .collect()
 }
 
+/// The artifact an `Artifact` call published, made from a type or opened, as Claude Code records
+/// it on the call's result (`toolUseResult`): `url`, `title` and `artifact_id`, with `seq` (its
+/// version) and `updated` on a publish. A fetched page's result has a `url` too, so only one that
+/// names an artifact counts; a read or a listing changes nothing you'd go and look at.
+fn artifact_of(result: Option<&Value>) -> Option<crate::harness::Link> {
+    let r = result?;
+    let made = r.get("created_from_type").and_then(Value::as_bool) == Some(true);
+    if r.get("artifact_id").is_none() && !made {
+        return None;
+    }
+    let text = |k: &str| r.get(k).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+    let url = text("url").filter(|u| u.starts_with("https://"))?;
+    let did = if made {
+        "Created"
+    } else if r.get("opened").and_then(Value::as_bool) == Some(true) {
+        "Opened"
+    } else if r.get("updated").and_then(Value::as_bool) == Some(true) {
+        "Updated"
+    } else {
+        "Published"
+    };
+    let note = match r.get("seq").and_then(Value::as_u64) {
+        Some(n) => format!("{did} · version {n}"),
+        None => did.to_string(),
+    };
+    Some(crate::harness::Link { url: url.to_string(), title: one_line(text("title").unwrap_or("Artifact"), 120), note: Some(note) })
+}
+
 /// Your answers to the questions, as Claude Code takes them: each question answered by its text,
 /// with a label or words of your own, or a list of them where it takes several. Empty answers
 /// and questions it didn't ask are left out; none at all is refused.
@@ -2137,6 +2168,12 @@ pub fn tool_request(name: &str, input: &Value) -> String {
         "WebFetch" => input_str(input, "url").map(|u| code(&one_line(&u, 60))),
         "WebSearch" => input_str(input, "query").map(|q| one_line(&q, 60)),
         "Task" | "Agent" => input_str(input, "description").map(|d| one_line(&d, 60)),
+        // A publish names its file, or the title of what it makes from a type; anything else
+        // (read, list, open…) says which.
+        "Artifact" => match input_str(input, "action").as_deref() {
+            None | Some("publish") => input_str(input, "file_path").map(|p| code(&short_path(&p))).or_else(|| input_str(input, "title").map(|t| one_line(&t, 60))),
+            Some(action) => Some(one_line(action, 20)),
+        },
         _ => None,
     };
     let label = name.strip_prefix("mcp__").map(|rest| rest.replace("__", " · ")).unwrap_or_else(|| name.to_string());
@@ -2596,6 +2633,40 @@ mod tests {
         let one = picked(&qs, &serde_json::json!({ "Which color do you prefer?": ["Blue", "Red"] })).unwrap();
         assert_eq!(one["Which color do you prefer?"], "Blue", "one pick for a question that takes one");
         assert!(picked(&qs, &serde_json::json!({ "Which days?": [] })).is_err());
+    }
+
+    /// Lines as 2.1.286 wrote them, cut down: a publish, an update, a canvas made from a type, an
+    /// artifact opened for you, and two results that name a page without making one.
+    #[test]
+    fn a_published_artifact_is_a_link_on_its_calls_result() {
+        let call = serde_json::json!({ "type": "assistant", "message": { "content": [
+            { "type": "tool_use", "id": "t1", "name": "Artifact", "input": { "file_path": "/private/tmp/claude-501/-x/scratchpad/security-dashboard.html", "label": "Osprey current 2 Oct" } },
+            { "type": "tool_use", "id": "t2", "name": "Artifact", "input": { "action": "read", "url": "https://claude.ai/artifact/8ZBq" } },
+            { "type": "tool_use", "id": "t3", "name": "Artifact", "input": { "type_url": "https://claude.ai/code/artifact/2333", "title": "Kestrel Design System" } },
+        ] } });
+        let labels: Vec<String> = conversation_items(&call, 0).into_iter().map(|i| i.text).collect();
+        assert_eq!(labels, ["Artifact · `security-dashboard.html`", "Artifact · read", "Artifact · Kestrel Design System"]);
+
+        let result = |r: Value| {
+            let line = serde_json::json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "Published … at https://claude.ai/artifact/Vuaw (Version 9)" }] }, "toolUseResult": r });
+            conversation_items(&line, 0).pop().unwrap().link.map(|l| (l.url, l.title, l.note.unwrap_or_default()))
+        };
+        let link = |url: &str, title: &str, note: &str| Some((url.to_string(), title.to_string(), note.to_string()));
+        let published = serde_json::json!({ "url": "https://claude.ai/artifact/Vuaw", "path": "/private/tmp/x.html", "artifact_id": "226b", "title": "Security dashboard", "updated": false, "icon": "checklist", "seq": 1, "version": "1790892882-e855" });
+        assert_eq!(result(published), link("https://claude.ai/artifact/Vuaw", "Security dashboard", "Published · version 1"));
+        let updated = serde_json::json!({ "url": "https://claude.ai/artifact/Vuaw", "artifact_id": "226b", "title": "Security dashboard", "updated": true, "seq": 9 });
+        assert_eq!(result(updated), link("https://claude.ai/artifact/Vuaw", "Security dashboard", "Updated · version 9"));
+        // An older Claude Code kept no version number, and a page can have no title.
+        let older = serde_json::json!({ "url": "https://claude.ai/artifact/Vuaw", "artifact_id": "226b", "title": " ", "updated": false, "version": "1790892882-e855" });
+        assert_eq!(result(older), link("https://claude.ai/artifact/Vuaw", "Artifact", "Published"));
+        let made = serde_json::json!({ "created_from_type": true, "url": "https://claude.ai/artifact/BKx5", "version": "1790033813-d831", "title": "Kestrel Design System", "type": { "url": "https://claude.ai/artifact/5M7U" } });
+        assert_eq!(result(made), link("https://claude.ai/artifact/BKx5", "Kestrel Design System", "Created"));
+        let opened = serde_json::json!({ "artifact_id": "53a0", "opened": true, "title": "Kestrel Design System", "url": "https://claude.ai/artifact/BKx5" });
+        assert_eq!(result(opened), link("https://claude.ai/artifact/BKx5", "Kestrel Design System", "Opened"));
+        // A read, and a page WebFetch fetched: nothing was made.
+        assert_eq!(result(serde_json::json!({ "read": { "url": "https://claude.ai/artifact/8ZBq", "title": "Class C" }, "artifactRead": { "slug": "3d2e" } })), None);
+        assert_eq!(result(serde_json::json!({ "bytes": 10, "code": 200, "url": "https://example.com", "result": "" })), None);
+        assert_eq!(result(Value::String("Error: artifact not found".into())), None);
     }
 
     #[test]

@@ -65,6 +65,10 @@ pub struct Item {
     /// wrote, several where it took more.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub answers: BTreeMap<String, Vec<String>>,
+    /// What a call made or opened that has a page on the web (an artifact Claude Code
+    /// published), on the call's result: its line in the panel links to it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<crate::harness::Link>,
     /// Where its line starts (or its message number); with `n`, unique in the session.
     pub cursor: u64,
     pub n: u32,
@@ -208,7 +212,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, cursor: 0, n: 0 }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -264,7 +268,7 @@ mod tests {
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, cursor: 40, n: 2 };
         let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None)], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 5));
@@ -275,6 +279,12 @@ mod tests {
         let command = Item { shell: true, cwd: Some("/Users/me/app".into()), ..item("tool", Some("t2"), Some("ok")) };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(Page { items: vec![command], before: None, after: 0 }).unwrap()).unwrap();
         assert_eq!(theirs.items[0].input.as_deref(), Some("cargo test"));
+        // A page a call made is one to open from any device.
+        let made = Item { link: Some(crate::harness::Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Security dashboard".into(), note: Some("Updated · version 9".into()) }), ..item("result", Some("t3"), Some("Published")) };
+        let page = Page { items: vec![made], before: None, after: 0 };
+        let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
+        assert_eq!(theirs.items[0].link.as_ref().map(|l| l.title.as_str()), Some("Security dashboard"));
+        assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
     }
 
     fn write(lines: &[&str]) -> PathBuf {

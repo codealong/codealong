@@ -121,9 +121,26 @@ pub struct Item {
     /// wrote, several where it took more.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub answers: std::collections::BTreeMap<String, Vec<String>>,
+    /// What a call made or opened that has a page on the web (a Claude artifact), on the call's
+    /// result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Link>,
     /// Where its line starts in the record (or its message number); with `n`, unique in the session.
     pub cursor: u64,
     pub n: u32,
+}
+
+/// A page on the web that a tool call made or opened, which its line in the conversation links
+/// to: an artifact Claude Code published.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Link {
+    pub url: String,
+    /// What the page is called.
+    pub title: String,
+    /// What the call did with it, in a word or two: "Published · version 3".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// A page of a session's conversation, oldest first.
@@ -401,8 +418,8 @@ mod tests {
     fn a_page_reads_back_what_it_wrote() {
         let page = Page {
             items: vec![
-                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), cursor: 0, n: 0 },
-                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), cursor: 120, n: 1 },
+                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), link: None, cursor: 0, n: 0 },
+                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), cursor: 120, n: 1 },
             ],
             before: Some(0),
             after: 400,

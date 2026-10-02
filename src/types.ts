@@ -1076,6 +1076,9 @@ export interface TranscriptItem {
   /** Your answers to them, on the call's result: each question's text to what you picked or
    *  wrote, several where it took more. */
   answers?: Record<string, string[]>;
+  /** A page on the web the call made or opened (an artifact Claude Code published), on its
+   *  result: its title, and what the call did with it ("Updated · version 9"). */
+  link?: { url: string; title: string; note?: string };
   /** Where its line starts (or its message number in OpenCode); with `n`, unique in the session. */
   cursor: number;
   n: number;

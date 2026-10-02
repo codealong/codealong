@@ -3,6 +3,7 @@
 // HTML, so nothing in a transcript can put markup on the page. Web links, written as links or bare,
 // open in the browser; any other link shows as its text. A link to a GitHub PR is the PR's
 // (PrLink.tsx): a bare one reads `name#123`, and hovering it shows the PR and its sessions.
+// A tool's output isn't Markdown, but the web links in it open the same way (`linked`).
 
 import { Fragment, memo, type ReactNode } from 'react';
 import { openUrl } from '../api';
@@ -14,10 +15,14 @@ const WEB = /^https?:\/\//i;
 /** A bare web link in text, without the punctuation that ends a sentence around it. */
 const BARE = /https?:\/\/[^\s<>()`]+[^\s<>()`.,;:!?'"*_]/g;
 
+/** A web link in a tool's output, which is as often JSON as prose: it ends at a quote or a
+ *  backslash too. */
+const IN_OUTPUT = /https?:\/\/[^\s<>()`"'\\]+[^\s<>()`"'\\.,;:!?*_]/g;
+
 /** A web link that opens in the browser, never in the app's own window. A bare one (`children`
- *  left out) reads as its URL, or a PR's as GitHub shortens it. */
-function Link({ url, children }: { url: string; children?: ReactNode }) {
-  const pr = prRefOf(url);
+ *  left out) reads as its URL, or a PR's as GitHub shortens it; `plain` keeps a PR's as it is. */
+export function Link({ url, children, plain }: { url: string; children?: ReactNode; plain?: boolean }) {
+  const pr = plain ? null : prRefOf(url);
   if (pr) {
     return (
       <PrLink url={url} pr={pr}>
@@ -42,16 +47,21 @@ function Link({ url, children }: { url: string; children?: ReactNode }) {
 }
 
 /** Plain text with its bare web links made links. */
-function bare(text: string, key: number): ReactNode[] {
+function bare(text: string, key: number, output = false): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
-  for (const m of text.matchAll(BARE)) {
+  for (const m of text.matchAll(output ? IN_OUTPUT : BARE)) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<Link key={`${key}-${m.index}`} url={m[0]} />);
+    out.push(<Link key={`${key}-${m.index}`} url={m[0]} plain={output} />);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/** A tool's output as it was written, every character of it, with its web links made links. */
+export function linked(text: string): ReactNode[] {
+  return bare(text, 0, true);
 }
 
 type Block =

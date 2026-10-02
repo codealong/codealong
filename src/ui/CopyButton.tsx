@@ -2,7 +2,7 @@
 // moment, and a code block that shows one when you hover it, with Run beside it for shell
 // commands (RunButton.tsx).
 
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { Icon } from './primitives';
 import { RunButton, RunContext } from './RunButton';
 
@@ -35,14 +35,15 @@ export function CopyButton({ text, title = 'Copy', className }: { text: string; 
 
 /** Preformatted text you can select, with a Copy button on hover. `run` marks shell commands,
  *  which get a Run button too in a session on this Mac, run where `run.folder` says they ran or
- *  else where the session works. */
-export function CodeBlock({ text, className, run }: { text: string; className?: string; run?: { folder?: string } }) {
+ *  else where the session works. `children` is the text as it's drawn, when that's more than
+ *  the text: a tool's output with its links. */
+export function CodeBlock({ text, className, run, children }: { text: string; className?: string; run?: { folder?: string }; children?: ReactNode }) {
   const place = useContext(RunContext);
   const folder = run && place ? (run.folder ?? place.folder) : null;
   const [failed, setFailed] = useState<string | null>(null);
   return (
     <div className="ca-codeblock">
-      <pre className={className}>{text}</pre>
+      <pre className={className}>{children ?? text}</pre>
       <div className="ca-codeblock-tools">
         {folder && place && <RunButton text={text} folder={folder} terminal={place.terminal} onFailed={setFailed} />}
         <CopyButton text={text} title="Copy" />

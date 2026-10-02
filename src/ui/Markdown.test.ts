@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { isValidElement, type ReactNode } from 'react';
-import { blocks, inline } from './Markdown';
+import { blocks, inline, linked } from './Markdown';
 import { prLabel, prRefOf } from '../prLinks';
 
 /** The web links in a line, as [the words they show, url], found through their elements. A bare
- *  link shows its URL, or a PR's as GitHub shortens it. */
+ *  link shows its URL, or a PR's as GitHub shortens it unless it's `plain`. */
 function links(nodes: ReactNode[]): [string, string][] {
   const out: [string, string][] = [];
   const text = (n: ReactNode): string => (Array.isArray(n) ? n.map(text).join('') : isValidElement<{ children?: ReactNode }>(n) ? text(n.props.children) : n == null || typeof n === 'boolean' ? '' : String(n));
   const walk = (n: ReactNode) => {
     if (Array.isArray(n)) n.forEach(walk);
-    else if (isValidElement<{ url?: string; children?: ReactNode }>(n)) {
-      const { url } = n.props;
-      if (url) out.push([n.props.children == null ? (prRefOf(url) ? prLabel(prRefOf(url)!) : url) : text(n.props.children), url]);
+    else if (isValidElement<{ url?: string; plain?: boolean; children?: ReactNode }>(n)) {
+      const { url, plain } = n.props;
+      if (url) out.push([n.props.children == null ? (prRefOf(url) && !plain ? prLabel(prRefOf(url)!) : url) : text(n.props.children), url]);
       walk(n.props.children);
     }
   };
@@ -33,6 +33,26 @@ describe('inline', () => {
 
   it("doesn't put a link inside a link", () => {
     expect(links(inline('[https://a.io](https://a.io)'))).toEqual([['https://a.io', 'https://a.io']]);
+  });
+});
+
+describe('linked', () => {
+  /** What the nodes read as: output must keep every character. */
+  const words = (nodes: ReactNode[]) => nodes.map((n) => (isValidElement<{ url: string }>(n) ? n.props.url : String(n))).join('');
+
+  it('makes the web links in a tool’s output clickable and keeps its text as it was', () => {
+    const published = 'Published /private/tmp/x/security-dashboard.html at https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H (Version 9, version id 1790960406-8f4f)\n\nTo update: publish the same file path here.';
+    expect(links(linked(published))).toEqual([['https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H', 'https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H']]);
+    expect(words(linked(published))).toBe(published);
+    // A PR's link reads as it was printed, not as GitHub shortens it.
+    expect(links(linked('https://github.com/a/b/pull/12\n'))).toEqual([['https://github.com/a/b/pull/12', 'https://github.com/a/b/pull/12']]);
+  });
+
+  it('ends a link where JSON does', () => {
+    const json = '{"url":"https://a.dev/x?y=1","title":"T"}\n{"href": "https://b.dev/p_q",\n "note": "see https://c.dev/end."}\n"https:\\/\\/escaped.dev"';
+    expect(links(linked(json)).map(([, url]) => url)).toEqual(['https://a.dev/x?y=1', 'https://b.dev/p_q', 'https://c.dev/end']);
+    expect(words(linked(json))).toBe(json);
+    expect(linked('no links here')).toEqual(['no links here']);
   });
 });
 

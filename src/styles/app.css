@@ -6789,6 +6789,49 @@ html.is-quick body {
 .ca-thread-tooldetail .ca-thread-out.is-failed {
   color: var(--alert);
 }
+/* A page on the web the call made (an artifact Claude Code published): its title, a link, under
+   the call's line and in line with its label, then what the call did with it. */
+.ca-thread-made {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 6px 3px 25px;
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-thread-made a.ca-md-a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ca-thread-made a.ca-md-a > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-thread-madetitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+.ca-thread-made a.ca-md-a:hover .ca-thread-madetitle {
+  text-decoration-color: currentColor;
+}
+.ca-thread-made a.ca-md-a:hover > .ca-icon {
+  color: var(--ink);
+}
+.ca-thread-made > .ca-meta {
+  flex: none;
+  white-space: nowrap;
+}
 .ca-thread-tool.is-asks {
   padding: 6px;
   border-radius: var(--radius-md);
@@ -7083,7 +7126,9 @@ html.is-quick body {
 .ca-md .ca-md-h:first-child {
   margin-top: 0;
 }
-.ca-md a.ca-md-a {
+/* A web link in a reply, and in a tool's output (SessionThread.tsx), which isn't Markdown. */
+.ca-md a.ca-md-a,
+.ca-thread-out a.ca-md-a {
   color: inherit;
   text-decoration: underline;
   text-decoration-color: var(--line-strong);
@@ -7091,7 +7136,8 @@ html.is-quick body {
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.ca-md a.ca-md-a:hover {
+.ca-md a.ca-md-a:hover,
+.ca-thread-out a.ca-md-a:hover {
   text-decoration-color: currentColor;
 }
 /* A link to a GitHub PR (PrLink.tsx): its state's icon ahead of its words once the PR is known. */

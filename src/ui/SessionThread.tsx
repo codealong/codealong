@@ -5,7 +5,9 @@
 // A tool call is a line; click it for its input and output. A run of calls folds into one line
 // that keeps its latest call in view. Questions it asks you (Claude Code's AskUserQuestion) open
 // as questions with their choices rather than the call's input, marked with your picks once
-// they're answered.
+// they're answered. A call that made a page on the web (an artifact Claude Code published) says
+// so under its line, as a link to it, and stays out of a fold; web links in a tool's output open
+// too.
 //
 // A message you sent shows at the end as it goes (ahead.ts): sending, then sent, until the
 // session's record has it and it shows from there. One that went but that the session shows no
@@ -33,7 +35,7 @@ import { absolute, agoPhrase } from '../format';
 import type { HostedStream, Question, Session, Status, TranscriptItem, TranscriptPage } from '../types';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView } from './DescriptionEditor';
-import { Markdown } from './Markdown';
+import { Link, linked, Markdown } from './Markdown';
 import { Icon, Rich, StatusGlyph } from './primitives';
 import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
@@ -66,7 +68,12 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
   for (const it of items) {
     if (it.kind === 'result') continue;
     if (it.kind === 'tool') {
-      run.push({ item: it, result: it.id ? results.get(it.id) : undefined });
+      const call = { item: it, result: it.id ? results.get(it.id) : undefined };
+      // A call that made a page is one to open: the calls around it fold, and it stays in view.
+      if (it.link || call.result?.link) {
+        flush();
+        rows.push({ kind: 'item', ...call });
+      } else run.push(call);
       continue;
     }
     flush();
@@ -84,6 +91,7 @@ function toolIcon(label: string): string {
   if (/read|view/.test(name)) return 'file';
   if (/grep|glob|search|find/.test(name)) return 'search';
   if (/agent|task/.test(name)) return 'sparkles';
+  if (/artifact/.test(name)) return 'world';
   return 'bolt';
 }
 
@@ -101,6 +109,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
   const output = item.output ?? result?.output;
   const failed = item.failed || !!result?.failed;
   const detail = questions || item.input || output;
+  const link = item.link ?? result?.link;
   return (
     <div className={['ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks'].filter(Boolean).join(' ')}>
       <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
@@ -119,6 +128,15 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
         ) : null}
         {detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />}
       </button>
+      {link && (
+        <div className="ca-thread-made">
+          <Link url={link.url} plain>
+            <span className="ca-thread-madetitle">{link.title}</span>
+            <Icon name="arrow-up-right" size={12} />
+          </Link>
+          {link.note && <span className="ca-meta">{link.note}</span>}
+        </div>
+      )}
       {state === 'asks' && onOpen && (
         <div className="ca-thread-askrow">
           <span>{questions ? 'It’s asking you.' : 'It’s waiting for your approval.'}</span>
@@ -138,7 +156,11 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
       {open && !questions && (
         <div className="ca-thread-tooldetail">
           {item.input && <CodeBlock text={item.input} className="ca-thread-in" run={item.shell && state !== 'asks' ? { folder: item.cwd } : undefined} />}
-          {output && <CodeBlock text={output} className={['ca-thread-out', failed && 'is-failed'].filter(Boolean).join(' ')} />}
+          {output && (
+            <CodeBlock text={output} className={['ca-thread-out', failed && 'is-failed'].filter(Boolean).join(' ')}>
+              {linked(output)}
+            </CodeBlock>
+          )}
         </div>
       )}
     </div>
