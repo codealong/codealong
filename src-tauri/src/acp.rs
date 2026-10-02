@@ -30,6 +30,7 @@ use serde_json::{json, Value};
 use crate::config::{self, AccountCfg};
 use crate::harness::{Answer, Pending};
 use crate::model::{Harness, Session, Status};
+use crate::store;
 use crate::util::{now_ms, truncate};
 
 /// The adapter packages `codealong install` puts in `<support dir>/acp`, at versions checked
@@ -160,26 +161,30 @@ fn remembered_path() -> PathBuf {
     config::support_dir().join("hosted.json")
 }
 
+/// The sessions to pick up again at launch. A file that doesn't parse gives none, and is left
+/// as it is (`remember_in`).
 fn load_remembered() -> Vec<Remembered> {
-    std::fs::read(remembered_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    store::read_or_default(&remembered_path())
 }
 
 fn remember(r: Remembered) {
-    let mut all = load_remembered();
-    if all.iter().any(|x| x.harness == r.harness && x.id == r.id && x.account == r.account) {
-        return;
-    }
-    all.push(r);
+    // Nobody waits on this as a session starts, so a failure is a notice.
     let path = remembered_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(text) = serde_json::to_vec_pretty(&all) {
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(tmp, path);
+    let _ = store::noted(&path, remember_in(&path, r));
+}
+
+/// Adds a session to hosted.json, under the file's lock: two sessions starting at once on two
+/// accounts both land. A file that doesn't parse is an error and is left as it is, since an
+/// older build that doesn't know a newer one's harness must not write its own list over it.
+fn remember_in(path: &Path, r: Remembered) -> Result<()> {
+    store::change(path, "a list of the sessions Codealong runs", |all: &mut Vec<Remembered>| {
+        if all.iter().any(|x| x.harness == r.harness && x.id == r.id && x.account == r.account) {
+            return false;
         }
-    }
+        all.push(r);
+        true
+    })?;
+    Ok(())
 }
 
 // ---- the adapters ----
@@ -763,6 +768,29 @@ mod tests {
             assert!(std::time::Instant::now() < end, "timed out waiting for {what}");
             std::thread::sleep(Duration::from_millis(200));
         }
+    }
+
+    #[test]
+    fn a_hosted_file_that_does_not_read_is_never_written_over() {
+        let dir = store::test_dir("hosted-unreadable");
+        let path = dir.join("hosted.json");
+        let r = |id: &str| Remembered { harness: Harness::Codex, account: "codex".into(), id: id.into(), cwd: "/r/app".into() };
+        remember_in(&path, r("t1")).unwrap();
+        remember_in(&path, r("t2")).unwrap();
+        // One already there isn't written again.
+        let before = std::fs::read_to_string(&path).unwrap();
+        remember_in(&path, r("t1")).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        assert_eq!(store::read_or_default::<Vec<Remembered>>(&path), [r("t1"), r("t2")]);
+
+        // A newer build's harness, and a write cut short.
+        for bytes in [r#"[{"harness":"hal","account":"hal","id":"t0","cwd":"/r/app"}]"#, r#"[{"harness":"codex","#] {
+            std::fs::write(&path, bytes).unwrap();
+            let e = remember_in(&path, r("t3")).unwrap_err().to_string();
+            assert!(e.starts_with("hosted.json doesn't read as a list of the sessions Codealong runs"), "{e}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Against a real adapter: `CODEALONG_TEST_ACP_RESUME=<key of a session in hosted.json>
