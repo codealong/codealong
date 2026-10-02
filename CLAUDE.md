@@ -383,10 +383,13 @@ some work is, answer with one.
 - What goes wrong in the background (a file that doesn't read, GitHub not answering) is a
   notice: the engine's are `Board.notices` (`Engine::notices`, GitHub's from `GhPoll::notice`:
   a key, a few words, the whole of it, and when it ends where that's known), a window's own go
-  through `reportNotice` in
-  `src/notices.ts`, and `ui/Notices.tsx` draws them all as one chip at the end of the accounts
-  bar, with a card for the whole of it and a dismiss that lasts while the notice stands. What
-  goes wrong with something you just did is a toast in the window you did it in, not a notice.
+  through `reportNotice` in `src/notices.ts`, with `clearNotice` once it works again, and
+  `ui/Notices.tsx` draws them all as one chip at the end of the accounts bar, with a card for
+  the whole of it and a dismiss that lasts while the notice stands. A window without that bar
+  (the bar, the peek, the quick panel, a card) hands its notices to the board's windows
+  (`drawNoticesHere`). What goes wrong with something you just did is a toast in the window you
+  did it in, not a notice, and a failure left unsaid (`.catch(() => {})`) says why it doesn't
+  matter.
 - Codealong's small JSON files next to the config (todos.json, state.json, origins.json…) are
   read, locked and written through `src-tauri/src/store.rs`: a write is a temporary file of its
   own and a rename, and a read-modify-write is `store::change`, under the file's `.lock`. A file
@@ -402,7 +405,10 @@ some work is, answer with one.
   `src-tauri/src/geometry.rs` (`Rect`, `PageRect`, `screen_for`), not arithmetic where they're used.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
-  what it can do. A new item goes there, not into one window's menu.
+  what it can do. A new item goes there, not into one window's menu. A todo's (and several
+  todos', and the todo panel's ⋯) takes how the window changes todos (`TodoEdit`): an item shows
+  where the window has what it needs, so a card on the desktop has a todo's status and due date
+  but not its labels.
 - Chips are one shape and size wherever they show (`--chip-radius`, 20 high, 11px text; the
   Chips section of app.css says what each fill means), and one component a kind of thing in
   `ui/primitives.tsx`: `HarnessChip` an agent, `WorktreeChip` a worktree, `PrChip` a PR
@@ -410,6 +416,11 @@ some work is, answer with one.
   never cuts one off: each shows whole or wraps out of sight, the last first, and a long name
   shortens inside its chip. `scripts/preview/chip-lanes-check.js` checks every list for it. A
   session's account is said last, never before its title (asked 2026-10-01).
+- A dialog, a popover's dismissal, a list row, a segmented control and a chip are each one
+  component or hook: `Dialog` (scrim, Escape, its name, the keyboard kept and handed back),
+  `Row`, `Seg` and `Chip` (with `MoreChip`, and `chipHandlers` for how a chip answers clicks) in
+  `ui/primitives.tsx`, and `useDismiss` (a press elsewhere, Escape for the one opened last). A
+  new one is drawn by them, not by hand, and a class list goes through `cx`.
 - A right-click (or ⌃-click) on a list's row opens its menu and doesn't select it
   (`primitives.tsx`'s `selects`); contextMenu.ts rings the row while the menu is up. A menu is
   built from the row it's for, never from the selection.
