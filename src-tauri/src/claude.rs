@@ -2771,10 +2771,12 @@ mod tests {
 {"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-portal","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cd ../spark-fix && yarn test"}}]}}
 {"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-portal","message":{"content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/Users/me/projects/sparkhq/spark-fix/src/a.ts"}}]}}
 {"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-fix","message":{"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"yarn lint"}}]}}
-{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-fix","message":{"content":[{"type":"tool_use","id":"t5","name":"Read","input":{"file_path":"/Users/me/projects/sparkhq/spark/README.md"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-fix","message":{"content":[{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"cd /Users/me/projects/sparkhq/spark && git show origin/main:README.md | head -40"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-fix","message":{"content":[{"type":"tool_use","id":"t6","name":"Read","input":{"file_path":"/Users/me/projects/sparkhq/spark/README.md"}}]}}
 "#;
         let info = parse_lines(HEAD, tail);
-        // Making the worktree names a folder outside the one it runs in, so it isn't work there.
+        // Making the worktree names a folder outside the one it runs in, so it isn't work there;
+        // nor is reading another checkout, with the Read tool or from a shell that went there.
         assert_eq!(
             info.work,
             [

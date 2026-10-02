@@ -504,11 +504,12 @@ const WORK_WINDOW: usize = 5;
 
 /// The lane a session is working in. Agents often start in one worktree and then work in
 /// another (`cd ../repo-fix && …`), so it's where most of the last few commands ran and edits
-/// landed, the latest winning a tie, and a stray command elsewhere doesn't move it. Work
-/// outside every worktree doesn't count, nor work in a folder that's a lane only because a
-/// session started there: a plain folder, or an app's chats, where a chat that was later given
-/// a folder or went to work in a repo still runs its shell. With none, where the session was
-/// started.
+/// landed, the latest winning a tie, and a stray command elsewhere doesn't move it. Going
+/// somewhere only to look isn't work there (`util::command_dir`): an agent reads other repos
+/// from where it is. Work outside every worktree doesn't count, nor work in a folder that's a
+/// lane only because a session started there: a plain folder, or an app's chats, where a chat
+/// that was later given a folder or went to work in a repo still runs its shell. With none,
+/// where the session was started.
 pub fn session_seed(seeds: &[LaneSeed], s: &Session) -> Option<usize> {
     let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| best_seed(seeds, Path::new(p)).filter(|&i| !seeds[i].exact && !seeds[i].chats)).take(WORK_WINDOW).collect();
     let votes = |i: usize| recent.iter().filter(|&&j| j == i).count();

@@ -13,7 +13,7 @@ use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item
 /// The Codex app's bundle ID. The ChatGPT chat app has the same name, so the app is known by this.
 pub const APP_BUNDLE_ID: &str = "com.openai.codex";
 
-use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parallel_map, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back, without_cd};
+use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, only_looks, parallel_map, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadInfo {
@@ -422,6 +422,11 @@ fn work_of(item: &Value, thread_cwd: &str) -> Option<String> {
                 Value::String(s) => s.clone(),
                 _ => return None,
             };
+            // The agent picks each command's folder: one run somewhere else only to look isn't
+            // work there, as with a `cd`.
+            if !Path::new(&cwd).starts_with(thread_cwd) && only_looks(&script) {
+                return None;
+            }
             command_dir(&script, &cwd)
         }
         "FileChange" => item.get("changes")?.as_object()?.keys().next().map(|p| resolve(thread_cwd, p)),
@@ -1615,11 +1620,13 @@ mod tests {
         let mut info = parse_meta(META_USER).unwrap();
         let tail = r#"{"timestamp":"2026-09-24T18:04:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","git status"],"cwd":"file:///Users/me/projects/sparkhq/spark-infra"}}}
 {"timestamp":"2026-09-24T18:04:03.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","cd ../spark-fix && yarn test"],"cwd":"file:///Users/me/projects/sparkhq/spark-infra"}}}
-{"timestamp":"2026-09-24T18:04:04.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","ls"],"cwd":"file:///Users/me/projects/my%20app"}}}
+{"timestamp":"2026-09-24T18:04:04.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","yarn build"],"cwd":"file:///Users/me/projects/my%20app"}}}
+{"timestamp":"2026-09-24T18:04:04.500Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","git log --oneline -5 | cat"],"cwd":"file:///Users/me/projects/sparkhq/spark-docs"}}}
 {"timestamp":"2026-09-24T18:04:05.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","changes":{"/Users/me/projects/sparkhq/spark-fix/src/a.ts":{"type":"update"}}}}}
 {"timestamp":"2026-09-24T18:04:06.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r"}}}
 "#;
         apply_events(&mut info, tail);
+        // Looking counts in the thread's own folder; a look into another repo isn't work there.
         assert_eq!(
             info.work,
             [

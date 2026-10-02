@@ -482,7 +482,13 @@ Claude Code
   folder the shell goes back to it, so an agent working in another worktree starts each
   command there with `cd <folder> &&`, and its other commands (temp files, `osascript`) run
   where it started. `board::session_seed` lists an agent where most of its last five
-  commands and edits worked; `util::command_dir` has the rule for commands.
+  commands and edits worked; `util::command_dir` has the rule for commands. Agents read a repo
+  they aren't working in the same way, many commands in a row (`cd <folder> && git show
+  origin/main:AGENTS.md | head`; four in ten of 15,000 commands in three days of transcripts began
+  with grep, sed, cat, ls or a reading git command), so a command that goes elsewhere only to
+  look (`util::only_looks`) isn't work there, as a file read with the Read tool isn't. A look
+  where the shell already is still counts: without those, a session that once ran a command
+  elsewhere would stay listed there while it reads at home.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - Each background job has a record, `<home>/jobs/<job>/state.json` (`sessionId`, `state`,
   `intent`, `name`…), kept after the job ends. A job that copied a conversation (`/fork`,

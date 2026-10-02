@@ -296,13 +296,150 @@ fn leading_cd(command: &str) -> Option<(String, Option<&str>)> {
 /// without a `cd` names a path outside `base`: reading a temp file, looking into another
 /// worktree or running a tool by its path says nothing about working in `base`, and agents
 /// whose shell is reset to where they started run a lot of those between real work elsewhere.
+/// None too when it goes to another folder only to look (`cd ../other && git show
+/// origin/main:README.md`): an agent reads a repo it isn't working in that way, many commands
+/// in a row, and reading with its file tools doesn't count as work there either.
 pub fn command_dir(command: &str, base: &str) -> Option<String> {
     match leading_cd(command) {
         None if names_path_outside(command, base) => None,
         None => Some(base.to_string()),
         Some((dir, _)) if dir.is_empty() => Some(home().to_string_lossy().into_owned()),
         Some((dir, _)) if dir == "-" || dir.contains(['$', '`']) => None,
-        Some((dir, _)) => Some(resolve(base, &dir)),
+        Some((dir, then)) => Some(resolve(base, &dir)).filter(|dir| dir == base || !then.is_some_and(only_looks)),
+    }
+}
+
+/// Whether a shell script only looks around: every command in it is one known to read (`ls`,
+/// `grep`, `git show`…) and nothing is written to a file. A program it doesn't know may change
+/// things, and so may a loop, a here-document or a command inside another, so a script with
+/// any of those isn't only looking.
+pub fn only_looks(script: &str) -> bool {
+    simple_commands(script).is_some_and(|commands| commands.iter().all(|words| looks(words)))
+}
+
+/// A script's commands, each as its words, split at `;`, `&&`, `||`, `|`, newlines and
+/// parentheses. None when it writes to a file (`> out.txt`; `/dev/null` and `2>&1` are fine)
+/// or has something this doesn't read: a here-document, a command substitution, backticks.
+fn simple_commands(script: &str) -> Option<Vec<Vec<String>>> {
+    let mut commands: Vec<Vec<String>> = vec![Vec::new()];
+    // The word being read; `Some("")` is an empty quoted one.
+    let mut word: Option<String> = None;
+    let mut chars = script.chars().peekable();
+    fn end_word(commands: &mut Vec<Vec<String>>, word: &mut Option<String>) {
+        if let Some(w) = word.take() {
+            commands.last_mut().expect("never empty").push(w);
+        }
+    }
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => word.get_or_insert_with(String::new).extend(chars.by_ref().take_while(|&q| q != '\'')),
+            '"' => {
+                let w = word.get_or_insert_with(String::new);
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => w.push(chars.next()?),
+                        '`' => return None,
+                        '$' if chars.peek() == Some(&'(') => return None,
+                        q => w.push(q),
+                    }
+                }
+            }
+            '\\' => match chars.next() {
+                // A line carried on.
+                Some('\n') | None => {}
+                Some(next) => word.get_or_insert_with(String::new).push(next),
+            },
+            '`' => return None,
+            '$' if chars.peek() == Some(&'(') => return None,
+            '#' if word.is_none() => {
+                chars.by_ref().take_while(|&q| q != '\n').for_each(drop);
+                commands.push(Vec::new());
+            }
+            ' ' | '\t' => end_word(&mut commands, &mut word),
+            '<' if matches!(chars.peek(), Some('<' | '(')) => return None,
+            // What a command reads from is one of its words, which is as good as an argument.
+            '<' => end_word(&mut commands, &mut word),
+            '>' | '&' if c == '>' || chars.peek() == Some(&'>') => {
+                // The descriptor before it (`2>`) isn't a word.
+                if !word.as_ref().is_some_and(|w| !w.is_empty() && w.chars().all(|d| d.is_ascii_digit())) {
+                    end_word(&mut commands, &mut word);
+                }
+                word = None;
+                while chars.next_if(|&q| q == '>').is_some() {}
+                let copies = chars.next_if_eq(&'&').is_some();
+                while chars.next_if(|&q| q == ' ' || q == '\t').is_some() {}
+                let mut to = String::new();
+                while let Some(q) = chars.next_if(|&q| !q.is_whitespace() && !matches!(q, ';' | '&' | '|' | '(' | ')' | '<' | '>')) {
+                    to.push(q);
+                }
+                let descriptor = copies && (to == "-" || (!to.is_empty() && to.chars().all(|d| d.is_ascii_digit())));
+                if !descriptor && to != "/dev/null" {
+                    return None;
+                }
+            }
+            '\n' | ';' | '&' | '|' | '(' | ')' => {
+                end_word(&mut commands, &mut word);
+                commands.push(Vec::new());
+            }
+            c => word.get_or_insert_with(String::new).push(c),
+        }
+    }
+    end_word(&mut commands, &mut word);
+    commands.retain(|words| !words.is_empty());
+    Some(commands)
+}
+
+/// Whether a command, as its words, only reads.
+fn looks(words: &[String]) -> bool {
+    let assigns = |w: &String| w.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    let words: Vec<&str> = words.iter().skip_while(|w| assigns(w)).map(String::as_str).collect();
+    // Only variables set.
+    let Some((&program, args)) = words.split_first() else { return true };
+    let has = |flags: &[&str]| args.iter().any(|a| flags.contains(a));
+    match program.rsplit('/').next().unwrap_or(program) {
+        "cd" | "ls" | "cat" | "head" | "tail" | "grep" | "egrep" | "fgrep" | "rg" | "wc" | "cut" | "sort" | "uniq" | "tr" | "jq" | "awk" | "echo" | "printf" | "pwd" | "date" | "tree" | "stat"
+        | "file" | "diff" | "du" | "which" | "test" | "[" | "true" | "false" | "basename" | "dirname" | "realpath" | "readlink" | "nl" | "column" | "sleep" => true,
+        "sed" => !args.iter().any(|a| a.starts_with("-i") || *a == "--in-place"),
+        "find" => !has(&["-delete", "-exec", "-execdir", "-ok", "-okdir"]) && !args.iter().any(|a| a.starts_with("-fprint") || *a == "-fls"),
+        "git" => git_looks(args),
+        // `gh pr view`, `gh run list`, `gh pr checks`…: what an action is called says whether it reads.
+        "gh" => args.first() == Some(&"search") || matches!(args.get(1), Some(&("view" | "list" | "diff" | "checks" | "status" | "watch"))),
+        _ => false,
+    }
+}
+
+/// Whether a git command only reads. Fetching counts: it changes none of the folder's files.
+fn git_looks(args: &[&str]) -> bool {
+    // Its own options come before the subcommand; these take a value.
+    let mut args = args.iter().copied();
+    let mut sub = None;
+    while let Some(a) = args.next() {
+        match a {
+            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" => {
+                args.next();
+            }
+            a if a.starts_with('-') => {}
+            a => {
+                sub = Some(a);
+                break;
+            }
+        }
+    }
+    let rest: Vec<&str> = args.collect();
+    let Some(sub) = sub else { return true };
+    match sub {
+        "show" | "log" | "status" | "diff" | "grep" | "ls-tree" | "ls-files" | "ls-remote" | "blame" | "rev-parse" | "rev-list" | "cat-file" | "describe" | "shortlog" | "merge-base" | "for-each-ref"
+        | "show-ref" | "name-rev" | "whatchanged" | "show-branch" | "check-ignore" | "fetch" => true,
+        "worktree" => rest.first() == Some(&"list"),
+        "stash" => matches!(rest.first(), Some(&("list" | "show"))),
+        "remote" => matches!(rest.first(), None | Some(&("-v" | "show" | "get-url"))),
+        "reflog" => matches!(rest.first(), None | Some(&"show")),
+        "tag" => matches!(rest.first(), None | Some(&("-l" | "--list"))),
+        "config" => rest.iter().any(|a| matches!(*a, "--get" | "--get-all" | "--get-regexp" | "--list" | "-l")),
+        // Listing takes only options; a name makes a branch, and these change one.
+        "branch" => rest.iter().all(|a| a.starts_with('-') && !matches!(*a, "-d" | "-D" | "-m" | "-M" | "-c" | "-C" | "-f" | "-u" | "--delete" | "--move" | "--copy" | "--force" | "--unset-upstream" | "--edit-description") && !a.starts_with("--set-upstream")),
+        _ => false,
     }
 }
 
@@ -391,9 +528,9 @@ mod tests {
         assert_eq!(command_dir("npm test", base).as_deref(), Some(base));
         assert_eq!(command_dir("cd /Users/me/projects/app-fix && npm test", base).as_deref(), Some("/Users/me/projects/app-fix"));
         assert_eq!(command_dir("cd ../app-fix; npm test", base).as_deref(), Some("/Users/me/projects/app-fix"));
-        assert_eq!(command_dir("  cd \"../my app\" && ls", base).as_deref(), Some("/Users/me/projects/my app"));
-        assert_eq!(command_dir("cd ../my\\ app && ls", base).as_deref(), Some("/Users/me/projects/my app"));
-        assert_eq!(command_dir("cd src/ui && ls", base).as_deref(), Some("/Users/me/projects/app/src/ui"));
+        assert_eq!(command_dir("  cd \"../my app\" && make", base).as_deref(), Some("/Users/me/projects/my app"));
+        assert_eq!(command_dir("cd ../my\\ app && make", base).as_deref(), Some("/Users/me/projects/my app"));
+        assert_eq!(command_dir("cd src/ui && npx vitest run", base).as_deref(), Some("/Users/me/projects/app/src/ui"));
         assert_eq!(command_dir("cd ~/projects/x", base), Some(format!("{}/projects/x", home().display())));
         assert_eq!(command_dir("cd $WORKTREE && ls", base), None);
         assert_eq!(command_dir("cd - && ls", base), None);
@@ -413,6 +550,55 @@ mod tests {
         assert_eq!(command_dir("sed -i '' 's/old/new/' src/a.ts", base).as_deref(), Some(base));
         // A leading `cd` says where it works, whatever else the command names.
         assert_eq!(command_dir("cd ../app-fix && cargo build > /tmp/build.log", base).as_deref(), Some("/Users/me/projects/app-fix"));
+        // Going somewhere only to look isn't work there: an agent reads another repo that way.
+        assert_eq!(command_dir("cd ../docs && git show origin/main:AGENTS.md | head -200", base), None);
+        assert_eq!(command_dir("cd /Users/me/projects/docs && git log -3 --format='%h %s' origin/main -- reviews | head -80; git show origin/main:a.yaml | head -40", base), None);
+        assert_eq!(command_dir("cd ../docs && ls scripts tools 2>/dev/null | head -80; git ls-tree -r --name-only origin/main | grep -i -E \"upload|slot\"", base), None);
+        assert_eq!(command_dir("cd .claude/worktrees/fix && git status --short", base), None);
+        assert_eq!(command_dir("cd ../docs && git show origin/main:a.pdf > /tmp/a.pdf", base).as_deref(), Some("/Users/me/projects/docs"), "it writes a file");
+        assert_eq!(command_dir("cd ../docs && git status && git commit -m 'Fix'", base).as_deref(), Some("/Users/me/projects/docs"));
+        // Looking where the shell already is counts as it does without the `cd`.
+        assert_eq!(command_dir("cd /Users/me/projects/app && git status", base).as_deref(), Some(base));
+    }
+
+    #[test]
+    fn tells_looking_from_work() {
+        for script in [
+            "ls -la src",
+            "git status --short --branch; git log --oneline -3",
+            "git -C ../other --no-pager show origin/main:README.md | sed -n '120,170p'",
+            "git fetch origin --quiet && git diff --stat origin/main...HEAD",
+            "grep -rn \"a > b\" src --include='*.rs' 2>/dev/null | grep -v node_modules | cut -c1-260 | head -50",
+            "S=/tmp/scratch; cat $S/notes.md",
+            "git branch -a; git worktree list; git stash list; git remote -v",
+            "find . -name '*.md' -newer README.md | wc -l",
+            "gh pr view 56 --json title,body; gh run list --limit 5; gh pr checks 56",
+            "cat a.txt 2>&1 >/dev/null # > not a file",
+            "",
+        ] {
+            assert!(only_looks(script), "{script}");
+        }
+        for script in [
+            "npm test",
+            "git commit -m 'Fix'",
+            "git status && git push origin HEAD:main",
+            "git branch -m renamed",
+            "git branch fix origin/main",
+            "git worktree add ../fix -b fix",
+            "git stash",
+            "ls > files.txt",
+            "cat a.txt >> b.txt",
+            "sed -i '' 's/old/new/' src/a.ts",
+            "find . -name '*.orig' -delete",
+            "cat <<'EOF' | sh\nrm -rf build\nEOF",
+            "echo \"$(rm -rf build)\"",
+            "ls `make clean`",
+            "for f in *.md; do cat $f; done",
+            "gh pr merge 10 --squash",
+            "python3 scripts/check.py",
+        ] {
+            assert!(!only_looks(script), "{script}");
+        }
     }
 
     #[test]
