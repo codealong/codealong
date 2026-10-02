@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{fresh_line, launcher, placement, sh_quote, typed_line, wait_for_shell, Key, Placement, Tab};
+use super::{fresh_line, launcher, pasted, placement, sh_quote, typed_line, wait_for_shell, Key, Placement, Tab};
 
 const APP: &str = "iTerm2";
 
@@ -284,8 +284,7 @@ pub fn focus(tty: &str) -> Result<bool> {
 /// Types `text` into the session on `tty` as a paste, then Return. `Ok(false)` when there's no
 /// such session, so nothing was typed.
 pub fn type_text(tty: &str, text: &str) -> Result<bool> {
-    let pasted = format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', ""));
-    Ok(!osascript(&with_session_on(TYPE), &[tty, &pasted])?.trim().is_empty())
+    Ok(!osascript(&with_session_on(TYPE), &[tty, &pasted(text)])?.trim().is_empty())
 }
 
 /// Presses one key in the session on `tty`, as if typed: `write text` sends it as it is, so a

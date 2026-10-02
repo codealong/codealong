@@ -368,7 +368,7 @@ pub(crate) fn codex_cli(command: &str) -> String {
         return command.to_string();
     }
     let Some(cli) = crate::detect::codex_app_cli() else { return command.to_string() };
-    let quoted = format!("'{}'", cli.to_string_lossy().replace('\'', "'\\''"));
+    let quoted = crate::util::sh_quote(&cli.to_string_lossy());
     with_program(command, "codex", &quoted).unwrap_or_else(|| command.to_string())
 }
 

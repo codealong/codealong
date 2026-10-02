@@ -31,7 +31,7 @@ use crate::config::{self, AccountCfg};
 use crate::harness::{Answer, Pending};
 use crate::model::{Harness, Session, Status};
 use crate::store;
-use crate::util::{now_ms, truncate};
+use crate::util::{now_ms, sh_quote, truncate};
 
 /// The adapter packages `codealong install` puts in `<support dir>/acp`, at versions checked
 /// against Codealong.
@@ -211,10 +211,6 @@ pub fn adapter_command(a: &AccountCfg) -> std::result::Result<(String, Vec<(Stri
 /// An adapter package's program, quoted for the shell, or what to run to install it.
 pub(crate) fn package_program(bin: &str, h: Harness) -> std::result::Result<String, String> {
     installed_bin(bin).map(|p| sh_quote(&p.to_string_lossy())).ok_or_else(|| format!("Run `codealong install` to add the adapter that lets Codealong run {} sessions itself.", h.word()))
-}
-
-fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 /// Installs the adapter packages with npm, or brings them to the versions Codealong expects.

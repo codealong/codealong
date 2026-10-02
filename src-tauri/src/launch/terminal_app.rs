@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{fresh_line, launcher, sh_quote, typed_line, wait_for_shell};
+use super::{fresh_line, launcher, pasted, sh_quote, typed_line, wait_for_shell};
 
 const APP: &str = "Terminal";
 
@@ -195,8 +195,7 @@ pub fn focus(tty: &str) -> Result<bool> {
 /// Types `text` into the tab on `tty` as a paste, with the Return `do script` adds: a program
 /// that takes bracketed pastes (Claude Code, Codex) gets it whole, then the key.
 pub fn type_text(tty: &str, text: &str) -> Result<bool> {
-    let pasted = format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', ""));
-    Ok(!osascript(&with_tab_on(TYPE), &[tty, &pasted])?.trim().is_empty())
+    Ok(!osascript(&with_tab_on(TYPE), &[tty, &pasted(text)])?.trim().is_empty())
 }
 
 pub fn ttys() -> Result<Vec<String>> {

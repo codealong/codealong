@@ -97,8 +97,7 @@ fn app_for(dirs: &[PathBuf], id: &str) -> String {
 /// Opens `path`, a folder or a file, in the editor `id` names.
 pub fn open(id: &str, path: &Path) -> Result<()> {
     let app = app_for(&app_dirs(), id);
-    procs::run("/usr/bin/open", &["-a", &app, &path.to_string_lossy()], None, Duration::from_secs(15))
-        .map(|_| ())
+    procs::open(&["-a", &app, &path.to_string_lossy()], Duration::from_secs(15))
         .map_err(|_| anyhow!("Couldn't open {}. Is it installed?", name(id)))
 }
 

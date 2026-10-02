@@ -443,7 +443,7 @@ pub fn show(c: &ChromeTabs) -> Result<()> {
     let profile = c.profile_dir.as_ref().and_then(|dir| chrome::profiles().into_iter().find(|p| &p.dir == dir));
     match profile {
         Some(p) => chrome::open(&c.url, &p),
-        None => crate::procs::run("/usr/bin/open", &["-b", chrome::BUNDLE_ID, &c.url], None, Duration::from_secs(10)).map(|_| ()).map_err(|e| anyhow!("Couldn't open {} in Chrome: {e}", c.url)),
+        None => crate::procs::open(&["-b", chrome::BUNDLE_ID, &c.url], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {} in Chrome: {e}", c.url)),
     }
 }
 

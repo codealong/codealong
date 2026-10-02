@@ -789,7 +789,7 @@ impl Client {
             None => bail!("Codealong isn't running, so there's no window to show it in."),
         };
         if let Some(id) = id {
-            let _ = procs::run("/usr/bin/open", &["-b", &id], None, std::time::Duration::from_secs(10));
+            let _ = procs::open(&["-b", &id], std::time::Duration::from_secs(10));
         }
         Ok(())
     }

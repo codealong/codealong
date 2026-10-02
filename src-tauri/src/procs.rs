@@ -392,6 +392,12 @@ pub fn run(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) 
     run_with_path(program, args, cwd, timeout, user_path(), false)
 }
 
+/// Runs macOS's `open` with `args`: a link, a file, or an app by its name, path or bundle ID. Each
+/// caller says how long it gets and what a failure is called.
+pub fn open(args: &[&str], timeout: Duration) -> Result<()> {
+    run("/usr/bin/open", args, None, timeout).map(|_| ())
+}
+
 /// `run`, for work nobody is waiting on: the process gets a lower priority (nice 10), so
 /// under load it yields to the agents and to the windows.
 pub fn run_background(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<String> {

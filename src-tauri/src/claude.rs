@@ -1347,7 +1347,7 @@ fn background_args(prompt: &str, model: Option<&str>, effort: Option<&str>, work
     }
     for (has, dir) in [(has_images, images_dir), (has_files, files_dir)] {
         if has {
-            args.push_str(&format!(" --add-dir {}", crate::start::sh_quote(&dir.to_string_lossy())));
+            args.push_str(&format!(" --add-dir {}", crate::util::sh_quote(&dir.to_string_lossy())));
         }
     }
     args.push_str(" --bg");
@@ -1358,7 +1358,7 @@ fn background_args(prompt: &str, model: Option<&str>, effort: Option<&str>, work
         args.push_str(&format!(" --effort {e}"));
     }
     if !prompt.is_empty() {
-        args.push_str(&format!(" {}", crate::start::sh_quote(&crate::start::as_argument(prompt))));
+        args.push_str(&format!(" {}", crate::util::sh_quote(&crate::start::as_argument(prompt))));
     }
     args
 }

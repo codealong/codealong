@@ -96,8 +96,7 @@ fn resolve_in(all: &[Profile], wanted: &str) -> Result<Profile> {
 /// Opens a web page in one of Chrome's profiles, starting Chrome if it isn't running.
 pub fn open(url: &str, profile: &Profile) -> Result<()> {
     let dir = format!("--profile-directory={}", profile.dir);
-    procs::run("/usr/bin/open", &["-n", "-b", BUNDLE_ID, "--args", &dir, url], None, Duration::from_secs(10))
-        .map(|_| ())
+    procs::open(&["-n", "-b", BUNDLE_ID, "--args", &dir, url], Duration::from_secs(10))
         .map_err(|e| anyhow!("Couldn't open {url} in Chrome's {} profile: {e}", profile.name))
 }
 

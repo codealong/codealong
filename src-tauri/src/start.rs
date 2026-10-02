@@ -344,11 +344,6 @@ pub fn as_argument(prompt: &str) -> String {
     p
 }
 
-/// `s` in single quotes for the shell, each quote in it closed, escaped and reopened.
-pub fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
 /// A random version 4 UUID, the form `--session-id` takes.
 pub fn new_session_id() -> String {
     let mut b = [0u8; 16];

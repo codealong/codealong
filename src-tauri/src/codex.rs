@@ -1048,7 +1048,7 @@ impl crate::harness::Adapter for Codex {
         let mut env = Vec::new();
         for rel in attachments::referenced(ask.prompt).iter().filter(|r| r.starts_with("images/")) {
             if let Some(name) = rel.strip_prefix("images/") {
-                input.push_str(&format!(" -i {}", crate::start::sh_quote(&ask.images_dir.join(name).to_string_lossy())));
+                input.push_str(&format!(" -i {}", crate::util::sh_quote(&ask.images_dir.join(name).to_string_lossy())));
             }
         }
         if !prompt.is_empty() {

@@ -222,6 +222,11 @@ pub fn truncate(s: &str, max: usize) -> String {
     format!("{}…", cut.trim_end())
 }
 
+/// `s` in single quotes for the shell, each quote in it closed, escaped and reopened.
+pub fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 /// Makes text safe to put inside a backtick code span.
 pub fn code(s: &str) -> String {
     format!("`{}`", s.replace('`', "'"))

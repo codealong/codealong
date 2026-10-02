@@ -15,7 +15,7 @@ use anyhow::{anyhow, bail, Result};
 
 use crate::config::NewTerminal;
 use crate::procs;
-use crate::util::home;
+use crate::util::{home, sh_quote};
 
 /// A terminal app Codealong opens sessions in, finds their tabs in and types into: the profiles
 /// `[apps] terminal` names.
@@ -296,14 +296,16 @@ pub fn osascript_in(app: &'static str, script: &str, args: &[&str]) -> Result<St
     })
 }
 
-/// `s` in single quotes for the shell, each quote in it closed, escaped and reopened.
-fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
 /// A line to type, without the newline that ends it: iTerm2 and Terminal press Return after it.
 fn typed_line(input: &str) -> &str {
     input.strip_suffix('\n').unwrap_or(input)
+}
+
+/// `text` as a bracketed paste, with any Escape in it taken out, for an app whose script types
+/// exactly what it's given (iTerm2, Terminal): a program that takes bracketed pastes (Claude Code,
+/// Codex) gets it whole.
+fn pasted(text: &str) -> String {
+    format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', ""))
 }
 
 /// A line to type into a new tab's shell, led by Ctrl-U, which clears what's on the line first in
@@ -391,7 +393,7 @@ pub fn terminal_open(profile: &str, place: Placement, path: &Path, input: Option
                 Err(e) if input.is_none() => {
                     // Without Automation permission a plain window still works.
                     let arg = format!("--working-directory={dir}");
-                    procs::run("/usr/bin/open", &["-na", "Ghostty.app", "--args", &arg], None, Duration::from_secs(10)).map(|_| ()).map_err(|_| e)
+                    procs::open(&["-na", "Ghostty.app", "--args", &arg], Duration::from_secs(10)).map_err(|_| e)
                 }
                 Err(e) => Err(e),
             }
@@ -1255,11 +1257,11 @@ pub fn pick_by_title(terminals: &[Tab], title: &str, cwd: &Path) -> Option<Strin
 }
 
 pub fn open_url(url: &str) -> Result<()> {
-    procs::run("/usr/bin/open", &[url], None, Duration::from_secs(10)).map(|_| ()).map_err(|e| anyhow!("Couldn't open {url}: {e}"))
+    procs::open(&[url], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {url}: {e}"))
 }
 
 pub fn reveal(path: &Path) -> Result<()> {
-    procs::run("/usr/bin/open", &["-R", &path.to_string_lossy()], None, Duration::from_secs(10)).map(|_| ())
+    procs::open(&["-R", &path.to_string_lossy()], Duration::from_secs(10))
 }
 
 /// Opens a session in the Claude app. A session the app runs is selected by the app's own ID
@@ -1294,9 +1296,7 @@ pub fn open_codex(url: &str) -> Result<()> {
         let exe = format!("{app}/Contents/MacOS/");
         let running = procs::run("/usr/bin/pgrep", &["-f", &exe], None, Duration::from_secs(3)).is_ok();
         if running {
-            return procs::run("/usr/bin/open", &["-a", app, url], None, Duration::from_secs(10))
-                .map(|_| ())
-                .map_err(|e| anyhow!("Couldn't open Codex: {e}"));
+            return procs::open(&["-a", app, url], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open Codex: {e}"));
         }
     }
     open_url(url)
@@ -1309,7 +1309,7 @@ pub fn open_antigravity() -> Result<()> {
     if !Path::new(app).is_dir() {
         bail!("Antigravity isn't installed in /Applications.");
     }
-    procs::run("/usr/bin/open", &["-a", app], None, Duration::from_secs(10)).map(|_| ()).map_err(|e| anyhow!("Couldn't open Antigravity: {e}"))
+    procs::open(&["-a", app], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open Antigravity: {e}"))
 }
 
 pub fn codex_thread_url(thread_id: &str) -> String {
