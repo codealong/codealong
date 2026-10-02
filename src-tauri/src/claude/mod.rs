@@ -6,8 +6,9 @@
 //! the permission mode a session runs in (mode.rs), the requests the plugin's hook hands the app
 //! (asks.rs), the Claude app's own records (app.rs), the ways a prompt gets in (routes.rs, by
 //! the background service's socket in daemon.rs, a session's own in peer.rs, or the app), starting,
-//! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), the folders
-//! an account trusts (trust.rs) and plan usage (usage.rs). See CLAUDE.md's *Harness facts*.
+//! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), what a
+//! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs) and plan
+//! usage (usage.rs). See CLAUDE.md's *Harness facts*.
 
 pub mod app;
 pub mod asks;
@@ -18,6 +19,7 @@ mod names;
 pub mod peer;
 mod registry;
 mod routes;
+mod shells;
 mod side;
 mod start;
 mod transcript;
@@ -119,6 +121,12 @@ impl crate::harness::Adapter for ClaudeCode {
     /// `<config dir>/skills`: a second account's config dir is its home here.
     fn skills_dir(&self, account: &crate::config::AccountCfg) -> Option<PathBuf> {
         Some(account.home_path().join("skills"))
+    }
+
+    /// Codealong's plugin (`claude plugin`): its skill, its `bin/codealong` on the Bash tool's
+    /// PATH, and the hooks that hand a session its todo.
+    fn installs_plugin(&self) -> bool {
+        true
     }
 
     fn acp_command(&self, account: &crate::config::AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
@@ -513,6 +521,39 @@ impl crate::harness::Adapter for ClaudeCode {
         Some((app::scratch_dir(), "Claude app chats"))
     }
 
+    /// `/private/tmp/claude-<uid>/<encoded cwd>/<session id>/scratchpad`, which Claude Code makes
+    /// for each session.
+    fn scratch_owner(&self, path: &Path) -> Option<String> {
+        let s = path.to_string_lossy();
+        let rest = s.strip_prefix("/private/tmp/").or_else(|| s.strip_prefix("/tmp/"))?;
+        let mut parts = rest.split('/');
+        if !parts.next()?.starts_with("claude-") {
+            return None;
+        }
+        let _cwd = parts.next()?;
+        let id = parts.next()?;
+        let is_uuid = id.len() == 36 && id.chars().filter(|c| *c == '-').count() == 4;
+        (parts.next()? == "scratchpad" && is_uuid).then(|| id.to_string())
+    }
+
+    /// A tool's result is a `user` line of its own.
+    fn output_marks(&self) -> &'static [&'static str] {
+        &["\"type\":\"tool_result\""]
+    }
+
+    /// Every line has the folder its shell was in.
+    fn folder_marks(&self) -> &'static [&'static str] {
+        &["\"cwd\":\""]
+    }
+
+    fn pr_needles(&self) -> &'static [&'static str] {
+        &["\"gitOperation\""]
+    }
+
+    fn pr_made(&self, line: &str) -> Option<(String, i64)> {
+        transcript::pr_made(line)
+    }
+
     // ---- Starting a session ----
 
     fn models(&self, _account: &AccountCfg) -> Vec<crate::start::ModelOption> {
@@ -716,7 +757,7 @@ impl Reader {
             return;
         }
         let pids: Vec<u32> = shells.iter().map(|(p, _)| *p).collect();
-        let mut trees = procs::command_trees(&pids);
+        let mut trees = shells::command_trees(&pids);
         for (pid, since) in shells {
             let Some(tree) = trees.remove(&pid) else { continue };
             match self.background.get_mut(&pid) {
@@ -739,7 +780,7 @@ impl Reader {
     /// What a stuck session's shell is running, read once per stall.
     fn stuck_command(&self, r: &RegistryEntry) -> Option<String> {
         let mut cache = self.stuck.lock().ok()?;
-        cache.entry((r.pid, r.status_updated_at.unwrap_or(0))).or_insert_with(|| procs::running_command(r.pid)).clone()
+        cache.entry((r.pid, r.status_updated_at.unwrap_or(0))).or_insert_with(|| shells::running_command(r.pid)).clone()
     }
 }
 

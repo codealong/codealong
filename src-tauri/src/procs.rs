@@ -304,18 +304,17 @@ pub fn user_path() -> &'static str {
     })
 }
 
-/// The command a Claude Code session's Bash tool is running: the `eval '<command>'` in the
-/// arguments of its shell child. For saying what a stuck session is stuck on.
-pub fn running_command(pid: u32) -> Option<String> {
+/// The first child of `pid` whose command line `pick` makes something of, asking for each child's
+/// command line in turn until one does.
+pub fn find_child<T>(pid: u32, mut pick: impl FnMut(&str) -> Option<T>) -> Option<T> {
     let kids = run("pgrep", &["-P", &pid.to_string()], None, Duration::from_secs(2)).ok()?;
-    kids.split_whitespace()
-        .find_map(|kid| run("ps", &["-ww", "-o", "command=", "-p", kid], None, Duration::from_secs(2)).ok().and_then(|c| eval_command(&c)))
+    kids.split_whitespace().find_map(|kid| run("ps", &["-ww", "-o", "command=", "-p", kid], None, Duration::from_secs(2)).ok().and_then(|c| pick(&c)))
 }
 
-/// What the commands a Claude Code session's Bash tool runs are made of right now: every
-/// process under its shells (the `eval '…'` children of the session's process; its MCP servers
-/// are left out) with the CPU each has used, in hundredths of a second. For telling a command
-/// that polls or builds from one left sitting there.
+/// What the commands a session runs are made of right now: every process under the children of
+/// the session's process that run them (`root`, by command line; a harness says which) with the
+/// CPU each has used, in hundredths of a second. For telling a command that polls or builds from
+/// one left sitting there.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CommandTree {
     pub cpu: Vec<(u32, u64)>,
@@ -334,14 +333,14 @@ impl CommandTree {
 }
 
 /// The command trees of several sessions' processes, from one look at the process table.
-pub fn command_trees(pids: &[u32]) -> HashMap<u32, CommandTree> {
+pub fn command_trees(pids: &[u32], root: fn(&str) -> bool) -> HashMap<u32, CommandTree> {
     match run_background("ps", &["-axww", "-o", "pid=,ppid=,time=,command="], None, Duration::from_secs(4)) {
-        Ok(table) => command_trees_in(&table, pids),
+        Ok(table) => command_trees_in(&table, pids, root),
         Err(_) => HashMap::new(),
     }
 }
 
-fn command_trees_in(table: &str, pids: &[u32]) -> HashMap<u32, CommandTree> {
+pub(crate) fn command_trees_in(table: &str, pids: &[u32], root: fn(&str) -> bool) -> HashMap<u32, CommandTree> {
     let rows: Vec<(u32, u32, u64, &str)> = table
         .lines()
         .filter_map(|l| {
@@ -355,7 +354,7 @@ fn command_trees_in(table: &str, pids: &[u32]) -> HashMap<u32, CommandTree> {
         .collect();
     pids.iter()
         .map(|&session| {
-            let mut tree: Vec<(u32, u64)> = rows.iter().filter(|r| r.1 == session && r.3.contains("eval '")).map(|r| (r.0, r.2)).collect();
+            let mut tree: Vec<(u32, u64)> = rows.iter().filter(|r| r.1 == session && root(r.3)).map(|r| (r.0, r.2)).collect();
             let mut i = 0;
             while i < tree.len() && tree.len() < 512 {
                 let parent = tree[i].0;
@@ -373,13 +372,6 @@ fn cpu_hundredths(t: &str) -> Option<u64> {
     let secs = whole.split(':').try_fold(0u64, |acc, part| part.parse::<u64>().ok().map(|n| acc * 60 + n))?;
     let frac: u64 = format!("{:0<2}", frac).get(..2)?.parse().ok()?;
     Some(secs * 100 + frac)
-}
-
-/// `zsh -c source … && eval 'gcloud auth login' < /dev/null && pwd -P >| …` → `gcloud auth login`.
-pub fn eval_command(cmdline: &str) -> Option<String> {
-    let (_, rest) = cmdline.split_once("eval '")?;
-    let inner = rest.rsplit_once("' < /dev/null").map(|(c, _)| c).unwrap_or(rest);
-    Some(inner.replace("'\\''", "'")).filter(|c| !c.trim().is_empty())
 }
 
 /// A process as `ps` lists it.
@@ -607,35 +599,6 @@ mod tests {
     }
 
     #[test]
-    fn a_command_tree_is_the_shells_under_a_session_and_what_they_run() {
-        let table = "\
-  100     1   0:05.00 claude
-  200   100   0:01.00 node mcp-server.js
-  300   100   0:00.01 /bin/zsh -c source snap.sh && eval 'spruce login --host x | tail -5' < /dev/null && pwd -P
-  301   300   0:00.88 node spruce login --host x
-  302   300   0:00.00 tail -5
-  303   301 1:02:03.45 helper
-  400     1   0:00.10 other
-";
-        let trees = super::command_trees_in(table, &[100, 999]);
-        assert_eq!(trees[&100].cpu, vec![(300, 1), (301, 88), (302, 0), (303, 372345)]);
-        assert!(trees[&999].cpu.is_empty());
-    }
-
-    /// `CODEALONG_TEST_PIDS=<pid,…> cargo test command_trees_here -- --ignored --nocapture`
-    /// prints what those Claude sessions' shells are running, looked at twice a minute apart.
-    #[test]
-    #[ignore]
-    fn command_trees_here() {
-        let pids: Vec<u32> = std::env::var("CODEALONG_TEST_PIDS").unwrap_or_default().split(',').filter_map(|p| p.parse().ok()).collect();
-        let before = super::command_trees(&pids);
-        std::thread::sleep(std::time::Duration::from_secs(60));
-        for (pid, after) in super::command_trees(&pids) {
-            println!("{pid}: {:?} → {:?}, active: {}", before[&pid].cpu, after.cpu, after.active_since(&before[&pid]));
-        }
-    }
-
-    #[test]
     fn a_command_tree_is_active_when_it_starts_processes_or_uses_cpu() {
         let tree = |cpu: &[(u32, u64)]| super::CommandTree { cpu: cpu.to_vec() };
         let before = tree(&[(300, 1), (301, 88)]);
@@ -643,15 +606,6 @@ mod tests {
         assert!(!tree(&[(300, 1)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 98)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 88), (310, 0)]).active_since(&before));
-    }
-
-    #[test]
-    fn reads_the_command_a_shell_is_running() {
-        let line = "/bin/zsh -c source /Users/me/.claude2/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'gcloud auth login' < /dev/null && pwd -P >| /tmp/claude-57ad-cwd";
-        assert_eq!(super::eval_command(line).as_deref(), Some("gcloud auth login"));
-        let quoted = "zsh -c eval 'echo '\\''hi'\\''' < /dev/null && pwd -P";
-        assert_eq!(super::eval_command(quoted).as_deref(), Some("echo 'hi'"));
-        assert_eq!(super::eval_command("node server.js"), None);
     }
 
     use super::*;

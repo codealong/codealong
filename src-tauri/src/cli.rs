@@ -3007,7 +3007,7 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
         }
         let source = crate::install::skill_source().ok_or_else(|| anyhow!("The skill folder isn't next to this binary. Run from the app bundle, or from the repo."))?;
         for acct in accounts {
-            if acct.harness == "claude" {
+            if crate::install::takes_plugin(acct) {
                 match crate::install::install_plugin(acct) {
                     Ok(()) => out.plugins.push(PluginInstall { account: acct.name.clone(), version: crate::install::plugin_state(&acct.home_path()).version }),
                     Err(e) => out.warnings.push(format!("{}: the plugin wasn't installed: {e:#}", acct.name)),

@@ -465,6 +465,19 @@ pub fn tool_activity(name: &str, input: &Value) -> String {
     .unwrap_or_else(|| format!("using {}", code(name)))
 }
 
+/// The PR a transcript line says a command made or changed, by its URL, with the line's time:
+/// Claude Code marks a command's result with `toolUseResult.gitOperation.pr` (`number`, `url`,
+/// `action`: created, edited, commented, closed) when the command acted on a PR. A closed one
+/// has no URL. Only lines with that mark are parsed.
+pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
+    if !(line.contains("\"gitOperation\"") && line.contains("\"pr\":{")) {
+        return None;
+    }
+    let v: Value = serde_json::from_str(line).ok()?;
+    let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+    Some((v.pointer("/toolUseResult/gitOperation/pr/url")?.as_str()?.to_string(), at))
+}
+
 /// The start of a transcript, for this folder's tests.
 #[cfg(test)]
 pub(super) const HEAD: &str = r#"{"type":"permission-mode","mode":"default"}

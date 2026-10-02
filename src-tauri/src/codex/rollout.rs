@@ -548,6 +548,40 @@ fn call_what(p: &Value, name: &str) -> String {
     }
 }
 
+/// The PR a rollout line says the thread made, by its URL, with the line's time. Codex records a
+/// `CommandExecution` with the command and its output together, so a `gh pr create` there is
+/// followed by the URL it printed; and the Codex app's `attach_artifact` tool shows a PR on the
+/// thread. Only lines with one of those marks are parsed.
+pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
+    let create = line.contains("\"CommandExecution\"") && line.contains("gh pr create");
+    let attach = line.contains("\"attach_artifact\"") && line.contains("pull_request");
+    if !(create || attach) {
+        return None;
+    }
+    let v: Value = serde_json::from_str(line).ok()?;
+    let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+    let item = v.pointer("/payload/item")?;
+    let url = match item.get("type").and_then(Value::as_str)? {
+        "CommandExecution" => {
+            let command = item.get("command").map(|c| c.to_string()).unwrap_or_default();
+            if !command.contains("gh pr create") {
+                return None;
+            }
+            // The last PR link it printed: `gh pr create` prints the new PR's last.
+            let out = item.get("stdout").and_then(Value::as_str).unwrap_or("");
+            out.lines().rev().find(|l| crate::prlinks::from_url(l).is_some()).map(str::to_string)
+        }
+        "McpToolCall" => {
+            let args = item.get("arguments")?;
+            (item.get("tool").and_then(Value::as_str) == Some("attach_artifact") && args.get("artifact_type").and_then(Value::as_str) == Some("pull_request"))
+                .then(|| args.get("url").and_then(Value::as_str).map(str::to_string))
+                .flatten()
+        }
+        _ => None,
+    }?;
+    Some((url, at))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

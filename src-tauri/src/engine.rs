@@ -2575,12 +2575,26 @@ pub(crate) fn worked_in(text: &str, needle: &str) -> bool {
     work_line(text, needle).is_some()
 }
 
-/// What marks a log line as a tool's output: Claude's `tool_result`, Codex's call outputs.
-const TOOL_OUTPUT: [&str; 3] = ["\"type\":\"tool_result\"", "\"type\":\"function_call_output\"", "\"type\":\"custom_tool_call_output\""];
+/// What marks a log line as a tool's output, and what comes right before a folder a command ran
+/// in: every harness's own (`Adapter::output_marks`, `Adapter::folder_marks`), and `cd` and `git
+/// worktree add`, which say it whatever the harness. Gathered once.
+fn record_marks() -> &'static (Vec<&'static str>, Vec<&'static str>) {
+    static MARKS: std::sync::OnceLock<(Vec<&'static str>, Vec<&'static str>)> = std::sync::OnceLock::new();
+    MARKS.get_or_init(|| {
+        let mut output: Vec<&'static str> = harness::all().flat_map(|a| a.output_marks().iter().copied()).collect();
+        let mut folder: Vec<&'static str> = harness::all().flat_map(|a| a.folder_marks().iter().copied()).chain(["cd ", "worktree add "]).collect();
+        // Two harnesses can share one (`"cwd":"`): a line needn't be looked at twice for it.
+        for marks in [&mut output, &mut folder] {
+            let mut seen = HashSet::new();
+            marks.retain(|m| seen.insert(*m));
+        }
+        (output, folder)
+    })
+}
 
 /// The first line in `text` that shows work in the folder `needle` names.
 fn work_line<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
-    const MARKERS: [&str; 6] = ["\"workdir\":\"", "\\\"workdir\\\":\\\"", "\"cwd\":\"", "\\\"cwd\\\":\\\"", "cd ", "worktree add "];
+    let (tool_output, markers) = record_marks();
     let mut from = 0;
     while let Some(i) = text[from..].find(needle) {
         let at = from + i;
@@ -2588,11 +2602,11 @@ fn work_line<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
         let line_end = text[at..].find('\n').map(|j| at + j).unwrap_or(text.len());
         let line = &text[line_start..line_end];
         // A command's output can name any folder: a listing, another session's log.
-        if TOOL_OUTPUT.iter().any(|t| line.contains(t)) {
+        if tool_output.iter().any(|t| line.contains(t)) {
             from = at + needle.len();
             continue;
         }
-        for marker in MARKERS {
+        for &marker in markers {
             let mut m = 0;
             while let Some(k) = line[m..].find(marker) {
                 let path_start = m + k + marker.len();
@@ -2633,7 +2647,7 @@ fn line_time(line: &str) -> Option<i64> {
 
 /// A log's PR marks and the Chrome tabs it drove, from one read of it.
 fn file_marks(path: &Path) -> (Vec<(String, i64)>, chrometabs::Use) {
-    let needles: Vec<&str> = prlinks::NEEDLES.iter().chain(chrometabs::NEEDLES.iter()).copied().collect();
+    let needles: Vec<&str> = prlinks::needles().chain(chrometabs::NEEDLES.iter().copied()).collect();
     let mut marks: Vec<(String, i64)> = Vec::new();
     let mut chrome = chrometabs::Use::default();
     crate::util::each_line_with(path, &needles, |line| {
@@ -2677,15 +2691,13 @@ fn board_hash(board: &mut Board) -> u64 {
 /// How often the harness databases are looked at for changes (`glance_readers`).
 const DATABASES_EVERY: Duration = Duration::from_millis(1500);
 
-/// Databases harnesses keep their sessions in. They run in WAL mode, so while a session runs
-/// only their `-wal` file changes: that change is how Codealong hears of it.
-const HARNESS_DATABASES: [&str; 2] = ["opencode.db", "conversation_summaries.db"];
-
 /// Paths that never matter, dropped before they reach the engine: databases and logs that
 /// apps write constantly, dependency folders, git's object store.
 fn is_noise(p: &Path) -> bool {
     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-    if HARNESS_DATABASES.iter().any(|db| name.strip_suffix("-wal") == Some(*db)) {
+    // A harness's database runs in WAL mode, so while a session runs only its `-wal` file
+    // changes: that change is how Codealong hears of it (`Adapter::databases`).
+    if harness::all().flat_map(|a| a.databases()).any(|db| name.strip_suffix("-wal") == Some(*db)) {
         return false;
     }
     if name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with("-journal") || name.ends_with(".sqlite") || name.ends_with(".log") || name.ends_with(".lock") || name == ".DS_Store" {
@@ -2876,6 +2888,7 @@ mod tests {
     fn a_harness_database_log_is_heard_and_other_logs_are_not() {
         use super::*;
         assert!(!is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-wal")));
+        assert!(!is_noise(Path::new("/Users/me/.gemini/antigravity-cli/conversation_summaries.db-wal")));
         assert!(is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-shm")));
         assert!(is_noise(Path::new("/Users/me/projects/app/data/cache.db-wal")));
     }
@@ -3499,6 +3512,21 @@ mod tests {
         assert!(!worked_in(r#"{"command":"cd ~/projects/codealong && grep -F spark-validate-ghostscript-20260923 logs"}"#, n));
         assert!(!worked_in(r#"{"content":"/private/tmp/spark-validate-ghostscript-20260923  aad4df0 [codex/x]"}"#, n));
         assert_eq!(super::line_time(r#"{"timestamp":"1970-01-01T00:00:01.000Z","cmd":"x"}"#), Some(1000));
+    }
+
+    /// The marks the harnesses hand the engine are the ones it looked for when it knew them
+    /// itself: Claude Code's tool results and line folders, Codex's call outputs, workdirs and
+    /// folders, and the shell's own.
+    #[test]
+    fn looks_for_every_harnesss_marks_and_the_shells() {
+        let (output, folder) = super::record_marks();
+        let sorted = |v: &[&'static str]| {
+            let mut v = v.to_vec();
+            v.sort();
+            v
+        };
+        assert_eq!(sorted(output), sorted(&["\"type\":\"tool_result\"", "\"type\":\"function_call_output\"", "\"type\":\"custom_tool_call_output\""]));
+        assert_eq!(sorted(folder), sorted(&["\"workdir\":\"", "\\\"workdir\\\":\\\"", "\"cwd\":\"", "\\\"cwd\\\":\\\"", "cd ", "worktree add "]));
     }
 
     #[test]

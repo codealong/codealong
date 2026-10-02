@@ -1237,9 +1237,9 @@ pub fn compose(inp: Inputs) -> Board {
         s.detail = d;
     }
     let mut by_lane: Vec<Vec<Session>> = vec![Vec::new(); seeds.len()];
-    // A worktree made inside a Claude session's scratchpad also shows the session that made it,
-    // even though that session runs in another lane.
-    let owners: HashMap<String, Session> = sessions.iter().filter(|s| s.harness == Harness::Claude && !s.archived).map(|s| (s.id.clone(), s.clone())).collect();
+    // A worktree made inside a session's own scratch folder (Claude Code's scratchpad) also shows
+    // the session that made it, even though that session runs in another lane.
+    let owners: HashMap<(Harness, String), Session> = sessions.iter().filter(|s| !s.archived).map(|s| ((s.harness, s.id.clone()), s.clone())).collect();
     let by_key: HashMap<String, Session> = sessions.iter().map(|s| (s.key.clone(), s.clone())).collect();
     for s in sessions {
         if let Some(i) = session_seed(seeds, &s) {
@@ -1255,7 +1255,7 @@ pub fn compose(inp: Inputs) -> Board {
         .enumerate()
         .map(|(i, seed)| {
             let mut out: Vec<Session> = Vec::new();
-            if let Some(owner) = crate::repos::scratchpad_owner(&seed.path).and_then(|id| owners.get(&id)) {
+            if let Some(owner) = crate::harness::scratch_owner(&seed.path).and_then(|owner| owners.get(&owner)) {
                 out.push(Session { visitor: Some(MADE_IT.into()), ..owner.clone() });
             }
             for key in visitors.get(&seed.path).map(|v| v.as_slice()).unwrap_or(&[]) {

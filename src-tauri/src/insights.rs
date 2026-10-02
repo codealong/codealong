@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::jev;
-use crate::model::{Harness, Session, SessionInsight, Status};
+use crate::model::{Session, SessionInsight, Status};
 use crate::util::DAY_MS;
 
 /// Turns that ended longer ago than this aren't asked about: a first run shouldn't ask about
@@ -82,7 +82,7 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
             return None;
         }
         (Kind::Background, vec![cmd, s.reply_tail.as_deref().unwrap_or("")])
-    } else if s.stalled_since.is_some() && s.harness == Harness::Claude {
+    } else if s.stalled_since.is_some() {
         (Kind::Quiet, vec![command_in(s.excerpt.as_deref()?)?])
     } else if s.status == Status::Needs {
         let excerpt = s.excerpt.as_deref()?;
@@ -292,6 +292,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Harness;
 
     const NOW: i64 = 30 * DAY_MS;
 

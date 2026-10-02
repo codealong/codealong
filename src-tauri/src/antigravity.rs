@@ -942,6 +942,11 @@ impl crate::harness::Adapter for Antigravity {
         Some((crate::util::home().join(".gemini").join(CLI_DIR).join(SCRATCH), "Antigravity chats"))
     }
 
+    /// Its list of conversations, in each of its folders.
+    fn databases(&self) -> &'static [&'static str] {
+        &[SUMMARIES]
+    }
+
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
         Box::new(Reader::default())
     }

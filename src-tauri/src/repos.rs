@@ -263,21 +263,6 @@ fn strip_hash_suffix(name: &str) -> String {
     }
 }
 
-/// The Claude session that owns a scratchpad path such as
-/// `/private/tmp/claude-501/<encoded-cwd>/<session-id>/scratchpad/atlas-infra-nx-cache`.
-pub fn scratchpad_owner(path: &Path) -> Option<String> {
-    let s = path.to_string_lossy();
-    let rest = s.strip_prefix("/private/tmp/").or_else(|| s.strip_prefix("/tmp/"))?;
-    let mut parts = rest.split('/');
-    if !parts.next()?.starts_with("claude-") {
-        return None;
-    }
-    let _cwd = parts.next()?;
-    let id = parts.next()?;
-    let is_uuid = id.len() == 36 && id.chars().filter(|c| *c == '-').count() == 4;
-    (parts.next()? == "scratchpad" && is_uuid).then(|| id.to_string())
-}
-
 fn is_temp(path: &Path) -> bool {
     let tmpdir = std::env::var("TMPDIR").ok().map(PathBuf::from);
     path.starts_with("/private/tmp")
@@ -322,7 +307,7 @@ pub fn origin(checkout: &Checkout, wt: &Path, home: &Path) -> Origin {
         Origin::Codex
     } else if made_by_claude(wt) {
         Origin::ClaudeApp
-    } else if scratchpad_owner(wt).is_some() {
+    } else if crate::harness::scratch_owner(wt).is_some() {
         Origin::Scratchpad
     } else if is_temp(wt) {
         Origin::Temp
@@ -425,8 +410,8 @@ mod tests {
         assert_eq!(or("/private/tmp/spark-fix-vulns-2026-09-21"), Origin::Temp);
         let scratch = "/private/tmp/claude-501/-Users-me-projects-vault/59530ddd-e0c9-4a13-8eed-6b14db725855/scratchpad/spark-nx-cache";
         assert_eq!(or(scratch), Origin::Scratchpad);
-        assert_eq!(scratchpad_owner(Path::new(scratch)).as_deref(), Some("59530ddd-e0c9-4a13-8eed-6b14db725855"));
+        assert_eq!(crate::harness::scratch_owner(Path::new(scratch)), Some((crate::model::Harness::Claude, "59530ddd-e0c9-4a13-8eed-6b14db725855".to_string())));
         assert_eq!(cs(scratch, Some("nx-cache")), "nx-cache");
-        assert_eq!(scratchpad_owner(Path::new("/private/tmp/spark-x")), None);
+        assert_eq!(crate::harness::scratch_owner(Path::new("/private/tmp/spark-x")), None);
     }
 }

@@ -158,7 +158,7 @@ pub fn copy_state(src: &Path, dst: &Path) -> CopyState {
 pub fn refresh_installed() {
     let cfg = config::load().ok().flatten().unwrap_or_default();
     let shipped = shipped_version();
-    for a in cfg.accounts.iter().filter(|a| a.harness == "claude") {
+    for a in cfg.accounts.iter().filter(|a| takes_plugin(a)) {
         let home = a.home_path();
         let state = plugin_state(&home);
         if state.version.is_none() {
@@ -489,6 +489,12 @@ fn is_ours(source: &Value, ours: &Path) -> bool {
     source.get("source").and_then(Value::as_str) == Some("directory") && path.is_some_and(|p| p == ours || std::fs::canonicalize(p).ok() == std::fs::canonicalize(ours).ok())
 }
 
+/// Whether Codealong goes into the account as a plugin rather than a skill copy: its harness has
+/// one (`Adapter::installs_plugin`).
+pub fn takes_plugin(a: &AccountCfg) -> bool {
+    crate::harness::of(a).is_some_and(|h| h.installs_plugin())
+}
+
 /// Runs `claude plugin <args>` for an account: with its folder as `CLAUDE_CONFIG_DIR`, or without
 /// one for `~/.claude`, whatever the app was started with.
 fn claude_plugin(home: &Path, args: &[&str]) -> Result<String> {
@@ -596,7 +602,7 @@ pub fn account_skill(source: Option<&Path>, a: &AccountCfg) -> AccountSkill {
         (Some(s), Some(d)) => copy_state(s, d),
         _ => CopyState::default(),
     };
-    let plugin = (a.harness == "claude").then(|| plugin_state(&a.home_path()));
+    let plugin = takes_plugin(a).then(|| plugin_state(&a.home_path()));
     AccountSkill { name: a.name.clone(), harness: a.harness.clone(), path: dir.map(|d| d.to_string_lossy().into_owned()), installed: state.installed, current: state.current, edited: state.edited, plugin }
 }
 
@@ -626,7 +632,7 @@ pub fn install(command: bool, accounts: &[String]) -> Result<AgentsStatus> {
             errors.push(format!("There's no account named {name}."));
             continue;
         };
-        if a.harness == "claude" {
+        if takes_plugin(a) {
             if let Err(e) = install_plugin(a) {
                 errors.push(format!("{}: the plugin wasn't installed: {e:#}", a.name));
             }

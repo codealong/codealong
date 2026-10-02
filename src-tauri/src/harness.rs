@@ -257,6 +257,13 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Whether Codealong goes into an account as a plugin of the harness's own rather than a
+    /// copy of its skill (install.rs): one that carries the skill, the `codealong` command and
+    /// the hooks that hand a session its todo.
+    fn installs_plugin(&self) -> bool {
+        false
+    }
+
     /// How Codealong runs its sessions itself (acp.rs): the adapter's command and what goes in its
     /// environment, or why it can't. An account's own `acp` in config.toml comes before this.
     fn acp_command(&self, _account: &AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
@@ -288,6 +295,35 @@ pub trait Adapter: Sync {
     /// `after`, where the harness keeps them in a database rather than files.
     fn said(&self, _account: &AccountCfg, _since: i64, _after: i64) -> Vec<Said> {
         Vec::new()
+    }
+
+    // ---- Its records read as text, for where sessions worked and the PRs they made ----
+
+    /// Text that marks a line of its records as what a tool gave back, which can name any
+    /// folder: the engine passes over such lines when it looks for the folders sessions worked
+    /// in without parsing them (engine.rs).
+    fn output_marks(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Text on a line of its records that comes right before a folder a command ran in: a field
+    /// of the line, or of a call's arguments. `cd` and `git worktree add` are the engine's own,
+    /// whatever the harness.
+    fn folder_marks(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Text a line of its records has when it may say the session made or changed a PR
+    /// (`pr_made`): the engine decodes only lines with one of these, as it reads a whole record
+    /// once for everything it looks for.
+    fn pr_needles(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// The PR a line of its records says the session made or changed, by its URL, with the
+    /// line's time (prlinks.rs).
+    fn pr_made(&self, _line: &str) -> Option<(String, i64)> {
+        None
     }
 
     // ---- Starting a session (start.rs) ----
@@ -397,6 +433,20 @@ pub trait Adapter: Sync {
     /// all: a session with no lane would be on no list.
     fn chats(&self) -> Option<(PathBuf, &'static str)> {
         None
+    }
+
+    /// The session whose own scratch folder `path` is in, by its ID: a folder the harness gives
+    /// each session for its temporary files, where an agent may make a worktree, which then
+    /// shows the session too (board.rs).
+    fn scratch_owner(&self, _path: &Path) -> Option<String> {
+        None
+    }
+
+    /// The databases it keeps its sessions in, by file name, that run in WAL mode: while a
+    /// session runs only their `-wal` file changes, which the engine's watcher would otherwise
+    /// drop as noise.
+    fn databases(&self) -> &'static [&'static str] {
+        &[]
     }
 
     /// What reads its sessions for the board. `wake` tells the engine that something it read
@@ -514,6 +564,12 @@ pub trait Reader: Send {
 /// Each harness's folder of chats, with its lane's name (`Adapter::chats`).
 pub fn chat_roots() -> Vec<(PathBuf, &'static str)> {
     ADAPTERS.iter().filter_map(|a| a.chats()).collect()
+}
+
+/// The session whose scratch folder `path` is in, of whichever harness gives its sessions one
+/// (`Adapter::scratch_owner`).
+pub fn scratch_owner(path: &Path) -> Option<(Harness, String)> {
+    ADAPTERS.iter().find_map(|a| Some((a.harness(), a.scratch_owner(path)?)))
 }
 
 /// A reader for each harness, in the adapters' order.
@@ -848,6 +904,14 @@ mod tests {
         let (input, env) = adapter(Harness::Codex).resume(&codex, "01a0e379", "-v please").unwrap();
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
+    }
+
+    /// Only Claude Code takes Codealong as a plugin; the others get a copy of its skill.
+    #[test]
+    fn only_claude_code_takes_the_plugin() {
+        for a in all() {
+            assert_eq!(a.installs_plugin(), a.harness() == Harness::Claude, "{:?}", a.harness());
+        }
     }
 
     #[test]

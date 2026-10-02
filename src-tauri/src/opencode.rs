@@ -933,6 +933,11 @@ impl crate::harness::Adapter for OpenCode {
         Ok(format!("Stopped “{}”.", s.title))
     }
 
+    /// Every session and message is a row of `opencode.db`.
+    fn databases(&self) -> &'static [&'static str] {
+        &["opencode.db"]
+    }
+
     fn reader(&self, wake: Wake) -> Box<dyn crate::harness::Reader> {
         Box::new(Reader::new(wake))
     }

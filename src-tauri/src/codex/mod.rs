@@ -347,6 +347,25 @@ impl crate::harness::Adapter for Codex {
         Some((chats_dir(), "Codex chats"))
     }
 
+    /// A call's output is a line of its own, with the call's id.
+    fn output_marks(&self) -> &'static [&'static str] {
+        &["\"type\":\"function_call_output\"", "\"type\":\"custom_tool_call_output\""]
+    }
+
+    /// A command's `workdir` (in a call's arguments, which are JSON in a string), and the `cwd`
+    /// of a `CommandExecution` or of a turn.
+    fn folder_marks(&self) -> &'static [&'static str] {
+        &["\"workdir\":\"", "\\\"workdir\\\":\\\"", "\"cwd\":\"", "\\\"cwd\\\":\\\""]
+    }
+
+    fn pr_needles(&self) -> &'static [&'static str] {
+        &["gh pr create", "\"attach_artifact\""]
+    }
+
+    fn pr_made(&self, line: &str) -> Option<(String, i64)> {
+        rollout::pr_made(line)
+    }
+
     /// Codex archives a thread itself, so the Codex app shows it too.
     fn archive(&self, account: &AccountCfg, id: &str, archived: bool) -> anyhow::Result<()> {
         appserver::set_archived(&account.home_path(), id, archived)

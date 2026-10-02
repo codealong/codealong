@@ -8,7 +8,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::config::support_dir;
 use crate::store;
@@ -80,54 +79,24 @@ pub fn from_url(url: &str) -> Option<String> {
 }
 
 /// The PRs a log's lines show the session made or changed, each with when (the line's time).
-///
-/// Claude Code marks a command's result with `toolUseResult.gitOperation.pr` (`number`, `url`,
-/// `action`: created, edited, commented, closed) when the command acted on a PR. Codex records
-/// a `CommandExecution` with the command and its output together, so a `gh pr create` there
-/// is followed by the URL it printed; and the Codex app's `attach_artifact` tool shows a PR on
-/// the thread. Only lines with one of those marks are parsed.
+/// Each harness knows the marks its own records leave (`Adapter::pr_made`): Claude Code's on a
+/// command's result, Codex's on the command or on its app's `attach_artifact` tool. Only lines
+/// with one of those marks are parsed.
 pub fn pr_marks(text: &str) -> Vec<(String, i64)> {
     text.lines().filter_map(line_mark).collect()
 }
 
 pub fn line_mark(line: &str) -> Option<(String, i64)> {
-    let claude = line.contains("\"gitOperation\"") && line.contains("\"pr\":{");
-    let codex_create = line.contains("\"CommandExecution\"") && line.contains("gh pr create");
-    let codex_attach = line.contains("\"attach_artifact\"") && line.contains("pull_request");
-    if !(claude || codex_create || codex_attach) {
-        return None;
-    }
-    let v: Value = serde_json::from_str(line).ok()?;
-    let at = v.get("timestamp").and_then(Value::as_str).and_then(crate::util::parse_rfc3339_ms).unwrap_or(0);
-    let url = if claude {
-        v.pointer("/toolUseResult/gitOperation/pr/url").and_then(Value::as_str).map(str::to_string)
-    } else {
-        let item = v.pointer("/payload/item")?;
-        match item.get("type").and_then(Value::as_str)? {
-            "CommandExecution" => {
-                let command = item.get("command").map(|c| c.to_string()).unwrap_or_default();
-                if !command.contains("gh pr create") {
-                    return None;
-                }
-                // The last PR link it printed: `gh pr create` prints the new PR's last.
-                let out = item.get("stdout").and_then(Value::as_str).unwrap_or("");
-                out.lines().rev().find(|l| from_url(l).is_some()).map(str::to_string)
-            }
-            "McpToolCall" => {
-                let args = item.get("arguments")?;
-                (item.get("tool").and_then(Value::as_str) == Some("attach_artifact") && args.get("artifact_type").and_then(Value::as_str) == Some("pull_request"))
-                    .then(|| args.get("url").and_then(Value::as_str).map(str::to_string))
-                    .flatten()
-            }
-            _ => None,
-        }
-    }?;
+    let (url, at) = crate::harness::all().find_map(|a| a.pr_made(line))?;
     Some((pr_key(&from_url(&url)?), at))
 }
 
-/// Text a log line has when it may hold a PR mark (`line_mark`): the engine decodes only lines
-/// with one of these, as it reads a whole log once for everything it looks for.
-pub const NEEDLES: [&str; 3] = ["\"gitOperation\"", "gh pr create", "\"attach_artifact\""];
+/// Text a log line has when it may hold a PR mark (`line_mark`), every harness's: the engine
+/// decodes only lines with one of these, as it reads a whole log once for everything it looks
+/// for.
+pub fn needles() -> impl Iterator<Item = &'static str> {
+    crate::harness::all().flat_map(|a| a.pr_needles().iter().copied())
+}
 
 /// PR key → session keys, from what each session's records show (`marks`: session key → PR
 /// keys) and the links made by hand, and the pairs unlinked by hand.
@@ -177,6 +146,14 @@ mod tests {
         let asked = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"run gh pr create, CommandExecution"}]}}}"#;
         let text = [claude, push, codex, codex_view, attach, asked].join("\n");
         assert_eq!(pr_marks(&text), vec![("sprucehq/spark#1057".to_string(), 1000), ("o/infra#59".to_string(), 2000), ("o/infra#60".to_string(), 0)]);
+    }
+
+    /// Only lines with one of a harness's marks are decoded.
+    #[test]
+    fn decodes_only_lines_with_a_harnesss_mark() {
+        let mut needles: Vec<&str> = needles().collect();
+        needles.sort();
+        assert_eq!(needles, ["\"attach_artifact\"", "\"gitOperation\"", "gh pr create"]);
     }
 
     #[test]
