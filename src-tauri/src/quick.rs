@@ -24,12 +24,12 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
-use crate::geometry::{screen_at, screen_holding, Rect, Screen};
+use crate::geometry::{screen_holding, Rect, Screen};
 use crate::start::Place;
-use crate::{engine, perf};
+use crate::{engine, panel, perf};
 
 pub const LABEL: &str = "quick";
 /// The window's width: the page's card and the room its shadow needs on each side.
@@ -40,6 +40,11 @@ const START_HEIGHT: f64 = 240.0;
 const TOP: f64 = 0.18;
 /// How long an open waits for the page before showing anyway.
 const READY_WAIT: Duration = Duration::from_millis(600);
+/// The panel takes the keyboard as it shows and says truthfully whether it has it. It's above
+/// other apps' windows and the bar, floating or docked in the notch, on whichever Space is in
+/// front, full-screen ones too, coming and going. Unlike the others it allows no tooltips while
+/// Codealong is in the background: it never has.
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::Always, level: panel::Level::Quick, spaces: panel::Spaces::Transient, unconstrained: false, tooltips: false, steps: panel::Steps::One };
 
 #[derive(Default)]
 struct Quick {
@@ -77,26 +82,10 @@ pub struct ShortcutStatus {
 /// to load.
 pub fn setup(app: &AppHandle) -> Result<()> {
     app.manage(Quick::default());
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-        .title("Codealong")
-        .initialization_script("window.__CODEALONG_QUICK__ = true;")
-        .inner_size(WIDTH, START_HEIGHT)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .skip_taskbar(true)
-        .focused(false)
-        .accept_first_mouse(true)
-        // It's up while another app is frontmost, when WebKit would slow its timers.
-        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
-        .visible(false)
-        .build()?;
-    native::make_panel(&window);
+    let page = panel::Page { title: "Codealong", script: "window.__CODEALONG_QUICK__ = true;", size: (WIDTH, START_HEIGHT), focusable: true, first_mouse: true };
+    let window = panel::builder(app, LABEL, page).build()?;
+    // The panel is never destroyed, so the class it had isn't kept.
+    let _ = panel::make(&window, PANEL);
     Ok(())
 }
 
@@ -112,8 +101,8 @@ pub fn open(app: &AppHandle, context: Value) {
     };
     let t = Instant::now();
     // It opens where you are: on the screen with the pointer, centered, near the top.
-    if !native::is_visible(&window) {
-        if let Some(s) = native::pointer_screen() {
+    if !panel::is_visible(&window) {
+        if let Some(s) = pointer_screen() {
             let anchor = anchor_on(s.visible);
             if let Ok(mut a) = state.anchor.lock() {
                 *a = Some(anchor);
@@ -182,11 +171,18 @@ fn answered(app: &AppHandle, id: u64, height: Option<f64>, since: Instant) {
 
 /// Runs `f` on the main thread: right away when this is it.
 fn on_main(app: &AppHandle, f: impl FnOnce() + Send + 'static) {
-    if native::on_main_thread() {
+    if panel::on_main_thread() {
         f();
     } else {
         let _ = app.run_on_main_thread(f);
     }
+}
+
+/// The screen the pointer is on, else the first. On the main thread.
+fn pointer_screen() -> Option<Screen> {
+    let p = panel::pointer();
+    let screens = panel::screens();
+    p.and_then(|p| screen_holding(p, &screens)).or(screens.first().copied())
 }
 
 /// Where a panel opened on this screen sits: centered, its top edge `TOP` of the way down.
@@ -211,18 +207,20 @@ pub fn ready(app: &AppHandle, height: Option<f64>) {
         }
         *w = None;
     }
-    let height = height.or_else(|| native::frame(&window).map(|f| f.h)).unwrap_or(START_HEIGHT);
+    let height = height.or_else(|| panel::frame(&window).map(|f| f.h)).unwrap_or(START_HEIGHT);
     if let Some(frame) = frame_for(&state, height) {
-        native::set_frame(&window, frame);
+        panel::set_frame(&window, frame);
     }
-    native::present(&window);
+    // It takes the keyboard as it shows, and its webview the keys, so what the page focused
+    // gets them.
+    panel::present(&window, true);
 }
 
 /// How tall the panel can be where it's anchored: from its top edge down to the bottom of the
 /// screen's usable part.
 fn room(state: &Quick) -> Option<f64> {
     let (x, top) = (*state.anchor.lock().ok()?)?;
-    let screen = screen_holding((x + WIDTH / 2.0, top - 1.0), &native::screens())?;
+    let screen = screen_holding((x + WIDTH / 2.0, top - 1.0), &panel::screens())?;
     Some(top - screen.visible.y)
 }
 
@@ -249,12 +247,12 @@ fn frame_for(state: &Quick, height: f64) -> Option<Rect> {
 /// thread.
 pub fn fit(app: &AppHandle, height: f64) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
-    if !native::is_visible(&window) {
+    if !panel::is_visible(&window) {
         return;
     }
     if let Some(frame) = frame_for(&state, height.ceil()) {
-        if native::frame(&window) != Some(frame) {
-            native::set_frame(&window, frame);
+        if panel::frame(&window) != Some(frame) {
+            panel::set_frame(&window, frame);
         }
     }
 }
@@ -267,8 +265,8 @@ pub fn hide(app: &AppHandle) {
         }
     }
     if let Some(window) = app.get_webview_window(LABEL) {
-        if native::is_visible(&window) {
-            native::hide(&window);
+        if panel::is_visible(&window) {
+            panel::hide(&window);
             let _ = app.emit_to(LABEL, "quick-hidden", ());
         }
     }
@@ -277,7 +275,7 @@ pub fn hide(app: &AppHandle) {
 /// The shortcut: opens the panel, or closes it when it's up. On the main thread.
 pub fn toggle(app: &AppHandle) {
     match app.get_webview_window(LABEL) {
-        Some(w) if native::is_visible(&w) => hide(app),
+        Some(w) if panel::is_visible(&w) => hide(app),
         Some(_) => open(app, Value::Null),
         None => {}
     }
@@ -393,177 +391,6 @@ pub fn status(app: &AppHandle) -> ShortcutStatus {
     let Some(state) = app.try_state::<Quick>() else { return ShortcutStatus { shortcut: String::new(), error: None } };
     let Ok(s) = state.shortcut.lock() else { return ShortcutStatus { shortcut: String::new(), error: None } };
     ShortcutStatus { shortcut: s.wanted.as_deref().unwrap_or_default().trim().to_string(), error: s.error.clone() }
-}
-
-#[cfg(target_os = "macos")]
-mod native {
-    use std::sync::OnceLock;
-
-    use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
-    use objc2::{sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
-    use tauri::WebviewWindow;
-
-    use super::{Rect, Screen};
-
-    /// The window's NSWindow, on the main thread only.
-    fn ns(w: &WebviewWindow) -> Option<&NSWindow> {
-        MainThreadMarker::new()?;
-        let ptr = w.ns_window().ok()? as *const NSWindow;
-        // SAFETY: Tauri hands out the window's own NSWindow, which lives as long as the window,
-        // and this is the main thread, where AppKit expects to be called.
-        unsafe { ptr.as_ref() }
-    }
-
-    /// NSPanel that takes the keyboard but never becomes the main window, so a board window
-    /// behind it stays the one menu commands are for.
-    fn panel_class() -> &'static AnyClass {
-        static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
-        CLASS.get_or_init(|| {
-            extern "C" fn yes(_: &AnyObject, _: Sel) -> Bool {
-                Bool::YES
-            }
-            extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
-                Bool::NO
-            }
-            match ClassBuilder::new(c"CodealongQuickPanel", NSPanel::class()) {
-                Some(mut builder) => {
-                    // SAFETY: both overrides match NSWindow's `- (BOOL)canBecome…Window`.
-                    unsafe {
-                        builder.add_method(sel!(canBecomeKeyWindow), yes as extern "C" fn(_, _) -> _);
-                        builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
-                    }
-                    builder.register()
-                }
-                None => AnyClass::get(c"CodealongQuickPanel").unwrap_or(NSPanel::class()),
-            }
-        })
-    }
-
-    /// Turns the window into a non-activating panel that can take the keyboard, above other
-    /// apps' windows and the bar, floating or docked in the notch, on whichever Space is in
-    /// front, full-screen ones too. The docked bar is at the main menu's level and two (bar.rs),
-    /// and its window reaches well down the screen while it shows a session, so the panel is
-    /// one above that: opened from a session in the notch, it's over it.
-    pub fn make_panel(w: &WebviewWindow) {
-        let Some(n) = ns(w) else { return };
-        let obj: &AnyObject = n;
-        let panel = panel_class();
-        // As for the floating bar (bar.rs): NSPanel adds no storage to NSWindow, so tao's window
-        // has room for it; if that ever changes, the panel stays a plain window.
-        if panel.instance_size() > obj.class().instance_size() {
-            return;
-        }
-        // SAFETY: the object is tao's NSWindow subclass, at least as large as the panel class,
-        // which only adds methods. tao reads its own ivar only when focusability changes, which
-        // the panel never does after it's made.
-        unsafe { AnyObject::set_class(obj, panel) };
-        n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
-        n.setHidesOnDeactivate(false);
-        n.setLevel(NSMainMenuWindowLevel + 3);
-        n.setCollectionBehavior(
-            n.collectionBehavior()
-                | NSWindowCollectionBehavior::CanJoinAllSpaces
-                | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::Transient
-                | NSWindowCollectionBehavior::IgnoresCycle,
-        );
-        n.setExcludedFromWindowsMenu(true);
-        // Up even while Codealong is hidden (⌘H), without bringing its other windows back.
-        n.setCanHide(false);
-    }
-
-    pub fn is_visible(w: &WebviewWindow) -> bool {
-        ns(w).map(|n| n.isVisible()).unwrap_or(false)
-    }
-
-    pub fn on_main_thread() -> bool {
-        MainThreadMarker::new().is_some()
-    }
-
-    /// Orders the panel in over every other app and gives it the keyboard, without activating
-    /// Codealong. The page's webview takes the keys, so what the page focused gets them.
-    pub fn present(w: &WebviewWindow) {
-        let Some(n) = ns(w) else { return };
-        n.orderFrontRegardless();
-        n.makeKeyWindow();
-        let window = w.clone();
-        let _ = w.with_webview(move |webview| {
-            let Some(n) = ns(&window) else { return };
-            let ptr = webview.inner() as *const NSResponder;
-            // SAFETY: on macOS `inner` is the webview's WKWebView, an NSResponder that lives as
-            // long as the window; this runs on the main thread.
-            if let Some(view) = unsafe { ptr.as_ref() } {
-                n.makeFirstResponder(Some(view));
-            }
-        });
-    }
-
-    pub fn hide(w: &WebviewWindow) {
-        if let Some(n) = ns(w) {
-            n.orderOut(None);
-        }
-    }
-
-    fn rect(r: NSRect) -> Rect {
-        Rect { x: r.origin.x, y: r.origin.y, w: r.size.width, h: r.size.height }
-    }
-
-    pub fn frame(w: &WebviewWindow) -> Option<Rect> {
-        ns(w).map(|n| rect(n.frame()))
-    }
-
-    pub fn set_frame(w: &WebviewWindow, r: Rect) {
-        if let Some(n) = ns(w) {
-            n.setFrame_display(NSRect::new(NSPoint::new(r.x, r.y), NSSize::new(r.w, r.h)), true);
-        }
-    }
-
-    pub fn screens() -> Vec<Screen> {
-        let Some(mtm) = MainThreadMarker::new() else { return Vec::new() };
-        let all = NSScreen::screens(mtm);
-        (0..all.count()).map(|i| all.objectAtIndex(i)).map(|s| Screen { frame: rect(s.frame()), visible: rect(s.visibleFrame()) }).collect()
-    }
-
-    /// The screen the pointer is on, else the first.
-    pub fn pointer_screen() -> Option<Screen> {
-        let p = NSEvent::mouseLocation();
-        super::screen_at((p.x, p.y), &screens())
-    }
-}
-
-/// Elsewhere the panel is an ordinary window.
-#[cfg(not(target_os = "macos"))]
-mod native {
-    use tauri::WebviewWindow;
-
-    use super::{Rect, Screen};
-
-    pub fn make_panel(_: &WebviewWindow) {}
-    pub fn is_visible(w: &WebviewWindow) -> bool {
-        w.is_visible().unwrap_or(false)
-    }
-    pub fn on_main_thread() -> bool {
-        false
-    }
-    pub fn present(w: &WebviewWindow) {
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
-    pub fn hide(w: &WebviewWindow) {
-        let _ = w.hide();
-    }
-    pub fn frame(_: &WebviewWindow) -> Option<Rect> {
-        None
-    }
-    pub fn set_frame(_: &WebviewWindow, _: Rect) {}
-    pub fn screens() -> Vec<Screen> {
-        Vec::new()
-    }
-    pub fn pointer_screen() -> Option<Screen> {
-        None
-    }
 }
 
 #[cfg(test)]
