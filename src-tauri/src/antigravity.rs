@@ -18,7 +18,7 @@ use crate::harness::{Applied, Ctx, Look};
 use crate::model::{Harness, Session, Surface};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
-use crate::util::{code, command_dir, file_name, note_work, one_line, parse_rfc3339_ms};
+use crate::util::{code, command_dir, file_name, note_work, one_line, only_looks, parse_rfc3339_ms};
 
 /// The hub app's folder and the command line's, beside each other.
 const APP_DIR: &str = "antigravity";
@@ -245,8 +245,12 @@ pub struct Call {
     /// The command a `run_command` runs, and the folder it runs in.
     pub command: Option<String>,
     pub cwd: Option<String>,
-    /// Where it works: a command's folder, or the file it reads or changes.
+    /// Where it works: a command's folder, or the file it writes. A view, a listing and a search
+    /// work nowhere, as an agent's reads of a repo it isn't working in don't.
     pub work: Option<String>,
+    /// Its command only looks (`util::only_looks`), which is work only in the conversation's
+    /// own folder.
+    pub looks: bool,
 }
 
 /// One line of a transcript.
@@ -302,9 +306,10 @@ fn call(c: &Value, result_step: i64) -> Call {
     };
     let work = match (&command, &cwd) {
         (Some(c), Some(dir)) => command_dir(c, dir),
-        _ => file.clone(),
+        _ => arg(&args, "TargetFile").filter(|p| p.starts_with('/')),
     };
-    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work }
+    let looks = command.as_deref().is_some_and(only_looks);
+    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks }
 }
 
 /// What you asked, out of a `USER_INPUT` step: Antigravity wraps it in `<USER_REQUEST>` and
@@ -378,8 +383,9 @@ pub struct Tail {
     pub turn_open: bool,
 }
 
-/// Reads the end of a transcript.
-pub fn tail(path: &Path) -> Tail {
+/// Reads the end of a transcript. `own` is the conversation's folder, where a command that
+/// only looks still counts as work.
+pub fn tail(path: &Path, own: Option<&str>) -> Tail {
     use std::io::{Read, Seek, SeekFrom};
     let Ok(mut f) = std::fs::File::open(path) else { return Tail::default() };
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
@@ -392,10 +398,10 @@ pub fn tail(path: &Path) -> Tail {
     }
     // A cut drops the line it fell in.
     let whole = if start > 0 { text.split_once('\n').map(|(_, rest)| rest).unwrap_or("") } else { text.as_str() };
-    tail_of(whole)
+    tail_of(whole, own)
 }
 
-fn tail_of(text: &str) -> Tail {
+fn tail_of(text: &str, own: Option<&str>) -> Tail {
     let values: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     // Lines aren't always in the steps' order: calls made together write their results before
     // their own step.
@@ -411,7 +417,9 @@ fn tail_of(text: &str) -> Tail {
         }
         for c in &s.calls {
             out.last_tool = Some(c.label.clone());
-            if let Some(w) = &c.work {
+            // The agent picks each command's folder: one run somewhere else only to look isn't
+            // work there.
+            if let Some(w) = c.work.as_ref().filter(|w| !c.looks || own.is_some_and(|own| Path::new(w).starts_with(own))) {
                 note_work(&mut out.work, w.clone());
             }
         }
@@ -444,6 +452,7 @@ fn started(dirs: &[Folder], p: &Process, now: i64) -> Option<Conversation> {
     let record = transcript_file(&dir.path, id);
     let (asked, at) = record.as_deref().and_then(first_request).unzip();
     let cwd = procs::cwd_of(p.pid).map(|c| c.to_string_lossy().into_owned());
+    let tail = record.as_deref().map(|p| tail(p, cwd.as_deref())).unwrap_or_default();
     Some(Conversation {
         id: id.clone(),
         preview: asked,
@@ -455,7 +464,7 @@ fn started(dirs: &[Folder], p: &Process, now: i64) -> Option<Conversation> {
         last_input: at,
         dir: dir.path.clone(),
         cli: true,
-        tail: record.as_deref().map(tail).unwrap_or_default(),
+        tail,
         ..Default::default()
     })
 }
@@ -603,7 +612,7 @@ impl Reader {
                 Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => c.tail = old.tail.clone(),
                 old => {
                     added |= old.is_none();
-                    c.tail = transcript_file(&c.dir, &c.id).map(|p| tail(&p)).unwrap_or_default();
+                    c.tail = transcript_file(&c.dir, &c.id).map(|p| tail(&p, c.cwd.as_deref())).unwrap_or_default();
                 }
             }
             c.waiting = (c.running() || held) && step_waits(&c.dir, &c.id);
@@ -912,13 +921,13 @@ impl crate::harness::Adapter for Antigravity {
     /// What its step waits on you to allow. It's answered where the conversation runs: nothing
     /// outside takes an answer.
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
-        let c = tail(&self.record(ctx, s).ok()?).open.into_iter().next()?;
+        let c = tail(&self.record(ctx, s).ok()?, None).open.into_iter().next()?;
         let cannot = format!("Antigravity asks in {}; answer it there.", if s.surface == Surface::Cli { "its terminal" } else { "its own window" });
         Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.label, input: Some(c.input), cannot: Some(cannot), always: false, plan: false, always_rule: None, questions: Vec::new() })
     }
 
     fn open_calls(&self, ctx: &Ctx, s: &Session) -> Vec<String> {
-        self.record(ctx, s).map(|p| tail(&p).open.into_iter().map(|c| c.input).collect()).unwrap_or_default()
+        self.record(ctx, s).map(|p| tail(&p, None).open.into_iter().map(|c| c.input).collect()).unwrap_or_default()
     }
 
     /// A conversation the command line starts with no workspace works in its folder's `scratch`.
@@ -1047,16 +1056,32 @@ mod tests {
         assert_eq!((items[0].input.as_deref(), items[0].cwd.as_deref()), (Some("wc -l a.txt"), Some("/Users/me/app")));
     }
 
+    /// An agent reads a repo it isn't working in with its file tools; only what it writes says
+    /// where it works.
+    #[test]
+    fn looking_at_a_file_is_not_work_on_it() {
+        let work = |name: &str, args: Value| call(&serde_json::json!({"name": name, "args": args}), 1).work;
+        assert_eq!(work("view_file", serde_json::json!({"AbsolutePath": "/Users/me/app-fix/notes.txt"})), None);
+        assert_eq!(work("list_dir", serde_json::json!({"DirectoryPath": "/Users/me/app-fix"})), None);
+        assert_eq!(work("grep_search", serde_json::json!({"SearchPath": "/Users/me/app-fix", "Query": "beta"})), None);
+        assert_eq!(work("write_to_file", serde_json::json!({"TargetFile": "/Users/me/app-fix/new.txt"})).as_deref(), Some("/Users/me/app-fix/new.txt"));
+        // A view still says which file on its line.
+        assert_eq!(call(&serde_json::json!({"name": "view_file", "args": {"AbsolutePath": "/Users/me/app-fix/notes.txt"}}), 1).label, "View file · `notes.txt`");
+    }
+
     #[test]
     fn the_end_of_a_record_says_what_a_conversation_is_on() {
-        let whole = tail_of(&LINES.join("\n"));
+        let whole = tail_of(&LINES.join("\n"), Some("/Users/me/app"));
         assert_eq!(whole.last_text.as_deref(), Some("Done: one line, and notes.txt is fixed."));
         assert_eq!(whole.last_tool.as_deref(), Some("Run command · `ls /definitely-not-here`"));
         assert!(whole.open.is_empty(), "every call has its result");
         // Where it worked: commands in their folder, an edit in its file's.
         assert_eq!(whole.work, ["/Users/me/app", "/Users/me/app-fix/notes.txt"]);
+        // Counting lines only looks, which is work only in the conversation's own folder.
+        assert_eq!(tail_of(&LINES.join("\n"), Some("/Users/me/elsewhere")).work, ["/Users/me/app-fix/notes.txt"]);
+        assert_eq!(tail_of(&LINES.join("\n"), None).work, ["/Users/me/app-fix/notes.txt"]);
         // Mid-turn, the call with no result yet is the one running, or waiting on you.
-        let running = tail_of(&LINES[..6].join("\n"));
+        let running = tail_of(&LINES[..6].join("\n"), None);
         assert_eq!(running.open.iter().map(|c| c.input.as_str()).collect::<Vec<_>>(), ["ls /definitely-not-here"]);
         assert_eq!(running.last_text.as_deref(), Some("Counting first."));
     }
