@@ -43,7 +43,7 @@
 
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var links = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-agent a.ca-prlink')); };
-  var card = function () { return document.querySelector('.ca-prcard'); };
+  var card = function () { return document.querySelector('.ca-prhover'); };
   var hover = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };
   var leave = function (el) { el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); };
 
@@ -67,8 +67,8 @@
     })
     .then(function () {
       var c = card();
-      check('the card names the PR', c.querySelector('.ca-prcard-ref').textContent === picked.pr.repoSlug + '#' + picked.pr.number);
-      check('with its title', c.querySelector('.ca-prcard-title').textContent === picked.pr.title);
+      check('the card names the PR', c.querySelector('.ca-prhover-ref').textContent === picked.pr.repoSlug + '#' + picked.pr.number);
+      check('with its title', c.querySelector('.ca-prhover-title').textContent === picked.pr.title);
       var titles = Array.prototype.map.call(c.querySelectorAll('.ca-psess-title'), function (t) { return t.textContent; });
       check('and the session that worked on it', titles.indexOf(picked.title) >= 0, titles.join(' | '));
       check('the board has it, so GitHub is not asked', calls('pr_card').length === 0);
@@ -86,13 +86,13 @@
     .then(function () {
       check('leaving it closes it', true);
       hover(links()[1]);
-      return until(function () { return card() && card().querySelector('.ca-prcard-title'); }, 3000);
+      return until(function () { return card() && card().querySelector('.ca-prhover-title'); }, 3000);
     })
     .then(function () {
       var asked = calls('pr_card');
       var num = Number(links()[1].getAttribute('href').split('/').pop());
       check('an unlisted PR is asked of GitHub once', asked.length === 1 && asked[0][1].number === num, JSON.stringify(asked.map(function (a) { return a[1]; })));
-      check('and its card shows the answer', card().querySelector('.ca-prcard-title').textContent === 'An older PR, as GitHub has it');
+      check('and its card shows the answer', card().querySelector('.ca-prhover-title').textContent === 'An older PR, as GitHub has it');
       check('with no Show in Codealong', !Array.prototype.some.call(card().querySelectorAll('button'), function (b) { return /Show in Codealong/.test(b.textContent); }));
       check('its link now has an icon', !!links()[1].querySelector('.ca-prlink-icon.ca-pr--merged'));
       leave(links()[1]);

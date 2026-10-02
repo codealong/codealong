@@ -338,20 +338,20 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
   };
 
   return createPortal(
-    <div ref={card} className="ca-prcard" role="dialog" aria-label={`${ref.slug}#${ref.number}`} onMouseEnter={onEnter} onMouseLeave={onLeave}>
-      <div className="ca-prcard-head">
+    <div ref={card} className="ca-prhover" role="dialog" aria-label={`${ref.slug}#${ref.number}`} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+      <div className="ca-prhover-head">
         <span className={['ca-lane-pricon', pr && `ca-pr--${pr.state}`].filter(Boolean).join(' ')}>
           <Icon name={pr ? PR_ICON[pr.state] : 'pr'} size={14} stroke={1.75} title={pr ? PR_WORD[pr.state] : undefined} />
         </span>
-        <span className="ca-prcard-ref">
+        <span className="ca-prhover-ref">
           {ref.slug}#{ref.number}
         </span>
         {pr && <PrPills pr={pr} />}
       </div>
       {pr ? (
         <>
-          <p className="ca-prcard-title">{pr.title}</p>
-          <p className="ca-prcard-meta">
+          <p className="ca-prhover-title">{pr.title}</p>
+          <p className="ca-prhover-meta">
             <code className="ca-ic">{pr.head}</code>
             {pr.base && (
               <>
@@ -360,7 +360,7 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
               </>
             )}
           </p>
-          <p className="ca-prcard-meta">
+          <p className="ca-prhover-meta">
             by {pr.mine ? 'you' : (pr.author ?? 'unknown')} ·{' '}
             {ended != null ? (
               <span title={absolute(ended)}>
@@ -372,18 +372,18 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
             · +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in {count(pr.changedFiles, 'file')}
           </p>
           {holding.length > 0 && (
-            <p className="ca-prcard-meta">
-              Checked out in <span className="ca-prcard-lanes">{holding.map((l) => l.callsign).join(', ')}</span>
+            <p className="ca-prhover-meta">
+              Checked out in <span className="ca-prhover-lanes">{holding.map((l) => l.callsign).join(', ')}</span>
             </p>
           )}
         </>
       ) : asked?.error ? (
-        <p className="ca-prcard-error">{asked.error}</p>
+        <p className="ca-prhover-error">{asked.error}</p>
       ) : (
-        <p className="ca-prcard-meta">Asking GitHub…</p>
+        <p className="ca-prhover-meta">Asking GitHub…</p>
       )}
       {sessions.length > 0 && (
-        <div className="ca-prcard-sec">
+        <div className="ca-prhover-sec">
           <h4 className="ca-label">{sessions.length === 1 ? 'Its session' : `Sessions · ${sessions.length}`}</h4>
           <div className="ca-tree" role="tree" aria-label="Sessions">
             {sessions.slice(0, SESSIONS_SHOWN).map(({ lane, session }) => (
@@ -398,10 +398,10 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
               />
             ))}
           </div>
-          {sessions.length > SESSIONS_SHOWN && <p className="ca-prcard-meta">and {sessions.length - SESSIONS_SHOWN} more</p>}
+          {sessions.length > SESSIONS_SHOWN && <p className="ca-prhover-meta">and {sessions.length - SESSIONS_SHOWN} more</p>}
         </div>
       )}
-      <div className="ca-prcard-foot">
+      <div className="ca-prhover-foot">
         {listed && host.actions?.showPr && (
           <Button size="sm" icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed))}>
             Show in Codealong

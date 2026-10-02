@@ -7102,7 +7102,7 @@ html.is-quick body {
 
 /* A PR link's card (PrLink.tsx): the PR on GitHub, then the sessions that worked on it. It takes
    the pointer, so its rows and buttons can be used; the link's hover and the card's are one. */
-.ca-prcard {
+.ca-prhover {
   position: fixed;
   z-index: 40;
   display: grid;
@@ -7120,37 +7120,37 @@ html.is-quick body {
   font: 400 12px/16px var(--font-sans);
   text-align: left;
 }
-.ca-prcard p {
+.ca-prhover p {
   margin: 0;
 }
-.ca-prcard-head {
+.ca-prhover-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-bottom: 2px;
 }
-.ca-prcard-ref {
+.ca-prhover-ref {
   color: var(--ink-2);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
-.ca-prcard-title {
+.ca-prhover-title {
   font: 600 13px/18px var(--font-sans);
   overflow-wrap: anywhere;
 }
-.ca-prcard-meta {
+.ca-prhover-meta {
   color: var(--ink-3);
   overflow-wrap: anywhere;
 }
-.ca-prcard-lanes {
+.ca-prhover-lanes {
   color: var(--ink-2);
   font-weight: 500;
 }
-.ca-prcard-error {
+.ca-prhover-error {
   color: var(--alert);
 }
-.ca-prcard-sec {
+.ca-prhover-sec {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
@@ -7158,10 +7158,10 @@ html.is-quick body {
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
-.ca-prcard-sec > .ca-label {
+.ca-prhover-sec > .ca-label {
   margin-bottom: 2px;
 }
-.ca-prcard-foot {
+.ca-prhover-foot {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
