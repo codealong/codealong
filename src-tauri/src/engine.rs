@@ -2412,7 +2412,7 @@ impl Engine {
         self.dirty_git = false;
         let since_last = self.last_publish.map(|t| t.elapsed());
         self.last_publish = Some(Instant::now());
-        let hash = board_hash(&board);
+        let hash = board_hash(&mut board);
         let hashed = t.elapsed() - composed;
         if hash == self.last_hash {
             perf::log(&format!("publish skipped, nothing changed: compose {} ms, hash {} ms", composed.as_millis(), hashed.as_millis()));
@@ -2655,13 +2655,30 @@ fn read_range_lossy(path: &Path, from: u64, to: u64) -> Option<String> {
 }
 
 /// A hash of everything the UI shows except the timestamp, so identical boards aren't resent.
-fn board_hash(board: &Board) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    let mut copy = board.clone();
-    copy.generated_at = 0;
-    serde_json::to_string(&copy).unwrap_or_default().hash(&mut h);
-    h.finish()
+/// The board is hashed as it's written out, with its timestamp set aside meanwhile: it's some
+/// 450 KB, and neither a copy of it nor its text is made for this.
+fn board_hash(board: &mut Board) -> u64 {
+    use std::hash::Hasher;
+    struct Hashed(std::collections::hash_map::DefaultHasher);
+    impl std::io::Write for Hashed {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.write(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    // Buffered, so the hasher is handed a few kilobytes at a time, not each comma and quote.
+    let mut out = std::io::BufWriter::new(Hashed(std::collections::hash_map::DefaultHasher::new()));
+    let at = std::mem::take(&mut board.generated_at);
+    let written = serde_json::to_writer(&mut out, board);
+    board.generated_at = at;
+    // A board that can't be written out hashes as nothing at all, as it did.
+    match (written, out.into_inner()) {
+        (Ok(()), Ok(hashed)) => hashed.0.finish(),
+        _ => std::collections::hash_map::DefaultHasher::new().finish(),
+    }
 }
 
 /// How often the harness databases are looked at for changes (`check_databases`).
@@ -3355,6 +3372,20 @@ mod tests {
         v.clear();
         assert!(!v.scanned(fourth, found(&a, &["late"])));
         assert!(v.by_lane.is_empty());
+    }
+
+    #[test]
+    fn boards_that_differ_only_in_their_time_hash_alike() {
+        use super::*;
+        let board = |at: i64, loading: bool| Board { generated_at: at, loading, quick_shortcut: "Alt+Cmd+/".into(), ..Board::default() };
+        let (mut first, mut later, mut other) = (board(1_000, false), board(2_000, false), board(1_000, true));
+        assert_eq!(board_hash(&mut first), board_hash(&mut later));
+        assert_ne!(board_hash(&mut first), board_hash(&mut other), "a real difference");
+        later.notices.push(Notice { key: "github".into(), title: "GitHub didn't answer".into(), text: "GitHub: couldn't load PRs".into(), until: None });
+        assert_ne!(board_hash(&mut first), board_hash(&mut later));
+        // The board goes out with the time it was made, and hashes the same each time.
+        assert_eq!((first.generated_at, later.generated_at), (1_000, 2_000));
+        assert_eq!(board_hash(&mut first), board_hash(&mut first.clone()));
     }
 
     #[test]
