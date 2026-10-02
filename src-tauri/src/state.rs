@@ -5,11 +5,13 @@
 //! Stored in `state.json` next to the config.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
+use crate::store;
 use crate::util::{now_ms, DAY_MS};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -60,27 +62,39 @@ pub struct ArchivedSession {
 }
 
 impl SeenState {
-    pub fn load() -> SeenState {
-        let loaded = std::fs::read_to_string(path())
-            .ok()
-            .and_then(|t| serde_json::from_str::<SeenState>(&t).ok())
-            .filter(|s| s.first_run > 0);
-        loaded.unwrap_or_else(|| SeenState { first_run: now_ms(), ..SeenState::default() })
+    /// The state of a first run: nothing seen, pinned, archived or snoozed, and turns that
+    /// ended before now count as seen.
+    pub fn fresh() -> SeenState {
+        SeenState { first_run: now_ms(), ..SeenState::default() }
     }
 
-    pub fn save(&mut self) {
+    /// state.json, or a first run's state when there's no file yet. A file that's there but
+    /// doesn't parse is an error, told apart from a first run so that whoever holds the state
+    /// knows not to save over it: the pins, archives and snoozes in it are still yours, and an
+    /// older build may just not know a newer one's shape.
+    pub fn load() -> Result<SeenState> {
+        Self::load_from(&path())
+    }
+
+    fn load_from(path: &Path) -> Result<SeenState> {
+        let Some(mut state) = store::read::<SeenState>(path, "what you've seen, pinned and snoozed")? else { return Ok(Self::fresh()) };
+        // A file without a first run keeps the rest of what it says.
+        if state.first_run <= 0 {
+            state.first_run = now_ms();
+        }
+        Ok(state)
+    }
+
+    pub fn save(&mut self) -> Result<()> {
+        self.save_to(&path())
+    }
+
+    fn save_to(&mut self, path: &Path) -> Result<()> {
         let cutoff = now_ms() - 30 * DAY_MS;
         self.seen.retain(|_, at| *at >= cutoff);
         self.snoozed.retain(|z| z.until >= cutoff);
-        if std::fs::create_dir_all(support_dir()).is_ok() {
-            if let Ok(text) = serde_json::to_string_pretty(self) {
-                // Through a temporary file: Settings reads this while the engine writes it.
-                let tmp = path().with_extension("json.tmp");
-                if std::fs::write(&tmp, text).is_ok() {
-                    let _ = std::fs::rename(&tmp, path());
-                }
-            }
-        }
+        // Through a temporary file: Settings reads this while the engine writes it.
+        store::save(path, self)
     }
 
     /// When the session was last seen, never earlier than the first run.
@@ -163,8 +177,13 @@ impl SeenState {
     }
 }
 
-fn path() -> PathBuf {
+pub fn path() -> PathBuf {
     support_dir().join("state.json")
+}
+
+/// The account folders state.json knows, for those that only look: none when it doesn't read.
+pub fn known_accounts() -> Vec<String> {
+    SeenState::load().map(|s| s.known_accounts).unwrap_or_default()
 }
 
 /// The keys in order, without empty ones or repeats.
@@ -184,6 +203,51 @@ mod tests {
         assert!(!s.know_accounts(["/Users/me/.claude".to_string(), String::new()]));
         assert!(s.know_accounts(["/Users/me/.claude2".to_string()]));
         assert_eq!(s.known_accounts, vec!["/Users/me/.claude", "/Users/me/.codex", "/Users/me/.claude2"]);
+    }
+
+    #[test]
+    fn no_file_is_a_first_run_and_what_is_saved_reads_back() {
+        let dir = store::test_dir("state-first-run");
+        let path = dir.join("state.json");
+        let before = now_ms();
+        let mut s = SeenState::load_from(&path).unwrap();
+        assert!(s.first_run >= before);
+        assert_eq!(s, SeenState { first_run: s.first_run, ..SeenState::default() });
+        assert!(!path.exists(), "reading makes no file");
+        s.set_pinned(vec!["codex:codex:b".into()]);
+        s.snooze("claude:claude:a", now_ms(), now_ms() + 60_000);
+        s.mark("claude:claude:a", now_ms());
+        s.mark("claude:claude:old", now_ms() - 31 * DAY_MS);
+        s.save_to(&path).unwrap();
+        assert!(!s.seen.contains_key("claude:claude:old"), "marks older than a month are let go");
+        assert_eq!(SeenState::load_from(&path).unwrap(), s);
+        // A file that doesn't say when the first run was keeps the rest of what it says.
+        std::fs::write(&path, r#"{"pinned":["codex:codex:b"]}"#).unwrap();
+        let s = SeenState::load_from(&path).unwrap();
+        assert!(s.first_run >= before);
+        assert_eq!(s.pinned, ["codex:codex:b"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Codealong and Codealong Dev share state.json: a build that doesn't know the other's
+    /// shape gets an error, not a first run to save over your pins, archives and snoozes.
+    #[test]
+    fn a_file_that_does_not_read_is_an_error_not_a_first_run() {
+        let dir = store::test_dir("state-unreadable");
+        let path = dir.join("state.json");
+        for bytes in [r#"{"firstRun":5,"pinned":["a"],"snoozed":[{"key":"a","at":1,"until":"tomorrow"}]}"#, r#"{"firstRun":5,"pinned":["a""#, ""] {
+            std::fs::write(&path, bytes).unwrap();
+            let e = SeenState::load_from(&path).unwrap_err().to_string();
+            assert!(e.starts_with("state.json doesn't read as what you've seen, pinned and snoozed (") && e.ends_with("Codealong won't change it until it does."), "{e}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+        }
+        // A save that can't land says so.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(SeenState::load_from(&path).is_err());
+        let e = SeenState::fresh().save_to(&path).unwrap_err().to_string();
+        assert!(e.starts_with("Couldn't write "), "{e}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

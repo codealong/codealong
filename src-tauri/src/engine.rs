@@ -552,7 +552,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     let t = Instant::now();
     let lap = |label: &str, t: &Instant| eprintln!("  {label:<10} {:>6} ms", t.elapsed().as_millis());
     e.load_config();
-    e.seen = SeenState::load();
+    e.load_state();
     e.load_todos();
     lap("config", &t);
     e.scan_sessions();
@@ -610,7 +610,7 @@ pub fn light_snapshot() -> Board {
     let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
     e.passing = true;
     e.load_config();
-    e.seen = SeenState::load();
+    e.load_state();
     e.load_todos();
     e.scan_sessions();
     e.load_repos();
@@ -692,6 +692,11 @@ struct Engine {
     config_text: Option<String>,
     config_warning: Option<String>,
     seen: SeenState,
+    /// Why state.json couldn't be read or saved.
+    state_warning: Option<String>,
+    /// state.json is there but doesn't read: the engine runs on what it has in memory (a first
+    /// run's state at launch) and writes nothing over the file until it's fixed or deleted.
+    state_unreadable: bool,
     /// Todos and labels, as in todos.json.
     todos: TodoStore,
     /// todos.json as last read or written, so the watcher can tell someone else's edit from ours.
@@ -844,6 +849,8 @@ impl Engine {
             config_text: None,
             config_warning: None,
             seen: SeenState::default(),
+            state_warning: None,
+            state_unreadable: false,
             todos: TodoStore::default(),
             todos_text: String::new(),
             todos_warning: None,
@@ -1137,9 +1144,9 @@ impl Engine {
 
     fn full_scan(&mut self) {
         self.load_config();
-        self.seen = SeenState::load();
+        self.load_state();
         self.remember_accounts();
-        self.seen.save();
+        self.save_state();
         self.load_todos();
         // Only with every todo read: a list that didn't read would make every attachment look unused.
         if !self.todos_unreadable {
@@ -1250,7 +1257,7 @@ impl Engine {
         let before = self.cfg.clone();
         self.load_config();
         if self.remember_accounts() {
-            self.seen.save();
+            self.save_state();
         }
         let mut rest = self.cfg.clone();
         rest.appearance = before.appearance.clone();
@@ -1352,7 +1359,7 @@ impl Engine {
                 Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
                 Ok(Msg::SetArchived(key, archived, reply)) => {
                     self.seen.set_archived(&key, archived, now_ms());
-                    self.seen.save();
+                    self.save_state();
                     // A harness with an archive of its own reads what's in it now.
                     let look = Self::look(&self.seen);
                     let harness = key.split(':').next().and_then(harness::named).map(|a| a.harness());
@@ -1365,17 +1372,17 @@ impl Engine {
                 }
                 Ok(Msg::SetPinned(keys)) => {
                     self.seen.set_pinned(keys);
-                    self.seen.save();
+                    self.save_state();
                     self.dirty = true;
                 }
                 Ok(Msg::SetPinnedWorktrees(ids)) => {
                     self.seen.set_pinned_worktrees(ids);
-                    self.seen.save();
+                    self.save_state();
                     self.dirty = true;
                 }
                 Ok(Msg::SetPinnedPrs(keys)) => {
                     self.seen.set_pinned_prs(keys);
-                    self.seen.save();
+                    self.save_state();
                     self.dirty = true;
                 }
                 Ok(Msg::SetTheme(theme)) => {
@@ -1478,7 +1485,7 @@ impl Engine {
                     for k in keys {
                         self.seen.mark(&k, now);
                     }
-                    self.seen.save();
+                    self.save_state();
                     self.publish();
                     if let Some(reply) = reply {
                         let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
@@ -1492,7 +1499,7 @@ impl Engine {
                             _ => self.seen.wake(&k, now),
                         }
                     }
-                    self.seen.save();
+                    self.save_state();
                     // Now rather than on the next tick: the window shows it already, and waits for it.
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
@@ -1884,11 +1891,12 @@ impl Engine {
     fn notices(&self) -> Vec<Notice> {
         let limited = self.gh_warning.as_deref().is_some_and(github::rate_limited);
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
-        let said: [(&str, &str, Option<&String>); 8] = [
+        let said: [(&str, &str, Option<&String>); 9] = [
             ("config", "config.toml has a problem", self.config_warning.as_ref()),
             ("github", self.gh_warning.as_deref().map_or("", github::title), self.gh_warning.as_ref()),
             ("watch", "Live updates are off", self.watch_warning.as_ref()),
             ("todos", "todos.json has a problem", self.todos_warning.as_ref()),
+            ("state", "state.json has a problem", self.state_warning.as_ref()),
             ("pr-links", "PR links weren't read", self.pr_links_warning.as_ref()),
             ("previews", "Previews weren't read", self.previews_warning.as_ref()),
             ("reusable", "Reusable worktrees weren't read", self.reusable_warning.as_ref()),
@@ -2137,6 +2145,7 @@ impl Engine {
         paths.dedup();
         let config_path = config::config_path();
         let todos_path = todos::path();
+        let state_path = crate::state::path();
         // Each harness's own files, by reader and account, in the order they're read.
         let accounts: Vec<Vec<AccountCfg>> = self.readers.iter().map(|r| harness::accounts_of(&self.cfg, r.harness())).collect();
         let mut owned: BTreeMap<(usize, usize), Vec<PathBuf>> = BTreeMap::new();
@@ -2150,6 +2159,27 @@ impl Engine {
             }
             if p == todos_path {
                 self.reload_todos();
+                continue;
+            }
+            if p == state_path {
+                // The engine's own writes come back here; only a file that didn't read is read
+                // again, now that it's been fixed or deleted.
+                if self.state_unreadable {
+                    if state_path.exists() {
+                        self.load_state();
+                    } else {
+                        // Deleted: what's in memory is the state from here on.
+                        self.state_unreadable = false;
+                        self.state_warning = None;
+                    }
+                    if !self.state_unreadable {
+                        self.remember_accounts();
+                        self.save_state();
+                        // What's archived and pinned decides what the harnesses' readers keep.
+                        self.scan_sessions();
+                    }
+                    self.dirty = true;
+                }
                 continue;
             }
             if p == prlinks::path() {
@@ -2487,6 +2517,37 @@ impl Engine {
             s.stoppable = crate::harness::stoppable(s, self.cfg.accounts.iter().find(|a| a.name == s.account));
         }
         out
+    }
+
+    /// state.json, read again. One that doesn't read is left alone: the engine goes on with what
+    /// it has in memory, a first run's state at launch, and says so (`notices`).
+    fn load_state(&mut self) {
+        match SeenState::load() {
+            Ok(state) => {
+                self.seen = state;
+                self.state_warning = None;
+                self.state_unreadable = false;
+            }
+            Err(e) => {
+                if self.seen.first_run == 0 {
+                    self.seen = SeenState::fresh();
+                }
+                self.state_warning = Some(format!("{e:#} What you pin, archive, snooze and mark seen meanwhile lasts only until Codealong quits."));
+                self.state_unreadable = true;
+            }
+        }
+    }
+
+    fn save_state(&mut self) {
+        // A file that didn't read is left for you to fix, not replaced with what's in memory.
+        if self.state_unreadable {
+            return;
+        }
+        let warning = self.seen.save().err().map(|e| format!("Couldn't save state.json: {e:#}"));
+        if warning != self.state_warning {
+            self.state_warning = warning;
+            self.dirty = true;
+        }
     }
 
     fn load_todos(&mut self) {
@@ -3325,6 +3386,95 @@ mod tests {
         engine.full_scan();
         assert!(engine.cfg.devices.enabled);
         assert!(engine.compose().devices.enabled);
+        std::fs::write(home().join("ran"), "").unwrap();
+    }
+
+    /// state.json holds what you pinned, archived, snoozed and saw. One that doesn't read, as
+    /// when an older build meets a newer one's shape, is never written over: the engine runs on a
+    /// first run's state in memory, says so, and takes the file up again once it reads. A save
+    /// that fails is said too. Runs in a copy of this test binary with a home of its own, as a
+    /// scan reads and writes there.
+    #[test]
+    fn a_state_file_that_does_not_read_is_never_written_over() {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+
+        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
+            let home = std::env::temp_dir().join(format!("codealong-state-scan-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["engine::tests::a_state_file_that_does_not_read_is_never_written_over", "--exact", "--nocapture"])
+                .env("HOME", &home)
+                .env("CODEALONG_TEST_HOME", &home)
+                .output()
+                .unwrap();
+            let ran = home.join("ran").exists();
+            std::fs::remove_dir_all(&home).unwrap();
+            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+            return;
+        };
+        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
+
+        // No accounts and nothing to scan, so the scan stays in this home.
+        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
+        let path = crate::state::path();
+        let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "state").map(|n| n.text);
+        let engine = || {
+            let (tx, _rx) = channel();
+            Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())))
+        };
+
+        // A snooze as a later build might write it.
+        let newer = r#"{"firstRun":5,"pinned":["claude:claude:a"],"snoozed":[{"key":"claude:claude:a","at":1,"until":"tomorrow"}]}"#;
+        std::fs::write(&path, newer).unwrap();
+        let mut e = engine();
+        e.full_scan();
+        assert!(said(&e).is_some_and(|t| t.starts_with("state.json doesn't read as what you've seen, pinned and snoozed")), "{:?}", said(&e));
+        assert!(e.compose().notices.iter().any(|n| n.key == "state" && n.title == "state.json has a problem"));
+        assert!(e.seen.first_run > 5 && e.seen.pinned.is_empty(), "a first run's state, in memory");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer, "the scan's own save left it alone");
+        // What's done meanwhile stays in memory.
+        e.seen.set_pinned(vec!["codex:codex:b".into()]);
+        e.save_state();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer);
+        assert_eq!(e.seen.pinned, ["codex:codex:b"]);
+
+        // Fixed by hand: the file is the state again, and is saved to from then on.
+        std::fs::write(&path, r#"{"firstRun":5,"pinned":["claude:claude:a"]}"#).unwrap();
+        e.apply_fs(vec![path.clone()]);
+        assert_eq!(said(&e), None);
+        assert_eq!((e.seen.first_run, e.seen.pinned.clone()), (5, vec!["claude:claude:a".to_string()]));
+        e.seen.set_pinned_prs(vec!["o/r#12".into()]);
+        e.save_state();
+        let kept = std::fs::read_to_string(&path).unwrap();
+        assert!(kept.contains("claude:claude:a") && kept.contains("o/r#12"), "{kept}");
+
+        // A save that can't land is said, until one does.
+        let dir = config::support_dir();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        e.seen.set_pinned_prs(vec![]);
+        e.save_state();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(said(&e).is_some_and(|t| t.starts_with("Couldn't save state.json: Couldn't write ")), "{:?}", said(&e));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), kept);
+        e.save_state();
+        assert_eq!(said(&e), None);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("o/r#12"));
+
+        // Deleted while it didn't read: what's in memory is the state from then on.
+        std::fs::write(&path, "{").unwrap();
+        let mut e = engine();
+        e.load_config();
+        e.load_state();
+        assert!(said(&e).is_some());
+        e.seen.set_pinned(vec!["codex:codex:c".into()]);
+        e.save_state();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{");
+        std::fs::remove_file(&path).unwrap();
+        e.apply_fs(vec![path.clone()]);
+        assert_eq!(said(&e), None);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("codex:codex:c"));
         std::fs::write(home().join("ran"), "").unwrap();
     }
 

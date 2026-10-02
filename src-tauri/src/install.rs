@@ -181,7 +181,7 @@ pub fn refresh_installed() {
         }
     }
     let Some(src) = skill_source() else { return };
-    let known = crate::state::SeenState::load().known_accounts;
+    let known = crate::state::known_accounts();
     for dst in refresh_targets(&cfg.accounts, &known) {
         if copy_state(&src, &dst).stale() {
             if let Err(e) = copy_skill(&src, &dst) {
