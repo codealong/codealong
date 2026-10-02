@@ -385,6 +385,10 @@ pub fn eval_command(cmdline: &str) -> Option<String> {
 /// Runs a program with the user's PATH and returns stdout. Fails on a non-zero exit (with
 /// stderr in the message) or when `timeout` passes.
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<String> {
+    #[cfg(test)]
+    if let Some(answer) = stand_in::run(program, args, None, timeout) {
+        return answer;
+    }
     run_with_path(program, args, cwd, timeout, user_path(), false)
 }
 
@@ -488,6 +492,10 @@ fn output_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: D
 
 /// Runs a program with input on stdin (used for AppleScript).
 pub fn run_stdin(program: &str, args: &[&str], input: &str, timeout: Duration) -> Result<String> {
+    #[cfg(test)]
+    if let Some(answer) = stand_in::run(program, args, Some(input), timeout) {
+        return answer;
+    }
     use std::io::Write;
     let mut child = Command::new(program)
         .args(args)
@@ -515,6 +523,32 @@ pub fn run_stdin(program: &str, args: &[&str], input: &str, timeout: Duration) -
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
         Err(anyhow!("{}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+/// A test's stand-in for the programs `run` and `run_stdin` start: while one is set on a thread,
+/// a program run there is handed to it (its arguments, what goes in on stdin, how long it would
+/// get) and its answer is what comes back, with nothing started. launch.rs's tests see what the
+/// terminal apps would be sent this way (`launch/stage.rs`).
+#[cfg(test)]
+pub mod stand_in {
+    use std::cell::RefCell;
+    use std::time::Duration;
+
+    use anyhow::Result;
+
+    pub type Runner = Box<dyn FnMut(&str, &[&str], Option<&str>, Duration) -> Result<String>>;
+
+    thread_local! {
+        static RUNNER: RefCell<Option<Runner>> = const { RefCell::new(None) };
+    }
+
+    pub fn set(runner: Option<Runner>) {
+        RUNNER.with(|r| *r.borrow_mut() = runner);
+    }
+
+    pub(super) fn run(program: &str, args: &[&str], input: Option<&str>, timeout: Duration) -> Option<Result<String>> {
+        RUNNER.with(|r| r.borrow_mut().as_mut().map(|run| run(program, args, input, timeout)))
     }
 }
 

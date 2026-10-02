@@ -2,6 +2,8 @@
 //! AppleScript) and the Claude and Codex deep links. Editors are in editors.rs. See *Apps*.
 
 mod iterm;
+#[cfg(test)]
+mod stage;
 mod terminal_app;
 
 use std::path::{Path, PathBuf};
@@ -29,8 +31,17 @@ pub struct TerminalApp {
 impl TerminalApp {
     /// Terminal comes with macOS; the others are wherever apps get installed.
     pub fn installed(&self) -> bool {
-        self.id == "terminal" || [PathBuf::from("/Applications"), home().join("Applications")].iter().any(|d| d.join(self.app).is_dir())
+        self.id == "terminal" || app_installed(self.app)
     }
+}
+
+/// Whether an app is where apps get installed, by its bundle's name.
+fn app_installed(app: &str) -> bool {
+    #[cfg(test)]
+    if let Some(there) = stage::app_installed() {
+        return there;
+    }
+    [PathBuf::from("/Applications"), home().join("Applications")].iter().any(|d| d.join(app).is_dir())
 }
 
 /// The terminal profiles, in the order Settings lists them and a new config.toml picks the first
@@ -509,6 +520,10 @@ const SHELL_READY_WAIT: Duration = Duration::from_secs(15);
 /// in Terminal it's how Codealong knows its setup line ran before typing a command after it.
 /// False when the wait ran out.
 fn wait_for_shell(tty: &str, launcher: Option<&Path>) -> bool {
+    #[cfg(test)]
+    if let Some(ready) = stage::shell_ready(tty, launcher) {
+        return ready;
+    }
     let started = std::time::Instant::now();
     loop {
         if launcher.map_or(true, |l| !l.exists()) && line_editor_waiting(Path::new(tty)) {
@@ -558,7 +573,7 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
     };
     let kind = terminal_kind(pid);
     // Asked before the tab is raised: `follow` is for an app that wasn't the active one then.
-    let behind = kind.and_then(HostKind::bundle).or_else(|| bundle_id(profile)).filter(|app| !crate::bar::app_active(app));
+    let behind = kind.and_then(HostKind::bundle).or_else(|| bundle_id(profile)).filter(|app| !app_active(app));
     let on_tty = tty.to_string_lossy().into_owned();
     let raised = match kind {
         Some(HostKind::Ghostty) => ghostty_focus_session(pid, &tty, title, cwd)?.map(Raised::Ghostty),
@@ -608,13 +623,22 @@ const FOLLOW_WAIT: Duration = Duration::from_secs(2);
 fn follow(ticket: u64, app: &'static str, raised: Raised) {
     std::thread::spawn(move || {
         let newest = || FOCUS_TURNS.newest.load(Ordering::SeqCst) == ticket;
-        if !wait_until(FOLLOW_WAIT, || crate::bar::app_active(app), || !newest()) {
+        if !wait_until(FOLLOW_WAIT, || app_active(app), || !newest()) {
             return;
         }
         if let Some(_turn) = FOCUS_TURNS.wait(ticket) {
             raised.again();
         }
     });
+}
+
+/// Whether an app is the active one, by its bundle ID.
+fn app_active(app: &str) -> bool {
+    #[cfg(test)]
+    if let Some(active) = stage::app_active(app) {
+        return active;
+    }
+    crate::bar::app_active(app)
 }
 
 /// Waits for `ready` to say yes. False when `dropped` does first, or `limit` runs out.
@@ -888,6 +912,10 @@ fn close_tty_terminals(
 /// Hangs up each process, as its tab closing would, and waits up to ten seconds for them to
 /// exit. Whether each one did, in order.
 fn hang_up(pids: &[u32]) -> Vec<bool> {
+    #[cfg(test)]
+    if let Some(exited) = stage::hang_up(pids) {
+        return exited;
+    }
     let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
     for pid in pids {
         unsafe { libc::kill(*pid as libc::pid_t, libc::SIGHUP) };
@@ -1018,7 +1046,16 @@ impl HostKind {
 pub const PRESSES_KEYS_IN: &str = "Ghostty, iTerm2 or tmux";
 
 pub fn terminal_kind(pid: u32) -> Option<HostKind> {
-    kind_by(pid, procs::parent_and_name).filter(|k| *k != HostKind::Tmux || tmux_bin().is_some())
+    kind_by(pid, parent_and_name).filter(|k| *k != HostKind::Tmux || tmux_bin().is_some())
+}
+
+/// A process's parent and name, as the kernel has them.
+fn parent_and_name(pid: u32) -> Option<(u32, String)> {
+    #[cfg(test)]
+    if let Some(staged) = stage::parent_and_name(pid) {
+        return staged;
+    }
+    procs::parent_and_name(pid)
 }
 
 /// The nearest of a process's ancestors that's a terminal, with `step` giving each process's
@@ -1131,6 +1168,10 @@ end run
 "#;
 
 fn tmux_bin() -> Option<std::path::PathBuf> {
+    #[cfg(test)]
+    if let Some(staged) = stage::tmux_bin() {
+        return Some(staged);
+    }
     ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].iter().map(std::path::PathBuf::from).find(|p| p.is_file())
 }
 
@@ -1160,11 +1201,19 @@ fn tmux_type(pane: &str, text: &str) -> Result<()> {
 
 /// The terminal device a process writes to, or None for a background process.
 fn tty_of(pid: u32) -> Option<std::path::PathBuf> {
+    #[cfg(test)]
+    if let Some(staged) = stage::tty(pid) {
+        return staged;
+    }
     procs::tty(pid)
 }
 
 /// Reports `dir` as the terminal's folder. Never blocks: a full or stuck terminal just misses it.
 fn write_osc7(tty: &Path, dir: &str) -> std::io::Result<()> {
+    #[cfg(test)]
+    if stage::osc7(tty, dir).is_some() {
+        return Ok(());
+    }
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty)?;
