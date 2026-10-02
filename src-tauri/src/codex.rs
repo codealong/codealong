@@ -1023,7 +1023,7 @@ impl crate::harness::Adapter for Codex {
 
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
         let files = rollout_files(&account.home_path(), since, &HashSet::new());
-        files.into_iter().filter_map(|(p, m)| thread_id_of(&p).map(|id| (p, format!("codex:{}:{id}", account.name), m))).collect()
+        files.into_iter().filter_map(|(p, m)| thread_id_of(&p).map(|id| (p, Session::key_for(Harness::Codex, &account.name, &id), m))).collect()
     }
 
     fn prose(&self, line: &[u8]) -> Option<(i64, bool, String)> {
@@ -1086,7 +1086,7 @@ impl crate::harness::Adapter for Codex {
                 return Ok(Started { key: None, message: waiting() });
             }
         };
-        let key = Some(format!("codex:{}:{}", account.name, thread.id));
+        let key = Some(Session::key_for(Harness::Codex, &account.name, &thread.id));
         let model = thread.model.as_deref().map(|m| (m, thread.effort.as_deref()));
         match crate::send::codex_start_turn(&home, &thread.id, &text, model) {
             Ok(()) => Ok(Started { key, message: None }),
@@ -1194,7 +1194,7 @@ impl Reader {
                 let parsed = parse_rollout(p, m, prev);
                 out.added |= is_new && parsed.is_some();
                 if let (Some(from), Some((th, to))) = (from, parsed.as_ref()) {
-                    out.lines.push(NewLines { path: p.to_path_buf(), from, to: *to, key: format!("codex:{account}:{}", th.id) });
+                    out.lines.push(NewLines { path: p.to_path_buf(), from, to: *to, key: Session::key_for(Harness::Codex, account, &th.id) });
                 }
                 self.rollouts.insert(p.to_path_buf(), (account.to_string(), parsed));
             }
@@ -1277,7 +1277,7 @@ impl crate::harness::Reader for Reader {
         let terminals = pair_terminals(&self.terminals, &threads);
         mine()
             .map(|(path, th)| {
-                let key = format!("codex:{}:{}", account.name, th.id);
+                let key = Session::key_for(Harness::Codex, &account.name, &th.id);
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
                 let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), look.seen.seen_at(&key), look.now);
                 s.archived = path.starts_with(&archived_dir);
@@ -1291,7 +1291,7 @@ impl crate::harness::Reader for Reader {
     }
 
     fn logs(&self) -> Vec<(PathBuf, String)> {
-        self.rollouts.iter().filter_map(|(p, (a, parsed))| parsed.as_ref().map(|(th, _)| (p.clone(), format!("codex:{a}:{}", th.id)))).collect()
+        self.rollouts.iter().filter_map(|(p, (a, parsed))| parsed.as_ref().map(|(th, _)| (p.clone(), Session::key_for(Harness::Codex, a, &th.id)))).collect()
     }
 
     /// Codex's limits come with each turn, in the rollouts read anyway.

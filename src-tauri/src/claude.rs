@@ -978,7 +978,7 @@ impl crate::harness::Adapter for ClaudeCode {
     fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
         let command = fork_command(ctx.account, s.continues.as_deref().unwrap_or(&s.id), prompt);
         let (_, id) = start_background(ctx.account, cwd, &command)?;
-        Ok(id.map(|id| format!("claude:{}:{id}", ctx.account.name)))
+        Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
     }
 
     /// Claude Code run headless on a fork of the session that keeps no record (checked on
@@ -1142,7 +1142,7 @@ impl crate::harness::Adapter for ClaudeCode {
         files
             .into_iter()
             .map(|(p, m)| {
-                let key = format!("claude:{}:{}", account.name, file_name(&p).trim_end_matches(".jsonl"));
+                let key = Session::key_for(Harness::Claude, &account.name, file_name(&p).trim_end_matches(".jsonl"));
                 (p, key, m)
             })
             .collect()
@@ -1234,7 +1234,7 @@ impl crate::harness::Adapter for ClaudeCode {
         let (has_images, has_files) = crate::attachments::kinds(ask.prompt);
         let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Mention);
         let prompt = prompt.trim();
-        let key = format!("claude:{}:{}", account.name, ask.session_id);
+        let key = Session::key_for(Harness::Claude, &account.name, ask.session_id);
         let mut input = account.command().to_string();
         let mut env = Vec::new();
         if ask.worktree {
@@ -1272,7 +1272,7 @@ impl crate::harness::Adapter for ClaudeCode {
     fn start_in_background(&self, account: &AccountCfg, cwd: &Path, command: &str) -> anyhow::Result<crate::start::Started> {
         let (job, id) = start_background(account, cwd, command)?;
         Ok(match id {
-            Some(id) => crate::start::Started { key: Some(format!("claude:{}:{id}", account.name)), message: None },
+            Some(id) => crate::start::Started { key: Some(Session::key_for(Harness::Claude, &account.name, &id)), message: None },
             None => crate::start::Started { key: None, message: Some(format!("{} is starting in the background as {job}.", account.name)) },
         })
     }
@@ -1575,7 +1575,7 @@ impl crate::harness::Reader for Reader {
                 let from = prev.as_ref().map(|(_, _, st)| st.offset);
                 if let Some(parsed) = mtime_ms(p).and_then(|m| parse_transcript(p, m, prev)) {
                     if let Some(from) = from {
-                        out.lines.push(NewLines { path: p.clone(), from, to: parsed.2.offset, key: format!("claude:{}:{}", account.name, parsed.1.session_id) });
+                        out.lines.push(NewLines { path: p.clone(), from, to: parsed.2.offset, key: Session::key_for(Harness::Claude, &account.name, &parsed.1.session_id) });
                     }
                     self.transcripts.insert(p.clone(), (account.name.clone(), parsed));
                 }
@@ -1587,7 +1587,7 @@ impl crate::harness::Reader for Reader {
                 let Ok(len) = std::fs::metadata(p).map(|m| m.len()) else { continue };
                 // A log first seen now is new, or its earlier lines were read by the last full search.
                 let from = self.subagent_offsets.get(p).copied().unwrap_or(len.saturating_sub(1 << 20));
-                out.lines.push(NewLines { path: p.clone(), from, to: len, key: format!("claude:{}:{id}", account.name) });
+                out.lines.push(NewLines { path: p.clone(), from, to: len, key: Session::key_for(Harness::Claude, &account.name, &id) });
                 self.subagent_offsets.insert(p.clone(), len);
             }
         }
@@ -1632,7 +1632,7 @@ impl crate::harness::Reader for Reader {
             if moves.moved.contains_key(id) {
                 continue;
             }
-            let key = format!("claude:{}:{}", a.name, id);
+            let key = Session::key_for(Harness::Claude, &a.name, id);
             // A job that hasn't written its own transcript yet shows the one it goes on
             // from: a window's conversation it took over, or one it's a fork of.
             let resumes = reg.and_then(|r| r.resumes.as_ref()).filter(|_| tr.is_none());
@@ -1640,7 +1640,7 @@ impl crate::harness::Reader for Reader {
             let tr = tr.or(from.map(|(_, t)| t));
             let moved = reg.zip(from).map(|(r, (_, (_, t)))| board::moved_registry(r, t));
             let reg = moved.as_ref().or(reg);
-            let seen_at = from.map(|(f, _)| look.seen.seen_at(&format!("claude:{}:{f}", a.name))).unwrap_or(0).max(look.seen.seen_at(&key));
+            let seen_at = from.map(|(f, _)| look.seen.seen_at(&Session::key_for(Harness::Claude, &a.name, f))).unwrap_or(0).max(look.seen.seen_at(&key));
             let info = tr.map(|(_, t)| t);
             // Only a busy session that's gone quiet costs a look outside its transcript,
             // and one whose turn left a command running in the background (read once
@@ -1664,7 +1664,7 @@ impl crate::harness::Reader for Reader {
                 // A job's record says what it's a fork of; the roster says for a
                 // running one whose record hasn't been read yet.
                 let parent = self.forks.get(&a.name).and_then(|f| f.parent_of(id)).or(reg.and_then(|r| r.resumes.as_deref()));
-                s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: format!("claude:{}:{p}", a.name), how: OriginHow::Fork });
+                s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: Session::key_for(Harness::Claude, &a.name, p), how: OriginHow::Fork });
                 out.push(s);
             }
         }
@@ -1679,7 +1679,7 @@ impl crate::harness::Reader for Reader {
     fn logs(&self) -> Vec<(PathBuf, String)> {
         let mut files = Vec::new();
         for (p, (a, (_, info, _))) in &self.transcripts {
-            let key = format!("claude:{}:{}", a, info.session_id);
+            let key = Session::key_for(Harness::Claude, a, &info.session_id);
             // A subagent works where its session sent it, so its log counts for the session.
             files.extend(subagent_logs(p, &info.session_id).into_iter().map(|s| (s, key.clone())));
             files.push((p.clone(), key));
@@ -1742,7 +1742,7 @@ fn ends_mid_line(path: &Path) -> bool {
 /// takes `--session-id` for the copy's ID (resuming takes it only with `--fork-session`), so the
 /// copy's key is known before it's written, as a start's is.
 fn fork_as(account: &crate::config::AccountCfg, id: &str, new_id: &str) -> crate::harness::Typed {
-    let key = format!("claude:{}:{new_id}", account.name);
+    let key = Session::key_for(Harness::Claude, &account.name, new_id);
     crate::harness::Typed {
         input: format!("{} --resume {id} --fork-session --session-id {new_id}\n", account.command()),
         env: vec![(crate::start::SESSION_VAR.to_string(), key.clone())],

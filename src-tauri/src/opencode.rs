@@ -717,7 +717,7 @@ impl crate::harness::Reader for Reader {
         }
         rows.iter()
             .map(|r| {
-                let key = format!("opencode:{}:{}", account.name, r.id);
+                let key = Session::key_for(Harness::Opencode, &account.name, &r.id);
                 let latest_here = latest.get(r.directory.as_str()) == Some(&r.id.as_str());
                 let terminal = terminal_for(&self.terminals, r, latest_here).map(|t| t.pid);
                 let mut s = crate::board::opencode_session(account, r, live, terminal, look.seen.seen_at(&key), look.now);
@@ -881,7 +881,7 @@ impl crate::harness::Adapter for OpenCode {
             let body = serde_json::json!({ "text": crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path), "delivery": "queue" });
             post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&id)), &body).map_err(|e| anyhow::anyhow!("OpenCode forked {} but didn't take the prompt: {e}", s.title))?;
         }
-        Ok(Some(format!("opencode:{}:{id}", ctx.account.name)))
+        Ok(Some(Session::key_for(Harness::Opencode, &ctx.account.name, &id)))
     }
 
     /// Names the session through its service (`PATCH /api/session/<id>` with its title; checked on
@@ -937,7 +937,7 @@ fn fork_in_service(account: &crate::config::AccountCfg, s: &crate::model::Sessio
 
 /// Opens the terminal UI on `id`, a fork the service has made.
 fn fork_into(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Typed {
-    crate::harness::Typed { input: format!("{} --session {id}\n", account.command()), env: Vec::new(), key: Some(format!("opencode:{}:{id}", account.name)) }
+    crate::harness::Typed { input: format!("{} --session {id}\n", account.command()), env: Vec::new(), key: Some(Session::key_for(Harness::Opencode, &account.name, id)) }
 }
 
 struct PermissionRequest {

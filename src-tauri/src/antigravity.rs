@@ -703,7 +703,7 @@ impl crate::harness::Reader for Reader {
         let rows = self.conversations.get(&account.name).map(|v| v.as_slice()).unwrap_or(&[]);
         rows.iter()
             .map(|c| {
-                let key = format!("antigravity:{}:{}", account.name, c.id);
+                let key = Session::key_for(Harness::Antigravity, &account.name, &c.id);
                 let process = self.processes.iter().find(|p| p.conversation.as_deref() == Some(c.id.as_str()));
                 let mut s = crate::board::antigravity_session(account, c, process, self.app_running, look.seen.seen_at(&key), look.now);
                 s.archived = look.archived_here(&key, s.last_activity);
@@ -814,7 +814,7 @@ impl crate::harness::Adapter for Antigravity {
     /// Each conversation's transcript, in both folders.
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
         let rows = folders(&account.home_path()).into_iter().flat_map(|f| read_conversations(&f, since, &HashSet::new()));
-        rows.filter_map(|c| Some((transcript_file(&c.dir, &c.id)?, format!("antigravity:{}:{}", account.name, c.id), c.last_modified))).collect()
+        rows.filter_map(|c| Some((transcript_file(&c.dir, &c.id)?, Session::key_for(Harness::Antigravity, &account.name, &c.id), c.last_modified))).collect()
     }
 
     /// What you asked, and what the agent replied.

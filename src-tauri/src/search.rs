@@ -225,7 +225,7 @@ impl Index {
             let text = self.rows.entry(a.name.clone()).or_default();
             for m in said {
                 text.after = text.after.max(m.updated);
-                let key = format!("{}:{}:{}", adapter.harness().config(), a.name, m.session);
+                let key = crate::model::Session::key_for(adapter.harness(), &a.name, &m.session);
                 text.sessions.entry(key).or_default().insert(m.id, Entry::new(m.at, m.you, m.text));
             }
         }

@@ -143,7 +143,7 @@ fn notify(c: Change) {
 }
 
 fn key_of(h: Harness, account: &str, id: &str) -> String {
-    format!("{}:{account}:{id}", h.config())
+    Session::key_for(h, account, id)
 }
 
 // ---- remembering ----
