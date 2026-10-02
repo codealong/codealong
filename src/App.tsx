@@ -60,7 +60,7 @@ import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName
 import { useNow } from './ui/useNow';
 import { errorText, type Report } from './report';
 import { historyChord, useSessionHistory } from './history';
-import { queueKey } from './queue';
+import { QUEUE_CHORDS, queueKey } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { openWhere, where } from './open';
 
@@ -2264,7 +2264,7 @@ export function App() {
             type="button"
             aria-label="Back"
             aria-disabled={!sessionHistory.back}
-            title={historyTitle(sessionHistory.back, 'Back', 'Back to the session you looked at before', '⌃-')}
+            title={historyTitle(sessionHistory.back, 'Back', 'Back to the session you looked at before', menus.chordSigns(QUEUE_CHORDS.historyBack[0]))}
             onClick={() => travel.current('back', false)}
           >
             <Icon name="chevron-left" size={16} />
@@ -2273,7 +2273,7 @@ export function App() {
             type="button"
             aria-label="Forward"
             aria-disabled={!sessionHistory.forward}
-            title={historyTitle(sessionHistory.forward, 'Forward', 'Forward again, after going back', '⌃⇧-')}
+            title={historyTitle(sessionHistory.forward, 'Forward', 'Forward again, after going back', menus.chordSigns(QUEUE_CHORDS.historyForward[0]))}
             onClick={() => travel.current('forward', false)}
           >
             <Icon name="chevron-right" size={16} />

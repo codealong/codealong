@@ -13,14 +13,19 @@
 // goes on, ⌘] skips to it, and a strip above the header says how many more there are and how the
 // last one went. Where a session is worked from the keyboard (its panel in Sessions, the notch)
 // the strip is always there and has what's commonly done to a session as buttons that say their
-// keys: mark seen, snooze, close its terminal, archive, back and next (`Hotkeys`). In Sessions, ⇧⌘F expands it to the whole window, so the list is out of the way
-// while you do. Rename in a pill's or a row's menu shows it with its name ready to change.
+// keys: mark seen, snooze, close its terminal, archive, back and next (`Hotkeys`). The keys it
+// says are read from where they're kept: a session's own from menus.ts `CHORDS` and snooze.ts
+// `SNOOZE_CHORDS`, the ones for getting about from queue.ts `QUEUE_CHORDS`. In Sessions, ⇧⌘F
+// expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
+// or a row's menu shows it with its name ready to change.
 
 import { useMemo, type ReactNode } from 'react';
 import { below, showContextMenu, type MenuGroup } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
 import { CHORDS, chordSigns, type SessionActions } from '../menus';
+import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
+import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { Button, Icon, Rich } from './primitives';
 import { runFolder } from './RunButton';
@@ -91,6 +96,17 @@ function snoozeKeys(snooze: MenuGroup): string {
     .join(', ');
 }
 
+/** The snooze chords as one range, for the button that opens their menu: ⌃⌘1–4. */
+function snoozeRange(): string {
+  const last = SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1] ?? '';
+  return `${chordSigns(SNOOZE_CHORDS[0] ?? '')}–${last.slice(-1)}`;
+}
+
+/** A queue action's keys as signs: the one its button says, and any others, for its tooltip. */
+function queueSigns(action: QueueAction): string[] {
+  return QUEUE_CHORDS[action].map(chordSigns);
+}
+
 /** A button on the strip that says its key. One that doesn't apply to the session shown stays in
  *  its place, dimmed, so the strip holds still from one session to the next. */
 function Hotkey({ label, icon, keys, title, run }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined }) {
@@ -115,9 +131,11 @@ interface QueueStripProps {
 
 /** Above a session answered in turn: how the one before went, else how many more wait on you, and
  *  the way on to the next (⌘]). With `hotkeys` it's always there, and has what's commonly done to
- *  the session as buttons that say their keys, the ones the session's menu runs (menus.ts). */
+ *  the session as buttons that say their keys, the ones the session's menu runs (menus.ts); the
+ *  keys for back, next and putting it away are the queue's (queue.ts). */
 export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen }: QueueStripProps) {
   const next = queue?.next;
+  const [nextKey, nextToo] = queueSigns('next');
   if (!hotkeys) {
     if (!notice && !next) return null;
     return (
@@ -126,7 +144,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen }:
           {queueWords(queue, notice, false)}
         </span>
         {next && queue && (
-          <Button variant="ghost" size="sm" kbd={['⌘', ']']} title={`Next: ${next.title}`} onClick={queue.onNext}>
+          <Button variant="ghost" size="sm" kbd={[...nextKey]} title={`Next: ${next.title}`} onClick={queue.onNext}>
             {notice ? `${queue.left} more` : 'Next'}
           </Button>
         )}
@@ -144,19 +162,19 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen }:
       <Hotkey
         label="Seen"
         keys={sign('seen')}
-        title={!seen ? (next && queue?.waiting === false ? 'Nothing to mark as seen here: ⌘E goes on to the next' : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'}
+        title={!seen ? (next && queue?.waiting === false ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next` : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'}
         run={seen && (() => seen())}
       />
-      <Hotkey label="Snooze" keys="⌃⌘1–4" title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
+      <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
       <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close terminal'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
       <Hotkey label={archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive'} keys={sign('archive')} title={archive?.label ?? 'Archive'} run={archive && (() => archive.run())} />
       {gap}
-      {hotkeys.onBack !== undefined && <Hotkey label="Back" keys="⌃-" title="Back to the session you looked at before; ⌃⇧- goes forward again" run={hotkeys.onBack ?? undefined} />}
-      <Hotkey label="Next" keys="⌘]" title={next ? `Next that waits on you: ${next.title}. ⌥⇧↓ goes on too, and ⌥⇧↑ back` : 'Nothing else waits on you'} run={next && queue ? () => queue.onNext() : undefined} />
+      {hotkeys.onBack !== undefined && <Hotkey label="Back" keys={queueSigns('historyBack')[0]} title={`Back to the session you looked at before; ${queueSigns('historyForward')[0]} goes forward again`} run={hotkeys.onBack ?? undefined} />}
+      <Hotkey label="Next" keys={nextKey} title={next ? `Next that waits on you: ${next.title}. ${nextToo} goes on too, and ${queueSigns('back')[0]} back` : 'Nothing else waits on you'} run={next && queue ? () => queue.onNext() : undefined} />
       {hotkeys.onClose && (
         <>
           {gap}
-          <Hotkey icon="x" keys="esc" title="Put it away" run={hotkeys.onClose} />
+          <Hotkey icon="x" keys={chordSigns(AWAY_CHORD)} title="Put it away" run={hotkeys.onClose} />
         </>
       )}
     </div>
