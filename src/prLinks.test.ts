@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { prIndex, prLabel, prRefOf } from './prLinks';
-import type { PrItem } from './types';
+import * as fx from './testing/fixtures';
 
 describe('prRefOf', () => {
   it('reads a PR link, whatever part of the PR it goes to', () => {
@@ -42,7 +42,7 @@ describe('prLabel', () => {
 });
 
 describe('prIndex', () => {
-  const item = (key: string, url: string) => ({ key, url }) as PrItem;
+  const item = (key: string, url: string) => fx.prItem({ key, url });
 
   it("finds a PR by the board's name for its repo and by its URL's, whatever the case", () => {
     const renamed = item('oldorg/app#3', 'https://github.com/NewOrg/app/pull/3');

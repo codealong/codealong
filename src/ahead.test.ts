@@ -16,34 +16,29 @@ vi.mock('./api', () => ({
 import { barAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, renameAhead, sendAhead, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf } from './lanes';
-import type { BarFeed, BarItem, BarSnoozed, Lane, Session, TranscriptItem } from './types';
+import * as fx from './testing/fixtures';
+import type { BarFeed, BarItem, BarRecent, BarSnoozed, Lane, Session, TranscriptItem } from './types';
 
 const NOW = 1_790_200_000_000;
 
 const session = (key: string, status: Session['status'], extra: Partial<Session> = {}): Session =>
-  ({
+  fx.session({
     key,
     status,
-    account: 'claude',
-    harness: 'claude',
-    surface: 'cli',
     live: true,
     title: `Task ${key}`,
     lastActivity: NOW - 60_000,
     lastPromptAt: NOW - 120_000,
     statusSince: NOW - 60_000,
-    stalledSince: null,
     excerpt: 'Did it',
-    visitor: null,
-    archived: false,
     headline: 'from the engine',
     detail: 'from the engine',
     ...extra,
-  }) as Session;
+  });
 
 const lane = (sessions: Session[]): Lane => {
   const [bay, glyph] = bayOf(sessions, null);
-  return { id: '/r', sessions, pr: null, git: null, bay, glyph, headline: 'lane from the engine', detail: null, hidden: false } as unknown as Lane;
+  return fx.lane({ id: '/r', sessions, bay, glyph, headline: 'lane from the engine' });
 };
 
 const change = (c: Ahead['change'], extra: Partial<Ahead> = {}): Ahead => ({ id: `id-${Math.random()}`, change: c, at: NOW, doneAt: null, shownAt: null, ...extra });
@@ -179,9 +174,8 @@ describe('settled', () => {
 });
 
 describe('barAhead', () => {
-  const item = (key: string, group: BarItem['group'], since: number, extra: Partial<BarItem> = {}): BarItem =>
-    ({ key, group, status: group, since, title: key, hidden: false, ...extra }) as BarItem;
-  const feed = (items: BarItem[], recent: BarItem[] = []): BarFeed => ({ items, recent, reviews: [], todos: [], logoStatus: 'needs' }) as unknown as BarFeed;
+  const item = (key: string, group: BarItem['group'], since: number, extra: Partial<BarItem> = {}): BarItem => fx.barItem({ key, group, since, ...extra });
+  const feed = (items: BarItem[], recent: BarRecent[] = [], snoozed: BarSnoozed[] = []): BarFeed => fx.barFeed({ items, recent, snoozed, logoStatus: 'needs' });
 
   it('takes pills marked seen off the bar, but not a permission prompt', () => {
     const f = barAhead(feed([item('p', 'needs', NOW), item('q', 'needs', NOW, { asks: true }), item('u', 'unread', NOW)]), [change({ kind: 'seen', keys: ['p', 'q', 'u'] })]);
@@ -189,7 +183,7 @@ describe('barAhead', () => {
   });
 
   it('moves a session sent a message to the end of Working, and colors the mark', () => {
-    const f = barAhead(feed([item('u', 'unread', NOW - 10), item('w', 'working', NOW - 5)], [{ ...item('r', 'working', NOW - 99), group: 'recent', status: 'idle' } as unknown as BarItem]), [send('u', { at: NOW + 1 }), send('r')]);
+    const f = barAhead(feed([item('u', 'unread', NOW - 10), item('w', 'working', NOW - 5)], [{ ...item('r', 'working', NOW - 99), group: 'recent', status: 'idle' }]), [send('u', { at: NOW + 1 }), send('r')]);
     expect(f.items.map((i) => [i.key, i.group])).toEqual([
       ['w', 'working'],
       ['r', 'working'],
@@ -200,15 +194,15 @@ describe('barAhead', () => {
   });
 
   it('keeps Needs you a queue, and takes a session you send to off the snoozed ones', () => {
-    const f = { ...feed([item('n2', 'needs', NOW - 5), item('n1', 'needs', NOW - 50), item('u', 'unread', NOW)]), snoozed: [{ ...item('z', 'needs', NOW - 9), group: 'snoozed', snoozedUntil: NOW + 3_600_000 }] } as unknown as BarFeed;
+    const f = feed([item('n2', 'needs', NOW - 5), item('n1', 'needs', NOW - 50), item('u', 'unread', NOW)], [], [{ ...item('z', 'needs', NOW - 9), group: 'snoozed', snoozedUntil: NOW + 3_600_000 }]);
     const out = barAhead(f, [change({ kind: 'seen', keys: ['u'] }), send('z')]);
     expect(out.items.map((i) => i.key)).toEqual(['n1', 'n2', 'z']);
     expect(out.snoozed).toEqual([]);
   });
 
   it('moves a snoozed session to the snoozed pill, and a woken one back', () => {
-    const z = { ...item('z', 'needs', NOW - 9), group: 'snoozed', status: 'idle', snoozedUntil: NOW + 3_600_000 } as unknown as BarSnoozed;
-    const f = { ...feed([item('n', 'needs', NOW - 50), item('w', 'working', NOW)]), snoozed: [z] } as unknown as BarFeed;
+    const z: BarSnoozed = { ...item('z', 'needs', NOW - 9), group: 'snoozed', status: 'idle', snoozedUntil: NOW + 3_600_000 };
+    const f = feed([item('n', 'needs', NOW - 50), item('w', 'working', NOW)], [], [z]);
     const out = barAhead(f, [change({ kind: 'snooze', keys: ['n', 'w'], until: NOW + 900_000 }), change({ kind: 'snooze', keys: ['z'], until: null })]);
     // A working session stays on Working; a woken one with nothing to show is Your turn.
     expect(out.items.map((i) => [i.key, i.group, i.status])).toEqual([
@@ -219,7 +213,7 @@ describe('barAhead', () => {
   });
 
   it('names a renamed session’s pill wherever it is on the bar', () => {
-    const f = { ...feed([item('n', 'needs', NOW - 5)], [{ ...item('r', 'working', NOW - 99), group: 'recent' } as unknown as BarItem]), snoozed: [{ ...item('z', 'needs', NOW - 9), group: 'snoozed', snoozedUntil: NOW + 3_600_000 }] } as unknown as BarFeed;
+    const f = feed([item('n', 'needs', NOW - 5)], [{ ...item('r', 'working', NOW - 99), group: 'recent' }], [{ ...item('z', 'needs', NOW - 9), group: 'snoozed', snoozedUntil: NOW + 3_600_000 }]);
     const out = barAhead(f, ['n', 'r', 'z'].map((key) => change({ kind: 'rename', key, title: `Named ${key}` })));
     expect([out.items[0].title, out.recent[0].title, out.snoozed[0].title]).toEqual(['Named n', 'Named r', 'Named z']);
     expect(barAhead(f, [change({ kind: 'rename', key: 'n', title: 'n' })])).toBe(f);

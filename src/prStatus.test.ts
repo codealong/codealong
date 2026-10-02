@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { asksFor, commentPreview, commentsToAsk, prFlag, prPills, prReady, type PrFacts } from './prStatus';
-import type { Checks, PrComment, PrItem } from './types';
+import * as fx from './testing/fixtures';
+import type { PrComment, PrItem } from './types';
 
-const checks = (c: Partial<Checks> = {}): Checks => ({ passed: 0, failed: 0, pending: 0, skipped: 0, failing: [], ...c });
+const checks = fx.checks;
 const facts = (f: Partial<PrFacts> = {}): PrFacts => ({ state: 'open', checks: checks({ passed: 12 }), merge: 'blocked', base: 'main', ...f });
-const item = (f: Partial<PrItem> = {}) => ({ ...facts(), mine: true, reviewRequested: false, ...f }) as PrItem;
+const item = (f: Partial<PrItem> = {}): PrItem => fx.prItem({ ...facts(), mine: true, reviewRequested: false, ...f });
 const texts = (f: Partial<PrFacts>) => prPills(facts(f)).map((p) => [p.text, p.tone]);
 
 describe('prPills', () => {

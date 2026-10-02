@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { slashCommand, slashMatches } from './slash';
+import * as fx from './testing/fixtures';
 import type { Session } from './types';
 
-const session = (harness: Session['harness']): Session => ({ key: `${harness}:a:1`, harness }) as Session;
+const session = (harness: Session['harness'], key = `${harness}:a:1`): Session => fx.session({ key, harness });
 const claude = session('claude');
 
 describe('slashCommand', () => {
@@ -28,8 +29,8 @@ describe('slashCommand', () => {
     expect(slashCommand('/sidebar', claude)).toBeNull();
     // OpenCode has no throwaway copy, and a copy runs on the session's own Mac.
     expect(slashCommand('/side why?', session('opencode'))).toBeNull();
-    expect(slashCommand('/side why?', { key: '@ab12:claude:a:1', harness: 'claude' } as Session)).toBeNull();
-    expect(slashCommand('/fork', { key: '@ab12:claude:a:1', harness: 'claude' } as Session)).not.toBeNull();
+    expect(slashCommand('/side why?', session('claude', '@ab12:claude:a:1'))).toBeNull();
+    expect(slashCommand('/fork', session('claude', '@ab12:claude:a:1'))).not.toBeNull();
   });
 
   it('is only a command where the harness can fork', () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allEditors, folderMenu, folderTargets, openInMenu, otherEditors, withOtherEditors, type AppIcons } from './editors';
 import type { MenuAction, MenuGroup } from './contextMenu';
+import * as fx from './testing/fixtures';
 import type { Target } from './types';
 
 const apps = {
@@ -13,7 +14,7 @@ const apps = {
   ],
 };
 
-const t = (id: string, group: Target['group'] = 'lane'): Target => ({ id, icon: 'code', label: id, detail: null, kbd: null, disabled: false, group });
+const t = (id: string, group: Target['group'] = 'lane'): Target => fx.target({ id, icon: 'code', group });
 
 describe('editors', () => {
   it('lists yours first, then the others in menu order', () => {

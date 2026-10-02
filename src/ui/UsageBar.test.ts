@@ -1,16 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import * as fx from '../testing/fixtures';
 import type { Meter, Severity } from '../types';
 import { headlineMeter, shouldCollapse } from './UsageBar';
 
-const meter = (key: string, percent: number, severity: Severity = 'normal'): Meter => ({
-  key,
-  label: key,
-  window: key,
-  percent,
-  resetsAt: null,
-  severity,
-  model: null,
-});
+const meter = (key: string, percent: number, severity: Severity = 'normal'): Meter => fx.meter({ key, percent, severity });
 
 describe('headlineMeter', () => {
   it('picks the fullest limit', () => {

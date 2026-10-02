@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import * as fx from '../testing/fixtures';
 import type { Session } from '../types';
 import { replyPlaceholder } from './SessionReply';
 
-const session = (over: Partial<Session> = {}): Session => ({ account: 'claude', harness: 'claude', surface: 'cli', status: 'idle', live: true, asks: false, hosted: false, ...over }) as Session;
+const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 
 describe('replyPlaceholder', () => {
   it('says how a message gets there once the engine has said', () => {

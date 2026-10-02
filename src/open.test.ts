@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { openLabel, openWhere, openWords, where } from './open';
-import type { Lane } from './types';
+import * as fx from './testing/fixtures';
 
-const lane = {
+const lane = fx.lane({
   id: '/r',
   targets: [
-    { id: 's|claude:c:1|focus', label: 'Respond in Ghostty', detail: null, disabled: false },
-    { id: 'l|preview', label: 'Open preview', detail: 'Its server isn’t running', disabled: true },
+    fx.target({ id: 's|claude:c:1|focus', label: 'Respond in Ghostty' }),
+    fx.target({ id: 'l|preview', label: 'Open preview', detail: 'Its server isn’t running', disabled: true }),
   ],
-} as unknown as Lane;
+});
 
 describe('open', () => {
   it('says how a session opens as the engine does', () => {

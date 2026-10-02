@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { ageFiltered, bayOf, buildBays, bySession, closable, stoppable, filterByAge, homeOf, liveOrLatest, inboxCounts, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, withoutAccount, worktreeRow } from './lanes';
+import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
 const NOW = 1_790_200_000_000;
 const DAY = 86_400_000;
 
-const session = (key: string, status: Session['status'], lastActivity: number, lastPromptAt = lastActivity): Session =>
-  ({ key, status, lastActivity, lastPromptAt, visitor: null, archived: false }) as Session;
-const pr = (state: Pr['state'], failed = 0): Pr => ({ number: 7, title: 'Fix it', state, checks: { passed: 3, failed, pending: 0, skipped: 0, failing: [] } }) as unknown as Pr;
+const session = (key: string, status: Session['status'], lastActivity: number, lastPromptAt = lastActivity): Session => fx.session({ key, status, lastActivity, lastPromptAt });
+const pr = (state: Pr['state'], failed = 0): Pr => fx.pr({ state, checks: fx.checks({ passed: 3, failed }) });
 const lane = (sessions: Session[], p: Pr | null): Lane => {
   const [bay, glyph] = bayOf(sessions, p);
-  return { id: '/r', sessions, pr: p, bay, glyph, headline: 'from the engine', detail: 'x' } as unknown as Lane;
+  return fx.lane({ id: '/r', sessions, pr: p, bay, glyph, headline: 'from the engine', detail: 'x' });
 };
 
 describe('bayOf', () => {
@@ -44,7 +44,7 @@ describe('ageFiltered', () => {
   });
 
   it('takes the headline from the agent that sets the new status', () => {
-    const done = { ...session('done', 'unread', NOW - 3_600_000), headline: '`claude` · Fix it', detail: 'Pushed the fix' } as Session;
+    const done = { ...session('done', 'unread', NOW - 3_600_000), headline: '`claude` · Fix it', detail: 'Pushed the fix' };
     const l = ageFiltered(lane([stuck, done], pr('merged')), NOW - DAY, 'in the last 24 hours');
     expect([l.bay, l.headline, l.detail]).toEqual(['unread', '`claude` · Fix it', 'Pushed the fix']);
   });
@@ -57,8 +57,8 @@ describe('ageFiltered', () => {
 });
 
 describe('filterByAge', () => {
-  const quiet = { ...lane([session('old', 'unread', NOW - 5 * DAY)], null), id: '/r/quiet', lastActivity: NOW - 5 * DAY } as Lane;
-  const busy = { ...lane([session('mine', 'working', NOW - 60_000)], null), id: '/r/busy', lastActivity: NOW - 60_000 } as Lane;
+  const quiet = { ...lane([session('old', 'unread', NOW - 5 * DAY)], null), id: '/r/quiet', lastActivity: NOW - 5 * DAY };
+  const busy = { ...lane([session('mine', 'working', NOW - 60_000)], null), id: '/r/busy', lastActivity: NOW - 60_000 };
 
   it('keeps pinned worktrees however quiet, with only their recent sessions', () => {
     const shown = filterByAge([quiet, busy], NOW - DAY, new Set(['/r/quiet']), 'in the last 24 hours');
@@ -76,8 +76,8 @@ describe('filterByAge', () => {
 
 describe('buildBays', () => {
   it('shows each worktree once, in its bay, with a line for each agent that needs you, works or just finished', () => {
-    const busy = { ...lane([session('a', 'needs', NOW), session('b', 'working', NOW - 1000), session('c', 'unread', NOW), session('d', 'idle', NOW)], null), id: '/r/busy', lastActivity: NOW } as Lane;
-    const quiet = { ...lane([session('e', 'idle', NOW)], pr('open')), id: '/r/quiet', lastActivity: NOW } as Lane;
+    const busy = { ...lane([session('a', 'needs', NOW), session('b', 'working', NOW - 1000), session('c', 'unread', NOW), session('d', 'idle', NOW)], null), id: '/r/busy', lastActivity: NOW };
+    const quiet = { ...lane([session('e', 'idle', NOW)], pr('open')), id: '/r/quiet', lastActivity: NOW };
     const bays = buildBays([busy, quiet]);
     expect(bays.map((g) => [g.bay, g.rows.map((r) => r.key)])).toEqual([
       ['needs', ['/r/busy']],
@@ -93,10 +93,10 @@ describe('buildBays', () => {
     const old = session('old', 'working', NOW, NOW - 3_600_000);
     const recent = session('recent', 'working', NOW - 300_000, NOW - 600_000);
     const done = session('done', 'unread', NOW - 60_000, NOW - 60_000);
-    const one = { ...lane([old, done, recent], null), id: '/r/one', lastActivity: NOW } as Lane;
+    const one = { ...lane([old, done, recent], null), id: '/r/one', lastActivity: NOW };
     expect(buildBays([one])[0].rows[0].agents.map((a) => a.session.key)).toEqual(['recent', 'old', 'done']);
-    const a = { ...lane([session('x', 'working', NOW, NOW - 3_600_000)], null), id: '/r/a', lastActivity: NOW } as Lane;
-    const b = { ...lane([session('y', 'working', NOW - 120_000, NOW - 1_800_000)], null), id: '/r/b', lastActivity: NOW - 120_000 } as Lane;
+    const a = { ...lane([session('x', 'working', NOW, NOW - 3_600_000)], null), id: '/r/a', lastActivity: NOW };
+    const b = { ...lane([session('y', 'working', NOW - 120_000, NOW - 1_800_000)], null), id: '/r/b', lastActivity: NOW - 120_000 };
     expect(buildBays([a, b])[0].rows.map((r) => r.key)).toEqual(['/r/b', '/r/a']);
     expect([old, recent, done].sort(bySession).map((s) => s.key)).toEqual(['recent', 'old', 'done']);
   });
@@ -107,7 +107,7 @@ describe('buildBays', () => {
     const waited = waiting('waited', NOW - 3_600_000, NOW - 4_000_000);
     const fresh = waiting('fresh', NOW - 60_000, NOW - 120_000);
     expect([fresh, waited].sort(bySession).map((s) => s.key)).toEqual(['waited', 'fresh']);
-    const at = (id: string, sessions: Session[], p: Pr | null = null) => ({ ...lane(sessions, p), id, lastActivity: NOW }) as Lane;
+    const at = (id: string, sessions: Session[], p: Pr | null = null) => ({ ...lane(sessions, p), id, lastActivity: NOW });
     const lanes = [
       at('/r/new', [fresh]),
       // Needs you only through a snoozed agent: after those waiting.
@@ -119,7 +119,7 @@ describe('buildBays', () => {
 });
 
 describe('narrowed', () => {
-  const mixed = { ...lane([session('w', 'working', NOW), session('u', 'unread', NOW), session('i', 'idle', NOW)], pr('open', 1)), id: '/r/mixed' } as Lane;
+  const mixed = { ...lane([session('w', 'working', NOW), session('u', 'unread', NOW), session('i', 'idle', NOW)], pr('open', 1)), id: '/r/mixed' };
 
   it('narrows a worktree to the agents a filter is about, in that bay', () => {
     expect(mixed.bay).toBe('working');
@@ -132,7 +132,7 @@ describe('narrowed', () => {
   it('narrows to the agents in any of several statuses, in the bay they put it in', () => {
     const both = narrowed(mixed, ['unread', 'working'], '')!;
     expect([both.bay, both.sessions.map((s) => s.key)]).toEqual(['working', ['w', 'u']]);
-    const idle = { ...lane([session('i', 'idle', NOW)], pr('open')), id: '/r/idle' } as Lane;
+    const idle = { ...lane([session('i', 'idle', NOW)], pr('open')), id: '/r/idle' };
     expect(narrowed(idle, ['needs', 'working'], '')).toBeNull();
     // A PR status keeps the worktree whole, whatever else is picked.
     expect(narrowed(idle, ['needs', 'review'], '')).toBe(idle);
@@ -142,13 +142,13 @@ describe('narrowed', () => {
     expect(narrowed(mixed, ['work'], '')).toBe(mixed);
     expect(narrowed(mixed, ['review'], '')).toBeNull();
     expect(narrowed(mixed, ['needs'], '')).toBeNull();
-    const failing = { ...lane([session('u', 'unread', NOW)], pr('open', 2)), id: '/r/failing' } as Lane;
+    const failing = { ...lane([session('u', 'unread', NOW)], pr('open', 2)), id: '/r/failing' };
     expect(failing.bay).toBe('unread');
     expect(narrowed(failing, ['needs'], '')).toBeNull();
     expect(narrowed(failing, ['work'], '')).toBe(failing);
-    const changes = { ...lane([session('c', 'idle', NOW)], pr('changes')), id: '/r/changes' } as Lane;
+    const changes = { ...lane([session('c', 'idle', NOW)], pr('changes')), id: '/r/changes' };
     expect([narrowed(changes, ['review'], ''), narrowed(changes, ['work'], '')]).toEqual([changes, changes]);
-    const inReview = { ...lane([session('c', 'idle', NOW)], pr('open')), id: '/r/review' } as Lane;
+    const inReview = { ...lane([session('c', 'idle', NOW)], pr('open')), id: '/r/review' };
     expect(narrowed(inReview, ['review'], '')).toBe(inReview);
     expect(narrowed(inReview, ['work'], '')).toBeNull();
   });
@@ -156,10 +156,10 @@ describe('narrowed', () => {
 
 describe('inboxCounts', () => {
   it('counts agents, and worktrees for what their PR needs', () => {
-    const busy = { ...lane([session('a', 'needs', NOW), session('b', 'working', NOW), session('c', 'working', NOW), session('d', 'unread', NOW)], null), id: '/r/busy' } as Lane;
-    const failing = { ...lane([session('e', 'unread', NOW)], pr('open', 2)), id: '/r/failing' } as Lane;
-    const changes = { ...lane([], pr('changes')), id: '/r/changes' } as Lane;
-    const inReview = { ...lane([], pr('open')), id: '/r/review' } as Lane;
+    const busy = { ...lane([session('a', 'needs', NOW), session('b', 'working', NOW), session('c', 'working', NOW), session('d', 'unread', NOW)], null), id: '/r/busy' };
+    const failing = { ...lane([session('e', 'unread', NOW)], pr('open', 2)), id: '/r/failing' };
+    const changes = { ...lane([], pr('changes')), id: '/r/changes' };
+    const inReview = { ...lane([], pr('open')), id: '/r/review' };
     // Needs you counts agents alone; the PRs that need work count under PR needs work.
     expect(inboxCounts([busy, failing, changes, inReview])).toEqual({ needs: 1, working: 2, unread: 2, review: 2, work: 2 });
   });
@@ -235,7 +235,7 @@ describe('sessionFlag', () => {
 });
 
 describe('closable', () => {
-  const live = (over: Partial<Session>): Session => ({ ...session('claude:c:1', 'idle', NOW), live: true, surface: 'cli', pid: 42, attachCommand: null, ...over }) as Session;
+  const live = (over: Partial<Session>): Session => ({ ...session('claude:c:1', 'idle', NOW), live: true, surface: 'cli', pid: 42, attachCommand: null, ...over });
 
   it('offers Close for terminals and background jobs running here', () => {
     expect(closable(live({}))).toBe(true);
@@ -252,7 +252,7 @@ describe('closable', () => {
 });
 
 describe('stoppable', () => {
-  const running = (over: Partial<Session>): Session => ({ ...session('claude:c:1', 'working', NOW), live: true, ...over }) as Session;
+  const running = (over: Partial<Session>): Session => ({ ...session('claude:c:1', 'working', NOW), live: true, ...over });
 
   it('offers Stop where the engine says it can reach the turn', () => {
     expect(stoppable(running({ stoppable: true }))).toBe(true);
@@ -266,9 +266,9 @@ describe('stoppable', () => {
 });
 
 describe('homeOf and liveOrLatest', () => {
-  const own = { ...session('k', 'idle', NOW), live: false } as Session;
-  const visit = { ...own, visitor: { lane: '/r' } } as unknown as Session;
-  const lanes = [{ id: '/other', sessions: [visit] }, { id: '/r', sessions: [own] }] as unknown as Lane[];
+  const own = { ...session('k', 'idle', NOW), live: false };
+  const visit = { ...own, visitor: 'worked here' };
+  const lanes = [fx.lane({ id: '/other', sessions: [visit] }), fx.lane({ id: '/r', sessions: [own] })];
 
   it('finds a session where it runs, not where it visits', () => {
     expect(homeOf(lanes, 'k')?.lane.id).toBe('/r');
@@ -277,7 +277,7 @@ describe('homeOf and liveOrLatest', () => {
   });
 
   it('picks the running session, else the latest', () => {
-    const at = (key: string, live: boolean, t: number) => ({ session: { ...session(key, 'idle', t), live } as Session });
+    const at = (key: string, live: boolean, t: number) => ({ session: { ...session(key, 'idle', t), live } });
     expect(liveOrLatest([at('a', false, 3), at('b', true, 1), at('c', false, 2)])?.session.key).toBe('b');
     expect(liveOrLatest([at('a', false, 1), at('b', false, 3)])?.session.key).toBe('b');
     expect(liveOrLatest([])).toBeNull();
@@ -285,9 +285,9 @@ describe('homeOf and liveOrLatest', () => {
 });
 
 describe('sessionPrs', () => {
-  const s = { ...session('k', 'idle', NOW), branch: 'fix' } as Session;
-  const item = (number: number, keys: string[]) => ({ number, url: `u/${number}`, sessions: keys.map((key) => ({ key, lane: '/r' })) }) as unknown as PrItem;
-  const onBranch = (branch: string, p: Pr | null) => ({ ...lane([s], p), branch }) as Lane;
+  const s = { ...session('k', 'idle', NOW), branch: 'fix' };
+  const item = (number: number, keys: string[]): PrItem => fx.prItem({ number, url: `u/${number}`, sessions: keys.map((key) => ({ key, lane: '/r' })) });
+  const onBranch = (branch: string, p: Pr | null) => ({ ...lane([s], p), branch });
 
   it('lists the PRs the session worked on, in the board’s order', () => {
     const prs = [item(9, ['other']), item(8, ['k']), item(5, ['other', 'k'])];

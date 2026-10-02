@@ -3,6 +3,7 @@ import type { MenuSpec } from './contextMenu';
 import { chordLetter, chordSigns, chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
+import * as fx from './testing/fixtures';
 import type { Lane, Session } from './types';
 
 const report: Report = { error: () => {}, info: () => {} };
@@ -14,44 +15,34 @@ function labels(spec: MenuSpec): string[] {
 }
 
 const session = (over: Partial<Session> = {}): Session =>
-  ({
+  fx.session({
     key: 'claude:c:1',
     id: '4f1c2a9e',
     title: 'Fix login',
-    account: 'claude',
-    harness: 'claude',
-    surface: 'cli',
     status: 'unread',
     live: true,
     pid: 42,
     hosted: false,
-    attachCommand: null,
     resumeCommand: 'claude --resume 4f1c2a9e',
     openTarget: 's|claude:c:1|focus',
-    archived: false,
-    visitor: null,
-    snoozedUntil: null,
     ...over,
-  }) as Session;
+  });
 
 const lane = (over: Partial<Lane> = {}): Lane =>
-  ({
+  fx.lane({
     id: '/r/api',
-    project: 'Acme',
     callsign: 'api',
     path: '/r/api',
     branch: 'fix-login',
-    device: null,
-    pr: { number: 7, url: 'https://github.com/acme/api/pull/7' },
-    preview: null,
+    pr: fx.pr({ number: 7, url: 'https://github.com/acme/api/pull/7' }),
     defaultTarget: 'l|terminal',
     targets: [
-      { id: 'l|terminal', label: 'Open in Ghostty', disabled: false },
-      { id: 'l|finder', label: 'Reveal in Finder', disabled: false },
-      { id: 's|claude:c:1|focus', label: 'Respond in Ghostty', disabled: false },
+      fx.target({ id: 'l|terminal', label: 'Open in Ghostty' }),
+      fx.target({ id: 'l|finder', label: 'Reveal in Finder' }),
+      fx.target({ id: 's|claude:c:1|focus', label: 'Respond in Ghostty' }),
     ],
     ...over,
-  }) as unknown as Lane;
+  });
 
 const base: SessionCan = { report, open: noop, terminal: 'Ghostty' };
 
@@ -162,7 +153,7 @@ describe('laneMenu', () => {
     expect(reuse(lane())?.checked).toBe(false);
     expect(reuse(lane({ reuse: 'free' }))?.checked).toBe(true);
     // Another device's worktree is marked there; a plain folder or one outside your projects never is.
-    expect(reuse(lane({ device: { name: 'Mini', short: 'mini', color: 'blue', online: true, lastSeen: null } as Lane['device'] }))).toBeUndefined();
+    expect(reuse(lane({ device: { name: 'Mini', short: 'mini', color: 'blue', online: true, lastSeen: null } }))).toBeUndefined();
     expect(reuse(lane({ project: 'Elsewhere' }))).toBeUndefined();
     expect(reuse(lane({ origin: 'folder' }))).toBeUndefined();
   });

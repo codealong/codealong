@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Lane, Session } from '../types';
+import * as fx from '../testing/fixtures';
+import type { Session } from '../types';
 import { sortSessions, waitingQueue, type SessionItem } from './SessionsView';
 
 const item = (key: string, lastActivity: number, status: Session['status'] = 'idle', lastPromptAt = lastActivity, statusSince: number | null = null, startedAt: number | null = null): SessionItem => ({
   kind: 'agent',
   key: `lane::${key}`,
-  lane: {} as Lane,
-  session: { key, lastActivity, status, lastPromptAt, statusSince, startedAt } as Session,
+  lane: fx.lane(),
+  session: fx.session({ key, lastActivity, status, lastPromptAt, statusSince, startedAt }),
 });
 
 const keys = (rows: SessionItem[]) => rows.map((r) => r.session.key);

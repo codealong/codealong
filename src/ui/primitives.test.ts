@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import * as fx from '../testing/fixtures';
 import type { GitInfo } from '../types';
 import { driftWords } from './primitives';
 
 describe('driftWords', () => {
-  const git = (g: Partial<GitInfo>): GitInfo => ({ upstream: null, ahead: 0, behind: 0, dirty: 0, lastCommit: null, lastCommitAt: null, added: null, removed: null, base: 'origin/main', baseAhead: 0, baseBehind: 0, ...g });
+  const git = (g: Partial<GitInfo>): GitInfo => fx.git({ base: 'origin/main', baseAhead: 0, baseBehind: 0, ...g });
 
   it('says how far a worktree has moved from the default branch', () => {
     expect(driftWords(git({ baseAhead: 3, baseBehind: 42 }))).toBe('3 commits ahead of origin/main, 42 behind');

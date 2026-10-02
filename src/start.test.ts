@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { accountFor, AUTO, agentId, agentOptions, autoModel, autoPick, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, preferredNames, settledPlace, takesModel, withLists, type AutoPick } from './start';
+import * as fx from './testing/fixtures';
 import type { Meter, StartAccount, Usage } from './types';
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
@@ -7,31 +8,27 @@ const claudeApp = { place: 'claude-app' as const, label: 'Claude app' };
 const codexApp = { place: 'codex-app' as const, label: 'Codex app' };
 
 const ACCOUNTS: StartAccount[] = [
-  { name: 'claude', harness: 'claude', places: [ghostty, claudeApp], chosen: null, unavailable: null, defaultModel: null, preferred: false },
-  { name: 'claude2', harness: 'claude', places: [ghostty], chosen: null, unavailable: null, defaultModel: null, preferred: false },
-  { name: 'codex', harness: 'codex', places: [codexApp], chosen: null, unavailable: null, defaultModel: null, preferred: false },
+  fx.startAccount({ name: 'claude', places: [ghostty, claudeApp] }),
+  fx.startAccount({ name: 'claude2', places: [ghostty] }),
+  fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp] }),
 ];
 
 const NOW = Date.UTC(2026, 8, 24, 12);
 const HOUR = 3_600_000;
 
 function meter(key: string, percent: number, resetsAt: number | null = null): Meter {
-  return { key, label: key, window: key, percent, resetsAt, severity: percent >= 90 ? 'critical' : 'normal', model: null };
+  return fx.meter({ key, percent, resetsAt, severity: percent >= 90 ? 'critical' : 'normal' });
 }
 
 /** An account's 5-hour and weekly use, and in how many hours its week resets. */
 function usage(account: string, session: number, week: number, weekResetsIn: number | null = 5 * 24, extra: Partial<Usage> = {}): Usage {
-  return {
+  return fx.usage({
     account,
     harness: account.startsWith('codex') ? 'codex' : 'claude',
-    plan: null,
     meters: [meter('session', session, NOW + 2 * HOUR), meter('week', week, weekResetsIn === null ? null : NOW + weekResetsIn * HOUR)],
     asOf: NOW,
-    error: null,
-    needsSignIn: false,
-    loading: false,
     ...extra,
-  };
+  });
 }
 
 const pick = (u: Usage[], accounts = ACCOUNTS) => autoPick(accounts, u, NOW);
@@ -133,7 +130,7 @@ describe('the sheet opens with', () => {
     expect(initialChoice(ACCOUNTS, p, 'codex')).toBe('codex');
     expect(initialChoice(ACCOUNTS, p, 'claude3')).toBe(AUTO);
     expect(initialChoice(ACCOUNTS, null, undefined)).toBe('claude');
-    const none: StartAccount[] = [{ name: 'codex2', harness: 'codex', places: [], chosen: null, unavailable: 'no', defaultModel: null, preferred: false }];
+    const none: StartAccount[] = [fx.startAccount({ name: 'codex2', harness: 'codex', unavailable: 'no' })];
     expect(initialChoice(none, null, undefined)).toBeNull();
   });
 
@@ -184,7 +181,7 @@ describe('the agent menu', () => {
   it('lists each account’s own models, and Claude Code’s for a Mac that sends only those', () => {
     const claudeModels = [{ id: 'opus', label: 'Opus' }];
     const claudeEfforts = [{ id: 'high', label: 'High' }];
-    const agy: StartAccount = { name: 'antigravity', harness: 'antigravity', places: [ghostty], chosen: null, unavailable: null, defaultModel: null, preferred: false, models: [{ id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' }], efforts: [], worktree: false };
+    const agy: StartAccount = fx.startAccount({ name: 'antigravity', harness: 'antigravity', places: [ghostty], models: [{ id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' }], efforts: [], worktree: false });
     // A Mac whose Codealong sends each account's lists: they're taken as sent.
     const sent = withLists({ accounts: [{ ...ACCOUNTS[0], models: claudeModels, efforts: claudeEfforts, worktree: true }, agy], codexProjects: [], claudeModels: [], claudeEfforts: [] });
     expect(sent.map((a) => [a.name, a.models?.map((m) => m.id), a.efforts?.length, a.worktree])).toEqual([['claude', ['opus'], 1, true], ['antigravity', ['gemini-3.8-flash-low'], 0, false]]);

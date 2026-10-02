@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { arrowhead, cameOf, connector, pathOf, pointAt, polyline } from './lineage';
-import type { Session } from './types';
+import * as fx from './testing/fixtures';
 
 const card = (x: number, y: number) => ({ x, y, w: 200, h: 50 });
 
@@ -68,7 +68,7 @@ describe('the curve', () => {
 
 describe('cameOf', () => {
   it('lists the sessions that came of one', () => {
-    const s = (key: string, from?: string) => ({ session: { key, origin: from ? { key: from, how: 'fork' } : undefined } as Session });
+    const s = (key: string, from?: string) => ({ session: fx.session({ key, origin: from ? { key: from, how: 'fork' } : undefined }) });
     const all = [s('a'), s('b', 'a'), s('c', 'b'), s('d', 'a')];
     expect(cameOf('a', all).map((x) => x.session.key)).toEqual(['b', 'd']);
     expect(cameOf('d', all)).toEqual([]);

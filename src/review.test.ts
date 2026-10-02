@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
+import * as fx from './testing/fixtures';
 import type { Lane, StartAccount } from './types';
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
@@ -7,14 +8,12 @@ const background = { place: 'background' as const, label: 'Background' };
 const codexApp = { place: 'codex-app' as const, label: 'Codex app' };
 
 const ACCOUNTS: StartAccount[] = [
-  { name: 'claude', harness: 'claude', places: [ghostty, background], chosen: null, unavailable: null, defaultModel: null, preferred: false },
-  { name: 'claude2', harness: 'claude', places: [], chosen: null, unavailable: 'Not signed in.', defaultModel: null, preferred: false },
-  { name: 'codex', harness: 'codex', places: [codexApp], chosen: null, unavailable: null, defaultModel: null, preferred: false },
+  fx.startAccount({ name: 'claude', places: [ghostty, background] }),
+  fx.startAccount({ name: 'claude2', unavailable: 'Not signed in.' }),
+  fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp] }),
 ];
 
-function lane(id: string, repoSlug: string | null, origin: Lane['origin'] = 'other'): Lane {
-  return { id, repoSlug, origin } as Lane;
-}
+const lane = (id: string, repoSlug: string | null, origin: Lane['origin'] = 'other'): Lane => fx.lane({ id, repoSlug, origin });
 
 describe('reviewLane', () => {
   const pr = { repoSlug: 'acme/app', lanes: ['wt-2'] };

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { byDevice, deviceLabel, deviceOf, needsOn, shortOf, withDevices, workingOn } from './devices';
-import type { DevicesView, Lane, Session } from './types';
+import * as fx from './testing/fixtures';
+import type { Lane, Session } from './types';
 
-const session = (key: string, status: Session['status']): Session => ({ key, status, visitor: null, archived: false }) as unknown as Session;
-const lane = (id: string, sessions: Session[] = []): Lane => ({ id, sessions }) as unknown as Lane;
+const session = (key: string, status: Session['status']): Session => fx.session({ key, status });
+const lane = (id: string, sessions: Session[] = []): Lane => fx.lane({ id, sessions });
 
 describe('your other devices', () => {
   it('reads which device a key is on', () => {
@@ -14,7 +15,7 @@ describe('your other devices', () => {
   });
 
   it('finds the linked device a key is on', () => {
-    const view = { devices: [{ short: 'a1b2c3d4e5', name: 'Mac mini' }] } as unknown as DevicesView;
+    const view = fx.devicesView({ devices: [fx.deviceView({ short: 'a1b2c3d4e5', name: 'Mac mini' })] });
     expect(deviceOf(view, '@a1b2c3d4e5:claude:claude:9f')?.name).toBe('Mac mini');
     expect(deviceOf(view, '@ffffffffff:claude:claude:9f')).toBeNull();
     expect(deviceOf(view, 'claude:claude:9f')).toBeNull();
@@ -50,7 +51,7 @@ describe('your other devices', () => {
   });
 
   it('groups lanes by device, this one first, then in linking order', () => {
-    const view = { devices: [{ short: 'm2' }, { short: 'm1' }] } as unknown as DevicesView;
+    const view = fx.devicesView({ devices: [fx.deviceView({ short: 'm2' }), fx.deviceView({ short: 'm1' })] });
     const groups = byDevice([lane('@m1:/b'), lane('/a'), lane('@m2:/c'), lane('@m1:/d')], view);
     expect(groups.map((g) => [g.short, g.lanes.map((l) => l.id)])).toEqual([
       [null, ['/a']],

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { GitInfo, Lane, Session } from '../types';
+import * as fx from '../testing/fixtures';
+import type { GitInfo } from '../types';
 import { prPlaces, syncWords } from './PrsView';
 
-const lane = (id: string) => ({ id }) as Lane;
-const session = (key: string) => ({ key }) as Session;
+const lane = (id: string) => fx.lane({ id });
+const session = (key: string) => fx.session({ key });
 
 describe('prPlaces', () => {
   it('lists the worktrees that hold the PR first, each with its sessions', () => {
@@ -25,7 +26,7 @@ describe('prPlaces', () => {
 });
 
 describe('syncWords', () => {
-  const git = (g: Partial<GitInfo>): GitInfo => ({ upstream: 'origin/x', ahead: 0, behind: 0, dirty: 0, lastCommit: null, lastCommitAt: null, added: null, removed: null, ...g });
+  const git = (g: Partial<GitInfo>): GitInfo => fx.git({ upstream: 'origin/x', ...g });
 
   it('says what GitHub is missing or has that the worktree lacks', () => {
     expect(syncWords(git({}))).toBe('pushed · clean');
