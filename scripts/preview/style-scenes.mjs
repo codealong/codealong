@@ -254,7 +254,7 @@ export function scenes(board) {
     [(s) => s.name === 'sessions-unread', '.ca-thread.is-fallback, .ca-thread .ca-empty'],
     [(s) => /^(prs-pr|prs-narrow|prs-odd)$/.test(s.name), '.ca-prbody'],
     [(s) => /^sessions-/.test(s.name) || ['peek', 'kept'].includes(s.view), '.ca-thread-said, .ca-thread .ca-empty'],
-    [(s) => s.name === 'notch-session' || s.name === 'notch-sizing', '.ca-notch-session .ca-thread-said'],
+    [(s) => s.name === 'notch-session' || s.name === 'notch-sizing', '.ca-notch-session'],
     [(s) => s.view === 'bar', '.ca-hud'],
     [(s) => s.view === 'quick', '.ca-quick'],
   ];

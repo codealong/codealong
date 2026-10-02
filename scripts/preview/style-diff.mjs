@@ -615,29 +615,36 @@ function coverage(dir) {
 
 // ---- comparing two builds' stylesheets ----
 
-// A stylesheet as its top-level rules, each as written less comments and spacing: an at-rule
-// with rules inside is one of them.
+// A stylesheet as its rules, each as written less comments and spacing, with the @media or
+// @container it's under in front of it: so a block split in two still lists the same rules.
 function topLevel(css) {
   const out = [];
-  let depth = 0;
-  let from = 0;
-  let quote = '';
   const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quote) {
-      if (c === '\\') i++;
-      else if (c === quote) quote = '';
-    } else if (c === '"' || c === "'") quote = c;
-    else if (c === '{') depth++;
-    else if (c === '}' || (c === ';' && depth === 0)) {
-      if (c === '}') depth--;
-      if (depth === 0) {
-        out.push(text.slice(from, i + 1).replace(/\s+/g, ' ').trim());
-        from = i + 1;
+  const walk = (from, to, ctx) => {
+    let depth = 0;
+    let start = from;
+    let quote = '';
+    let open = -1;
+    for (let i = from; i < to; i++) {
+      const c = text[i];
+      if (quote) {
+        if (c === '\\') i++;
+        else if (c === quote) quote = '';
+      } else if (c === '"' || c === "'") quote = c;
+      else if (c === '{') {
+        if (depth++ === 0) open = i;
+      } else if (c === '}' || (c === ';' && depth === 0)) {
+        if (c === '}') depth--;
+        if (depth === 0) {
+          const prelude = text.slice(start, c === '}' ? open : i).replace(/\s+/g, ' ').trim();
+          if (c === '}' && /^@(media|container|supports|layer)\b/.test(prelude)) walk(open + 1, i, ctx + prelude + ' { ');
+          else out.push((ctx + text.slice(start, i + 1).replace(/\s+/g, ' ').trim()).trim());
+          start = i + 1;
+        }
       }
     }
-  }
+  };
+  walk(0, text.length, '');
   return out.filter(Boolean);
 }
 
