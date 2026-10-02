@@ -23,11 +23,10 @@
 // along the sessions the list has, and ⌃- ⌃⇧- go back and forward through the ones answered here.
 
 import { reuse } from '../reuse';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import {
   deviceStartOptions,
-  fitQuick,
   getBoard,
   getDevices,
   hideQuick,
@@ -36,7 +35,6 @@ import {
   onDevices,
   onQuickHidden,
   openUrl,
-  quickReady,
   routeQuick,
   searchText,
   showMain,
@@ -101,6 +99,7 @@ import { openWhere, where } from '../open';
 import { asText, readStored, strings, useStored, writeStored } from '../stored';
 import { useLatest } from '../latest';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
+import { MARGIN, useQuickSize } from './useQuickSize';
 
 declare global {
   interface Window {
@@ -112,8 +111,6 @@ declare global {
   }
 }
 
-/** Room around the card for its shadow. The window (quick.rs) is the card and this on each side. */
-const MARGIN = 20;
 const PROJECT_KEY = 'codealong.quick.project';
 const HISTORY_KEY = 'codealong.quick.history';
 /** Where the sessions answered in the reply view are kept, for ⌃- and ⌃⇧- (history.ts), apart from
@@ -160,8 +157,6 @@ const FOUND_ALL = 40;
 const ROUTE_AFTER_MS = 350;
 /** How long typing has to pause before what's typed is looked for in what sessions said. */
 const TEXT_AFTER_MS = 150;
-/** How long typing has to pause before the list may shrink to what it shows. */
-const SETTLE_MS = 600;
 
 /** What a found todo's row says under its title: when it's due, then what it waits for, else the
  *  start of its description, else how many sessions it has. */
@@ -454,12 +449,6 @@ export function Quick() {
     el.style.height = `${Math.min(el.scrollHeight, Math.ceil(line * INPUT_LINES))}px`;
   }, [text, opens]);
 
-  // The window is as tall as the card, or an open menu where it reaches below the card.
-  const measure = useCallback(() => {
-    const c = card.current?.getBoundingClientRect();
-    const pop = document.querySelector('.ca-picker')?.getBoundingClientRect();
-    return Math.ceil(Math.max(c?.bottom ?? 0, pop?.bottom ?? 0) + MARGIN);
-  }, []);
   const refocus = () => window.requestAnimationFrame(() => input.current?.focus());
 
   /* ---- Where ---- */
@@ -655,70 +644,10 @@ export function Quick() {
   const duplicate = board ? duplicateOf(route, board) : null;
   const alreadyOn = alreadyOnWords(duplicate);
 
-  // While you type, the list only grows: Jev's suggestions and what sessions said arrive a moment
-  // after each key, and letting the list shrink in between made the panel bounce with every key.
-  // Once typing pauses and the answers are in, it takes the height of what it shows.
-  const [paused, setPaused] = useState(true);
-  useEffect(() => {
-    setPaused(false);
-    const id = window.setTimeout(() => setPaused(true), SETTLE_MS);
-    return () => window.clearTimeout(id);
-  }, [text]);
-  const settled = paused && !routing && (!textFor || !!textFound);
-  const held = useRef({ open: 0, height: 0 });
-  useLayoutEffect(() => {
-    const el = list.current;
-    if (!el) return;
-    el.style.minHeight = '';
-    if (!text.trim() || settled || held.current.open !== opens) held.current = { open: opens, height: 0 };
-    if (!text.trim() || settled) return;
-    held.current.height = Math.max(held.current.height, el.offsetHeight);
-    // Only as far as the screen has room: past that the list scrolls, as it does once settled.
-    const spare = room && card.current ? room - 2 * MARGIN - card.current.offsetHeight : Infinity;
-    el.style.minHeight = `${Math.min(held.current.height, el.offsetHeight + spare)}px`;
-  });
-  // A scrollbar, where macOS shows one, narrows the rows while the list scrolls; the new-session
-  // row below it keeps in line with them.
-  useLayoutEffect(() => {
-    const el = scroller.current;
-    list.current?.style.setProperty('--quick-gutter', `${el ? el.offsetWidth - el.clientWidth : 0}px`);
-  });
-
-  useLayoutEffect(() => {
-    if (opens === 0) return;
-    const h = measure();
-    reported.current = h;
-    // The cursor goes at the end of whatever the panel opens with: nothing, a todo's prompt, or
-    // what a failed start left.
-    const el = input.current;
-    if (el) {
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-    if (opening.current !== 'script') void quickReady(h);
-  }, [opens, measure]);
-  useLayoutEffect(() => {
-    if (!shown || opens === 0) return;
-    const h = measure();
-    if (h === reported.current) return;
-    reported.current = h;
-    void fitQuick(h);
-  });
-  // Answering a session, the conversation loads and grows on its own, without the panel drawing
-  // again: the window follows the card.
   const replyingKey = replying?.session.key ?? null;
-  useLayoutEffect(() => {
-    const el = card.current;
-    if (!replyingKey || !el || !shown || opens === 0) return;
-    const observer = new ResizeObserver(() => {
-      const h = measure();
-      if (h === reported.current) return;
-      reported.current = h;
-      void fitQuick(h);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [replyingKey, shown, opens, measure]);
+  // The panel's height, as the list may change it while you type and as a reply's conversation
+  // grows, told to quick.rs (useQuickSize.ts).
+  useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered: !routing && (!textFor || !!textFound), replyingKey, opening, reported });
 
   const ranked = rankedBy(foundSessions, route);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
