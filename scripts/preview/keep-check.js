@@ -1,6 +1,7 @@
 // Checks keeping a session on the desktop (Peek.tsx, kept.rs). In the peek: its header has the
 // pin and not the buttons its menu covers; the pin keeps the session (keep_session); dragging an
-// edge sizes the peek (peek_resize) and letting go keeps it. In a kept session's window: it says
+// edge sizes the peek (peek_resize) and letting go keeps it (peek-drag-check.js has dragging it
+// by its header). In a kept session's window: it says
 // it's ready (kept_ready), a click takes the keyboard (kept_focus), its edges size it
 // (kept_resize), its header drags it, sending leaves it up, and its × closes it (kept_close).
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/keep-check.js

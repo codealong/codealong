@@ -12,9 +12,9 @@
 //! the bar does meanwhile. Should another app take the keyboard while the pointer is still on the
 //! peek, it goes back to how a hover has it rather than closing under you.
 //!
-//! Dragging its far edge or corner makes it bigger, and its Keep button or letting go of that drag
-//! keeps it on the desktop: the session gets a window of its own there (kept.rs), which stays up,
-//! and the peek goes back to being the peek.
+//! Dragging its far edge or corner makes it bigger, and dragging its header moves it. Its Keep
+//! button or letting go of either drag keeps it on the desktop: the session gets a window of its
+//! own there (kept.rs), which stays up, and the peek goes back to being the peek.
 //!
 //! Opening is the quick panel's handshake: Codealong tells the page which session (`peek-open`),
 //! the page reads the conversation and answers with its height (`peek_ready`), and only then does
@@ -64,6 +64,9 @@ const LEAVE_AFTER: Duration = Duration::from_millis(350);
 const WATCH_EVERY: Duration = Duration::from_millis(60);
 /// How long an open waits for the page before showing anyway.
 const READY_WAIT: Duration = Duration::from_millis(400);
+/// How often the peek is put where the pointer has taken it while its header is dragged, as a
+/// card dragged to the desktop is (desktop.rs).
+const DRAG_EVERY: Duration = Duration::from_millis(16);
 
 /// Where the peek goes: its left edge, and the edge it keeps while its height changes (its top
 /// under the bar, its bottom over it), in AppKit points (y grows up).
@@ -120,6 +123,12 @@ pub fn place(bar: Rect, pill: Rect, screen: Rect) -> Place {
     let x = (cx - WIDTH / 2.0).min(screen.right() - WIDTH).max(screen.x).round();
     let room = if below { room_below } else { room_above };
     Place { x, edge: if below { below_edge } else { above_edge }, below, room: room.min(MAX_HEIGHT), full: room, wide: screen.right() - x }
+}
+
+/// The peek's frame dragged by its header: moved as far as the pointer has gone since the drag
+/// began, at the size it had.
+pub fn dragged(from: Rect, began: (f64, f64), pointer: (f64, f64)) -> Rect {
+    Rect { x: from.x + pointer.0 - began.0, y: from.y + pointer.1 - began.1, ..from }
 }
 
 /// Whether the pointer is on the peek or on the pill it came from.
@@ -187,8 +196,14 @@ struct Inner {
     away_since: Option<Instant>,
     /// Counts watches of the pointer, so an old one stops.
     watch: u64,
-    /// You dragged it to a size: it keeps that, whatever its page measures.
+    /// You dragged it to a size, or somewhere else: it keeps the size it has, whatever its page
+    /// measures.
     sized: bool,
+    /// Its header is being dragged: its frame when the drag began, and where the pointer was when
+    /// the button went down.
+    drag: Option<(Rect, (f64, f64))>,
+    /// Counts drags of its header, so an old one stops following the pointer.
+    drags: u64,
 }
 
 /// Makes the peek's window, hidden, at launch, so a hover never waits for a page to load.
@@ -244,7 +259,8 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: 
     let (id, room, below) = {
         let mut s = state.inner.lock().map_err(|_| anyhow!("The peek is unavailable."))?;
         let same = s.key.as_deref() == Some(key.as_str());
-        if s.visible && s.engaged && !focus && !same {
+        // Nor from one you're dragging, whose pointer may cross other pills on its way.
+        if s.visible && (s.engaged || s.drag.is_some()) && !focus && !same {
             return Ok(());
         }
         if let Some((host, p)) = pill {
@@ -271,6 +287,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: 
         s.key = Some(key);
         s.away_since = None;
         s.sized = false;
+        s.drag = None;
         (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
     };
     let Target { lane, session, terminal, apps, theme } = target;
@@ -355,6 +372,70 @@ pub fn resize(app: &AppHandle, width: f64, height: f64) {
     }
 }
 
+/// You're dragging the peek by its header, and the pointer has gone `dx`, `dy` since the button
+/// went down (as the page counts, y growing down): from here the peek goes where the pointer
+/// takes it, at the size it has, and once the button comes up the session is kept on the desktop
+/// where the peek was left (kept.rs), as it is when an edge is let go. The pointer is read here
+/// until then, as it is for a card dragged to the desktop (desktop.rs), rather than from the
+/// page's pointer events, which come from a window that's moving under the pointer. On the main
+/// thread.
+pub fn drag(app: &AppHandle, dx: f64, dy: f64) {
+    let (Some(state), Some(window)) = (app.try_state::<Peek>(), app.get_webview_window(LABEL)) else { return };
+    let (Some(p), Some(frame)) = (native::pointer(), native::frame(&window)) else { return };
+    let n = {
+        let Ok(mut s) = state.inner.lock() else { return };
+        if !s.visible || s.waiting.is_some() || s.drag.is_some() {
+            return;
+        }
+        s.sized = true;
+        s.drags += 1;
+        // AppKit's y grows up.
+        s.drag = Some((frame, (p.0 - dx, p.1 + dy)));
+        s.drags
+    };
+    // Where the pointer is already, without waiting for the next look.
+    follow_drag(app, n);
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(DRAG_EVERY);
+        let going = handle.try_state::<Peek>().is_some_and(|s| s.inner.lock().is_ok_and(|s| s.drags == n && s.drag.is_some()));
+        if !going {
+            break;
+        }
+        let app = handle.clone();
+        if handle.run_on_main_thread(move || follow_drag(&app, n)).is_err() {
+            break;
+        }
+    });
+}
+
+/// Looks at the pointer for a drag of the peek's header: the peek goes where the pointer has
+/// taken it, and with the button up it's kept there. On the main thread.
+fn follow_drag(app: &AppHandle, n: u64) {
+    let (Some(state), Some(window)) = (app.try_state::<Peek>(), app.get_webview_window(LABEL)) else { return };
+    let Some(p) = native::pointer() else { return };
+    let down = crate::bar::native::button_down();
+    let frame = {
+        let Ok(mut s) = state.inner.lock() else { return };
+        if s.drags != n || !s.visible {
+            return;
+        }
+        let Some((from, began)) = s.drag else { return };
+        if !down {
+            s.drag = None;
+        }
+        dragged(from, began, p)
+    };
+    if native::frame(&window) != Some(frame) {
+        native::set_frame(&window, frame);
+    }
+    if !down {
+        if let Err(e) = crate::kept::keep_peeked(app) {
+            eprintln!("Couldn't keep the session on the desktop: {e:#}");
+        }
+    }
+}
+
 /// Whether the peek has the keyboard.
 pub fn engaged(app: &AppHandle) -> bool {
     app.try_state::<Peek>().is_some_and(|s| s.inner.lock().is_ok_and(|s| s.visible && s.engaged))
@@ -399,6 +480,7 @@ pub fn hide(app: &AppHandle) {
         s.away_since = None;
         s.watch += 1;
         s.sized = false;
+        s.drag = None;
         was
     };
     native::hide(&window);
@@ -443,7 +525,8 @@ fn look(app: &AppHandle, n: u64) {
     let (Some(p), Some(frame)) = (native::pointer(), native::frame(&window)) else { return };
     let gone = {
         let Ok(mut s) = state.inner.lock() else { return };
-        if s.watch != n || !s.visible || s.engaged {
+        // Dragged by its header, it may trail the pointer, which hasn't left it.
+        if s.watch != n || !s.visible || s.engaged || s.drag.is_some() {
             return;
         }
         if over(p, frame, s.pill) {
@@ -473,7 +556,7 @@ fn lost_keys(app: &AppHandle) {
         if !s.visible || !s.engaged {
             return;
         }
-        let on = native::pointer().zip(native::frame(&window)).is_some_and(|(p, f)| over(p, f, s.pill));
+        let on = s.drag.is_some() || native::pointer().zip(native::frame(&window)).is_some_and(|(p, f)| over(p, f, s.pill));
         if !on || native::other_is_key(&window) {
             drop(s);
             hide(app);
@@ -851,6 +934,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn goes_where_its_header_is_dragged() {
+        // The pointer went 30 right and 40 up the screen since the button went down.
+        let from = r(400.0, 300.0, WIDTH, 500.0);
+        assert_eq!(dragged(from, (600.0, 780.0), (630.0, 820.0)), r(430.0, 340.0, WIDTH, 500.0));
+        // It keeps its size, and nothing holds it to the bar or the screen while it's dragged: a
+        // kept session's window is put whole on a screen as it's made (`kept::on_a_screen`).
+        assert_eq!(dragged(from, (600.0, 780.0), (-200.0, 780.0)), r(-400.0, 300.0, WIDTH, 500.0));
+        assert_eq!(dragged(from, (600.0, 780.0), (600.0, 780.0)), from);
     }
 
     #[test]

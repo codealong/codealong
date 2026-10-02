@@ -958,6 +958,14 @@ export async function peekResize(width: number, height: number): Promise<void> {
   await invoke('peek_resize', { width, height });
 }
 
+/** You're dragging the peek by its header, and the pointer has gone this far since the button
+ *  went down: from here its window goes where the pointer takes it, and the session is kept on
+ *  the desktop where the button comes up (peek.rs). */
+export async function peekDrag(dx: number, dy: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('peek_drag', { dx, dy });
+}
+
 /** Keeps the session the peek shows on the desktop, in a window of its own where the peek is
  *  (kept.rs). */
 export async function keepSession(): Promise<void> {

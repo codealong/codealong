@@ -1341,7 +1341,13 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   peek's page gets no pointer moves off itself, so peek.rs watches `NSEvent.mouseLocation` to
   close it. A window takes clicks on its clear parts too, so the peek's keeps only a thin margin
   on the bar's side and never covers a pill. Not yet checked by hand (2026-09-27): a click in
-  the peek making it key under that override.
+  the peek making it key under that override. Dragged by its header, the peek is moved from
+  the engine (`peek::drag`): the page says once that the drag began and how far the pointer had
+  gone, and peek.rs reads `NSEvent.mouseLocation` and the pressed buttons every 16 ms, as
+  desktop.rs does for a card, moving the window until the button comes up and keeping the
+  session there, so nothing depends on what a page's pointer events say while its own window
+  moves under the pointer. Not yet checked by hand (2026-10-02): that drag in the real app; the
+  preview only shows that the page asks for it (`peek-drag-check.js`).
 - A session kept on the desktop from the peek (kept.rs) is a window of its own with the peek's
   panel class, so which panels answer truthfully about being key is a list of windows
   (`peek::native`'s `ENGAGED`), not one flag. A kept window is destroyed when it's closed, so it

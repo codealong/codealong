@@ -4004,8 +4004,8 @@ html.is-peek body {
   bottom: auto;
   cursor: nesw-resize;
 }
-/* A session kept on the desktop is dragged by its header. */
-.ca-peek-root.is-kept .ca-sessinsp-head {
+/* The peek, and a session kept on the desktop, are dragged by their headers. */
+.ca-peek-root .ca-sessinsp-head {
   cursor: default;
   -webkit-user-select: none;
   user-select: none;

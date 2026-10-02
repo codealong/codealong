@@ -475,7 +475,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   rename, ⌃⌘P pin in Sessions). The pin **keeps the session on the desktop**: it gets a
   window of its own where the peek is, which stays up whatever you do, floating over every
   window as the cards pinned to the desktop do. Dragging the peek's right edge, its far edge or
-  the corner between them to make it bigger keeps it too, at that size, when you let go. A kept
+  the corner between them to make it bigger keeps it too, at that size, when you let go, and so
+  does dragging it by its header, where you let it go. A kept
   session is dragged by its header and sized by the same edges; sending leaves it open; its ×
   (or ⌘W) takes it off the desktop; and it comes back at launch where it was left. A pill whose
   session is kept brings that window up in place of a peek. Click a pill to show its

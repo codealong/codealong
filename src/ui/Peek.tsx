@@ -13,14 +13,15 @@
 // session follows the board, and the peek stays on it as its pill moves along the bar.
 //
 // The pin in its header keeps the session on the desktop, and so does dragging the peek's right
-// edge, its far edge or the corner between them to make it bigger: the session gets a window of
-// its own where the peek is (kept.rs), which this page draws too (`kept`). There it stays up
+// edge, its far edge or the corner between them to make it bigger, or dragging it somewhere else
+// by its header: the session gets a window of its own where the peek is let go (kept.rs), which
+// this page draws too (`kept`). There it stays up
 // whatever you do: sending leaves it open, its header drags it, its edges size it, and its ×
 // (or ⌘W) takes it off the desktop. It comes back at launch where it was left.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onBoard, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize } from '../api';
+import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onBoard, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize } from '../api';
 import { renameAhead } from '../ahead';
 import { readDraft } from '../drafts';
 import { homeOf } from '../lanes';
@@ -41,7 +42,7 @@ const FAR = 32;
 const NEAR = 8;
 /** How far an edge moves with the button down before it sizes the card rather than clicks. */
 const SIZE_AFTER = 3;
-/** How far a kept session's header moves with the button down before it drags the window. */
+/** How far the header moves with the button down before it drags the window. */
 const DRAG_AFTER = 4;
 /** The edges that size the card: its right edge, its far edge (the one away from the bar), and
  *  the corner between them. */
@@ -72,7 +73,8 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   const [open, setOpen] = useState<PeekOpen | null>(null);
   // A kept session the board no longer has: there's only its window to close.
   const [gone, setGone] = useState(false);
-  // You dragged an edge: the card fills the window, which keeps the size you gave it.
+  // You dragged an edge, or the header: the card fills the window, which keeps the size you gave
+  // it, or the one it had.
   const [sized, setSized] = useState(false);
   const [shown, setShown] = useState(false);
   const [engaged, setEngaged] = useState(false);
@@ -284,7 +286,9 @@ export function Peek({ kept = false }: { kept?: boolean }) {
     void (kept ? keptResize(d.to[0], d.to[1]) : peekResize(d.to[0], d.to[1]).then(keepSession)).catch(() => {});
   };
 
-  // A kept session's header drags its window, as a card's face drags a card.
+  // The header drags the window, as a card's face drags a card: a kept session's as any window
+  // is dragged, and the peek's by the engine (peek.rs), which takes it where the pointer goes and
+  // keeps it on the desktop where it's let go.
   const moving = useRef<{ x: number; y: number } | null>(null);
   const startMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const on = e.target instanceof Element ? e.target : null;
@@ -292,9 +296,17 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   };
   const moveWindow = (e: ReactPointerEvent<HTMLDivElement>) => {
     const d = moving.current;
-    if (!d || !(e.buttons & 1) || Math.abs(e.screenX - d.x) + Math.abs(e.screenY - d.y) < DRAG_AFTER) return;
+    if (!d || !(e.buttons & 1)) return;
+    const [dx, dy] = [e.screenX - d.x, e.screenY - d.y];
+    if (Math.abs(dx) + Math.abs(dy) < DRAG_AFTER) return;
     moving.current = null;
-    void getCurrentWindow().startDragging();
+    if (kept) {
+      void getCurrentWindow().startDragging();
+      return;
+    }
+    // It keeps the size it has from here, whatever its card comes to hold.
+    setSized(true);
+    void peekDrag(dx, dy);
   };
 
   // What's around the session shows in the main window, and what comes of an open or a menu is
@@ -363,9 +375,9 @@ export function Peek({ kept = false }: { kept?: boolean }) {
         onPointerDown={(e) => {
           // Hovering never gives it the keyboard; a click does.
           if (!engaged) void (kept ? keptFocus() : peekFocus());
-          if (kept) startMove(e);
+          startMove(e);
         }}
-        onPointerMove={kept ? moveWindow : undefined}
+        onPointerMove={moveWindow}
       >
         <SessionCard
           lane={lane}

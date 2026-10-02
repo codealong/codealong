@@ -1,9 +1,10 @@
 //! Sessions kept on the desktop: the floating bar's peek, kept. The peek shows a session while the
-//! pointer is on its pill and goes when it leaves (peek.rs); its Keep button, or dragging its edge
-//! to make it bigger, leaves the session up where it is, in a window of its own: its conversation
-//! and the box that answers it (Peek.tsx draws it, as it draws the peek). You drag it by its header,
-//! size it by its edges, and close it with its ×. It floats over every other window, on every
-//! Space and over full-screen apps, as the cards pinned to the desktop do (desktop.rs).
+//! pointer is on its pill and goes when it leaves (peek.rs); its Keep button, dragging its edge
+//! to make it bigger, or dragging it by its header leaves the session up where it is, in a window
+//! of its own: its conversation and the box that answers it (Peek.tsx draws it, as it draws the
+//! peek). You drag it by its header, size it by its edges, and close it with its ×. It floats over
+//! every other window, on every Space and over full-screen apps, as the cards pinned to the
+//! desktop do (desktop.rs).
 //!
 //! Each is a non-activating panel that takes the keyboard on a click, like the peek's, so a click
 //! in one leaves the app you're in active. What's kept and where each window was left are in
