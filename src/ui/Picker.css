@@ -44,7 +44,7 @@
   overflow-y: auto;
 }
 .ca-picker-head {
-  padding: 8px 8px 4px;
+  padding: var(--space-2) var(--space-2) var(--space-1);
   font: var(--type-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -53,10 +53,10 @@
 .ca-picker-opt {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   min-height: 30px;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--radius-sm);
@@ -107,7 +107,7 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 8px;
   border-top: 1px solid var(--line);
 }
@@ -136,7 +136,7 @@
   color: var(--ink-2);
 }
 .ca-picker-head:has(> .ca-picker-sep) {
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
 }
 .ca-picker-sep {
   display: block;

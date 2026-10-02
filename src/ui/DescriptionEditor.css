@@ -93,12 +93,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .ca-desc-foot .ca-linkbtn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .ca-desc-foot small {
   font: 400 11px/14px var(--font-sans);
@@ -109,7 +109,7 @@
 .ca-imgstrip {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   padding-top: 2px;
 }
 .ca-imgthumb {

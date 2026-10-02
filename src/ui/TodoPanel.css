@@ -51,7 +51,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .ca-labelpick-anchor {
   position: relative;
@@ -75,7 +75,7 @@
   outline: none;
 }
 .ca-labelpick-input {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 .ca-labelpick-input:focus,
 .ca-labelpick-rename:focus {
@@ -91,7 +91,7 @@
   overflow: auto;
 }
 .ca-labelpick .ca-menu-item {
-  gap: 8px;
+  gap: var(--space-2);
 }
 .ca-labelpick-check {
   display: inline-flex;
@@ -108,12 +108,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .ca-todoinsp-linkhead .ca-linkbtn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -168,11 +168,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin-top: 8px;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
 }
 .ca-todoinsp-neededby-head {
-  margin-right: 4px;
+  margin-right: var(--space-1);
   font: var(--type-meta);
   color: var(--ink-3);
 }
@@ -237,7 +237,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 .ca-duepick-day .ca-labelpick-input {
   flex: 1;
@@ -345,7 +345,7 @@
 
 /* Jev on todos: suggestions to click, and a todo whose work looks done. */
 .ca-suggestchip {
-  gap: 4px;
+  gap: var(--space-1);
   border: 1px dashed var(--line-strong);
   background: transparent;
   color: var(--ink-2);
@@ -365,7 +365,7 @@
 .ca-todohint {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 0 16px 4px;
   padding: 8px 10px;
   border-radius: var(--radius-md);

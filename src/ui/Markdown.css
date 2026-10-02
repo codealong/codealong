@@ -9,7 +9,7 @@
   margin-bottom: 0;
 }
 .ca-md .ca-md-h {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   font-weight: 600;
   color: var(--ink);
 }

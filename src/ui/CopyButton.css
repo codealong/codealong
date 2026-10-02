@@ -9,7 +9,7 @@
 .ca-copybtn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   height: 22px;
   padding: 0 6px;
   border: 1px solid var(--line);
@@ -35,7 +35,7 @@
   top: 4px;
   right: 4px;
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .ca-codeblock-tools > .ca-copybtn {
   opacity: 0;

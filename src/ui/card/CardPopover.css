@@ -4,7 +4,7 @@
 .ca-cvp-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .ca-cvp-title {
@@ -53,13 +53,13 @@
 .ca-cvp-labels {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .ca-cvp-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-  padding-top: 8px;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--line);
 }
 .ca-cvp-session {
@@ -82,7 +82,7 @@
   font: 500 11px/14px var(--font-sans);
 }
 .ca-cvp-label:not(:first-child) {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 /* A session line that takes a click: it lights up under the pointer as a menu item does. */
 .ca-cvp-sessionbtn {

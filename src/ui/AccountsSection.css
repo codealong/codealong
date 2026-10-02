@@ -4,7 +4,7 @@
    like something not read yet. */
 .ca-found {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: var(--space-2);
 }
 .ca-found-list {
@@ -16,7 +16,7 @@
 .ca-found-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 10px var(--space-4);
 }
 .ca-found-row + .ca-found-row {
@@ -31,7 +31,7 @@
 .ca-found-title {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .ca-found-home {

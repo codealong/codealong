@@ -30,7 +30,7 @@
 }
 .ca-thread-said {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .ca-thread-said.is-you {
   margin-top: 6px;
@@ -68,7 +68,7 @@
   right: 0;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 10px;
   border: 0;
   /* Square at the top, where it meets the edge and text scrolls by behind it. */
@@ -162,7 +162,7 @@
 }
 .ca-thread-tooldetail {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   margin: 2px 0 6px 25px;
 }
 .ca-thread-tooldetail pre {
@@ -188,7 +188,7 @@
 .ca-thread-made {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   margin: 0 6px 3px 25px;
   font: var(--type-meta);
@@ -239,7 +239,7 @@
 .ca-thread-askrow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 4px 6px 2px;
   color: var(--ink-2);
   font: var(--type-meta);

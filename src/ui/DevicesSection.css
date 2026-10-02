@@ -5,7 +5,7 @@
 .ca-device-banner {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin: var(--space-2) var(--space-3) 0;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
@@ -82,7 +82,7 @@
 .ca-devgroup-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: var(--space-4) var(--space-3) var(--space-1);
 }
 .ca-devgroup-head:first-child {

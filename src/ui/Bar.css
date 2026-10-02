@@ -11,7 +11,7 @@ html.is-bar body {
   left: 12px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   width: max-content;
   padding: 5px;
   box-sizing: border-box;

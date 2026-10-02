@@ -5,7 +5,7 @@
 .ca-win { display: grid; grid-template-rows: var(--titlebar-h) minmax(0, 1fr); height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--ground); color: var(--ink); border-radius: var(--radius-lg); box-shadow: var(--shadow-popover); font: var(--type-body); }
 .ca-win-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: 0 var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
 
-.ca-search { flex: 1; min-width: 160px; max-width: 420px; margin: 0 auto; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-3); white-space: nowrap; overflow: hidden; }
+.ca-search { flex: 1; min-width: 160px; max-width: 420px; margin: 0 auto; display: flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-3); white-space: nowrap; overflow: hidden; }
 .ca-search > span:not(.ca-kbds) { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .ca-win-body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--inspector-w); min-height: 0; }
 
@@ -193,7 +193,7 @@
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   max-width: 560px;
   padding: 10px 14px;
   transform: translateX(-50%);
@@ -223,7 +223,7 @@
 }
 
 .ca-toast-action {
-  margin-left: 4px;
+  margin-left: var(--space-1);
   padding: 2px 8px;
   border: 1px solid currentColor;
   border-radius: var(--radius-xs);

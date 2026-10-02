@@ -70,7 +70,7 @@
 }
 .ca-notice-item {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .ca-notice-item + .ca-notice-item {
   padding-top: var(--space-3);
@@ -93,5 +93,5 @@
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }

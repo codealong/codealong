@@ -9,7 +9,7 @@ html.is-quick body {
 .ca-quick-root {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 20px;
+  padding: var(--space-5);
 }
 .ca-quick {
   position: relative;
@@ -305,7 +305,7 @@ html.is-quick body {
 .ca-quick-todo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 14px;
   border-top: 1px solid var(--line);
   font: var(--type-meta);
@@ -324,7 +324,7 @@ html.is-quick body {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--attn);
 }
 .ca-quick-error {
@@ -423,7 +423,7 @@ html.is-quick body {
 .ca-quick-acct {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   letter-spacing: 0;
   text-transform: none;

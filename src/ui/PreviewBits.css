@@ -55,7 +55,7 @@
 }
 .ca-preview-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   margin: var(--space-2) -8px -4px;
 }
 /* In a panel's header, under the folder: the same line, green while it runs. */

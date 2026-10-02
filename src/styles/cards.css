@@ -2,7 +2,7 @@
    forms and confirmations). */
 
 .ca-ucard { display: grid; gap: var(--space-4); align-content: start; padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); min-width: 0; }
-.ca-ucard-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ca-ucard-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ca-ucard-name { font: 600 14px/18px var(--font-mono); color: var(--ink); }
 .ca-ucard-plan { font: var(--type-meta); color: var(--ink-3); }
 .ca-ucard-head .ca-tag { margin-left: auto; }
@@ -85,7 +85,7 @@
 .ca-acct-confirm {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
@@ -98,7 +98,7 @@
 .ca-acct-add {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .ca-acct-form {
   gap: var(--space-3);
@@ -113,5 +113,5 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }

@@ -62,7 +62,7 @@
 .ca-agentline--foot {
   flex: none;
   min-height: 26px;
-  padding-bottom: 4px;
+  padding-bottom: var(--space-1);
 }
 
 .ca-agentline-main {
@@ -128,7 +128,7 @@
 
 .ca-pinmark {
   display: inline-flex;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--ink-3);
 }
 
@@ -166,7 +166,7 @@
 .ca-reusemark {
   display: inline-flex;
   vertical-align: -2px;
-  margin-right: 4px;
+  margin-right: var(--space-1);
   color: var(--ink-3);
 }
 

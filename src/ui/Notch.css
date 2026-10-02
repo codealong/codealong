@@ -193,7 +193,7 @@ html.is-notch body {
   top: var(--notch-h);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   width: max-content;
   opacity: 0;
   pointer-events: none;

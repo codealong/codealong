@@ -14,7 +14,7 @@
 .ca-chip .ca-icon { color: var(--ink-3); }
 .ca-chip--more { padding: 0 7px; color: var(--ink-3); }
 
-.ca-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-2); font: 500 11px/14px var(--font-sans); white-space: nowrap; }
+.ca-tag { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 7px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-2); font: 500 11px/14px var(--font-sans); white-space: nowrap; }
 
 .ca-pr { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px 0 6px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-3); font: var(--type-code-sm); white-space: nowrap; font-variant-numeric: tabular-nums; flex: none; }
 .ca-pr--open, .ca-pr--approved { background: var(--pr-open-tint); color: var(--pr-open); }
@@ -28,7 +28,7 @@
 .ca-checks.is-pending { color: var(--ink-3); }
 .ca-lane-pricon { display: inline-flex; background: none; }
 
-.ca-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font: var(--type-code); color: var(--ink-2); }
+.ca-branch { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 100%; font: var(--type-code); color: var(--ink-2); }
 .ca-branch .ca-icon { color: var(--ink-3); }
 .ca-branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-branch-ab, .ca-branch-dirty { color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -110,7 +110,7 @@
   min-width: 0;
   height: 20px;
   margin: -4px;
-  padding: 4px;
+  padding: var(--space-1);
   overflow: clip;
 }
 .ca-chips::before {
@@ -183,7 +183,7 @@
 .ca-chip.ca-wtchip {
   flex: 0 1 auto;
   min-width: 0;
-  gap: 4px;
+  gap: var(--space-1);
   overflow: hidden;
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--line);
@@ -199,7 +199,7 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--ink-3);
   font-family: var(--font-sans);
 }

@@ -8,7 +8,7 @@
 .ca-projswitch-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 30px;
   padding: 0 10px 0 8px;
   border: 0;
@@ -69,7 +69,7 @@
 .ca-projswitch-action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   font: var(--type-code-sm);
   font-variant-numeric: tabular-nums;
 }

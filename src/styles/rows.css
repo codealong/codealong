@@ -20,7 +20,7 @@
 .ca-seg-main { gap: 5px; }
 .ca-lane-line1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-body); }
 .ca-lane-headline { color: var(--ink); }
-.ca-lane-detail { margin-left: 8px; color: var(--ink-3); }
+.ca-lane-detail { margin-left: var(--space-2); color: var(--ink-3); }
 .ca-lane-line2 { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ca-lane-right { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex: none; }
 .ca-diff { font: var(--type-code-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 84px; text-align: right; }
@@ -34,7 +34,7 @@
 .ca-bay-hint {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 /* Worktree rows. On the left, shaded as one block, the worktree: its name over its repo and
@@ -95,7 +95,7 @@
 }
 .ca-lane-lead > .ca-none {
   flex: none;
-  margin-right: 4px;
+  margin-right: var(--space-1);
   white-space: nowrap;
 }
 
@@ -115,7 +115,7 @@
 .ca-lane.is-group.is-tall .ca-seg-call {
   justify-content: flex-start;
   padding-top: 5px;
-  padding-bottom: 8px;
+  padding-bottom: var(--space-2);
 }
 .ca-seg-lines {
   grid-column: 3 / 5;
@@ -190,7 +190,7 @@
   padding-top: 11px;
 }
 .ca-lane.is-agent .ca-seg-age {
-  padding-top: 8px;
+  padding-top: var(--space-2);
   border-left: 0;
 }
 .ca-lane.is-agent.is-needs .ca-seg-glyph {
@@ -221,6 +221,6 @@
   flex-direction: row-reverse;
   justify-content: flex-start;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 0 var(--space-3) 0 0;
 }
