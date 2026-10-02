@@ -68,7 +68,8 @@ function sessionsIn(board: Board, project: string): { lane: Lane; session: Sessi
   return out;
 }
 
-/** When a session's status last changed, as `Handled` keeps it. */
+/** When a session's status last changed, as the queue keeps it for the ones dealt with
+ *  (queue.ts `Handled`). */
 export const statusTime = (s: Session) => s.statusSince ?? s.lastActivity;
 
 /** The empty panel's list: sessions that need you, the longest wait first, then those whose
@@ -93,36 +94,10 @@ const ORDER: RowGroup[] = ['needs', 'unread', 'working'];
 /**
  * What the reply view works through when you answer a session from the empty panel's list: every
  * session in the project that needs you, the longest wait first, then those whose turn ended, the
- * newest first, as the list has them.
+ * newest first, as the list has them. queue.ts has how it goes from one to the next.
  */
 export function queueRows(board: Board, project: string): SessionRow[] {
   return attentionRows(board, project, Infinity).rows.filter((r) => r.group !== 'working');
-}
-
-/** Sessions you answered, marked seen, snoozed or archived from the queue, with the time of the
- *  status each had then: one is left out until it waits on you anew. The board can take seconds
- *  to show an answer, and an allowed tool call isn't shown ahead of it. */
-export type Handled = Map<string, number>;
-
-/**
- * What's left to answer after the session `key`: those after it in the queue, then those before
- * it (the ones you skipped), without it and the ones you've dealt with. The first is the one
- * the view shows next. The quick panel's reply view and the main window's session panel both go
- * by it, each with its own rows.
- */
-export function queueAfter<T extends { session: Session }>(queue: T[], key: string, handled: Handled): T[] {
-  return leftAfter(queue, key, handled, (r) => r.session.key, (r) => statusTime(r.session));
-}
-
-/** `queueAfter` for any rows, given each one's session key and when its status began: the bar's
- *  pills carry those without the session (bar.ts). */
-export function leftAfter<T>(queue: T[], key: string, handled: Handled, keyOf: (row: T) => string, sinceOf: (row: T) => number): T[] {
-  const i = queue.findIndex((r) => keyOf(r) === key);
-  const order = i < 0 ? queue : [...queue.slice(i + 1), ...queue.slice(0, i)];
-  return order.filter((r) => {
-    const at = handled.get(keyOf(r));
-    return keyOf(r) !== key && (at === undefined || sinceOf(r) > at);
-  });
 }
 
 /**

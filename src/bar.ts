@@ -3,7 +3,7 @@
 // them: Working first, then Your turn, then Needs you. Also what its project menu counts.
 
 import { withTimes } from './format';
-import { ALL_PROJECTS, inProject, leftAfter, type Handled } from './quick';
+import { ALL_PROJECTS, inProject } from './quick';
 import type { BarGroup, BarItem } from './types';
 
 export type Group = BarGroup;
@@ -215,14 +215,10 @@ export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind
 
 /** What the session in the notch works through, as a session's panel in Sessions does: the bar's
  *  sessions that wait on you, in the bar's order (Needs you the longest wait first, then Your
- *  turn the newest first). */
+ *  turn the newest first). queue.ts has how it goes from one to the next, and ⌥↑ ⌥↓ along all of
+ *  the bar's sessions. */
 export function waitingItems(items: BarItem[]): BarItem[] {
   return items.filter((i) => i.group !== 'working');
-}
-
-/** What's left of them after the session `key`, the next first (quick.ts `queueAfter`). */
-export function waitingAfter(items: BarItem[], key: string, handled: Handled): BarItem[] {
-  return leftAfter(waitingItems(items), key, handled, (i) => i.key, (i) => i.since);
 }
 
 /** The session a click on the notch itself opens it on: the one it showed last while that still
@@ -231,13 +227,4 @@ export function waitingAfter(items: BarItem[], key: string, handled: Handled): B
 export function currentItem(items: BarItem[], last: string | null): BarItem | null {
   const waiting = waitingItems(items);
   return waiting.find((i) => i.key === last) ?? waiting[0] ?? items.find((i) => i.key === last) ?? items[0] ?? null;
-}
-
-/** The session `delta` along the bar from the session `key`, stopping at its ends; the first, or
- *  the last going back, from one the bar doesn't list. */
-export function stepItem(items: BarItem[], key: string, delta: 1 | -1): BarItem | null {
-  if (items.length === 0) return null;
-  const i = items.findIndex((x) => x.key === key);
-  if (i < 0) return delta > 0 ? items[0] : items[items.length - 1];
-  return items[Math.min(items.length - 1, Math.max(0, i + delta))];
 }

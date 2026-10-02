@@ -26,7 +26,6 @@ import { remembered } from './start';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
-import { queueAfter, statusTime, type Handled } from './quick';
 import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -61,6 +60,8 @@ import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName
 import { useNow } from './ui/useNow';
 import { errorText, type Report } from './report';
 import { historyChord, useSessionHistory } from './history';
+import { queueKey } from './queue';
+import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { openWhere, where } from './open';
 
 const ELSEWHERE = 'Elsewhere';
@@ -921,75 +922,36 @@ export function App() {
     [visible, selected],
   );
 
-  // Working through what waits on you from a session's panel in Sessions: ⌘⏎ in its box sends (or
-  // allows the call it waits on) and goes on to the next listed that waits on you, ⌘E marks a
-  // finished turn seen and goes on, and ⌘] (or ⌥⇧↓) skips to it, ⌥⇧↑ back; a skipped one comes
-  // round again after the rest. The ones dealt with stay out until they wait on you anew, since an
-  // allowed call isn't shown ahead of the board.
+  // Working through what waits on you from a session's panel in Sessions (useWaitingQueue.ts,
+  // which the notch and the quick panel go by too): ⌘⏎ in its box sends (or allows the call it
+  // waits on) and goes on to the next listed that waits on you, ⌘E marks a finished turn seen and
+  // goes on, and ⌘] (or ⌥⇧↓) skips to it, ⌥⇧↑ back; a skipped one comes round again after the
+  // rest. The ones dealt with stay out until they wait on you anew, since an allowed call isn't
+  // shown ahead of the board.
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
-  const handled = useRef<Handled>(new Map());
-  // How the last one went, on the panel of the one gone on to, for a moment.
-  const [queueNote, setQueueNote] = useState<{ key: string; text: string } | null>(null);
   // The row gone on to, whose box takes the cursor.
   const [boxFocus, setBoxFocus] = useState<string | null>(null);
-  // Read when an answer comes in, which can be after you've moved on by hand.
-  const waitingNow = useRef(waitingRows);
-  waitingNow.current = waitingRows;
-  const selectedNow = useRef(selected?.key);
-  selectedNow.current = selected?.key;
-  /** On from the session in row `from` to the next that waits on you, with what was done to it, or
-   *  none for a skip. With nothing left, the panel stays where it is. The next one's box takes the
-   *  cursor unless `box` says to leave the keyboard where it is. */
-  const goOn = useCallback((from: string, s: Session, done: string | null, box = true) => {
-    if (view !== 'sessions' || selectedNow.current !== from) return;
-    if (done) handled.current.set(s.key, statusTime(s));
-    const next = queueAfter(waitingNow.current, s.key, handled.current)[0];
-    if (!next) return;
-    setQueueNote(done ? { key: next.key, text: `${s.title}: ${done}` } : null);
-    if (box) setBoxFocus(next.key);
-    setSelectedKey(next.key);
-  }, [view]);
-  /** Back from the session in row `from` to the one before it that waits on you, the way ⌘]
-   *  goes on, with the cursor in its box. */
-  const goBack = useCallback((from: string, s: Session) => {
-    if (view !== 'sessions' || selectedNow.current !== from) return;
-    const before = queueAfter(waitingNow.current, s.key, handled.current);
-    const prev = before[before.length - 1];
-    if (!prev) return;
-    setQueueNote(null);
-    setBoxFocus(prev.key);
-    setSelectedKey(prev.key);
-  }, [view]);
-  /** Marks a finished turn seen and, when it was waiting on you, goes on to the next that is. The
-   *  keyboard stays where it was: on the list, `e` works down it; from a box, the next one's box
-   *  takes the cursor. From a session that doesn't wait on you (it runs, say) there's nothing to
-   *  mark seen, and it goes on as ⌘] does: ⌘E is done with this one. One that waits on a call
-   *  to allow stays: ⌘E doesn't answer it. */
-  const seenAndOn = useCallback((from: string, s: Session, box: boolean) => {
-    const waiting = waitingNow.current.some((r) => r.session.key === s.key);
-    if (!seenable(s)) {
-      if (!waiting) goOn(from, s, null, box);
-      return;
-    }
-    markSeen([s.key]);
-    if (waiting) goOn(from, s, 'marked seen.', box);
-  }, [goOn, markSeen]);
+  // What differs here: ⌘E is this window's to run (it marks seen in every view), a session that
+  // leaves what waits on you without having waited stays selected (archiving down a list of old
+  // sessions doesn't jump to one that needs you), and ⌥↑ ⌥↓ and ⌃- ⌃⇧- are the window's own,
+  // which work in every view (`move`, `travel`). The one gone on to takes the cursor in its box
+  // unless the caller says the keyboard stays where it is.
+  const queue = useWaitingQueue<SessionItem, boolean>({
+    waiting: waitingRows,
+    reads: SESSION_READS,
+    shown: view === 'sessions' && selected?.kind === 'agent' ? queueShown(selected.session) : null,
+    show: (row, box = true) => {
+      if (box) setBoxFocus(row.key);
+      setSelectedKey(row.key);
+    },
+    markSeen: (key) => markSeen([key]),
+    leftStays: true,
+  });
+  const { run: runQueue, left: leftQueue, say: sayQueue } = queue;
   /** A session's menu, its chords or the strip's buttons took it off what waits on you (snoozed,
    *  closed, archived, marked seen): from the one shown in Sessions, on to the next that waits, as
-   *  ⌘E goes, the keyboard staying where it was. One that didn't wait on you stays as it is:
-   *  archiving down a list of old sessions doesn't jump to one that needs you. */
-  const leftAndOn = (lane: Lane, s: Session, done: menus.Left) => {
-    if (!waitingNow.current.some((r) => r.session.key === s.key)) return;
-    goOn(`${lane.id}::${s.key}`, s, `${done}.`, !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
-    // A snooze shows at once and ends by itself: when its time comes the session waits on you
-    // again, with the status it had.
-    if (done === 'snoozed') handled.current.delete(s.key);
-  };
-  useEffect(() => {
-    if (!queueNote) return;
-    const t = window.setTimeout(() => setQueueNote(null), 4000);
-    return () => window.clearTimeout(t);
-  }, [queueNote]);
+   *  ⌘E goes, the keyboard staying where it was. */
+  const leftAndOn = (s: Session, done: menus.Left) => void leftQueue(s.key, done, !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
   // Only when the selection moves: the row gone on to keeps its claim on the cursor until then.
   useEffect(() => {
     const key = selected?.key;
@@ -1040,7 +1002,7 @@ export function App() {
     } else {
       reveal.current({ kind: 'session', laneId: home.lane.id, key });
     }
-    setQueueNote(null);
+    sayQueue(null);
     if (box) setBoxFocus(`${home.lane.id}::${key}`);
   };
   /** What a history button says: where it goes, and its key. */
@@ -1492,10 +1454,10 @@ export function App() {
       desktop: onDesktop,
       rename: () => setRenaming(s.key),
       archive: (archived) => {
-        if (archived) leftAndOn(lane, s, 'archived');
+        if (archived) leftAndOn(s, 'archived');
         setArchived(s.key, archived, s.title);
       },
-      left: (done) => leftAndOn(lane, s, done),
+      left: (done) => leftAndOn(s, done),
       canvas: canvasItem('session', s.key),
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
@@ -1712,18 +1674,16 @@ export function App() {
         travel.current(e.shiftKey ? 'forward' : 'back', !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
         return;
       }
-      // ⌘] (or ⌥⇧↓, below) skips to the next session that waits on you, from the panel's box too.
-      // ] goes by its key's code, which layouts that type it with ⌥ keep.
-      if (mod && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && view === 'sessions') {
+      // The queue's keys in Sessions (queue.ts `QUEUE_CHORDS`), from the panel's box too: ⌘] or
+      // ⌥⇧↓ skips to the next session that waits on you and ⌥⇧↑ goes back, with the cursor in
+      // its box; ⌘E marks a finished turn seen and goes on, the keyboard staying where it was,
+      // and from a session that doesn't wait on you goes on as ⌘] does. Elsewhere ⌘E marks seen
+      // as `e` does (below). In the search field the arrows stay the field's own, whatever is
+      // held with them: ↑ moves and selects in its text, and ↓ gives the list the keyboard (below).
+      const queueStep = view === 'sessions' && !(typing && vertical) ? queueKey(e) : null;
+      if (queueStep === 'next' || queueStep === 'back' || queueStep === 'seen') {
         e.preventDefault();
-        if (selected?.kind === 'agent') goOn(selected.key, selected.session, null);
-        return;
-      }
-      // ⌘E marks a finished turn seen and goes on, from the panel's box too; from a session that
-      // doesn't wait on you it goes on as ⌘] does. Elsewhere it marks seen as `e` does (below).
-      if (mod && !e.ctrlKey && !e.shiftKey && !e.altKey && key === 'e' && view === 'sessions') {
-        e.preventDefault();
-        if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, inBox);
+        runQueue(queueStep, queueStep === 'seen' ? inBox : true);
         return;
       }
       if (mod && key === 'k') {
@@ -1840,14 +1800,6 @@ export function App() {
         }
         return;
       }
-      // ⌥⇧↓ goes on to the next that waits on you, as ⌘] does, and ⌥⇧↑ back to the one before.
-      if (view === 'sessions' && e.altKey && e.shiftKey && !mod && !e.ctrlKey && vertical) {
-        e.preventDefault();
-        if (selected?.kind !== 'agent') return;
-        if (e.key === 'ArrowDown') goOn(selected.key, selected.session, null);
-        else goBack(selected.key, selected.session);
-        return;
-      }
       if (e.key === '/') {
         e.preventDefault();
         searchRef.current?.focus();
@@ -1906,7 +1858,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, goOn, goBack, seenAndOn, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, toggleSidebar, panelMax, togglePanelMax]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, toggleSidebar, panelMax, togglePanelMax]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next. The new session isn't selected when it shows up: by then you may
@@ -2121,9 +2073,7 @@ export function App() {
    *  row in Sessions, it works through what waits on you from there. */
   const sessionPanel = (lane: Lane, session: Session, back?: { label: string; onBack: () => void }, row?: string) => {
     // In Sessions it works through what waits on you: what's left after it, and how the last went.
-    const note = row !== undefined && queueNote?.key === row ? { text: queueNote.text, error: false } : null;
-    const left = row !== undefined ? queueAfter(waitingRows, session.key, handled.current) : [];
-    const queued = row !== undefined && (!!note || waitingRows.some((r) => r.key === row));
+    const queued = row !== undefined;
     return (
       <SessionPanel
         key={session.key}
@@ -2142,21 +2092,22 @@ export function App() {
         onShowSession={showSessionFromPanel}
         onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
         onMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
-        onSeen={() => (row !== undefined ? seenAndOn(row, session, false) : markSeen([session.key]))}
+        // The keyboard stays where it was: the next one's box doesn't take the cursor.
+        onSeen={() => (queued ? void runQueue('seen', false) : markSeen([session.key]))}
         device={deviceOf(devices, session.key)}
         back={back}
         onFailed={(why) => {
           // Not dealt with after all: it comes round again.
-          handled.current.delete(session.key);
+          queue.again(session.key);
           setToast(`Didn’t send to ${session.title}, so it’s back in its box: ${why}`);
         }}
-        queue={row !== undefined ? { left: left.length, next: left[0]?.session ?? null, onNext: () => goOn(row, session, null), waiting: queued } : undefined}
-        notice={note}
+        queue={queued ? queue.queue : undefined}
+        notice={queued ? queue.notice : null}
         // In Sessions the strip is always there, with what's commonly done to a session and the
         // keys for it. Back and forward are in the title bar.
         hotkeys={row !== undefined ? {} : undefined}
         actions={row !== undefined ? actionsRef.current.session(lane, session, 'session') : undefined}
-        onDone={row !== undefined ? (done) => goOn(row, session, done) : undefined}
+        onDone={queued ? (done) => void queue.answered(session.key, done) : undefined}
         autoFocus={row !== undefined && boxFocus === row}
         maximized={row !== undefined && panelMax}
         onMaximize={row !== undefined ? togglePanelMax : undefined}

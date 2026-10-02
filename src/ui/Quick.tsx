@@ -16,8 +16,11 @@
 // message where it runs, or what it waits on you to allow (SessionPanel.tsx, as a card). ⏎ sends, and Escape
 // goes back to the list, as marking it seen or archiving it from its header does. Answering one
 // from the empty panel's list works through the list: once it's sent, allowed, marked seen,
-// snoozed or archived, the next that waits on you takes the view (the longest wait first), ⌘]
-// skips to it, and after the last one the panel closes.
+// snoozed or archived, the next that waits on you takes the view (the longest wait first), and
+// after the last one the panel closes. The keys for getting about are the ones a session's panel
+// has in Sessions and in the notch, from the same code (queue.ts, useWaitingQueue.ts): ⌘] or ⌥⇧↓
+// skips to the next and ⌥⇧↑ goes back, ⌘E on one that doesn't wait on you goes on, ⌥↑ ⌥↓ step
+// along the sessions the list has, and ⌃- ⌃⇧- go back and forward through the ones answered here.
 
 import { reuse } from '../reuse';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -56,8 +59,10 @@ import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
+import { useSessionHistory } from '../history';
+import { SESSION_READS, shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueAfter, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type Handled, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
   agentId,
@@ -81,7 +86,7 @@ import {
 } from '../start';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
-import { liveOrLatest, seenable, sessionHomes } from '../lanes';
+import { liveOrLatest, sessionHomes } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
@@ -113,6 +118,9 @@ declare global {
 const MARGIN = 20;
 const PROJECT_KEY = 'codealong.quick.project';
 const HISTORY_KEY = 'codealong.quick.history';
+/** Where the sessions answered in the reply view are kept, for ⌃- and ⌃⇧- (history.ts), apart from
+ *  the main window's and the notch's. */
+const LOOKED_KEY = 'codealong.sessionHistory:quick';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
@@ -286,10 +294,11 @@ export function Quick() {
   // The session shown with its name ready to change (Rename in a row's menu).
   const [renameKey, setRenameKey] = useState<string | null>(null);
   // Answered from the empty list: the view goes on to the next session that waits on you as each
-  // one's done, and says how the last one went.
+  // one's done, and says how the last one went (`way`, below, once the list is known).
   const [queued, setQueued] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
-  const handled = useRef<Handled>(new Map());
+  // Takes back what the reply view's strip says, for the open's script, which runs ahead of
+  // where the queue is set up.
+  const quiet = useRef(() => {});
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
   const inputBox = useRef<HTMLDivElement>(null);
@@ -374,7 +383,7 @@ export function Quick() {
         setActiveKey(null);
         setReplyKey(ctx.reply ?? null);
         setQueued(false);
-        setNotice(null);
+        quiet.current();
       }
       if (b) {
         setBoard(b);
@@ -545,18 +554,11 @@ export function Quick() {
   }, [board, replyKey]);
   // What it works through, and what's left after the one showing. Snoozed ones wait their time.
   const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => !r.session.snoozedUntil) : []), [board, queued, current]);
-  const queueLeft = replying && queued ? queueAfter(queue, replying.session.key, handled.current) : [];
   // Read when a send fails, which can be long after the view went on to another session.
   const replyKeyNow = useRef(replyKey);
   replyKeyNow.current = replyKey;
   const shownNow = useRef(shown);
   shownNow.current = shown;
-  // How the last one went shows for a moment, then what's left does; why one failed stays.
-  useEffect(() => {
-    if (!notice || notice.error) return;
-    const t = window.setTimeout(() => setNotice(null), 4000);
-    return () => window.clearTimeout(t);
-  }, [notice]);
 
   /* ---- Who ---- */
 
@@ -801,6 +803,31 @@ export function Quick() {
     desktop: (key) => deskPin(rowsNow.current.find((r) => r.key === key)),
     label: (key) => deskTitle(rowsNow.current.find((r) => r.key === key)),
   });
+  // The reply view's way through what waits on you (useWaitingQueue.ts), as Sessions' panel and
+  // the notch have it. What differs here: the queue is the empty panel's list, and only while a
+  // session was answered from it (`queued`); ⌥↑ ⌥↓ step along the sessions the panel lists,
+  // whatever it lists now; a session that leaves has left the view, so it always goes on; and
+  // marking seen is the card's (SessionCard.tsx), which says so through `left`.
+  const answerable = useMemo(() => new Set(board ? board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)) : []), [board]);
+  // Back and forward through the sessions answered here, apart from the other windows'. One
+  // that's gone or archived is passed over.
+  const looked = useSessionHistory(shown && replying ? replying.session.key : null, (key) => answerable.has(key), LOOKED_KEY);
+  const way = useWaitingQueue<SessionRow>({
+    waiting: queue,
+    along: rows.filter((r): r is SessionRow => r.kind === 'session'),
+    reads: SESSION_READS,
+    shown: replying ? shownSession(replying.session) : null,
+    show: (row) => setReplyKey(row.key),
+    travel: (dir) => {
+      const to = dir === 'back' ? looked.goBack() : looked.goForward();
+      if (to) {
+        setReplyKey(to);
+        setRenameKey(null);
+      }
+      return to !== null;
+    },
+  });
+  quiet.current = () => way.say(null);
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
@@ -867,9 +894,9 @@ export function Quick() {
    *  stays for when you go back. */
   const replyTo = (session: Session) => {
     const fromList = !!attention?.rows.some((r) => r.key === session.key && r.group !== 'working');
-    if (fromList) handled.current = new Map();
+    if (fromList) way.fresh();
     setQueued(fromList);
-    setNotice(null);
+    way.say(null);
     setReplyKey(session.key);
     setRenameKey(null);
     setPicker(null);
@@ -879,7 +906,7 @@ export function Quick() {
   /** Shows a session with its name ready to change; done, it's back to the list. */
   const renameIn = (session: Session) => {
     setQueued(false);
-    setNotice(null);
+    way.say(null);
     setReplyKey(session.key);
     setRenameKey(session.key);
     setPicker(null);
@@ -890,7 +917,7 @@ export function Quick() {
     setReplyKey(null);
     setRenameKey(null);
     setQueued(false);
-    setNotice(null);
+    way.say(null);
     refocus();
   };
 
@@ -903,19 +930,7 @@ export function Quick() {
   /** Done with a session answered from the list: the next that waits on you takes the view, saying
    *  how this one went. With none left, the panel is done. */
   const advance = (s: Session, done: string, said: string | null = null) => {
-    handled.current.set(s.key, s.statusSince ?? s.lastActivity);
-    const next = queueAfter(queue, s.key, handled.current)[0];
-    if (!next) return replied(said);
-    setNotice({ text: `${s.title}: ${done}`, error: false });
-    setReplyKey(next.key);
-  };
-
-  /** On to the next without doing anything here: this one comes round again after the rest. */
-  const skip = () => {
-    const next = queueLeft[0];
-    if (!next) return;
-    setNotice(null);
-    setReplyKey(next.key);
+    if (way.answered(s.key, done) === 'last') replied(said);
   };
 
   /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
@@ -975,8 +990,8 @@ export function Quick() {
 
   /** How the menus say how things went: in the answer view, its notice; else under the input. */
   const menuReport: Report = {
-    error: (message) => (replyKeyNow.current ? setNotice({ text: message, error: true }) : setError(message)),
-    info: (message) => (replyKeyNow.current ? setNotice({ text: message, error: false }) : setInfo(message)),
+    error: (message) => (replyKeyNow.current ? way.say({ text: message, error: true }) : setError(message)),
+    info: (message) => (replyKeyNow.current ? way.say({ text: message, error: false }) : setInfo(message)),
   };
 
   /** What the panel can do to a session (menus.ts): its menu, and the answer view's buttons.
@@ -984,7 +999,7 @@ export function Quick() {
   const quickCan = (lane: Lane, s: Session, left?: menus.SessionCan['left']): menus.SessionCan => ({
       report: {
         ...menuReport,
-        error: (message) => (replyKeyNow.current && replyKeyNow.current !== s.key ? setNotice({ text: `${s.title}: ${message}`, error: true }) : menuReport.error(message)),
+        error: (message) => (replyKeyNow.current && replyKeyNow.current !== s.key ? way.say({ text: `${s.title}: ${message}`, error: true }) : menuReport.error(message)),
       },
       open: openHere,
       terminal: board?.apps.terminal ?? 'Terminal',
@@ -1258,23 +1273,17 @@ export function Quick() {
         else void hideQuick();
         return;
       }
-      // Answering a session, only ⌘Q, ⌘H and ⌘] mean something here, and ⌘E on a session that
-      // doesn't wait on you: the list's keys are for the list, and the session's own (⌘E, ⌃⌘A,
-      // ⌃⌘R, ⌃⌘P) are its card's (SessionCard.tsx). ] goes by its key's code, which layouts that
-      // type it with ⌥ keep.
+      // Answering a session, only ⌘Q and ⌘H mean something here, and the keys for getting from
+      // one session to the next, which are the ones Sessions' panel and the notch have (queue.ts
+      // `QUEUE_CHORDS`): the list's keys are for the list, and the session's own (⌘E on one to
+      // mark seen, ⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's (SessionCard.tsx). Not while its name is typed.
       if (replying) {
         const k = e.key.toLowerCase();
         if (e.metaKey && !e.ctrlKey && !e.altKey && (k === 'q' || k === 'h')) {
           e.preventDefault();
           void hideQuick();
-        } else if (e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && queued) {
+        } else if (renameKey !== replying.session.key && way.onKey(e)) {
           e.preventDefault();
-          skip();
-        } else if (e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && k === 'e' && queued && !seenable(replying.session) && !queue.some((r) => r.session.key === replying.session.key)) {
-          // ⌘E from a session that doesn't wait on you (it runs now, say) goes on as ⌘] does:
-          // there's nothing to mark seen.
-          e.preventDefault();
-          skip();
         }
         return;
       }
@@ -1572,12 +1581,17 @@ export function Quick() {
    *  opened it hears what happened. */
   // The session answered here: what's done to it from the view goes on to the next that waits
   // on you, or back to the list it's left.
-  const replyCan = replying ? quickCan(replying.lane, replying.session, (done) => (queued ? advance(replying.session, `${done}.`) : leaveReply())) : null;
+  const replyCan = replying
+    ? quickCan(replying.lane, replying.session, (done) => {
+        if (!queued) leaveReply();
+        else if (way.left(replying.session.key, done) === 'last') replied(null);
+      })
+    : null;
 
   const replied = (message: string | null) => {
     setReplyKey(null);
     setQueued(false);
-    setNotice(null);
+    way.say(null);
     setActiveKey(null);
     void hideQuick();
     if (message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message });
@@ -1637,8 +1651,8 @@ export function Quick() {
             back={{ label: 'Back', title: 'Back to the list (Esc)', onBack: leaveReply }}
             renaming={renameKey === replying.session.key}
             onRename={(name) => renamed(replying.session, name)}
-            queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
-            notice={notice}
+            queue={queued ? way.queue : undefined}
+            notice={way.notice}
             onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}
             onSent={(sent) => {
               if (sent.message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message: sent.message });
@@ -1648,8 +1662,8 @@ export function Quick() {
             onFailed={(why) => {
               const s = replying.session;
               if (shownNow.current && replyKeyNow.current && replyKeyNow.current !== s.key) {
-                handled.current.delete(s.key);
-                setNotice({ text: `Didn’t send to ${s.title}: ${why}`, error: true });
+                way.again(s.key);
+                way.say({ text: `Didn’t send to ${s.title}: ${why}`, error: true });
               } else reopen(() => setReplyKey(s.key));
             }}
             onAnswered={(said) => (queued ? advance(replying.session, said, said) : replied(said))}

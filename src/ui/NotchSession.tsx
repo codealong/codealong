@@ -7,10 +7,11 @@
 // does. A click on the pill again or on the notch, Escape, or a click anywhere else puts it away.
 //
 // It has the keyboard from the click, and works through what waits on you as a session's panel
-// in Sessions does, with the same keys: ⌘⏎ in the box sends (or allows the call the session waits
-// on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes on, ⌘] or
-// ⌥⇧↓ skips to it and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the running ones too,
-// and ⌃- and ⌃⇧- go back and forward through the ones you looked at here (history.ts). The pill
+// in Sessions does, with the same keys, from the same code (queue.ts, useWaitingQueue.ts): ⌘⏎ in
+// the box sends (or allows the call the session waits on) and goes on to the next that waits on
+// you, ⌘E marks a finished turn seen and goes on, ⌘] or ⌥⇧↓ skips to it and ⌥⇧↑ goes back, ⌥↑ ⌥↓
+// step along the bar's sessions, the running ones too, and ⌃- and ⌃⇧- go back and forward
+// through the ones you looked at here (history.ts). The pill
 // of the one shown is marked, and a strip over its header has what's commonly done to it as
 // buttons that say their keys (SessionPanel.tsx `Hotkeys`) and says how many more wait
 // and how the last one went. Marked seen, snoozed or archived, a session leaves the bar, and the
@@ -23,23 +24,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { keepNotchSession, notchKeys, onNotchKeys, sessionAt } from '../api';
 import { renameAhead } from '../ahead';
-import { currentItem, stepItem, waitingAfter, waitingItems } from '../bar';
-import { historyChord, useSessionHistory } from '../history';
+import { currentItem, waitingItems } from '../bar';
+import { useSessionHistory } from '../history';
+import { seenable } from '../lanes';
 import type { Left } from '../menus';
-import type { Handled } from '../quick';
+import type { Reads } from '../queue';
 import { errorText } from '../report';
 import type { BarItem, Board } from '../types';
+import { useWaitingQueue } from '../useWaitingQueue';
 import { useCardHost, useLiveSession, type Told } from './cardHost';
 import { SessionCard, type WindowCan } from './SessionCard';
 import type { Notice, Queue } from './SessionPanel';
 
 /** How long a session's card stays after it's put away, while the notch closes over it. */
 const LINGER_MS = 360;
-/** How long the strip says how the last one went. */
-const NOTICE_MS = 4000;
 /** Where the sessions looked at in the notch are kept, apart from the main window's. */
 const HISTORY_KEY = 'codealong.sessionHistory:notch';
-
+/** How the queue reads the bar's pills, which carry their session's key and times without it. */
+const ITEMS: Reads<BarItem> = { keyOf: (i) => i.key, sinceOf: (i) => i.since, titleOf: (i) => i.title };
 
 export interface NotchSessionState {
   /** The session shown, or the one being put away while its card lingers. */
@@ -65,8 +67,9 @@ export interface NotchSessionState {
   close: () => void;
   /** A click in the card of a session that lost the keyboard takes it back. */
   takeKeys: () => void;
-  /** Sent or allowed with ⌘⏎: on to the next that waits on you, saying what was done. */
-  next: (done: string) => void;
+  /** The session `from` was sent a message or allowed its call with ⌘⏎: on to the next that
+   *  waits on you, saying what was done. */
+  next: (done: string, from: string) => void;
   /** The session left the bar (marked seen, snoozed, archived): on to the next, or closed when
    *  none waits. */
   left: (key: string, done: Left) => void;
@@ -79,10 +82,6 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
   const [shown, setShown] = useState<{ key: string; rename: boolean } | null>(null);
   const [open, setOpen] = useState(false);
   const [keys, setKeys] = useState(false);
-  const [notice, setNotice] = useState<Notice | null>(null);
-  // The sessions dealt with since the notch opened on one, each with the time of the status it
-  // had then: left out of the queue until they wait on you anew (quick.ts `Handled`).
-  const handled = useRef<Handled>(new Map());
   const linger = useRef<number | null>(null);
   const itemsNow = useRef(items);
   itemsNow.current = items;
@@ -92,35 +91,62 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
   // The one shown last, which a click on the notch comes back to while it still waits on you.
   const last = useRef<string | null>(null);
 
-  const show = useCallback((key: string, rename = false) => {
-    if (linger.current != null) window.clearTimeout(linger.current);
-    linger.current = null;
-    // Opening on one starts afresh; going on from one to the next keeps what's been dealt with.
-    if (shownNow.current === null) {
-      handled.current = new Map();
-      setNotice(null);
-    }
-    shownNow.current = key;
-    last.current = key;
-    setShown({ key, rename });
-    setOpen(true);
-    setKeys(true);
-    void notchKeys(true);
-  }, []);
+  // Back and forward through the sessions looked at here, as in the main window. One the bar no
+  // longer has is passed over.
+  const key = open ? (shown?.key ?? null) : null;
+  const history = useSessionHistory(key, known, HISTORY_KEY);
+
+  // The way through what waits on you (useWaitingQueue.ts), over the bar's own list: the pills
+  // that wait, with ⌥↑ ⌥↓ along all of them. A session that leaves the bar takes the notch on to
+  // the next whether it waited or not, since it has no pill to stay on. `show` is below: the
+  // queue calls it only from a key or an answer.
+  const item = key ? items.find((i) => i.key === key) : undefined;
+  const queue = useWaitingQueue<BarItem>({
+    waiting: waitingItems(items),
+    along: items,
+    reads: ITEMS,
+    // One the bar's groups no longer list (it went idle, or it's another project's, come to
+    // through ⌃- or from a session it started) is still shown until you leave it. The bar has
+    // no pill to say whether there's anything in it to mark seen, so ⌘E goes on from it.
+    shown: key ? { key, title: item?.title ?? 'The last one', since: item?.since, seenable: !!item && seenable(item) } : null,
+    show: (to) => show(to.key),
+    travel: (dir) => {
+      const to = dir === 'back' ? history.goBack() : history.goForward();
+      if (to) show(to);
+      return to !== null;
+    },
+  });
+  const { fresh, onKey: onQueueKey, run, answered, left: leftQueue, say } = queue;
+
+  const show = useCallback(
+    (key: string, rename = false) => {
+      if (linger.current != null) window.clearTimeout(linger.current);
+      linger.current = null;
+      // Opening on one starts afresh; going on from one to the next keeps what's been dealt with.
+      if (shownNow.current === null) fresh();
+      shownNow.current = key;
+      last.current = key;
+      setShown({ key, rename });
+      setOpen(true);
+      setKeys(true);
+      void notchKeys(true);
+    },
+    [fresh],
+  );
 
   const close = useCallback(() => {
     if (shownNow.current === null) return;
     shownNow.current = null;
     setOpen(false);
     setKeys(false);
-    setNotice(null);
+    say(null);
     void notchKeys(false);
     if (linger.current != null) window.clearTimeout(linger.current);
     linger.current = window.setTimeout(() => {
       linger.current = null;
       setShown(null);
     }, LINGER_MS);
-  }, []);
+  }, [say]);
 
   const toggle = useCallback((key: string) => (shownNow.current === key ? close() : show(key)), [close, show]);
 
@@ -140,49 +166,15 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
     void notchKeys(true);
   }, []);
 
-  /** On from the session shown to the next that waits on you; `done` says what was done to it,
-   *  and without it it's a skip, which comes round again after the rest. */
-  const goOn = useCallback(
-    (done: string | null, orClose = false) => {
-      const key = shownNow.current;
-      if (!key) return;
-      const item = itemsNow.current.find((i) => i.key === key);
-      if (done) handled.current.set(key, item?.since ?? Date.now());
-      const next = waitingAfter(itemsNow.current, key, handled.current)[0];
-      if (!next) {
-        if (orClose) close();
-        return;
-      }
-      setNotice(done ? { text: `${item?.title ?? 'The last one'}: ${done}`, error: false } : null);
-      show(next.key);
-    },
-    [close, show],
-  );
-
-  /** Back to the one before it that waits on you, the way a skip goes on. */
-  const goBack = useCallback(() => {
-    const key = shownNow.current;
-    if (!key) return;
-    const before = waitingAfter(itemsNow.current, key, handled.current);
-    const prev = before[before.length - 1];
-    if (!prev) return;
-    setNotice(null);
-    show(prev.key);
-  }, [show]);
-
-  const next = useCallback((done: string) => goOn(done), [goOn]);
+  const next = useCallback((done: string, from: string) => void answered(from, done), [answered]);
+  /** The session left the bar: the next that waits takes its place, and with none the notch
+   *  closes, since there's nothing left under it to show. */
   const left = useCallback(
     (key: string, done: Left) => {
-      if (shownNow.current === key) goOn(`${done}.`, true);
+      if (shownNow.current === key && leftQueue(key, done) === 'last') close();
     },
-    [goOn],
+    [close, leftQueue],
   );
-
-  // Back and forward through the sessions looked at here, as in the main window. One the bar no
-  // longer has is passed over.
-  const history = useSessionHistory(open ? (shown?.key ?? null) : null, known, HISTORY_KEY);
-  const travel = useRef(history);
-  travel.current = history;
 
   // The bar left the notch: there's nowhere to show one.
   useEffect(() => {
@@ -193,12 +185,6 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
   // is still on it (Notch.tsx).
   useEffect(() => onNotchKeys((has) => setKeys(has)), []);
 
-  useEffect(() => {
-    if (!notice) return;
-    const t = window.setTimeout(() => setNotice(null), NOTICE_MS);
-    return () => window.clearTimeout(t);
-  }, [notice]);
-
   useEffect(
     () => () => {
       if (linger.current != null) window.clearTimeout(linger.current);
@@ -206,9 +192,10 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
     [],
   );
 
-  // Its keys, while it's up: the ones a session's panel has in Sessions. Escape closes it, and ⌘Q,
-  // ⌘H and ⌘W close it rather than going to Codealong, since the menu bar is the other app's.
-  // Typing with nothing focused goes to the box.
+  // Its keys, while it's up. Escape closes it, and ⌘Q, ⌘H and ⌘W close it rather than going to
+  // Codealong, since the menu bar is the other app's. The rest are the queue's, the ones a
+  // session's panel has in Sessions (queue.ts `QUEUE_CHORDS`). Typing with nothing focused goes
+  // to the box.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -219,45 +206,10 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
         close();
         return;
       }
-      if (historyChord(e)) {
+      // ⌘E on a session that can be marked seen isn't taken here: it's its card's
+      // (SessionCard.tsx), which marks it seen and says it left.
+      if (onQueueKey(e)) {
         e.preventDefault();
-        const to = e.shiftKey ? travel.current.goForward() : travel.current.goBack();
-        if (to) {
-          setNotice(null);
-          show(to);
-        }
-        return;
-      }
-      // ] goes by its key's code, which layouts that type it with ⌥ keep.
-      if (mod && !e.shiftKey && e.code === 'BracketRight') {
-        e.preventDefault();
-        goOn(null);
-        return;
-      }
-      // ⌘E from a session that doesn't wait on you (it runs, say) goes on as ⌘] does: there's
-      // nothing to mark seen. Marking one seen is its card's (SessionCard.tsx), and goes on from
-      // there; one that waits on a call to allow stays.
-      if (mod && !e.shiftKey && e.key.toLowerCase() === 'e') {
-        if (!waitingItems(itemsNow.current).some((i) => i.key === shownNow.current)) {
-          e.preventDefault();
-          goOn(null);
-        }
-        return;
-      }
-      const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
-      if (vertical && e.altKey && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        const key = shownNow.current;
-        if (e.shiftKey) {
-          if (e.key === 'ArrowDown') goOn(null);
-          else goBack();
-        } else if (key) {
-          const to = stepItem(itemsNow.current, key, e.key === 'ArrowDown' ? 1 : -1);
-          if (to && to.key !== key) {
-            setNotice(null);
-            show(to.key);
-          }
-        }
         return;
       }
       const el = document.activeElement;
@@ -267,23 +219,11 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, close, goOn, goBack, show]);
+  }, [open, close, onQueueKey]);
 
-  // What the strip over the header goes by, as in Sessions: what's left after the one shown,
-  // and whether it's one of those waiting itself.
-  const key = open ? (shown?.key ?? null) : null;
-  const after = key ? waitingAfter(items, key, handled.current) : [];
-  const queue: Queue | undefined = key !== null ? { left: after.length, next: after[0] ?? null, onNext: () => goOn(null), waiting: waitingItems(items).some((i) => i.key === key) } : undefined;
-  const back = history.back
-    ? () => {
-        const to = travel.current.goBack();
-        if (!to) return;
-        setNotice(null);
-        show(to);
-      }
-    : null;
+  const back = history.back ? () => void run('historyBack') : null;
 
-  return { key: shown?.key ?? null, open, keys, rename: shown?.rename ?? false, queue, notice, back, show, toggle, press, close, takeKeys, next, left };
+  return { key: shown?.key ?? null, open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, show, toggle, press, close, takeKeys, next, left };
 }
 
 interface NotchSessionProps {
@@ -303,7 +243,7 @@ interface NotchSessionProps {
   onShow: (key: string) => void;
   onClose: () => void;
   /** Sent or allowed with ⌘⏎, and what took it off the bar: on to the next. */
-  onNext: (done: string) => void;
+  onNext: (done: string, from: string) => void;
   onLeft: (key: string, done: Left) => void;
   /** The board no longer has it. */
   onGone: (key: string) => void;
@@ -397,7 +337,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         onRename={rename_}
         onKeep={keep}
         keepTitle="Keep on the desktop: it gets a window of its own, here, that stays up until you close it."
-        onDone={onNext}
+        onDone={(done) => onNext(done, session.key)}
         onSent={(sent) => {
           // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
           // went as a message from Codealong because its terminal couldn't be typed into.

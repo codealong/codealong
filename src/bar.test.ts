@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentItem, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchSizes, plain, projectWaits, stepItem, waitingAfter, waitingItems, type Metrics } from './bar';
+import { barWidth, currentItem, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchSizes, plain, projectWaits, waitingItems, type Metrics } from './bar';
 import { ALL_PROJECTS } from './quick';
 import * as fx from './testing/fixtures';
 import type { BarItem } from './types';
@@ -221,19 +221,9 @@ describe('the session in the notch', () => {
   const items = [item('n1', 'needs', 10), item('n2', 'needs', 20), item('u1', 'unread', 30), item('w1', 'working', 5)];
   const keys = (list: BarItem[]) => list.map((i) => i.key);
 
+  // How it goes from one to the next, and along the bar, is queue.ts's (queue.test.ts).
   it('works through what waits on you, in the bar’s order, and not what’s running', () => {
     expect(keys(waitingItems(items))).toEqual(['n1', 'n2', 'u1']);
-    expect(keys(waitingAfter(items, 'n1', new Map()))).toEqual(['n2', 'u1']);
-    // From the last, round to the ones skipped; from one that's running, from the top.
-    expect(keys(waitingAfter(items, 'u1', new Map()))).toEqual(['n1', 'n2']);
-    expect(keys(waitingAfter(items, 'w1', new Map()))).toEqual(['n1', 'n2', 'u1']);
-  });
-
-  it('leaves out the ones dealt with until they wait on you anew', () => {
-    const handled = new Map([['n2', 20]]);
-    expect(keys(waitingAfter(items, 'n1', handled))).toEqual(['u1']);
-    const again = items.map((i) => (i.key === 'n2' ? { ...i, since: 40 } : i));
-    expect(keys(waitingAfter(again, 'n1', handled))).toEqual(['n2', 'u1']);
   });
 
   it('opens on the one shown last while it still waits, else the first that waits', () => {
@@ -247,15 +237,5 @@ describe('the session in the notch', () => {
     expect(currentItem(running, 'w2')?.key).toBe('w2');
     expect(currentItem(running, null)?.key).toBe('w1');
     expect(currentItem([], 'w1')).toBeNull();
-  });
-
-  it('steps along the bar, stopping at its ends', () => {
-    expect(stepItem(items, 'n2', 1)?.key).toBe('u1');
-    expect(stepItem(items, 'n2', -1)?.key).toBe('n1');
-    expect(stepItem(items, 'n1', -1)?.key).toBe('n1');
-    expect(stepItem(items, 'w1', 1)?.key).toBe('w1');
-    expect(stepItem(items, 'gone', 1)?.key).toBe('n1');
-    expect(stepItem(items, 'gone', -1)?.key).toBe('w1');
-    expect(stepItem([], 'n1', 1)).toBeNull();
   });
 });

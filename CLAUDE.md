@@ -323,18 +323,26 @@ some work is, answer with one.
   (`Notch.tsx`, sized by `bar.ts` `notchSizes`): the notch alone, the bar's pills under it (the
   pointer on it, or pinned), and a session under the pills (a click on its pill;
   `NotchSession.tsx`). It has no peek. The session works through what waits on you with the keys
-  a session's panel has in Sessions (⌘⏎, ⌘E, ⌘], ⌥⇧↑ ⌥⇧↓, ⌥↑ ⌥↓, ⌃- ⌃⇧-), over the bar's own
-  list (`bar.ts` `waitingAfter`, the rule the quick panel and Sessions go by, `quick.ts`
-  `leftAfter`); a key for getting about added to one goes in all three. The session's bottom
-  corners and bottom edge drag it to a size the page keeps (`notchDragged`, localStorage), in
-  the same window.
+  a session's panel has in Sessions and the quick panel's reply view (⌘⏎, ⌘E, ⌘], ⌥⇧↑ ⌥⇧↓,
+  ⌥↑ ⌥↓, ⌃- ⌃⇧-), over the bar's own list (`bar.ts` `waitingItems`). All three go by one set of
+  rules, `src/queue.ts`: which key asks for what (`QUEUE_CHORDS`, `queueKey`), and what a key, an
+  answer or a session leaving comes to given the window's list, the session shown and what's
+  been dealt with (`keyStep`, `answered`, `left`; ⌘E is `seenStep`). `useWaitingQueue`
+  (`src/useWaitingQueue.ts`) runs them for a window and keeps what's been dealt with and what
+  the strip says; a window passes its rows, how it shows a session, and what's its own (the
+  main window marks seen itself, keeps a row that left without having waited, and has ⌥↑ ⌥↓ and
+  ⌃- ⌃⇧- in every view). A key for getting about goes in `queue.ts`, never into one window. The
+  session's bottom corners and bottom edge drag it to a size the page keeps (`notchDragged`,
+  localStorage), in the same window.
 - The strip over a session's header (`SessionPanel.tsx` `QueueStrip`) says where the queue
   stands; with `hotkeys` (Sessions' panel, the notch) it's always there and has what's commonly
   done to a session as buttons that say their keys. The buttons run the session's own actions
   (`menus.ts` `sessionActions`) and read their keys from `CHORDS`, so an action given a chord
   there gets its key on the strip, in the menus and in every window at once. Snoozing has a
   chord for each of its menu's times instead (`snooze.ts` `SNOOZE_CHORDS`, ⌃⌘1 to ⌃⌘4), which
-  `menus.chorded` and `keyed` run.
+  `menus.chorded` and `keyed` run. Back, Next and × say the queue's keys, from `queue.ts`
+  `QUEUE_CHORDS` and `AWAY_CHORD`, written as `CHORDS` are (`menus.chordSigns` says any of
+  them); `CHORDS`' ⌘E is the queue's too. No key is written into the strip itself.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, queueAfter, queueRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks } from './quick';
+import { ALL_PROJECTS, attentionRows, queueRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks } from './quick';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
@@ -10,7 +10,7 @@ const lane = (id: string, sessions: Session[], extra: Partial<Lane> = {}): Lane 
 const board = (lanes: Lane[], todos: Todo[] = [], labels: Label[] = []): Board => fx.board({ lanes, todos, labels });
 const todo = (id: string, title: string, extra: Partial<Todo> = {}): Todo => fx.todo({ id, project: 'Acme', title, createdAt: NOW - 1000, updatedAt: NOW - 1000, ...extra });
 
-describe('queueAfter', () => {
+describe('queueRows', () => {
   const b = board([
     lane('app2', [session('n1', 'needs', NOW - 90), session('w', 'working', NOW), session('u1', 'unread', NOW - 10)]),
     lane('app3', [session('n2', 'needs', NOW - 50), session('e', 'error', NOW - 70), session('i', 'idle', NOW)]),
@@ -21,20 +21,6 @@ describe('queueAfter', () => {
   it('works through what needs you, the longest wait first, then finished turns, never working ones', () => {
     expect(keys(queue)).toEqual(['n1', 'e', 'n2', 'u1']);
     expect(keys(queueRows(board([lane('app2', [session('w', 'working', NOW)])]), ALL_PROJECTS))).toEqual([]);
-  });
-
-  it('goes on from the session answered, then back to the ones skipped', () => {
-    expect(keys(queueAfter(queue, 'n1', new Map()))).toEqual(['e', 'n2', 'u1']);
-    expect(keys(queueAfter(queue, 'n2', new Map()))).toEqual(['u1', 'n1', 'e']);
-    // Gone from the queue already (the board shows it working): from the top.
-    expect(keys(queueAfter(queue, 'gone', new Map()))).toEqual(['n1', 'e', 'n2', 'u1']);
-  });
-
-  it('leaves out what you dealt with until it waits on you anew', () => {
-    const handled = new Map([['e', NOW - 70]]);
-    expect(keys(queueAfter(queue, 'n1', handled))).toEqual(['n2', 'u1']);
-    const again = queueRows(board([lane('app3', [session('e', 'needs', NOW - 5), session('n2', 'needs', NOW - 50)])]), ALL_PROJECTS);
-    expect(keys(queueAfter(again, 'n2', handled))).toEqual(['e']);
   });
 });
 

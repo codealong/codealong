@@ -1,7 +1,8 @@
 // Checks the quick panel's reply view working through what waits on you (Quick.tsx, quick.ts
 // `queueAfter`): three sessions that need you and one whose turn ended, the longest wait first;
 // ⇥ answers the first, ⌘] skips, ⌘E on one that has started running does too, archiving, sending and marking seen go on to the next, a skipped
-// one comes round again, and after the last the panel closes.
+// one comes round again, and after the last the panel closes. The other keys for getting about are
+// the ones Sessions and the notch have (queue.ts): ⌥⇧↑ ⌥⇧↓, ⌃- ⌃⇧- and ⌥↑ ⌥↓ along the list.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/queue-check.js
 // Every step should say ok.
 (function () {
@@ -92,6 +93,7 @@
       return wait(300);
     })
     .then(function () {
+      check('on one that runs the strip says what waits, not what more', /^3 waiting on you/.test(strip()), strip());
       key(window, { key: 'e', code: 'KeyE', metaKey: true });
       return on('Queue A');
     })
@@ -105,6 +107,31 @@
     .then(function () {
       key(window, { key: ']', code: 'BracketRight', metaKey: true });
       return on('Queue B');
+    })
+    .then(function () {
+      // Back to A, long enough there for it to count as looked at (history.ts), and on again.
+      key(window, { key: 'ArrowUp', altKey: true, shiftKey: true });
+      return on('Queue A').then(function () { check('⌥⇧↑ goes back to the one before', title() === 'Queue A', title()); return wait(1100); });
+    })
+    .then(function () {
+      key(window, { key: 'ArrowDown', altKey: true, shiftKey: true });
+      return on('Queue B').then(function () { check('⌥⇧↓ goes on, as ⌘] does', title() === 'Queue B', title()); });
+    })
+    .then(function () {
+      key(window, { key: '-', code: 'Minus', ctrlKey: true });
+      return on('Queue A').then(function () { check('⌃- goes back to the one looked at before', title() === 'Queue A', title()); });
+    })
+    .then(function () {
+      key(window, { key: '_', code: 'Minus', ctrlKey: true, shiftKey: true });
+      return on('Queue B').then(function () { check('⌃⇧- goes forward again', title() === 'Queue B', title()); });
+    })
+    .then(function () {
+      key(window, { key: 'ArrowDown', altKey: true });
+      return on('Queue C').then(function () { check('⌥↓ steps along the list', title() === 'Queue C', title()); });
+    })
+    .then(function () {
+      key(window, { key: 'ArrowUp', altKey: true });
+      return on('Queue B').then(function () { check('⌥↑ steps back', title() === 'Queue B' && /3 more waiting on you/.test(strip()), title() + ' / ' + strip()); });
     })
     .then(function () {
       check('⌘] skips to the next', title() === 'Queue B', title());
