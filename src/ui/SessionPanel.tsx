@@ -178,7 +178,8 @@ export function SessionPanel({ variant = 'panel', queue, notice, hotkeys, autoFo
   // Sending and marking seen go on to the next only from a session that waits on you itself.
   const goesOn = queue?.waiting !== false && queue?.next;
   // Its shell blocks run in a terminal here, so not for a session on another device.
-  const run = useMemo(() => (shortOf(s.key) ? undefined : { folder: runFolder(lane, s), terminal }), [s.key, s.cwd, lane.path, terminal]);
+  const folder = shortOf(s.key) ? null : runFolder(lane, s);
+  const run = useMemo(() => (folder === null ? undefined : { folder, terminal }), [folder, terminal]);
   const body = (
     <>
       <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />

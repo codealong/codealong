@@ -153,6 +153,9 @@ export function useRowDrag(options: RowDragOptions) {
     d.zone = zone;
     setDrag({ key: d.key, inOrder: d.inOrder, zone });
   };
+  // The engine's word of a drag is listened for once (below), and reads the latest of it here.
+  const lookNow = useRef(look);
+  lookNow.current = look;
 
   /** Near the list's top or bottom edge, a drag that can land in the list scrolls it. */
   const scroll = () => {
@@ -272,7 +275,7 @@ export function useRowDrag(options: RowDragOptions) {
         const d = live.current;
         if (!d?.active || d.away === away) return;
         d.away = away;
-        look(d);
+        lookNow.current(d);
       }),
     [],
   );

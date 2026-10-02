@@ -547,7 +547,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     for (const a of showing) if (a.change.kind === 'send') words.set(`ahead:${a.id}`, snippet(a.change.text, 1200));
     return words;
   }, [items, earlier, showing]);
-  useLayoutEffect(pin, [items, loaded, promptText]);
+  useLayoutEffect(pin, [items, loaded, promptText, earlier]);
   useEffect(() => {
     for (const id of found) delivered(id);
   }, [found]);

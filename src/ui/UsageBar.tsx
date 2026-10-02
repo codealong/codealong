@@ -8,7 +8,7 @@
 // hovering it shows all of them in a card. When even those don't fit, the row scrolls sideways
 // (the mouse wheel scrolls it too).
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
@@ -228,7 +228,9 @@ function usePeek() {
     if (performance.now() < warmUntil.current) go();
     else timer.current = window.setTimeout(go, SHOW_MS);
   };
-  const hide = (now = false) => {
+  // One function for good (it reads only the refs), so the effects that put the card away can
+  // name it without running again.
+  const hide = useCallback((now = false) => {
     window.clearTimeout(timer.current);
     const go = () => {
       if (warmUntil.current === Infinity) warmUntil.current = performance.now() + WARM_MS;
@@ -236,7 +238,7 @@ function usePeek() {
     };
     if (now) go();
     else timer.current = window.setTimeout(go, HIDE_MS);
-  };
+  }, []);
   return { peek, show, hide };
 }
 
@@ -310,7 +312,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading,
   // it away.
   useEffect(() => {
     if (!collapsed) hide(true);
-  }, [collapsed]);
+  }, [collapsed, hide]);
   useEffect(() => {
     const el = row.current;
     if (!el || !peek) return;
@@ -323,7 +325,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading,
       window.removeEventListener('resize', away);
       window.removeEventListener('pointerdown', away, true);
     };
-  }, [peek]);
+  }, [peek, hide]);
 
   const peeked = collapsed && peek ? usage.find((u) => u.account === peek.account) : undefined;
   return (
