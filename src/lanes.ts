@@ -6,6 +6,7 @@
 // are.
 
 import { shortOf } from './devices';
+import { withTimes } from './format';
 import type { InsightLabel } from './insights';
 import type { Bay, Lane, Pr, PrItem, Session, Status } from './types';
 
@@ -398,4 +399,11 @@ export function inboxCounts(lanes: Lane[]): { needs: number; working: number; un
  */
 export function withoutAccount(headline: string): string {
   return headline.replace(/^`[^`]*`\s*(?:·\s*)?/, '');
+}
+
+/** What a session is doing or said last, for a row under its title. Its time is in the row's
+ *  own column, so the detail's running time is left out. */
+export function sessionWhy(detail: string | null, headline: string, now: number): string {
+  const text = detail ? detail.replace(/^\{for:-?\d+\}( · )?/, '') : withoutAccount(headline);
+  return withTimes(text.replace(/`/g, ''), now);
 }

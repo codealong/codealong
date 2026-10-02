@@ -55,45 +55,52 @@ import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { prRefOf } from '../prLinks';
-import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
-import { HARNESS_WORD, usageNote } from '../harness';
+import { ago, tildePath } from '../format';
+import { usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { useSessionHistory } from '../history';
 import { SESSION_READS, shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
+  accountHeadWords,
+  agentChipWords,
   agentId,
   agentOptions,
+  agentOptionWords,
   autoModel,
+  autoOptionWords,
   autoPick,
+  effortNote,
   initialChoice,
   isAuto,
-  preferredNames,
   modelFamily,
-  modelName,
+  modelWords,
+  newWorktreeTitle,
+  onCommandLine,
+  onModelWords,
   parseAgent,
   placesFor,
+  placeTakesModel,
   settledPlace,
   remember,
   remembered,
   START_OPTIONS_NOTICE,
+  startHappens,
+  startingLabel,
   startOptionsFailed,
-  takesModel,
   withLists,
   type AgentOption,
-  type AutoPick,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
+import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
-import { liveOrLatest, sessionHomes } from '../lanes';
+import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
-import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { SessionCard } from './SessionCard';
 import { cx, Icon, Kbd, Mark, Seg, STATUS_WORD, StatusGlyph } from './primitives';
@@ -168,15 +175,6 @@ const ROUTE_AFTER_MS = 350;
 const TEXT_AFTER_MS = 150;
 /** How long typing has to pause before the list may shrink to what it shows. */
 const SETTLE_MS = 600;
-
-/** Why Auto starts the account and model it does. `fallback`: it isn't one of the preferred
- *  accounts, which are all near a limit. */
-function autoWhy(p: AutoPick, spent: Meter | null, fallback: boolean, now: number): string {
-  if (fallback) return 'preferred accounts are near their limits';
-  if (spent) return `${spent.label}’s week is ${Math.round(spent.percent)}% used`;
-  if (p.reason === 'reset' && p.resetsAt) return `week resets ${resetsPhrase(p.resetsAt, now)}`;
-  return p.reason === 'room' ? 'most room' : '';
-}
 
 /** What a found todo's row says under its title: when it's due, then what it waits for, else the
  *  start of its description, else how many sessions it has. */
@@ -573,23 +571,7 @@ export function Quick() {
   const modelNow = takesAModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
   const inNewWorktree = makesWorktree && newWorktree;
   const defaultModel = accountInfo?.defaultModel ?? null;
-  const modelShown = !takesAModel
-    ? placeNow === 'claude-app'
-      ? 'model chosen in the Claude app'
-      : placeNow === 'codex-app'
-        ? 'model chosen in Codex'
-        : harness === 'opencode'
-          ? 'OpenCode’s model'
-          : harness === 'codex'
-            ? 'Codex’s model'
-            : harness === 'antigravity'
-              ? 'Antigravity’s model'
-              : null
-    : modelNow
-      ? modelName(modelNow, models)
-      : defaultModel
-        ? modelName(defaultModel, models)
-        : 'default model';
+  const modelShown = modelWords(takesAModel, placeNow, harness, modelNow, defaultModel, models);
   // It starts on the model asked for, else the account's own.
   const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
   // The effort goes wherever the model does, to a harness that takes one, except to Haiku,
@@ -702,7 +684,7 @@ export function Quick() {
   // What Jev said beyond where it goes: a session that may already be on it. Jev picks where
   // work goes, never the model: that stays with the start menu and Auto.
   const duplicate = board ? duplicateOf(route, board) : null;
-  const alreadyOn = duplicate ? ` “${duplicate.session.title}” (${duplicate.session.account} · ${duplicate.lane.callsign}) may already be doing this.` : '';
+  const alreadyOn = alreadyOnWords(duplicate);
 
   // While you type, the list only grows: Jev's suggestions and what sessions said arrive a moment
   // after each key, and letting the list shrink in between made the panel bounce with every key.
@@ -1045,35 +1027,18 @@ export function Quick() {
 
   const ready = !!lane && !!account && !!placeNow;
   const terminalName = places.find((p) => p.place === 'terminal')?.label ?? 'The terminal';
-  const onModel = `${startsOn ? ` on ${modelName(startsOn, models)}` : ''}${effortWord ? ` at ${effortWord.toLowerCase()} effort` : ''}`;
-  const withPrompt = prompted ? ' with this prompt' : '';
-  const macName = deviceInfo?.name ?? 'That Mac';
-  const happensThere = !lane
-    ? deviceNow
-      ? `No worktrees in this project on ${macName}.`
-      : !board || board.loading
-        ? 'Reading worktrees…'
-        : 'No worktrees in this project yet.'
-    : !account || !placeNow
-      ? deviceNow && remote?.error
-        ? `${macName} didn’t say where its accounts can start: ${remote.error}`
-        : ''
-      : placeNow === 'background'
-        ? inNewWorktree
-          ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in the background${withPrompt}. Attach a terminal any time.`
-          : `${account}${onModel} starts in the background in ${lane.callsign}${withPrompt}, with no terminal. Attach one any time.`
-        : placeNow === 'terminal'
-        ? inNewWorktree
-          ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in ${terminalName}${withPrompt}.`
-          : `${terminalName} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`
-        : placeNow === 'codealong'
-          ? `Codealong runs ${account}${onModel} in ${lane.callsign}${withPrompt}. Its panel here shows the reply, takes the next prompt and answers what it asks.`
-        : placeNow === 'claude-app'
-          ? `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
-          : prompted
-            ? `The Codex app starts a new thread in ${lane.callsign} on this prompt.`
-            : `Codex opens a new thread in ${lane.callsign}. You write the prompt there.`;
-  const happens = deviceNow && lane && account && placeNow ? `On ${macName}: ${happensThere}` : happensThere;
+  const onModel = onModelWords(startsOn, effortWord, models);
+  const happens = startHappens({
+    lane,
+    account,
+    place: placeNow,
+    mac: deviceNow ? { name: deviceInfo?.name ?? null, error: remote?.error ?? null } : null,
+    reading: !board || board.loading,
+    newWorktree: inNewWorktree,
+    onModel,
+    prompted,
+    terminal: terminalName,
+  });
   // Only the new-thread page adds the folder as a project; a thread Codealong starts on a prompt
   // shows under the app's Recents.
   const newToCodex = placeNow === 'codex-app' && !prompted && !!lane && !!startOptionsNow && !startOptionsNow.codexProjects.includes(lane.path);
@@ -1085,15 +1050,7 @@ export function Quick() {
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
-    const onMac = deviceInfo ? ` on ${deviceInfo.name}` : '';
-    const label =
-      placeNow === 'terminal' || placeNow === 'background'
-        ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}${placeNow === 'background' ? ' in the background' : ''}${onMac}…`
-        : placeNow === 'codealong'
-          ? `Starting ${account}${onModel} in Codealong${onMac}…`
-        : placeNow === 'claude-app'
-          ? `Opening a new session in the Claude app${onMac}…`
-          : `Opening a new thread in Codex${onMac}…`;
+    const label = startingLabel(placeNow, account, onModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
@@ -1343,18 +1300,15 @@ export function Quick() {
     const out: PickerSection[] = [];
     const auto = agents.find((o) => isAuto(o.choice));
     if (auto && pick) {
-      const a = accounts.find((x) => x.name === pick.account);
-      const m = autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account));
-      const model = m.model ?? a?.defaultModel ?? null;
-      const why = autoWhy(pick, m.spent, !preferredNames(accounts).includes(pick.account), now);
+      const said = autoOptionWords(pick, accounts, usage, models, now);
       out.push({
         key: 'auto',
         options: [
           {
             id: auto.id,
-            text: `auto ${pick.account} ${a ? HARNESS_WORD[a.harness] : ''} ${model ?? ''}`,
+            text: said.text,
             label: 'Auto',
-            detail: [pick.account, model ? modelName(model, models) : null, why].filter(Boolean).join(' · '),
+            detail: said.detail,
             lead: <Icon name="sparkles" size={14} />,
             title:
               `Starts a preferred account (starred in Settings › Accounts) while one has room, else another. Among them, the one whose weekly limit resets soonest, so its room isn't lost, ` +
@@ -1368,18 +1322,22 @@ export function Quick() {
       const u = usage.find((x) => x.account === a.name);
       const mine = agents.filter((o) => !isAuto(o.choice) && o.choice === a.name);
       const cant = a.places.length === 0;
+      const head = accountHeadWords(a, u, usageNote(u));
       out.push({
         key: a.name,
-        head: <AccountHead name={a.name} detail={[HARNESS_WORD[a.harness], u?.plan, a.preferred ? 'Preferred' : null].filter(Boolean).join(' · ')} meters={cant ? null : (u?.meters ?? [])} note={cant ? 'Can’t start from here' : usageNote(u)} now={now} />,
-        options: mine.map((o: AgentOption) => ({
-          id: o.id,
-          lead: <span className="ca-picker-check">{o.id === agentNow ? <Icon name="check" size={14} /> : null}</span>,
-          text: `${a.name} ${HARNESS_WORD[a.harness]} ${o.model ? `${o.model} ${modelName(o.model, models)}` : 'default'}`,
-          label: o.model ? modelName(o.model, models) : takesModel(a) ? `Default${a.defaultModel ? ` · ${modelName(a.defaultModel, models)}` : ''}` : a.name,
-          detail: o.model ? (models.find((m) => m.id === o.model)?.label.split(': ')[1] ?? null) : takesModel(a) ? (a.harness === 'claude' ? 'From its settings.json' : `The one ${HARNESS_WORD[a.harness]} starts on`) : cant ? a.unavailable : a.harness === 'codex' ? 'The model is chosen in Codex' : a.harness === 'opencode' ? 'The model comes from OpenCode’s settings' : null,
-          disabled: cant,
-          title: cant ? (a.unavailable ?? undefined) : undefined,
-        })),
+        head: <AccountHead name={a.name} detail={head.detail} meters={cant ? null : (u?.meters ?? [])} note={head.note} now={now} />,
+        options: mine.map((o: AgentOption) => {
+          const said = agentOptionWords(o, a, models);
+          return {
+            id: o.id,
+            lead: <span className="ca-picker-check">{o.id === agentNow ? <Icon name="check" size={14} /> : null}</span>,
+            text: said.text,
+            label: said.label,
+            detail: said.detail,
+            disabled: cant,
+            title: cant ? (a.unavailable ?? undefined) : undefined,
+          };
+        }),
       });
     }
     return out;
@@ -1415,17 +1373,14 @@ export function Quick() {
           onPick={setEffort}
         />
         <span className="ca-picker-foot-note">
-          {harness && harness !== 'claude' ? `${HARNESS_WORD[harness]} picks its own` : modelFamily(effortModel) === 'haiku' ? 'Haiku takes none' : <Kbd keys={['←', '→']} />}
+          {effortNote(harness, effortModel) ?? <Kbd keys={['←', '→']} />}
         </span>
       </>
     ) : null;
 
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];
-    const count = (short: string | null) => {
-      const n = (short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => inProject(l, current)).length;
-      return `${n} worktree${n === 1 ? '' : 's'}${current === ALL_PROJECTS ? '' : ` in ${current}`}`;
-    };
+    const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => inProject(l, current)).length, current);
     const here = devices.me.name || 'This Mac';
     return [
       {
@@ -1433,8 +1388,7 @@ export function Quick() {
         options: [
           { id: HERE, text: `${here} this mac`, label: here, detail: `This Mac · ${count(null)}`, lead: <Icon name="device-desktop" size={14} /> },
           ...macs.map((d) => {
-            const away = !d.online ? (d.lastSeen ? `Away: last seen ${agoPhrase(d.lastSeen, now)}` : 'Away') : null;
-            const off = d.online && !d.remoteControl ? 'Remote control is off there' : null;
+            const { away, off, title } = macUnavailable(d, now);
             return {
               id: d.short,
               text: d.name,
@@ -1442,7 +1396,7 @@ export function Quick() {
               detail: away ?? off ?? count(d.short),
               lead: <i className={`ca-labeldot is-${d.color}`} aria-hidden="true" />,
               disabled: !!(away || off),
-              title: off ? `Remote control is off on ${d.name}; turn it on there in Settings › Devices to start sessions from here.` : undefined,
+              title,
             };
           }),
         ],
@@ -1472,59 +1426,7 @@ export function Quick() {
   };
 
   /** A suggestion's row: what ⏎ does, and where. */
-  const describe = (sg: Suggestion): { icon: string; title: string; why: string; where: string } => {
-    if (sg.kind === 'send' || sg.kind === 'open') {
-      const x = sg.session;
-      const where = `${x.account} · ${sg.lane.callsign}`;
-      // How old it is leads, so an old session isn't mistaken for the one you started this morning.
-      const age = x.startedAt != null ? `Started ${agoPhrase(x.startedAt, now)}. ` : '';
-      if (sg.kind === 'open') {
-        return x.status === 'needs'
-          ? { icon: 'external', title: `Answer “${x.title}”`, why: `${age}It’s waiting on you, so Codealong shows it and you answer there.`, where }
-          : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${sessionWhy(x.detail, x.headline, now)}`, where };
-      }
-      const why = !x.live
-        ? (x.harness === 'claude' || x.harness === 'codex') && x.surface === 'cli'
-          ? 'It isn’t running: it resumes in a new terminal with this prompt.'
-          : 'It isn’t running: it opens with this prompt ready to send.'
-        : x.status === 'working'
-          ? 'It’s working, so this waits for its turn to end.'
-          : x.harness === 'claude' && x.surface === 'app'
-            ? 'It gets this as a message from another session, in the Claude app.'
-            : 'It gets this as its next message.';
-      return { icon: 'send', title: `Send to “${x.title}”`, why: `${age}${why}`, where };
-    }
-    if (sg.kind === 'todo') {
-      return { icon: 'list-check', title: `Save as a todo: “${todoTitle(text)}”`, why: `In ${sg.lane.project}, linked to ${sg.lane.callsign}. Start it when you’re ready.`, where: sg.lane.callsign };
-    }
-    const tree = makesWorktree && sg.newWorktree;
-    const who = account ? `${account}${onModel}` : 'a session';
-    const why =
-      placeNow === 'codealong'
-        ? `Codealong runs ${who} in ${sg.lane.callsign}.`
-      : placeNow === 'claude-app'
-        ? `The Claude app opens a new session in ${sg.lane.callsign} with this prompt filled in.`
-        : placeNow === 'codex-app'
-          ? `The Codex app starts a new thread in ${sg.lane.callsign} on this prompt.`
-          : tree
-            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${placeNow === 'background' ? ' in the background' : ''}.`
-            : `Starts ${who} in ${sg.lane.callsign}${placeNow === 'background' ? ' in the background' : ''}.`;
-    // What the reusable worktree it starts in holds (reusable.ts): new work joins work under way
-    // only in a worktree Jev matched it to, not the main worktree.
-    const held =
-      tree || !sg.lane.reuse
-        ? ''
-        : sg.lane.reuse === 'free'
-          ? ' It holds no work now.'
-          : sg.lane.reuse === 'landed'
-            ? ' Its last work landed.'
-            : sg.lane.origin === 'main'
-              ? ''
-              : ' It joins the work under way there.';
-    // The warning leads: the row's line is cut short when it's long.
-    const warned = duplicate ? `“${duplicate.session.title}” may already be on this. ${why}${held}` : `${why}${held}`;
-    return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why: warned, where: `${sg.lane.project} · ${sg.lane.repo}` };
-  };
+  const describe = (sg: Suggestion) => suggestionWords(sg, { now, text, account, onModel, place: placeNow, makesWorktree, duplicate });
 
   /* ---- Render ---- */
 
@@ -1543,10 +1445,8 @@ export function Quick() {
     if (g === 'found') return foundSessions.length;
     return shown;
   };
-  const agentLabel = autoFor ? 'Auto' : (account ?? 'No account');
   // Another Mac's accounts come a moment after it's picked, or not at all.
-  const noAccounts = deviceNow && !startOptionsNow ? (remote?.error ? 'Couldn’t read its accounts' : 'Reading accounts…') : 'No accounts';
-  const agentDetail = [autoFor ? account : null, modelShown, effortWord ? `${effortWord} effort` : null].filter(Boolean).join(' · ');
+  const agentChip = agentChipWords({ auto: autoFor, account, accounts: accounts.length, remote: deviceNow ? { read: !!startOptionsNow, error: remote?.error ?? null } : null, model: modelShown, effortWord });
   const shortcut = shortcutLabel(board?.quickShortcut);
 
   /** A reply is on its way, or what it waited on was answered: the panel is done. The window that
@@ -1875,13 +1775,13 @@ export function Quick() {
               <Icon name="plus" size={14} stroke={2} />
             </span>
             <span className="ca-quick-row-main">
-              <span className="ca-quick-row-title">{forTodos.length > 1 ? `Start one session for these ${forTodos.length} todos` : todo ? 'Start a session for this todo' : prompted ? 'Start a new session with this prompt' : 'Start a new session'}</span>
+              <span className="ca-quick-row-title">{startTitle(forTodos.length, prompted)}</span>
               <span className="ca-quick-row-why">
                 {happens}
                 {alreadyOn}
-                {attached.length > 0 && ` ${attached.length === 1 ? 'The attachment goes' : 'Attachments go'} as ${attached.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
+                {attached.length > 0 && attachmentsNote(attached.length)}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
-                {deviceNow && forTodos.length > 0 && ` Todos are this Mac’s, so ${forTodos.length > 1 ? 'they aren’t' : 'it isn’t'} linked to the session.`}
+                {deviceNow && forTodos.length > 0 && todosStayNote(forTodos.length)}
               </span>
             </span>
             <Kbd keys={['⌘', '⏎']} />
@@ -1944,13 +1844,7 @@ export function Quick() {
           </div>
           <label
             className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
-            title={
-              makesWorktree
-                ? `${harness ? HARNESS_WORD[harness] : 'It'} makes the worktree: its folder, branch and base.`
-                : placeNow && onCommandLine(placeNow)
-                  ? `${harness ? HARNESS_WORD[harness] : 'It'} can’t start in a new worktree from here.`
-                  : 'The app has its own worktree choice; pick it there before you send.'
-            }
+            title={newWorktreeTitle(makesWorktree, placeNow, harness)}
           >
             <input type="checkbox" checked={inNewWorktree} disabled={!makesWorktree} onChange={(e) => setNewWorktree(e.target.checked)} />
             <span className="ca-check-box" aria-hidden="true">
@@ -1961,8 +1855,8 @@ export function Quick() {
           <div className="ca-quick-pick ca-quick-agent">
             <button type="button" data-picker-trigger className="ca-quick-chip" title="Account, model and effort (⌘L)" disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
               <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
-              <span>{accounts.length === 0 ? noAccounts : agentLabel}</span>
-              {agentDetail && <span className="ca-quick-chip-detail">{agentDetail}</span>}
+              <span>{agentChip.label}</span>
+              {agentChip.detail && <span className="ca-quick-chip-detail">{agentChip.detail}</span>}
               <Icon name="chevron-down" size={12} />
             </button>
             {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
@@ -1980,16 +1874,6 @@ export function Quick() {
       )}
     </div>
   );
-}
-
-/** Whether a place starts the account's command, which takes a model and --worktree. */
-function onCommandLine(place: StartPlace): boolean {
-  return place === 'terminal' || place === 'background';
-}
-
-/** Whether a Claude Code start there takes the model you pick: the command line, or the adapter. */
-function placeTakesModel(place: StartPlace): boolean {
-  return onCommandLine(place) || place === 'codealong';
 }
 
 function placeIcon(place: StartPlace): string {

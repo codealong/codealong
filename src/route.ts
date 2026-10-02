@@ -3,9 +3,10 @@
 // sounds, and which runners-up are worth a row, is decided here. Kept free of React so the rules
 // have tests.
 
-import { homeOf } from './lanes';
+import { agoPhrase } from './format';
+import { homeOf, sessionWhy } from './lanes';
 import { mainCheckoutOf, newWorkIn } from './reusable';
-import type { Board, Lane, Route, RoutePick, Session } from './types';
+import type { Board, Lane, Route, RoutePick, Session, StartPlace } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
 export type Sureness = 'sure' | 'likely' | 'unsure';
@@ -142,4 +143,71 @@ export function todoTitle(text: string): string {
   const stripped = first.replace(/^(todo|later|remember to|note)\b[\s:,-]*/i, '').trim();
   const title = stripped || first;
   return title.charAt(0).toUpperCase() + title.slice(1);
+}
+
+/** What the start row adds when Jev thinks a session may already be doing what's typed. */
+export function alreadyOnWords(duplicate: { lane: Pick<Lane, 'callsign'>; session: Pick<Session, 'title' | 'account'> } | null): string {
+  return duplicate ? ` “${duplicate.session.title}” (${duplicate.session.account} · ${duplicate.lane.callsign}) may already be doing this.` : '';
+}
+
+/** What a suggestion's row says goes on around it: how a new session would start, and what's typed. */
+export interface SuggestionContext {
+  now: number;
+  /** What's typed, which a todo saved from it is titled by. */
+  text: string;
+  /** The account a session would start on, with what it starts on (start.ts `onModelWords`),
+   *  the place it opens in, and whether its harness makes a worktree for it. */
+  account: string | null;
+  onModel: string;
+  place: StartPlace | null;
+  makesWorktree: boolean;
+  /** The session that may already be doing it (`duplicateOf`). */
+  duplicate: { session: Pick<Session, 'title'> } | null;
+}
+
+/** A suggestion's row: what ⏎ does, why, and where. */
+export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: string; title: string; why: string; where: string } {
+  if (sg.kind === 'send' || sg.kind === 'open') {
+    const x = sg.session;
+    const where = `${x.account} · ${sg.lane.callsign}`;
+    // How old it is leads, so an old session isn't mistaken for the one you started this morning.
+    const age = x.startedAt != null ? `Started ${agoPhrase(x.startedAt, c.now)}. ` : '';
+    if (sg.kind === 'open') {
+      return x.status === 'needs'
+        ? { icon: 'external', title: `Answer “${x.title}”`, why: `${age}It’s waiting on you, so Codealong shows it and you answer there.`, where }
+        : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${sessionWhy(x.detail, x.headline, c.now)}`, where };
+    }
+    const why = !x.live
+      ? (x.harness === 'claude' || x.harness === 'codex') && x.surface === 'cli'
+        ? 'It isn’t running: it resumes in a new terminal with this prompt.'
+        : 'It isn’t running: it opens with this prompt ready to send.'
+      : x.status === 'working'
+        ? 'It’s working, so this waits for its turn to end.'
+        : x.harness === 'claude' && x.surface === 'app'
+          ? 'It gets this as a message from another session, in the Claude app.'
+          : 'It gets this as its next message.';
+    return { icon: 'send', title: `Send to “${x.title}”`, why: `${age}${why}`, where };
+  }
+  if (sg.kind === 'todo') {
+    return { icon: 'list-check', title: `Save as a todo: “${todoTitle(c.text)}”`, why: `In ${sg.lane.project}, linked to ${sg.lane.callsign}. Start it when you’re ready.`, where: sg.lane.callsign };
+  }
+  const tree = c.makesWorktree && sg.newWorktree;
+  const who = c.account ? `${c.account}${c.onModel}` : 'a session';
+  const background = c.place === 'background' ? ' in the background' : '';
+  const why =
+    c.place === 'codealong'
+      ? `Codealong runs ${who} in ${sg.lane.callsign}.`
+      : c.place === 'claude-app'
+        ? `The Claude app opens a new session in ${sg.lane.callsign} with this prompt filled in.`
+        : c.place === 'codex-app'
+          ? `The Codex app starts a new thread in ${sg.lane.callsign} on this prompt.`
+          : tree
+            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${background}.`
+            : `Starts ${who} in ${sg.lane.callsign}${background}.`;
+  // What the reusable worktree it starts in holds (reusable.ts): new work joins work under way
+  // only in a worktree Jev matched it to, not the main worktree.
+  const held = tree || !sg.lane.reuse ? '' : sg.lane.reuse === 'free' ? ' It holds no work now.' : sg.lane.reuse === 'landed' ? ' Its last work landed.' : sg.lane.origin === 'main' ? '' : ' It joins the work under way there.';
+  // The warning leads: the row's line is cut short when it's long.
+  const warned = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}${held}` : `${why}${held}`;
+  return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why: warned, where: `${sg.lane.project} · ${sg.lane.repo}` };
 }

@@ -3,18 +3,11 @@
 // what it's doing, as the Sessions view says it. A click shows it in the panel (with a way back);
 // double-click or the arrow opens it where it runs, as double-click does in every list.
 
-import { absolute, ago, withTimes } from '../format';
-import { withoutAccount } from '../lanes';
+import { absolute, ago } from '../format';
+import { sessionWhy } from '../lanes';
 import type { Lane, Session } from '../types';
 import type { ReactNode } from 'react';
 import { cx, Icon, LaneGlyph, StatusGlyph } from './primitives';
-
-/** What a session is doing or said last, for a row under its title. Its time is in the row's
- *  own column, so the detail's running time is left out. */
-export function sessionWhy(detail: string | null, headline: string, now: number): string {
-  const text = detail ? detail.replace(/^\{for:-?\d+\}( · )?/, '') : withoutAccount(headline);
-  return withTimes(text.replace(/`/g, ''), now);
-}
 
 interface PanelSessionProps {
   lane: Lane;

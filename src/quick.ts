@@ -5,11 +5,11 @@
 // todos, then PRs: every word has to be in what describes them, or, for a session, in what was
 // said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
 
-import { middleTruncate } from './format';
+import { agoPhrase, middleTruncate } from './format';
 import { branchLabel, byStatusTime, sessionHomes } from './lanes';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
-import type { Board, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
+import type { Board, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 const ELSEWHERE = 'Elsewhere';
@@ -504,4 +504,35 @@ export function withPrompt(history: string[], text: string, max = HISTORY_MAX): 
 /** What ↑ walks back through: the draft left when the panel last closed, then past prompts. */
 export function recallList(draft: string | null, history: string[]): string[] {
   return draft?.trim() && draft !== history[0] ? [draft, ...history] : history;
+}
+
+/** The start row's title: one session for the todos it's for, else with or without a prompt. */
+export function startTitle(todos: number, prompted: boolean): string {
+  if (todos > 1) return `Start one session for these ${todos} todos`;
+  if (todos === 1) return 'Start a session for this todo';
+  return prompted ? 'Start a new session with this prompt' : 'Start a new session';
+}
+
+/** What the start row adds about the files attached to the prompt. */
+export function attachmentsNote(count: number): string {
+  return ` ${count === 1 ? 'The attachment goes' : 'Attachments go'} as ${count === 1 ? 'a file path' : 'file paths'} the agent opens.`;
+}
+
+/** What the start row adds when a session for todos starts on another Mac: the todos are this
+ *  Mac's, so the session isn't linked to them. */
+export function todosStayNote(count: number): string {
+  return ` Todos are this Mac’s, so ${count > 1 ? 'they aren’t' : 'it isn’t'} linked to the session.`;
+}
+
+/** A Mac's worktrees in the project, for its line in the Mac menu. */
+export function worktreeCount(count: number, project: string): string {
+  return `${count} worktree${count === 1 ? '' : 's'}${project === ALL_PROJECTS ? '' : ` in ${project}`}`;
+}
+
+/** Why another Mac can't start a session now, for its line in the Mac menu: it's away, or it
+ *  doesn't take remote control (with what to do about that). */
+export function macUnavailable(d: Pick<DeviceView, 'name' | 'online' | 'lastSeen' | 'remoteControl'>, now: number): { away: string | null; off: string | null; title: string | undefined } {
+  const away = !d.online ? (d.lastSeen ? `Away: last seen ${agoPhrase(d.lastSeen, now)}` : 'Away') : null;
+  const off = d.online && !d.remoteControl ? 'Remote control is off there' : null;
+  return { away, off, title: off ? `Remote control is off on ${d.name}; turn it on there in Settings › Devices to start sessions from here.` : undefined };
 }

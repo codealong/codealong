@@ -4,8 +4,10 @@
 // first (config.toml's `preferred`), so it keeps to the agents you'd rather use while they have
 // room. start.rs's `auto_pick` has the same rule for `codealong start`.
 
+import { resetsPhrase } from './format';
+import { HARNESS_WORD } from './harness';
 import { failedNotice } from './notices';
-import type { Meter, Notice, StartAccount, StartOptions, StartPlace, Usage } from './types';
+import type { Harness, Lane, Meter, Notice, StartAccount, StartOptions, StartPlace, Usage } from './types';
 
 /** The notice while where each account can start a session can't be read (the main window's
  *  Review with and the quick panel ask), which ends once it's read. */
@@ -272,6 +274,159 @@ export function initialPlace(choice: Choice | null, accounts: StartAccount[], pi
   const places = placesFor(choice, accounts, pick);
   const want = settledPlace(choice, accounts, pick) ?? last;
   return places.find((p) => p.place === want)?.place ?? places[0]?.place ?? null;
+}
+
+/** Whether a place starts the account's command, which takes a model and --worktree. */
+export function onCommandLine(place: StartPlace): boolean {
+  return place === 'terminal' || place === 'background';
+}
+
+/** Whether a Claude Code start there takes the model you pick: the command line, or the adapter. */
+export function placeTakesModel(place: StartPlace): boolean {
+  return onCommandLine(place) || place === 'codealong';
+}
+
+// What the quick panel's start row, its label while it starts and the agent menu say. Each is
+// the words for one choice of account, model, effort and place, worked out from the choice.
+
+/** What a session starts on, for the start row and the label while it starts:
+ *  " on Opus at high effort", or nothing for the account's own. */
+export function onModelWords(startsOn: string | null, effortWord: string | null, models: ModelOption[]): string {
+  return `${startsOn ? ` on ${modelName(startsOn, models)}` : ''}${effortWord ? ` at ${effortWord.toLowerCase()} effort` : ''}`;
+}
+
+/** What the agent chip says of the model: the one a session starts on where Codealong hands the
+ *  model over (`takesAModel`), else who picks it. Null when nothing need be said. */
+export function modelWords(takesAModel: boolean, place: StartPlace | null, harness: Harness | null, model: string | null, defaultModel: string | null, models: ModelOption[]): string | null {
+  if (!takesAModel) {
+    if (place === 'claude-app') return 'model chosen in the Claude app';
+    if (place === 'codex-app') return 'model chosen in Codex';
+    if (harness === 'opencode') return 'OpenCode’s model';
+    if (harness === 'codex') return 'Codex’s model';
+    if (harness === 'antigravity') return 'Antigravity’s model';
+    return null;
+  }
+  if (model) return modelName(model, models);
+  return defaultModel ? modelName(defaultModel, models) : 'default model';
+}
+
+/** A start as the start row describes it. */
+export interface StartPlan {
+  /** The worktree it starts in, when there's one. */
+  lane: Pick<Lane, 'repo' | 'callsign'> | null;
+  account: string | null;
+  place: StartPlace | null;
+  /** On another Mac: its name once your devices are read, and why it didn't say where its
+   *  accounts can start, if it didn't. Null on this one. */
+  mac: { name: string | null; error: string | null } | null;
+  /** The board isn't read yet. */
+  reading: boolean;
+  /** Claude Code makes a new worktree for it. */
+  newWorktree: boolean;
+  /** `onModelWords`. */
+  onModel: string;
+  /** Something is typed, which goes as its prompt. */
+  prompted: boolean;
+  /** What the terminal place is called: Ghostty, iTerm2… */
+  terminal: string;
+}
+
+/** The start row's line: what starting does, and where. */
+export function startHappens(p: StartPlan): string {
+  const mac = p.mac?.name ?? 'That Mac';
+  const there = startHappensThere(p, mac);
+  return p.mac && p.lane && p.account && p.place ? `On ${mac}: ${there}` : there;
+}
+
+function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal }: StartPlan, mac: string): string {
+  if (!lane) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
+  if (!account || !place) return on?.error ? `${mac} didn’t say where its accounts can start: ${on.error}` : '';
+  const withPrompt = prompted ? ' with this prompt' : '';
+  switch (place) {
+    case 'background':
+      return newWorktree
+        ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in the background${withPrompt}. Attach a terminal any time.`
+        : `${account}${onModel} starts in the background in ${lane.callsign}${withPrompt}, with no terminal. Attach one any time.`;
+    case 'terminal':
+      return newWorktree ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in ${terminal}${withPrompt}.` : `${terminal} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`;
+    case 'codealong':
+      return `Codealong runs ${account}${onModel} in ${lane.callsign}${withPrompt}. Its panel here shows the reply, takes the next prompt and answers what it asks.`;
+    case 'claude-app':
+      return `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`;
+    default:
+      return prompted ? `The Codex app starts a new thread in ${lane.callsign} on this prompt.` : `Codex opens a new thread in ${lane.callsign}. You write the prompt there.`;
+  }
+}
+
+/** What the window that opened the panel says while a start is under way. `mac` is the other
+ *  Mac's name, when it starts on one Codealong has heard from. */
+export function startingLabel(place: StartPlace, account: string, onModel: string, lane: Pick<Lane, 'repo' | 'callsign'>, newWorktree: boolean, mac: string | null): string {
+  const onMac = mac ? ` on ${mac}` : '';
+  if (place === 'terminal' || place === 'background') return `Starting ${account}${onModel} in ${newWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}${place === 'background' ? ' in the background' : ''}${onMac}…`;
+  if (place === 'codealong') return `Starting ${account}${onModel} in Codealong${onMac}…`;
+  if (place === 'claude-app') return `Opening a new session in the Claude app${onMac}…`;
+  return `Opening a new thread in Codex${onMac}…`;
+}
+
+/** What the agent chip says: Auto or the account, and after it the account Auto picked, the
+ *  model and the effort. With no accounts, why: another Mac's may not have come yet. */
+export function agentChipWords(c: { auto: boolean; account: string | null; accounts: number; remote: { read: boolean; error: string | null } | null; model: string | null; effortWord: string | null }): { label: string; detail: string } {
+  const none = c.remote && !c.remote.read ? (c.remote.error ? 'Couldn’t read its accounts' : 'Reading accounts…') : 'No accounts';
+  const label = c.accounts === 0 ? none : c.auto ? 'Auto' : (c.account ?? 'No account');
+  const detail = [c.auto ? c.account : null, c.model, c.effortWord ? `${c.effortWord} effort` : null].filter(Boolean).join(' · ');
+  return { label, detail };
+}
+
+/** Why Auto starts the account and model it does. `fallback`: it isn't one of the preferred
+ *  accounts, which are all near a limit. */
+export function autoWhy(p: AutoPick, spent: Meter | null, fallback: boolean, now: number): string {
+  if (fallback) return 'preferred accounts are near their limits';
+  if (spent) return `${spent.label}’s week is ${Math.round(spent.percent)}% used`;
+  if (p.reason === 'reset' && p.resetsAt) return `week resets ${resetsPhrase(p.resetsAt, now)}`;
+  return p.reason === 'room' ? 'most room' : '';
+}
+
+/** The agent menu's Auto line: what its filter matches, and the account, model and why. */
+export function autoOptionWords(pick: AutoPick, accounts: StartAccount[], usage: Usage[], models: ModelOption[], now: number): { text: string; detail: string } {
+  const a = accounts.find((x) => x.name === pick.account);
+  const m = autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account));
+  const model = m.model ?? a?.defaultModel ?? null;
+  const why = autoWhy(pick, m.spent, !preferredNames(accounts).includes(pick.account), now);
+  return {
+    text: `auto ${pick.account} ${a ? HARNESS_WORD[a.harness] : ''} ${model ?? ''}`,
+    detail: [pick.account, model ? modelName(model, models) : null, why].filter(Boolean).join(' · '),
+  };
+}
+
+/** An account's heading in the agent menu: its agent, plan and star, and what shows when its
+ *  meters don't. */
+export function accountHeadWords(a: StartAccount, u: Usage | undefined, note: string): { detail: string; note: string } {
+  const cant = a.places.length === 0;
+  return { detail: [HARNESS_WORD[a.harness], u?.plan, a.preferred ? 'Preferred' : null].filter(Boolean).join(' · '), note: cant ? 'Can’t start from here' : note };
+}
+
+/** One of an account's lines in the agent menu: what its filter matches, and what it says. */
+export function agentOptionWords(o: Pick<AgentOption, 'model'>, a: StartAccount, models: ModelOption[]): { text: string; label: string; detail: string | null } {
+  const cant = a.places.length === 0;
+  const text = `${a.name} ${HARNESS_WORD[a.harness]} ${o.model ? `${o.model} ${modelName(o.model, models)}` : 'default'}`;
+  if (o.model) return { text, label: modelName(o.model, models), detail: models.find((m) => m.id === o.model)?.label.split(': ')[1] ?? null };
+  if (takesModel(a)) return { text, label: `Default${a.defaultModel ? ` · ${modelName(a.defaultModel, models)}` : ''}`, detail: a.harness === 'claude' ? 'From its settings.json' : `The one ${HARNESS_WORD[a.harness]} starts on` };
+  const detail = cant ? (a.unavailable ?? null) : a.harness === 'codex' ? 'The model is chosen in Codex' : a.harness === 'opencode' ? 'The model comes from OpenCode’s settings' : null;
+  return { text, label: a.name, detail };
+}
+
+/** What the effort row under the agent menu's models says beside the levels: who picks for a
+ *  harness that picks its own, that Haiku takes none, or null for the keys that step it. */
+export function effortNote(harness: Harness | null, model: string | null): string | null {
+  if (harness && harness !== 'claude') return `${HARNESS_WORD[harness]} picks its own`;
+  return modelFamily(model) === 'haiku' ? 'Haiku takes none' : null;
+}
+
+/** What the New worktree box says of itself. */
+export function newWorktreeTitle(makesWorktree: boolean, place: StartPlace | null, harness: Harness | null): string {
+  const who = harness ? HARNESS_WORD[harness] : 'It';
+  if (makesWorktree) return `${who} makes the worktree: its folder, branch and base.`;
+  return place && onCommandLine(place) ? `${who} can’t start in a new worktree from here.` : 'The app has its own worktree choice; pick it there before you send.';
 }
 
 interface Remembered {

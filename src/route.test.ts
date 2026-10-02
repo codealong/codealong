@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting } from './route';
+import { agoPhrase } from './format';
+import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion, type SuggestionContext } from './route';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
 
@@ -221,3 +222,65 @@ describe('rankedBy', () => {
   });
 });
 
+// A suggestion's row, pinned as it reads for each kind and each state its session can be in.
+describe('suggestionWords', () => {
+  const NOW = fx.NOW;
+  const ctx = (over: Partial<SuggestionContext> = {}): SuggestionContext => ({ now: NOW, text: 'later: fix the login page', account: 'work', onModel: '', place: 'terminal', makesWorktree: true, duplicate: null, ...over });
+  const at = lane('/api', [], 'api', { reuse: 'open', callsign: 'api', project: 'P' });
+  const send = (over: Partial<Session>): Suggestion => ({ kind: 'send', key: 'k', lane: at, session: fx.session({ title: 'Fix it', account: 'work', startedAt: null, ...over }), p: 1 });
+  const open = (over: Partial<Session>): Suggestion => ({ kind: 'open', key: 'k', lane: at, session: fx.session({ title: 'Fix it', account: 'work', startedAt: null, ...over }), p: 1 });
+  const start = (l: Lane, newWorktree = false): Suggestion => ({ kind: 'start', key: 'k', lane: l, newWorktree, p: 1 });
+
+  it('says where a session is, and how old it is first', () => {
+    const w = suggestionWords(send({ live: true, startedAt: NOW - 3 * 3_600_000 }), ctx());
+    expect(w).toEqual({ icon: 'send', title: 'Send to “Fix it”', why: `Started ${agoPhrase(NOW - 3 * 3_600_000, NOW)}. It gets this as its next message.`, where: 'work · api' });
+  });
+
+  it('says how a sent prompt reaches the session', () => {
+    expect(suggestionWords(send({ live: false, harness: 'claude', surface: 'cli' }), ctx()).why).toBe('It isn’t running: it resumes in a new terminal with this prompt.');
+    expect(suggestionWords(send({ live: false, harness: 'codex', surface: 'cli' }), ctx()).why).toBe('It isn’t running: it resumes in a new terminal with this prompt.');
+    expect(suggestionWords(send({ live: false, harness: 'claude', surface: 'app' }), ctx()).why).toBe('It isn’t running: it opens with this prompt ready to send.');
+    expect(suggestionWords(send({ live: true, status: 'working' }), ctx()).why).toBe('It’s working, so this waits for its turn to end.');
+    expect(suggestionWords(send({ live: true, harness: 'claude', surface: 'app' }), ctx()).why).toBe('It gets this as a message from another session, in the Claude app.');
+  });
+
+  it('answers a session that waits on you, and opens one that doesn’t', () => {
+    expect(suggestionWords(open({ status: 'needs' }), ctx())).toEqual({ icon: 'external', title: 'Answer “Fix it”', why: 'It’s waiting on you, so Codealong shows it and you answer there.', where: 'work · api' });
+    expect(suggestionWords(open({ headline: '`work` asks you · Fix the test' }), ctx())).toEqual({ icon: 'external', title: 'Open “Fix it”', why: 'asks you · Fix the test', where: 'work · api' });
+  });
+
+  it('saves a todo titled from what’s typed', () => {
+    expect(suggestionWords({ kind: 'todo', key: 'k', lane: at, p: 1 }, ctx())).toEqual({ icon: 'list-check', title: 'Save as a todo: “Fix the login page”', why: 'In P, linked to api. Start it when you’re ready.', where: 'api' });
+  });
+
+  it('says how new work starts in each place', () => {
+    const free = lane('/api', [], 'api', { reuse: 'free', callsign: 'api', project: 'P' });
+    expect(suggestionWords(start(free), ctx({ onModel: ' on Opus' }))).toEqual({ icon: 'plus', title: 'Start in api', why: 'Starts work on Opus in api. It holds no work now.', where: 'P · api' });
+    expect(suggestionWords(start(free), ctx({ place: 'background' })).why).toBe('Starts work in api in the background. It holds no work now.');
+    expect(suggestionWords(start(free), ctx({ place: 'codealong', account: null })).why).toBe('Codealong runs a session in api. It holds no work now.');
+    expect(suggestionWords(start(free), ctx({ place: 'claude-app' })).why).toBe('The Claude app opens a new session in api with this prompt filled in. It holds no work now.');
+    expect(suggestionWords(start(free), ctx({ place: 'codex-app' })).why).toBe('The Codex app starts a new thread in api on this prompt. It holds no work now.');
+  });
+
+  it('makes a new worktree only where the harness does', () => {
+    const main = lane('/api', [], 'api', { reuse: 'free', callsign: 'api', project: 'P', origin: 'main' });
+    expect(suggestionWords(start(main, true), ctx({ place: 'background' }))).toEqual({ icon: 'plus', title: 'Start in a new worktree of api', why: 'Claude Code makes a new worktree of api and starts work there in the background.', where: 'P · api' });
+    expect(suggestionWords(start(main, true), ctx({ makesWorktree: false }))).toEqual({ icon: 'plus', title: 'Start in api (main)', why: 'Starts work in api. It holds no work now.', where: 'P · api' });
+  });
+
+  it('says what the worktree holds, and warns first of a session that may be on it', () => {
+    const with_ = (reuse: Lane['reuse'], origin: Lane['origin'] = 'script') => lane('/api', [], 'api', { reuse, origin, callsign: 'api', project: 'P' });
+    expect(suggestionWords(start(with_('landed')), ctx()).why).toBe('Starts work in api. Its last work landed.');
+    expect(suggestionWords(start(with_('open')), ctx()).why).toBe('Starts work in api. It joins the work under way there.');
+    expect(suggestionWords(start(with_('open', 'main')), ctx()).why).toBe('Starts work in api.');
+    expect(suggestionWords(start(with_(undefined)), ctx()).why).toBe('Starts work in api.');
+    expect(suggestionWords(start(with_('free')), ctx({ duplicate: { session: { title: 'Login work' } } })).why).toBe('“Login work” may already be on this. Starts work in api. It holds no work now.');
+  });
+});
+
+describe('alreadyOnWords', () => {
+  it('names the session that may already be doing it, or nothing', () => {
+    expect(alreadyOnWords({ lane: { callsign: 'api' }, session: { title: 'Login work', account: 'work' } })).toBe(' “Login work” (work · api) may already be doing this.');
+    expect(alreadyOnWords(null)).toBe('');
+  });
+});

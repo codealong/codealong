@@ -1,5 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { accountFor, AUTO, agentId, agentOptions, autoModel, autoPick, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, preferredNames, settledPlace, takesModel, withLists, type AutoPick } from './start';
+import { resetsPhrase } from './format';
+import {
+  accountFor,
+  accountHeadWords,
+  agentChipWords,
+  AUTO,
+  agentId,
+  agentOptions,
+  agentOptionWords,
+  autoModel,
+  autoOptionWords,
+  autoPick,
+  autoWhy,
+  choices,
+  effortNote,
+  initialChoice,
+  initialPlace,
+  modelFamily,
+  modelMeter,
+  modelName,
+  modelWords,
+  newWorktreeTitle,
+  onCommandLine,
+  onModelWords,
+  parseAgent,
+  placesFor,
+  placeTakesModel,
+  preferredNames,
+  settledPlace,
+  startHappens,
+  startingLabel,
+  takesModel,
+  withLists,
+  type AutoPick,
+  type StartPlan,
+} from './start';
 import * as fx from './testing/fixtures';
 import type { Meter, StartAccount, Usage } from './types';
 
@@ -14,6 +49,7 @@ const ACCOUNTS: StartAccount[] = [
 ];
 
 const NOW = Date.UTC(2026, 8, 24, 12);
+const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
 function meter(key: string, percent: number, resetsAt: number | null = null): Meter {
@@ -244,5 +280,137 @@ describe('Auto’s model', () => {
     expect(autoModel('fable', fable(95)).spent?.key).toBe('model:Fable');
     // Opus nearly used too: Sonnet.
     expect(autoModel('fable', fable(95, 96)).model).toBe('sonnet');
+  });
+});
+
+// The quick panel's words for a start, pinned as they read: a change to one shows here.
+describe('what the quick panel says of a start', () => {
+  const models = [
+    { id: 'opus', label: 'Opus: the most capable' },
+    { id: 'haiku', label: 'Haiku: the fastest' },
+  ];
+  const where = { repo: 'app', callsign: 'feature' };
+  const plan = (over: Partial<StartPlan>): StartPlan => ({ lane: where, account: 'work', place: 'terminal', mac: null, reading: false, newWorktree: false, onModel: '', prompted: false, terminal: 'Ghostty', ...over });
+
+  it('says what each place does with the session', () => {
+    expect(startHappens(plan({}))).toBe('Ghostty starts work in feature.');
+    expect(startHappens(plan({ prompted: true, onModel: ' on Opus' }))).toBe('Ghostty starts work on Opus in feature with this prompt.');
+    expect(startHappens(plan({ newWorktree: true }))).toBe('Claude Code makes a new worktree of app and starts work there in Ghostty.');
+    expect(startHappens(plan({ place: 'background' }))).toBe('work starts in the background in feature, with no terminal. Attach one any time.');
+    expect(startHappens(plan({ place: 'background', newWorktree: true, prompted: true }))).toBe('Claude Code makes a new worktree of app and starts work there in the background with this prompt. Attach a terminal any time.');
+    expect(startHappens(plan({ place: 'codealong', prompted: true }))).toBe('Codealong runs work in feature with this prompt. Its panel here shows the reply, takes the next prompt and answers what it asks.');
+    expect(startHappens(plan({ place: 'claude-app' }))).toBe('The Claude app opens a new session in feature. You send it from there.');
+    expect(startHappens(plan({ place: 'claude-app', prompted: true }))).toBe('The Claude app opens a new session in feature with this prompt filled in. You send it from there.');
+    expect(startHappens(plan({ place: 'codex-app' }))).toBe('Codex opens a new thread in feature. You write the prompt there.');
+    expect(startHappens(plan({ place: 'codex-app', prompted: true }))).toBe('The Codex app starts a new thread in feature on this prompt.');
+  });
+
+  it('says why nothing can start, or nothing when it’s only the account or place missing', () => {
+    expect(startHappens(plan({ lane: null }))).toBe('No worktrees in this project yet.');
+    expect(startHappens(plan({ lane: null, reading: true }))).toBe('Reading worktrees…');
+    expect(startHappens(plan({ lane: null, mac: { name: 'Studio', error: null } }))).toBe('No worktrees in this project on Studio.');
+    expect(startHappens(plan({ lane: null, mac: { name: null, error: null } }))).toBe('No worktrees in this project on That Mac.');
+    expect(startHappens(plan({ account: null }))).toBe('');
+    expect(startHappens(plan({ place: null, mac: { name: 'Studio', error: null } }))).toBe('');
+    expect(startHappens(plan({ place: null, mac: { name: 'Studio', error: 'it timed out' } }))).toBe('Studio didn’t say where its accounts can start: it timed out');
+  });
+
+  it('puts another Mac’s name first', () => {
+    expect(startHappens(plan({ mac: { name: 'Studio', error: null } }))).toBe('On Studio: Ghostty starts work in feature.');
+    expect(startHappens(plan({ mac: { name: null, error: null } }))).toBe('On That Mac: Ghostty starts work in feature.');
+  });
+
+  it('labels a start while it’s under way', () => {
+    expect(startingLabel('terminal', 'work', ' on Opus', where, false, null)).toBe('Starting work on Opus in feature…');
+    expect(startingLabel('background', 'work', '', where, true, 'Studio')).toBe('Starting work in a new worktree of app in the background on Studio…');
+    expect(startingLabel('codealong', 'work', '', where, false, null)).toBe('Starting work in Codealong…');
+    expect(startingLabel('claude-app', 'work', '', where, false, null)).toBe('Opening a new session in the Claude app…');
+    expect(startingLabel('codex-app', 'work', '', where, false, 'Studio')).toBe('Opening a new thread in Codex on Studio…');
+  });
+
+  it('says the model and effort it starts on', () => {
+    expect(onModelWords(null, null, models)).toBe('');
+    expect(onModelWords('opus', null, models)).toBe(' on Opus');
+    expect(onModelWords('opus', 'High', models)).toBe(' on Opus at high effort');
+    expect(onModelWords(null, 'Extra', models)).toBe(' at extra effort');
+  });
+
+  it('says on the agent chip which model, or who picks it', () => {
+    expect(modelWords(true, 'terminal', 'claude', 'haiku', 'opus', models)).toBe('Haiku');
+    expect(modelWords(true, 'terminal', 'claude', null, 'opus', models)).toBe('Opus');
+    expect(modelWords(true, 'terminal', 'claude', null, null, models)).toBe('default model');
+    expect(modelWords(false, 'claude-app', 'claude', null, 'opus', models)).toBe('model chosen in the Claude app');
+    expect(modelWords(false, 'codex-app', 'codex', null, null, models)).toBe('model chosen in Codex');
+    expect(modelWords(false, 'terminal', 'opencode', null, null, models)).toBe('OpenCode’s model');
+    expect(modelWords(false, 'terminal', 'codex', null, null, models)).toBe('Codex’s model');
+    expect(modelWords(false, 'terminal', 'antigravity', null, null, models)).toBe('Antigravity’s model');
+    expect(modelWords(false, 'terminal', 'claude', null, null, models)).toBeNull();
+  });
+
+  it('puts the account, Auto’s pick, the model and the effort on the agent chip', () => {
+    const chip = (over: Partial<Parameters<typeof agentChipWords>[0]>) => agentChipWords({ auto: false, account: 'work', accounts: 2, remote: null, model: 'Opus', effortWord: null, ...over });
+    expect(chip({})).toEqual({ label: 'work', detail: 'Opus' });
+    expect(chip({ auto: true, effortWord: 'High' })).toEqual({ label: 'Auto', detail: 'work · Opus · High effort' });
+    expect(chip({ account: null, model: null })).toEqual({ label: 'No account', detail: '' });
+    expect(chip({ accounts: 0 }).label).toBe('No accounts');
+    expect(chip({ accounts: 0, remote: { read: false, error: null } }).label).toBe('Reading accounts…');
+    expect(chip({ accounts: 0, remote: { read: false, error: 'no answer' } }).label).toBe('Couldn’t read its accounts');
+    expect(chip({ accounts: 0, remote: { read: true, error: null } }).label).toBe('No accounts');
+  });
+
+  it('says why Auto picks what it does', () => {
+    const pick = (reason: AutoPick['reason'], resetsAt: number | null = null): AutoPick => ({ account: 'work', reason, resetsAt });
+    expect(autoWhy(pick('room'), null, true, NOW)).toBe('preferred accounts are near their limits');
+    expect(autoWhy(pick('room'), fx.meter({ label: 'Fable', percent: 91.4 }), false, NOW)).toBe('Fable’s week is 91% used');
+    expect(autoWhy(pick('reset', NOW + DAY), null, false, NOW)).toBe(`week resets ${resetsPhrase(NOW + DAY, NOW)}`);
+    expect(autoWhy(pick('reset'), null, false, NOW)).toBe('');
+    expect(autoWhy(pick('room'), null, false, NOW)).toBe('most room');
+    expect(autoWhy(pick('first'), null, false, NOW)).toBe('');
+  });
+
+  it('writes the agent menu’s lines', () => {
+    const accounts = [fx.startAccount({ name: 'claude', places: [ghostty], defaultModel: 'opus', preferred: true }), fx.startAccount({ name: 'claude2', places: [ghostty] })];
+    expect(autoOptionWords({ account: 'claude', reason: 'room', resetsAt: null }, accounts, [], models, NOW)).toEqual({ text: 'auto claude Claude Code opus', detail: 'claude · Opus · most room' });
+    expect(autoOptionWords({ account: 'claude2', reason: 'first', resetsAt: null }, accounts, [], models, NOW)).toEqual({ text: 'auto claude2 Claude Code ', detail: 'claude2 · preferred accounts are near their limits' });
+
+    expect(accountHeadWords(accounts[0], fx.usage({ account: 'claude', plan: 'Max' }), 'No usage yet')).toEqual({ detail: 'Claude Code · Max · Preferred', note: 'No usage yet' });
+    expect(accountHeadWords(fx.startAccount({ name: 'off', harness: 'codex' }), undefined, 'No usage yet')).toEqual({ detail: 'Codex', note: 'Can’t start from here' });
+
+    const claude = accounts[0];
+    expect(agentOptionWords({ model: 'opus' }, claude, models)).toEqual({ text: 'claude Claude Code opus Opus', label: 'Opus', detail: 'the most capable' });
+    expect(agentOptionWords({ model: 'opus[1m]' }, claude, models)).toEqual({ text: 'claude Claude Code opus[1m] opus 1M', label: 'opus 1M', detail: null });
+    expect(agentOptionWords({ model: null }, claude, models)).toEqual({ text: 'claude Claude Code default', label: 'Default · Opus', detail: 'From its settings.json' });
+    expect(agentOptionWords({ model: null }, fx.startAccount({ name: 'c2', places: [ghostty] }), models).label).toBe('Default');
+    const codexCli = fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty], models: [{ id: 'gpt', label: 'GPT' }] });
+    expect(agentOptionWords({ model: null }, codexCli, models)).toEqual({ text: 'codex Codex default', label: 'Default', detail: 'The one Codex starts on' });
+    expect(agentOptionWords({ model: null }, fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp] }), models)).toEqual({ text: 'codex Codex default', label: 'codex', detail: 'The model is chosen in Codex' });
+    expect(agentOptionWords({ model: null }, fx.startAccount({ name: 'oc', harness: 'opencode', places: [ghostty], models: [] }), models).detail).toBe('The model comes from OpenCode’s settings');
+    expect(agentOptionWords({ model: null }, fx.startAccount({ name: 'ag', harness: 'antigravity', places: [ghostty], models: [] }), models).detail).toBeNull();
+    expect(agentOptionWords({ model: null }, fx.startAccount({ name: 'out', harness: 'codex', unavailable: 'Not signed in' }), models)).toEqual({ text: 'out Codex default', label: 'out', detail: 'Not signed in' });
+  });
+
+  it('says beside the effort levels who picks, or that Haiku takes none', () => {
+    expect(effortNote('codex', null)).toBe('Codex picks its own');
+    expect(effortNote('claude', 'haiku')).toBe('Haiku takes none');
+    expect(effortNote(null, 'claude-haiku-4-5')).toBe('Haiku takes none');
+    expect(effortNote('claude', 'opus')).toBeNull();
+  });
+
+  it('says what the New worktree box does there', () => {
+    expect(newWorktreeTitle(true, 'terminal', 'claude')).toBe('Claude Code makes the worktree: its folder, branch and base.');
+    expect(newWorktreeTitle(true, null, null)).toBe('It makes the worktree: its folder, branch and base.');
+    expect(newWorktreeTitle(false, 'background', 'codex')).toBe('Codex can’t start in a new worktree from here.');
+    expect(newWorktreeTitle(false, 'claude-app', 'claude')).toBe('The app has its own worktree choice; pick it there before you send.');
+    expect(newWorktreeTitle(false, null, null)).toBe('The app has its own worktree choice; pick it there before you send.');
+  });
+
+  it('knows which places start the command line, and which take a model', () => {
+    expect((['terminal', 'background', 'codealong', 'claude-app', 'codex-app'] as const).map((p) => [onCommandLine(p), placeTakesModel(p)])).toEqual([
+      [true, true],
+      [true, true],
+      [false, true],
+      [false, false],
+      [false, false],
+    ]);
   });
 });

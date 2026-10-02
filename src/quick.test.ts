@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, queueRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks } from './quick';
+import { agoPhrase } from './format';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, macUnavailable, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount } from './quick';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
@@ -351,5 +352,37 @@ describe('stillSaid', () => {
     // A word typed further along narrows what's kept; one no line has keeps nothing.
     expect(stillSaid(hits, ['quick', 'fixes'])).toEqual([]);
     expect(stillSaid(hits, [])).toEqual(hits);
+  });
+});
+
+describe('what the start row and the Mac menu say', () => {
+  it('titles the start row by what it starts for', () => {
+    expect(startTitle(3, true)).toBe('Start one session for these 3 todos');
+    expect(startTitle(1, true)).toBe('Start a session for this todo');
+    expect(startTitle(0, true)).toBe('Start a new session with this prompt');
+    expect(startTitle(0, false)).toBe('Start a new session');
+  });
+
+  it('adds what goes with the prompt, and what isn’t linked on another Mac', () => {
+    expect(attachmentsNote(1)).toBe(' The attachment goes as a file path the agent opens.');
+    expect(attachmentsNote(2)).toBe(' Attachments go as file paths the agent opens.');
+    expect(todosStayNote(1)).toBe(' Todos are this Mac’s, so it isn’t linked to the session.');
+    expect(todosStayNote(2)).toBe(' Todos are this Mac’s, so they aren’t linked to the session.');
+  });
+
+  it('counts a Mac’s worktrees in the project', () => {
+    expect(worktreeCount(1, 'Acme')).toBe('1 worktree in Acme');
+    expect(worktreeCount(0, ALL_PROJECTS)).toBe('0 worktrees');
+  });
+
+  it('says why another Mac can’t start a session now', () => {
+    expect(macUnavailable({ name: 'Studio', online: true, lastSeen: null, remoteControl: true }, NOW)).toEqual({ away: null, off: null, title: undefined });
+    expect(macUnavailable({ name: 'Studio', online: false, lastSeen: null, remoteControl: true }, NOW)).toEqual({ away: 'Away', off: null, title: undefined });
+    expect(macUnavailable({ name: 'Studio', online: false, lastSeen: NOW - 7_200_000, remoteControl: false }, NOW).away).toBe(`Away: last seen ${agoPhrase(NOW - 7_200_000, NOW)}`);
+    expect(macUnavailable({ name: 'Studio', online: true, lastSeen: null, remoteControl: false }, NOW)).toEqual({
+      away: null,
+      off: 'Remote control is off there',
+      title: 'Remote control is off on Studio; turn it on there in Settings › Devices to start sessions from here.',
+    });
   });
 });
