@@ -1065,7 +1065,7 @@ mod tests {
         std::fs::write(&transcript, r#"{"type":"user","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:00:00.000Z","message":{"role":"user","content":"Fix the build"}}
 "#).unwrap();
         let seen = crate::state::SeenState::default();
-        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap() };
+        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap(), ps: Default::default() };
         let mut reader = Reader::default();
         reader.apply(&from, std::slice::from_ref(&transcript), &look);
         let moved = |key: &str, how| Some(SessionOrigin { key: key.into(), how });
@@ -1105,7 +1105,7 @@ mod tests {
         let account = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
         let seen = crate::state::SeenState::default();
         let now = parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap();
-        let look = Look { seen: &seen, since: 0, now };
+        let look = Look { seen: &seen, since: 0, now, ps: Default::default() };
         let mut reader = Reader::default();
         let transcript = project.join("s1.jsonl");
         assert!(reader.owns(&account, &transcript) && reader.owns(&account, &home.join("sessions/41.json")));

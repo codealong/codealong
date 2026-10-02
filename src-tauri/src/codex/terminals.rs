@@ -16,16 +16,14 @@ pub struct Terminal {
 
 /// Codex's interactive terminals on this Mac. Its daemon, `exec` runs and the app's own
 /// app-server aren't terminals; neither is anything run from inside an app bundle.
-pub fn terminals() -> Vec<Terminal> {
-    let Ok(out) = crate::procs::run("/bin/ps", &["-axo", "pid=,command="], None, std::time::Duration::from_secs(3)) else { return Vec::new() };
-    out.lines()
-        .filter_map(|line| {
-            let (pid, command) = line.trim().split_once(' ')?;
-            let pid: u32 = pid.parse().ok()?;
-            let (thread, dir) = terminal_args(command)?;
-            let cwd = dir.or_else(|| crate::opencode::cwd_of(pid))?;
+pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
+    processes
+        .iter()
+        .filter_map(|p| {
+            let (thread, dir) = terminal_args(&p.command)?;
+            let cwd = dir.or_else(|| crate::procs::cwd_of(p.pid))?;
             let cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
-            Some(Terminal { pid, cwd, thread, started_at: crate::procs::proc_start_ms(pid)? })
+            Some(Terminal { pid: p.pid, cwd, thread, started_at: crate::procs::proc_start_ms(p.pid)? })
         })
         .collect()
 }

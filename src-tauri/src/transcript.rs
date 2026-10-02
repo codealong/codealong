@@ -26,7 +26,7 @@ use crate::attachments;
 use crate::config::Config;
 use crate::harness::{adapter, find, Ctx};
 use crate::model::Board;
-use crate::util::{parse_rfc3339_ms, truncate};
+use crate::util::{parse_rfc3339_ms, read_tail, truncate, whole_end};
 
 /// What a tool's input and output keep: enough to read, not a build log.
 const INPUT_MAX: usize = 4000;
@@ -162,34 +162,12 @@ fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
     page
 }
 
-/// The end of the last whole line: a line still being written waits for the next read.
-fn whole_end(f: &mut std::fs::File, len: u64) -> std::io::Result<u64> {
-    let mut end = len;
-    let mut byte = [0u8; 1];
-    while end > 0 {
-        f.seek(SeekFrom::Start(end - 1))?;
-        f.read_exact(&mut byte)?;
-        if byte[0] == b'\n' {
-            return Ok(end);
-        }
-        // Look back a chunk at a time for the last newline.
-        let lo = end.saturating_sub(CHUNK);
-        let mut buf = vec![0; (end - lo) as usize];
-        f.seek(SeekFrom::Start(lo))?;
-        f.read_exact(&mut buf)?;
-        match buf.iter().rposition(|&b| b == b'\n') {
-            Some(i) => return Ok(lo + i as u64 + 1),
-            None => end = lo,
-        }
-    }
-    Ok(0)
-}
-
 /// A page of a JSON-lines record (a transcript, a rollout) before `before`, whole lines at a time.
 pub fn file_page(path: &Path, parse: Parse, before: Option<u64>, limit: usize) -> Result<Page> {
     let mut f = std::fs::File::open(path)?;
     let len = f.metadata()?.len();
-    let end = whole_end(&mut f, len)?;
+    // A line still being written waits for the next read.
+    let end = whole_end(&mut f, 0, len)?;
     let after = end;
     // `hi` is always a line start; `buf` holds the bytes from `lo` up to it, so when it isn't
     // empty it ends with the newline of the line before `hi`.
@@ -240,24 +218,19 @@ pub fn file_page(path: &Path, parse: Parse, before: Option<u64>, limit: usize) -
 
 /// The whole lines of a JSON-lines record after `after`.
 pub fn file_newer(path: &Path, parse: Parse, after: u64) -> Result<Page> {
-    let mut f = std::fs::File::open(path)?;
-    let len = f.metadata()?.len();
-    let end = whole_end(&mut f, len)?;
-    if end <= after {
-        return Ok(Page { items: Vec::new(), before: None, after: end.max(after) });
+    let tail = read_tail(path, after)?;
+    if tail.end <= after {
+        return Ok(Page { items: Vec::new(), before: None, after: tail.end.max(after) });
     }
-    let mut buf = Vec::with_capacity((end - after) as usize);
-    f.seek(SeekFrom::Start(after))?;
-    (&mut f).take(end - after).read_to_end(&mut buf)?;
     let mut items = Vec::new();
-    let mut at = after;
-    for line in buf.split(|&b| b == b'\n') {
+    let mut at = tail.start;
+    for line in tail.bytes.split(|&b| b == b'\n') {
         if !line.is_empty() && line.len() <= LINE_MAX {
             items.extend(items_of(line, parse, at));
         }
         at += line.len() as u64 + 1;
     }
-    Ok(Page { items, before: None, after: end })
+    Ok(Page { items, before: None, after: tail.end })
 }
 
 fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {

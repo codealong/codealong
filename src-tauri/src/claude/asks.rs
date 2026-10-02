@@ -12,7 +12,7 @@
 //! the hook returns (a background subagent's): their session doesn't say it's waiting, so the
 //! hook goes a few seconds later and the prompt shows where the session runs.
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -28,7 +28,7 @@ use super::registry::{registry_of, INPUT_NEEDED, PERMISSION_PROMPT};
 use super::transcript::tool_request;
 use crate::model::{Harness, Session, Status};
 use crate::transcript::clip_input;
-use crate::util::{code, one_line};
+use crate::util::{code, one_line, read_last};
 
 /// A request as the hook gives it, less what Codealong doesn't use.
 #[derive(Debug, Clone, PartialEq)]
@@ -257,23 +257,14 @@ fn call_answered(record: &Path, asked: &Asked, from: u64) -> bool {
     if record.as_os_str().is_empty() {
         return false;
     }
-    let Ok(mut f) = std::fs::File::open(record) else { return false };
-    let Ok(len) = f.metadata().map(|m| m.len()) else { return false };
-    let start = len.saturating_sub(TAIL);
-    let mut buf = Vec::new();
-    if f.seek(SeekFrom::Start(start)).is_err() || f.take(TAIL).read_to_end(&mut buf).is_err() {
-        return false;
-    }
+    // A tail that starts mid-file starts at the first line that's whole.
+    let Ok(tail) = read_last(record, TAIL) else { return false };
     let mut calls: Vec<String> = Vec::new();
     let mut results: Vec<(u64, String)> = Vec::new();
-    let mut at = start;
-    for (n, line) in buf.split(|&b| b == b'\n').enumerate() {
+    let mut at = tail.start;
+    for line in tail.bytes.split(|&b| b == b'\n') {
         let here = at;
         at += line.len() as u64 + 1;
-        // The first line of a tail that starts mid-file is cut short.
-        if n == 0 && start > 0 {
-            continue;
-        }
         let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
         let Some(content) = v.get("message").and_then(|m| m.get("content")).and_then(Value::as_array) else { continue };
         for p in content {

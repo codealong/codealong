@@ -9,9 +9,9 @@ use serde_json::Value;
 use super::ClaudeCode;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{read_range, tool_request, typed_text, you_typed};
+use super::transcript::{tool_request, typed_text, you_typed};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
-use crate::util::{one_line, parse_rfc3339_ms};
+use crate::util::{one_line, parse_rfc3339_ms, read_range};
 
 /// One transcript line as conversation items (transcript.rs): a prompt you typed, the agent's
 /// text and tool calls, a tool's result by the call's id, and notes.

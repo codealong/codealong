@@ -414,6 +414,8 @@ pub struct Look<'a> {
     /// Sessions quiet since before then aren't read, unless they're pinned.
     pub since: i64,
     pub now: i64,
+    /// The processes on this Mac, listed once for every reader that looks (`procs::Listing`).
+    pub ps: crate::procs::Listing,
 }
 
 impl Look<'_> {

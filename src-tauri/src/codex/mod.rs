@@ -467,7 +467,7 @@ impl crate::harness::Reader for Reader {
             }
         }
         if !accounts.is_empty() {
-            self.terminals = terminals();
+            self.terminals = terminals(look.ps.all());
         }
         self.refresh_archived(accounts, look);
     }
@@ -498,7 +498,7 @@ impl crate::harness::Reader for Reader {
     fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         let mut out = self.poll_rollouts(accounts, look);
         if !accounts.is_empty() {
-            let fresh = terminals();
+            let fresh = terminals(look.ps.all());
             out.dirty |= fresh != self.terminals;
             self.terminals = fresh;
         }
@@ -597,7 +597,7 @@ mod tests {
         let accounts = std::slice::from_ref(&account);
         let seen = crate::state::SeenState::default();
         let now = parse_rfc3339_ms("2026-09-24T18:35:00.000Z").unwrap();
-        let look = Look { seen: &seen, since: now - 14 * crate::util::DAY_MS, now };
+        let look = Look { seen: &seen, since: now - 14 * crate::util::DAY_MS, now, ps: Default::default() };
         // A startup scan has the previous completed turn. No filesystem events follow.
         let mut reader = Reader::default();
         reader.rollouts.insert(path.clone(), ("studio".into(), parse_rollout(&path, 0, None)));

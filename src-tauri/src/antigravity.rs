@@ -386,19 +386,8 @@ pub struct Tail {
 /// Reads the end of a transcript. `own` is the conversation's folder, where a command that
 /// only looks still counts as work.
 pub fn tail(path: &Path, own: Option<&str>) -> Tail {
-    use std::io::{Read, Seek, SeekFrom};
-    let Ok(mut f) = std::fs::File::open(path) else { return Tail::default() };
-    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
-    let start = len.saturating_sub(TAIL);
-    let mut text = String::new();
-    if f.seek(SeekFrom::Start(start)).is_err() || f.take(TAIL).read_to_string(&mut text).is_err() {
-        // The cut fell inside a character: read it as it comes.
-        let Ok(bytes) = std::fs::read(path) else { return Tail::default() };
-        text = String::from_utf8_lossy(&bytes[start as usize..]).into_owned();
-    }
-    // A cut drops the line it fell in.
-    let whole = if start > 0 { text.split_once('\n').map(|(_, rest)| rest).unwrap_or("") } else { text.as_str() };
-    tail_of(whole, own)
+    // Whole lines only: a cut drops the line it fell in, whatever it fell inside.
+    crate::util::read_last(path, TAIL).map(|end| tail_of(&end.text(), own)).unwrap_or_default()
 }
 
 fn tail_of(text: &str, own: Option<&str>) -> Tail {
@@ -459,9 +448,7 @@ impl crate::send::Own for OnClipboard {
 
 /// What a conversation was first asked, and when, from the start of its record.
 fn first_request(path: &Path) -> Option<(String, i64)> {
-    use std::io::Read;
-    let mut text = String::new();
-    std::fs::File::open(path).ok()?.take(TAIL).read_to_string(&mut text).ok();
+    let text = crate::util::read_head(path, TAIL as usize)?;
     text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).find_map(|v| {
         let s = step(&v).filter(|s| s.kind == "USER_INPUT")?;
         Some((one_line(request_of(s.content), 140), s.at)).filter(|(asked, _)| !asked.is_empty())
@@ -548,20 +535,15 @@ fn held_conversation(open_files: &str) -> Option<String> {
 }
 
 /// The command line's processes, each with the conversation it has open, and whether the hub
-/// app's agent is running. One `ps`, and an `lsof` for each `agy`.
-pub fn processes() -> (Vec<Process>, bool) {
-    let Ok(out) = procs::run("/bin/ps", &["-axo", "pid=,tty=,command="], None, Duration::from_secs(3)) else { return (Vec::new(), false) };
+/// app's agent is running. From the list of every process, and an `lsof` for each `agy`.
+pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
     let mut app = false;
     let mut found = Vec::new();
-    for line in out.lines() {
-        let mut parts = line.trim_start().splitn(2, char::is_whitespace);
-        let (Some(pid), Some(rest)) = (parts.next().and_then(|p| p.parse::<u32>().ok()), parts.next()) else { continue };
-        let mut parts = rest.trim_start().splitn(2, char::is_whitespace);
-        let (Some(tty), Some(command)) = (parts.next(), parts.next().map(str::trim_start)) else { continue };
-        app |= is_app_agent(command);
-        if let Some(interactive) = cli_args(command) {
-            let conversation = procs::run("/usr/sbin/lsof", &["-Fn", "-p", &pid.to_string()], None, Duration::from_secs(3)).ok().and_then(|files| held_conversation(&files));
-            found.push(Process { pid, conversation, terminal: interactive && !tty.starts_with('?') });
+    for p in listed {
+        app |= is_app_agent(&p.command);
+        if let Some(interactive) = cli_args(&p.command) {
+            let conversation = procs::run("/usr/sbin/lsof", &["-Fn", "-p", &p.pid.to_string()], None, Duration::from_secs(3)).ok().and_then(|files| held_conversation(&files));
+            found.push(Process { pid: p.pid, conversation, terminal: interactive && !p.tty.starts_with('?') });
         }
     }
     (found, app)
@@ -620,7 +602,7 @@ impl Reader {
         let dirs = folders(&a.home_path());
         // A change in the command line's folder is often a process that came or went.
         if dirs.iter().any(|f| f.cli) && self.looked_at.map_or(true, |t| t.elapsed() >= Duration::from_secs(2)) {
-            self.look_at_processes();
+            self.look_at_processes(look);
         }
         let keep = look.seen.pinned_ids("antigravity", &a.name);
         let before: HashMap<String, Conversation> = self.conversations.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
@@ -647,9 +629,9 @@ impl Reader {
     }
 
     /// Looks at the processes again. True when they changed.
-    fn look_at_processes(&mut self) -> bool {
+    fn look_at_processes(&mut self, look: &Look) -> bool {
         self.looked_at = Some(Instant::now());
-        let (processes, app_running) = processes();
+        let (processes, app_running) = processes(look.ps.all());
         let changed = processes != self.processes || app_running != self.app_running;
         self.processes = processes;
         self.app_running = app_running;
@@ -665,7 +647,7 @@ impl crate::harness::Reader for Reader {
     fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
         self.conversations.clear();
         if !accounts.is_empty() {
-            self.look_at_processes();
+            self.look_at_processes(look);
         }
         for a in accounts {
             self.reread(a, look);
@@ -701,7 +683,7 @@ impl crate::harness::Reader for Reader {
     /// went leaves its conversation as it was: either way they're read again.
     fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         let mut out = Applied::default();
-        if !accounts.is_empty() && self.look_at_processes() {
+        if !accounts.is_empty() && self.look_at_processes(look) {
             out.dirty = true;
             for a in accounts {
                 out.added |= self.reread(a, look);
@@ -1156,7 +1138,7 @@ mod tests {
 
         let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
         let seen = crate::state::SeenState::default();
-        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap() };
+        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap(), ps: Default::default() };
         let mut reader = Reader::default();
         assert!(reader.reread(&account, &look), "a conversation that's new may need a lane");
         assert!(!reader.reread(&account, &look));
@@ -1240,7 +1222,7 @@ mod tests {
         let seen = crate::state::SeenState::default();
         let look = || {
             let now = crate::util::now_ms();
-            Look { seen: &seen, since: now - crate::util::DAY_MS, now }
+            Look { seen: &seen, since: now - crate::util::DAY_MS, now, ps: Default::default() }
         };
         let mut reader = Reader::default();
         reader.scan(accounts, &look());
@@ -1299,5 +1281,20 @@ mod tests {
         // Your request without what Antigravity wraps it in, and the replies; no calls, results or notes.
         assert_eq!(said, [(true, "Count the lines, then fix notes.txt".to_string()), (false, "Counting first.".to_string()), (false, "Done: one line, and **notes.txt** is fixed.".to_string())]);
         assert_eq!(Antigravity.prose(LINES[0].as_bytes()).unwrap().0, parse_rfc3339_ms("2026-10-01T16:55:10Z").unwrap());
+    }
+
+    /// A record longer than what's read of it, where each cut (the start's and the end's) falls
+    /// inside a two-byte character in one of the two files: only the line it fell in is lost.
+    #[test]
+    fn a_cut_inside_a_character_costs_only_its_line() {
+        let dir = crate::fixtures::scratch("agy-cut");
+        for lead in ["", "x"] {
+            let path = dir.join(format!("transcript{}.jsonl", lead.len()));
+            let note = format!(r#"{{"step_index":1,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-10-01T16:55:15Z","content":"{lead}{}"}}"#, "é".repeat(200_000));
+            std::fs::write(&path, format!("{}\n{note}\n{}\n", LINES[0], LINES[7])).unwrap();
+            assert!(std::fs::metadata(&path).unwrap().len() > TAIL + 100_000);
+            assert_eq!(first_request(&path).map(|(asked, _)| asked).as_deref(), Some("Count the lines, then fix notes.txt"), "lead {lead:?}");
+            assert_eq!(tail(&path, None).last_text.as_deref(), Some("Done: one line, and notes.txt is fixed."), "lead {lead:?}");
+        }
     }
 }

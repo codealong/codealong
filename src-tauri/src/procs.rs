@@ -382,6 +382,39 @@ pub fn eval_command(cmdline: &str) -> Option<String> {
     Some(inner.replace("'\\''", "'")).filter(|c| !c.trim().is_empty())
 }
 
+/// A process as `ps` lists it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PsLine {
+    pub pid: u32,
+    /// Its terminal as `ps` names it (`ttys004`), or `??` for none.
+    pub tty: String,
+    /// Its command line: `ps` joins the arguments with spaces.
+    pub command: String,
+}
+
+/// Every process on this Mac, from one `ps` run the first time it's asked for and kept. The
+/// harnesses' readers each look for their own terminals in it, so a tick that asks them all
+/// (`harness::Look`) runs `ps` once.
+#[derive(Default)]
+pub struct Listing(OnceLock<Vec<PsLine>>);
+
+impl Listing {
+    pub fn all(&self) -> &[PsLine] {
+        self.0.get_or_init(|| run("/bin/ps", &["-axo", "pid=,tty=,command="], None, Duration::from_secs(3)).map(|out| ps_lines(&out)).unwrap_or_default())
+    }
+}
+
+/// `ps -o pid=,tty=,command=` as processes.
+fn ps_lines(out: &str) -> Vec<PsLine> {
+    out.lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
+            let (tty, command) = rest.trim_start().split_once(char::is_whitespace)?;
+            Some(PsLine { pid: pid.parse().ok()?, tty: tty.to_string(), command: command.trim().to_string() })
+        })
+        .collect()
+}
+
 /// Runs a program with the user's PATH and returns stdout. Fails on a non-zero exit (with
 /// stderr in the message) or when `timeout` passes.
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<String> {
@@ -560,6 +593,19 @@ pub mod stand_in {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reads_what_ps_lists_as_processes() {
+        use super::{ps_lines, PsLine};
+        let out = "  501 ttys004  /opt/homebrew/bin/codex resume 01a0e375 \n88123 ??       /Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf x\nnot a process\n";
+        assert_eq!(
+            ps_lines(out),
+            vec![
+                PsLine { pid: 501, tty: "ttys004".into(), command: "/opt/homebrew/bin/codex resume 01a0e375".into() },
+                PsLine { pid: 88123, tty: "??".into(), command: "/Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf x".into() },
+            ]
+        );
+    }
+
     #[test]
     fn a_command_tree_is_the_shells_under_a_session_and_what_they_run() {
         let table = "\

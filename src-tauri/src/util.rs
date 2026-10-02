@@ -1,7 +1,7 @@
 //! Small helpers shared by the adapters: time, paths, bounded file reads and text shaping.
 
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -78,6 +78,101 @@ pub fn read_first_line(p: &Path, max: u64) -> Option<String> {
     } else {
         Some(line)
     }
+}
+
+/// The bytes of a file from `start` up to `end`, as text. What isn't UTF-8 in them reads as
+/// U+FFFD, so a range should start and end where lines do.
+pub fn read_range(path: &Path, start: u64, end: u64) -> Option<String> {
+    let mut f = File::open(path).ok()?;
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity(end.saturating_sub(start) as usize);
+    f.take(end.saturating_sub(start)).read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Where the last whole line of a file `len` long ends, looking back no further than `floor`:
+/// a line still being written waits for the next read. `floor` when no line ends after it.
+pub fn whole_end(f: &mut File, floor: u64, len: u64) -> std::io::Result<u64> {
+    const CHUNK: u64 = 256 * 1024;
+    let mut end = len;
+    // Most files end where a line does.
+    if end > floor {
+        let mut last = [0u8; 1];
+        f.seek(SeekFrom::Start(end - 1))?;
+        f.read_exact(&mut last)?;
+        if last[0] == b'\n' {
+            return Ok(end);
+        }
+    }
+    while end > floor {
+        // Look back a chunk at a time for the last newline.
+        let lo = end.saturating_sub(CHUNK).max(floor);
+        let mut buf = vec![0; (end - lo) as usize];
+        f.seek(SeekFrom::Start(lo))?;
+        f.read_exact(&mut buf)?;
+        if let Some(i) = buf.iter().rposition(|&b| b == b'\n') {
+            return Ok(lo + i as u64 + 1);
+        }
+        end = lo;
+    }
+    Ok(floor)
+}
+
+/// The end of a file of lines, as `read_tail` read it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Tail {
+    /// Where its first line starts in the file and where its last one ends: the next read goes
+    /// on from `end`.
+    pub start: u64,
+    pub end: u64,
+    /// The lines, each with its newline.
+    pub bytes: Vec<u8>,
+}
+
+impl Tail {
+    /// The lines as text. They were cut where lines end before being decoded, so a character
+    /// the read started inside went with its line, and whatever else isn't UTF-8 reads as
+    /// U+FFFD without moving `start` or `end`.
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.bytes).into_owned()
+    }
+}
+
+/// Reads a file of lines from `from` to its end, whole lines only. A read that starts inside a
+/// line drops that line, which belongs to whoever read up to there, and a last line with no
+/// newline yet is left for the next read. Nothing before `from` is read but the one byte that
+/// says whether a line starts there, however the rest decodes.
+pub fn read_tail(path: &Path, from: u64) -> std::io::Result<Tail> {
+    let mut f = File::open(path)?;
+    let len = f.metadata()?.len();
+    let from = from.min(len);
+    let end = whole_end(&mut f, from, len)?;
+    let mid_line = from > 0 && {
+        let mut before = [0u8; 1];
+        f.seek(SeekFrom::Start(from - 1))?;
+        f.read_exact(&mut before)?;
+        before[0] != b'\n'
+    };
+    let mut bytes = Vec::with_capacity((end - from) as usize);
+    f.seek(SeekFrom::Start(from))?;
+    (&mut f).take(end - from).read_to_end(&mut bytes)?;
+    let mut start = from;
+    if mid_line {
+        match bytes.iter().position(|&b| b == b'\n') {
+            Some(i) => {
+                bytes.drain(..=i);
+                start += i as u64 + 1;
+            }
+            None => bytes.clear(),
+        }
+    }
+    Ok(Tail { start, end: start + bytes.len() as u64, bytes })
+}
+
+/// The last `max` bytes of a file of lines, as `read_tail` reads them.
+pub fn read_last(path: &Path, max: u64) -> std::io::Result<Tail> {
+    let len = std::fs::metadata(path)?.len();
+    read_tail(path, len.saturating_sub(max))
 }
 
 /// Hands the whole lines in `floor..end` (both at line starts) to `visit`, last first, reading
@@ -504,6 +599,39 @@ pub fn parallel_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> Option<R> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_end_of_a_file_as_whole_lines() {
+        let dir = crate::fixtures::scratch("read-tail");
+        let path = dir.join("lines.jsonl");
+        // "é" is two bytes, at 8 and 9: a read can start between them.
+        std::fs::write(&path, "one\ntwo é\nthree\nfou").unwrap();
+        let read = |from: u64| {
+            let t = read_tail(&path, from).unwrap();
+            (t.start, t.end, t.text())
+        };
+        assert_eq!(read(0), (0, 17, "one\ntwo é\nthree\n".to_string()));
+        // From where a line starts, the line is whole.
+        assert_eq!(read(4), (4, 17, "two é\nthree\n".to_string()));
+        // From inside a line, or inside a character, the line it's in is dropped; the text
+        // starts where the next one does, and nothing before the read is read for it.
+        assert_eq!(read(5), (11, 17, "three\n".to_string()));
+        assert_eq!(read(9), (11, 17, "three\n".to_string()));
+        assert_eq!(read_last(&path, 11).unwrap(), read_tail(&path, 9).unwrap());
+        // The line still being written waits: the next read starts where this one ended.
+        assert_eq!(read(17), (17, 17, String::new()));
+        std::fs::write(&path, "one\ntwo é\nthree\nfour\n").unwrap();
+        assert_eq!(read(17), (17, 22, "four\n".to_string()));
+        // Past the end there's nothing, and a file that isn't there is an error.
+        assert_eq!(read(99), (22, 22, String::new()));
+        assert!(read_tail(&dir.join("missing"), 0).is_err());
+        // Bytes that aren't UTF-8 inside a line don't move where the lines are.
+        std::fs::write(&path, b"a\xff\nb\n").unwrap();
+        assert_eq!(read(0), (0, 5, "a\u{fffd}\nb\n".to_string()));
+        assert_eq!(read_range(&path, 3, 5).as_deref(), Some("b\n"));
+        let mut f = File::open(&path).unwrap();
+        assert_eq!((whole_end(&mut f, 0, 5).unwrap(), whole_end(&mut f, 0, 2).unwrap(), whole_end(&mut f, 1, 2).unwrap()), (5, 0, 1));
+    }
 
     #[test]
     fn parses_rfc3339() {

@@ -497,15 +497,13 @@ fn curl_quote(s: &str) -> String {
 /// OpenCode's interactive terminals on this Mac: (pid, folder). A `--session` one names the
 /// session it opened on; the rest show the folder's latest session. The background service
 /// and one-off commands (`run`, `auth`…) aren't terminals.
-pub fn terminals() -> Vec<Terminal> {
-    let Ok(out) = procs::run("/bin/ps", &["-axo", "pid=,command="], None, Duration::from_secs(3)) else { return Vec::new() };
-    out.lines()
-        .filter_map(|line| {
-            let (pid, command) = line.trim().split_once(' ')?;
-            let pid: u32 = pid.parse().ok()?;
-            let (session, dir) = terminal_args(command)?;
-            let cwd = dir.or_else(|| cwd_of(pid))?;
-            Some(Terminal { pid, cwd, session })
+pub fn terminals(processes: &[procs::PsLine]) -> Vec<Terminal> {
+    processes
+        .iter()
+        .filter_map(|p| {
+            let (session, dir) = terminal_args(&p.command)?;
+            let cwd = dir.or_else(|| procs::cwd_of(p.pid))?;
+            Some(Terminal { pid: p.pid, cwd, session })
         })
         .collect()
 }
@@ -544,12 +542,6 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
         }
     }
     Some((session, dir))
-}
-
-/// A process's working folder, from lsof.
-pub fn cwd_of(pid: u32) -> Option<PathBuf> {
-    let out = procs::run("/usr/sbin/lsof", &["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"], None, Duration::from_secs(3)).ok()?;
-    out.lines().find_map(|l| l.strip_prefix('n')).map(PathBuf::from)
 }
 
 /// The terminal showing a session, if one is: the one started on it, else one in its folder
@@ -664,7 +656,7 @@ impl crate::harness::Reader for Reader {
             self.sessions.insert(a.name.clone(), rows);
         }
         if !accounts.is_empty() {
-            self.terminals = terminals();
+            self.terminals = terminals(look.ps.all());
         }
     }
 
@@ -686,11 +678,11 @@ impl crate::harness::Reader for Reader {
     }
 
     /// Which sessions are live in a terminal, and where each shows.
-    fn tick(&mut self, accounts: &[AccountCfg], _look: &Look) -> Applied {
+    fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         if accounts.is_empty() {
             return Applied::default();
         }
-        let fresh = terminals();
+        let fresh = terminals(look.ps.all());
         let dirty = fresh != self.terminals;
         self.terminals = fresh;
         Applied { dirty, ..Default::default() }

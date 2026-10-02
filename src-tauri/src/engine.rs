@@ -1123,7 +1123,7 @@ impl Engine {
     /// the readers can be changed meanwhile.
     fn look(seen: &SeenState) -> harness::Look<'_> {
         let now = now_ms();
-        harness::Look { seen, since: now - WINDOW_MS, now }
+        harness::Look { seen, since: now - WINDOW_MS, now, ps: Default::default() }
     }
 
     /// Takes in what a read came to: the board is to be published again, and the lines sessions
@@ -2069,7 +2069,7 @@ impl Engine {
         if to <= from {
             return;
         }
-        let Some(text) = read_range_lossy(path, from, to) else { return };
+        let Some(text) = crate::util::read_range(path, from, to) else { return };
         for (pr, _) in prlinks::pr_marks(&text) {
             let have = self.pr_marks.entry(key.to_string()).or_default();
             if !have.contains(&pr) {
@@ -2645,15 +2645,6 @@ fn file_marks(path: &Path) -> (Vec<(String, i64)>, chrometabs::Use) {
         chrometabs::fold(&mut chrome, line);
     });
     (marks, chrome)
-}
-
-fn read_range_lossy(path: &Path, from: u64, to: u64) -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(path).ok()?;
-    f.seek(SeekFrom::Start(from)).ok()?;
-    let mut buf = Vec::new();
-    f.take(to - from).read_to_end(&mut buf).ok()?;
-    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// A hash of everything the UI shows except the timestamp, so identical boards aren't resent.

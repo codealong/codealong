@@ -4,13 +4,13 @@
 
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use super::conversation::{line_peer, sent_from_codealong};
-use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, resolve, scan_lines_back, without_cd};
+use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, read_tail, resolve, scan_lines_back, without_cd};
 
 /// What the start of a transcript says. It never changes, so the engine reads it once.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -150,43 +150,29 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     let len = std::fs::metadata(path).ok()?.len();
     let resume = prev.filter(|(_, _, st)| st.offset <= len && len - st.offset <= 4 * FRESH_TAIL);
     let fresh = resume.is_none();
-    let (head, mut info, mut state, text, start) = match resume {
+    let (head, mut info, mut state, tail) = match resume {
         Some((head, info, state)) => {
-            let start = state.offset;
-            let text = read_range(path, start, len)?;
-            (head, info, state, text, start)
+            let tail = read_tail(path, state.offset).ok()?;
+            (head, info, state, tail)
         }
         None => {
             let mut head = read_head_info(path)?;
             if head.session_id.is_empty() {
                 head.session_id = file_name(path).trim_end_matches(".jsonl").to_string();
             }
-            let start = len.saturating_sub(FRESH_TAIL);
-            let mut text = read_range(path, start, len)?;
-            let mut start = start;
-            if start > 0 {
-                // Drop the partial first line.
-                match text.find('\n') {
-                    Some(i) => {
-                        start += i as u64 + 1;
-                        text.drain(..=i);
-                    }
-                    None => text.clear(),
-                }
-            }
+            let tail = read_tail(path, len.saturating_sub(FRESH_TAIL)).ok()?;
             let info = from_head(&head);
-            (head, info, TailState::default(), text, start)
+            (head, info, TailState::default(), tail)
         }
     };
-    // Only whole lines are consumed; a line still being written is read next time.
-    let complete = text.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    apply_tail(&mut info, &mut state, &text[..complete]);
+    // Only whole lines are read; a line still being written is read next time.
+    apply_tail(&mut info, &mut state, &tail.text());
     // One turn can write far more than the tail holds, so the prompt that started it may be
     // further back. A first read looks back for it once; later reads carry it forward.
     if fresh && info.last_prompt_at.is_none() {
-        info.last_prompt_at = prompt_before(path, start);
+        info.last_prompt_at = prompt_before(path, tail.start);
     }
-    state.offset = start + complete as u64;
+    state.offset = tail.end;
     if info.last_ts == 0 {
         info.last_ts = mtime;
     }
@@ -209,14 +195,6 @@ fn prompt_before(path: &Path, end: u64) -> Option<i64> {
         at.is_some()
     });
     at
-}
-
-pub(super) fn read_range(path: &Path, start: u64, end: u64) -> Option<String> {
-    let mut f = File::open(path).ok()?;
-    f.seek(SeekFrom::Start(start)).ok()?;
-    let mut buf = Vec::with_capacity(end.saturating_sub(start) as usize);
-    f.take(end.saturating_sub(start)).read_to_end(&mut buf).ok()?;
-    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 fn from_head(head: &HeadInfo) -> TranscriptInfo {

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::util::{command_dir, file_name, mtime_ms, note_work, one_line, only_looks, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back};
+use crate::util::{command_dir, file_name, mtime_ms, note_work, one_line, only_looks, parse_rfc3339_ms, read_first_line, read_range, read_tail, resolve, scan_lines_back};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadInfo {
@@ -201,8 +201,8 @@ pub fn thread_id_of(path: &Path) -> Option<String> {
 pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -> Option<(ThreadInfo, u64)> {
     let len = std::fs::metadata(path).ok()?.len();
     // `floor` is where the lines after the session meta begin, on a first parse.
-    let (mut info, start, mut text, floor) = match prev.filter(|(_, off)| *off <= len && len - off <= 1024 * 1024) {
-        Some((info, off)) => (info, off, read_range(path, off, len)?, None),
+    let (mut info, tail, floor) = match prev.filter(|(_, off)| *off <= len && len - off <= 1024 * 1024) {
+        Some((info, off)) => (info, read_tail(path, off).ok()?, None),
         None => {
             let first = read_first_line(path, 4 * 1024 * 1024)?;
             let mut info = parse_meta(&first)?;
@@ -213,25 +213,13 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
             if info.started_by.is_some() {
                 info.started_by = delegated_by(path, floor, len);
             }
-            let start = len.saturating_sub(256 * 1024).max(floor);
-            let text = read_range(path, start, len)?;
-            (info, start, text, Some(floor))
+            let tail = read_tail(path, len.saturating_sub(256 * 1024).max(floor)).ok()?;
+            (info, tail, Some(floor))
         }
     };
-    let mut start = start;
-    if starts_mid_line(&text, start) {
-        match text.find('\n') {
-            Some(i) => {
-                start += i as u64 + 1;
-                text.drain(..=i);
-            }
-            None => text.clear(),
-        }
-    }
-    let complete = text.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let events = parse_events(&text[..complete]);
+    let events = parse_events(&tail.text());
     if let Some(floor) = floor {
-        for v in earlier_events(path, floor, start, &events) {
+        for v in earlier_events(path, floor, tail.start, &events) {
             apply_event(&mut info, &v);
         }
     }
@@ -241,7 +229,7 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     if info.last_ts == 0 {
         info.last_ts = mtime;
     }
-    Some((info, start + complete as u64))
+    Some((info, tail.end))
 }
 
 /// The events before `end` that `later` has no newer copy of: the last turn event (started,
@@ -271,20 +259,6 @@ fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Val
     });
     found.reverse();
     found
-}
-
-/// A read that starts mid-file begins with a partial line.
-fn starts_mid_line(text: &str, start: u64) -> bool {
-    start > 0 && !text.is_empty() && !text.starts_with('{')
-}
-
-fn read_range(path: &Path, start: u64, end: u64) -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(path).ok()?;
-    f.seek(SeekFrom::Start(start)).ok()?;
-    let mut buf = Vec::with_capacity(end.saturating_sub(start) as usize);
-    f.take(end.saturating_sub(start)).read_to_end(&mut buf).ok()?;
-    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 pub fn parse_meta(first_line: &str) -> Option<ThreadInfo> {
