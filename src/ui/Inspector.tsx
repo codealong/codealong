@@ -8,6 +8,7 @@ import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
 import { BranchLabel, Button, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { useDismiss } from './useDismiss';
 import { PreviewLink, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
@@ -33,21 +34,7 @@ function TargetIcon({ target }: { target: Target }) {
 export function OpenInMenu({ targets, defaultId, onOpen, size = 'md' }: { targets: Target[]; defaultId: string | null; onOpen: (id: string) => void; size?: 'sm' | 'md' }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  useDismiss(ref, () => setOpen(false), { when: open });
   const def = targets.find((t) => t.id === defaultId) ?? targets[0];
   if (!def) return null;
   let lastGroup: string | undefined;

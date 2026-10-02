@@ -8,7 +8,7 @@
 // With several todos picked in the list, `TodoPickPanel` shows them instead, to start in one
 // session.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { suggestTodo } from '../api';
 import { below } from '../contextMenu';
 import { dayKey, dueChoices, dueDate, dueWords } from '../due';
@@ -18,7 +18,8 @@ import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../typ
 import { DescriptionEditor } from './DescriptionEditor';
 import { PanelSession } from './PanelSession';
 import { Button, Chip, cx, Icon, Kbd, LaneGlyph, Seg } from './primitives';
-import { LabelChip, LabelDot, TodoGlyph } from './TodoBits';
+import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
+import { useDismiss } from './useDismiss';
 
 /** How long the title and description have to rest before Jev is asked about them. */
 const SUGGEST_AFTER_MS = 800;
@@ -114,6 +115,42 @@ function TitleField({ value, onSave }: { value: string; onSave: (title: string) 
   );
 }
 
+/** A picker under the chip that opens it: it goes on a press anywhere else and on Escape; a
+ *  press on its own chip, beside it in the same anchor, is the chip's, which closes it itself. */
+function PickerBox({ label, className, onClose, children }: { label: string; className?: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, onClose, { inside: (t) => !!ref.current?.parentElement?.contains(t) });
+  return (
+    <div className={cx('ca-menu ca-labelpick', className)} ref={ref} role="dialog" aria-label={label}>
+      {children}
+    </div>
+  );
+}
+
+/** A picker's field, which has the keyboard while the picker is up: what's typed filters its
+ *  list or names something new, Return takes it, and Escape closes the picker. */
+function PickerFilter({ value, placeholder, onChange, onEnter, onClose }: { value: string; placeholder: string; onChange: (value: string) => void; onEnter: () => void; onClose: () => void }) {
+  return (
+    <input
+      className="ca-labelpick-input"
+      value={value}
+      autoFocus
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          onEnter();
+        }
+      }}
+    />
+  );
+}
+
 interface LabelPickerProps {
   labels: Label[];
   chosen: string[];
@@ -130,38 +167,21 @@ interface LabelPickerProps {
 function LabelPicker({ labels, chosen, onToggle, onCreate, onRename, onMenu, onClose }: LabelPickerProps) {
   const [query, setQuery] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    // A click outside closes it; one on its own button (in the same anchor) toggles it instead.
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.parentElement?.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
   const q = query.trim().toLowerCase();
   const shown = labels.filter((l) => l.name.toLowerCase().includes(q));
   const exact = labels.find((l) => l.name.toLowerCase() === q);
   return (
-    <div className="ca-menu ca-labelpick" ref={ref} role="dialog" aria-label="Labels">
-      <input
-        className="ca-labelpick-input"
+    <PickerBox label="Labels" onClose={onClose}>
+      <PickerFilter
         value={query}
-        autoFocus
         placeholder={labels.length ? 'Filter, or type a new label' : 'Type a label'}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            e.stopPropagation();
-            onClose();
-          } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (exact) onToggle(exact.id);
-            else if (q) onCreate(query.trim());
-            setQuery('');
-          }
+        onChange={setQuery}
+        onEnter={() => {
+          if (exact) onToggle(exact.id);
+          else if (q) onCreate(query.trim());
+          setQuery('');
         }}
+        onClose={onClose}
       />
       <div className="ca-labelpick-list">
         {shown.map((l) =>
@@ -224,7 +244,7 @@ function LabelPicker({ labels, chosen, onToggle, onCreate, onRename, onMenu, onC
         {!q && labels.length === 0 && <p className="ca-labelpick-note">No labels yet. Type one to make it.</p>}
       </div>
       {labels.length > 0 && <p className="ca-labelpick-note">Right-click a label to change its color, rename or delete it.</p>}
-    </div>
+    </PickerBox>
   );
 }
 
@@ -233,14 +253,6 @@ function LabelPicker({ labels, chosen, onToggle, onCreate, onRename, onMenu, onC
  *  since waiting on them would make a loop. */
 function WaitPicker({ todo, todos, onPick, onWaitFor, onClose }: { todo: Todo; todos: Todo[]; onPick: (id: string) => void; onWaitFor: (note: string) => void; onClose: () => void }) {
   const [query, setQuery] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.parentElement?.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
   const q = query.trim().toLowerCase();
   const offered = todos
     .filter((t) => t.id !== todo.id && t.status !== 'done' && !depsOf(todo).includes(t.id))
@@ -252,29 +264,21 @@ function WaitPicker({ todo, todos, onPick, onWaitFor, onClose }: { todo: Todo; t
   // A done todo can't be marked as waiting.
   const note = todo.status !== 'done' ? query.replace(/\s+/g, ' ').trim() : '';
   return (
-    <div className="ca-menu ca-labelpick ca-waitpick" ref={ref} role="dialog" aria-label="Waits on">
-      <input
-        className="ca-labelpick-input"
+    <PickerBox label="Waits on" className="ca-waitpick" onClose={onClose}>
+      <PickerFilter
         value={query}
-        autoFocus
         placeholder={todo.status !== 'done' ? 'Find a todo, or say what else' : 'Find a todo'}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            e.stopPropagation();
+        onChange={setQuery}
+        onEnter={() => {
+          if (first) {
+            onPick(first.t.id);
+            setQuery('');
+          } else if (note) {
+            onWaitFor(note);
             onClose();
-          } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (first) {
-              onPick(first.t.id);
-              setQuery('');
-            } else if (note) {
-              onWaitFor(note);
-              onClose();
-            }
           }
         }}
+        onClose={onClose}
       />
       <div className="ca-labelpick-list">
         {offered.map(({ t, why }) => (
@@ -310,7 +314,7 @@ function WaitPicker({ todo, todos, onPick, onWaitFor, onClose }: { todo: Todo; t
         )}
       </div>
       {todo.status !== 'done' && !note && <p className="ca-labelpick-note">Or type what else it waits for: a person’s answer, a release, a date.</p>}
-    </div>
+    </PickerBox>
   );
 }
 
@@ -318,20 +322,12 @@ function WaitPicker({ todo, todos, onPick, onWaitFor, onClose }: { todo: Todo; t
  *  date field, which takes the keyboard (⏎ sets it). */
 function DuePicker({ due, now, onPick, onClose }: { due: string | null; now: number; onPick: (due: string | null) => void; onClose: () => void }) {
   const [day, setDay] = useState(due ?? dayKey(now));
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.parentElement?.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
   const pick = (d: string | null) => {
     onPick(d);
     onClose();
   };
   return (
-    <div className="ca-menu ca-labelpick ca-duepick" ref={ref} role="dialog" aria-label="Due date">
+    <PickerBox label="Due date" className="ca-duepick" onClose={onClose}>
       <form
         className="ca-duepick-day"
         onSubmit={(e) => {
@@ -375,7 +371,7 @@ function DuePicker({ due, now, onPick, onClose }: { due: string | null; now: num
           </button>
         )}
       </div>
-    </div>
+    </PickerBox>
   );
 }
 
@@ -539,10 +535,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
             <LabelChip key={l.id} label={l} suggested title={`Suggested by Jev. Click to add “${l.name}”.`} onClick={() => toggleLabel(l.id)} />
           ))}
           <span className="ca-labelpick-anchor">
-            <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={picking} onClick={() => setPicking(!picking)}>
-              <Icon name="tag" size={12} />
-              <span>{shownLabels.length ? 'Label' : 'Add label'}</span>
-            </button>
+            <AddChip icon="tag" label={shownLabels.length ? 'Label' : 'Add label'} open={picking} onToggle={() => setPicking(!picking)} />
             {picking && (
               <LabelPicker
                 labels={labels}
@@ -574,10 +567,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
                 </button>
               </Chip>
             ) : (
-              <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingDue} title="Add a due date (D)" onClick={() => setPickingDue(!pickingDue)}>
-                <Icon name="calendar" size={12} />
-                <span>Add due date</span>
-              </button>
+              <AddChip icon="calendar" label="Add due date" title="Add a due date (D)" open={pickingDue} onToggle={() => setPickingDue(!pickingDue)} />
             )}
             {pickingDue && <DuePicker due={todo.due ?? null} now={now} onPick={(d) => update({ due: d })} onClose={() => setPickingDue(false)} />}
           </span>
@@ -608,10 +598,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
             </Chip>
           ))}
           <span className="ca-labelpick-anchor ca-waitpick-anchor">
-            <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingWait} onClick={() => setPickingWait(!pickingWait)}>
-              <Icon name="lock" size={12} />
-              <span>{waitsOn.length || todo.waiting ? 'Add' : 'Add what it waits on'}</span>
-            </button>
+            <AddChip icon="lock" label={waitsOn.length || todo.waiting ? 'Add' : 'Add what it waits on'} open={pickingWait} onToggle={() => setPickingWait(!pickingWait)} />
             {pickingWait && (
               <WaitPicker
                 todo={todo}

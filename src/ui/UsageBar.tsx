@@ -14,6 +14,7 @@ import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
 import type { Meter, Severity, Usage } from '../types';
 import { Button, Icon } from './primitives';
+import { useDismiss } from './useDismiss';
 
 /** How long the pointer rests on a chip before its card shows; moving between chips while a card
  *  is up, or just after, switches straight away. */
@@ -313,17 +314,18 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading,
   useEffect(() => {
     if (!collapsed) hide(true);
   }, [collapsed, hide]);
+  // A press anywhere, the card included (it only shows), and any key, which goes on to do
+  // what it does.
+  useDismiss(null, () => hide(true), { when: !!peek, keys: 'any' });
   useEffect(() => {
     const el = row.current;
     if (!el || !peek) return;
     const away = () => hide(true);
     el.addEventListener('scroll', away, { passive: true });
     window.addEventListener('resize', away);
-    window.addEventListener('pointerdown', away, true);
     return () => {
       el.removeEventListener('scroll', away);
       window.removeEventListener('resize', away);
-      window.removeEventListener('pointerdown', away, true);
     };
   }, [peek, hide]);
 

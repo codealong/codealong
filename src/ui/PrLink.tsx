@@ -21,6 +21,7 @@ import type { Lane, Pr, PrItem, Session } from '../types';
 import { PanelSession } from './PanelSession';
 import { PrPills } from './PrPills';
 import { Button, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
+import { useDismiss } from './useDismiss';
 
 /** What a window does with a PR link's card: showing and opening what's on it, and menus. */
 export interface PrLinkActions {
@@ -291,35 +292,23 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
   };
   useLayoutEffect(() => place.current());
 
-  // It follows the link as the conversation scrolls, and goes on a key, a click elsewhere, or when
-  // the window goes to the background.
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  // It goes on a key (which still does what it does), a press elsewhere, or when the window goes
+  // to the background; and it follows the link as the conversation scrolls.
+  useDismiss(card, onClose, { inside: (t) => anchor.contains(t), keys: 'any', blur: true });
   useEffect(() => {
-    const close = () => closeRef.current();
     let frame = 0;
     const onMove = () => {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => place.current());
     };
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (!card.current?.contains(t) && !anchor.contains(t)) close();
-    };
     window.addEventListener('scroll', onMove, true);
     window.addEventListener('resize', onMove);
-    window.addEventListener('keydown', close, true);
-    window.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('blur', close);
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
-      window.removeEventListener('keydown', close, true);
-      window.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('blur', close);
     };
-  }, [anchor]);
+  }, []);
 
   const laneById = new Map(lanes.map((l) => [l.id, l]));
   const sessions = (pr?.sessions ?? [])

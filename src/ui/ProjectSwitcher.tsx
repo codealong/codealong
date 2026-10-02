@@ -1,8 +1,9 @@
 // The app-wide project switcher, top left, like an account or org switcher.
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { LogoStatus, ProjectSummary } from '../types';
 import { Icon, Mark, StatusGlyph } from './primitives';
+import { useDismiss } from './useDismiss';
 import { LOGO_LABEL } from '../logo';
 
 export const ALL_PROJECTS = 'All projects';
@@ -41,21 +42,7 @@ interface ProjectSwitcherProps {
 export function ProjectSwitcher({ logoStatus, projects, current, total, actions, onPick, onOpenWindow, onEditProjects }: ProjectSwitcherProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  useDismiss(ref, () => setOpen(false), { when: open });
   const pick = (name: string) => {
     setOpen(false);
     onPick(name);

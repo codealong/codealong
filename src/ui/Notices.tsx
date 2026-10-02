@@ -4,6 +4,7 @@ import { count } from '../format';
 import { noticeAction, noticeId, noticeLabel, untilPhrase } from '../notices';
 import type { Notice } from '../types';
 import { Button, Icon } from './primitives';
+import { useDismiss } from './useDismiss';
 
 interface NoticesProps {
   /** The notices to show (`shownNotices`). */
@@ -27,24 +28,12 @@ export function Notices({ notices, now, onDismiss, onOpen }: NoticesProps) {
   useEffect(() => {
     if (none) setOpen(false);
   }, [none]);
+  useDismiss(chip, () => setOpen(false), { when: open, inside: '.ca-notice-card' });
   useEffect(() => {
     if (!open) return;
-    const away = (e: Event) => {
-      const at = e.target as Element | null;
-      if (!at?.closest?.('.ca-notice-card') && !at?.closest?.('.ca-notice')) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
     const again = () => place((n) => n + 1);
-    window.addEventListener('pointerdown', away, true);
-    window.addEventListener('keydown', key);
     window.addEventListener('resize', again);
-    return () => {
-      window.removeEventListener('pointerdown', away, true);
-      window.removeEventListener('keydown', key);
-      window.removeEventListener('resize', again);
-    };
+    return () => window.removeEventListener('resize', again);
   }, [open]);
   if (none) return null;
   const several = notices.length > 1;

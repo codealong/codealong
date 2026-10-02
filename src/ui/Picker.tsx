@@ -5,6 +5,7 @@
 // Codealong, and a menu can't show usage meters or filter.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useDismiss } from './useDismiss';
 
 export interface PickerOption {
   id: string;
@@ -66,16 +67,8 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
     box.current?.querySelector('.ca-picker-opt.is-on')?.scrollIntoView({ block: 'nearest' });
   }, [activeId]);
 
-  // A click anywhere else closes it; the button that opened it closes it itself.
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Element | null;
-      if (box.current?.contains(t) || t?.closest('[data-picker-trigger]')) return;
-      onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
+  // A press anywhere else closes it; the button that opened it closes it itself.
+  useDismiss(box, onClose, { inside: '[data-picker-trigger]' });
 
   const move = (delta: number) => {
     if (pickable.length === 0) return;

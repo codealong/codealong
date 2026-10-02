@@ -40,6 +40,17 @@ export function LabelChip({ label, onClick, title, inRow = false, remove, sugges
   );
 }
 
+/** The dashed chip that adds one (a label, a due date, what a todo waits on): it opens the
+ *  picker under it, and closes it again. */
+export function AddChip({ icon, label, title, open, onToggle }: { icon: string; label: string; title?: string; open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={open} title={title} onClick={onToggle}>
+      <Icon name={icon} size={12} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
 /** A todo on a session's or a worktree's row. Click it to show the todo, or double-click it with
  *  `inRow`, on a list's row, where a click selects the row. */
 export function TodoChip({ todo, onShow, inRow = false }: { todo: Todo; onShow?: (todo: Todo) => void; inRow?: boolean }) {
