@@ -89,6 +89,16 @@
   --font-sans: "Barlow", -apple-system, "SF Pro Text", system-ui, sans-serif;
   --font-display: "Barlow Condensed", "Barlow", "SF Pro Display", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --type-numeral: 600 40px/40px var(--font-display);
+  --type-title: 600 22px/26px var(--font-display);
+  --type-callsign: 600 17px/20px var(--font-display);
+  --type-label: 600 11px/14px var(--font-display);
+  --type-heading: 600 14px/18px var(--font-sans);
+  --type-body: 400 13px/18px var(--font-sans);
+  --type-body-strong: 500 13px/18px var(--font-sans);
+  --type-meta: 400 12px/16px var(--font-sans);
+  --type-code: 400 12px/16px var(--font-mono);
+  --type-code-sm: 500 11px/14px var(--font-mono);
 }
 
 @media (prefers-color-scheme: dark) {

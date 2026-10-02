@@ -2,9 +2,9 @@
    share them; bay headers (.ca-bay) and bay blocks; the grip, the drop line and the parked note.
    What a kind of row adds is beside its component (LaneRow.css, PrsView.css, TodoView.css). */
 
-.ca-bay { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--space-3); font: 600 11px/14px var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.ca-bay { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--space-3); font: var(--type-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
 .ca-bay--needs { color: var(--attn); }
-.ca-bay-count { font: 500 11px/14px var(--font-mono); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.ca-bay-count { font: var(--type-code-sm); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .ca-bay-action { margin-left: auto; font: 500 12px/16px var(--font-sans); letter-spacing: 0; text-transform: none; color: var(--ink-3); }
 
 .ca-lane { display: grid; grid-template-columns: 32px 176px minmax(0, 1fr) 52px; min-height: var(--lane-h); background: var(--surface); border-bottom: 1px solid var(--line); color: var(--ink); cursor: default; outline: none; transition: background var(--dur-fast) ease-out; }
@@ -15,15 +15,15 @@
 .ca-seg-glyph { align-items: center; padding: 0; border-left: 0; }
 .ca-seg-call { gap: 2px; background: var(--surface-sunken); }
 .ca-lane.is-needs .ca-seg-call { background: var(--attn-tint); }
-.ca-lane-call { font: 600 17px/20px var(--font-display); letter-spacing: 0.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-lane-call { font: var(--type-callsign); letter-spacing: 0.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-lane-sub { font: 400 11px/14px var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-seg-main { gap: 5px; }
-.ca-lane-line1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 13px/18px var(--font-sans); }
+.ca-lane-line1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-body); }
 .ca-lane-headline { color: var(--ink); }
 .ca-lane-detail { margin-left: 8px; color: var(--ink-3); }
 .ca-lane-line2 { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ca-lane-right { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex: none; }
-.ca-diff { font: 500 11px/14px var(--font-mono); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 84px; text-align: right; }
+.ca-diff { font: var(--type-code-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 84px; text-align: right; }
 .ca-seg-age { justify-content: flex-start; align-items: flex-end; padding-top: 7px; font: 400 12px/18px var(--font-sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 .ca-bayblock { margin-top: var(--space-2); }

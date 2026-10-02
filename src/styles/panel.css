@@ -3,7 +3,7 @@
 
 .ca-insp { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-4); overflow: auto; background: var(--surface); border-left: 1px solid var(--line); }
 .ca-insp-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ca-insp-call { font: 600 22px/26px var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-insp-call { font: var(--type-title); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-insp-title .ca-tag { margin-left: auto; }
 .ca-insp-path { display: flex; align-items: center; gap: 5px; margin-top: 6px; font: 400 11px/16px var(--font-mono); color: var(--ink-3); }
 .ca-insp-path .ca-icon { color: var(--ink-3); }
@@ -61,7 +61,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 400 13px/18px var(--font-sans);
+  font: var(--type-body);
   text-align: left;
   cursor: pointer;
 }

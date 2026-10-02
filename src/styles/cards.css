@@ -4,10 +4,10 @@
 .ca-ucard { display: grid; gap: var(--space-4); align-content: start; padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); min-width: 0; }
 .ca-ucard-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ca-ucard-name { font: 600 14px/18px var(--font-mono); color: var(--ink); }
-.ca-ucard-plan { font: 400 12px/16px var(--font-sans); color: var(--ink-3); }
+.ca-ucard-plan { font: var(--type-meta); color: var(--ink-3); }
 .ca-ucard-head .ca-tag { margin-left: auto; }
 .ca-ucard-meters { display: grid; gap: var(--space-4); }
-.ca-ucard-foot { font: 400 12px/16px var(--font-sans); color: var(--ink-3); }
+.ca-ucard-foot { font: var(--type-meta); color: var(--ink-3); }
 
 .ca-acct {
   gap: var(--space-3);
@@ -69,7 +69,7 @@
 
 .ca-acct-note {
   margin: 0;
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 .ca-acct-actions {
@@ -79,7 +79,7 @@
 }
 .ca-acct-asof {
   margin-left: auto;
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 .ca-acct-confirm {
@@ -89,7 +89,7 @@
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-2);
 }
 .ca-acct-confirm > span {

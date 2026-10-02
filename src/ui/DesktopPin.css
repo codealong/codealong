@@ -60,7 +60,7 @@ html.is-desktop body {
   background: var(--alert-tint);
   color: var(--alert);
   box-shadow: var(--shadow-hud);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   text-align: left;
   overflow-wrap: anywhere;
   cursor: default;

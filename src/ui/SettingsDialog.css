@@ -52,7 +52,7 @@
 }
 .ca-settings-intro p {
   margin: 0;
-  font: 400 13px/18px var(--font-sans);
+  font: var(--type-body);
   color: var(--ink-2);
 }
 .ca-settings-fields,
@@ -84,7 +84,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 400 13px/18px var(--font-sans);
+  font: var(--type-body);
   color: var(--ink);
 }
 .ca-settings-broken {
@@ -94,7 +94,7 @@
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--alert-tint);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--alert);
 }
 .ca-settings-broken > span {
@@ -112,7 +112,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 400 12px/16px var(--font-mono);
+  font: var(--type-code);
   color: var(--ink-3);
 }
 .ca-settings-check {
@@ -147,7 +147,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 400 12px/16px var(--font-mono);
+  font: var(--type-code);
   color: var(--ink-3);
 }
 .ca-settings-editor {
@@ -220,7 +220,7 @@
   display: flex;
   gap: 6px;
   margin: 0;
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--attn);
 }
 .ca-shortcut-taken .ca-icon {
@@ -270,7 +270,7 @@
 .ca-jev-feature-does,
 .ca-jev-feature-sends {
   padding-left: 21px;
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-2);
 }
 .ca-jev-feature-sends {

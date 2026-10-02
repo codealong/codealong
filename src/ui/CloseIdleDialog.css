@@ -45,22 +45,22 @@
 }
 .ca-idle-title {
   overflow: hidden;
-  font: 500 13px/18px var(--font-sans);
+  font: var(--type-body-strong);
   color: var(--ink);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .ca-idle-why {
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 .ca-idle-note {
   margin: 0;
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-2);
 }
 .ca-idle-count {
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 .ca-idle-actions {

@@ -6,7 +6,7 @@
   grid-template-columns: 5ch 5ch 6px;
   column-gap: 5px;
   justify-items: end;
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--ink-3);
@@ -82,7 +82,7 @@
   gap: var(--space-2);
   flex: 1 1 auto;
   min-width: 0;
-  font: 400 13px/18px var(--font-sans);
+  font: var(--type-body);
 }
 .ca-agentline-title,
 .ca-agentline-detail {
@@ -149,7 +149,7 @@
   display: contents;
 }
 .ca-lane.is-agent.is-slim .ca-agentrow-line1 {
-  font: 400 13px/18px var(--font-sans);
+  font: var(--type-body);
 }
 .ca-lane.is-agent.is-slim .ca-agentrow-line1 > .ca-pr {
   margin-left: auto;

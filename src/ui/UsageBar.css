@@ -7,11 +7,11 @@
 .ca-meter-track { position: relative; height: 6px; border-radius: var(--radius-pill); background: var(--neutral-tint); }
 .ca-meter-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: inherit; background: var(--ink-2); }
 .ca-meter.is-over .ca-meter-fill { background: var(--alert-solid); }
-.ca-meter-foot { font: 400 12px/16px var(--font-sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ca-meter-foot { font: var(--type-meta); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .ca-meter.is-compact { grid-template-columns: auto minmax(24px, 1fr) 30px; align-items: center; gap: 6px; }
-.ca-meter.is-compact .ca-meter-label { font: 500 11px/14px var(--font-mono); color: var(--ink-3); }
+.ca-meter.is-compact .ca-meter-label { font: var(--type-code-sm); color: var(--ink-3); }
 .ca-meter.is-compact .ca-meter-track { height: 4px; }
-.ca-meter.is-compact .ca-meter-value { font: 500 11px/14px var(--font-mono); color: var(--ink-2); text-align: right; }
+.ca-meter.is-compact .ca-meter-value { font: var(--type-code-sm); color: var(--ink-2); text-align: right; }
 .ca-meter.is-compact.is-over .ca-meter-value { color: var(--alert); }
 
 .ca-usagebar {
@@ -101,7 +101,7 @@
   color: var(--ink);
 }
 .ca-uchip-note {
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-3);
   white-space: nowrap;
 }
@@ -173,7 +173,7 @@
   background: var(--surface-raised);
   box-shadow: var(--shadow-popover);
   color: var(--ink);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   pointer-events: none;
 }
 .ca-usage-popover .ca-ucard-head {

@@ -2,7 +2,7 @@
    picker. Native context menus aren't styled here. */
 
 .ca-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; min-width: 300px; padding: 4px; box-sizing: border-box; background: var(--surface-raised); border-radius: var(--radius-md); box-shadow: var(--shadow-popover); }
-.ca-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--row-h); padding: 4px 8px; box-sizing: border-box; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: 400 13px/18px var(--font-sans); text-align: left; cursor: pointer; }
+.ca-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--row-h); padding: 4px 8px; box-sizing: border-box; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: var(--type-body); text-align: left; cursor: pointer; }
 .ca-menu-item:hover, .ca-menu-item.is-on { background: var(--surface-selected); }
 .ca-menu-item:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus); }
 .ca-menu-item .ca-icon { color: var(--ink-3); }

@@ -131,7 +131,7 @@ html.is-bar body {
 }
 .ca-hud-fold {
   padding: 0 9px 0 7px;
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   font-variant-numeric: tabular-nums;
 }
 .ca-hud-note {
@@ -144,7 +144,7 @@ html.is-bar body {
   border: 0;
   background: transparent;
   color: var(--ink-3);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   white-space: nowrap;
   cursor: default;
 }

@@ -2,7 +2,7 @@
    buttons and the bar placement; the body's grid in each of its states; the board and its empty
    and loading notes; toasts; device groups. */
 
-.ca-win { display: grid; grid-template-rows: var(--titlebar-h) minmax(0, 1fr); height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--ground); color: var(--ink); border-radius: var(--radius-lg); box-shadow: var(--shadow-popover); font: 400 13px/18px var(--font-sans); }
+.ca-win { display: grid; grid-template-rows: var(--titlebar-h) minmax(0, 1fr); height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--ground); color: var(--ink); border-radius: var(--radius-lg); box-shadow: var(--shadow-popover); font: var(--type-body); }
 .ca-win-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: 0 var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
 
 .ca-search { flex: 1; min-width: 160px; max-width: 420px; margin: 0 auto; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-3); white-space: nowrap; overflow: hidden; }
@@ -30,7 +30,7 @@
   outline: none;
   background: transparent;
   color: var(--ink);
-  font: 400 13px/18px var(--font-sans);
+  font: var(--type-body);
 }
 .ca-search input::placeholder {
   color: var(--ink-3);
@@ -201,7 +201,7 @@
   background: var(--surface-raised);
   box-shadow: var(--shadow-popover);
   color: var(--ink);
-  font: 400 13px/18px var(--font-sans);
+  font: var(--type-body);
   cursor: pointer;
 }
 .ca-toast .ca-icon {

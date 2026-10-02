@@ -109,7 +109,7 @@ html.is-quick body {
 .ca-quick-note {
   margin: 0;
   padding: 10px 10px 2px;
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 .ca-quick-glabel {
@@ -117,7 +117,7 @@ html.is-quick body {
   align-items: center;
   gap: 6px;
   padding: 10px 10px 4px;
-  font: 600 11px/14px var(--font-display);
+  font: var(--type-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -126,7 +126,7 @@ html.is-quick body {
   color: var(--attn);
 }
 .ca-quick-glabel > span {
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   letter-spacing: 0;
 }
 .ca-quick-row {
@@ -162,7 +162,7 @@ html.is-quick body {
   white-space: nowrap;
 }
 .ca-quick-row-title {
-  font: 500 13px/18px var(--font-sans);
+  font: var(--type-body-strong);
   color: var(--ink);
 }
 .ca-quick-row-title mark {
@@ -174,7 +174,7 @@ html.is-quick body {
   text-underline-offset: 3px;
 }
 .ca-quick-row-why {
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 /* The row under a search's first sessions that lists the rest. */
@@ -200,13 +200,13 @@ html.is-quick body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   color: var(--ink-2);
 }
 .ca-quick-row-age {
   flex: none;
   width: 26px;
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   font-variant-numeric: tabular-nums;
   text-align: right;
   color: var(--ink-3);
@@ -272,7 +272,7 @@ html.is-quick body {
 .ca-quick-sure {
   flex: none;
   min-width: 34px;
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   font-variant-numeric: tabular-nums;
   text-align: right;
   color: var(--ink-3);
@@ -308,7 +308,7 @@ html.is-quick body {
   gap: 8px;
   padding: 8px 14px;
   border-top: 1px solid var(--line);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--ink-2);
 }
 .ca-quick-todo-title {
@@ -334,7 +334,7 @@ html.is-quick body {
   margin: 0;
   padding: 8px 14px;
   border-top: 1px solid var(--line);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   color: var(--alert);
 }
 .ca-quick-error .ca-icon {

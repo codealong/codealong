@@ -130,7 +130,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-2);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
   text-align: left;
   cursor: pointer;
 }
@@ -191,7 +191,7 @@
   gap: 8px;
   min-width: 0;
   margin: 0 6px 3px 25px;
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
 }
 .ca-thread-made a.ca-md-a {
   display: inline-flex;
@@ -242,7 +242,7 @@
   gap: 8px;
   padding: 4px 6px 2px;
   color: var(--ink-2);
-  font: 400 12px/16px var(--font-sans);
+  font: var(--type-meta);
 }
 .ca-thread-askrow > span {
   flex: 1;

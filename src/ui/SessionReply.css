@@ -133,7 +133,7 @@
 }
 .ca-approval-label {
   color: var(--ink);
-  font: 500 13px/18px var(--font-sans);
+  font: var(--type-body-strong);
   overflow-wrap: anywhere;
 }
 .ca-approval-label .ca-ic {

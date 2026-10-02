@@ -1,5 +1,6 @@
 // Generates src/styles/tokens.css from design/tokens.json (the Codealong design system's
-// tokens): light values on :root, dark values under prefers-color-scheme, fonts from src/fonts.
+// tokens): light values on :root, dark values under prefers-color-scheme, fonts from src/fonts,
+// and each style of the type scale as a `font` shorthand (--type-meta: 400 12px/16px var(--font-sans)).
 // The theme in config.toml sets data-theme on the root: "light" or "dark" wins over macOS.
 // src/styles/styles.test.ts checks that tokens.css is what this would write.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -19,6 +20,10 @@ export function tokensCss(t) {
   const themed = [...t.color.tokens, ...(t.shadow?.tokens ?? [])];
   const plain = ['spacing', 'radius', 'size', 'duration'].flatMap((k) => t[k]?.tokens ?? []);
   const families = Object.entries(t.type.families).map(([k, v]) => `  --font-${k}: ${v};`).join('\n');
+  // A style's letter spacing isn't part of the shorthand: a rule that wants it sets it beside.
+  const type = t.type.groups
+    .flatMap((g) => g.styles.map((s) => `  --type-${s.name}: ${s.fontWeight} ${s.fontSize}/${s.lineHeight} var(--font-${g.family});`))
+    .join('\n');
   const faces = t.type.fonts
     .map((f) => `@font-face { font-family: '${f.family}'; src: url('../${f.file.replace(/^fonts\//, 'fonts/')}') format('woff2'); font-weight: ${f.weight}; font-display: block; }`)
     .join('\n');
@@ -30,6 +35,7 @@ ${faces}
 ${decls(themed, 'light')}
 ${plain.map((x) => `  --${x.name}: ${x.value};`).join('\n')}
 ${families}
+${type}
 }
 
 @media (prefers-color-scheme: dark) {

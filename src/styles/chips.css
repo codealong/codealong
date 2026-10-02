@@ -10,25 +10,25 @@
 
 .ca-pill { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 7px 0 6px; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-2); font: 500 12px/16px var(--font-sans); white-space: nowrap; }
 
-.ca-chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 6px; box-sizing: border-box; border-radius: var(--radius-pill); background: var(--neutral-tint); color: var(--ink-2); font: 500 11px/14px var(--font-mono); white-space: nowrap; flex: none; }
+.ca-chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 6px; box-sizing: border-box; border-radius: var(--radius-pill); background: var(--neutral-tint); color: var(--ink-2); font: var(--type-code-sm); white-space: nowrap; flex: none; }
 .ca-chip .ca-icon { color: var(--ink-3); }
 .ca-chip--more { padding: 0 7px; color: var(--ink-3); }
 
 .ca-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-2); font: 500 11px/14px var(--font-sans); white-space: nowrap; }
 
-.ca-pr { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px 0 6px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-3); font: 500 11px/14px var(--font-mono); white-space: nowrap; font-variant-numeric: tabular-nums; flex: none; }
+.ca-pr { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px 0 6px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-3); font: var(--type-code-sm); white-space: nowrap; font-variant-numeric: tabular-nums; flex: none; }
 .ca-pr--open, .ca-pr--approved { background: var(--pr-open-tint); color: var(--pr-open); }
 .ca-pr--changes, .ca-pr--closed { background: var(--alert-tint); color: var(--alert); }
 .ca-pr--merged { background: var(--pr-merged-tint); color: var(--pr-merged); }
 .ca-pr-word { font: 500 12px/16px var(--font-sans); }
 .ca-pr .ca-checks { padding-left: 5px; margin-left: 1px; box-shadow: inset 1px 0 0 var(--line); }
-.ca-checks { display: inline-flex; align-items: center; gap: 2px; font: 500 11px/14px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-checks { display: inline-flex; align-items: center; gap: 2px; font: var(--type-code-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ca-checks.is-pass { color: var(--pr-open); }
 .ca-checks.is-fail { color: var(--alert); }
 .ca-checks.is-pending { color: var(--ink-3); }
 .ca-lane-pricon { display: inline-flex; background: none; }
 
-.ca-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font: 400 12px/16px var(--font-mono); color: var(--ink-2); }
+.ca-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font: var(--type-code); color: var(--ink-2); }
 .ca-branch .ca-icon { color: var(--ink-3); }
 .ca-branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-branch-ab, .ca-branch-dirty { color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -66,7 +66,7 @@
 /* Clickable sessions: a chip on a lane, a row in the inspector. */
 .ca-chip--button {
   border: 0;
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   cursor: pointer;
 }
 .ca-chip--button:hover {
@@ -123,7 +123,7 @@
 .ca-drift {
   display: inline-flex;
   gap: 5px;
-  font: 500 11px/14px var(--font-mono);
+  font: var(--type-code-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--ink-3);
