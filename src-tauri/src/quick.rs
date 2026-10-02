@@ -401,7 +401,7 @@ mod native {
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::{sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSEvent, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
+    use objc2_app_kit::{NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use tauri::WebviewWindow;
 
@@ -442,7 +442,10 @@ mod native {
     }
 
     /// Turns the window into a non-activating panel that can take the keyboard, above other
-    /// apps' windows and the floating bar, on whichever Space is in front, full-screen ones too.
+    /// apps' windows and the bar, floating or docked in the notch, on whichever Space is in
+    /// front, full-screen ones too. The docked bar is at the main menu's level and two (bar.rs),
+    /// and its window reaches well down the screen while it shows a session, so the panel is
+    /// one above that: opened from a session in the notch, it's over it.
     pub fn make_panel(w: &WebviewWindow) {
         let Some(n) = ns(w) else { return };
         let obj: &AnyObject = n;
@@ -458,7 +461,7 @@ mod native {
         unsafe { AnyObject::set_class(obj, panel) };
         n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
         n.setHidesOnDeactivate(false);
-        n.setLevel(NSStatusWindowLevel + 1);
+        n.setLevel(NSMainMenuWindowLevel + 3);
         n.setCollectionBehavior(
             n.collectionBehavior()
                 | NSWindowCollectionBehavior::CanJoinAllSpaces

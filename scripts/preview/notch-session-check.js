@@ -8,7 +8,7 @@
 // the camera shows its group's first, and a click on the notch itself the current one; the pin in its header keeps it on the desktop; and Rename…
 // in a pill's menu shows it with its name ready to change. The strip over its header has the
 // common actions with their keys, ⌃⌘W closes its terminal, and its bottom corner drags it to a
-// size it keeps.
+// size it keeps. ⌃⌘1 snoozes it.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-session-check.js
 (function () {
   var out = [];
@@ -46,7 +46,8 @@
   var feed = fetch('./bar-feed.json').then(function (r) { return r.json(); }).then(function (f) {
     items = f.items.slice(0, 4).map(function (i, n) {
       var group = n === 0 ? 'needs' : n < 3 ? 'unread' : 'working';
-      return Object.assign({}, i, { group: group, status: group, snoozedUntil: null, since: 1000 + n });
+      // On the bar whatever its worktree: one the board keeps out of sight isn't.
+      return Object.assign({}, i, { group: group, status: group, snoozedUntil: null, since: 1000 + n, hidden: false });
     });
     // Only these on the bar, so the notch is as narrow as a session gets.
     return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
@@ -129,7 +130,7 @@
       var note = document.querySelector('.ca-notch-session .ca-reply-queue-note');
       check('on one that doesn’t wait the strip says what does, not what more', !!note && /^3 waiting on you/.test(note.textContent), note ? note.textContent : 'no strip');
       var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
-      check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Snooze|' + labels[2] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[2]), labels.join('|'));
+      check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Snooze⌃⌘1–4|' + labels[2] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[2]), labels.join('|'));
       key({ key: ']', code: 'BracketRight', metaKey: true });
       return until(shows(items[0]), 3000, '⌘] from one running');
     })
@@ -384,7 +385,31 @@
     })
     .then(function () {
       check('the strip’s × puts it away', keysCalls()[keysCalls().length - 1] === false);
-      return wait(200);
+      return wait(500);
+    })
+    .then(function () {
+      // ⌃⌘1 snoozes the one shown for the first of its menu's times, and it leaves what waits.
+      shape().click();
+      return until(function () { return is('session') && document.querySelector('.ca-hud-pill.is-peeked[data-key]'); }, 3000, 'a session, to snooze');
+    })
+    .then(function () { return wait(400); })
+    .then(function () {
+      var shown = (window.__snoozed = document.querySelector('.ca-hud-pill.is-peeked[data-key]').dataset.key);
+      var before = calls('snooze_sessions').length;
+      var at = Date.now();
+      key({ key: '1', code: 'Digit1', metaKey: true, ctrlKey: true });
+      return until(function () { return calls('snooze_sessions').length === before + 1; }, 2000, '⌃⌘1').then(function () {
+        var c = calls('snooze_sessions')[before];
+        var mins = (c.until - at) / 60000;
+        check('⌃⌘1 snoozes it for 15 minutes', c.keys.join() === shown && mins > 14.5 && mins < 15.5, JSON.stringify(c));
+        return wait(400);
+      });
+    })
+    .then(function () {
+      var now = document.querySelector('.ca-hud-pill.is-peeked[data-key]');
+      check('and the notch goes on from it, or closes with none left', !is('session') || (!!now && now.dataset.key !== window.__snoozed), notch().className);
+      escape();
+      return wait(300);
     })
     .then(function () { say('done: ' + out.join(' · ')); })
     .catch(function (e) { say('done: ' + out.concat(['error ' + e.message + ' (showing “' + title() + '”, ' + notch().className + ')']).join(' · ')); });

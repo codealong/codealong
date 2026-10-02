@@ -139,7 +139,7 @@ describe('the bar docked in the notch', () => {
   it('shows a session under the pills, as wide as they are and no narrower than a session reads', () => {
     // Few pills: the session's own width, as much wider than closed on each side in whole points.
     const few = sizes({ w: 300, h: 24 }, 60);
-    expect(few.session.w).toBe(641);
+    expect(few.session.w).toBe(681);
     expect((few.session.w - few.pills.w) % 2).toBe(0);
     expect(few.session.h).toBe(few.pills.h + NOTCH.session.height);
     // Many: as wide as the pills.
@@ -158,7 +158,7 @@ describe('the bar docked in the notch', () => {
     const dragged = sizes(body, 60, screen, { w: 800, h: 700 });
     expect(dragged.session).toEqual({ w: 801, h: 66 + 700 });
     // No narrower than a session reads or than the pills, no shorter than one reads.
-    expect(sizes(body, 60, screen, { w: 100, h: 50 }).session).toEqual({ w: 641, h: 66 + NOTCH.session.least });
+    expect(sizes(body, 60, screen, { w: 100, h: 50 }).session).toEqual({ w: 681, h: 66 + NOTCH.session.least });
     expect(sizes({ w: 800, h: 24 }, 60, screen, { w: 100, h: 520 }).session.w).toBe(821);
     // No bigger than the biggest it gets, which leaves some of the screen clear.
     const far = sizes(body, 60, screen, { w: 5000, h: 5000 });

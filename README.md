@@ -25,8 +25,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   once its conversation has shown for a second, so the ones passed over on the way down a list
   aren't stops, and each window keeps its own history across launches. A session's or worktree's
   actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work
-  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E, and ⌃⌘W to close a session's terminal, which has no
-  letter of its own); the right-click menu shows them. A click on a row's
+  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E, and two with no letter of their own: ⌃⌘W closes a
+  session's terminal, and ⌃⌘1 to ⌃⌘4 snooze it for one of the Snooze menu's times); the
+  right-click menu shows them. A click on a row's
   chips selects the row, as a click anywhere on it does, and a double-click does the chip's own
   thing (its PR on GitHub, the session where it runs, its todo, its app) in place of opening
   the row; in a panel, a click does. A right-click (or ⌃-click) opens a row's menu and leaves
@@ -146,7 +147,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     them, and stays so until you press it again; Escape in the box then leaves the keys with the
     window. A strip at the top of the panel says how many
     more wait on you and how the last one went, and has what's commonly done to a session as
-    buttons that say their keys: Seen (⌘E), Snooze, Close terminal (⌃⌘W, which ends a background
+    buttons that say their keys: Seen (⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its menu's
+    times: 15 minutes, 1 hour, 3 hours, the next morning), Close terminal (⌃⌘W, which ends a background
     job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
     and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Clicking a session puts the cursor in its box;
     ⌥↑ ⌥↓ from there move along with the cursor in the next one's box, the arrows on the list
@@ -518,7 +520,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   running ones too, and ⌃- and ⌃⇧- go back and forward through the ones you looked at there. A
   strip over the header says how many more wait and how the last one went, and has what's
   commonly done to the session as buttons that say their keys, as its panel in Sessions has:
-  Seen (⌘E), Snooze, Close terminal (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc).
+  Seen (⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close terminal (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘])
+  and × (esc).
   The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session
   leaves what waits on you and the next takes its place; with none left the notch closes.
   Drag the session's bottom corners or its bottom edge to size it: the notch stays centered, so

@@ -46,10 +46,20 @@ export function untilWords(at: number, now: number): string {
   return `${date}${days < 7 ? '' : ','} ${clock(at)}`;
 }
 
-/** The Snooze submenu for sessions: the times, and Wake now for one that's snoozed already. */
-export function snoozeMenu(keys: string[], now: number, opts: { label?: string; until?: number | null; onDone?: (act: Promise<void>) => void } = {}): MenuGroup {
+/** The chord for each time a snooze can run to, in the menu's order: ⌃⌘1 for the first (15
+ *  minutes) to ⌃⌘4 for the last (the next morning). */
+export const SNOOZE_CHORDS = ['Ctrl+Cmd+1', 'Ctrl+Cmd+2', 'Ctrl+Cmd+3', 'Ctrl+Cmd+4'];
+
+/** Which of a snooze menu's times ⌃⌘ with this key picks, from 0; -1 for a key that picks none. */
+export function snoozeChordIndex(key: string): number {
+  return SNOOZE_CHORDS.indexOf(`Ctrl+Cmd+${key}`);
+}
+
+/** The Snooze submenu for sessions: the times, and Wake now for one that's snoozed already. With
+ *  `chords` each time says its chord, where the window takes them. */
+export function snoozeMenu(keys: string[], now: number, opts: { label?: string; until?: number | null; onDone?: (act: Promise<void>) => void; chords?: boolean } = {}): MenuGroup {
   const done = opts.onDone ?? ((act: Promise<void>) => void act.catch(() => {}));
-  const items: (MenuAction | 'separator')[] = snoozeChoices(now).map((c) => ({ label: c.label, run: () => done(snoozeAhead(keys, c.until)) }));
+  const items: (MenuAction | 'separator')[] = snoozeChoices(now).map((c, i) => ({ label: c.label, run: () => done(snoozeAhead(keys, c.until)), ...(opts.chords && SNOOZE_CHORDS[i] ? { accelerator: SNOOZE_CHORDS[i] } : {}) }));
   if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(snoozeAhead(keys, null)) });
   return { label: opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'), items };
 }

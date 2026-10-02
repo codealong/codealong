@@ -1770,8 +1770,8 @@ export function App() {
         return;
       }
       // P, A and R run the selected row's menu actions (menus.ts `KEYS`), plain outside Sessions and
-      // with ⌃⌘ anywhere, so each applies where the menu's would; ⌃⌘W closes a session's terminal,
-      // which no letter alone does. P pins what the view lists: worktrees on the board, sessions
+      // with ⌃⌘ anywhere, so each applies where the menu's would; ⌃⌘W closes a session's terminal
+      // and ⌃⌘1 to ⌃⌘4 snooze it for one of its menu's times, which no letter alone does. P pins what the view lists: worktrees on the board, sessions
       // in Sessions. E, below, marks seen more than one session at once.
       if (((!mod && letters) || chord) && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
         const acts = selected.kind === 'agent' ? actionsRef.current.session(selected.lane, selected.session, view === 'worktrees' ? 'worktree' : 'session') : actionsRef.current.lane(selected.lane);
@@ -1782,6 +1782,12 @@ export function App() {
           found.action.run();
           return;
         }
+      }
+      // ⌃⌘1 to ⌃⌘4 snooze, and nothing else: on a row that can't be snoozed they don't fall
+      // through to ⌘1 to ⌘4, which open things.
+      if (chord && /^[1-4]$/.test(key)) {
+        e.preventDefault();
+        return;
       }
       // P pins the PR selected in PRs, as it pins what the other views list.
       if (((!mod && letters) || chord) && key === 'p' && view === 'prs' && selected?.kind === 'pr') {

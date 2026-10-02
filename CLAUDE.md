@@ -306,7 +306,9 @@ some work is, answer with one.
   stands; with `hotkeys` (Sessions' panel, the notch) it's always there and has what's commonly
   done to a session as buttons that say their keys. The buttons run the session's own actions
   (`menus.ts` `sessionActions`) and read their keys from `CHORDS`, so an action given a chord
-  there gets its key on the strip, in the menus and in every window at once.
+  there gets its key on the strip, in the menus and in every window at once. Snoozing has a
+  chord for each of its menu's times instead (`snooze.ts` `SNOOZE_CHORDS`, ⌃⌘1 to ⌃⌘4), which
+  `menus.chorded` and `keyed` run.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are
@@ -1237,7 +1239,10 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
   floating bar sets the status item level (still under menus) through objc2. Docked in the notch
   it's at `NSMainMenuWindowLevel + 2` (26), above the menu bar (24) and status items (25), as
-  CodeIsland does.
+  CodeIsland does. The quick panel is one above that (27): the docked bar's window reaches well
+  down the screen while it shows a session, and two windows at one level go by which was
+  ordered front last, which put the notch over a quick panel opened from it. The peek and the
+  sessions kept on the desktop are still at 26 and 25.
 - The notch (read on this Mac, a 16-inch MacBook Pro, 2026-09-28): `NSScreen.safeAreaInsets.top`
   32, and `auxiliaryTopLeftArea` / `…RightArea` the menu bar on either side of the camera, 771
   and 772 points wide on a 1728-point screen, so the notch is 185 wide and half a point right of

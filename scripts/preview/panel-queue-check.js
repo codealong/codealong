@@ -124,7 +124,7 @@
       check('once it no longer waits on you the strip counts only what else does', !/more waiting on you/.test(strip()), strip());
       // The strip is always there in Sessions, with what's commonly done to a session and its keys.
       var keys = Array.prototype.map.call(document.querySelectorAll('.ca-sessinsp .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
-      check('the strip has the common actions with their keys', keys.join('|') === 'Seen⌘E|Snooze|Close terminal⌃⌘W|Archive⌃⌘A|Next⌘]', keys.join('|'));
+      check('the strip has the common actions with their keys', keys.join('|') === 'Seen⌘E|Snooze⌃⌘1–4|Close terminal⌃⌘W|Archive⌃⌘A|Next⌘]', keys.join('|'));
       key(box(), { key: 'Escape' });
       check('Escape in the box gives the list its keys back', document.activeElement === document.querySelector('[role="listbox"]'), document.activeElement && document.activeElement.className);
     })

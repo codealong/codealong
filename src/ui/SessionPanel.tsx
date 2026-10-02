@@ -17,7 +17,7 @@
 // while you do. Rename in a pill's or a row's menu shows it with its name ready to change.
 
 import { useMemo, type ReactNode } from 'react';
-import { below, showContextMenu } from '../contextMenu';
+import { below, showContextMenu, type MenuGroup } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
 import { CHORDS, chordSigns, type SessionActions } from '../menus';
@@ -84,6 +84,13 @@ function queueWords(queue: Queue | undefined, notice: Notice | null | undefined,
   return always && queue.waiting !== false ? 'The last one waiting on you' : '';
 }
 
+/** A Snooze menu's times with the chord for each, as a tooltip says them: `⌃⌘1 for 15 minutes`. */
+function snoozeKeys(snooze: MenuGroup): string {
+  return snooze.items
+    .flatMap((it) => (it !== 'separator' && !('items' in it) && it.accelerator ? [`${chordSigns(it.accelerator)} ${it.label[0].toLowerCase()}${it.label.slice(1)}`] : []))
+    .join(', ');
+}
+
 /** A button on the strip that says its key. One that doesn't apply to the session shown stays in
  *  its place, dimmed, so the strip holds still from one session to the next. */
 function Hotkey({ label, icon, keys, title, run }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined }) {
@@ -135,7 +142,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen }:
   const buttons: ReactNode = (
     <div className="ca-hotkeys" role="toolbar" aria-label="What’s commonly done to this session">
       <Hotkey label="Seen" keys={sign('seen')} title={next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'} run={seen && (() => seen())} />
-      <Hotkey label="Snooze" title="Snooze: it waits apart until its time comes" run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
+      <Hotkey label="Snooze" keys="⌃⌘1–4" title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
       <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close terminal'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
       <Hotkey label={archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive'} keys={sign('archive')} title={archive?.label ?? 'Archive'} run={archive && (() => archive.run())} />
       {gap}

@@ -128,7 +128,7 @@ export const NOTCH = {
   ear: { closed: 6, open: 14 },
   radius: { closed: 12, open: 22, session: 26 },
   pad: 10,
-  session: { width: 640, height: 520, least: 240, widest: 1040, tallest: 900, clear: 96 },
+  session: { width: 680, height: 520, least: 240, widest: 1040, tallest: 900, clear: 96 },
   shadow: { side: 20, bottom: 32 },
 };
 

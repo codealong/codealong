@@ -218,6 +218,30 @@ describe('actions by name', () => {
     expect(chorded(sessionActions(lane(), session(), base), { key: 'r', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
   });
 
+  it('snoozes on ⌃⌘1 to ⌃⌘4, one for each of the menu’s times, and shows them there', () => {
+    const left: string[] = [];
+    const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };
+    const acts = sessionActions(lane(), session(), can);
+    const times = (acts.snooze?.items ?? []).flatMap((i) => (i !== 'separator' && !('items' in i) ? [i] : []));
+    expect(times.map((i) => i.accelerator)).toEqual(['Ctrl+Cmd+1', 'Ctrl+Cmd+2', 'Ctrl+Cmd+3', 'Ctrl+Cmd+4']);
+    const press = (key: string, ctrl = true) => chorded(acts, { key, metaKey: true, ctrlKey: ctrl, altKey: false, shiftKey: false });
+    expect(press('1')).toBe(times[0]);
+    expect(press('4')).toBe(times[3]);
+    // ⌘1 opens things, and there's no fifth time.
+    expect(press('1', false)).toBeNull();
+    expect(press('5')).toBeNull();
+    expect(keyed(acts, '2', true)).toEqual({ id: 'snooze', action: times[1] });
+    expect(keyed(acts, '2')).toBeNull();
+    expect(chordLetter('3')).toBe(true);
+    expect(chordLetter('7')).toBe(false);
+    press('2')?.run();
+    expect(left).toEqual(['snoozed']);
+    // Where no window takes the chords, the menu doesn't show them; one that can't be snoozed has none.
+    const plain = sessionActions(lane(), session(), base).snooze?.items ?? [];
+    expect(plain.some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
+    expect(chorded(sessionActions(lane(), { ...session(), archived: true }, can), { key: '1', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+  });
+
   it('closes a session’s terminal on ⌃⌘W, which no letter alone does, and says it left', () => {
     const left: string[] = [];
     const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };

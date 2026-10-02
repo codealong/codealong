@@ -15,7 +15,7 @@ import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from 
 import { renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
-import { snoozeMenu } from './snooze';
+import { snoozeChordIndex, snoozeMenu } from './snooze';
 import type { DesktopPinned, Lane, Pr, Session } from './types';
 import { errorText, type Report } from './report';
 
@@ -183,7 +183,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     pin: s.archived ? undefined : can.pin,
     desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
     // Snoozes keep sessions off the floating bar, which shows this device's only.
-    snooze: s.archived || !here ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed') }),
+    snooze: s.archived || !here ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed'), chords: !!can.keys }),
     // Closed, it's done with for now, as one marked seen is: a window working through what
     // waits on you goes on.
     close: closable(s)
@@ -316,11 +316,21 @@ export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, stri
  *  do nothing: ⌘E marks seen (and goes on, in Sessions), ⌃⌘ and the letter runs the rest. Closing
  *  a session's terminal has a chord and no letter of its own: it's not one to press by mistake. */
 export const CHORDS: typeof KEYS = { seen: 'Cmd+E', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W' };
+// Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘4 (snooze.ts `SNOOZE_CHORDS`), which its
+// menu shows beside them.
 const CTRL_CMD = 'Ctrl+Cmd+';
 
-/** Whether ⌃⌘ with this key is one of the chords. */
+/** Whether ⌃⌘ with this key is one of the chords: an action's letter, or a snooze's digit. */
 export function chordLetter(key: string): boolean {
-  return Object.values(CHORDS).includes(CTRL_CMD + key.toUpperCase());
+  return Object.values(CHORDS).includes(CTRL_CMD + key.toUpperCase()) || snoozeChordIndex(key) >= 0;
+}
+
+/** The time ⌃⌘ with a digit snoozes a session to (snooze.ts `SNOOZE_CHORDS`), as its Snooze menu
+ *  has it now; none for one that can't be snoozed, or a key that isn't one of them. */
+function snoozeChorded(actions: SessionActions | LaneActions, key: string): MenuAction | null {
+  const snooze = 'snooze' in actions ? actions.snooze : undefined;
+  const it = snooze?.items[snoozeChordIndex(key)];
+  return it && it !== 'separator' && !('items' in it) ? it : null;
 }
 
 /** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W. */
@@ -335,6 +345,8 @@ export function chordSigns(chord: string): string {
 /** The action a key runs among a session's or worktree's, by the key as typed, when it applies
  *  to them now: the letter alone (`KEYS`), or with `chord` the letter pressed with ⌃⌘ (`CHORDS`). */
 export function keyed(actions: SessionActions | LaneActions, key: string, chord = false): { id: string; action: MenuAction } | null {
+  const snooze = chord ? snoozeChorded(actions, key) : null;
+  if (snooze) return { id: 'snooze', action: snooze };
   const letter = key.toUpperCase();
   const id = chord ? Object.keys(CHORDS).find((name) => CHORDS[name as keyof typeof CHORDS] === CTRL_CMD + letter) : Object.keys(KEYS).find((name) => KEYS[name as keyof typeof KEYS] === letter);
   const it = id ? (actions as Record<string, Item | undefined>)[id] : undefined;
@@ -345,6 +357,8 @@ export function keyed(actions: SessionActions | LaneActions, key: string, chord 
  *  for the windows that show one session with a box to answer it, where letters are typed. */
 export function chorded(actions: SessionActions, e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
   if (!e.metaKey || e.altKey || e.shiftKey) return null;
+  const snooze = e.ctrlKey ? snoozeChorded(actions, e.key) : null;
+  if (snooze) return snooze;
   const chord = `${e.ctrlKey ? 'Ctrl+' : ''}Cmd+${e.key.toUpperCase()}`;
   const id = Object.keys(CHORDS).find((name) => CHORDS[name as keyof typeof CHORDS] === chord);
   const it = id ? (actions as unknown as Record<string, Item | undefined>)[id] : undefined;
