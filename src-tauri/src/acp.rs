@@ -39,6 +39,10 @@ pub const PACKAGES: [(&str, &str); 2] = [("@agentclientprotocol/claude-agent-acp
 /// tools and MCP servers, which can take a while.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// How long npm may take to install the adapters: under a minute on a good connection, and
+/// it's stopped rather than left to hold `codealong install` for good on a bad one.
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
 /// What changed, for whoever shows it.
 pub enum Change {
     /// A turn started or ended, a permission request came or went, a process started or
@@ -231,16 +235,24 @@ pub fn install_adapters() -> Result<String> {
     let specs: Vec<String> = PACKAGES.iter().map(|(n, v)| format!("{n}@{v}")).collect();
     let mut args = vec!["install", "--no-fund", "--no-audit", "--save-exact"];
     args.extend(specs.iter().map(String::as_str));
-    let out = Command::new("npm")
-        .args(&args)
-        .current_dir(&dir)
-        .env("PATH", crate::procs::user_path())
-        .output()
-        .context("npm isn't installed: the adapters are Node packages. Install Node (brew install node) and try again.")?;
-    if !out.status.success() {
-        bail!("npm couldn't install the adapters: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or(""));
+    let out = run_npm("npm", &args, &dir, INSTALL_TIMEOUT)?;
+    if !out.ok {
+        bail!("npm couldn't install the adapters: {}", out.err.lines().last().unwrap_or(""));
     }
     Ok(format!("ACP adapters: {} in {}", specs.join(", "), crate::util::tilde(&dir)))
+}
+
+/// Runs npm in the adapters' folder for at most `timeout`, like every other program the engine
+/// runs and waits for.
+fn run_npm(npm: &str, args: &[&str], dir: &Path, timeout: Duration) -> Result<crate::procs::Output> {
+    let started = std::time::Instant::now();
+    match crate::procs::run_output(npm, args, Some(dir), timeout) {
+        Ok(out) => Ok(out),
+        // `run_output` fails when the program doesn't start and when its time runs out, and
+        // only the second takes this long.
+        Err(_) if started.elapsed() >= timeout => bail!("npm timed out after {} minutes installing the adapters. Check the connection and try again.", timeout.as_secs() / 60),
+        Err(e) => Err(e.context("npm isn't installed: the adapters are Node packages. Install Node (brew install node) and try again.")),
+    }
 }
 
 impl Agent {
@@ -879,6 +891,21 @@ mod tests {
         let h = state().sessions.remove(&key).unwrap();
         assert_eq!((h.loaded, h.running, h.error.as_deref()), (false, false, Some("Its agent stopped.")));
         assert_eq!(ag.request("session/new", json!({}), None).unwrap_err().to_string(), "test-adapter-lines's agent stopped.");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_install_that_hangs_is_stopped_and_says_so() {
+        let dir = store::test_dir("acp-npm");
+        let failed = |npm: &str, args: &[&str], timeout: Duration| run_npm(npm, args, &dir, timeout).err().expect("it fails").to_string();
+        let e = failed("/bin/sleep", &["30"], Duration::from_millis(300));
+        assert!(e.starts_with("npm timed out after "), "{e}");
+        // No npm at all still says what to install.
+        let e = failed("/nowhere/npm", &["install"], Duration::from_secs(5));
+        assert!(e.starts_with("npm isn't installed: the adapters are Node packages."), "{e}");
+        // And one that ran is read as before, whatever it exited with.
+        let Ok(out) = run_npm("/bin/sh", &["-c", "echo 'npm ERR! 404' >&2; exit 1"], &dir, Duration::from_secs(5)) else { panic!("it ran") };
+        assert_eq!((out.ok, out.err.lines().last()), (false, Some("npm ERR! 404")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
