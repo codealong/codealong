@@ -11,7 +11,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, sessionPrs, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { AGENT_BAY, homeOf, liveOrLatest, narrowed, rowItems, seenable, sessionPrs, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, onBarMode, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
@@ -21,9 +21,9 @@ import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered, START_OPTIONS_NOTICE, startOptionsFailed } from './start';
-import { COLOR_WORD, newTodo, pickTo, pickToggle, todoIndex, todoProjects, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
+import { COLOR_WORD, newTodo, pickTo, pickToggle, todoProjects, todoInFilter, todoInQuery, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
-import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
+import { deviceOf, shortOf, type DeviceFilter } from './devices';
 import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -37,13 +37,13 @@ import { LaneRow } from './ui/LaneRow';
 import { PinnedSection } from './ui/PinnedSection';
 import { useRowDrag, type DragProps } from './ui/useRowDrag';
 import { BayHeader, Button, cx, Icon, Kbd, Seg, StatusGlyph } from './ui/primitives';
-import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
+import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { PrInspector } from './ui/PrInspector';
 import { usePrLinks } from './ui/PrLink';
-import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
+import { prIsOpen, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { SESSION_ROWS, SESSION_SORTS, SessionsView, sortSessions, waitingQueue, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
+import { SESSION_ROWS, SESSION_SORTS, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
 import { TodoPanel, TodoPickPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView, type ComposerContext, type SelectHow } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
@@ -63,8 +63,9 @@ import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './us
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
+import { laneInQuery, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
+import { inProject } from './quick';
 
-const ELSEWHERE = 'Elsewhere';
 /** The chords Sessions' box hands the list: ⌥↑ ⌥↓ (with ⇧, to what waits on you), ⌃⌘ with a
  *  menu's letter or ↑ ↓, ⇧⌘F and ⌃Tab. A text field has no use of its own for any of them but
  *  ⌥↑ ⌥↓, which jump to a paragraph's start or end. */
@@ -134,82 +135,9 @@ type Row = BoardRow | PrRowItem | TodoItem;
 /** No rows, as one list, so what's keyed on the rows shown doesn't see a new one on every render. */
 const NO_ROWS: Row[] = [];
 
-function inProject(lane: Lane, project: string): boolean {
-  if (project === ALL_PROJECTS) return !lane.hidden;
-  return lane.project === project && (project === ELSEWHERE || !lane.hidden);
-}
-
-function inQuery(lane: Lane, q: string): boolean {
-  if (!q) return true;
-  const needle = q.toLowerCase();
-  const hay = [lane.callsign, lane.repo, lane.branch ?? '', lane.headline, lane.path, lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '', ...lane.sessions.map((s) => `${s.account} ${s.title}`)];
-  return hay.some((h) => h.toLowerCase().includes(needle));
-}
-
-/** Search in the Sessions view: the session, then its worktree and PR. */
-function sessionInQuery(r: SessionItem, q: string): boolean {
-  if (!q) return true;
-  const needle = q.toLowerCase();
-  const { lane, session: s } = r;
-  const hay = [s.title, s.account, s.excerpt ?? '', lane.callsign, lane.repo, lane.branch ?? '', lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : ''];
-  return hay.some((h) => h.toLowerCase().includes(needle));
-}
-
-/** The status filters, applied to one session: any of them. */
-function sessionInFilter(r: SessionItem, fs: readonly Filter[]): boolean {
-  return fs.length === 0 || fs.some((f) => sessionIn(r, f));
-}
-
-function sessionIn(r: SessionItem, f: Filter): boolean {
-  const pr = r.lane.pr;
-  switch (f) {
-    case 'needs':
-      return r.session.status === 'needs' || r.session.status === 'error';
-    case 'working':
-    case 'unread':
-      return r.session.status === f;
-    case 'review':
-      return !!pr && pr.state !== 'merged' && pr.state !== 'closed';
-    case 'work':
-      return prNeedsWork(r.lane.pr);
-    default:
-      return r.lane.bay === f;
-  }
-}
-
 /** What selecting a worktree on the board selects: its first agent's line, else the worktree. */
 function boardRowKey(lane: Lane): string {
   return rowItems(worktreeRow(lane))[0].key;
-}
-
-/** Search in the PRs view: number, title, author, branch, repo. */
-function prInQuery(p: PrItem, q: string): boolean {
-  if (!q) return true;
-  const needle = q.toLowerCase().replace(/^#/, '');
-  return [String(p.number), p.title, p.author ?? '', p.head, p.repoSlug].some((h) => h.toLowerCase().includes(needle));
-}
-
-/** The status filters, applied to a PR and the sessions that worked on it: any of them. */
-function prInFilter(r: PrRowItem, fs: readonly Filter[]): boolean {
-  return fs.length === 0 || fs.some((f) => prIn(r, f));
-}
-
-function prIn(r: PrRowItem, f: Filter): boolean {
-  const p = r.pr;
-  switch (f) {
-    case 'needs':
-    case 'working':
-    case 'unread':
-      // As on the board, a session from another lane doesn't lend its status: one agent that
-      // made many worktrees would otherwise put all of their PRs in Working.
-      return r.sessions.some(({ session }) => !session.visitor && AGENT_BAY[session.status] === f);
-    case 'review':
-      return prIsOpen(p);
-    case 'work':
-      return prNeedsWork(p);
-    default:
-      return false;
-  }
 }
 
 /** A row's element id, for the list's active descendant. From its key, not its place in the
@@ -382,25 +310,6 @@ export function App() {
     });
   }, []);
 
-  // This device's projects, then any only another device has: its worktrees go into this device's
-  // projects by repo (peers.rs), and the rest keep that device's own project, listed here too.
-  const projects = useMemo(() => {
-    const here = board?.projects ?? [];
-    const names = new Set(here.map((p) => p.name));
-    const elsewhere: Map<string, number> = new Map();
-    for (const l of deviceLanes) {
-      if (!names.has(l.project) && !l.hidden) elsewhere.set(l.project, (elsewhere.get(l.project) ?? 0) + 1);
-    }
-    if (elsewhere.size === 0) return here;
-    const extra = [...elsewhere].map(([name, lanes]) => ({ name, lanes, repos: [] }));
-    const last = here.length > 0 && here[here.length - 1].name === ELSEWHERE ? here.length - 1 : here.length;
-    return [...here.slice(0, last), ...extra, ...here.slice(last)];
-  }, [board?.projects, deviceLanes]);
-  // The board lists no projects until it's read, so the one you left it on holds until then.
-  const known = project === ALL_PROJECTS || projects.some((p) => p.name === project) || (loading && !!project);
-  const current = known && project ? project : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
-  projectNow.current = current;
-
   const pickProject = useCallback(
     (name: string) => {
       setProject(name);
@@ -421,117 +330,11 @@ export function App() {
   // How much each session's row says: two lines, or one.
   const [sessionLines, setSessionLines] = useStored<SessionRows>(SESSION_ROWS_KEY, ROWS_STORED, 'two');
 
-  // Archived sessions leave every view but the Archived list.
-  const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], deviceLanes, deviceFilter), [board?.lanes, deviceLanes, deviceFilter]);
-  // What needs you on each device, for the sidebar, whichever device the views show.
-  const deviceNeeds = useMemo(() => {
-    const all = withDevices(board?.lanes ?? [], deviceLanes, []);
-    return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, needsOn(all, m)]));
-  }, [board?.lanes, deviceLanes, devices?.devices]);
-  const deviceWorking = useMemo(() => {
-    const all = withDevices(board?.lanes ?? [], deviceLanes, []);
-    return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, workingOn(all, m)]));
-  }, [board?.lanes, deviceLanes, devices?.devices]);
-  const lanes = useMemo(() => rawLanes.map((l) => (l.sessions.some((s) => s.archived) ? { ...l, sessions: l.sessions.filter((s) => !s.archived) } : l)), [rawLanes]);
-  const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
-  const archivedItems = useMemo(
-    () =>
-      rawLanes
-        .filter((l) => inProject(l, current))
-        .flatMap((lane) =>
-          lane.sessions
-            .filter((s) => !s.visitor && s.archived)
-            .map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s })),
-        )
-        .sort((a, b) => b.session.lastActivity - a.session.lastActivity),
-    [rawLanes, current],
-  );
   // The age filter: worktrees and sessions active since the cutoff. Pinned worktrees always
   // show on the board and in the sidebar, and pinned sessions in Sessions.
   const ageMs = AGES.find((a) => a.id === age)?.ms ?? 0;
   const cutoff = ageMs > 0 ? now - ageMs : 0;
   const since = (AGES.find((a) => a.id === age)?.title ?? '').replace(/^Active /, '');
-  // Worktrees active since the cutoff and pinned ones, each showing only its sessions active
-  // since then.
-  const recentLanes = useMemo(
-    () => filterByAge(projectLanes, cutoff, lanePins.set, since),
-    [projectLanes, cutoff, lanePins.set, since],
-  );
-  // The Sessions view: each session once, in the worktree it runs in.
-  const sessionItems = useMemo(
-    () => projectLanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s }))),
-    [projectLanes],
-  );
-  const shownSessions = useMemo(
-    () =>
-      sessionItems.filter(
-        (r) => (r.session.lastActivity >= cutoff || sessionPins.set.has(r.session.key)) && sessionInQuery(r, query) && sessionInFilter(r, bayFilter),
-      ),
-    [sessionItems, cutoff, sessionPins.set, query, bayFilter],
-  );
-  const shownSessionCount = useMemo(
-    () => sessionItems.filter((r) => r.session.lastActivity >= cutoff || sessionPins.set.has(r.session.key)).length,
-    [sessionItems, cutoff, sessionPins.set],
-  );
-  const pinnedRows = useMemo(() => {
-    const byKey = new Map(shownSessions.map((r) => [r.session.key, r]));
-    return sessionPins.keys.flatMap((k) => byKey.get(k) ?? []);
-  }, [shownSessions, sessionPins.keys]);
-  const sessionList = useMemo(() => sortSessions(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), sessionSort, now), [shownSessions, sessionPins.set, sessionSort, now]);
-  // Pinned worktrees that match the search and the status filter, in your order. Each shows at the
-  // top of the board and leaves the bays below.
-  const pinnedLaneRows = useMemo(() => {
-    const byId = new Map(recentLanes.map((l) => [l.id, l]));
-    return lanePins.keys.flatMap((id): WorktreeRow[] => {
-      const lane = byId.get(id);
-      const shown = lane && inQuery(lane, query) ? narrowed(lane, bayFilter, since) : null;
-      return shown ? [worktreeRow(shown)] : [];
-    });
-  }, [recentLanes, lanePins.keys, query, bayFilter, since]);
-  // Every other worktree once, in the bay its status puts it in. The status filter narrows each to
-  // what it's about, which can move it to that bay.
-  const bayRows = useCallback((ls: Lane[]) => buildBays(ls.flatMap((l) => (inQuery(l, query) && !lanePins.set.has(l.id) ? (narrowed(l, bayFilter, since) ?? []) : []))), [query, lanePins.set, bayFilter, since]);
-  const bays = useMemo(() => bayRows(recentLanes), [bayRows, recentLanes]);
-  // Grouped by device, each device's worktrees get bays of their own: this device's first.
-  const grouped = groupByDevice && deviceFilter.length !== 1 && (devices?.enabled ?? false) && (devices?.lanes.length ?? 0) > 0;
-  const deviceGroups = useMemo(() => (grouped ? byDevice(recentLanes, devices).map((g) => ({ short: g.short, bays: bayRows(g.lanes) })) : null), [grouped, recentLanes, devices, bayRows]);
-  const foldParked = !showParked && !query;
-  const fold = useCallback((bs: typeof bays) => bs.map((b) => ({ ...b, rows: b.rows.filter((r) => !foldParked || !r.lane.parked) })), [foldParked]);
-  const shownBays = useMemo(() => fold(bays), [fold, bays]);
-  const shownGroups = useMemo(() => (deviceGroups ?? [{ short: undefined as string | null | undefined, bays }]).map((g) => ({ ...g, shown: fold(g.bays) })), [deviceGroups, bays, fold]);
-  // What you can select on the board, top to bottom: agents' lines, and worktrees without any.
-  const worktreeItems = useMemo(() => [...pinnedLaneRows, ...shownGroups.flatMap((g) => g.shown.flatMap((b) => b.rows))].flatMap(rowItems), [pinnedLaneRows, shownGroups]);
-  // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
-  // worked on them. A session is looked up in the worktree it's listed under, which for one that
-  // made or worked in a worktree isn't its own.
-  const sessionIndex = useMemo(() => {
-    const m = new Map<string, { lane: Lane; session: Session }>();
-    for (const lane of lanes) for (const session of lane.sessions) m.set(`${lane.id}::${session.key}`, { lane, session });
-    return m;
-  }, [lanes]);
-  const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
-  const projectPrs = useMemo(() => (board?.prs ?? []).filter((p) => current === ALL_PROJECTS || p.project === current), [board?.prs, current]);
-  const prRows = useMemo(
-    () =>
-      projectPrs
-        .filter((p) => (p.updatedAt >= cutoff || prPins.set.has(p.key)) && prInQuery(p, query))
-        .map((p): PrRowItem => {
-          const holding = p.lanes.flatMap((id) => laneById.get(id) ?? []);
-          const sessions = p.sessions.flatMap((s) => sessionIndex.get(`${s.lane}::${s.key}`) ?? []);
-          return { kind: 'pr', key: `pr:${p.key}`, pr: p, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
-        })
-        .filter((r) => prInFilter(r, bayFilter)),
-    [projectPrs, cutoff, query, bayFilter, laneById, sessionIndex, prPins.set],
-  );
-  // Pinned PRs lead the PRs view in your order, whatever their age, and leave its sections.
-  const pinnedPrRows = useMemo(() => {
-    const byKey = new Map(prRows.map((r) => [r.pr.key, r]));
-    return prPins.keys.flatMap((k) => byKey.get(k) ?? []);
-  }, [prRows, prPins.keys]);
-  const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key))), [prRows, prPins.set]);
-  const prVisible = useMemo<Row[]>(() => [...pinnedPrRows, ...prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows))], [pinnedPrRows, prSecs, showDonePrs]);
-  const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
-  const requestedCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.reviewRequested).length, [projectPrs]);
 
   // The Todo view: the project's todos as the engine has them, with this window's changes on top
   // until the engine's board shows them.
@@ -550,23 +353,74 @@ export function App() {
   const composerRef = useRef<HTMLInputElement>(null);
   const [composerFocus, setComposerFocus] = useState(0);
   const [todoUndo, setTodoUndo] = useState<{ message: string; icon?: string; undo: () => void } | null>(null);
-  const homes = useMemo(() => sessionHomes(lanes), [lanes]);
-  const labelById = useMemo(() => new Map(todoStore.labels.map((l) => [l.id, l])), [todoStore.labels]);
-  const projectTodos = useMemo(() => todoStore.todos.filter((t) => current === ALL_PROJECTS || t.project === current), [todoStore.todos, current]);
-  const todoItems = useMemo(() => projectTodos.map((t) => todoItem(t, laneById, homes, labelById)), [projectTodos, laneById, homes, labelById]);
-  const todoRows = useMemo(
-    () => todoItems.filter((r) => todoInQuery(r, query) && todoInFilter(r, bayFilter) && (!labelFilter || r.todo.labels.includes(labelFilter))),
-    [todoItems, query, bayFilter, labelFilter],
-  );
-  const todoSecs = useMemo(() => todoSections(todoRows, todoStore.todos), [todoRows, todoStore.todos]);
-  const todoVisible = useMemo<Row[]>(() => todoSecs.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.rows)), [todoSecs, showDoneTodos]);
-  const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
-  // Which todos each session and worktree is on, for their chips.
-  const todoLinks = useMemo(() => todoIndex(todoStore.todos, homes), [todoStore.todos, homes]);
-  // Which todos each session is linked to depends on the todos alone, so rows that ask keep one
-  // function between pushes and needn't render again.
-  const sessionTodos = useMemo(() => todoIndex(todoStore.todos, new Map()).bySession, [todoStore.todos]);
-  const todosFor = useCallback((k: string) => sessionTodos.get(k), [sessionTodos]);
+
+  // What each view lists, from the board, the filters and the search (boardLists.ts).
+  const {
+    projects,
+    current,
+    lanes,
+    projectLanes,
+    deviceNeeds,
+    deviceWorking,
+    archivedItems,
+    recentLanes,
+    shownSessionCount,
+    pinnedRows,
+    sessionList,
+    sessionRows,
+    waitingRows,
+    pinnedLaneRows,
+    bays,
+    shownBays,
+    shownGroups,
+    foldParked,
+    worktreeItems,
+    laneById,
+    prRowOf,
+    prRows,
+    pinnedPrRows,
+    prSecs,
+    prVisible,
+    openPrCount,
+    requestedCount,
+    homes,
+    labelById,
+    projectTodos,
+    todoItems,
+    todoSecs,
+    todoVisible,
+    openTodoCount,
+    todoLinks,
+    todosFor,
+    counts,
+    totalLanes,
+    actions,
+  } = useBoardLists({
+    board,
+    deviceLanes,
+    devices,
+    deviceFilter,
+    groupByDevice,
+    project,
+    loading,
+    cutoff,
+    since,
+    now,
+    query,
+    filter: bayFilter,
+    sessionPins,
+    lanePins,
+    prPins,
+    sessionSort,
+    showParked,
+    showArchived,
+    showDonePrs,
+    todos: todoStore.todos,
+    labels: todoStore.labels,
+    labelFilter,
+    showDoneTodos,
+  });
+  projectNow.current = current;
 
   // The Canvas view: the project's document, kept up to date with the board once it's been shown.
   const canvasEntities = useMemo(
@@ -601,10 +455,6 @@ export function App() {
     return () => window.clearTimeout(id);
   }, [todoUndo]);
 
-  const sessionRows = useMemo<Row[]>(
-    () => [...pinnedRows, ...sessionList, ...(showArchived ? archivedItems : [])],
-    [pinnedRows, sessionList, showArchived, archivedItems],
-  );
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
   const visible = loading ? NO_ROWS : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? NO_ROWS : worktreeItems;
@@ -659,20 +509,6 @@ export function App() {
     if (selected.kind !== 'pr') return null;
     return lanes.find((l) => !l.device && l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
   }, [selected, lanes, view, canvasLane]);
-
-  const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
-
-  const totalLanes = useMemo(() => lanes.filter((l) => !l.hidden).length, [lanes]);
-
-  // Needs you and Your turn per project, for the switcher's badge and menu.
-  const actions = useMemo(() => {
-    const out: Record<string, ActionCounts> = {};
-    for (const name of [...projects.map((p) => p.name), ALL_PROJECTS]) {
-      const { needs, unread } = inboxCounts(filterByAge(lanes.filter((l) => inProject(l, name)), cutoff, lanePins.set, since));
-      out[name] = { needs, unread };
-    }
-    return out;
-  }, [lanes, projects, cutoff, lanePins.set, since]);
 
   useEffect(() => {
     const base = WINDOW_PROJECT ? `Codealong · ${current}` : 'Codealong';
@@ -758,7 +594,6 @@ export function App() {
   // goes on, and ⌘] (or ⌥⇧↓) skips to it, ⌥⇧↑ back; a skipped one comes round again after the
   // rest. The ones dealt with stay out until they wait on you anew, since an allowed call isn't
   // shown ahead of the board.
-  const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
   // The row gone on to, whose box takes the cursor.
   const [boxFocus, setBoxFocus] = useState<string | null>(null);
   // What differs here: ⌘E is this window's to run (it marks seen in every view), a session that
@@ -1664,16 +1499,6 @@ export function App() {
     }
   };
 
-  /** A PR as the PRs view lists it: with the worktrees that hold it and the sessions that worked on it. */
-  const prRowOf = useCallback(
-    (pr: PrItem): PrRowItem => {
-      const holding = pr.lanes.flatMap((id) => laneById.get(id) ?? []);
-      const sessions = pr.sessions.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
-      return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
-    },
-    [laneById, sessionIndex],
-  );
-
   /** Whether a card matches the filter at the top and the status filter, as its row would in its own view. */
   const canvasMatches = useCallback(
     (it: RefItem) => {
@@ -1681,7 +1506,7 @@ export function App() {
       switch (it.ref) {
         case 'worktree': {
           const lane = e.lanes.get(it.key);
-          return !!lane && inQuery(lane, query) && !!narrowed(lane, bayFilter, since);
+          return !!lane && laneInQuery(lane, query) && !!narrowed(lane, bayFilter, since);
         }
         case 'session': {
           const p = e.sessions.get(it.key);
