@@ -34,15 +34,6 @@ button {
   gap: var(--space-4);
   padding-left: 84px;
 }
-.ca-scope {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 190px;
-  font: 600 14px/18px var(--font-sans);
-  color: var(--ink);
-  white-space: nowrap;
-}
 .ca-search input {
   flex: 1;
   min-width: 0;
@@ -653,24 +644,6 @@ body.is-resizing * {
 }
 
 /* The current project's worktrees in the sidebar. */
-.ca-wt-group + .ca-wt-group {
-  margin-top: var(--space-2);
-}
-.ca-wt-repo {
-  padding: 6px 8px 2px;
-  font: 500 11px/14px var(--font-mono);
-  color: var(--ink-3);
-}
-.ca-wt-pinned {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-sans);
-}
-.ca-wt .ca-glyph,
-.ca-wt .ca-lane-pricon {
-  flex: none;
-}
 .ca-nav.is-parked {
   color: var(--ink-3);
 }
@@ -692,33 +665,7 @@ body.is-resizing * {
 .ca-tree-node.is-active {
   background: var(--surface-selected);
 }
-.ca-tree-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.ca-tree-toggle:disabled {
-  cursor: default;
-}
-.ca-tree-toggle .ca-icon {
-  transition: transform var(--dur-fast) ease-out;
-}
-.ca-tree-toggle.is-open .ca-icon {
-  transform: rotate(90deg);
-}
-.ca-tree-toggle:focus-visible,
-.ca-tree-label:focus-visible,
-.ca-tree-session:focus-visible,
-.ca-tree-more:focus-visible {
+.ca-tree-label:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--focus);
 }
@@ -757,47 +704,10 @@ body.is-resizing * {
   padding-left: 11px;
   border-left: 1px solid var(--line);
 }
-.ca-tree-session {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-width: 0;
-  height: 24px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink-2);
-  font: 400 12px/16px var(--font-sans);
-  text-align: left;
-  cursor: pointer;
-}
-.ca-tree-session:hover {
-  background: var(--surface-hover);
-  color: var(--ink);
-}
-.ca-tree-session.is-active {
-  background: var(--surface-selected);
-  color: var(--ink);
-}
-.ca-tree-session.is-visitor {
-  color: var(--ink-3);
-}
-.ca-tree-session .ca-glyph {
-  flex: none;
-}
 .ca-tree-acct {
   flex: none;
   font: 500 11px/14px var(--font-mono);
   color: var(--ink-3);
-}
-.ca-tree-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .ca-tree-age {
   flex: none;
@@ -909,20 +819,6 @@ body.is-resizing * {
   flex: none;
   font: 400 11px/14px var(--font-sans);
   color: var(--ink-3);
-}
-.ca-tree-more {
-  height: 22px;
-  padding: 0 6px 0 22px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink-3);
-  font: 500 11px/14px var(--font-sans);
-  text-align: left;
-  cursor: pointer;
-}
-.ca-tree-more:hover {
-  color: var(--ink);
 }
 
 /* Other projects' action items, on the switcher and in its menu. */
@@ -1984,11 +1880,6 @@ body.is-resizing * {
   align-items: center;
   gap: 6px;
 }
-.ca-segctl-count {
-  font: 500 11px/14px var(--font-mono);
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
 .ca-bay-hint {
   display: inline-flex;
   align-items: center;
@@ -2381,20 +2272,6 @@ body.is-resizing * {
   fill: currentColor;
 }
 
-/* The age filter, at the right of the board head. Each option's tooltip says what it filters. */
-.ca-agefilter {
-  margin-left: auto;
-}
-.ca-agefilter button {
-  padding: 0 9px;
-  font-variant-numeric: tabular-nums;
-}
-/* A board narrowed to near its minimum (see Resizer.tsx) drops the view counts. */
-@container board (max-width: 480px) {
-  .ca-segctl-count {
-    display: none;
-  }
-}
 
 /* Project menu rows: pick the project here, or open it in a window of its own. */
 .ca-projswitch-row {
@@ -2435,17 +2312,6 @@ body.is-resizing * {
 }
 
 /* ---- PRs: the third view and its detail panel ---- */
-.ca-segctl-badge {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border-radius: var(--radius-pill);
-  background: var(--attn-solid);
-  color: var(--on-attn);
-  font: 600 11px/16px var(--font-mono);
-  text-align: center;
-}
 .ca-tag.is-attn {
   background: var(--attn-tint);
   color: var(--attn);
@@ -2904,16 +2770,11 @@ body.is-resizing * {
 }
 
 /* ---- New session sheet ---- */
-.ca-start .ca-dialog-body {
-  gap: var(--space-4);
-  padding-top: var(--space-4);
-}
 .ca-start-select {
   position: relative;
   display: grid;
 }
-.ca-start-select select,
-.ca-start textarea {
+.ca-start-select select {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -2938,118 +2799,14 @@ body.is-resizing * {
   color: var(--ink-3);
   pointer-events: none;
 }
-.ca-start textarea {
-  min-height: 92px;
-  max-height: 280px;
-  padding: 7px 8px;
-  resize: vertical;
-  font: 400 13px/19px var(--font-sans);
-  -webkit-user-select: text;
-  user-select: text;
-}
-.ca-start-select select:focus-visible,
-.ca-start textarea:focus {
+.ca-start-select select:focus-visible {
   border-color: var(--focus);
   box-shadow: var(--shadow-focus);
-}
-.ca-picks {
-  display: grid;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-.ca-pick {
-  display: grid;
-  grid-template-columns: 14px 64px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-height: 36px;
-  padding: 6px 12px 6px 10px;
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-  cursor: pointer;
-}
-.ca-pick:first-child {
-  border-top: 0;
-}
-.ca-pick:hover {
-  background: var(--surface-hover);
-}
-.ca-pick.is-on {
-  background: var(--surface-selected);
-}
-.ca-pick.is-disabled {
-  cursor: default;
-}
-.ca-pick.is-disabled > :not(input) {
-  opacity: 0.55;
-}
-.ca-pick input {
-  -webkit-appearance: none;
-  appearance: none;
-  box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  /* Not the text fields' padding from .ca-field input. */
-  padding: 0;
-  border: 1.5px solid var(--line-strong);
-  border-radius: 50%;
-  background: var(--surface);
-}
-.ca-pick input:checked {
-  border: 4.5px solid var(--ink);
-}
-.ca-pick input:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-.ca-pick-name {
-  overflow: hidden;
-  font: 600 13px/18px var(--font-mono);
-  color: var(--ink);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ca-pick.is-auto .ca-pick-name {
-  font-family: var(--font-sans);
-}
-.ca-pick-detail {
-  overflow: hidden;
-  font: 400 12px/16px var(--font-sans);
-  color: var(--ink-3);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ca-pick-meters {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.ca-pick .ca-meter.is-compact {
-  grid-template-columns: auto 30px auto;
-  gap: 5px;
-}
-.ca-pick .ca-meter-reset {
-  display: none;
 }
 .ca-pick-note {
   font: 400 12px/16px var(--font-sans);
   color: var(--ink-3);
   white-space: nowrap;
-}
-.ca-start-places {
-  justify-self: start;
-}
-.ca-start-places .ca-icon {
-  color: var(--ink-3);
-}
-.ca-start-places button.is-on .ca-icon {
-  color: var(--ink);
-}
-.ca-start-foot {
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 /* A toast for an open or start still waiting on its app: it can't be dismissed. */
@@ -3057,13 +2814,6 @@ body.is-resizing * {
   cursor: default;
 }
 
-/* Where the session opens and the model it starts on, side by side. */
-.ca-start-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-5);
-}
 .ca-start-select select:disabled {
   color: var(--ink-3);
   cursor: default;
@@ -4127,9 +3877,6 @@ html.is-peek body {
   border-style: solid;
   color: var(--ink);
 }
-.ca-labelfilter .ca-icon {
-  color: var(--ink-3);
-}
 
 /* A todo on a session's or a worktree's row. */
 .ca-chip.ca-todochip {
@@ -4184,12 +3931,6 @@ html.is-peek body {
 }
 .ca-todo-done .ca-lane {
   opacity: 0.8;
-}
-/* The age filter's place in the board head; the todo view shows its label filter there. */
-.ca-todofilter {
-  display: flex;
-  align-items: center;
-  min-height: 28px;
 }
 
 /* The box that adds todos, at the top of the list. */
@@ -4511,19 +4252,6 @@ html.is-peek body {
   margin-bottom: 0;
   font-variant-numeric: tabular-nums;
 }
-/* The new-session sheet's note when its todo waits on one that isn't done. */
-.ca-start-blocked {
-  display: flex;
-  gap: 6px;
-  margin: 2px 0 0;
-  font: 400 12px/16px var(--font-sans);
-  color: var(--ink-2);
-}
-.ca-start-blocked .ca-icon {
-  flex: none;
-  margin-top: 2px;
-  color: var(--ink-3);
-}
 .ca-todoinsp-waiting {
   display: flex;
   gap: 6px;
@@ -4776,25 +4504,6 @@ html.is-peek body {
   color: var(--ink);
 }
 
-/* The new-session sheet's todo, when it opened for one. */
-.ca-start-todo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
-}
-.ca-start-todo-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: 500 13px/18px var(--font-sans);
-  color: var(--ink);
-}
 
 /* A worktree's todos, in its inspector. */
 .ca-insp-todos {
@@ -4833,12 +4542,6 @@ html.is-peek body {
 }
 
 /* The worktree picker and its New worktree box. */
-.ca-start-lane {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-}
 .ca-check {
   position: relative;
   display: inline-flex;
@@ -5904,12 +5607,6 @@ html.is-quick body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ca-cv-repo {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .ca-cv-l2 .ca-drift {
   flex: none;
 }
@@ -6364,15 +6061,6 @@ html.is-quick body {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-}
-.ca-cv-tidy-cleared {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 8px;
-  color: var(--ink-2);
-  font-size: 12px;
-  line-height: 16px;
 }
 .ca-cv-tidy-actions .ca-cv-tidy-clear {
   margin-right: auto;
@@ -8022,11 +7710,6 @@ html.is-quick body {
 .ca-cv-card.is-away.is-selected {
   opacity: 0.85;
 }
-.ca-tree-devdot {
-  width: 6px;
-  height: 6px;
-  margin-left: 2px;
-}
 .ca-side-devdot {
   margin: 0 3px;
 }
@@ -8054,17 +7737,7 @@ html.is-quick body {
   font-size: 12px;
   color: var(--ink);
 }
-.ca-groupby {
-  margin-left: auto;
-  flex-shrink: 0;
-}
 /* Its label is bare text, which wraps where the other controls' labels don't. */
-.ca-groupby button {
-  white-space: nowrap;
-}
-.ca-groupby + .ca-agefilter {
-  margin-left: 8px;
-}
 /* A linked device's color, in Settings › Devices: its square, which opens a menu of colors. */
 .ca-devcolor {
   display: inline-flex;
