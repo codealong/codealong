@@ -3,20 +3,20 @@
 // placed). Run it on a session whose page has a prompt with an image:
 //   PREVIEW_TRANSCRIPT=<session key> [PREVIEW_BEFORE=<cursor>] scripts/preview.sh kept '' scripts/preview/prompt-images-check.js
 (function () {
-  var said = 'waiting';
-  setInterval(function () {
-    document.title = said;
-  }, 50);
-  var tries = 0;
-  var look = function () {
-    var el = document.querySelector('.ca-thread');
-    var imgs = el ? Array.prototype.slice.call(el.querySelectorAll('.ca-thread-you .ca-desc-img img')) : [];
-    var missing = el ? el.querySelectorAll('.ca-thread-you .ca-desc-noimg').length : 0;
-    var loaded = imgs.filter(function (i) { return i.complete && i.naturalWidth > 0; }).length;
-    if ((!el || imgs.length + missing === 0 || loaded < imgs.length) && tries++ < 60) return setTimeout(look, 100);
-    var gap = el ? Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) : -1;
-    var tall = imgs.map(function (i) { return i.offsetHeight; }).join(',');
-    said = 'prompt images: ' + loaded + ' of ' + imgs.length + ' loaded (' + tall + ' high), ' + missing + ' not on this Mac, ' + (gap <= 1 ? 'view at the end' : 'view ' + gap + 'px from the end');
-  };
-  setTimeout(look, 300);
+  var thread = function () { return q('.ca-thread'); };
+  var imgs = function () { return all('.ca-thread-you .ca-desc-img img', thread()); };
+  var missing = function () { return all('.ca-thread-you .ca-desc-noimg', thread()).length; };
+  var loaded = function () { return imgs().filter(function (i) { return i.complete && i.naturalWidth > 0; }).length; };
+  say('prompt images: waiting');
+  until(function () { return thread() && imgs().length + missing() > 0; }, 6000, 'a prompt with an image in the conversation')
+    .then(function () { return until(function () { return loaded() === imgs().length; }, 6000).catch(function () {}); })
+    .then(function () {
+      var el = thread();
+      var gap = Math.round(el.scrollHeight - el.scrollTop - el.clientHeight);
+      check('each image on this Mac loads', loaded() === imgs().length, loaded() + ' of ' + imgs().length + ' (' + imgs().map(function (i) { return i.offsetHeight; }).join(',') + ' high)');
+      check('the view is still at the end', gap <= 1, gap + 'px from the end');
+      if (missing() > 0) note(missing() + ' not on this Mac');
+    })
+    .then(done)
+    .catch(stopped);
 })();

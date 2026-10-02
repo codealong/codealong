@@ -3,20 +3,7 @@
 // Send and ⌃⏎ send with `now`, ⏎ sends as usual, and the line under the box says the key; with
 // nothing typed there's no bolt.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/send-now-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: pick a session that doesn't wait on you, with no draft,
   // and make it one whose turn runs and can take a message at once.
   var xhr = new XMLHttpRequest();
@@ -26,7 +13,7 @@
   var picked = null;
   var pickedLane = null;
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!picked && s.status !== 'needs' && !s.archived && !s.hosted && !l.hidden) { picked = s; pickedLane = l; } }); });
-  if (!picked) { say('done: no session to peek at'); return; }
+  if (!picked) { stopped('no session to peek at'); return; }
   var key = picked.key;
   var running = function (s) { return Object.assign({}, s, { status: 'working', live: true, stoppable: true, steerable: true }); };
   picked = running(picked);
@@ -100,7 +87,7 @@
     })
     .then(function () {
       check('⏎ sends it as usual', last().text === 'When you’re done' && last().now === false, JSON.stringify(last()));
-      say('done: ' + out.join('; '));
     })
-    .catch(function (e) { say('done: ' + out.join('; ') + '; stopped: ' + e.message); });
+    .then(done)
+    .catch(stopped);
 })();
