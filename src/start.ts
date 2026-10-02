@@ -51,6 +51,13 @@ export interface AutoPick {
   resetsAt: number | null;
 }
 
+/** Whether an account's command line would take `model`: one it lists, and for Claude Code any,
+ *  since `--model` takes a model's full name too. The adapters' `offers_model` has the same rule,
+ *  which `codealong start --model` goes by. */
+function offersModel(a: StartAccount, model: string): boolean {
+  return a.harness === 'claude' || (a.models ?? []).some((m) => m.id === model);
+}
+
 function startable(accounts: StartAccount[]): StartAccount[] {
   return accounts.filter((a) => a.places.length > 0);
 }
@@ -65,8 +72,8 @@ export function preferredNames(accounts: StartAccount[]): string[] {
 }
 
 /**
- * The account Auto starts, for a session on `model` (null for each account's default; only
- * Claude Code takes one). Only the limits each account's model spends count, so an account out
+ * The account Auto starts, for a session on `model` (null for each account's default; else only
+ * the accounts whose command line takes it, `offersModel`). Only the limits each account's model spends count, so an account out
  * of Fable can still start Opus, and an account at 90% of one of them has no room. Preferred
  * accounts with room go first, then a preferred one without numbers yet, then the others the
  * same way, and only when all are near a limit the least full of them. Among accounts with
@@ -77,7 +84,7 @@ export function preferredNames(accounts: StartAccount[]): string[] {
 export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null): AutoPick | null {
   const preferred = preferredNames(accounts);
   const candidates = startable(accounts)
-    .filter((a) => model === null || a.harness === 'claude')
+    .filter((a) => model === null || offersModel(a, model))
     .map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel }));
   const measured: { name: string; preferred: boolean; full: number; near: boolean; reset: number | null }[] = [];
   const unknown: typeof candidates = [];

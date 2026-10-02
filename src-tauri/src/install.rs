@@ -589,7 +589,8 @@ fn command_status() -> CommandStatus {
     CommandStatus { link: link.map(|p| p.to_string_lossy().into_owned()), target: this_binary().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(), on_path }
 }
 
-fn account_skill(source: Option<&Path>, a: &AccountCfg) -> AccountSkill {
+/// One account's skill and, for Claude Code, its plugin; `codealong status` prints these too.
+pub fn account_skill(source: Option<&Path>, a: &AccountCfg) -> AccountSkill {
     let dir = skill_dir(a);
     let state = match (source, &dir) {
         (Some(s), Some(d)) => copy_state(s, d),

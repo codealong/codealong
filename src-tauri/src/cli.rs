@@ -1037,6 +1037,9 @@ struct SkillStatus {
     installed: bool,
     current: bool,
     edited: bool,
+    /// A Claude Code account's plugin, which is what Codealong installs there in place of the skill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin: Option<crate::install::PluginState>,
 }
 
 fn status(c: &mut Client, json: bool) -> Result<()> {
@@ -1055,14 +1058,8 @@ fn status(c: &mut Client, json: bool) -> Result<()> {
             c.cfg()
                 .accounts
                 .iter()
-                .map(|a| {
-                    let dir = crate::install::skill_dir(a);
-                    let state = match (&source, &dir) {
-                        (Some(s), Some(d)) => crate::install::copy_state(s, d),
-                        _ => crate::install::CopyState::default(),
-                    };
-                    SkillStatus { account: a.name.clone(), path: dir.map(|d| d.to_string_lossy().into_owned()), installed: state.installed, current: state.current, edited: state.edited }
-                })
+                .map(|a| crate::install::account_skill(source.as_deref(), a))
+                .map(|s| SkillStatus { account: s.name, path: s.path, installed: s.installed, current: s.current, edited: s.edited, plugin: s.plugin })
                 .collect()
         },
     };
@@ -1079,10 +1076,31 @@ fn status(c: &mut Client, json: bool) -> Result<()> {
         Some(l) => println!("Command: {}", tilde(Path::new(l))),
         None => println!("Command: not on PATH (codealong install --command)"),
     }
+    let shipped = crate::install::shipped_version();
     for s in &out.skills {
-        println!("Skill for {}: {}", s.account, match (s.installed, s.current, s.edited, &s.path) { (true, _, true, Some(p)) => format!("edited at {}, so updates leave it alone", tilde(Path::new(p))), (true, true, _, Some(p)) => format!("installed at {}", tilde(Path::new(p))), (true, false, _, Some(p)) => format!("out of date at {}", tilde(Path::new(p))), (_, _, _, Some(_)) => "not installed".into(), _ => "no skills folder known".into() });
+        match &s.plugin {
+            Some(p) => println!("Plugin for {}: {}", s.account, plugin_words(p, shipped.as_deref(), s.installed.then_some(s.path.as_deref()).flatten())),
+            None => println!("Skill for {}: {}", s.account, match (s.installed, s.current, s.edited, &s.path) { (true, _, true, Some(p)) => format!("edited at {}, so updates leave it alone", tilde(Path::new(p))), (true, true, _, Some(p)) => format!("installed at {}", tilde(Path::new(p))), (true, false, _, Some(p)) => format!("out of date at {}", tilde(Path::new(p))), (_, _, _, Some(_)) => "not installed".into(), _ => "no skills folder known".into() }),
+        }
     }
     Ok(())
+}
+
+/// A Claude Code account's plugin in a few words, as Settings › Agents says it (`pluginState`
+/// in AgentsSection.tsx): against the version this build carries, and with the skill copy
+/// Codealong made there before the plugin, when it's still in the skills folder.
+fn plugin_words(p: &crate::install::PluginState, shipped: Option<&str>, old_copy: Option<&str>) -> String {
+    let state = match (&p.version, &p.from) {
+        (None, _) => "not installed".to_string(),
+        (Some(_), _) if p.disabled => "turned off".to_string(),
+        (Some(v), Some(from)) => format!("{v}, installed from {from}"),
+        (Some(v), None) if shipped.is_some_and(|s| s != v) => format!("{v}, out of date"),
+        (Some(v), None) => format!("installed, {v}"),
+    };
+    match old_copy {
+        Some(path) => format!("{state}; an older copy of the skill is still at {}", tilde(Path::new(path))),
+        None => state,
+    }
 }
 
 #[derive(Serialize)]
@@ -2864,8 +2882,8 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
 }
 
 /// Auto's account, by the quick panel's rule (`start::auto_pick`): among the accounts that can
-/// start a session (in `place`, when given; on `model`, when given, which only Claude Code
-/// takes), preferred ones with room first, and among those the one whose week resets soonest.
+/// start a session (in `place`, when given; on `model`, when given, for the accounts whose
+/// command line takes it), preferred ones with room first, and among those the one whose week resets soonest.
 fn pick_account(cfg: &Config, usages: &[crate::model::Usage], place: Option<Place>, model: Option<&str>) -> Option<String> {
     let home = crate::util::home();
     let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter_map(|a| start::ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
@@ -3101,6 +3119,20 @@ fn table_text(head: &[&str], rows: Vec<Vec<String>>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_says_a_claude_accounts_plugin() {
+        use crate::install::PluginState;
+        let p = |version: Option<&str>, disabled: bool, from: Option<&str>| PluginState { version: version.map(String::from), disabled, from: from.map(String::from) };
+        assert_eq!(plugin_words(&p(None, false, None), Some("0.2.1+aaaa"), None), "not installed");
+        assert_eq!(plugin_words(&p(Some("0.2.1+aaaa"), false, None), Some("0.2.1+aaaa"), None), "installed, 0.2.1+aaaa");
+        assert_eq!(plugin_words(&p(Some("0.2.0+bbbb"), false, None), Some("0.2.1+aaaa"), None), "0.2.0+bbbb, out of date");
+        assert_eq!(plugin_words(&p(Some("0.2.1+aaaa"), true, None), Some("0.2.1+aaaa"), None), "turned off");
+        assert_eq!(plugin_words(&p(Some("0.2.1"), false, Some("someone/plugins")), Some("0.2.1+aaaa"), None), "0.2.1, installed from someone/plugins");
+        // A plugin installed with no build to compare against isn't called out of date.
+        assert_eq!(plugin_words(&p(Some("0.2.1+aaaa"), false, None), None, None), "installed, 0.2.1+aaaa");
+        assert!(plugin_words(&p(Some("0.2.1+aaaa"), false, None), None, Some("/x/skills/codealong")).ends_with("; an older copy of the skill is still at /x/skills/codealong"));
+    }
     use clap::CommandFactory;
 
     #[test]

@@ -98,6 +98,14 @@ describe('Auto', () => {
     expect(autoPick(opusDefault, u, NOW)?.account).toBe('claude');
   });
 
+  it('asked for a model, considers the accounts whose command line takes it', () => {
+    const other: StartAccount = { name: 'agy', harness: 'antigravity', places: [ghostty], chosen: null, unavailable: null, defaultModel: null, preferred: false, models: [{ id: 'gemini-pro', label: 'Gemini Pro' }] };
+    // Another harness takes only the models it lists; Claude Code takes any model's name.
+    expect(autoPick([other], [], NOW, 'gemini-pro')?.account).toBe('agy');
+    expect(autoPick([other], [], NOW, 'opus')).toBeNull();
+    expect(autoPick(ACCOUNTS, [], NOW, 'claude-opus-5-5')?.account).toBe('claude');
+  });
+
   it('is only offered with more than one account that can start sessions', () => {
     const can = (a: StartAccount) => a;
     const cant = (a: StartAccount) => ({ ...a, places: [], unavailable: 'no' });
