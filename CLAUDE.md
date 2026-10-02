@@ -166,7 +166,9 @@ they are at launch, before the engine's first scan has finished. In check mode C
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
 `PREVIEW_WAIT=<ms>` runs a check on the real clock with frames instead, and reads its result once
 its title starts with `done: `; a wait that runs out fails it. A bench (`*-bench.js`) says what it
-measured in place of a result, and its title is printed as it is.
+measured in place of a result, and its title is printed as it is. A check's page is the size its
+view asks for (the bar's 1100 by 64, say), the window taller by Chrome's own frame; the prelude
+notes one that isn't (on virtual time a page is 500 wide at least).
 
 ## Checking performance
 

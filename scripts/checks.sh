@@ -85,6 +85,8 @@ limited() {
   watch=$!
   wait "$run"
   status=$?
+  # The watch's sleep goes first: a watch stopped between starting it and noting it leaves it.
+  pkill -P "$watch" 2>/dev/null
   kill "$watch" 2>/dev/null
   wait "$watch" 2>/dev/null
   if [ -f "$out.stopped" ]; then
