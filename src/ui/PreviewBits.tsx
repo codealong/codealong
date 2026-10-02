@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, setPreview } from '../api';
 import { absolute, duration } from '../format';
 import type { ChromeProfile, Lane, Preview } from '../types';
-import { Button, Chip, cx, Icon } from './primitives';
+import { Button, Chip, cx, Dialog, Icon } from './primitives';
 import { errorText } from '../report';
 
 /** A URL as rows show it: `feature.app.test`, `localhost:5173/admin`. */
@@ -173,17 +173,6 @@ export function PreviewDialog({ lane, onClose }: { lane: Lane; onClose: () => vo
     };
   }, [lane.project]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented && !saving) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, saving]);
-
   const save = async (clear: boolean) => {
     const n = port.trim() === '' ? null : Number(port.trim());
     if (!clear) {
@@ -202,69 +191,57 @@ export function PreviewDialog({ lane, onClose }: { lane: Lane; onClose: () => vo
   };
 
   return (
-    <div
-      className="ca-scrim"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose();
-      }}
+    <Dialog
+      className="ca-previewdlg"
+      title="Preview URL"
+      lede={`Where ${lane.callsign}’s app opens in the browser. Its row shows whether a server in the worktree’s folder is running it.`}
+      busy={saving}
+      onClose={onClose}
+      onSubmit={() => void save(false)}
+      aside={
+        <span>
+          {p?.set && (
+            <Button variant="ghost" size="sm" onClick={() => void save(true)} disabled={saving}>
+              Clear URL
+            </Button>
+          )}
+        </span>
+      }
+      foot={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </>
+      }
     >
-      <form
-        className="ca-dialog ca-previewdlg"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ca-previewdlg-title"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save(false);
-        }}
-      >
-        <header className="ca-dialog-head">
-          <h2 id="ca-previewdlg-title">Preview URL</h2>
-          <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} disabled={saving} />
-        </header>
-        <p className="ca-dialog-lede">Where {lane.callsign}’s app opens in the browser. Its row shows whether a server in the worktree’s folder is running it.</p>
-        <div className="ca-dialog-body">
+      <div className="ca-dialog-body">
+        <label className="ca-field">
+          <span>URL</span>
+          <input value={url} autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder="https://feature.app.test or localhost:5173" onChange={(e) => setUrl(e.target.value)} />
+          <small>Without a scheme, localhost takes http and other names https.</small>
+        </label>
+        <label className="ca-field ca-previewdlg-port">
+          <span>Port (optional)</span>
+          <input value={port} inputMode="numeric" spellCheck={false} placeholder={p?.server ? String(p.server.port) : '5173'} onChange={(e) => setPort(e.target.value)} />
+          <small>Which of the worktree’s servers runs the app. Leave it empty to use the one that serves a page, or the port a localhost URL names.</small>
+        </label>
+        {chrome && (chrome.profiles.length > 0 || profile || chrome.project) && (
           <label className="ca-field">
-            <span>URL</span>
-            <input value={url} autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder="https://feature.app.test or localhost:5173" onChange={(e) => setUrl(e.target.value)} />
-            <small>Without a scheme, localhost takes http and other names https.</small>
+            <span>Chrome profile</span>
+            <ChromeProfileSelect value={profile} profiles={chrome.profiles} none={chrome.project ? `${lane.project}’s: ${chrome.project}` : 'None: the default browser'} onChange={setProfile} />
+            <small>Opens it where that profile’s sign-in and cookies are. A project’s profile, for all its worktrees, is set in Settings › Projects.</small>
           </label>
-          <label className="ca-field ca-previewdlg-port">
-            <span>Port (optional)</span>
-            <input value={port} inputMode="numeric" spellCheck={false} placeholder={p?.server ? String(p.server.port) : '5173'} onChange={(e) => setPort(e.target.value)} />
-            <small>Which of the worktree’s servers runs the app. Leave it empty to use the one that serves a page, or the port a localhost URL names.</small>
-          </label>
-          {chrome && (chrome.profiles.length > 0 || profile || chrome.project) && (
-            <label className="ca-field">
-              <span>Chrome profile</span>
-              <ChromeProfileSelect value={profile} profiles={chrome.profiles} none={chrome.project ? `${lane.project}’s: ${chrome.project}` : 'None: the default browser'} onChange={setProfile} />
-              <small>Opens it where that profile’s sign-in and cookies are. A project’s profile, for all its worktrees, is set in Settings › Projects.</small>
-            </label>
-          )}
-          {error && (
-            <p className="ca-form-error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-        <footer className="ca-dialog-foot">
-          <span>
-            {p?.set && (
-              <Button variant="ghost" size="sm" onClick={() => void save(true)} disabled={saving}>
-                Clear URL
-              </Button>
-            )}
-          </span>
-          <span className="ca-previewdlg-actions">
-            <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" type="submit" disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-          </span>
-        </footer>
-      </form>
-    </div>
+        )}
+        {error && (
+          <p className="ca-form-error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Dialog>
   );
 }

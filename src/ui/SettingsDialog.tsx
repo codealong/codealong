@@ -14,7 +14,7 @@ import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
-import { Button, Icon, NavItem, Seg } from './primitives';
+import { Button, Dialog, Icon, NavItem, Seg } from './primitives';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
 
@@ -74,17 +74,6 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
     return () => window.removeEventListener('focus', onFocus);
   }, [load]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   /** Saves the whole config, then reads it back. Returns whether it saved. */
   const save = async (next: Config): Promise<boolean> => {
     setError(null);
@@ -138,43 +127,38 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   }
 
   return (
-    <div
-      className="ca-scrim"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Dialog
+      className="ca-settings"
+      title="Settings"
+      onClose={onClose}
+      aside={
+        <span className="ca-settings-path" title={view?.path}>
+          {view?.path ?? ''}
+        </span>
+      }
+      foot={
+        <Button variant="primary" size="sm" onClick={onClose}>
+          Done
+        </Button>
+      }
     >
-      <div className="ca-dialog ca-settings" role="dialog" aria-modal="true" aria-labelledby="ca-settings-title">
-        <header className="ca-dialog-head">
-          <h2 id="ca-settings-title">Settings</h2>
-          <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} />
-        </header>
-        <div className="ca-settings-body">
-          <nav className="ca-settings-nav" aria-label="Settings sections">
-            {SECTIONS.map((s) => (
-              <NavItem key={s.id} label={s.label} icon={s.icon} active={section === s.id} onClick={() => onSection(s.id)} />
-            ))}
-          </nav>
-          <div className={section === 'file' ? 'ca-settings-pane is-file' : 'ca-settings-pane'}>
-            {gate}
-            {pane}
-            {error && section !== 'accounts' && section !== 'agents' && view !== null && (
-              <p className="ca-form-error" role="alert">
-                {error}
-              </p>
-            )}
-          </div>
+      <div className="ca-settings-body">
+        <nav className="ca-settings-nav" aria-label="Settings sections">
+          {SECTIONS.map((s) => (
+            <NavItem key={s.id} label={s.label} icon={s.icon} active={section === s.id} onClick={() => onSection(s.id)} />
+          ))}
+        </nav>
+        <div className={section === 'file' ? 'ca-settings-pane is-file' : 'ca-settings-pane'}>
+          {gate}
+          {pane}
+          {error && section !== 'accounts' && section !== 'agents' && view !== null && (
+            <p className="ca-form-error" role="alert">
+              {error}
+            </p>
+          )}
         </div>
-        <footer className="ca-dialog-foot">
-          <span className="ca-settings-path" title={view?.path}>
-            {view?.path ?? ''}
-          </span>
-          <Button variant="primary" size="sm" onClick={onClose}>
-            Done
-          </Button>
-        </footer>
       </div>
-    </div>
+    </Dialog>
   );
 }
 

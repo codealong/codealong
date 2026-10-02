@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { renameAhead } from '../ahead';
 import { NAME_KEPT, sessionName } from '../harness';
 import type { Lane, Session } from '../types';
-import { Button } from './primitives';
+import { Button, Dialog } from './primitives';
 import { errorText } from '../report';
 
 interface RenameDialogProps {
@@ -25,17 +25,6 @@ export function RenameDialog({ lane, session: s, onClose, onFailed }: RenameDial
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.select(), []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const next = sessionName(name);
   const save = () => {
     // Left as it was, a title the board cut short isn't taken for a new name.
@@ -44,48 +33,34 @@ export function RenameDialog({ lane, session: s, onClose, onFailed }: RenameDial
   };
 
   return (
-    <div
-      className="ca-scrim"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <form
-        className="ca-dialog ca-renamedlg"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ca-renamedlg-title"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
-      >
-        <header className="ca-dialog-head">
-          <h2 id="ca-renamedlg-title">Rename session</h2>
-          <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} />
-        </header>
-        <p className="ca-dialog-lede">
+    <Dialog
+      className="ca-renamedlg"
+      title="Rename session"
+      lede={
+        <>
           {s.account} in {lane.callsign}
           {lane.device ? ` on ${lane.device.name}` : ''}. {NAME_KEPT[s.harness]}
-        </p>
-        <div className="ca-dialog-body">
-          <label className="ca-field">
-            <span>Name</span>
-            <input ref={input} value={name} autoFocus spellCheck={false} onChange={(e) => setName(e.target.value)} />
-          </label>
-        </div>
-        <footer className="ca-dialog-foot">
-          <span />
-          <span className="ca-previewdlg-actions">
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" type="submit" disabled={!next}>
-              Rename
-            </Button>
-          </span>
-        </footer>
-      </form>
-    </div>
+        </>
+      }
+      onClose={onClose}
+      onSubmit={save}
+      foot={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" type="submit" disabled={!next}>
+            Rename
+          </Button>
+        </>
+      }
+    >
+      <div className="ca-dialog-body">
+        <label className="ca-field">
+          <span>Name</span>
+          <input ref={input} value={name} autoFocus spellCheck={false} onChange={(e) => setName(e.target.value)} />
+        </label>
+      </div>
+    </Dialog>
   );
 }

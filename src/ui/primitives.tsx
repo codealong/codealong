@@ -1,7 +1,7 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
-import type { ButtonHTMLAttributes, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
-import { Fragment } from 'react';
+import type { ButtonHTMLAttributes, FormEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import { Fragment, useId, useRef } from 'react';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { sessionPlace } from '../harness';
@@ -9,6 +9,8 @@ import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surf
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
 import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
+import { useFocusTrap } from './focusTrap';
+import { useEscape } from './useDismiss';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
@@ -167,6 +169,78 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
       {children && <span>{children}</span>}
       {kbd && <Kbd keys={kbd} />}
     </button>
+  );
+}
+
+interface DialogProps {
+  title: string;
+  /** A sentence or two under the title: what it's for. */
+  lede?: ReactNode;
+  /** While it works (saving, closing terminals): Escape, a press outside and its ✕ wait. */
+  busy?: boolean;
+  onClose: () => void;
+  /** Makes it a form: Return in a field, or a `type="submit"` button in the foot, runs this. */
+  onSubmit?: () => void;
+  /** The buttons at the foot's end: the one that does it last. */
+  foot: ReactNode;
+  /** What the foot says or offers at its start: a count, a way to clear it. */
+  aside?: ReactNode;
+  /** The dialog's own class, for its width and what's in it. */
+  className?: string;
+  children?: ReactNode;
+}
+
+/** A dialog over the window: every one is this. It owns what they share: the scrim and a press
+ *  on it, Escape (after any popover open inside it, `useEscape`), its name for a screen reader,
+ *  its header and ✕, and the keyboard, which it takes as it opens, keeps (Tab goes round it,
+ *  not out to the window behind, `useFocusTrap`) and hands back to what had it. */
+export function Dialog({ title, lede, busy = false, onClose, onSubmit, foot, aside, className, children }: DialogProps) {
+  const id = useId();
+  const box = useRef<HTMLDivElement & HTMLFormElement>(null);
+  const close = () => {
+    if (!busy) onClose();
+  };
+  useEscape(close);
+  useFocusTrap(box);
+  const Box = onSubmit ? 'form' : 'div';
+  return (
+    <div
+      className="ca-scrim"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
+      <Box
+        ref={box}
+        className={cx('ca-dialog', className)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={id}
+        // It takes the keyboard itself when nothing in it does, only so Tab starts inside it:
+        // it draws no ring for that.
+        tabIndex={-1}
+        style={{ outline: 'none' }}
+        onSubmit={
+          onSubmit &&
+          ((e: FormEvent) => {
+            e.preventDefault();
+            onSubmit();
+          })
+        }
+      >
+        <header className="ca-dialog-head">
+          <h2 id={id}>{title}</h2>
+          <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} disabled={busy} />
+        </header>
+        {lede && <p className="ca-dialog-lede">{lede}</p>}
+        {children}
+        <footer className="ca-dialog-foot">
+          {aside ?? <span />}
+          {/* The two names the styles have for a foot's buttons, until they have one. */}
+          <span className="ca-previewdlg-actions ca-idle-actions">{foot}</span>
+        </footer>
+      </Box>
+    </div>
   );
 }
 

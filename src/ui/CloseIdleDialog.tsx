@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { closeIdleTerminals, idleTerminals } from '../api';
 import type { CloseOutcome, IdlePlan, KeptTerminal } from '../types';
-import { Button, Icon, Seg } from './primitives';
+import { Button, Dialog, Icon, Seg } from './primitives';
 
 const HOUR = 3600e3;
 export const WAITS: { ms: number; label: string }[] = [
@@ -52,17 +52,6 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
       .catch((e: unknown) => setError(String(e)));
   }, []);
   useEffect(() => load(after), [after, load]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented && !closing) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, closing]);
 
   const chosen = useMemo(() => (plan?.close ?? []).filter((c) => !off.has(c.key)), [plan, off]);
   const toggle = (key: string) =>
@@ -153,48 +142,37 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
   }
 
   return (
-    <div
-      className="ca-scrim"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !closing) onClose();
-      }}
+    <Dialog
+      className="ca-idle"
+      title="Close idle terminals"
+      lede="Terminal tabs in Ghostty, iTerm2 or Terminal whose sessions are idle and whose last reply asks you nothing. Closing ends the agent’s process; the conversation stays and resumes like any other."
+      busy={closing}
+      onClose={onClose}
+      aside={<span className="ca-idle-count">{!failed && plan && plan.close.length > 0 ? `${chosen.length} of ${plan.close.length} ticked` : ''}</span>}
+      foot={
+        failed ? (
+          <Button variant="primary" size="sm" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" size="sm" onClick={onClose} disabled={closing}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => void run()} disabled={closing || chosen.length === 0}>
+              {closing ? 'Closing…' : `Close ${plural(chosen.length, 'terminal', 'terminals')}`}
+            </Button>
+          </>
+        )
+      }
     >
-      <div className="ca-dialog ca-idle" role="dialog" aria-modal="true" aria-labelledby="ca-idle-title">
-        <header className="ca-dialog-head">
-          <h2 id="ca-idle-title">Close idle terminals</h2>
-          <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} disabled={closing} />
-        </header>
-        <p className="ca-dialog-lede">
-          Terminal tabs in Ghostty, iTerm2 or Terminal whose sessions are idle and whose last reply asks you nothing. Closing ends the agent’s process; the conversation stays and resumes like any
-          other.
-        </p>
-        {!failed && (
-          <div className="ca-idle-wait">
-            <span>Idle for at least</span>
-            <Seg label="Idle for at least" options={WAITS.map((w) => ({ id: w.ms, label: w.label }))} value={after} disabled={closing} onPick={setAfter} />
-          </div>
-        )}
-        <div className="ca-dialog-body">{body}</div>
-        <footer className="ca-dialog-foot">
-          <span className="ca-idle-count">{!failed && plan && plan.close.length > 0 ? `${chosen.length} of ${plan.close.length} ticked` : ''}</span>
-          <span className="ca-idle-actions">
-            {failed ? (
-              <Button variant="primary" size="sm" onClick={onClose}>
-                Done
-              </Button>
-            ) : (
-              <>
-                <Button variant="ghost" size="sm" onClick={onClose} disabled={closing}>
-                  Cancel
-                </Button>
-                <Button variant="primary" size="sm" onClick={() => void run()} disabled={closing || chosen.length === 0}>
-                  {closing ? 'Closing…' : `Close ${plural(chosen.length, 'terminal', 'terminals')}`}
-                </Button>
-              </>
-            )}
-          </span>
-        </footer>
-      </div>
-    </div>
+      {!failed && (
+        <div className="ca-idle-wait">
+          <span>Idle for at least</span>
+          <Seg label="Idle for at least" options={WAITS.map((w) => ({ id: w.ms, label: w.label }))} value={after} disabled={closing} onPick={setAfter} />
+        </div>
+      )}
+      <div className="ca-dialog-body">{body}</div>
+    </Dialog>
   );
 }
