@@ -9,7 +9,7 @@
 // in a pill's menu shows it with its name ready to change. The strip over its header has the
 // common actions with their keys, ⌃⌘W closes its terminal, and its bottom corner drags it to a
 // size it keeps.
-//   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-session-check.js
+//   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-session-check.js
 (function () {
   var out = [];
   var say = function (t) { window.__t = t; };
@@ -21,7 +21,8 @@
       (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout: ' + what)); setTimeout(p, 10); })();
     });
   };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
+  // Why is said only of what fails: Chrome cuts a title at 4,096 characters, and this check is long.
+  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL' + (why ? ' (' + why + ')' : ''))); };
   var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }).map(function (c) { return c[1]; }); };
   var notch = function () { return document.querySelector('.ca-notch'); };
   var shape = function () { return document.querySelector('.ca-notch-shape'); };
@@ -47,7 +48,8 @@
       var group = n === 0 ? 'needs' : n < 3 ? 'unread' : 'working';
       return Object.assign({}, i, { group: group, status: group, snoozedUntil: null, since: 1000 + n });
     });
-    return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [] });
+    // Only these on the bar, so the notch is as narrow as a session gets.
+    return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
   });
 
   say('notch session check: waiting for it');
@@ -89,6 +91,13 @@
       check('the window has room for it and its shadow', Number(windowAtStart.split('x')[1]) >= s.h + 30, windowAtStart);
       var strip = document.querySelector('.ca-notch-session .ca-reply-queue');
       check('says how many more wait', !!strip && /2 more waiting on you/.test(strip.textContent), strip ? strip.textContent : 'no strip');
+      // At the narrowest a session gets, the count and every button share one line, the count whole.
+      var note = strip.querySelector('.ca-reply-queue-note').getBoundingClientRect();
+      var text = document.createRange();
+      text.selectNodeContents(strip.querySelector('.ca-reply-queue-note'));
+      var keysBox = strip.querySelector('.ca-hotkeys').getBoundingClientRect();
+      var lastKey = strip.querySelector('.ca-hotkey:last-child').getBoundingClientRect();
+      check('the strip is one line, the count whole', strip.getBoundingClientRect().height < 34 && Math.abs(note.top + note.height / 2 - (keysBox.top + keysBox.height / 2)) < 4 && text.getBoundingClientRect().width <= note.width && lastKey.right <= strip.getBoundingClientRect().right, 'strip ' + Math.round(strip.getBoundingClientRect().width) + ' by ' + Math.round(strip.getBoundingClientRect().height) + ', count ' + Math.round(text.getBoundingClientRect().width) + ' of ' + Math.round(note.width));
       key({ key: ']', code: 'BracketRight', metaKey: true });
       return until(shows(items[1]), 3000, '⌘] to the next');
     })

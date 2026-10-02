@@ -7412,9 +7412,9 @@ html.is-quick body {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   height: 22px;
-  padding: 0 6px;
+  padding: 0 5px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -7438,21 +7438,30 @@ html.is-quick body {
   display: inline-flex;
   align-items: center;
   height: 16px;
-  padding: 0 4px;
+  padding: 0 3px;
   box-sizing: border-box;
   border: 1px solid var(--line);
   border-radius: var(--radius-xs);
   background: var(--neutral-tint);
   color: var(--ink-3);
   font: 500 10px/1 var(--font-sans);
-  letter-spacing: 0.04em;
 }
 .ca-hotkeys-gap {
   flex: none;
   width: 1px;
   height: 12px;
-  margin: 0 4px;
+  margin: 0 3px;
   background: var(--line);
+}
+/* In the notch the strip is one line at any width the session has: the buttons are sized to
+   leave the count its room at the narrowest, and what says how the last one went is cut short
+   before anything goes to a second line. */
+.ca-notch-card .ca-reply-queue.has-keys,
+.ca-notch-card .ca-hotkeys {
+  flex-wrap: nowrap;
+}
+.ca-notch-card .ca-reply-queue.has-keys .ca-reply-queue-note {
+  flex: 1 1 0;
 }
 /* In a session's panel (Sessions), lined up with the panel's header. */
 .ca-sessinsp .ca-reply-queue {
