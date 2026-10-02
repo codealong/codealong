@@ -235,6 +235,69 @@ pub struct Session {
     pub chrome: Option<ChromeTabs>,
 }
 
+/// A session's id as lists show it: its first seven characters.
+pub fn short_id(id: &str) -> String {
+    id.chars().take(7).collect()
+}
+
+impl Session {
+    /// A session's key: its harness, its account and its id there. This is the one place the
+    /// key's form is written, so whatever makes a key from the three asks here.
+    pub fn key_for(harness: Harness, account: &str, id: &str) -> String {
+        format!("{}:{account}:{id}", harness.config())
+    }
+
+    /// A session of which only whose it is is known: in a terminal, idle, not running, with no
+    /// title, folder or times. Whatever builds a session says what it knows and takes the rest
+    /// from here (`..Session::new(…)`), so a new field's neutral value goes here and nowhere
+    /// else. There's no `Default`: a session without a harness, an account and an id is no
+    /// session.
+    pub fn new(harness: Harness, account: &str, id: &str) -> Session {
+        Session {
+            key: Session::key_for(harness, account, id),
+            id: id.to_string(),
+            short_id: short_id(id),
+            harness,
+            account: account.to_string(),
+            surface: Surface::Cli,
+            status: Status::Idle,
+            live: false,
+            pid: None,
+            title: String::new(),
+            cwd: String::new(),
+            work: Vec::new(),
+            reply_tail: None,
+            first_prompt: None,
+            name: None,
+            started_at: None,
+            status_since: None,
+            last_activity: 0,
+            last_prompt_at: 0,
+            excerpt: None,
+            resume_command: None,
+            app_account: false,
+            open_target: String::new(),
+            visitor: None,
+            headline: String::new(),
+            detail: None,
+            branch: None,
+            archived: false,
+            attach_command: None,
+            continues: None,
+            origin: None,
+            stalled_since: None,
+            background: None,
+            insight: None,
+            asks: false,
+            hosted: false,
+            stoppable: false,
+            snoozed_until: None,
+            earlier: false,
+            chrome: None,
+        }
+    }
+}
+
 /// Where a session came from: the session it was forked from or started by.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -433,6 +496,45 @@ pub struct Lane {
     pub looks_reusable: bool,
 }
 
+impl Lane {
+    /// A worktree of which only where it is and whose it is are known: its folder, which is
+    /// also its id, its project and its repo. Idle, with no branch, sessions, PR or git state,
+    /// and nothing said of how it was made. Whatever builds a lane says what it knows and takes
+    /// the rest from here (`..Lane::new(…)`), so a new field's neutral value goes here and
+    /// nowhere else.
+    pub fn new(path: &str, project: &str, repo: &str) -> Lane {
+        Lane {
+            id: path.to_string(),
+            project: project.to_string(),
+            repo: repo.to_string(),
+            repo_slug: None,
+            repo_slug_now: None,
+            path: path.to_string(),
+            callsign: String::new(),
+            origin: Origin::Other,
+            branch: None,
+            detached: None,
+            bay: Bay::Idle,
+            glyph: Status::Idle,
+            parked: false,
+            hidden: false,
+            headline: String::new(),
+            detail: None,
+            sessions: Vec::new(),
+            pr: None,
+            git: None,
+            last_activity: 0,
+            looks_finished: false,
+            targets: Vec::new(),
+            default_target: None,
+            device: None,
+            preview: None,
+            reuse: None,
+            looks_reusable: false,
+        }
+    }
+}
+
 /// What a reusable worktree holds (`board::reuse_of`).
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -549,4 +651,96 @@ pub struct Usage {
     /// The usage endpoint asked us to slow down.
     #[serde(skip)]
     pub rate_limited: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    #[test]
+    fn a_key_is_the_harness_the_account_and_the_id() {
+        assert_eq!(Session::key_for(Harness::Claude, "claude2", "abc"), "claude:claude2:abc");
+        assert_eq!(Session::key_for(Harness::Codex, "codex", "0199-ab"), "codex:codex:0199-ab");
+        assert_eq!(Session::key_for(Harness::Opencode, "opencode", "ses_1"), "opencode:opencode:ses_1");
+        assert_eq!(Session::key_for(Harness::Antigravity, "antigravity", "c1"), "antigravity:antigravity:c1");
+        let s = Session::new(Harness::Claude, "claude2", "abc12345-0000");
+        assert_eq!((s.key.as_str(), s.id.as_str(), s.short_id.as_str(), s.account.as_str()), ("claude:claude2:abc12345-0000", "abc12345-0000", "abc1234", "claude2"));
+        // A lane's folder is its id.
+        let l = Lane::new("/r/app", "Acme", "app");
+        assert_eq!((l.id.as_str(), l.path.as_str(), l.project.as_str(), l.repo.as_str()), ("/r/app", "/r/app", "Acme", "app"));
+    }
+
+    // The phone app and Macs of other builds read these, so how they're written can't move: the
+    // JSON below is what builds before the constructors sent.
+
+    #[test]
+    fn a_session_goes_between_devices_as_it_did() {
+        // With everything said, it reads and is written back the same.
+        let sent: Value = serde_json::from_str(
+            r#"{
+                "key": "claude:claude2:abc", "id": "abc", "shortId": "abc", "harness": "claude", "account": "claude2", "surface": "app",
+                "status": "needs", "live": true, "pid": 42, "title": "Fix the login", "cwd": "/r/app", "name": "login", "startedAt": 1,
+                "statusSince": 2, "lastActivity": 3, "lastPromptAt": 4, "excerpt": "Bash · `ls`", "resumeCommand": "claude --resume abc",
+                "appAccount": true, "openTarget": "s|claude:claude2:abc|focus", "visitor": "worked here", "headline": "Needs you", "detail": "now",
+                "branch": "login", "archived": true, "attachCommand": "claude attach j1", "continues": "claude:claude2:from",
+                "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
+                "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "earlier": true,
+                "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 }
+            }"#,
+        )
+        .unwrap();
+        let s: Session = serde_json::from_value(sent.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&s).unwrap(), sent);
+        assert_eq!((s.harness, s.surface, s.status, s.origin.as_ref().map(|o| o.how)), (Harness::Claude, Surface::App, Status::Needs, Some(OriginHow::Fork)));
+
+        // An older build's, from before the fields added since: it reads as the constructor's
+        // session with what it says, and a session with nothing more to say is written as this.
+        let old = r#"{"key":"codex:codex:0199abcd-12","id":"0199abcd-12","shortId":"0199abc","harness":"codex","account":"codex","surface":"cli","status":"idle","live":false,"pid":null,"title":"","cwd":"","name":null,"startedAt":null,"statusSince":null,"lastActivity":0,"lastPromptAt":0,"excerpt":null,"resumeCommand":null,"appAccount":false,"openTarget":"","visitor":null,"headline":"","detail":null,"branch":null,"archived":false,"attachCommand":null,"stalledSince":null}"#;
+        let read: Session = serde_json::from_str(old).unwrap();
+        assert_eq!(serde_json::to_string(&read).unwrap(), old);
+        assert_eq!(serde_json::to_string(&Session::new(Harness::Codex, "codex", "0199abcd-12")).unwrap(), old);
+    }
+
+    #[test]
+    fn a_lane_goes_between_devices_as_it_did() {
+        let sent: Value = serde_json::from_str(
+            r#"{
+                "id": "/r/app-fix", "project": "Acme", "repo": "app", "repoSlug": "acme/app-old", "repoSlugNow": "acme/app", "path": "/r/app-fix",
+                "callsign": "fix", "origin": "claude-app", "branch": "fix", "detached": "abc1234", "bay": "review", "glyph": "unread", "parked": true,
+                "hidden": true, "headline": "PR #7 is open", "detail": "2 checks", "sessions": [],
+                "pr": {
+                    "number": 7, "title": "Fix it", "url": "https://github.com/acme/app/pull/7", "state": "open",
+                    "checks": { "passed": 1, "failed": 2, "pending": 3, "skipped": 4, "failing": ["lint"] }, "merge": "blocked",
+                    "updatedAt": 1, "mergedAt": 2, "closedAt": 3
+                },
+                "git": {
+                    "upstream": "origin/fix", "ahead": 1, "behind": 2, "dirty": 3, "lastCommit": "Fix it", "lastCommitAt": 4, "added": 5, "removed": 6,
+                    "base": "origin/main", "baseAhead": 7, "baseBehind": 8, "resetAt": 9, "newWorkCount": 10
+                },
+                "lastActivity": 11, "looksFinished": true,
+                "targets": [{ "id": "l|terminal", "icon": "terminal", "label": "Terminal", "detail": "fix", "kbd": ["⌘", "T"], "disabled": false, "group": "lane" }],
+                "defaultTarget": "l|terminal",
+                "device": { "name": "Mini", "short": "ab12cd34ef", "color": "teal", "online": true, "lastSeen": 12 },
+                "preview": {
+                    "url": "http://localhost:5173", "set": true, "port": 5173,
+                    "server": { "pid": 13, "port": 5173, "name": "node", "title": "App", "startedAt": 14, "session": "claude:claude:abc" },
+                    "chromeProfile": "Work", "chromeProfileSet": true
+                },
+                "reuse": "landed", "looksReusable": true
+            }"#,
+        )
+        .unwrap();
+        let l: Lane = serde_json::from_value(sent.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&l).unwrap(), sent);
+        assert_eq!((l.origin, l.bay, l.glyph, l.reuse), (Origin::ClaudeApp, Bay::Review, Status::Unread, Some(Reuse::Landed)));
+
+        // An older build's lane says nothing of looking finished; a lane with nothing more to
+        // say is written with it.
+        let old = r#"{"id":"/r/app","project":"Acme","repo":"app","repoSlug":null,"path":"/r/app","callsign":"","origin":"other","branch":null,"detached":null,"bay":"idle","glyph":"idle","parked":false,"hidden":false,"headline":"","detail":null,"sessions":[],"pr":null,"git":null,"lastActivity":0,"targets":[],"defaultTarget":null}"#;
+        let now = old.replace(r#""lastActivity":0,"#, r#""lastActivity":0,"looksFinished":false,"#);
+        let read: Lane = serde_json::from_str(old).unwrap();
+        assert_eq!(serde_json::to_string(&read).unwrap(), now);
+        assert_eq!(serde_json::to_string(&Lane::new("/r/app", "Acme", "app")).unwrap(), now);
+    }
 }
