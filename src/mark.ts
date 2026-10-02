@@ -8,8 +8,8 @@
 //   knock   a session, or a PR's review, starts to need you: the node beats twice
 //
 // What happened is read from two feeds in a row, by the pills that color the mark (ahead.ts,
-// `logoOfBar`). MarkLive.tsx plays the moment; app.css has the motion, and what pointing at the
-// mark does (the C turns once about the node), which is styles alone.
+// `logoOfBar`). MarkLive.tsx plays the moment; MarkLive.css has the motion, and what pointing at
+// the mark does (the C turns once about the node), which is styles alone.
 
 import { useEffect, useRef, useState } from 'react';
 import type { Ahead } from './ahead';
@@ -20,7 +20,7 @@ import type { BarFeed } from './types';
 export const MOMENTS = ['run', 'send', 'ripple', 'knock'] as const;
 export type MomentKind = (typeof MOMENTS)[number];
 
-/** How long each plays, as app.css has it. */
+/** How long each plays, as MarkLive.css has it. */
 export const MOMENT_MS: Record<MomentKind, number> = { run: 1500, send: 730, ripple: 950, knock: 1440 };
 /** The quiet after one before a no more urgent one plays, so a burst of sessions doesn't make
  *  the mark flicker. */

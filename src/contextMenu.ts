@@ -35,7 +35,7 @@ export type MenuSpec = (MenuAction | MenuGroup | 'separator')[];
 type Items = NonNullable<MenuOptions['items']>;
 
 // A right-click doesn't select a list's row, so the row a menu is for is ringed while the menu
-// is up, as the Finder rings a file (`[data-menu]` in app.css). The row is the one the click
+// is up, as the Finder rings a file (`[data-menu]` in LaneRow.css). The row is the one the click
 // that asked for the menu landed on: a session's line on its worktree's row, else the row.
 // It's marked with an attribute, which React leaves alone when the row renders again.
 let pressed: Element | null = null;

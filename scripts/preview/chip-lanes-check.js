@@ -1,8 +1,9 @@
 // Checks the lanes of chips on the lists' rows (LaneRow.tsx, PrsView.tsx, TodoView.tsx, and
-// .ca-chips in app.css): every chip is one height and shape, and none is cut off, each showing
-// whole or not at all. In Sessions it also checks that a session's account is on the second
-// line, not the first; that Rows in the sidebar puts each session on one line and remembers it;
-// and in every list that a right-click (or ⌃-click) opens a row's menu without selecting it.
+// .ca-chips in src/styles/chips.css): every chip is one height and shape, and none is cut off,
+// each showing whole or not at all. In Sessions it also checks that a session's account is on
+// the second line, not the first; that Rows in the sidebar puts each session on one line and
+// remembers it; and in every list that a right-click (or ⌃-click) opens a row's menu without
+// selecting it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/chip-lanes-check.js

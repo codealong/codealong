@@ -475,7 +475,11 @@ some work is, answer with one.
   styled there only beside one of its own: `.ca-peek .ca-thread` lives in Peek.css), when a
   `ca-` class styled is one nothing in `src/` spells (names built at run time are listed in its
   `BUILT`), when a stylesheet isn't in the index exactly once or other code imports one, and when
-  `tokens.css` isn't what `npm run tokens` writes from `design/tokens.json`. After moving rules
+  `tokens.css` isn't what `npm run tokens` writes from `design/tokens.json`. Type, spacing,
+  durations and stacking come from tokens too (`font: var(--type-meta)`, `gap: var(--space-1)`,
+  `var(--dur-fast)`, `z-index: var(--z-popover)`; a new layer is a token in `stacking`), and the
+  test fails on a `font` shorthand or a one-length `gap` that equals a token without naming it;
+  a size between the steps stays literal until a designer gives it one. After moving rules
   or reordering the index, `scripts/preview/style-diff.mjs` (its header says how) records every
   scene's computed styles from the build before and the build after and compares them, element
   by element, light and dark. Colors only through CSS variables; dark values apply under

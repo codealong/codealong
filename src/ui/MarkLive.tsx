@@ -1,4 +1,4 @@
-// The mark in parts, for the bar, where it moves (mark.ts says when; app.css has the motion).
+// The mark in parts, for the bar, where it moves (mark.ts says when; MarkLive.css has the motion).
 // Each part that moves is an element of its own: WebKit hands an element's transform and opacity
 // to the compositor, but redraws a path that moves inside one SVG on every frame, and the node
 // breathes for as long as agents work.

@@ -322,7 +322,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           )}
         </div>
       )}
-      {/* Hidden when it has nothing to show (app.css), Jev's chip included. */}
+      {/* Hidden when it has nothing to show (SessionHeader.css), Jev's chip included. */}
       <div className="ca-sessinsp-links">
         {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (
           <PrChipCard key={pr.url} pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={onPrMenu && (() => onPrMenu(pr))} />
