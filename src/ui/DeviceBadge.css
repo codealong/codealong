@@ -1,0 +1,40 @@
+/* Another device's badge (DeviceBadge.tsx), on rows, panels and cards. */
+
+/* A device's badge (DeviceBadge.tsx): drawn as labels are, a colored square in a neutral chip, since
+   the color names a device, not a status. */
+.ca-devbadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  max-width: 140px;
+  height: 16px;
+  padding: 0 6px 0 5px;
+  box-sizing: border-box;
+  border-radius: var(--chip-radius);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+  font: 500 10.5px/14px var(--font-sans);
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+.ca-devbadge .ca-labeldot {
+  width: 6px;
+  height: 6px;
+}
+.ca-devbadge-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-devbadge.is-away {
+  color: var(--ink-3);
+}
+.ca-insp-actions .ca-devbadge {
+  height: 22px;
+  max-width: none;
+  padding: 0 8px 0 7px;
+  font-size: 12px;
+}
+.ca-lane-sub .ca-devbadge {
+  margin-right: 6px;
+}

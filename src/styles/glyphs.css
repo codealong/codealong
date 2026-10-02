@@ -1,0 +1,79 @@
+/* Icons and glyphs: Tabler icons (.ca-icon), the Codealong mark (.ca-mark, by status), the status
+   glyph a session shows (.ca-glyph and its parts .ca-g-*), and a todo's glyph (.ca-todoglyph). */
+
+.ca-icon { flex: none; display: inline-block; vertical-align: middle; }
+
+.ca-mark { flex: none; display: inline-block; vertical-align: middle; fill: var(--ink); }
+.ca-mark[data-status="idle"] .ca-mark-node { fill: var(--logo-idle); }
+.ca-mark[data-status="needs"] .ca-mark-node { fill: var(--attn-solid); }
+.ca-mark[data-status="error"] .ca-mark-node { fill: var(--alert-solid); }
+.ca-mark[data-status="unread"] .ca-mark-node { fill: var(--unread-solid); }
+.ca-mark[data-status="working"] .ca-mark-node { fill: var(--logo-working); }
+
+.ca-glyph { flex: none; display: inline-block; vertical-align: middle; overflow: visible; }
+.ca-g-attn { fill: var(--attn-solid); }
+.ca-g-track { fill: none; stroke: var(--line-strong); stroke-width: 1.5; opacity: 0.35; }
+.ca-g-arc { fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; transform-box: view-box; transform-origin: 6px 6px; animation: ca-sweep var(--dur-sweep) linear infinite; }
+.ca-g-half { fill: var(--ink-2); display: none; }
+.ca-g-unread { fill: var(--unread-solid); }
+.ca-g-idle { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.ca-g-stopped { fill: none; stroke: var(--ink-3); stroke-width: 1.5; stroke-dasharray: 2.1 2.1; }
+.ca-g-alert { fill: var(--alert-solid); }
+.ca-g-x { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; }
+@keyframes ca-sweep { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ca-g-arc { display: none; animation: none; }
+  .ca-g-half { display: inline; }
+}
+
+/* A todo's box: square, so it never reads as a session's round status glyph. */
+.ca-todoglyph {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+  overflow: visible;
+}
+.ca-tg-box {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.4;
+}
+.ca-todoglyph.is-in-progress .ca-tg-box {
+  stroke: var(--ink-2);
+}
+.ca-tg-fill {
+  fill: var(--ink-2);
+}
+.ca-todoglyph.is-done .ca-tg-box {
+  fill: var(--ink-3);
+}
+/* Waiting: the box drawn dashed, as not yet free to start. */
+.ca-todoglyph.is-waiting .ca-tg-box {
+  stroke-dasharray: 2.2 1.8;
+  stroke-dashoffset: 1.1;
+}
+.ca-tg-check {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The working glyph turns as a whole: WebKit gives an element's transform animation to the
+   compositor, but redraws a path inside an SVG on every frame, which kept the floating bar
+   drawing all the time. The track is a plain circle, so turning it with the arc looks the same. */
+.ca-g-arc {
+  animation: none;
+}
+.ca-glyph--working {
+  transform-origin: 50% 50%;
+  animation: ca-sweep var(--dur-sweep) linear infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-glyph--working {
+    animation: none;
+    will-change: auto;
+  }
+}

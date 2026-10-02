@@ -1,0 +1,67 @@
+/* Cards pinned to the desktop: each its own window (desktop.rs), transparent, sized to the
+   card plus 12px for its shadow (DesktopPin.tsx). The card is the Canvas view's, in the flow of
+   the page rather than placed, with a worktree's or todo's sessions under its two lines. */
+
+html.is-desktop,
+html.is-desktop body {
+  background: transparent;
+}
+
+.ca-desk {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  width: 280px;
+}
+.ca-desk-card {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-hud);
+  cursor: default;
+}
+
+.ca-desk-card:hover .ca-cv-card.is-desk {
+  border-color: color-mix(in srgb, var(--unread-solid) 55%, var(--line));
+}
+.ca-desk-sessions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+/* A session line opens that session: it lights up under the pointer as a menu item does. */
+.ca-desk-session {
+  margin: 0 -4px;
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+}
+.ca-desk-session:hover {
+  background: var(--surface-hover);
+}
+/* The session the peek shows, as the bar marks its pill. */
+.ca-desk-card.is-peeked .ca-cv-card.is-desk {
+  border-color: var(--unread-solid);
+}
+.ca-desk-session.is-peeked {
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+/* What went wrong opening it. A click clears it. */
+.ca-desk-note {
+  appearance: none;
+  justify-self: start;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--alert-tint);
+  color: var(--alert);
+  box-shadow: var(--shadow-hud);
+  font: 400 12px/16px var(--font-sans);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: default;
+}

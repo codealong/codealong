@@ -1,0 +1,55 @@
+/* A PR's pills (PrPills.tsx): state, checks and merge, shortened as the row narrows. */
+
+/* Where a PR stands: its review, checks and merge as the design system's status pills. */
+.ca-prpills {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--chip-gap);
+}
+.ca-prpill {
+  flex: none;
+}
+/* In a row the pills get the room the line has (see .ca-prrow-fit), and short of room they say
+   less: first the checks keep only their count ("3 failing" becomes 3), then Conflicts or Out of
+   date keeps only its icon, its word giving way with an ellipsis in between. Their titles and
+   the PR panel still say it all. The widths fit the widest sets of pills: three with the checks
+   shortened, three in full, and two in full. */
+.ca-prrow .ca-prpills {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-prrow .ca-prpill--merge {
+  flex: 0 1 auto;
+  box-sizing: border-box;
+  min-width: 25px;
+}
+.ca-prrow .ca-prpill--merge > .ca-prpill-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-prpill-short {
+  display: none;
+}
+@container prfit (max-width: 290px) {
+  .ca-prpills[data-count='3'] > .ca-prpill--checks.has-short > .ca-prpill-text {
+    display: none;
+  }
+  .ca-prpills[data-count='3'] > .ca-prpill--checks > .ca-prpill-short {
+    display: inline;
+  }
+}
+@container prfit (max-width: 220px) {
+  .ca-prpills[data-count='3'] > .ca-prpill--merge > .ca-prpill-text {
+    display: none;
+  }
+}
+@container prfit (max-width: 200px) {
+  .ca-prpills > .has-short > .ca-prpill-text {
+    display: none;
+  }
+  .ca-prpill-short {
+    display: inline;
+  }
+}

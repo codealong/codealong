@@ -1,0 +1,179 @@
+/* A session with its conversation as a panel or a card (SessionPanel.tsx): the panel's place in
+   the main window and maximized, the queue strip and its hotkeys, the reply area. */
+
+.ca-insp.ca-sessinsp {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.ca-win--app .ca-win-body.is-panel-max > :not(.ca-sessinsp) {
+  display: none;
+}
+.ca-win--app .ca-win-body.is-panel-max .ca-insp.ca-sessinsp {
+  border-left: 0;
+}
+.ca-win-body.is-panel-max .ca-sessinsp > * {
+  padding-inline: max(var(--space-4), (100% - 860px) / 2);
+}
+
+.ca-sessinsp-now {
+  margin: 0;
+  color: var(--ink-2);
+  font: 400 13px/18px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-sessinsp-now .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* A session as a card of its own (SessionPanel.tsx): the floating bar's peek and the quick panel's
+   reply view. Its header, the one its panel has in the main window, stays put; the conversation
+   scrolls between it and the box. */
+.ca-reply {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.ca-reply .ca-sessinsp-head {
+  padding: 10px 12px 8px;
+}
+
+/* Working through what waits on you: how the last one went, and what's left. */
+.ca-reply-queue {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+.ca-reply-queue-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font: 400 11px/16px var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-reply-queue-note.is-error {
+  color: var(--alert);
+}
+.ca-reply-queue .ca-btn {
+  flex: none;
+}
+/* With what's commonly done to the session as buttons that say their keys (SessionPanel.tsx
+   `Hotkeys`): where the strip is short of room, they go on a line of their own. */
+.ca-reply-queue.has-keys {
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.ca-reply-queue.has-keys .ca-reply-queue-note {
+  flex: 1 1 96px;
+}
+.ca-hotkeys {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+}
+.ca-hotkey {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 11px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: default;
+}
+.ca-hotkey:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-hotkey:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-hotkey:disabled {
+  opacity: 0.4;
+}
+.ca-hotkey kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--neutral-tint);
+  color: var(--ink-3);
+  font: 500 10px/1 var(--font-sans);
+}
+.ca-hotkeys-gap {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  margin: 0 3px;
+  background: var(--line);
+}
+/* In the notch the strip is one line at any width the session has: the buttons are sized to
+   leave the count its room at the narrowest, and what says how the last one went is cut short
+   before anything goes to a second line. */
+.ca-notch-card .ca-reply-queue.has-keys,
+.ca-notch-card .ca-hotkeys {
+  flex-wrap: nowrap;
+}
+.ca-notch-card .ca-reply-queue.has-keys .ca-reply-queue-note {
+  flex: 1 1 0;
+}
+/* In a session's panel (Sessions), lined up with the panel's header. */
+.ca-sessinsp .ca-reply-queue {
+  padding: 4px 12px 4px var(--space-4);
+}
+.ca-reply .ca-thread {
+  padding: var(--space-3) var(--space-3) var(--space-3) 14px;
+}
+.ca-reply .ca-composer {
+  padding: 10px 12px;
+}
+
+/* A session's conversation can be selected and copied, unlike the rest of the app's chrome. */
+.ca-thread-you,
+.ca-thread-agent,
+.ca-thread-toollabel,
+.ca-thread-note,
+.ca-sessinsp-now,
+.ca-approval-label,
+.ca-question-list,
+.ca-question-yours,
+.ca-codeblock pre,
+.ca-composer textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+/* Where the reply box would be, for a session on another Mac that can't take one from here. */
+.ca-sessinsp-remote {
+  margin: 0;
+  padding: var(--space-3);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font: 400 12px/17px var(--font-sans);
+}

@@ -1,0 +1,299 @@
+/* Settings (SettingsDialog.tsx): sections down the left, one pane at a time, the fields, lists,
+   shortcut recorder, Jev and reusable-worktree settings, and the config.toml editor. */
+
+.ca-settings {
+  width: min(880px, 100%);
+  height: min(680px, calc(100vh - 48px));
+}
+.ca-settings-body {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.ca-settings-nav {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: var(--space-3) var(--space-2);
+  border-right: 1px solid var(--line);
+  background: var(--ground);
+}
+.ca-settings-pane {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  overflow: auto;
+}
+/* The file pane is a column, so the editor takes what the intro and buttons leave. */
+.ca-settings-pane.is-file {
+  display: flex;
+  flex-direction: column;
+}
+.ca-settings-pane.is-file > * {
+  flex: none;
+}
+.ca-settings-pane.is-file > .ca-settings-editor {
+  flex: 1;
+  min-height: 200px;
+}
+.ca-settings-intro {
+  display: grid;
+  gap: 4px;
+}
+.ca-settings-intro h3 {
+  margin: 0;
+  font: 600 15px/20px var(--font-sans);
+  color: var(--ink);
+}
+.ca-settings-intro p {
+  margin: 0;
+  font: 400 13px/18px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-settings-fields,
+.ca-settings-cards {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.ca-settings-cards {
+  gap: var(--space-3);
+}
+.ca-settings-fields:disabled,
+.ca-settings-cards:disabled {
+  opacity: 0.5;
+}
+.ca-settings-fields .ca-field input,
+.ca-settings-fields .ca-settings-select {
+  max-width: 440px;
+}
+
+.ca-settings-theme {
+  justify-self: start;
+}
+/* Settings › General's version line: the version, then Check now or Restart to update. */
+.ca-settings-version {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 400 13px/18px var(--font-sans);
+  color: var(--ink);
+}
+.ca-settings-broken {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--alert-tint);
+  font: 400 12px/16px var(--font-sans);
+  color: var(--alert);
+}
+.ca-settings-broken > span {
+  flex: 1;
+  min-width: 0;
+}
+.ca-settings-broken .ca-ic {
+  display: block;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+.ca-settings-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px/16px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-settings-check {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+}
+.ca-settings-check input {
+  margin: 1px 0 0;
+  accent-color: var(--fill-strong);
+}
+.ca-settings-check small {
+  grid-column: 2;
+}
+.ca-settings-files {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+.ca-settings-files dd {
+  white-space: normal;
+  word-break: break-all;
+}
+
+.ca-settings-filehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.ca-settings-filehead .ca-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px/16px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-settings-editor {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 360px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 12px/18px var(--font-mono);
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-settings-editor:focus {
+  border-color: var(--focus);
+  box-shadow: var(--shadow-focus);
+}
+.ca-list-field {
+  display: grid;
+  gap: 6px;
+}
+.ca-list-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ca-list-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Settings › General: the quick panel's shortcut, recorded by pressing it. */
+.ca-shortcut-field {
+  display: grid;
+  gap: 6px;
+}
+.ca-shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ca-shortcut {
+  min-width: 128px;
+  height: 30px;
+  margin-right: 4px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 14px/18px var(--font-sans);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.ca-shortcut:focus-visible,
+.ca-shortcut.is-recording {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-shortcut.is-recording,
+.ca-shortcut.is-off {
+  color: var(--ink-3);
+}
+.ca-shortcut-taken {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--attn);
+}
+.ca-shortcut-taken .ca-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* Settings › Jev. */
+.ca-jev-key {
+  width: 300px;
+}
+.ca-jev-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-jev-ok {
+  margin: 0;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--pr-open);
+}
+.ca-jev-features {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+}
+.ca-jev-feature {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  cursor: pointer;
+}
+.ca-jev-feature.is-disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.ca-jev-feature-name {
+  font: 600 13px/18px var(--font-sans);
+  color: var(--ink);
+}
+.ca-jev-feature-does,
+.ca-jev-feature-sends {
+  padding-left: 21px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-jev-feature-sends {
+  color: var(--ink-3);
+}
+.ca-jev-feature-sends b {
+  font-weight: 600;
+}
+.ca-jev-model {
+  justify-self: start;
+}
+
+/* Settings › Projects: a reusable worktree and what it holds, or one that looks reusable and
+   its buttons, at the end. */
+.ca-reuse-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.ca-reuse-row > .ca-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

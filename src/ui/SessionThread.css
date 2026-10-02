@@ -1,0 +1,276 @@
+/* A session's conversation (SessionThread.tsx): what you and the agent said, tool calls with
+   their runs and details, the pinned prompt, what the call made, unsaid messages. */
+
+/* The conversation (SessionThread.tsx). */
+.ca-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The thread holds its own place as pages and images come in (SessionThread.tsx). */
+  overflow-anchor: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+.ca-thread.is-fallback {
+  justify-content: flex-start;
+}
+.ca-thread-start,
+.ca-thread-note {
+  align-self: center;
+  color: var(--ink-3);
+  font: 400 11px/14px var(--font-sans);
+}
+.ca-thread-note {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--neutral-tint);
+}
+.ca-thread-said {
+  display: grid;
+  gap: 4px;
+}
+.ca-thread-said.is-you {
+  margin-top: 6px;
+}
+.ca-thread-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-thread-you {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--neutral-tint);
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Your prompt behind what's in view, pinned over the top of it once it's gone off (SessionThread.tsx).
+   The holder takes no room, the flex gap after it included, and sticks to the top edge itself
+   rather than below the thread's padding. */
+.ca-thread-pin {
+  position: sticky;
+  top: calc(-1 * var(--space-3));
+  z-index: 2;
+  height: 0;
+  margin-bottom: -10px;
+}
+.ca-thread-pinned {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  /* Square at the top, where it meets the edge and text scrolls by behind it. */
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--neutral-tint);
+  box-shadow: var(--shadow-hud);
+  color: var(--ink);
+  font: 400 12px/17px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-thread-pinned:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-hud), inset 0 0 0 2px var(--focus);
+}
+.ca-thread-pinned > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ink-3);
+}
+.ca-thread-pintext {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.ca-thread-pinned:hover .ca-thread-pintext {
+  -webkit-line-clamp: 10;
+}
+/* A prompt ⌘⇧↑ or ⌘⇧↓ brought up, marked for a moment. */
+.ca-thread-said.is-landed .ca-thread-you {
+  animation: ca-thread-landed 1.2s ease-out;
+}
+@keyframes ca-thread-landed {
+  from {
+    box-shadow: inset 0 0 0 2px var(--focus);
+  }
+}
+.ca-thread-agent {
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-thread-tool {
+  display: grid;
+  min-width: 0;
+}
+.ca-thread-toolhead,
+.ca-thread-runhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-thread-toolhead:disabled {
+  cursor: default;
+}
+.ca-thread-toolhead:not(:disabled):hover,
+.ca-thread-runhead:hover {
+  background: var(--surface-hover);
+}
+.ca-thread-toolhead > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-thread-toollabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-thread-tool.is-failed .ca-thread-toolhead > .ca-icon:not(:first-child) {
+  color: var(--alert);
+}
+.ca-thread-runhead {
+  color: var(--ink-3);
+}
+.ca-thread-run {
+  display: grid;
+}
+.ca-thread-tooldetail {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 6px 25px;
+}
+.ca-thread-tooldetail pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font: 400 11px/16px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-thread-tooldetail .ca-thread-in {
+  color: var(--ink);
+}
+.ca-thread-tooldetail .ca-thread-out.is-failed {
+  color: var(--alert);
+}
+/* A page on the web the call made (an artifact Claude Code published): its title, a link, under
+   the call's line and in line with its label, then what the call did with it. */
+.ca-thread-made {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 6px 3px 25px;
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-thread-made a.ca-md-a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ca-thread-made a.ca-md-a > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-thread-madetitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+.ca-thread-made a.ca-md-a:hover .ca-thread-madetitle {
+  text-decoration-color: currentColor;
+}
+.ca-thread-made a.ca-md-a:hover > .ca-icon {
+  color: var(--ink);
+}
+.ca-thread-made > .ca-meta {
+  flex: none;
+  white-space: nowrap;
+}
+.ca-thread-tool.is-asks {
+  padding: 6px;
+  border-radius: var(--radius-md);
+  background: var(--attn-tint);
+}
+.ca-thread-asks {
+  flex: none;
+  color: var(--attn);
+  font-weight: 500;
+}
+.ca-thread-askrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 2px;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-thread-askrow > span {
+  flex: 1;
+}
+/* A message of yours on its way (ahead.ts, SessionThread.tsx): faint until the session's record
+   has it, fainter while it's still being sent, and marked when the session shows no sign of it. */
+.ca-thread-you .ca-desc-img img {
+  max-height: 200px;
+}
+.ca-thread-said.is-ahead .ca-thread-you {
+  opacity: 0.7;
+}
+.ca-thread-said.is-going .ca-thread-you {
+  opacity: 0.5;
+}
+.ca-thread-said.is-unconfirmed .ca-thread-you {
+  opacity: 1;
+  box-shadow: inset 2px 0 0 var(--attn-solid);
+}
+.ca-thread-said.is-unconfirmed .ca-thread-meta .ca-meta {
+  color: var(--attn);
+}
+/* A prompt the session took back before its agent saw it (claude/conversation.rs): faint, and marked. */
+.ca-thread-said.is-withdrawn .ca-thread-you {
+  opacity: 0.6;
+  box-shadow: inset 2px 0 0 var(--line-strong);
+}
+
+.ca-thread-meta > .ca-meta {
+  margin-left: auto;
+}

@@ -1,0 +1,58 @@
+/* A block of code with its copy and run buttons (CopyButton.tsx, RunButton.tsx). */
+
+/* A code block's buttons (Run for shell commands, then Copy) show while you hover the block, tab
+   to one, or one says how it went. */
+.ca-codeblock {
+  position: relative;
+  min-width: 0;
+}
+.ca-copybtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink-2);
+  font: 500 11px/14px var(--font-sans);
+  cursor: pointer;
+}
+.ca-copybtn:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.ca-copybtn.is-copied,
+.ca-copybtn.is-done {
+  color: var(--pr-open);
+}
+.ca-copybtn:disabled {
+  cursor: default;
+}
+.ca-codeblock-tools {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+}
+.ca-codeblock-tools > .ca-copybtn {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+.ca-codeblock:hover > .ca-codeblock-tools > .ca-copybtn,
+.ca-codeblock-tools > .ca-copybtn:focus-visible,
+.ca-codeblock-tools > .ca-copybtn.is-copied,
+.ca-codeblock-tools > .ca-copybtn.is-going,
+.ca-codeblock-tools > .ca-copybtn.is-done {
+  opacity: 1;
+}
+/* Why a Run didn't: the terminal wasn't allowed, the folder is gone… */
+.ca-codeblock-note {
+  margin: 4px 0 0;
+  font: 400 11px/15px var(--font-sans);
+  color: var(--alert);
+  -webkit-user-select: text;
+  user-select: text;
+}

@@ -1,0 +1,86 @@
+/* Markdown as the conversation renders it (Markdown.tsx): headings, lists, quotes, code, tables,
+   links. */
+
+/* Markdown from agents (Markdown.tsx). */
+.ca-md > * {
+  margin: 0 0 8px;
+}
+.ca-md > :last-child {
+  margin-bottom: 0;
+}
+.ca-md .ca-md-h {
+  margin-top: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ca-md .ca-md-h:first-child {
+  margin-top: 0;
+}
+/* A web link in a reply, and in a tool's output (SessionThread.tsx), which isn't Markdown. */
+.ca-md a.ca-md-a,
+.ca-thread-out a.ca-md-a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.ca-md a.ca-md-a:hover,
+.ca-thread-out a.ca-md-a:hover {
+  text-decoration-color: currentColor;
+}
+
+.ca-md .ca-md-h1 {
+  font-size: 15px;
+}
+.ca-md ul,
+.ca-md ol {
+  padding-left: 18px;
+}
+.ca-md li + li {
+  margin-top: 3px;
+}
+.ca-md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-2);
+}
+.ca-md pre {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--neutral-tint);
+  font: 400 12px/17px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.ca-md .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* A wide table scrolls sideways inside the thread rather than pushing it wider. */
+.ca-md .ca-md-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.ca-md table {
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 17px;
+}
+.ca-md th,
+.ca-md td {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.ca-md th {
+  background: var(--neutral-tint);
+  font-weight: 600;
+  color: var(--ink);
+}

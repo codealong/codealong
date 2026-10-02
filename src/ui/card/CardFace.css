@@ -1,0 +1,200 @@
+/* A card's face (card/CardFace.tsx), one design wherever it is: on the canvas and pinned to the
+   desktop. Its lines, states and what's shown away. */
+
+.ca-cv-card.is-desk {
+  position: relative;
+  padding: 9px 10px;
+  pointer-events: auto;
+}
+/* Nothing to see through to on the desktop. */
+.ca-cv-card.is-desk.is-gone {
+  background: var(--surface);
+}
+
+/* Cards. Picked by position, not by the pointer, so a card never swallows a drag. */
+.ca-cv-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+  pointer-events: none;
+  color: var(--ink);
+  overflow: hidden;
+}
+/* A worktree is told apart by its folder and its name's type, not by a fill: it has no status stripe. */
+.ca-cv-card.is-worktree .ca-cv-l1 > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-cv-l1,
+.ca-cv-l2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.ca-cv-l1 {
+  height: 18px;
+}
+.ca-cv-l2 {
+  height: 16px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  overflow: hidden;
+}
+.ca-cv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 500 13px/18px var(--font-sans);
+}
+.ca-cv-callsign {
+  font: 600 15px/18px var(--font-display);
+  letter-spacing: 0.01em;
+}
+.ca-cv-num {
+  font: 500 12px/18px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-cv-headline {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-cv-due {
+  flex: none;
+  white-space: nowrap;
+}
+.ca-cv-due.is-today {
+  color: var(--attn);
+}
+.ca-cv-due.is-overdue {
+  color: var(--alert);
+}
+.ca-cv-l2 .ca-branch {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+}
+.ca-cv-l2 .ca-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-cv-l2 .ca-drift {
+  flex: none;
+}
+.ca-cv-age {
+  margin-left: auto;
+  flex: none;
+  font: 500 11px/16px var(--font-mono);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-cv-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  font: 500 11px/16px var(--font-mono);
+  color: var(--ink-2);
+}
+.ca-cv-account .ca-icon {
+  color: var(--ink-3);
+}
+.ca-cv-bad {
+  color: var(--alert);
+}
+.ca-cv-l2 .ca-labeldot {
+  flex: none;
+}
+/* A session's PR, after what it said last: as tall as the line, so the card keeps its height. */
+.ca-cv-l2 .ca-pr {
+  height: 16px;
+}
+/* A stripe down the left edge in the status's color, as the status glyphs color them. */
+.ca-cv-card.st-needs {
+  box-shadow: inset 3px 0 0 var(--attn-solid), var(--shadow-lift);
+  background: color-mix(in srgb, var(--attn-tint) 55%, var(--surface));
+}
+.ca-cv-card.st-error {
+  box-shadow: inset 3px 0 0 var(--alert-solid), var(--shadow-lift);
+  background: color-mix(in srgb, var(--alert-tint) 55%, var(--surface));
+}
+.ca-cv-card.st-working {
+  box-shadow: inset 3px 0 0 var(--logo-working), var(--shadow-lift);
+}
+.ca-cv-card.st-unread {
+  box-shadow: inset 3px 0 0 var(--unread-solid), var(--shadow-lift);
+}
+.ca-cv-card.st-idle .ca-cv-title,
+.ca-cv-card.st-stopped .ca-cv-title,
+.ca-cv-card.td-done .ca-cv-title {
+  color: var(--ink-2);
+}
+.ca-cv-card.td-done {
+  opacity: 0.7;
+}
+.ca-cv-card.is-gone {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
+}
+.ca-cv-card.is-gone .ca-cv-title {
+  font-weight: 400;
+}
+.ca-cv-card.is-related {
+  outline: 1.5px solid color-mix(in srgb, var(--unread-solid) 45%, transparent);
+  outline-offset: 1px;
+}
+/* Hover and selection color the card's own border rather than drawing a ring around it;
+   hover in a softer tint, so a hovered card reads apart from the selected one. */
+.ca-cv-card.is-hovered {
+  border-color: color-mix(in srgb, var(--unread-solid) 55%, var(--line));
+}
+.ca-cv-card.is-selected {
+  border-color: var(--unread-solid);
+}
+
+.ca-cv-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+/* Cards and notes that don't match the filter at the top fade back. */
+.ca-cv-card.is-faded,
+.ca-cv-note.is-faded,
+.ca-cv-farlabel.is-faded {
+  opacity: 0.2;
+}
+
+.ca-cv-l1 .ca-devbadge,
+.ca-cv-l2 .ca-devbadge {
+  max-width: 88px;
+}
+/* A device that's away: what it last said still shows, faded, until it's back. */
+.ca-lane.is-away,
+.ca-cv-card.is-away,
+.ca-tree-node.is-away,
+.ca-nav.is-away {
+  opacity: 0.55;
+}
+.ca-lane.is-away.is-selected,
+.ca-lane.is-away:hover,
+.ca-cv-card.is-away.is-selected {
+  opacity: 0.85;
+}

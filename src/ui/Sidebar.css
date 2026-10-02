@@ -1,0 +1,295 @@
+/* The sidebar (Sidebar.tsx): the view and what narrows it, devices, saved views, the foot with
+   Settings and the update button, and the rail it collapses to. */
+
+.ca-side { display: flex; flex-direction: column; gap: 1px; min-height: 0; padding: var(--space-2) var(--space-2) 0; overflow: hidden; background: var(--surface-sunken); border-right: 1px solid var(--line); }
+.ca-side-label { padding: var(--space-3) 8px var(--space-1); }
+
+/* The sidebar scrolls up and down only: its rows fit its width, and a long name is cut short. */
+.ca-side-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden auto;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-2) var(--space-3);
+}
+.ca-side .ca-nav {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.ca-side-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 6px var(--space-3) 8px var(--space-4);
+  border-top: 1px solid var(--line);
+}
+.ca-side-config {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Restart to update: above the foot of the sidebar once a newer version is in place. */
+.ca-side-update {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 7px var(--space-3) 7px var(--space-4);
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface-hover);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-side-update:hover {
+  background: var(--surface-selected);
+}
+.ca-side-update:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+/* A section's heading, and Clear while anything in it is picked. */
+.ca-side-label--row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.ca-side-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 400 11px/14px var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.ca-side-clear:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.ca-side-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+  border-radius: 2px;
+}
+/* A device: its name, and under it what it's doing or when it was last seen. */
+.ca-nav.ca-side-devrow {
+  height: auto;
+  min-height: 36px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.ca-side-devrow.is-static,
+.ca-side-devrow.is-static:hover {
+  background: transparent;
+  cursor: default;
+}
+.ca-side-dev {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ca-side-dev-name,
+.ca-side-dev-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-side-dev-sub {
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-segctl.ca-side-ages,
+.ca-segctl.ca-side-sorts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 2px 8px 0;
+}
+.ca-segctl.ca-side-sorts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ca-side-ages button,
+.ca-side-sorts button {
+  justify-content: center;
+  padding: 0;
+}
+.ca-side-ages.is-off {
+  opacity: 0.5;
+}
+.ca-side-ages button:disabled {
+  cursor: default;
+}
+.ca-side-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 8px 0;
+}
+.ca-side-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 45%, transparent);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-sans);
+  cursor: pointer;
+}
+.ca-side-chip:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-side-chip.is-on {
+  border-color: var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+}
+.ca-side-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+}
+.ca-side-chip-count {
+  font: 500 11px/14px var(--font-mono);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-side-chip-count.is-attn {
+  color: var(--attn);
+}
+.ca-side-chip-count.is-alert {
+  color: var(--alert);
+}
+
+.ca-side-save {
+  color: var(--ink-3);
+}
+.ca-side-name {
+  flex: none;
+  height: 28px;
+  margin: 0 2px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  outline: none;
+}
+.ca-side-name:focus {
+  box-shadow: var(--shadow-focus);
+}
+
+.ca-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 0;
+  padding: var(--space-2) 0;
+  box-sizing: border-box;
+  overflow: hidden auto;
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--line);
+}
+.ca-rail-btn {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ca-rail-btn:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-rail-btn.is-on {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-rail-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-rail-btn.is-away {
+  opacity: 0.55;
+}
+.ca-rail-btn.is-alert {
+  color: var(--alert);
+}
+.ca-rail-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  font: 600 9px/14px var(--font-mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ca-rail-badge.is-attn {
+  background: var(--attn-solid);
+  color: var(--on-attn);
+}
+.ca-rail-badge.is-ink {
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
+  box-shadow: 0 0 0 2px var(--surface-sunken);
+}
+/* With nothing to count (an update waiting), a dot. */
+.ca-rail-badge:empty {
+  top: 5px;
+  right: 6px;
+  min-width: 8px;
+  height: 8px;
+  padding: 0;
+}
+.ca-labeldot.ca-rail-dot {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--surface-sunken);
+}
+.ca-rail-sep {
+  flex: none;
+  width: 24px;
+  height: 1px;
+  margin: 6px 0;
+  background: var(--line);
+}
+.ca-rail-fill {
+  flex: 1;
+}
+
+.ca-side-devdot {
+  margin: 0 3px;
+}

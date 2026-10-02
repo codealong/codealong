@@ -1,0 +1,99 @@
+/* The chips todos show (TodoBits.tsx): labels, a todo on a session's row, due dates. */
+
+.ca-chips > .ca-chip.ca-todochip,
+.ca-chips > .ca-chip.ca-wtchip,
+.ca-prrow-fit > .ca-chip.ca-wtchip,
+.ca-chips > .ca-chip.ca-todorow-blocked {
+  flex: 1000 1 100px;
+  min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
+}
+.ca-chips > .ca-todochip .ca-todochip-title {
+  max-width: 156px;
+}
+
+.ca-labelchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 20px;
+  padding: 0 7px 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--chip-radius);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+  font: 500 11px/14px var(--font-sans);
+  white-space: nowrap;
+}
+.ca-labelchip--button {
+  cursor: pointer;
+}
+.ca-labelchip--button:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-labelchip--button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-labelchip > button {
+  display: inline-flex;
+  margin: 0 -3px 0 0;
+  padding: 1px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-labelchip > button:hover {
+  color: var(--ink);
+}
+.ca-labelchip--add {
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-labelchip--add:hover,
+.ca-labelchip--add[aria-expanded='true'] {
+  border-style: solid;
+  color: var(--ink);
+}
+
+/* A todo on a session's or a worktree's row. */
+.ca-chip.ca-todochip {
+  max-width: 240px;
+  min-width: 0;
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-todochip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-srow-meta .ca-todochip {
+  max-width: 100%;
+}
+
+/* When a todo is due, on its row: red once the day has passed, amber on the day, muted before. */
+.ca-chip.ca-duechip {
+  gap: 3px;
+  font-family: var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-chip.ca-duechip.is-soon {
+  color: var(--ink-2);
+}
+.ca-chip.ca-duechip.is-today {
+  color: var(--attn);
+  background: var(--attn-tint);
+}
+.ca-chip.ca-duechip.is-overdue {
+  color: var(--alert);
+  background: var(--alert-tint);
+}

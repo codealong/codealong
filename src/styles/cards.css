@@ -1,0 +1,117 @@
+/* Cards (.ca-ucard): the usage popover's and the account cards in Settings (.ca-acct, with their
+   forms and confirmations). */
+
+.ca-ucard { display: grid; gap: var(--space-4); align-content: start; padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); min-width: 0; }
+.ca-ucard-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ca-ucard-name { font: 600 14px/18px var(--font-mono); color: var(--ink); }
+.ca-ucard-plan { font: 400 12px/16px var(--font-sans); color: var(--ink-3); }
+.ca-ucard-head .ca-tag { margin-left: auto; }
+.ca-ucard-meters { display: grid; gap: var(--space-4); }
+.ca-ucard-foot { font: 400 12px/16px var(--font-sans); color: var(--ink-3); }
+
+.ca-acct {
+  gap: var(--space-3);
+}
+.ca-acct.is-focus {
+  border-color: var(--focus);
+}
+.ca-acct .ca-tag.is-ok {
+  color: var(--ink-2);
+}
+/* An account card's tags at its right: the skill, then the sign-in. */
+.ca-acct-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.ca-ucard-head .ca-acct-tags .ca-tag {
+  margin-left: 0;
+}
+/* Preferred accounts: Auto starts them first. Filled when on. */
+.ca-acct-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -2px -4px -6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-acct-star:hover {
+  background: var(--surface-hover);
+  color: var(--ink-2);
+}
+.ca-acct-star:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-acct-star.is-on {
+  color: var(--attn);
+}
+.ca-acct-star.is-on svg {
+  fill: currentColor;
+}
+.ca-acct .ca-tag.is-attn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-acct-meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+}
+
+.ca-acct-note {
+  margin: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-acct-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ca-acct-asof {
+  margin-left: auto;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-acct-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-acct-confirm > span {
+  flex: 1;
+}
+.ca-acct-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ca-acct-form {
+  gap: var(--space-3);
+  border-color: var(--line-strong);
+}
+/* The skill box in the new-account form and under Found on this Mac: as wide as its words. */
+.ca-acct-skill {
+  justify-self: start;
+}
+
+.ca-acct-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

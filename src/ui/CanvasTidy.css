@@ -1,0 +1,67 @@
+/* The Canvas view's Tidy and Bring in panels (CanvasTidy.tsx). */
+
+/* Tidy's panel, above the toolbar. */
+.ca-cv-tidy {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  z-index: 6;
+  display: grid;
+  gap: 10px;
+  width: 440px;
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-cv-tidy-grid {
+  display: grid;
+  grid-template-columns: 72px auto;
+  align-items: center;
+  justify-items: start;
+  gap: 8px 12px;
+}
+.ca-cv-tidy p {
+  margin: 0;
+}
+.ca-cv-tidy-sum {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+}
+.ca-cv-tidy-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+.ca-cv-tidy-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.ca-cv-tidy-actions .ca-cv-tidy-clear {
+  margin-right: auto;
+  color: var(--alert);
+}
+
+.ca-cv-tidy-head {
+  font: 600 13px/18px var(--font-sans);
+}
+.ca-cv-tidy-note,
+.ca-cv-tidy-rowlabel {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+.ca-cv-tidy-rowlabel {
+  padding-left: 22px;
+  color: var(--ink);
+  font-size: 13px;
+}
+.ca-cv-bring .ca-cv-tidy-grid {
+  grid-template-columns: 104px auto;
+}

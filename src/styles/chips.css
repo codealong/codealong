@@ -1,0 +1,226 @@
+/* Chips, pills and tags, and the lane they sit in (.ca-chips).
+   A chip is one shape and size wherever it shows: 20 high with round ends, 11px text, a 12px
+   icon, 6px from the next. Its fill says what it is: neutral for something you can open (an
+   agent, a todo, a label), an outline for a place (a worktree, an app that isn't running), a
+   color for where something stands (a PR, its review and checks, Jev's read). Names a machine
+   gave are mono (accounts, worktrees, PR numbers); words are sans. The design system drew
+   agents round and everything else square; the lists mix them on one line, so they're all
+   round here, and `--chip-radius` is the one place that says so. The PR chip (.ca-pr, colored
+   by state), its checks, the branch chip, a worktree's chip, label dots and drift are here too. */
+
+.ca-pill { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 7px 0 6px; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-2); font: 500 12px/16px var(--font-sans); white-space: nowrap; }
+
+.ca-chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 6px; box-sizing: border-box; border-radius: var(--radius-pill); background: var(--neutral-tint); color: var(--ink-2); font: 500 11px/14px var(--font-mono); white-space: nowrap; flex: none; }
+.ca-chip .ca-icon { color: var(--ink-3); }
+.ca-chip--more { padding: 0 7px; color: var(--ink-3); }
+
+.ca-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-2); font: 500 11px/14px var(--font-sans); white-space: nowrap; }
+
+.ca-pr { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px 0 6px; box-sizing: border-box; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-3); font: 500 11px/14px var(--font-mono); white-space: nowrap; font-variant-numeric: tabular-nums; flex: none; }
+.ca-pr--open, .ca-pr--approved { background: var(--pr-open-tint); color: var(--pr-open); }
+.ca-pr--changes, .ca-pr--closed { background: var(--alert-tint); color: var(--alert); }
+.ca-pr--merged { background: var(--pr-merged-tint); color: var(--pr-merged); }
+.ca-pr-word { font: 500 12px/16px var(--font-sans); }
+.ca-pr .ca-checks { padding-left: 5px; margin-left: 1px; box-shadow: inset 1px 0 0 var(--line); }
+.ca-checks { display: inline-flex; align-items: center; gap: 2px; font: 500 11px/14px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-checks.is-pass { color: var(--pr-open); }
+.ca-checks.is-fail { color: var(--alert); }
+.ca-checks.is-pending { color: var(--ink-3); }
+.ca-lane-pricon { display: inline-flex; background: none; }
+
+.ca-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font: 400 12px/16px var(--font-mono); color: var(--ink-2); }
+.ca-branch .ca-icon { color: var(--ink-3); }
+.ca-branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-branch-ab, .ca-branch-dirty { color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+:root {
+  --chip-radius: var(--radius-pill);
+  --chip-gap: 6px;
+}
+.ca-chip,
+.ca-tag,
+.ca-pill,
+.ca-pr {
+  border-radius: var(--chip-radius);
+}
+.ca-tag,
+.ca-pill {
+  gap: 5px;
+  padding: 0 8px;
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-tag:has(> .ca-icon:first-child),
+.ca-pill:has(> .ca-icon:first-child) {
+  padding-left: 6px;
+}
+.ca-pr {
+  padding: 0 8px 0 6px;
+}
+.ca-pr-word {
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-chip--more {
+  padding: 0 8px;
+}
+
+/* Clickable sessions: a chip on a lane, a row in the inspector. */
+.ca-chip--button {
+  border: 0;
+  font: 500 11px/14px var(--font-mono);
+  cursor: pointer;
+}
+.ca-chip--button:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-chip--button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+/* A PR chip that opens the PR: it keeps its state's colors and rings itself in them under the
+   pointer. */
+.ca-pr--button {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  cursor: pointer;
+}
+.ca-pr--button:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+.ca-pr--button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* A lane of chips, on every list's rows (LaneRow.tsx, PrsView.tsx, TodoView.tsx): one line that
+   never wraps into view and never cuts a chip off. Each piece shows whole or not at all: one
+   that doesn't fit wraps onto a line that's cut off, the last pieces first. The empty first
+   piece, a line high, lets the real first one wrap away too. A chip that names something long
+   (a worktree, a todo) counts as about ten characters when that's decided, then grows into the
+   room that's left, and shortens with an ellipsis inside itself. The padding, which the margin
+   takes back, leaves room for a chip's focus ring, and the row gap keeps the second line out of
+   it. */
+.ca-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 8px var(--chip-gap);
+  min-width: 0;
+  height: 20px;
+  margin: -4px;
+  padding: 4px;
+  overflow: clip;
+}
+.ca-chips::before {
+  content: '';
+  height: 20px;
+  margin-right: calc(0px - var(--chip-gap));
+}
+
+/* Commits ahead of and behind the default branch on the remote, beside the line diff. */
+.ca-drift {
+  display: inline-flex;
+  gap: 5px;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+.ca-drift-ahead {
+  color: var(--ink-2);
+}
+
+.ca-tag.is-attn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+
+.ca-pill.is-ready,
+.ca-pill.is-pass {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-pill.is-ready {
+  font-weight: 600;
+}
+.ca-pill.is-attn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-pill.is-alert {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-pill.is-quiet {
+  color: var(--ink-3);
+}
+.ca-pill.is-merged {
+  background: var(--pr-merged-tint);
+  color: var(--pr-merged);
+}
+
+/* Labels: a colored square in a neutral chip. The color names a category, not a status. */
+.ca-labeldot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--label-gray);
+}
+.ca-labeldot.is-red { background: var(--label-red); }
+.ca-labeldot.is-pink { background: var(--label-pink); }
+.ca-labeldot.is-purple { background: var(--label-purple); }
+.ca-labeldot.is-indigo { background: var(--label-indigo); }
+.ca-labeldot.is-blue { background: var(--label-blue); }
+.ca-labeldot.is-teal { background: var(--label-teal); }
+.ca-labeldot.is-green { background: var(--label-green); }
+
+/* The worktree reads as a place, not an actor: outlined where the agent's chip is filled. Its
+   name shortens with an ellipsis; its repo (or `main`, for a main worktree) is said beside it
+   only where the list is wide. */
+.ca-chip.ca-wtchip {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ca-wtchip > .ca-icon {
+  flex: none;
+}
+.ca-wtchip-more {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-wtchip-device {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+}
+.ca-wtchip-device .ca-labeldot {
+  width: 6px;
+  height: 6px;
+}
+.ca-wtchip-device::after {
+  content: '/';
+  color: var(--ink-3);
+  opacity: 0.6;
+}
+.ca-wtchip-name {
+  min-width: 0;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+@container board (max-width: 680px) {
+  .ca-wtchip-more {
+    display: none;
+  }
+}

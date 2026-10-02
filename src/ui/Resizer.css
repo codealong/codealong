@@ -1,0 +1,29 @@
+/* The handle between the sidebar, the board and the panel (Resizer.tsx). */
+
+/* Each handle reaches mostly right of its line, clear of the scrollbars at the right edges of
+   the sidebar and the board. */
+.ca-resizer {
+  position: relative;
+  z-index: 3;
+  width: 6px;
+  margin-left: -1px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.ca-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  transition: background var(--dur-fast) ease-out;
+}
+.ca-resizer:hover::after {
+  background: var(--line-strong);
+  transition-delay: 150ms;
+}
+.ca-resizer.is-active::after {
+  background: var(--line-strong);
+  transition-delay: 0s;
+}

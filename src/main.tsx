@@ -8,8 +8,6 @@ import { DesktopLines } from './ui/DesktopLines';
 import { DesktopPin } from './ui/DesktopPin';
 import { Peek } from './ui/Peek';
 import { Quick } from './ui/Quick';
-import './styles/tokens.css';
-import './styles/components.css';
 import './styles/app.css';
 
 declare global {

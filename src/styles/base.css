@@ -1,0 +1,59 @@
+/* Base elements and the small text styles everything uses: the page and its fonts, inline code
+   (.ca-ic), code, meta text, labels, empty notes, key-value lists; and what reduced motion turns
+   off. Read this and the other shared files before styling something new. */
+
+.ca-ic { font-family: var(--font-mono); font-size: 0.9em; padding: 0 3px; border-radius: var(--radius-xs); background: var(--neutral-tint); color: inherit; white-space: nowrap; }
+.ca-code { font-family: var(--font-mono); font-size: 11px; }
+.ca-meta { font: 400 12px/16px var(--font-sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ca-label { margin: 0; font: 600 11px/14px var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.ca-none { font: 400 12px/16px var(--font-sans); color: var(--ink-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-lane, .ca-btn { transition: none; }
+}
+
+.ca-kv { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 6px 8px; margin: 0; font: 400 12px/16px var(--font-sans); }
+.ca-kv dt { color: var(--ink-3); }
+.ca-kv dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+
+/* The page itself. */
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button {
+  font: inherit;
+}
+
+body.is-resizing {
+  cursor: col-resize;
+}
+body.is-resizing * {
+  pointer-events: none;
+}
+
+.ca-empty {
+  margin: 4px 0 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+
+.ca-empty .ca-kbds {
+  vertical-align: -3px;
+}

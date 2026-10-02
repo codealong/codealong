@@ -1,0 +1,286 @@
+/* The bar docked in the notch (Notch.tsx): one black shape with the hardware notch, flush
+   with the top of the screen and always dark. It's laid out at the size it has with a session
+   under its pills and shown through a clip, so each state (closed, the pills, a session) moves
+   the clip and the corners alone: nothing inside lays out again or moves. The corners where it
+   meets the menu bar curve outward into it. Its window keeps one size and takes clicks only on
+   the shape (bar.rs). The session under the pills (NotchSession.tsx) is here too. */
+
+html.is-notch,
+html.is-notch body {
+  overflow: hidden;
+}
+.ca-notch {
+  position: fixed;
+  top: 0;
+}
+/* The open shape's shadow, on a box shaped as the clip is (a filter's would be cut off at the
+   element's box), faded in as it opens. */
+.ca-notch-shadow {
+  position: absolute;
+  top: 0;
+  box-shadow: var(--shadow-notch);
+  opacity: 0;
+}
+.ca-notch.is-open .ca-notch-shadow {
+  opacity: 1;
+}
+.ca-notch-shape {
+  position: absolute;
+  inset: 0;
+  background: var(--notch);
+  color: var(--ink);
+  cursor: default;
+}
+/* Closing has no overshoot, which would show the hardware notch's edges; pointing at it grows it
+   a little, quickly; opening springs. */
+.ca-notch-shape,
+.ca-notch-ear,
+.ca-notch-shadow {
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --takes: 0.32s;
+  transition:
+    clip-path var(--takes) var(--ease),
+    left var(--takes) var(--ease),
+    right var(--takes) var(--ease),
+    bottom var(--takes) var(--ease),
+    width var(--takes) var(--ease),
+    height var(--takes) var(--ease),
+    border-radius var(--takes) var(--ease),
+    opacity 0.2s ease-out;
+}
+.ca-notch.is-hover .ca-notch-shape,
+.ca-notch.is-hover .ca-notch-ear,
+.ca-notch.is-hover .ca-notch-shadow {
+  --ease: ease-out;
+  --takes: 0.18s;
+}
+.ca-notch.is-open .ca-notch-shape,
+.ca-notch.is-open .ca-notch-ear,
+.ca-notch.is-open .ca-notch-shadow {
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --takes: 0.42s;
+}
+/* A session has further to open, and takes a little longer over it. */
+.ca-notch.is-session .ca-notch-shape,
+.ca-notch.is-session .ca-notch-ear,
+.ca-notch.is-session .ca-notch-shadow {
+  --takes: 0.5s;
+}
+/* The corners: the page places and sizes each at the shape's edge, the curve its height square
+   and 3 points past it under the shape, so no seam shows between them as they move. */
+.ca-notch-ear {
+  position: absolute;
+  top: 0;
+}
+.ca-notch-ear.is-left {
+  background:
+    radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--notch) 100%) 0 0 / calc(100% - 3px) 100% no-repeat,
+    linear-gradient(var(--notch), var(--notch)) 100% 0 / 3px 100% no-repeat;
+}
+.ca-notch-ear.is-right {
+  background:
+    radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--notch) 100%) 100% 0 / calc(100% - 3px) 100% no-repeat,
+    linear-gradient(var(--notch), var(--notch)) 0 0 / 3px 100% no-repeat;
+}
+/* The notch's own height across the top: a side on each hand of the camera, their content
+   pinned to the camera's edges, so what shows closed is where it stays open. */
+.ca-notch-top {
+  display: flex;
+  height: var(--notch-h);
+}
+.ca-notch-cam {
+  flex: none;
+  width: var(--notch-w);
+}
+.ca-notch-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+.ca-notch-side.is-left {
+  justify-content: flex-end;
+}
+.ca-notch-side-in {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  padding: 0 6px;
+}
+.ca-notch-side.is-left .ca-notch-side-in {
+  flex-direction: row-reverse;
+}
+/* What shows only open: the project beside the mark, the counts after the first. */
+.ca-notch-extra {
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+.ca-notch.is-open .ca-notch-extra {
+  opacity: 1;
+  transition: opacity 0.2s ease-out 0.12s;
+}
+.ca-notch-count {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 600 12px/16px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+/* Open, a group's count is a button that shows its first session: it lights up under the
+   pointer, in the room around it, so the counts keep their places. */
+.ca-notch.is-open button.ca-notch-count {
+  margin: -3px -5px;
+  padding: 3px 5px;
+  border-radius: var(--radius-pill);
+}
+.ca-notch.is-open button.ca-notch-count:hover {
+  background: var(--surface-hover);
+}
+/* Reviews asked of you: the PR icon in the amber of what needs you. */
+.ca-notch-count.is-reviews > svg {
+  color: var(--attn);
+}
+.ca-notch-count.is-pulse {
+  animation: ca-notch-pulse 1.1s ease-out 1;
+}
+@keyframes ca-notch-pulse {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+/* The pin that keeps the notch open, at the end of its right side. */
+.ca-notch-pin {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-notch-pin:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-notch-pin.is-on {
+  color: var(--ink);
+}
+/* What opens below the notch: the bar's pills, at their own width, faded in once the shape has
+   room for them. */
+.ca-notch-body {
+  position: absolute;
+  top: var(--notch-h);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out;
+}
+.ca-notch.is-open .ca-notch-body {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.2s ease-out 0.12s;
+}
+/* A session under the pills (NotchSession.tsx): the card the peek shows, as wide as the shape
+   and as tall as it opens, on the notch's own black with a line between it and the pills. It
+   fades in once the shape has room for it, and out ahead of the shape closing over it. */
+.ca-notch-session {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-top: 1px solid var(--line);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out;
+}
+.ca-notch.is-session .ca-notch-session {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.22s ease-out 0.14s;
+}
+.ca-notch-card {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+/* The edges that size the session, over its foot: the bottom corners, and the bottom edge between
+   them. While one is dragged the shape follows the pointer, with no easing to catch up. */
+.ca-notch-grip {
+  position: absolute;
+  bottom: 0;
+  z-index: 2;
+}
+.ca-notch-grip.is-bottom {
+  right: 22px;
+  left: 22px;
+  height: 7px;
+  cursor: ns-resize;
+}
+.ca-notch-grip.is-left,
+.ca-notch-grip.is-right {
+  width: 22px;
+  height: 22px;
+}
+.ca-notch-grip.is-left {
+  left: 0;
+  cursor: nesw-resize;
+}
+.ca-notch-grip.is-right {
+  right: 0;
+  cursor: nwse-resize;
+}
+.ca-notch.is-sizing .ca-notch-shape,
+.ca-notch.is-sizing .ca-notch-ear,
+.ca-notch.is-sizing .ca-notch-shadow {
+  transition: none;
+}
+.ca-notch.is-sizing .ca-notch-session {
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The box, at the shape's foot, on the notch's black as the rest is: the field stands a step off
+   it, where elsewhere the strip around the field does. */
+.ca-notch-card .ca-composer {
+  background: var(--notch);
+}
+.ca-notch-card .ca-composer-field {
+  background: var(--surface);
+}
+.ca-notch-card .ca-composer:last-child {
+  padding-bottom: 14px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-notch-shape,
+  .ca-notch-ear,
+  .ca-notch-shadow {
+    transition: none !important;
+  }
+  .ca-notch-count.is-pulse {
+    animation: none;
+  }
+}

@@ -1,0 +1,7 @@
+/* The theme switch at the sidebar's foot (ThemeSwitch.tsx). */
+
+/* The theme switch: icons only, smaller than the view switch above the board. */
+.ca-theme button {
+  height: 20px;
+  padding: 0 5px;
+}

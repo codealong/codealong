@@ -1,0 +1,81 @@
+/* The panel at the right of the main window (.ca-insp): its title, path, actions and sections,
+   shared by the worktree inspector, the PR panel, the todo panel and the session panel. */
+
+.ca-insp { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-4); overflow: auto; background: var(--surface); border-left: 1px solid var(--line); }
+.ca-insp-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ca-insp-call { font: 600 22px/26px var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-insp-title .ca-tag { margin-left: auto; }
+.ca-insp-path { display: flex; align-items: center; gap: 5px; margin-top: 6px; font: 400 11px/16px var(--font-mono); color: var(--ink-3); }
+.ca-insp-path .ca-icon { color: var(--ink-3); }
+.ca-insp-branch { margin-top: 3px; }
+.ca-insp-actions { display: flex; align-items: center; gap: 6px; }
+.ca-insp-sec { display: grid; }
+.ca-insp-sec > .ca-label { margin-bottom: 6px; }
+
+/* Inspector */
+/* When the panel is too narrow for its buttons, the row takes most of the right padding, then
+   the Open button's label shortens; the icon buttons keep their size. The PR panel's buttons
+   all have labels, so they wrap instead. */
+.ca-insp-actions {
+  margin-right: -12px;
+}
+
+.ca-insp--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  text-align: center;
+}
+.ca-insp-path {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-insp-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-insp-path:hover span {
+  color: var(--ink-2);
+  text-decoration: underline;
+}
+
+/* A worktree's todos, in its inspector. */
+.ca-insp-todos {
+  display: grid;
+  gap: 1px;
+}
+.ca-insp-todo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 28px;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-insp-todo:hover {
+  background: var(--surface-hover);
+}
+.ca-insp-todo:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-insp-todo-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,55 @@
+/* Dragging a row (useRowDrag.tsx): the page while a drag lasts, the row being dragged, and what
+   the pointer holds. */
+
+.ca-dragging,
+.ca-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ca-lane.is-drag-source,
+.ca-quick-row.is-drag-source {
+  opacity: 0.45;
+}
+
+.ca-lane:hover > .ca-grip,
+.ca-lane.is-drag-source > .ca-grip {
+  opacity: 1;
+}
+/* What the pointer holds while it drags a row: the row's title, and what letting go would do
+   (Pin, Unpin). Outside the window the row's card takes over, on the desktop. */
+.ca-dragghost {
+  position: fixed;
+  top: 14px;
+  left: 12px;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 280px;
+  padding: 3px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 12px/18px var(--font-sans);
+  box-shadow: var(--shadow-popover);
+  pointer-events: none;
+}
+.ca-dragghost.is-out {
+  display: none;
+}
+.ca-dragghost-act {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  color: var(--focus);
+  font-weight: 600;
+}
+.ca-dragghost-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

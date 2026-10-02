@@ -1,0 +1,145 @@
+/* A picker (Picker.tsx): a filter, sections of options, a foot. The quick panel's menus. */
+
+/* A menu dropped from a button in the quick panel (Picker.tsx): a filter, then the options. */
+.ca-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-height: 360px;
+  box-sizing: border-box;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  overflow: hidden;
+}
+.ca-picker.is-wide {
+  width: 440px;
+}
+.ca-quick-agent .ca-picker {
+  right: 0;
+  left: auto;
+}
+.ca-picker-filter {
+  flex: none;
+  height: 30px;
+  margin: 6px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-picker-filter::placeholder {
+  color: var(--ink-3);
+}
+.ca-picker-list {
+  padding: 0 4px 4px;
+  overflow-y: auto;
+}
+.ca-picker-head {
+  padding: 8px 8px 4px;
+  font: 600 11px/14px var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ca-picker-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-picker-opt.is-on {
+  background: var(--surface-selected);
+}
+.ca-picker-opt.is-chosen .ca-picker-title {
+  font-weight: 600;
+}
+.ca-picker-opt:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-picker-opt > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-picker-label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.ca-picker-title,
+.ca-picker-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-picker-detail {
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-picker-empty {
+  margin: 0;
+  padding: 6px 10px 10px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+/* A setting under a menu's options (the agent menu's effort), kept while they're filtered. */
+.ca-picker-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+}
+.ca-picker-foot-label {
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-picker-foot .ca-segctl button {
+  height: 22px;
+  padding: 0 8px;
+}
+.ca-picker-foot-note {
+  overflow: hidden;
+  margin-left: auto;
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-picker-check {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  color: var(--ink-2);
+}
+.ca-picker-head:has(> .ca-picker-sep) {
+  padding: 4px 8px;
+}
+.ca-picker-sep {
+  display: block;
+  height: 1px;
+  background: var(--line);
+}

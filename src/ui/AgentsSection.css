@@ -1,0 +1,12 @@
+/* Settings › Agents: the plugin and skill status table and its foot. */
+
+/* Settings › Agents: the command and skill rows, whose labels are longer than a key/value's. */
+.ca-agents-kv {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+.ca-agents-foot {
+  line-height: 18px;
+}
+.ca-agents-foot .ca-ic {
+  white-space: normal;
+}

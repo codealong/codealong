@@ -1,0 +1,51 @@
+/* The dialog shell: the scrim, the dialog, its head, lede, body and foot. Settings, Close idle
+   terminals, Rename and Preview URL are built on it, each with a file of its own. */
+
+.ca-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--scrim);
+}
+.ca-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  max-height: min(780px, calc(100vh - 48px));
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  overflow: hidden;
+}
+.ca-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-3) 0 var(--space-5);
+}
+.ca-dialog-head h2 {
+  margin: 0;
+  font: 600 16px/22px var(--font-sans);
+  color: var(--ink);
+}
+.ca-dialog-lede {
+  margin: 4px var(--space-5) var(--space-4);
+  font: 400 13px/18px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-dialog-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-5);
+  overflow: auto;
+}
+.ca-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line);
+}

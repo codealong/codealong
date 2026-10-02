@@ -1,0 +1,226 @@
+/* List rows (.ca-lane) and their segments, as worktree rows, session rows, PR rows and todo rows
+   share them; bay headers (.ca-bay) and bay blocks; the grip, the drop line and the parked note.
+   What a kind of row adds is beside its component (LaneRow.css, PrsView.css, TodoView.css). */
+
+.ca-bay { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--space-3); font: 600 11px/14px var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.ca-bay--needs { color: var(--attn); }
+.ca-bay-count { font: 500 11px/14px var(--font-mono); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.ca-bay-action { margin-left: auto; font: 500 12px/16px var(--font-sans); letter-spacing: 0; text-transform: none; color: var(--ink-3); }
+
+.ca-lane { display: grid; grid-template-columns: 32px 176px minmax(0, 1fr) 52px; min-height: var(--lane-h); background: var(--surface); border-bottom: 1px solid var(--line); color: var(--ink); cursor: default; outline: none; transition: background var(--dur-fast) ease-out; }
+.ca-lane:hover { background: var(--surface-hover); }
+.ca-lane.is-selected { background: var(--surface-selected); }
+.ca-lane:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.ca-seg { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 0 var(--space-3); border-left: 1px solid var(--line); }
+.ca-seg-glyph { align-items: center; padding: 0; border-left: 0; }
+.ca-seg-call { gap: 2px; background: var(--surface-sunken); }
+.ca-lane.is-needs .ca-seg-call { background: var(--attn-tint); }
+.ca-lane-call { font: 600 17px/20px var(--font-display); letter-spacing: 0.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-lane-sub { font: 400 11px/14px var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-seg-main { gap: 5px; }
+.ca-lane-line1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 13px/18px var(--font-sans); }
+.ca-lane-headline { color: var(--ink); }
+.ca-lane-detail { margin-left: 8px; color: var(--ink-3); }
+.ca-lane-line2 { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.ca-lane-right { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex: none; }
+.ca-diff { font: 500 11px/14px var(--font-mono); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 84px; text-align: right; }
+.ca-seg-age { justify-content: flex-start; align-items: flex-end; padding-top: 7px; font: 400 12px/18px var(--font-sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+.ca-bayblock { margin-top: var(--space-2); }
+.ca-bay-lanes { border-top: 1px solid var(--line); }
+.ca-parked { display: block; width: 100%; height: 32px; padding: 0 0 0 44px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink-3); font: 500 12px/16px var(--font-sans); text-align: left; cursor: pointer; }
+.ca-parked:hover { background: var(--surface-hover); color: var(--ink-2); }
+
+.ca-bay-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Worktree rows. On the left, shaded as one block, the worktree: its name over its repo and
+   branch, then a column of where it stands against the default branch, lines over commits, its
+   rows in step with the name's. The name's column grows with the board, so a long name shows
+   more of itself. A narrow board drops the delta column: the panel has the same counts. */
+.ca-lane.is-worktree {
+  grid-template-columns: 32px clamp(160px, 24%, 220px) 92px minmax(0, 1fr) 52px;
+}
+.ca-lane.is-worktree .ca-seg-main {
+  overflow: hidden;
+}
+.ca-lane.is-worktree .ca-seg-lines {
+  grid-column: 4 / 6;
+}
+.ca-seg-delta {
+  align-items: flex-end;
+  padding-left: 0;
+  border-left: 0;
+}
+
+@container board (max-width: 600px) {
+  .ca-lane.is-worktree {
+    grid-template-columns: 32px 160px minmax(0, 1fr) 52px;
+  }
+  .ca-lane.is-worktree .ca-seg-delta {
+    display: none;
+  }
+  .ca-lane.is-worktree .ca-seg-lines {
+    grid-column: 3 / 5;
+  }
+}
+
+/* A row's second line: its lane (the lead), then what always shows at the right (a worktree's
+   app and PR, a session's PR and diff). Short of room, the app's address gives way first, down
+   to its globe; then the lead's pieces give way from the end. A board too narrow for two
+   agents' chips shows one and counts the rest. */
+.ca-lane-lead {
+  flex: 1 1 auto;
+}
+.ca-lane-line2 {
+  gap: var(--chip-gap);
+}
+.ca-lane-right {
+  gap: var(--chip-gap);
+}
+.ca-lane-lead > .ca-chip--more.is-narrow {
+  display: none;
+}
+@container board (max-width: 680px) {
+  .ca-lane-lead > .ca-chip.is-extra,
+  .ca-lane-lead > .ca-chip--more.is-wide {
+    display: none;
+  }
+  .ca-lane-lead > .ca-chip--more.is-narrow {
+    display: inline-flex;
+  }
+}
+.ca-lane-lead > .ca-none {
+  flex: none;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+/* A worktree's row with a line for each agent that needs you, is working or just finished:
+   the worktree once on the left, its agents stacked on the right, each with its own age. You
+   select, open and right-click a line as you would a row. */
+.ca-lane.is-group:hover {
+  background: var(--surface);
+}
+.ca-lane.is-group.has-selection .ca-seg-glyph {
+  background: var(--surface-selected);
+}
+.ca-lane.is-group.is-tall .ca-seg-glyph {
+  justify-content: flex-start;
+  padding-top: 9px;
+}
+.ca-lane.is-group.is-tall .ca-seg-call {
+  justify-content: flex-start;
+  padding-top: 5px;
+  padding-bottom: 8px;
+}
+.ca-seg-lines {
+  grid-column: 3 / 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+}
+
+/* Pinned rows carry a small mark under their age. */
+.ca-lane {
+  position: relative;
+}
+
+/* Dragging rows (useRowDrag.tsx): among the pinned ones, down to the list to unpin, out of the
+   window onto the desktop. The pinned rows, which you put in order, show a hand. */
+.ca-lane[data-pin-index] {
+  cursor: grab;
+}
+
+.ca-lane.is-drop-before::before,
+.ca-lane.is-drop-after::after,
+.ca-dropline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 2px;
+  background: var(--focus);
+}
+.ca-lane.is-drop-before::before {
+  top: -1px;
+}
+.ca-lane.is-drop-after::after {
+  bottom: -1px;
+}
+/* Where the first pin would land: the top of a list with none yet. It takes no room. */
+.ca-dropline {
+  position: relative;
+  height: 0;
+}
+.ca-dropline::after {
+  top: 0;
+}
+.ca-grip {
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  display: inline-flex;
+  color: var(--ink-3);
+  opacity: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Session rows: no worktree column. The first line says who and what (the agent's chip, its
+   sentence); the second where and why, starting with the worktree as a chip. */
+.ca-lane.is-agent {
+  grid-template-columns: 32px minmax(0, 1fr) 52px;
+}
+.ca-lane.is-agent .ca-seg-main {
+  gap: 5px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  border-left: 0;
+  padding-left: 0;
+}
+/* The glyph and the age sit on the first line, with the agent and its sentence. */
+.ca-lane.is-agent .ca-seg-glyph {
+  justify-content: flex-start;
+  padding-top: 11px;
+}
+.ca-lane.is-agent .ca-seg-age {
+  padding-top: 8px;
+  border-left: 0;
+}
+.ca-lane.is-agent.is-needs .ca-seg-glyph {
+  box-shadow: inset 2px 0 0 var(--attn-solid);
+}
+/* Snoozed, it waits apart (SessionsView.tsx): no mark calling you to it until its time. */
+.ca-lane.is-agent.is-snoozed .ca-seg-glyph {
+  box-shadow: none;
+}
+
+/* On one line (Rows, in the sidebar): what it's about, then its lane and PR at the line's end,
+   and its pin beside its age. What it's doing gives way first, then the lane, then the title,
+   as on an agent's line in Worktrees. */
+.ca-lane.is-agent.is-slim {
+  grid-template-columns: 32px minmax(0, 1fr) 64px;
+  min-height: 32px;
+}
+.ca-lane.is-agent.is-slim .ca-seg-glyph {
+  justify-content: center;
+  padding-top: 0;
+}
+.ca-lane.is-agent.is-slim .ca-seg-main {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.ca-lane.is-agent.is-slim .ca-seg-age {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 4px;
+  padding: 0 var(--space-3) 0 0;
+}

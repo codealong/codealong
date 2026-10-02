@@ -1,0 +1,90 @@
+/* A session's row in a panel (PanelSession.tsx): under a worktree in the PR and todo panels. */
+
+/* A session in a PR's or todo's panel: title over who runs it and what it's doing. The arrow
+   that opens it where it runs shows on hover, as the row's other way out of the app. */
+.ca-psess {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+}
+.ca-psess:hover {
+  background: var(--surface-hover);
+}
+.ca-psess-main {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 4px 5px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-psess-main .ca-glyph {
+  flex: none;
+  margin-top: 3px;
+}
+.ca-psess-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ca-psess-line1,
+.ca-psess-line2 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.ca-psess-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 12px/16px var(--font-sans);
+}
+.ca-psess-headline {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-psess.is-visitor .ca-psess-title {
+  color: var(--ink-3);
+}
+.ca-psess-open {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+}
+.ca-psess:hover .ca-psess-open,
+.ca-psess-open:focus-visible {
+  opacity: 1;
+}
+.ca-psess-open:hover {
+  color: var(--ink);
+  background: var(--surface-selected);
+}
+.ca-psess-main:focus-visible,
+.ca-psess-open:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}

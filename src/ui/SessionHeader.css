@@ -1,0 +1,339 @@
+/* A session's header (SessionHeader.tsx): its name and kin, tools, meta line, worktree and
+   links, wherever the session shows. */
+
+.ca-sessinsp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  align-self: flex-start;
+  margin-bottom: 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-sessinsp-head {
+  display: grid;
+  gap: 6px;
+  flex: none;
+  padding: var(--space-3) var(--space-4) 10px;
+  border-bottom: 1px solid var(--line);
+}
+/* The title, and beside it the ways to open it and act on it, always on its row: short of room,
+   the title takes a second line and the open button's words are cut short. */
+.ca-sessinsp-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.ca-sessinsp-top > .ca-glyph,
+.ca-sessinsp-top > svg {
+  flex: none;
+  margin-top: 3px;
+}
+.ca-sessinsp-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: -2px 0 -2px auto;
+}
+.ca-sessinsp-tools .ca-openin {
+  margin-right: 4px;
+}
+.ca-sessinsp-tools .ca-openin,
+.ca-sessinsp-tools .ca-split-main,
+.ca-sessinsp-tools .ca-split-main > span {
+  min-width: 0;
+}
+.ca-sessinsp-tools .ca-split-main > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-sessinsp-tools .ca-split-caret.ca-btn--sm {
+  flex: none;
+  width: 22px;
+}
+.ca-sessinsp-tools > .ca-btn {
+  flex: none;
+}
+/* The Open menu opens under its button toward the panel, not past the window's edge, and keeps
+   to a width that fits the narrowest panel: a long title or folder under an item is cut short. */
+.ca-sessinsp-tools .ca-openin > .ca-menu {
+  left: auto;
+  right: 0;
+  max-width: 360px;
+}
+.ca-sessinsp-detailsbtn.is-on {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+/* Where it stands and where it works, in one line that gives way at the worktree and branch. */
+.ca-sessinsp-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+  white-space: nowrap;
+}
+.ca-sessinsp-meta > * {
+  flex: none;
+}
+.ca-sessinsp-meta > .ca-sessinsp-lane,
+.ca-sessinsp-meta > .ca-branch {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-sessinsp-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-mono);
+  cursor: pointer;
+}
+.ca-sessinsp-lane .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-sessinsp-lane span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-sessinsp-lane:hover span {
+  color: var(--ink);
+  text-decoration: underline;
+}
+/* Where the window can't show the worktree, its name is only said. */
+.ca-sessinsp-lane.is-plain {
+  cursor: default;
+}
+.ca-sessinsp-lane.is-plain:hover span {
+  color: inherit;
+  text-decoration: none;
+}
+.ca-sessinsp-lane:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--focus);
+}
+/* The PRs it worked on, its app and the todo it's on, in a line: the todo takes what's left. */
+.ca-sessinsp-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+.ca-sessinsp-links:empty {
+  display: none;
+}
+.ca-sessinsp-links > * {
+  flex: none;
+}
+.ca-sessinsp-links .ca-insp-path {
+  margin-top: 0;
+}
+
+.ca-sessinsp-more {
+  font-size: 12px;
+}
+.ca-sessinsp-links > .ca-sessinsp-todo {
+  flex: 1 1 140px;
+}
+.ca-sessinsp-todo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: max-content;
+  height: 22px;
+  margin: 0 -2px 0 2px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-sessinsp-todo span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-sessinsp-todo:hover,
+.ca-sessinsp-sides:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-sessinsp-todo:focus-visible,
+.ca-sessinsp-sides:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+/* How many side conversations the session has: it shows them above the box, and stays lit
+   while they show. */
+.ca-sessinsp-sides {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-sessinsp-sides[aria-pressed='true'] {
+  background: var(--neutral-tint);
+  color: var(--ink);
+}
+
+.ca-sessinsp-title {
+  flex: 1 1 0;
+  min-width: 110px;
+  margin: 0;
+  font: 600 15px/20px var(--font-sans);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* Its name ready to change (Rename in a menu): the title's type in a field that takes the title's
+   place, its text where the title's was. A border without the focus ring, which would cover the
+   line under it. */
+.ca-sessinsp-name {
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 24px;
+  margin: -2px -5px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--focus);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 15px/20px var(--font-sans);
+  outline: none;
+}
+
+/* Where a session came from and what came of it, in its panel's header: the one it came from over
+   the title, the ones that came of it under it, hanging from the title by an elbow. Each is a row
+   with its status, as the lists have it, that lights up under the pointer. */
+.ca-sessinsp-kids {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  /* Under the title's glyph, so the elbows hang from it. */
+  margin: -2px 0 0 2px;
+}
+.ca-sessinsp-kin {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  height: 20px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+  text-align: left;
+  cursor: default;
+}
+.ca-sessinsp-kin.is-parent {
+  justify-self: start;
+  margin-bottom: -2px;
+}
+.ca-sessinsp-kin:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-sessinsp-kin:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-sessinsp-kin > .ca-glyph,
+.ca-sessinsp-kin > .ca-icon {
+  flex: none;
+}
+.ca-sessinsp-kin > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-sessinsp-kin-phrase {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-sessinsp-kin-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-sessinsp-kin-age {
+  flex: none;
+  margin-left: 2px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+/* The line from the title's glyph down and across to a session that came of it. */
+.ca-sessinsp-elbow {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 1px 6px 4px;
+  border-left: 1.5px solid var(--line-strong);
+  border-bottom: 1.5px solid var(--line-strong);
+  border-bottom-left-radius: 4px;
+}
+/* One that came of it and, beside the latest, the way to the rest: quiet until it's wanted. */
+.ca-sessinsp-kid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ca-sessinsp-kid > .ca-sessinsp-kin {
+  flex: 0 1 auto;
+}
+.ca-sessinsp-kids-more {
+  appearance: none;
+  flex: none;
+  height: 18px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font: 400 11px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: default;
+}
+.ca-sessinsp-kids-more:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-sessinsp-kids-more:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}

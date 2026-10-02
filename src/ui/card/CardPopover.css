@@ -1,0 +1,115 @@
+/* The popover a canvas card opens (card/CardPopover.tsx): where a session came from and what
+   came of it. */
+
+.ca-cvp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ca-cvp-title {
+  font: 600 14px/19px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-cvp-status,
+.ca-cvp-dim {
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-cvp-headline {
+  color: var(--ink-2);
+}
+.ca-cvp-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--ink-3);
+  font: 400 12px/17px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-cvp-meta {
+  display: grid;
+  gap: 5px;
+}
+.ca-cvp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-cvp-row > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-cvp-row > span:last-child,
+.ca-cvp-clip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-cvp-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ca-cvp-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.ca-cvp-session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-cvp-session-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Over a popover's list of the sessions a session came from or that came of it. */
+.ca-cvp-label {
+  color: var(--ink-3);
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-cvp-label:not(:first-child) {
+  margin-top: 4px;
+}
+/* A session line that takes a click: it lights up under the pointer as a menu item does. */
+.ca-cvp-sessionbtn {
+  appearance: none;
+  display: block;
+  width: calc(100% + 8px);
+  min-width: 0;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.ca-cvp-sessionbtn:hover {
+  background: var(--surface-hover);
+}
+.ca-cvp-sessionbtn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-cvp-hint {
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font: 400 11px/14px var(--font-sans);
+}

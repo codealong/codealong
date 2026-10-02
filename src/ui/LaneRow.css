@@ -1,0 +1,180 @@
+/* Worktree and session rows (LaneRow.tsx): the delta, agent lines, pin marks, reuse marks, and
+   the slim one-line session row. */
+
+.ca-delta-row {
+  display: grid;
+  grid-template-columns: 5ch 5ch 6px;
+  column-gap: 5px;
+  justify-items: end;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+/* Level with the name, whose line is taller. */
+.ca-delta-row.is-lines {
+  line-height: 20px;
+}
+/* What only this branch has reads stronger than what it lacks. */
+.ca-delta-row > .is-gain {
+  color: var(--ink-2);
+}
+
+/* On an agent's line, what it's doing or said last gives way first (it only takes the room that's
+   left), then its lane (its todo, Jev's read and its account), then its title. The text's own
+   box would count what it's doing as room the title needs, so its pieces sit on the line itself.
+   The lane gives way a million times as fast as the title: at a hundred the title still lost a
+   pixel or two of a shortfall, enough to end in an ellipsis beside room the lane had left. */
+.ca-agentline-main > .ca-agentline-text {
+  display: contents;
+}
+.ca-agentline-tags {
+  flex: 0 1000000 auto;
+  margin-left: auto;
+}
+.ca-agentline-tags:empty {
+  display: none;
+}
+/* The line's own status, where the agent's chip used to lead it. */
+.ca-agentline-main > .ca-glyph {
+  flex: none;
+}
+
+.ca-agentline {
+  display: flex;
+  flex: 1 0 auto;
+  min-width: 0;
+  min-height: 30px;
+}
+.ca-agentline + .ca-agentline:not(.ca-agentline--foot) {
+  border-top: 1px solid var(--line);
+}
+.ca-agentline[role='option']:hover {
+  background: var(--surface-hover);
+}
+.ca-agentline.is-selected,
+.ca-agentline.is-selected:hover {
+  background: var(--surface-selected);
+}
+.ca-board-list:focus-visible .ca-agentline.is-selected {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-agentline--foot {
+  flex: none;
+  min-height: 26px;
+  padding-bottom: 4px;
+}
+
+.ca-agentline-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-3);
+}
+/* A session's title, the label for what it waits on you for, and what it's doing or said last.
+   The line fills what's left and pushes a worktree line's todo and insight to its end; the
+   detail gives way first, then the title. */
+.ca-agentline-text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-agentline-title,
+.ca-agentline-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Titles stand out in the lists, so a row reads by what the session is about before the rest of
+   the line. Sessions, PRs and todos (.ca-todorow-title) share one weight. */
+.ca-agentline-title {
+  flex: 0 1 auto;
+  font-weight: 500;
+}
+.ca-agentline-detail {
+  flex: 1 1 0;
+  margin-left: 0;
+}
+.ca-agentline-age {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  flex: none;
+  width: 52px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border-left: 1px solid var(--line);
+  font: 400 12px/18px var(--font-sans);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-agentline-age .ca-pinmark {
+  margin-top: 0;
+}
+
+/* The row a right-click's menu is for, while the menu is up: ringed, not selected. */
+.ca-lane[data-menu],
+.ca-agentline[data-menu] {
+  outline: 2px solid var(--line-strong);
+  outline-offset: -2px;
+}
+
+.ca-pinmark {
+  display: inline-flex;
+  margin-top: 4px;
+  color: var(--ink-3);
+}
+
+.ca-chip.ca-snoozechip {
+  padding: 0 7px 0 6px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.ca-agentrow-line1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ca-lane.is-agent.is-slim .ca-agentrow-line1 > .ca-agentline-text {
+  display: contents;
+}
+.ca-lane.is-agent.is-slim .ca-agentrow-line1 {
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-lane.is-agent.is-slim .ca-agentrow-line1 > .ca-pr {
+  margin-left: auto;
+}
+.ca-lane.is-agent.is-slim .ca-agentline-tags:not(:empty) + .ca-pr {
+  margin-left: calc(var(--chip-gap) - var(--space-2));
+}
+
+.ca-lane.is-agent.is-slim .ca-pinmark {
+  margin-top: 0;
+}
+
+/* A reusable worktree's mark, before its repo and branch (LaneRow.tsx). */
+.ca-reusemark {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: var(--ink-3);
+}
+
+/* Free: a reusable worktree that holds no work, where new work can start. */
+.ca-chip.ca-reusechip {
+  padding: 0 7px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}

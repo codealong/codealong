@@ -1,0 +1,281 @@
+/* The PR panel (PrInspector.tsx): status, reviews, comments, files with their patches, and the
+   description as GitHub renders it (.ca-prbody). */
+
+.ca-prinsp .ca-insp-actions {
+  flex-wrap: wrap;
+  margin-right: 0;
+}
+
+/* The PR panel. The pills sit beside the number when they fit, else on their own lines below
+   it, one by one; the number keeps its width. */
+.ca-prinsp .ca-insp-title {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.ca-prinsp .ca-insp-call {
+  flex: none;
+}
+.ca-prinsp-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+}
+.ca-prinsp-status .ca-prpills {
+  display: contents;
+}
+.ca-prinsp-status .ca-tag {
+  margin-left: 0;
+}
+.ca-prinsp header {
+  display: grid;
+  gap: 6px;
+}
+.ca-prinsp-title {
+  margin: 0;
+  font: 600 15px/20px var(--font-sans);
+  color: var(--ink);
+}
+.ca-prinsp-meta {
+  display: grid;
+  gap: 2px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-prinsp-meta .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ca-prinsp-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ca-prinsp-reviews {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-prinsp-reviews li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.ca-prinsp-reviewer {
+  font: 500 12px/16px var(--font-mono);
+  color: var(--ink);
+}
+.ca-prinsp-reviews li.is-approved > span:nth-child(2) {
+  color: var(--pr-open);
+}
+.ca-prinsp-reviews li.is-changes_requested > span:nth-child(2) {
+  color: var(--alert);
+}
+.ca-prinsp-reviews li.is-requested > span:nth-child(2) {
+  color: var(--attn);
+}
+/* A PR's comments; the ones asking for a change are marked (Jev, when it's on). */
+.ca-prcomments {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-prcomment {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-prcomment:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.ca-prcomment:disabled {
+  cursor: default;
+}
+.ca-prcomments li.is-asks .ca-prcomment {
+  box-shadow: inset 2px 0 0 var(--attn-solid);
+}
+.ca-prcomment-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ca-prcomment-head .ca-tag {
+  height: 18px;
+}
+.ca-prcomment-body {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ca-prcomments-asks {
+  color: var(--attn);
+}
+/* GitHub's rendering of the description. */
+.ca-prbody {
+  overflow-wrap: anywhere;
+  font: 400 13px/20px var(--font-sans);
+  color: var(--ink);
+}
+.ca-prbody > :first-child {
+  margin-top: 0;
+}
+.ca-prbody > :last-child {
+  margin-bottom: 0;
+}
+.ca-prbody p,
+.ca-prbody ul,
+.ca-prbody ol,
+.ca-prbody pre,
+.ca-prbody table,
+.ca-prbody blockquote {
+  margin: 0 0 10px;
+}
+.ca-prbody h1,
+.ca-prbody h2,
+.ca-prbody h3,
+.ca-prbody h4 {
+  margin: 14px 0 6px;
+  font: 600 14px/20px var(--font-sans);
+}
+.ca-prbody ul,
+.ca-prbody ol {
+  padding-left: 20px;
+}
+.ca-prbody a {
+  color: var(--unread);
+  text-decoration: none;
+}
+.ca-prbody a:hover {
+  text-decoration: underline;
+}
+.ca-prbody code {
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+  background: var(--neutral-tint);
+  font: 400 12px/16px var(--font-mono);
+}
+.ca-prbody pre {
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.ca-prbody pre code {
+  padding: 0;
+  background: none;
+}
+.ca-prbody img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+.ca-prbody table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ca-prbody th,
+.ca-prbody td {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+}
+.ca-prbody blockquote {
+  padding-left: 10px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--ink-2);
+}
+.ca-prbody input[type='checkbox'] {
+  margin: 0 6px 0 0;
+}
+
+/* Changed files and their diffs. */
+.ca-prfiles {
+  display: grid;
+  gap: 2px;
+}
+.ca-prfile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink);
+  font: 400 12px/16px var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-prfile-head:hover {
+  background: var(--surface-hover);
+}
+.ca-prfile-head > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+  transition: transform var(--dur-fast) ease-out;
+}
+.ca-prfile.is-open .ca-prfile-head > .ca-icon {
+  transform: rotate(90deg);
+}
+.ca-prfile-status {
+  flex: none;
+  width: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.ca-prfile-status.is-added {
+  color: var(--pr-open);
+}
+.ca-prfile-status.is-removed {
+  color: var(--alert);
+}
+.ca-prfile-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-patch {
+  margin: 2px 0 8px;
+  overflow-x: auto;
+  padding: 6px 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font: 400 11px/16px var(--font-mono);
+  color: var(--ink-2);
+}
+.ca-patch > span {
+  display: block;
+  padding: 0 8px;
+  white-space: pre;
+}
+.ca-patch > .is-add {
+  background: var(--pr-open-tint);
+  color: var(--ink);
+}
+.ca-patch > .is-del {
+  background: var(--alert-tint);
+  color: var(--ink);
+}
+.ca-patch > .is-hunk {
+  color: var(--ink-3);
+}

@@ -1,0 +1,285 @@
+/* The Canvas view (CanvasView.tsx): the world, frames and notes in their colors, the marquee, the
+   toolbar and zoom, and the card popover's box. The cards' faces are in card/CardFace.css. */
+
+.ca-cv {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ground);
+  border-top: 1px solid var(--line);
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+.ca-cv.is-panning,
+.ca-cv.is-panning * {
+  cursor: grab;
+}
+.ca-cv.is-tool-note,
+.ca-cv.is-tool-frame {
+  cursor: crosshair;
+}
+.ca-cv-gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.ca-cv-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+/* While the camera moves, the layer is one GPU texture; after, it's drawn crisply at the new scale. */
+.ca-cv.is-moving .ca-cv-world {
+  will-change: transform;
+}
+.ca-cv-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: var(--ink-3);
+}
+.ca-cv-glerror {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--attn-tint);
+  color: var(--attn);
+  font: 400 12px/16px var(--font-sans);
+}
+
+/* Worktree names zoomed out, at a size you can read whatever the zoom. */
+.ca-cv-farlabel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--ground) 80%, transparent);
+  color: var(--ink);
+  font: 600 12px/16px var(--font-display);
+  white-space: nowrap;
+  max-width: calc(248px * var(--z, 1));
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* Frames: a tinted area with its name above it, kept at one size on screen. */
+.ca-cv-frame {
+  --c: var(--label-gray);
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border: calc(1px / var(--z, 1)) solid color-mix(in srgb, var(--c) 50%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 6%, transparent);
+  pointer-events: none;
+}
+.ca-cv-frame.is-selected {
+  border: calc(1.5px / var(--z, 1)) solid var(--unread-solid);
+}
+.ca-cv-frame-title {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  transform-origin: 0 100%;
+  transform: scale(calc(1 / var(--z, 1)));
+  padding: 0 2px 5px;
+  color: color-mix(in srgb, var(--c) 70%, var(--ink));
+  font: 600 13px/18px var(--font-sans);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.ca-cv-frame-title input {
+  width: 220px;
+  padding: 0 4px;
+  border: 1px solid var(--unread-solid);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.ca-cv-frame.is-red, .ca-cv-note.is-red { --c: var(--label-red); }
+.ca-cv-frame.is-pink, .ca-cv-note.is-pink { --c: var(--label-pink); }
+.ca-cv-frame.is-purple, .ca-cv-note.is-purple { --c: var(--label-purple); }
+.ca-cv-frame.is-indigo, .ca-cv-note.is-indigo { --c: var(--label-indigo); }
+.ca-cv-frame.is-blue, .ca-cv-note.is-blue { --c: var(--label-blue); }
+.ca-cv-frame.is-teal, .ca-cv-note.is-teal { --c: var(--label-teal); }
+.ca-cv-frame.is-green, .ca-cv-note.is-green { --c: var(--label-green); }
+
+/* Notes: stickies, yellow unless colored. */
+.ca-cv-note {
+  --c: var(--brand);
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--c) 20%, var(--surface));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 6px 16px rgba(0, 0, 0, 0.07);
+  color: var(--ink);
+  font: 400 14px/20px var(--font-sans);
+  pointer-events: none;
+}
+.ca-cv-note.is-selected {
+  outline: 2px solid var(--unread-solid);
+  outline-offset: 1px;
+}
+.ca-cv-note-text {
+  height: 100%;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-cv-note-text.is-empty {
+  color: var(--ink-3);
+}
+.ca-cv-note textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: none;
+  outline: none;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ca-cv-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  transform: translate(50%, 50%) scale(calc(1 / var(--z, 1)));
+  border: 1.5px solid var(--unread-solid);
+  border-radius: 2px;
+  background: var(--surface);
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+.ca-cv-marquee {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border: calc(1px / var(--z, 1)) solid var(--unread-solid);
+  background: color-mix(in srgb, var(--unread-solid) 8%, transparent);
+  pointer-events: none;
+}
+.ca-cv-marquee.is-frame {
+  border-radius: 10px;
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--label-gray) 6%, transparent);
+}
+
+/* The popover a card on the canvas opens on hover (card/CardPopover.tsx). The pointer can move
+   onto it: its text selects, and its PR chips and session lines take clicks. */
+.ca-cv-popover {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  /* Its width, whatever its longest line: those end in an ellipsis. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  width: 340px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  pointer-events: auto;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+  animation: ca-cv-pop var(--dur-fast) ease-out;
+}
+@keyframes ca-cv-pop {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+.ca-cv-popover p {
+  margin: 0;
+}
+
+/* The toolbar floating at the bottom, as in Figma. */
+.ca-cv-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-hud);
+}
+.ca-cv-tool,
+.ca-cv-zoom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-sans);
+  cursor: pointer;
+}
+.ca-cv-tool.is-wide {
+  padding: 0 9px 0 7px;
+}
+.ca-cv-tool:hover,
+.ca-cv-zoom:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-cv-tool.is-on {
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
+}
+.ca-cv-zoom {
+  min-width: 50px;
+  font: 500 11px/16px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-cv-tool.is-open {
+  background: var(--surface-selected);
+  color: var(--ink);
+}

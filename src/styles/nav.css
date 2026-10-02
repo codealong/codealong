@@ -1,0 +1,45 @@
+/* Sidebar items (.ca-nav, NavItem in primitives.tsx): active, child, parked; their counts and badges. */
+
+.ca-nav { display: flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 8px; border-radius: var(--radius-sm); color: var(--ink-2); font: 400 13px/18px var(--font-sans); cursor: default; outline: none; }
+.ca-nav:hover { background: var(--surface-hover); }
+.ca-nav.is-active { background: var(--surface-selected); color: var(--ink); font-weight: 500; }
+.ca-nav:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.ca-nav .ca-icon { color: var(--ink-3); }
+.ca-nav.is-child { font-family: var(--font-mono); font-size: 12px; }
+.ca-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-nav-count { font: 500 11px/14px var(--font-mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ca-nav-count.is-attn { color: var(--attn); }
+
+/* Sidebar rows are buttons. */
+.ca-nav {
+  width: 100%;
+  flex: none;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* A parked worktree in the sidebar. */
+.ca-nav.is-parked {
+  color: var(--ink-3);
+}
+
+/* A count in a sidebar row that's about something failing. */
+.ca-nav-count.is-alert {
+  color: var(--alert);
+}
+
+.ca-nav-badge {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--attn-solid);
+  color: var(--on-attn);
+  font: 600 10px/16px var(--font-mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,155 @@
+/* The reply box (SessionReply.tsx): the composer, its send button and notes, and the approval
+   it turns into when a session waits on you. */
+
+/* The message box at the bottom of a session's panel. */
+.ca-composer {
+  display: grid;
+  gap: 6px;
+  flex: none;
+  padding: var(--space-3) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+/* The box itself, as chat apps draw theirs: what's attached, then the text, which reaches the
+   box's foot, with the send button in a column of its own at the right, so the text and its
+   scrollbar never run under it. What the box has to say goes below it. */
+.ca-composer-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  cursor: text;
+}
+.ca-composer-field:focus-within {
+  border-color: var(--line-strong);
+}
+.ca-composer-field > .ca-imgstrip {
+  grid-column: 1 / -1;
+  padding: 8px 10px 0;
+}
+.ca-composer textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  resize: none;
+  outline: none;
+}
+/* Send, or Stop while a turn runs and the box is empty: round, in the box's corner. Send now goes
+   before Send while the turn can take a message at once, quieter, as the second way to send. */
+.ca-composer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 5px 5px 0;
+}
+.ca-composer-send {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
+  cursor: pointer;
+}
+.ca-composer-send:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.ca-composer-send:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-composer-send:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-composer-send.is-stop .ca-icon path {
+  fill: currentColor;
+}
+.ca-composer-send.is-now {
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+.ca-composer-send.is-now:hover {
+  color: var(--ink);
+  opacity: 1;
+}
+.ca-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ca-composer-note {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-3);
+  font: 400 11px/14px var(--font-sans);
+}
+.ca-composer-note.is-error {
+  color: var(--alert);
+}
+.ca-composer.is-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--attn-tint);
+  color: var(--attn);
+  font: 500 12px/16px var(--font-sans);
+}
+.ca-composer.is-waiting > span {
+  flex: 1;
+}
+
+.ca-sidestrip + .ca-composer {
+  border-top: 0;
+  background: var(--surface-sunken);
+}
+
+/* A session waiting on you to allow a tool call, at the bottom of its panel. */
+.ca-composer.is-approval {
+  background: var(--attn-tint);
+}
+.ca-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--attn);
+  font: 600 12px/16px var(--font-sans);
+}
+.ca-approval-head .ca-linkbtn {
+  margin-left: auto;
+  font-weight: 400;
+}
+.ca-approval-label {
+  color: var(--ink);
+  font: 500 13px/18px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-approval-label .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ca-approval-input {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 11px/16px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

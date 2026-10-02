@@ -1,0 +1,223 @@
+/* Plan usage under the title bar (UsageBar.tsx): one chip per account, the meters, and the popover. */
+
+.ca-meter { display: grid; gap: 6px; min-width: 0; }
+.ca-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ca-meter-label { font: 500 12px/16px var(--font-sans); color: var(--ink-2); }
+.ca-meter-value { font: 600 24px/24px var(--font-display); color: var(--ink); font-variant-numeric: tabular-nums; }
+.ca-meter-track { position: relative; height: 6px; border-radius: var(--radius-pill); background: var(--neutral-tint); }
+.ca-meter-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: inherit; background: var(--ink-2); }
+.ca-meter.is-over .ca-meter-fill { background: var(--alert-solid); }
+.ca-meter-foot { font: 400 12px/16px var(--font-sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ca-meter.is-compact { grid-template-columns: auto minmax(24px, 1fr) 30px; align-items: center; gap: 6px; }
+.ca-meter.is-compact .ca-meter-label { font: 500 11px/14px var(--font-mono); color: var(--ink-3); }
+.ca-meter.is-compact .ca-meter-track { height: 4px; }
+.ca-meter.is-compact .ca-meter-value { font: 500 11px/14px var(--font-mono); color: var(--ink-2); text-align: right; }
+.ca-meter.is-compact.is-over .ca-meter-value { color: var(--alert); }
+
+.ca-usagebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 38px;
+  padding: 0 var(--space-3);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--line);
+}
+/* Chips that don't fit scroll sideways. The scrollbar is hidden: where macOS always shows
+   scrollbars it would take most of the bar's height. Fades mark the ends with more past them. */
+.ca-usagebar-accts {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0 var(--space-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.ca-usagebar-accts::-webkit-scrollbar {
+  display: none;
+}
+.ca-usagebar-accts.is-clip-start {
+  mask-image: linear-gradient(to right, transparent, var(--ink) var(--space-8));
+}
+.ca-usagebar-accts.is-clip-end {
+  mask-image: linear-gradient(to left, transparent, var(--ink) var(--space-8));
+}
+.ca-usagebar-accts.is-clip-start.is-clip-end {
+  mask-image: linear-gradient(to right, transparent, var(--ink) var(--space-8), var(--ink) calc(100% - var(--space-8)), transparent);
+}
+/* Every chip with all its limits, measured to decide whether the row collapses. */
+.ca-usagebar-measure {
+  position: fixed;
+  top: -100px;
+  left: 0;
+  display: flex;
+  gap: var(--space-2);
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+}
+.ca-uchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: 26px;
+  padding: 0 11px 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
+}
+.ca-uchip:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+.ca-uchip:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-uchip.is-attn {
+  border-color: var(--attn-solid);
+  background: var(--attn-tint);
+}
+.ca-uchip.is-stale .ca-meter {
+  opacity: 0.55;
+}
+.ca-uchip > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-uchip-name {
+  font: 600 12px/16px var(--font-mono);
+  color: var(--ink);
+}
+.ca-uchip-note {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ca-uchip-signin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--attn);
+}
+.ca-uchip .ca-meter.is-compact {
+  grid-template-columns: auto 30px auto auto;
+  gap: 5px;
+}
+.ca-meter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.ca-uchip .ca-meter-label > span {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-meter-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font: 400 11px/14px var(--font-mono);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ca-meter.is-model .ca-meter-label {
+  color: var(--ink-2);
+}
+.ca-meter.is-warning .ca-meter-fill {
+  background: var(--attn-solid);
+}
+.ca-meter.is-warning .ca-meter-value {
+  color: var(--attn);
+}
+.ca-meter.is-critical .ca-meter-fill {
+  background: var(--alert-solid);
+}
+.ca-meter.is-critical .ca-meter-value {
+  color: var(--alert);
+}
+.ca-usagebar-end {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+/* Popup styles stay separate from the account and project cards in Settings. */
+.ca-usage-popover {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: 400 12px/16px var(--font-sans);
+  pointer-events: none;
+}
+.ca-usage-popover .ca-ucard-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.ca-usage-popover .ca-ucard-plan,
+.ca-usage-popover .ca-ucard-foot {
+  color: var(--ink-3);
+}
+.ca-usage-popover .ca-ucard-meters {
+  display: grid;
+  grid-template-columns: auto 88px auto auto;
+  align-items: center;
+  gap: var(--space-2) 10px;
+}
+.ca-usage-popover .ca-ucard-meters > .ca-meter {
+  display: contents;
+}
+.ca-usage-popover .ca-meter-track {
+  height: 6px;
+}
+.ca-usage-popover .ca-ucard-reset {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ca-usage-popover.is-stale .ca-meter > * {
+  opacity: 0.55;
+}
+.ca-usage-popover .ca-ucard-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 320px;
+  color: var(--alert);
+}
+.ca-usage-popover .ca-ucard-error > .ca-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.ca-acct-meters .ca-meter-value {
+  font-size: 20px;
+  line-height: 20px;
+}

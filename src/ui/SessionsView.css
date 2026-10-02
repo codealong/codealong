@@ -1,0 +1,18 @@
+/* The Sessions view (SessionsView.tsx): archived rows, pinned rows and pin marks. */
+
+.ca-archived .ca-lane {
+  opacity: 0.8;
+}
+
+/* Sessions is one list with no headings: a strip of ground sets the pinned rows at its top
+   apart from the rest, and each carries a solid pin, where no Pinned heading says so. */
+.ca-sessionlist .ca-lane.is-pinned + .ca-lane:not(.is-pinned) {
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--line);
+}
+.ca-sessionlist .ca-pinmark {
+  color: var(--ink-2);
+}
+.ca-sessionlist .ca-pinmark path:first-child {
+  fill: currentColor;
+}

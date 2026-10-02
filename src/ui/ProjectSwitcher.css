@@ -1,0 +1,119 @@
+/* The project switcher in the title bar (ProjectSwitcher.tsx) and its menu. */
+
+/* Project switcher: top left, like an org switcher. */
+.ca-projswitch {
+  position: relative;
+  flex: none;
+}
+.ca-projswitch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 600 14px/18px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-projswitch-btn:hover,
+.ca-projswitch-btn[aria-expanded='true'] {
+  background: var(--surface-hover);
+}
+.ca-projswitch-btn > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-projswitch-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-projswitch-menu {
+  min-width: 320px;
+}
+/* Each project's ⌥⌘ digit, like a native menu's shortcut column. */
+.ca-projswitch-key {
+  min-width: 30px;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ca-projswitch-check {
+  display: inline-flex;
+  width: 16px;
+  color: var(--ink-2);
+}
+
+/* Other projects' action items, on the switcher and in its menu. */
+.ca-projswitch-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: var(--on-brand);
+  font: 600 11px/16px var(--font-mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ca-projswitch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--unread-solid);
+}
+.ca-projswitch-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ca-projswitch-action.is-needs {
+  color: var(--attn);
+}
+.ca-projswitch-action.is-unread {
+  color: var(--unread);
+}
+
+/* Project menu rows: pick the project here, or open it in a window of its own. */
+.ca-projswitch-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ca-projswitch-row > .ca-menu-item {
+  flex: 1;
+  min-width: 0;
+}
+.ca-projswitch-newwin {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+}
+.ca-projswitch-row:hover .ca-projswitch-newwin,
+.ca-projswitch-newwin:focus-visible {
+  opacity: 1;
+}
+.ca-projswitch-newwin:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-projswitch-newwin:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
