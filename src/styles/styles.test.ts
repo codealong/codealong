@@ -1,5 +1,6 @@
 // The stylesheets stay in order: each class has one home, nothing is styled that nothing renders,
-// every file is in the index once, and tokens.css is what its generator writes.
+// every file is in the index once, tokens.css is what its generator writes, and a value a token
+// holds is written as the token.
 //
 // Ownership, which the first test holds. Only `ca-` names are things; other class names (is-*,
 // has-*) are states of a thing. A rule defines a class when it names no state and the class is
@@ -205,6 +206,30 @@ describe('the stylesheets', () => {
       const css = [...read(f).matchAll(/import\s+(?:[^'";]+\s+from\s+)?'([^']+\.css)'/g)].map((m) => m[1]);
       const want = f === join(src, 'main.tsx') ? ['./styles/app.css'] : [];
       if (css.join(' ') !== want.join(' ')) problems.push(`${short(f)} imports ${css.join(', ') || 'no stylesheet'}: only src/main.tsx imports one, ./styles/app.css; a stylesheet goes in that index.`);
+    }
+    expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  // Only where every such value already uses its token: a font shorthand that is a style of the
+  // type scale, and a gap of one length that is a spacing step. Values between the steps, and
+  // padding and margins with one, stay as they are for a designer to decide.
+  it('write a type style or a spacing step as its token', () => {
+    const tokens = JSON.parse(read(join(root, 'design/tokens.json'))) as {
+      type: { groups: { family: string; styles: { name: string; fontSize: string; lineHeight: string; fontWeight: number }[] }[] };
+      spacing: { tokens: { name: string; value: string }[] };
+    };
+    const type = new Map(tokens.type.groups.flatMap((g) => g.styles.map((t) => [`${t.fontWeight} ${t.fontSize}/${t.lineHeight} var(--font-${g.family})`, `--type-${t.name}`])));
+    const space = new Map(tokens.spacing.tokens.map((t) => [t.value, `--${t.name}`]));
+    const problems: string[] = [];
+    for (const file of sheets) {
+      const text = read(file).replace(/\/\*[\s\S]*?\*\//g, (c: string) => c.replace(/[^\n]/g, ' '));
+      for (const m of text.matchAll(/([{;]\s*)(font|gap|row-gap|column-gap)\s*:\s*([^;{}]*?)\s*(?:!important\s*)?(?=[;}])/g)) {
+        const value = m[3].replace(/\s+/g, ' ');
+        const token = m[2] === 'font' ? type.get(value) : space.get(value);
+        if (!token) continue;
+        const line = text.slice(0, m.index + m[1].length).split('\n').length;
+        problems.push(`${short(file)}:${line} ${m[2]}: ${value} is ${token} in design/tokens.json: write ${m[2]}: var(${token}).`);
+      }
     }
     expect(problems, problems.join('\n')).toEqual([]);
   });
