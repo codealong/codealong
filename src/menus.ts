@@ -15,6 +15,7 @@ import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from 
 import { MOVES_ACCOUNTS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
+import { QUEUE_CHORDS } from './queue';
 import { snoozeChordIndex, snoozeMenu } from './snooze';
 import type { AccountInfo, DesktopPinned, Lane, Pr, Session } from './types';
 import { errorText, type Report } from './report';
@@ -343,11 +344,13 @@ export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
 /** The main window's keys for actions, shown beside them in its menus. */
 export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R' };
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
- *  do nothing: ⌘E marks seen (and goes on, in Sessions), ⌃⌘ and the letter runs the rest. Closing
- *  a session's terminal has a chord and no letter of its own: it's not one to press by mistake. */
-export const CHORDS: typeof KEYS = { seen: 'Cmd+E', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W' };
+ *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
+ *  the queue's key, queue.ts), ⌃⌘ and the letter runs the rest. Closing a session's terminal has
+ *  a chord and no letter of its own: it's not one to press by mistake. */
+export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W' };
 // Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘4 (snooze.ts `SNOOZE_CHORDS`), which its
-// menu shows beside them.
+// menu shows beside them. The keys for getting from one session to the next are queue.ts
+// `QUEUE_CHORDS`, written the same way.
 const CTRL_CMD = 'Ctrl+Cmd+';
 
 /** Whether ⌃⌘ with this key is one of the chords: an action's letter, or a snooze's digit. */
@@ -363,9 +366,10 @@ function snoozeChorded(actions: SessionActions | LaneActions, key: string): Menu
   return it && it !== 'separator' && !('items' in it) ? it : null;
 }
 
-/** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W. */
+/** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W, and
+ *  `Alt+Shift+Down` ⌥⇧↓. */
 export function chordSigns(chord: string): string {
-  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧' };
+  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Esc: 'esc' };
   return chord
     .split('+')
     .map((k) => signs[k] ?? k)

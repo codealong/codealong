@@ -248,6 +248,10 @@ describe('actions by name', () => {
     expect(chordLetter('k')).toBe(false);
     expect(chordSigns('Ctrl+Cmd+W')).toBe('⌃⌘W');
     expect(chordSigns('Cmd+E')).toBe('⌘E');
+    // The keys for getting from one session to the next (queue.ts) are said the same way.
+    expect(chordSigns('Alt+Shift+Down')).toBe('⌥⇧↓');
+    expect(chordSigns('Ctrl+Shift+-')).toBe('⌃⇧-');
+    expect(chordSigns('Esc')).toBe('esc');
     acts.close?.run();
     expect(left).toEqual(['closed']);
     // One with no terminal of its own has nothing to close.
