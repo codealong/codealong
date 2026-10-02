@@ -40,7 +40,7 @@ describe('format', () => {
 
   it('shortens paths and branches', () => {
     expect(middleTruncate('codex/agent-execution-grants', 20)).toBe('codex/agen…on-grants');
-    expect(tildePath('/Users/ghempton/projects/x')).toBe('~/projects/x');
+    expect(tildePath('/Users/sam/projects/x')).toBe('~/projects/x');
     expect(count(1, 'file')).toBe('1 file');
     expect(count(3, 'file')).toBe('3 files');
   });

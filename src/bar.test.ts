@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { barWidth, currentItem, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchSizes, plain, projectWaits, stepItem, waitingAfter, waitingItems, type Metrics } from './bar';
 import { ALL_PROJECTS } from './quick';
+import * as fx from './testing/fixtures';
 import type { BarItem } from './types';
 
 // Which sessions, PRs and todos the bar shows, and their order, are the engine's (barfeed.rs, with
@@ -84,23 +85,22 @@ describe('plain', () => {
 });
 
 describe('project counts', () => {
-  const item = (key: string, group: BarItem['group'], project: string, hidden = false): BarItem =>
-    ({ key, group, status: group, project, hidden, title: key, account: 'claude', laneId: key, callsign: key, detail: null, openTarget: '', target: null }) as BarItem;
+  const item = (key: string, group: BarItem['group'], project: string, hidden = false): BarItem => fx.barItem({ key, group, project, hidden });
   const items = [
-    item('n1', 'needs', 'Northwind'),
-    item('u1', 'unread', 'Northwind'),
-    item('w1', 'working', 'Northwind'),
-    item('n2', 'needs', 'Kestrel'),
-    item('n3', 'needs', 'Kestrel'),
+    item('n1', 'needs', 'Acme'),
+    item('u1', 'unread', 'Acme'),
+    item('w1', 'working', 'Acme'),
+    item('n2', 'needs', 'Globex'),
+    item('n3', 'needs', 'Globex'),
     item('e1', 'needs', 'Elsewhere'),
     item('e2', 'unread', 'Elsewhere', true),
   ];
-  const projects = ['Northwind', 'Kestrel', 'Elsewhere'];
+  const projects = ['Acme', 'Globex', 'Elsewhere'];
 
   it('counts what needs you and finished turns per project, as the quick panel does', () => {
     expect(projectWaits(items, projects)).toEqual({
-      Northwind: { needs: 1, unread: 1 },
-      Kestrel: { needs: 2, unread: 0 },
+      Acme: { needs: 1, unread: 1 },
+      Globex: { needs: 2, unread: 0 },
       // Elsewhere's out-of-sight worktrees count only for Elsewhere itself.
       Elsewhere: { needs: 1, unread: 1 },
       [ALL_PROJECTS]: { needs: 4, unread: 1 },
@@ -109,8 +109,8 @@ describe('project counts', () => {
 
   it('badges the button with what waits in the projects it hides', () => {
     const waits = projectWaits(items, projects);
-    expect(elsewhereWaits(waits, projects, 'Northwind')).toEqual({ needs: 3, unread: 1 });
-    expect(elsewhereWaits(waits, projects, 'Kestrel')).toEqual({ needs: 2, unread: 2 });
+    expect(elsewhereWaits(waits, projects, 'Acme')).toEqual({ needs: 3, unread: 1 });
+    expect(elsewhereWaits(waits, projects, 'Globex')).toEqual({ needs: 2, unread: 2 });
     expect(elsewhereWaits(waits, projects, ALL_PROJECTS)).toEqual({ needs: 0, unread: 0 });
   });
 });

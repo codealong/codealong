@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { happened, marked, MOMENT_MS, plays } from './mark';
-import type { BarFeed, BarItem, BarRecent, BarReview } from './types';
+import * as fx from './testing/fixtures';
+import type { BarFeed, BarItem, BarRecent } from './types';
 
-const item = (key: string, group: BarItem['group'], hidden = false): BarItem =>
-  ({ key, group, status: group, project: 'Northwind', hidden, title: key, account: 'claude', laneId: key, callsign: key, detail: null, openTarget: '', target: null }) as BarItem;
-const feed = (items: BarItem[], more: Partial<BarFeed> = {}): BarFeed =>
-  ({ loading: false, theme: 'system', logoStatus: 'idle', perfLog: false, terminal: 'Ghostty', projects: [], items, recent: [], snoozed: [], reviews: [], todos: [], ...more }) as BarFeed;
+const item = (key: string, group: BarItem['group'], hidden = false): BarItem => fx.barItem({ key, group, hidden });
+const feed = (items: BarItem[], more: Partial<BarFeed> = {}): BarFeed => fx.barFeed({ items, ...more });
 const after = (was: BarFeed, now: BarFeed) => happened(marked(was), now);
 
 describe('happened', () => {
@@ -24,7 +23,7 @@ describe('happened', () => {
 
   it('knocks as a session or a review starts to need you, over anything else', () => {
     expect(after(feed([item('a', 'working'), item('b', 'working')]), feed([item('a', 'needs'), item('b', 'unread')]))).toBe('knock');
-    const review = { key: 'acme/app#7' } as BarReview;
+    const review = fx.barReview({ key: 'acme/app#7' });
     expect(after(feed([]), feed([], { reviews: [review] }))).toBe('knock');
     expect(after(feed([], { reviews: [review] }), feed([], { reviews: [review] }))).toBeNull();
   });
@@ -33,7 +32,7 @@ describe('happened', () => {
     expect(after(feed([]), feed([item('new', 'working')]))).toBe('run');
     // One the bar knew, back at work, is a turn starting: no moment.
     expect(after(feed([item('a', 'unread')]), feed([item('a', 'working')]))).toBeNull();
-    const recent = { ...item('r', 'working'), group: 'recent' } as BarRecent;
+    const recent: BarRecent = { ...item('r', 'working'), group: 'recent' };
     expect(after(feed([], { recent: [recent] }), feed([item('r', 'working')]))).toBeNull();
   });
 

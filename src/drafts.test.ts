@@ -56,7 +56,7 @@ describe('drafts', () => {
     writeDraft('claude:claude:old', 'from long ago', store, now - 31 * DAY);
     writeDraft('claude:claude:new', 'from yesterday', store, now - DAY);
     store.setItem('codealong.draft.junk', 'not json');
-    store.setItem('codealong.bar.project', 'Codealong');
+    store.setItem('codealong.bar.project', 'Acme');
     pruneDrafts(store, now);
     expect([...store.items.keys()].sort()).toEqual(['codealong.bar.project', 'codealong.draft.claude:claude:new']);
   });

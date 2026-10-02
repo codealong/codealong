@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting } from './route';
+import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
 
-const session = (key: string, status: Session['status'], extra: Partial<Session> = {}): Session => ({ key, status, title: key, visitor: null, ...extra }) as Session;
+const session = (key: string, status: Session['status'], extra: Partial<Session> = {}): Session => fx.session({ key, status, title: key, ...extra });
 // Reusable unless it says otherwise, so new work can start in any of them.
-const lane = (id: string, sessions: Session[], repo = id, extra: Partial<Lane> = { reuse: 'open' }): Lane => ({ id, sessions, callsign: id, repo, project: 'P', lastActivity: 0, ...extra }) as unknown as Lane;
-const board = (lanes: Lane[]): Board => ({ lanes }) as unknown as Board;
+const lane = (id: string, sessions: Session[], repo = id, extra: Partial<Lane> = { reuse: 'open' }): Lane => fx.lane({ id, sessions, callsign: id, repo, project: 'P', lastActivity: 0, ...extra });
+const board = (lanes: Lane[]): Board => fx.board({ lanes });
 
 const b = board([lane('/api', [session('s:fix', 'unread'), session('s:ask', 'needs')]), lane('/web', [session('s:copy', 'working')])]);
 
@@ -126,42 +127,42 @@ describe('new work in reusable worktrees', () => {
   const start = (lanes: { id: string; p: number }[]) => route({ action: 'start', actions: [['start', 1]], noSession: 1, lanes });
   const kept = (id: string, repo: string, extra: Partial<Lane> = {}) => lane(id, [], repo, extra);
   const repo = board([
-    kept('/atlas', 'atlas', { origin: 'main', reuse: 'open' } as Partial<Lane>),
-    kept('/atlas-quarry', 'atlas'),
-    kept('/atlas-app2', 'atlas', { reuse: 'landed', lastActivity: 5 }),
-    kept('/atlas-app3', 'atlas', { reuse: 'free', lastActivity: 1 }),
-    kept('/atlas-app4', 'atlas', { reuse: 'free', lastActivity: 2 }),
+    kept('/app', 'app', { origin: 'main', reuse: 'open' }),
+    kept('/app-billing', 'app'),
+    kept('/app-2', 'app', { reuse: 'landed', lastActivity: 5 }),
+    kept('/app-3', 'app', { reuse: 'free', lastActivity: 1 }),
+    kept('/app-4', 'app', { reuse: 'free', lastActivity: 2 }),
     // A main checkout marked as kept for its own work, and a worktree of it.
-    kept('/infra', 'infra', { origin: 'main' } as Partial<Lane>),
+    kept('/infra', 'infra', { origin: 'main' }),
     kept('/infra-tls', 'infra'),
   ]);
 
   it('goes to a free reusable worktree of the repo when Jev picks one kept for its own work', () => {
     // Free before landed, and of the free ones the latest active.
-    expect(suggestions(start([{ id: '/atlas-quarry', p: 0.9 }]), repo).map((x) => x.key)).toEqual(['start:/atlas-app4']);
+    expect(suggestions(start([{ id: '/app-billing', p: 0.9 }]), repo).map((x) => x.key)).toEqual(['start:/app-4']);
     // One Jev ranked leads, even landed.
-    expect(suggestions(start([{ id: '/atlas-quarry', p: 0.6 }, { id: '/atlas-app2', p: 0.3 }]), repo)[0].key).toBe('start:/atlas-app2');
+    expect(suggestions(start([{ id: '/app-billing', p: 0.6 }, { id: '/app-2', p: 0.3 }]), repo)[0].key).toBe('start:/app-2');
   });
 
   it('is as sure of a worktree chosen in the repo as of the repo', () => {
-    const r = { ...start([{ id: '/atlas-quarry', p: 0.3 }]), repos: [{ id: 'P/atlas', p: 0.9 }] };
-    expect(suggestions(r, repo)[0]).toMatchObject({ key: 'start:/atlas-app4', p: 0.9 });
+    const r = { ...start([{ id: '/app-billing', p: 0.3 }]), repos: [{ id: 'P/app', p: 0.9 }] };
+    expect(suggestions(r, repo)[0]).toMatchObject({ key: 'start:/app-4', p: 0.9 });
     // In the worktree Jev picked, as sure as of it.
-    expect(suggestions({ ...r, lanes: [{ id: '/atlas-app3', p: 0.3 }] }, repo)[0]).toMatchObject({ key: 'start:/atlas-app3', p: 0.3 });
+    expect(suggestions({ ...r, lanes: [{ id: '/app-3', p: 0.3 }] }, repo)[0]).toMatchObject({ key: 'start:/app-3', p: 0.3 });
   });
 
   it('joins the work under way in a reusable worktree only when Jev is sure of it, and never in the main worktree', () => {
-    const busy = board([...repo.lanes, kept('/atlas-app5', 'atlas', { reuse: 'review', lastActivity: 9 })]);
-    expect(suggestions(start([{ id: '/atlas-app5', p: 0.8 }]), busy)[0]).toMatchObject({ key: 'start:/atlas-app5', newWorktree: false });
+    const busy = board([...repo.lanes, kept('/app-5', 'app', { reuse: 'review', lastActivity: 9 })]);
+    expect(suggestions(start([{ id: '/app-5', p: 0.8 }]), busy)[0]).toMatchObject({ key: 'start:/app-5', newWorktree: false });
     // Less sure, Jev matched the repo more than the work: a free one.
-    expect(suggestions(start([{ id: '/atlas-app5', p: 0.4 }]), busy)[0].key).toBe('start:/atlas-app4');
+    expect(suggestions(start([{ id: '/app-5', p: 0.4 }]), busy)[0].key).toBe('start:/app-4');
     // The main worktree with work under way is the repo, not the work.
-    expect(suggestions(start([{ id: '/atlas', p: 0.9 }]), repo)[0].key).toBe('start:/atlas-app4');
+    expect(suggestions(start([{ id: '/app', p: 0.9 }]), repo)[0].key).toBe('start:/app-4');
   });
 
   it('starts in the main worktree when none is free, and in a new worktree only where there is no reusable one', () => {
     const none = board(repo.lanes.filter((l) => l.reuse !== 'free' && l.reuse !== 'landed'));
-    expect(suggestions(start([{ id: '/atlas-quarry', p: 0.9 }]), none)[0]).toMatchObject({ key: 'start:/atlas', newWorktree: false });
+    expect(suggestions(start([{ id: '/app-billing', p: 0.9 }]), none)[0]).toMatchObject({ key: 'start:/app', newWorktree: false });
   });
 
   it('makes a new worktree from the main worktree when the repo has no reusable one', () => {

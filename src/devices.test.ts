@@ -44,7 +44,7 @@ describe('your other devices', () => {
   });
 
   it('names a device without its owner', () => {
-    expect(deviceLabel('Gordon’s Mac mini')).toBe('Mac mini');
+    expect(deviceLabel('Alex’s Mac mini')).toBe('Mac mini');
     expect(deviceLabel("Sam's MacBook Pro")).toBe('MacBook Pro');
     expect(deviceLabel('Studio')).toBe('Studio');
     expect(deviceLabel('build-box')).toBe('build-box');

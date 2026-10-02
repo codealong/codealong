@@ -22,8 +22,8 @@ describe('reorderPinned', () => {
   });
 
   it('works on worktree paths the same way', () => {
-    const all = ['/r/app3', '/r/main', '/r/quarry'];
-    expect(reorderPinned(all, ['/r/app3', '/r/quarry'], '/r/quarry', 0)).toEqual(['/r/quarry', '/r/main', '/r/app3']);
+    const all = ['/r/app3', '/r/main', '/r/billing'];
+    expect(reorderPinned(all, ['/r/app3', '/r/billing'], '/r/billing', 0)).toEqual(['/r/billing', '/r/main', '/r/app3']);
   });
 });
 
