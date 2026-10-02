@@ -6,7 +6,7 @@
 //! next to the config; the engine reads it again when it changes (`current`).
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
 use crate::model::{OriginHow, SessionOrigin};
+use crate::store;
 use crate::todos::Lanes;
 
 /// How long a start whose session wasn't known waits for it to show up.
@@ -23,7 +24,8 @@ const PENDING_SLACK_MS: i64 = 60 * 1000;
 /// Entries are kept this long. Claude Code deletes transcripts after about 30 days.
 const KEEP_MS: i64 = 90 * 24 * 60 * 60 * 1000;
 
-static WRITING: Mutex<()> = Mutex::new(());
+/// What the file holds, for the error when it doesn't read as that.
+const WHAT: &str = "a list of where sessions came from";
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub struct Store {
@@ -114,23 +116,24 @@ pub fn path() -> PathBuf {
     support_dir().join("origins.json")
 }
 
-fn read() -> Store {
-    std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+/// Reads the file, changes it and writes it back in one step, unless `f` says nothing changed.
+/// Under the file's own lock (`origins.json.lock`), since the `codealong` command notes starts
+/// as the app does. A file that doesn't parse is an error and is left as it is: an older build
+/// that doesn't know a newer one's way of starting must not write an empty list over it. In
+/// the app nobody waits on these, so a failure is also a notice (`store::noted`).
+fn change(f: impl FnOnce(&mut Store) -> bool) -> Result<()> {
+    let p = path();
+    store::noted(&p, change_in(&p, f))
 }
 
-/// Reads the file, changes it and writes it back in one step, unless `f` says nothing changed.
-fn change(f: impl FnOnce(&mut Store) -> bool) -> Result<()> {
-    let _held = WRITING.lock().unwrap_or_else(|e| e.into_inner());
-    let mut store = read();
-    if !f(&mut store) {
-        return Ok(());
-    }
-    store.prune(crate::util::now_ms());
-    std::fs::create_dir_all(support_dir())?;
-    let p = path();
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_string_pretty(&store)?)?;
-    std::fs::rename(&tmp, &p)?;
+fn change_in(path: &Path, f: impl FnOnce(&mut Store) -> bool) -> Result<()> {
+    store::change(path, WHAT, |s: &mut Store| {
+        let changed = f(s);
+        if changed {
+            s.prune(crate::util::now_ms());
+        }
+        changed
+    })?;
     Ok(())
 }
 
@@ -184,7 +187,8 @@ pub fn resolve_pending(sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> b
     changed
 }
 
-/// The file as last read, read again when it changed on disk.
+/// The file as last read, read again when it changed on disk. One that doesn't parse shows
+/// as no origins; only a change to it is turned away.
 pub fn current() -> Arc<Store> {
     static CACHE: Mutex<Option<((i64, u64), Arc<Store>)>> = Mutex::new(None);
     let stamp = std::fs::metadata(path()).ok().map(|m| (crate::util::mtime_ms(&path()).unwrap_or(0), m.len())).unwrap_or((0, 0));
@@ -194,7 +198,7 @@ pub fn current() -> Arc<Store> {
             return store.clone();
         }
     }
-    let store = Arc::new(if stamp == (0, 0) { Store::default() } else { read() });
+    let store = Arc::new(if stamp == (0, 0) { Store::default() } else { store::read_or_default(&path()) });
     *slot = Some((stamp, store.clone()));
     store
 }
@@ -262,6 +266,31 @@ mod tests {
         store.sessions.insert("b".into(), Entry { from: "x".into(), how: OriginHow::Fork, at: KEEP_MS });
         store.prune(KEEP_MS + 1);
         assert_eq!(store.sessions.keys().collect::<Vec<_>>(), vec!["b"]);
+    }
+
+    /// origins.json from a build that knows a way of starting this one doesn't: not an empty
+    /// list to add to and write back.
+    #[test]
+    fn a_file_that_does_not_read_is_never_written_over() {
+        let dir = crate::store::test_dir("origins-unreadable");
+        let path = dir.join("origins.json");
+        let note = |key: &'static str| {
+            change_in(&path, move |s| s.sessions.insert(key.into(), Entry { from: "claude:claude:a".into(), how: OriginHow::Fork, at: crate::util::now_ms() }).is_none())
+        };
+        // No file yet: the first note makes it.
+        note("codex:codex:b").unwrap();
+        assert_eq!(crate::store::read_or_default::<Store>(&path).origin_of("codex:codex:b").map(|o| o.how), Some(OriginHow::Fork));
+
+        let newer = r#"{"sessions":{"codex:codex:b":{"from":"claude:claude:a","how":"teleported","at":5}}}"#;
+        for bytes in [newer, r#"{"sessions":{"#] {
+            std::fs::write(&path, bytes).unwrap();
+            let e = note("codex:codex:c").unwrap_err().to_string();
+            assert!(e.starts_with("origins.json doesn't read as a list of where sessions came from"), "{e}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+            // The board goes without.
+            assert_eq!(crate::store::read_or_default::<Store>(&path), Store::default());
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

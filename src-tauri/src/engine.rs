@@ -738,6 +738,9 @@ struct Engine {
     /// Worktrees marked reusable or not by hand (`worktrees.json`), by path.
     reusable: HashMap<String, bool>,
     reusable_warning: Option<String>,
+    /// The files changed in the background whose last change couldn't be made, by name with
+    /// why (`store::problems`), as of the last board.
+    store_warnings: Vec<(String, String)>,
     /// The thread that finds servers, told which worktrees to look in; none in a snapshot.
     servers: Option<previews::Watcher>,
     git: HashMap<PathBuf, GitInfo>,
@@ -866,6 +869,7 @@ impl Engine {
             previews_warning: None,
             reusable: HashMap::new(),
             reusable_warning: None,
+            store_warnings: Vec::new(),
             servers: None,
             git: HashMap::new(),
             git_jobs,
@@ -1895,6 +1899,7 @@ impl Engine {
                 let until = if key == "github" && limited { self.gh_resets } else { None };
                 Some(Notice { key: key.into(), title: title.into(), text: text?.clone(), until })
             })
+            .chain(self.store_warnings.iter().map(|(file, why)| Notice { key: file.clone(), title: format!("{file} has a problem"), text: why.clone(), until: None }))
             .collect()
     }
 
@@ -2647,6 +2652,7 @@ impl Engine {
 
     fn publish(&mut self) {
         let t = Instant::now();
+        self.store_warnings = crate::store::problems(&config::support_dir());
         let mut board = self.compose();
         if self.link_pending(&board) {
             board.todos = self.todos.todos.clone();
@@ -3183,6 +3189,22 @@ mod tests {
         // And the next glance that's answered ends that.
         engine.on_glance(Ok(github::Glance::default()));
         assert!(engine.gh_hold.is_none() && engine.gh_warning.is_none() && engine.notices().is_empty());
+    }
+
+    /// A file noted in the background (where a session came from, a side conversation) has
+    /// nobody waiting to hear that it couldn't be: the board says so.
+    #[test]
+    fn a_background_change_that_could_not_be_made_is_a_notice() {
+        use super::*;
+
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        assert!(engine.notices().is_empty());
+        engine.store_warnings = vec![("origins.json".into(), "origins.json doesn't read as a list of where sessions came from.".into())];
+        let said = engine.notices();
+        assert_eq!(said.len(), 1);
+        assert_eq!((said[0].key.as_str(), said[0].title.as_str(), said[0].until), ("origins.json", "origins.json has a problem", None));
+        assert_eq!(said[0].text, "origins.json doesn't read as a list of where sessions came from.");
     }
 
     #[test]

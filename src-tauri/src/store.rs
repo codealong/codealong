@@ -12,8 +12,11 @@
 use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use anyhow::{bail, Result};
 use serde::de::DeserializeOwned;
@@ -139,6 +142,38 @@ pub fn change<T: DeserializeOwned + Serialize + Default>(path: &Path, what: &str
     Ok(value)
 }
 
+/// Changes nobody waited on that couldn't be made, by file, with the file's time and size then.
+static FAILED: Mutex<BTreeMap<PathBuf, (Stamp, String)>> = Mutex::new(BTreeMap::new());
+
+type Stamp = Option<(Option<SystemTime>, u64)>;
+
+fn stamp(path: &Path) -> Stamp {
+    std::fs::metadata(path).ok().map(|m| (m.modified().ok(), m.len()))
+}
+
+/// Notes how a change went that was made in the background, where nobody waits to hear its
+/// error: a failure is kept for `problems`, which the engine says as notices, until a change to
+/// the file goes through. Returns the result as it came.
+pub fn noted<T>(path: &Path, done: Result<T>) -> Result<T> {
+    let mut failed = FAILED.lock().unwrap_or_else(|e| e.into_inner());
+    match &done {
+        Ok(_) => {
+            failed.remove(path);
+        }
+        Err(e) => {
+            failed.insert(path.to_path_buf(), (stamp(path), format!("{e:#}")));
+        }
+    }
+    done
+}
+
+/// The files in a folder whose last noted change couldn't be made, each by name with why. Only
+/// while the file is as it was then: one fixed or deleted since is no problem any more.
+pub fn problems(dir: &Path) -> Vec<(String, String)> {
+    let failed = FAILED.lock().unwrap_or_else(|e| e.into_inner());
+    failed.iter().filter(|(p, (at, _))| p.parent() == Some(dir) && stamp(p) == *at).map(|(p, (_, why))| (name(p), why.clone())).collect()
+}
+
 /// A folder of a test's own under the temporary folder, emptied.
 #[cfg(test)]
 pub fn test_dir(name: &str) -> PathBuf {
@@ -231,6 +266,36 @@ mod tests {
         let e = write(&dir.join("taken.json"), "[]").unwrap_err().to_string();
         assert!(e.starts_with("Couldn't write ") && e.contains("taken.json"), "{e}");
         assert_eq!(files(&dir), ["list.json", "list.json.lock", "private.json", "taken.json"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_background_change_that_fails_is_a_problem_until_one_lands_or_the_file_is_fixed() {
+        let dir = test_dir("store-problems");
+        let path = dir.join("list.json");
+        let add = || {
+            noted(&path, change(&path, "a list", |l: &mut Vec<String>| {
+                l.push("a".into());
+                true
+            }))
+        };
+        add().unwrap();
+        assert!(problems(&dir).is_empty());
+        std::fs::write(&path, "[").unwrap();
+        let e = add().unwrap_err().to_string();
+        assert_eq!(problems(&dir), [("list.json".to_string(), e)]);
+        // Another folder's files aren't this one's problems.
+        assert!(problems(&dir.join("sub")).is_empty());
+        // Fixed by hand: no longer a problem, before any change is made.
+        std::fs::write(&path, "[\"b\", \"c\"]").unwrap();
+        assert!(problems(&dir).is_empty());
+        std::fs::write(&path, "{").unwrap();
+        add().unwrap_err();
+        assert_eq!(problems(&dir).len(), 1);
+        std::fs::remove_file(&path).unwrap();
+        assert!(problems(&dir).is_empty());
+        add().unwrap();
+        assert!(problems(&dir).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
