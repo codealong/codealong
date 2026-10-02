@@ -11,6 +11,9 @@ use serde_json::Value;
 
 use crate::util::{file_name, home, mtime_ms};
 
+/// The Claude app's bundle ID.
+pub const BUNDLE_ID: &str = "com.anthropic.claudefordesktop";
+
 pub fn records_dir() -> PathBuf {
     home().join("Library/Application Support/Claude/claude-code-sessions")
 }

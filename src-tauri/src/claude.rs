@@ -1130,6 +1130,10 @@ impl crate::harness::Adapter for ClaudeCode {
         }
     }
 
+    fn app_bundle(&self, action: &str) -> Option<&'static str> {
+        (action == "claude-app").then_some(crate::claudeapp::BUNDLE_ID)
+    }
+
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
         let files = transcript_files(&account.home_path(), since, &HashSet::new());
         files

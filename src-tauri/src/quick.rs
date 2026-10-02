@@ -307,8 +307,8 @@ pub fn start_app(place: Place, terminal: &str) -> Option<&'static str> {
         Place::Terminal => crate::launch::bundle_id(terminal),
         // Nothing opens: the session runs with no window.
         Place::Background => None,
-        Place::ClaudeApp => Some("com.anthropic.claudefordesktop"),
-        Place::CodexApp => Some("com.openai.codex"),
+        Place::ClaudeApp => Some(crate::claudeapp::BUNDLE_ID),
+        Place::CodexApp => Some(crate::codex::APP_BUNDLE_ID),
         // It runs here, and shows on the board.
         Place::Codealong => None,
     }

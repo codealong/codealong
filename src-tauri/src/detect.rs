@@ -566,7 +566,7 @@ pub(crate) fn app(bundle: &str) -> Option<PathBuf> {
 /// be there too). The ChatGPT chat app has the same name, so the app is known by its bundle id.
 /// From 26.924 the CLI is a package under `codex-cli`; before, a single `codex` binary.
 pub fn codex_app_cli() -> Option<PathBuf> {
-    let apps = ["ChatGPT.app", "Codex.app"].iter().filter_map(|b| app(b)).filter(|a| bundle_id_is(a, "com.openai.codex"));
+    let apps = ["ChatGPT.app", "Codex.app"].iter().filter_map(|b| app(b)).filter(|a| bundle_id_is(a, crate::codex::APP_BUNDLE_ID));
     apps.flat_map(|a| ["Contents/Resources/codex-cli/bin/codex", "Contents/Resources/codex"].map(|p| a.join(p))).find(|p| p.is_file())
 }
 

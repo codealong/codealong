@@ -644,17 +644,17 @@ fn place_for(app: &AppHandle, bar: &tauri::WebviewWindow, mode: Mode) {
     }
 }
 
-/// The app an open target lands in, by bundle ID: the terminal for terminal sessions, else the
-/// Claude or Codex app, or Chrome for a session's tabs there. `terminal` is the terminal's profile in config.toml, where new terminals
-/// open; `host` is the app a live session's terminal is in, which is where focusing it goes.
-pub fn target_app(target_id: &str, terminal: &str, host: Option<&'static str>) -> Option<&'static str> {
+/// The app an open target lands in, by bundle ID: the terminal for terminal sessions, Chrome
+/// for a session's tabs there, else the harness's own app. `terminal` is the terminal's profile
+/// in config.toml, where new terminals open; `host` is the app a live session's terminal is in,
+/// which is where focusing it goes; `own` is the app the session's harness says this way of
+/// opening it lands in (`Adapter::app_bundle`).
+pub fn target_app(target_id: &str, terminal: &str, host: Option<&'static str>, own: Option<&'static str>) -> Option<&'static str> {
     match target_id.rsplit('|').next()? {
         "focus" => host.or_else(|| crate::launch::bundle_id(terminal)),
         "attach" | "resume" => crate::launch::bundle_id(terminal),
-        "claude-app" => Some("com.anthropic.claudefordesktop"),
-        "codex" => Some("com.openai.codex"),
         "chrome" => Some(crate::chrome::BUNDLE_ID),
-        _ => None,
+        _ => own,
     }
 }
 
@@ -1079,14 +1079,21 @@ mod tests {
 
     #[test]
     fn knows_which_app_a_target_lands_in() {
-        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", None), Some("com.mitchellh.ghostty"));
-        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", Some("com.googlecode.iterm2")), Some("com.googlecode.iterm2"));
-        assert_eq!(target_app("s|claude:claude2:1|resume", "ghostty", Some("com.googlecode.iterm2")), Some("com.mitchellh.ghostty"));
-        assert_eq!(target_app("s|claude:claude2:1|resume", "terminal", None), Some("com.apple.Terminal"));
-        assert_eq!(target_app("s|claude:claude:1|claude-app", "ghostty", None), Some("com.anthropic.claudefordesktop"));
-        assert_eq!(target_app("s|codex:codex:1|codex", "ghostty", None), Some("com.openai.codex"));
-        assert_eq!(target_app("s|claude:claude:1|focus", "kitty", None), None);
-        assert_eq!(target_app("l|editor", "ghostty", None), None);
+        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", None, None), Some("com.mitchellh.ghostty"));
+        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", Some("com.googlecode.iterm2"), None), Some("com.googlecode.iterm2"));
+        assert_eq!(target_app("s|claude:claude2:1|resume", "ghostty", Some("com.googlecode.iterm2"), None), Some("com.mitchellh.ghostty"));
+        assert_eq!(target_app("s|claude:claude2:1|resume", "terminal", None, None), Some("com.apple.Terminal"));
+        assert_eq!(target_app("s|claude:claude:1|focus", "kitty", None, None), None);
+        assert_eq!(target_app("l|editor", "ghostty", None, None), None);
+        // A harness's own way lands in its app, which its adapter names; a terminal's never does.
+        let own = |h: crate::model::Harness, action: &str| crate::harness::adapter(h).app_bundle(action);
+        use crate::model::Harness::{Antigravity, Claude, Codex, Opencode};
+        assert_eq!(target_app("s|claude:claude:1|claude-app", "ghostty", None, own(Claude, "claude-app")), Some("com.anthropic.claudefordesktop"));
+        assert_eq!(target_app("s|codex:codex:1|codex", "ghostty", None, own(Codex, "codex")), Some("com.openai.codex"));
+        assert_eq!(target_app("s|antigravity:antigravity:1|antigravity", "ghostty", None, own(Antigravity, "antigravity")), Some("com.google.antigravity"));
+        assert_eq!(target_app("s|claude:claude:1|resume", "ghostty", None, own(Claude, "resume")), Some("com.mitchellh.ghostty"));
+        assert_eq!(target_app("s|claude:claude:1|hosted", "ghostty", None, own(Claude, "hosted")), None);
+        assert_eq!(own(Opencode, "focus"), None);
     }
 
     #[test]

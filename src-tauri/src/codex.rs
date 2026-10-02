@@ -10,6 +10,9 @@ use crate::config::AccountCfg;
 use crate::harness::{Applied, Look, NewLines};
 use crate::model::{Harness, Session, Usage};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item, Page};
+/// The Codex app's bundle ID. The ChatGPT chat app has the same name, so the app is known by this.
+pub const APP_BUNDLE_ID: &str = "com.openai.codex";
+
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parallel_map, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1012,6 +1015,10 @@ impl crate::harness::Adapter for Codex {
             "codex" => crate::launch::open_codex(&crate::launch::codex_thread_url(&s.id)),
             other => anyhow::bail!("Unknown action {other:?}"),
         }
+    }
+
+    fn app_bundle(&self, action: &str) -> Option<&'static str> {
+        (action == "codex").then_some(APP_BUNDLE_ID)
     }
 
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {

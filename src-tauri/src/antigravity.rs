@@ -28,6 +28,8 @@ const SUMMARIES: &str = "conversation_summaries.db";
 const SCRATCH: &str = "scratch";
 /// The command line as its installer names it.
 pub const CLI: &str = "agy";
+/// The hub app's bundle ID.
+pub const APP_BUNDLE_ID: &str = "com.google.antigravity";
 /// `CORTEX_STEP_STATUS_WAITING` in a conversation's `steps` table: the step's permission prompt
 /// is up (read from `agy` 1.2.14's own definitions).
 const STEP_WAITING: i64 = 9;
@@ -803,6 +805,10 @@ impl crate::harness::Adapter for Antigravity {
             "antigravity" => crate::launch::open_antigravity(),
             other => anyhow::bail!("Unknown action {other:?}"),
         }
+    }
+
+    fn app_bundle(&self, action: &str) -> Option<&'static str> {
+        (action == "antigravity").then_some(APP_BUNDLE_ID)
     }
 
     /// Each conversation's transcript, in both folders.

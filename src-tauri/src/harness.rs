@@ -79,6 +79,12 @@ pub trait Adapter: Sync {
         bail!("Unknown action {action:?}")
     }
 
+    /// The app one of those ways lands in, by bundle ID, so it can be asked to come forward
+    /// after an open from a window that leaves Codealong inactive (`bar::target_app`).
+    fn app_bundle(&self, _action: &str) -> Option<&'static str> {
+        None
+    }
+
     /// How a prompt typed into the session's terminal names its attachments: as paths it can
     /// read, or the way the harness itself mentions files.
     fn typed_attachments(&self) -> crate::attachments::Style {
