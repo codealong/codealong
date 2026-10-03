@@ -1,8 +1,20 @@
 // Checks that only a pointer that moved points at a pill on the floating bar (Bar.tsx): when the
 // pills shift as sessions change groups, the one that slides under a still pointer doesn't open
-// the peek, and a move on it does.
+// the peek, and a move on it does. The bar shows three sessions of the check's own in place of
+// the feed's, so it has pills to try whatever this Mac's agents are doing.
 //   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-slide-check.js
 (function () {
+  // Hovering asks nothing of the engine but the peek, so the sessions need be on no board.
+  var made = ['needs', 'unread', 'unread'].map(function (group, n) {
+    var key = 'claude:claude:bar-slide-check-' + n;
+    return { key: key, group: group, status: group, asks: false, title: 'Bar slide session ' + (n + 1), account: 'claude', laneId: '/tmp/bar-slide-check', callsign: 'bar-slide-check', project: '', hidden: false, detail: null, since: Date.now() - (n + 1) * 60e3, openTarget: 's|' + key + '|focus', target: null, snoozedUntil: null, stoppable: false };
+  });
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    var p = real(cmd, args, options);
+    if (cmd !== 'bar_feed') return p;
+    return p.then(function (feed) { return Object.assign({}, feed, { loading: false, items: made, recent: [], snoozed: [], reviews: [], todos: [] }); });
+  };
   var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'peek_open'; }); };
   var at = function (type, el, x, y, from) {
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, screenX: x, screenY: y, clientX: x, clientY: y, relatedTarget: from || null, pointerType: 'mouse' }));
@@ -13,6 +25,7 @@
     .then(function () {
       var hud = document.querySelector('.ca-hud');
       var pills = document.querySelectorAll('.ca-hud [data-key]');
+      check('the bar shows the check’s sessions', pills.length === made.length && made.every(function (m, n) { return pills[n].dataset.key === m.key; }), Array.prototype.map.call(pills, function (p) { return p.dataset.key; }).join(', '));
       var a = pills[0];
       var b = pills[1];
       // The pointer rests on pill a; then b slides under it, which WebKit may report as the
