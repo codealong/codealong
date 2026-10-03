@@ -23,23 +23,59 @@
   var fits = function () { return calls('fit_bar').map(function (a) { return a.width + 'x' + a.height; }); };
   var key = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   // Escape as the window hears it: in the box of a session whose turn is running, it stops the
-  // turn first (SessionReply.tsx), and the board's sessions are whatever they are today.
+  // turn first (SessionReply.tsx).
   var escape = function () { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })); };
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
   var leave = function () { shape().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })); };
 
   // Three of the board's sessions wait on you and one runs, whatever the board has now: the
-  // feed's own first four, said to be so.
-  var items;
-  var feed = fetch('./bar-feed.json').then(function (r) { return r.json(); }).then(function (f) {
-    items = f.items.slice(0, 4).map(function (i, n) {
-      var group = n === 0 ? 'needs' : n < 3 ? 'unread' : 'working';
-      // On the bar whatever its worktree: one the board keeps out of sight isn't.
-      return Object.assign({}, i, { group: group, status: group, snoozedUntil: null, since: 1000 + n, hidden: false });
-    });
-    // Only these on the bar, so the notch is as narrow as a session gets.
-    return Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
+  // feed's first four that are this Mac's own sessions on the board, said to be so. This runs
+  // before the app's script, so both files are read here, at once.
+  var json = function (url) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, false);
+    xhr.send();
+    return JSON.parse(xhr.responseText);
+  };
+  var onBoard = {};
+  json('./board.json').lanes.forEach(function (l) {
+    l.sessions.forEach(function (s) { if (!s.visitor && !s.archived && s.key.charAt(0) !== '@') onBoard[s.key] = true; });
   });
+  var f = json('./bar-feed.json');
+  var items = f.items.filter(function (i) { return onBoard[i.key]; }).slice(0, 4).map(function (i, n) {
+    var group = n === 0 ? 'needs' : n < 3 ? 'unread' : 'working';
+    // On the bar whatever its worktree: one the board keeps out of sight isn't. Only the one
+    // that waits on a call to allow isn't a reply that asks you something.
+    return Object.assign({}, i, { group: group, status: group, asks: false, snoozedUntil: null, since: 1000 + n, hidden: false });
+  });
+  // Only these on the bar, so the notch is as narrow as a session gets.
+  var feed = Promise.resolve(Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] }));
+  // The card under the pills reads its session from the board (session_at), not from its pill:
+  // each says there what its pill says, and each runs in a terminal of its own here, which ⌃⌘W
+  // closes. What the card does with a key goes by this, so it mustn't be whatever the sessions
+  // happened to be doing when the board was read.
+  var said = {};
+  items.forEach(function (i) {
+    said[i.key] = { title: i.title, status: i.status, asks: false, snoozedUntil: null, archived: false, live: true, surface: 'cli', hosted: false, pid: 4242, attachCommand: null };
+  });
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd) {
+    var p = real.apply(this, arguments);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (b) {
+      b.lanes.forEach(function (l) {
+        l.sessions = l.sessions.map(function (s) { return said[s.key] && !s.visitor ? Object.assign({}, s, said[s.key]) : s; });
+      });
+      return b;
+    });
+  };
+  // The name each card shows, which Rename… changes for the first.
+  var names = {};
+  items.forEach(function (i) { names[i.key] = i.title; });
+  // The card shows the session `key` itself, not only its pill marked: going from one to another,
+  // the card keeps the one before until the board's answer for the next comes (NotchSession.tsx),
+  // and its keys are that one's until then.
+  var showing = function (key) { return is('session') && !!pill(key) && pill(key).classList.contains('is-peeked') && title() === names[key]; };
 
   say('notch session check: waiting for it');
   var windowAtStart;
@@ -300,6 +336,7 @@
     .then(function () {
       var renamed = calls('rename_session');
       check('⏎ renames it and the notch closes', renamed.length === 1 && renamed[0].name === 'Renamed in the notch', JSON.stringify(renamed));
+      names[items[0].key] = 'Renamed in the notch';
       return wait(200);
     })
     .then(function () {
@@ -367,15 +404,12 @@
       var back = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /^Back/.test(b.textContent); })[0];
       check('the strip’s Back is there to press', !!back && !back.disabled);
       if (back) back.click();
-      return until(function () { return pill(items[0].key) && pill(items[0].key).classList.contains('is-peeked'); }, 3000, 'Back on the strip');
+      return until(function () { return showing(items[0].key); }, 3000, 'Back on the strip');
     })
     .then(function () {
       check('the strip’s Back goes to the one looked at before', true);
-      var close = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /Close terminal|End job/.test(b.textContent); })[0];
-      if (!close || close.disabled) {
-        check('(the session shown has no terminal to close today)', true);
-        return null;
-      }
+      var close = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /Close terminal/.test(b.textContent); })[0];
+      check('the strip’s Close terminal is there to press', !!close && !close.disabled, close ? 'disabled' : 'no button');
       var closes = calls('close_session').length;
       key({ key: 'w', metaKey: true, ctrlKey: true });
       return until(function () { return calls('close_session').length === closes + 1; }, 2000, '⌃⌘W').then(function () {
@@ -396,7 +430,7 @@
     .then(function () {
       // ⌃⌘1 snoozes the one shown for the first of its menu's times, and it leaves what waits.
       shape().click();
-      return until(function () { return is('session') && document.querySelector('.ca-hud-pill.is-peeked[data-key]'); }, 3000, 'a session, to snooze');
+      return until(function () { var p = document.querySelector('.ca-hud-pill.is-peeked[data-key]'); return p && showing(p.dataset.key); }, 3000, 'a session, to snooze');
     })
     .then(function () { return wait(400); })
     .then(function () {
