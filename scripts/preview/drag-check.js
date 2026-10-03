@@ -7,8 +7,29 @@
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/drag-check.js
-// Sessions, worktrees and PRs need three rows or more.
+// Sessions, worktrees and PRs need three rows or more. The pins are the check's, whatever this
+// Mac has pinned.
 (function () {
+  // The pins the board comes with (as many as you keep) can push the rest of the list below the
+  // window, where a drop lands on the desktop, so the check starts from its own: in Sessions and
+  // Worktrees the shown project's latest session or worktree, so the first drop lands among pins
+  // and the last drag has a pinned row; in PRs none, so the first drop pins the first. This runs
+  // before the app's script, so the first board the page reads has them.
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    var p = real(cmd, args, options);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (b) {
+      // The project the window shows, as boardLists.ts `currentProject` picks it.
+      var picked = localStorage.getItem('codealong.project');
+      var project = picked === 'All projects' || b.projects.some(function (x) { return x.name === picked; }) ? picked : (b.projects.find(function (x) { return x.name !== 'Elsewhere'; }) || { name: 'All projects' }).name;
+      var lanes = b.lanes.filter(function (l) { return !l.hidden && !l.device && (project === 'All projects' || l.project === project); });
+      var latest = function (list) { return list.slice().sort(function (x, y) { return y.lastActivity - x.lastActivity; })[0]; };
+      var lane = latest(lanes);
+      var session = latest([].concat.apply([], lanes.map(function (l) { return l.sessions.filter(function (x) { return !x.visitor && !x.archived; }); })));
+      return Object.assign(b, { pinned: session ? [session.key] : [], pinnedWorktrees: lane ? [lane.id] : [], pinnedPrs: [] });
+    });
+  };
   // Calls since the last `mark()`. The stub finds listeners in __calls, so it's never emptied.
   var from = 0;
   var mark = function () { from = window.__calls.length; };
