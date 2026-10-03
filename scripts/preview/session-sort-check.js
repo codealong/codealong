@@ -30,18 +30,27 @@
       // Drag the first pinned row below the last: it becomes the last pin.
       var first = pinned[0];
       var last = pinned[pinned.length - 1].getBoundingClientRect();
-      window.__calls.length = 0;
+      // The calls from here on. The stub finds the page's listeners in __calls, so it's never emptied.
+      var from = window.__calls.length;
       pointer(first, 'pointerdown', first.getBoundingClientRect().top + 10);
       pointer(window, 'pointermove', last.top + 20);
       pointer(window, 'pointermove', last.bottom - 2);
       pointer(window, 'pointerup', last.bottom - 2);
-      var saved = window.__calls.filter(function (c) { return c[0] === 'set_pinned'; })[0];
+      var saved = window.__calls.slice(from).filter(function (c) { return c[0] === 'set_pinned'; })[0];
       var keys = saved ? saved[1].keys : [];
       var moved = first.id.split('::').pop();
       var shownKeys = pinned.map(function (r) { return r.id.split('::').pop(); });
       var order = keys.filter(function (k) { return shownKeys.indexOf(k) >= 0; });
       check('a drag reorders the pins', order[order.length - 1] === moved, JSON.stringify(order));
-
+      // Sort by is clicked once the list shows the new order. A click in the same turn as the
+      // drop is taken for the click the drag ends in, and swallowed (useRowDrag.tsx); nobody can
+      // click that fast by hand.
+      return until(function () {
+        var now = rows().filter(function (r) { return r.classList.contains('is-pinned'); });
+        return now.length === pinned.length && now[now.length - 1].id === first.id;
+      }, 2000, 'the list showing the dragged pin last');
+    })
+    .then(function () {
       var before = ids();
       check('sorted by status to begin with', sortButton('Status') && sortButton('Status').classList.contains('is-on'));
       sortButton('Started').click();
