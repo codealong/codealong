@@ -1,7 +1,7 @@
 // Checks keeping a session on the desktop (Peek.tsx, kept.rs). In the peek: its header has the
 // pin and not the buttons its menu covers; the pin keeps the session (keep_session); dragging an
 // edge sizes the peek (peek_resize) and letting go keeps it (peek-drag-check.js has dragging it
-// by its header). In a kept session's window: it says
+// by its header); its × puts it away, as Escape does, and keeps nothing. In a kept session's window: it says
 // it's ready (kept_ready), a click takes the keyboard (kept_focus), its edges size it
 // (kept_resize), its header drags it, sending leaves it up, and its × closes it (kept_close).
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/keep-check.js
@@ -24,7 +24,9 @@
       check('the header leaves snoozing, archiving and showing in Codealong to its menu', !button('Snooze') && !button('Snoozed') && !button('Archive') && !button('Show in Codealong') && !!button('More'));
       var w = window.innerWidth, h = window.innerHeight;
       if (!kept) {
-        check('the peek has the pin, and nothing to close', !!button('Keep on the desktop') && !button('Close'));
+        // Its × puts the peek away, as Escape does; it takes nothing off the desktop, so it doesn't
+        // say it does, as a kept session's × does.
+        check('the peek has the pin, and a × that puts it away', !!button('Keep on the desktop') && !!button('Close') && button('Close').title === 'Close (esc)', button('Close') ? button('Close').title : 'no ×');
         check('and follows its card', !document.querySelector('.ca-peek-root.is-filled'));
         button('Keep on the desktop').click();
         check('the pin keeps the session on the desktop', calls('keep_session').length === 1);
@@ -51,6 +53,14 @@
           var r = last('peek_resize');
           check('the corner sizes it both ways', r && r.width === w + 40 && r.height === h + 40, JSON.stringify(r));
           pointer(grip('corner'), 'pointerup', 520, 540, 0);
+          return wait(100);
+        }).then(function () {
+          var hides = calls('peek_hide').length;
+          var keeps = calls('keep_session').length;
+          button('Close').click();
+          return wait(50).then(function () {
+            check('its × puts the peek away and keeps nothing', calls('peek_hide').length === hides + 1 && calls('keep_session').length === keeps && calls('kept_close').length === 0, JSON.stringify([calls('peek_hide').length - hides, calls('keep_session').length - keeps, calls('kept_close').length]));
+          });
         });
       }
       check('a kept session has the × and no pin', !!button('Close') && !button('Keep on the desktop'));
