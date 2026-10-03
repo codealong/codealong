@@ -1,7 +1,7 @@
 // Checks that a worktree's PR opens on GitHub from the rows and cards that show it. In the
-// Sessions and Worktrees views: a click on a row's PR chip opens the PR without selecting the
-// row, a double-click on it opens it once and not the session too, and the row's right-click
-// menu has Open PR. On a session's or worktree's card pinned to the desktop (given a PR and an app
+// Sessions and Worktrees views, where a click on a row is the row's: a click on a row's PR chip
+// selects the row and opens nothing, a double-click on it opens the PR once and not the session
+// too, and the row's right-click menu has Open PR. On a session's or worktree's card pinned to the desktop (given a PR and an app
 // if its worktree has none): the card shows the PR, a click on it opens the PR without showing
 // the peek or opening the card's session, and the card's menu has Open PR, and on a worktree's
 // Open preview.
@@ -85,32 +85,42 @@
     return;
   }
 
+  // On a list's row the chip is the row's to click: a click selects the row and opens nothing,
+  // and a double-click opens the PR in place of the row's session (primitives.tsx chipHandlers).
   var chipRow = function () {
-    var chip = document.querySelector('.ca-board-list [role="option"]:not([aria-selected="true"]) .ca-pr--button');
+    var chip = document.querySelector('.ca-board-list [role="option"]:not([aria-selected="true"]) .ca-pr');
     return chip ? { chip: chip, row: chip.closest('[role="option"]') } : null;
   };
   var selected = function () { var s = document.querySelector('.ca-board-list [role="option"][aria-selected="true"]'); return s && s.id; };
   var hit = null;
   var n = null;
+  // The row and its chip as the page has them now: selecting the row renders it again.
+  var row = function () { return document.getElementById(hit.row.id); };
+  var chip = function () { return row().querySelector('.ca-pr'); };
   say('pr chip check: waiting for a row with a PR');
   until(function () { return !!chipRow(); }, 20000)
+    // What the window does as the board first lands goes first: until its effects have run, the
+    // top row is taken as the one picked (App.tsx `selected`), over a click that came in between.
+    .then(function () { return wait(500); })
     .then(function () {
       hit = chipRow();
       n = number(hit.chip);
+      var opens = calls('open_target').length;
       click(hit.chip, 1);
-      var o = last('open_url');
-      check("a click on a row's PR chip opens the PR", calls('open_url').length === 1 && new RegExp('/pull/' + n + '$').test(o.url), JSON.stringify(o));
       return wait(100).then(function () {
-        check('without selecting the row', selected() !== hit.row.id, String(selected()));
+        check("a click on a row's PR chip selects the row", selected() === hit.row.id, String(selected()));
+        check('and opens nothing', calls('open_url').length === 0 && calls('open_target').length === opens, JSON.stringify(last('open_url') || last('open_target')));
+        check('its tooltip says a double-click opens it', /Double-click to open it on GitHub/.test(chip().title), chip().title);
       });
     })
     .then(function () {
       var opens = calls('open_target').length;
-      twice(chipRow().chip);
+      twice(chip());
       return wait(100).then(function () {
-        check('a double-click on it opens it once', calls('open_url').length === 2, String(calls('open_url').length));
+        var o = last('open_url');
+        check('a double-click on it opens the PR once', calls('open_url').length === 1 && new RegExp('/pull/' + n + '$').test(o.url), JSON.stringify(sent('open_url')));
         check('and not the session', calls('open_target').length === opens, String(calls('open_target').length));
-        rightClick(chipRow().row);
+        rightClick(row());
         return wait(200);
       });
     })
@@ -122,7 +132,7 @@
       return wait(50);
     })
     .then(function () {
-      check('on GitHub', calls('open_url').length === 3 && new RegExp('/pull/' + n + '$').test(last('open_url').url), JSON.stringify(last('open_url')));
+      check('on GitHub', calls('open_url').length === 2 && new RegExp('/pull/' + n + '$').test(last('open_url').url), JSON.stringify(last('open_url')));
       done();
     })
     .catch(stopped);
