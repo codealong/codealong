@@ -85,8 +85,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     panel and the copy's say where it went.
     The copy is a session of its own, with a new ID, and takes the session's place on its todos,
     among the pinned sessions, on its card on the desktop and in its kept window. Claude Code
-    keeps the copy once you send it something; until then it shows the conversation it was
-    moved with, and closed before then it's gone, the session staying in Archived. A turn it's
+    writes nothing of the copy until you send it something, so until then it shows the
+    conversation it was moved with; its terminal closed before then, it stays on the board,
+    stopped, and opening it or sending it a message makes it again from that conversation. A
+    move is noted before the copy starts, and a terminal that doesn't open leaves the session
+    where it was. A turn it's
     taking is stopped first, so the copy goes on from where it was interrupted; a command its
     last turn left running in the background stays behind. A message sent to the old session
     afterwards, from a window or another agent's `codealong session send`, is turned away with

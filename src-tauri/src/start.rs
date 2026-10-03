@@ -612,21 +612,36 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
     let adapter = crate::harness::adapter(s.harness);
     let ctx = crate::harness::Ctx { account };
     let in_background = s.attach_command.is_some();
+    // The move is noted as a fork from another account, which is how the windows tell a move
+    // (lineage.ts), so the shared model needs no word for it that older devices wouldn't read.
+    // Until the copy's first message the note is all there is of it, and it keeps the copy on the
+    // board to go on with however its terminal ends (`claude::Reader::closed_copies`), so the
+    // session is closed only once it's written.
+    let note = |copy: &str| crate::origins::write(copy, key, crate::model::OriginHow::Fork);
     let copy = if in_background {
         adapter.before_start(target, &cwd);
-        adapter.move_to_background(&ctx, s, target, &cwd, prompt)?
+        let copy = adapter.move_to_background(&ctx, s, target, &cwd, prompt)?;
+        // The service picks a job's ID, so it's noted once the job has one.
+        if let Some(copy) = &copy {
+            note(copy).map_err(|e| anyhow!("Its copy started as a job under {to} ({copy}), but the move couldn't be noted, so “{}” stays where it is: {e:#}", s.title))?;
+        }
+        copy
     } else {
         let copy = adapter.move_to(&ctx, s, target, prompt)?;
+        if let Some(copy) = &copy.key {
+            note(copy).map_err(|e| anyhow!("Couldn't note the move, so “{}” stays where it is: {e:#}", s.title))?;
+        }
         adapter.before_start(target, &cwd);
         let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
-        launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &copy.input, &copy.env)?;
+        if let Err(e) = launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &copy.input, &copy.env) {
+            // No copy started, so there's none to keep.
+            if let Some(Err(forgot)) = copy.key.as_deref().map(crate::origins::forget) {
+                eprintln!("The move's terminal didn't open, and its note couldn't be taken back, so its copy shows stopped: {forgot:#}");
+            }
+            return Err(e);
+        }
         copy.key
     };
-    // A fork from another account is how the windows tell a move (lineage.ts), so the shared
-    // model needs no word for it that older devices wouldn't read.
-    if let Some(copy) = &copy {
-        crate::origins::record(copy, key, crate::model::OriginHow::Fork);
-    }
     let mut left = if !s.live {
         String::new()
     } else {
@@ -641,8 +656,7 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
         left.push_str(" It had a command running in the background: ask the copy to start it again if it's still needed.");
     }
     let place = if in_background { "as a background job".to_string() } else { format!("in a new terminal in {}", lane.callsign) };
-    // Claude Code writes the copy's transcript at its first prompt: closed before then, the copy is gone.
-    let goes = if prompt.trim().is_empty() { format!("it goes on {place}, and {to} keeps it once you send it something") } else { format!("it carries on {place}") };
+    let goes = if prompt.trim().is_empty() { format!("it goes on {place}") } else { format!("it carries on {place}") };
     let message = format!("Moved “{}” to {to}: {goes}.{left}", s.title);
     Ok(Started { key: copy, message: Some(message) })
 }

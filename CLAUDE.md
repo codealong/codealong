@@ -703,6 +703,13 @@ Claude Code
   session to another account (`ClaudeCode::move_to`). In a terminal the copy writes its transcript
   only at its first prompt (checked in tmux): until then the registry has it, and the board
   shows it with the conversation it was moved with (`Reader::moved_copy`, from origins.json).
+  Closed before then (killed, its tab closed: 31 s after a move on 2026-10-02), it leaves no
+  transcript and drops out of the registry, so origins.json alone has it, and the board shows it
+  stopped from there (`Reader::closed_copies`). The same `--resume <path> --fork-session
+  --session-id <its id>` starts it again (checked on 2.1.288, 2026-10-03: a copy killed before its
+  first prompt, then run a second time under the same ID, came up as the first had), which is
+  what its resume command and a message sent to it run (`resume_args`). So start.rs notes a move
+  before the copy's terminal opens, and takes the note back when the terminal doesn't.
   `--bg --resume <path> --fork-session` under the other account starts a job there that goes on
   from it (checked 2026-10-02: the roster's `dispatch.launch` was `{mode: "resume", sessionId:
   <the path>, fork: true, restoresTranscript: true}`). Checked 2026-10-02 between two accounts in

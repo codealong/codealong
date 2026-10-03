@@ -920,8 +920,8 @@ impl crate::harness::Adapter for Antigravity {
 
     /// `agy --conversation <id> -i <prompt>` goes on with a conversation in its terminal UI, on
     /// the prompt (checked on 1.2.14).
-    fn resume(&self, account: &AccountCfg, id: &str, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        let input = format!("{} --conversation {id} -i \"${}\"\n", cli_command(account), crate::start::PROMPT_VAR);
+    fn resume(&self, account: &AccountCfg, s: &Session, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        let input = format!("{} --conversation {} -i \"${}\"\n", cli_command(account), s.id, crate::start::PROMPT_VAR);
         Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), crate::attachments::expand(text, crate::attachments::Style::Path).trim().to_string())]))
     }
 
@@ -1182,7 +1182,7 @@ mod tests {
         // An account's own command starts and resumes it.
         let own = AccountCfg { command: Some("agy --sandbox".into()), ..a.clone() };
         assert_eq!(Antigravity.start_in_terminal(&own, &ask("", None)).input, "agy --sandbox\n");
-        let (input, env) = Antigravity.resume(&own, "88db39ed", "-v please").unwrap();
+        let (input, env) = Antigravity.resume(&own, &Session::new(Harness::Antigravity, &own.name, "88db39ed"), "-v please").unwrap();
         assert_eq!(input, format!("agy --sandbox --conversation 88db39ed -i \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
     }

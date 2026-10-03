@@ -124,7 +124,7 @@ pub trait Adapter: Sync {
     /// What a new terminal types to go on with a session that isn't running, on a prompt
     /// (`send::Route::Resume`), and the environment that carries the prompt: typed through the
     /// shell, as a new session's is, so no quoting of yours can break the command.
-    fn resume(&self, _account: &AccountCfg, _id: &str, _text: &str) -> Result<(String, Vec<(String, String)>)> {
+    fn resume(&self, _account: &AccountCfg, _session: &Session, _text: &str) -> Result<(String, Vec<(String, String)>)> {
         bail!("{} can't go on with a session from a prompt.", self.harness().word())
     }
 
@@ -909,11 +909,11 @@ mod tests {
     #[test]
     fn resumes_with_the_prompt_in_the_environment() {
         let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
-        let (input, env) = adapter(Harness::Claude).resume(&account, "abc", "-v please").unwrap();
+        let (input, env) = adapter(Harness::Claude).resume(&account, &Session::new(Harness::Claude, "claude2", "abc"), "-v please").unwrap();
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), " -v please".to_string())]);
         let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
-        let (input, env) = adapter(Harness::Codex).resume(&codex, "01a0e379", "-v please").unwrap();
+        let (input, env) = adapter(Harness::Codex).resume(&codex, &Session::new(Harness::Codex, "codex", "01a0e379"), "-v please").unwrap();
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
     }

@@ -217,8 +217,8 @@ impl crate::harness::Adapter for Codex {
 
     /// `codex resume <id> <prompt>`; its files go as paths, and `--` keeps a prompt that starts
     /// with a dash from reading as an option.
-    fn resume(&self, account: &AccountCfg, id: &str, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        let input = format!("{} resume -- {id} \"${}\"\n", account.command(), crate::start::PROMPT_VAR);
+    fn resume(&self, account: &AccountCfg, s: &Session, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        let input = format!("{} resume -- {} \"${}\"\n", account.command(), s.id, crate::start::PROMPT_VAR);
         Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), crate::attachments::expand(text, crate::attachments::Style::Path).trim().to_string())]))
     }
 

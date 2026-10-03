@@ -155,7 +155,7 @@ pub(super) fn stop_command(account: &crate::config::AccountCfg, attach: &str) ->
 /// it at once (it comes in the environment, as a resume's does); without one it waits for one.
 pub(super) fn fork_as(account: &crate::config::AccountCfg, from: &str, new_id: &str, prompt: &str) -> crate::harness::Typed {
     let key = Session::key_for(Harness::Claude, &account.name, new_id);
-    let mut input = format!("{} --resume {from} --fork-session --session-id {new_id}", account.command());
+    let mut input = format!("{} --resume {}", account.command(), fork_args(from, new_id));
     let mut env = vec![(crate::start::SESSION_VAR.to_string(), key.clone())];
     let prompt = prompt.trim();
     if !prompt.is_empty() {
@@ -166,9 +166,19 @@ pub(super) fn fork_as(account: &crate::config::AccountCfg, from: &str, new_id: &
     crate::harness::Typed { input, env, key: Some(key) }
 }
 
+/// What `--resume` takes to fork `from` (an ID, or a transcript's path quoted for the shell)
+/// into a copy named `new_id`. While nothing has been written under that ID, the same arguments
+/// make the copy again: a copy whose process ended before its first prompt left no transcript,
+/// and a second run with its `--session-id` started it as the first had (checked on 2.1.288,
+/// 2026-10-03).
+pub(super) fn fork_args(from: &str, new_id: &str) -> String {
+    format!("{from} --fork-session --session-id {new_id}")
+}
+
 /// The terminal input that resumes a Claude Code session with a prompt, and the environment
-/// that carries the prompt (`Adapter::resume`).
-pub fn claude_resume_input(account: &AccountCfg, session_id: &str, text: &str) -> (String, Vec<(String, String)>) {
+/// that carries the prompt (`Adapter::resume`). `from` is what `--resume` takes: the session's
+/// ID, or `fork_args` for a moved copy made again.
+pub fn claude_resume_input(account: &AccountCfg, from: &str, text: &str) -> (String, Vec<(String, String)>) {
     let (has_images, has_files) = attachments::kinds(text);
     let mut input = account.command().to_string();
     let mut env = Vec::new();
@@ -178,7 +188,7 @@ pub fn claude_resume_input(account: &AccountCfg, session_id: &str, text: &str) -
             env.push((var.to_string(), dir.to_string_lossy().to_string()));
         }
     }
-    input.push_str(&format!(" --resume {session_id} \"${}\"\n", crate::start::PROMPT_VAR));
+    input.push_str(&format!(" --resume {from} \"${}\"\n", crate::start::PROMPT_VAR));
     env.push((crate::start::PROMPT_VAR.to_string(), crate::start::as_argument(attachments::expand(text, Style::Mention).trim())));
     (input, env)
 }

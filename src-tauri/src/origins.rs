@@ -64,7 +64,9 @@ impl Store {
 
     /// The session `key` moved to (start.rs `move_to`): a fork of it into another account of its
     /// harness that `exists` says is still there, followed on where that one moved too. A copy
-    /// closed before it was sent anything never was, and the session stays where it was.
+    /// closed before it was sent anything is still there, made again when it's next sent
+    /// something (`claude::Reader::closed_copies`); one whose conversation is gone from this Mac
+    /// isn't, and the session stays where it was.
     pub fn moved_to(&self, key: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
         let mut at = key.to_string();
         // Moved back again, a key comes round a second time.
@@ -166,16 +168,27 @@ fn change_in(path: &Path, f: impl FnOnce(&mut Store) -> bool) -> Result<()> {
 
 /// Notes that the session `key` came from `from`. A session never comes from itself.
 pub fn record(key: &str, from: &str, how: OriginHow) {
-    if key == from || key.is_empty() || from.is_empty() {
-        return;
-    }
-    let now = crate::util::now_ms();
-    if let Err(e) = change(|s| {
-        let entry = Entry { from: from.to_string(), how, at: now };
-        s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != how)
-    }) {
+    if let Err(e) = write(key, from, how) {
         eprintln!("Couldn't note where {key} came from: {e:#}");
     }
+}
+
+/// `record`, saying whether it was written: a move's copy is known by this note until its
+/// first message, so the move doesn't go ahead without it.
+pub fn write(key: &str, from: &str, how: OriginHow) -> Result<()> {
+    if key == from || key.is_empty() || from.is_empty() {
+        return Ok(());
+    }
+    let now = crate::util::now_ms();
+    change(|s| {
+        let entry = Entry { from: from.to_string(), how, at: now };
+        s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != how)
+    })
+}
+
+/// Takes back the note of where `key` came from: a move whose copy didn't start.
+pub fn forget(key: &str) -> Result<()> {
+    change(|s| s.sessions.remove(key).is_some())
 }
 
 /// Notes a start from `from` whose session isn't known yet: the next one of `account` in `lane`.

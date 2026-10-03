@@ -47,7 +47,7 @@ use names::name_transcript;
 use registry::{read_registry, registry_of, session_entry, Forks, INPUT_NEEDED, PERMISSION_PROMPT};
 use routes::claude_routes;
 use side::{side_mode, SideCopy};
-use start::{background_args, claude_resume_input, default_model, fork_as, fork_command, start_background, stop_command, EFFORTS, MODELS};
+use start::{background_args, claude_resume_input, default_model, fork_args, fork_as, fork_command, start_background, stop_command, EFFORTS, MODELS};
 use transcript::{parse_transcript, reply_text, tool_request, transcript_cwd, transcript_files, typed_text, PLAN, Parsed};
 use trust::{state_file, trust_folder};
 
@@ -529,8 +529,8 @@ impl crate::harness::Adapter for ClaudeCode {
         true
     }
 
-    fn resume(&self, account: &AccountCfg, id: &str, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        Ok(claude_resume_input(account, id, text))
+    fn resume(&self, account: &AccountCfg, s: &Session, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        Ok(claude_resume_input(account, &resume_args(account, s, home_of_account), text))
     }
 
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it
@@ -752,6 +752,31 @@ impl Reader {
         newest.map(|(path, (_, (_, t, _)))| Source { id: id.to_string(), key: origin.key.clone(), transcript: (path.as_path(), t) })
     }
 
+    /// Copies moved here from another account (start.rs `move_to`) whose process ended before
+    /// their first prompt, with `known` the IDs the account's registry and transcripts have.
+    /// Claude Code wrote nothing of such a copy, and once its process is gone the registry
+    /// doesn't have it either, so Codealong's own note of the move (`origins`) is all there is.
+    /// It shows stopped, dated and worded as the conversation it was moved with, and going on
+    /// with it makes the copy again from that conversation under its own ID, so a move holds
+    /// from the moment it's noted, whatever becomes of the copy's terminal.
+    fn closed_copies(&self, a: &AccountCfg, known: &HashSet<&str>, origins: &crate::origins::Store, look: &Look) -> Vec<Session> {
+        let prefix = format!("{}:{}:", Harness::Claude.config(), a.name);
+        let mut out = Vec::new();
+        for key in origins.sessions.keys() {
+            let Some(id) = key.strip_prefix(&prefix).filter(|id| !known.contains(id)) else { continue };
+            let Some(from) = self.moved_copy(&a.name, origins.origin_of(key)) else { continue };
+            let info = TranscriptInfo { session_id: id.to_string(), limit: None, ..from.transcript.1.clone() };
+            let seen_at = look.seen.seen_at(&from.key).max(look.seen.seen_at(key));
+            let Some(mut s) = crate::board::claude_session(a, None, Some(&info), seen_at, look.now, &crate::board::Quiet::default()) else { continue };
+            s.archived = look.archived_here(key, s.last_activity);
+            s.resume_command = Some(format!("{} --resume {}", a.command(), fork_args(&crate::util::sh_quote(&from.transcript.0.to_string_lossy()), id)));
+            s.continues = Some(from.id);
+            s.origin = Some(SessionOrigin { key: from.key, how: OriginHow::Fork });
+            out.push(s);
+        }
+        out
+    }
+
     fn refresh_registry(&mut self, a: &AccountCfg, now: i64) -> bool {
         let home = a.home_path();
         let fresh = read_registry(&home);
@@ -951,6 +976,7 @@ impl crate::harness::Reader for Reader {
                 out.push(s);
             }
         }
+        out.extend(self.closed_copies(a, &by_id.keys().copied().collect(), &crate::origins::current(), look));
         out
     }
 
@@ -1019,10 +1045,26 @@ fn home_of_account(name: &str) -> Option<PathBuf> {
 /// transcript of its own, the one it goes on from; for a copy moved from another account, the
 /// transcript there by its path, which `--resume` takes too.
 fn resume_from(account: &AccountCfg, s: &Session) -> String {
-    let home = account.home_path();
-    match records_in(account, s, home_of_account).into_iter().find(|p| !p.starts_with(&home)) {
+    match moved_source(account, s, home_of_account) {
         Some(path) => path.to_string_lossy().into_owned(),
         None => s.continues.clone().unwrap_or_else(|| s.id.clone()),
+    }
+}
+
+/// The transcript in another account's folder that a copy moved under `account` goes on from,
+/// while it has none of its own, that account's folder found by `home_of` (`records_in`).
+fn moved_source(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    let home = account.home_path();
+    records_in(account, s, home_of).into_iter().find(|p| !p.starts_with(&home))
+}
+
+/// What `--resume` takes to go on with the session itself: its ID, or, for a copy moved here
+/// that has written nothing yet, the conversation it was moved with, forked again under the
+/// copy's ID (`fork_args`; `Reader::closed_copies`).
+fn resume_args(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Option<PathBuf>) -> String {
+    match moved_source(account, s, home_of) {
+        Some(path) => fork_args(&crate::util::sh_quote(&path.to_string_lossy()), &s.id),
+        None => s.id.clone(),
     }
 }
 
@@ -1155,6 +1197,63 @@ mod tests {
         // A job in its own account whose conversation is gone has none.
         let job = Session { origin: moved("claude:claude2:s0", OriginHow::Fork), continues: Some("s0".into()), ..copy.clone() };
         assert!(records_in(&to, &job, home_of).is_empty());
+    }
+
+    #[test]
+    fn a_moved_copy_closed_before_its_first_message_stays_to_go_on_with() {
+        use crate::harness::Reader as _;
+        use crate::origins::{Entry, Store};
+        let (old_home, new_home) = (crate::fixtures::scratch("closed-copy-from"), crate::fixtures::scratch("closed-copy-to"));
+        let account = |name: &str, home: &Path| AccountCfg { name: name.into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
+        let (from, to) = (account("claude", &old_home), account("claude2", &new_home));
+        let project = old_home.join("projects/-Users-me-app");
+        std::fs::create_dir_all(&project).unwrap();
+        let transcript = project.join("s1.jsonl");
+        std::fs::write(&transcript, r#"{"type":"user","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:00:00.000Z","message":{"role":"user","content":"Fix the build"}}
+{"type":"assistant","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:01:00.000Z","message":{"content":[{"type":"text","text":"Fixed it."}]}}
+"#).unwrap();
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap(), ps: Default::default() };
+        let mut reader = Reader::default();
+        reader.apply(&from, std::slice::from_ref(&transcript), &look);
+        let noted = |key: &str, from: &str, how| (key.to_string(), Entry { from: from.into(), how, at: 0 });
+        let origins = Store {
+            sessions: [noted("claude:claude2:c0", "claude:claude:s1", OriginHow::Fork), noted("claude:claude:f1", "claude:claude:s1", OriginHow::Fork), noted("claude:claude2:b1", "claude:claude:s1", OriginHow::Started)].into(),
+            pending: Vec::new(),
+        };
+
+        // Its process ended before its first message, so Claude Code has nothing of it: it shows
+        // stopped, with the conversation it was moved with. A fork in the same account and a
+        // session the other one started aren't moves.
+        let copies = reader.closed_copies(&to, &HashSet::new(), &origins, &look);
+        assert_eq!(copies.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["claude:claude2:c0"]);
+        let copy = &copies[0];
+        assert_eq!((copy.status, copy.live, copy.cwd.as_str(), copy.first_prompt.as_deref(), copy.continues.as_deref()), (crate::model::Status::Stopped, false, "/Users/me/app", Some("Fix the build"), Some("s1")));
+        assert_eq!(copy.reply_tail.as_deref(), Some("Fixed it."));
+        assert_eq!(copy.origin, Some(SessionOrigin { key: "claude:claude:s1".into(), how: OriginHow::Fork }));
+        assert!(reader.closed_copies(&from, &HashSet::new(), &origins, &look).is_empty());
+
+        // Opened, or sent a message, it's made again from that conversation under its own ID.
+        let path = crate::util::sh_quote(&transcript.to_string_lossy());
+        assert_eq!(copy.resume_command, Some(format!("claude2 --resume {path} --fork-session --session-id c0")));
+        let home_of = |name: &str| (name == "claude").then(|| old_home.to_path_buf());
+        let (input, _) = claude_resume_input(&to, &resume_args(&to, copy, home_of), "Go on");
+        assert_eq!(input, format!("claude2 --resume {path} --fork-session --session-id c0 \"${}\"\n", crate::start::PROMPT_VAR));
+
+        // While its process runs the registry has it, and the reader shows it from there.
+        assert!(reader.closed_copies(&to, &HashSet::from(["c0"]), &origins, &look).is_empty());
+        // With the conversation it was moved with gone too, there's nothing left to go on with.
+        assert!(Reader::default().closed_copies(&to, &HashSet::new(), &origins, &look).is_empty());
+        // Archived, it stays archived until it's active again.
+        let archived = crate::state::SeenState { archived: vec![crate::state::ArchivedSession { key: "claude:claude2:c0".into(), at: copy.last_activity }], ..Default::default() };
+        let look_archived = Look { seen: &archived, ..look };
+        assert!(reader.closed_copies(&to, &HashSet::new(), &origins, &look_archived)[0].archived);
+
+        // Once its first message has written its own transcript, it resumes by its own ID.
+        let own = new_home.join("projects/-Users-me-app");
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::write(own.join("c0.jsonl"), "{}\n").unwrap();
+        assert_eq!(resume_args(&to, &Session { continues: None, ..copy.clone() }, home_of), "c0");
     }
 
     #[test]

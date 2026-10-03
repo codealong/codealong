@@ -476,7 +476,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             }
         }
         Route::Resume => {
-            let (input, env) = adapter.resume(account, &session.id, text)?;
+            let (input, env) = adapter.resume(account, session, text)?;
             launch::terminal_run(&cfg.apps.terminal, place, Path::new(&session.cwd), &input, &env)?;
             Ok(Tried::Sent(sent(format!("Resumed {title} in {} with this prompt.", launch::terminal_name(&cfg.apps.terminal)))))
         }
