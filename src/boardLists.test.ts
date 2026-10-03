@@ -170,6 +170,15 @@ describe('the Sessions view’s lists', () => {
     expect(y).toBe(plain);
   });
 
+  it('gives back the same copy of a worktree that is the same object, so its row can skip rendering, and a new one for a worktree that changed', () => {
+    const [first] = unarchived([a]);
+    expect(unarchived([a])[0]).toBe(first);
+    const changed = { ...a, sessions: [...a.sessions, session('claude:claude:new')] };
+    const [next] = unarchived([changed]);
+    expect(next).not.toBe(first);
+    expect(next.sessions.map((s) => s.key)).toEqual(['claude:claude:old', 'claude:claude:live', 'claude:claude:v', 'claude:claude:new']);
+  });
+
   it('lists the project’s archived sessions, the latest first, without visitors', () => {
     expect(archivedIn([a, b], 'Acme').map((r) => r.key)).toEqual(['/r/a::claude:claude:gone']);
     expect(archivedIn([a, b], ALL_PROJECTS).map((r) => r.key)).toEqual(['/r/b::claude:claude:gone2', '/r/a::claude:claude:gone']);

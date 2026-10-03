@@ -7,7 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { byDevice, needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, filterByAge, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
@@ -113,9 +113,12 @@ export function prIn(r: PrRowItem, f: Filter): boolean {
   }
 }
 
-/** Every worktree with its archived sessions left out: they leave every view but the Archived list. */
+const UNARCHIVED: LaneCopies = new WeakMap();
+
+/** Every worktree with its archived sessions left out: they leave every view but the Archived list.
+ *  A worktree that's the same object as at the last push gives back the same copy (`keptCopy`). */
 export function unarchived(lanes: Lane[]): Lane[] {
-  return lanes.map((l) => (l.sessions.some((s) => s.archived) ? { ...l, sessions: l.sessions.filter((s) => !s.archived) } : l));
+  return lanes.map((l) => (l.sessions.some((s) => s.archived) ? keptCopy(l, UNARCHIVED, '', () => ({ ...l, sessions: l.sessions.filter((s) => !s.archived) })) : l));
 }
 
 /** The project's archived sessions, the latest first, for the Archived list. */

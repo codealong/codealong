@@ -2,7 +2,8 @@
 // works on a session's row: an agent's line on its worktree's row in Worktrees, a row of its own
 // in Sessions, either way with the id `row-<lane id>::<session key>`, where a worktree without
 // agent lines has its lane id alone. A push that changes the session shows on its row and renders
-// that worktree's rows again while every other row, in the list and the sidebar, skips rendering;
+// that worktree's rows again while every other row, in the list and the sidebar, skips rendering,
+// another worktree's that the check gave an archived session included;
 // a todo linked later appears; a double-click opens where the latest push says the session lives;
 // the arrow keys move the selection; and a hidden window catches up when it's shown.
 //   PREVIEW_WAIT=120000 scripts/preview.sh worktrees '' scripts/preview/rows-check.js
@@ -122,6 +123,40 @@
     }
     return Promise.resolve();
   };
+  // The lists show a worktree that has an archived session as a copy without it (boardLists.ts
+  // `unarchived`), and a copy made afresh on every push renders its row every time. So another
+  // listed worktree is given an archived session, and an agent's line if it has none, before the
+  // pushes below: its row must skip them too, whether or not this Mac has archived sessions.
+  var other = null;
+  var archiveElsewhere = function () {
+    var all = options();
+    var lanes = [];
+    for (var i = 0; i < all.length; i++) {
+      var key = all[i].id.slice(4);
+      var lane = laneIn(base, laneOf(key));
+      if (!lane || lane.id === pick.lane || lane.device) continue;
+      var own = lane.sessions.filter(function (s) { return !s.visitor && !s.archived; });
+      if (own.length > 0) lanes.push({ lane: lane, own: own, line: key.indexOf('::') > 0 });
+    }
+    // One with an agent's line first: that's the row that held its worktree in a field of its own.
+    var hit = lanes.filter(function (l) { return l.line; })[0] || lanes[0];
+    if (!hit) return Promise.resolve();
+    other = hit.lane.id;
+    var newest = hit.own.reduce(function (a, s) { return s.lastActivity > a.lastActivity ? s : a; });
+    push(function () {
+      if (!hit.line) newest.status = 'unread';
+      var gone = JSON.parse(JSON.stringify(newest));
+      gone.key = newest.key + '-rows-check-archived';
+      gone.id = newest.id + '-rows-check-archived';
+      gone.archived = true;
+      gone.status = 'idle';
+      hit.lane.sessions.push(gone);
+    });
+    return until(function () { return !!document.querySelector('[id^="row-' + CSS.escape(other) + '::"]'); }, 5000).then(
+      function () { return wait(500); },
+      function () { other = null; },
+    );
+  };
   var pick = null;
   var row = function () { return document.getElementById(pick.id); };
   var sessionIn = function (b) {
@@ -180,6 +215,9 @@
     pick = pickRow();
     check('session row', !!pick, pick ? (made ? 'one pushed as unread' : '') : made ? 'one pushed as unread got no line' : 'none on the board');
     if (!pick) throw new Error('no session row');
+    return archiveElsewhere();
+  }).then(function () {
+    check('another worktree with an archived session', !!other, 'no other worktree listed with a session');
     return update(1);
   }).then(function () {
     // 2. A todo linked to the session afterwards shows on its row. It goes first: a row shows its

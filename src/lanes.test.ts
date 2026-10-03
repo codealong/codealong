@@ -54,6 +54,16 @@ describe('ageFiltered', () => {
     expect(ageFiltered(l, NOW - 4 * DAY, '')).toBe(l);
     expect(ageFiltered(l, 0, '')).toBe(l);
   });
+
+  it('gives back the same copy for the same lane and cutoff, so its row can skip rendering between pushes', () => {
+    const l = lane([stuck, mine], null);
+    const first = ageFiltered(l, NOW - DAY, 'in the last 24 hours');
+    expect(ageFiltered(l, NOW - DAY, 'in the last 24 hours')).toBe(first);
+    const later = ageFiltered(l, NOW - DAY + 15_000, 'in the last 24 hours');
+    expect(later).not.toBe(first);
+    expect(later.sessions.map((s) => s.key)).toEqual(['mine']);
+    expect(ageFiltered({ ...l }, NOW - DAY, 'in the last 24 hours')).not.toBe(first);
+  });
 });
 
 describe('filterByAge', () => {

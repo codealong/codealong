@@ -329,13 +329,33 @@ function withSessions(lane: Lane, sessions: Session[], since: string): Lane {
   return { ...lane, sessions, bay, glyph, headline, detail };
 }
 
+/** The copies of worktrees one of the lists makes, each with what it was made for. */
+export type LaneCopies = WeakMap<Lane, { args: string; copy: Lane }>;
+
+/**
+ * The copy of `lane` that `make` made for `args` the last time it was asked, while `lane` is the
+ * same object and `args` the same; else a new one, kept in `copies`. A push hands back every
+ * worktree that didn't change as the same object (reuse.ts), so its copy stays the same too, and
+ * its row skips rendering (memoRow.ts) where a fresh copy would render it again on every push.
+ */
+export function keptCopy(lane: Lane, copies: LaneCopies, args: string, make: () => Lane): Lane {
+  const kept = copies.get(lane);
+  if (kept && kept.args === args) return kept.copy;
+  const copy = make();
+  copies.set(lane, { args, copy });
+  return copy;
+}
+const AGED: LaneCopies = new WeakMap();
+
 /** The lane with only the sessions active since `cutoff`. */
 export function ageFiltered(lane: Lane, cutoff: number, since: string): Lane {
   if (cutoff <= 0) return lane;
-  return withSessions(
-    lane,
-    lane.sessions.filter((s) => s.lastActivity >= cutoff),
-    since,
+  return keptCopy(lane, AGED, `${cutoff} ${since}`, () =>
+    withSessions(
+      lane,
+      lane.sessions.filter((s) => s.lastActivity >= cutoff),
+      since,
+    ),
   );
 }
 
