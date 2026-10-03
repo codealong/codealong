@@ -70,7 +70,17 @@ if [ -d "$old" ]; then
   "$lsregister" -u "$old" 2>/dev/null || true
   rm -rf "$old"
 fi
-open "$app" || { sleep 2; open "$app"; }
+# The app gets the environment the Dock gives it, not this shell's: `open` hands its own
+# environment to the app it starts, and an agent's shell holds its session's ID, message socket
+# and token (CLAUDE_CODE_*), its editor's variables (VSCODE_*, ELECTRON_RUN_AS_NODE) and a PATH of
+# its own, which the app passed on to every process it started, long after that session had ended.
+me="$(id -un)"
+dock=(HOME="$HOME" USER="$me" LOGNAME="$me" SHELL="${SHELL:-/bin/zsh}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)")
+agent="$(launchctl getenv SSH_AUTH_SOCK || true)"
+[ -z "$agent" ] || dock+=(SSH_AUTH_SOCK="$agent")
+[ -z "${__CF_USER_TEXT_ENCODING:-}" ] || dock+=(__CF_USER_TEXT_ENCODING="$__CF_USER_TEXT_ENCODING")
+open_app() { env -i "${dock[@]}" /usr/bin/open "$app"; }
+open_app || { sleep 2; open_app; }
 
 # Names what was launched, for the agent reporting it: the commit, where it stands against
 # origin/main, and whether uncommitted changes went into the build.
