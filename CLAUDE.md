@@ -431,6 +431,10 @@ some work is, answer with one.
   `readStored`/`writeStored` where a change isn't always kept. A key and the way its value is
   written never change, or people's choices are lost. A value that a listener, timer or
   callback reads after its render is `useLatest` (`latest.ts`).
+- Settings are read with `config::current()`: in the app, the ones its engine runs on (the last
+  good ones while config.toml doesn't parse, which a notice says); elsewhere, config.toml itself,
+  or an error that names it. Nothing reads the file again for itself or falls back to the
+  defaults, which have no accounts.
 - What AppKit is told about the windows that float (the bar, its peek, the quick panel, the
   cards and sessions kept on the desktop, the lines between cards) is in `src-tauri/src/panel.rs`
   and nowhere else: a window's module says what kind of panel it is (`panel::Config`) and when
