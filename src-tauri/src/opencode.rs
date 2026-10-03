@@ -794,7 +794,7 @@ impl crate::harness::Adapter for OpenCode {
     }
 
     fn places(&self, _account: &crate::config::AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Codealong])
+        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background, crate::start::Place::Codealong])
     }
 
     /// Its messages are rows in its database.

@@ -27,7 +27,7 @@ pub fn run(apps: &AppNames, near: &[Vec<String>], dir: &Path, block: &str) -> Re
     if !dir.is_absolute() || !dir.is_dir() {
         bail!("It would run in {}, which isn't there any more.", tilde(dir));
     }
-    launch::terminal_open(&apps.terminal_id, launch::Placement { new_terminal: apps.new_terminal, near }, dir, Some(&typed))
+    launch::terminal_open(&apps.terminal_id, launch::Placement { new_terminal: apps.new_terminal, near, behind: false }, dir, Some(&typed))
 }
 
 /// What a line ends inside, for the lines after it.

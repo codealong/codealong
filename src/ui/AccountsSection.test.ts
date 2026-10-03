@@ -37,8 +37,8 @@ describe('startPlaces', () => {
     expect(startPlaces('claude', '~/.claude')).toEqual(['terminal', 'background', 'claude-app', 'codealong']);
     expect(startPlaces('claude', '/Users/me/.claude/')).toEqual(['terminal', 'background', 'claude-app', 'codealong']);
     expect(startPlaces('claude', '~/.claude2')).toEqual(['terminal', 'background', 'codealong']);
-    expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app', 'terminal', 'codealong']);
-    expect(startPlaces('codex', '~/.codex2')).toEqual(['terminal', 'codealong']);
-    expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal', 'codealong']);
+    expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app', 'terminal', 'background', 'codealong']);
+    expect(startPlaces('codex', '~/.codex2')).toEqual(['terminal', 'background', 'codealong']);
+    expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal', 'background', 'codealong']);
   });
 });

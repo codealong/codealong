@@ -828,8 +828,10 @@ export type StartPlace = 'terminal' | 'background' | 'claude-app' | 'codex-app' 
 export interface StartAccount {
   name: string;
   harness: Harness;
-  /** Where this account can start a session, the usual place first: the one `start` names, when set. */
-  places: { place: StartPlace; label: string }[];
+  /** Where this account can start a session, the usual place first: the one `start` names, when set.
+   *  `behind`, on Background: its harness has no background service of its own, so the session
+   *  starts in the terminal, behind your windows (missing from Macs before 2026-10-03). */
+  places: { place: StartPlace; label: string; behind?: boolean }[];
   /** The place its `start` setting names; starts go there rather than where the last one went. */
   chosen: StartPlace | null;
   /** Why there's nowhere, when `places` is empty. */

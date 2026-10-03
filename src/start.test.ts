@@ -292,7 +292,7 @@ describe('what the quick panel says of a start', () => {
     { id: 'haiku', label: 'Haiku: the fastest' },
   ];
   const where = { repo: 'app', callsign: 'feature' };
-  const plan = (over: Partial<StartPlan>): StartPlan => ({ lane: where, account: 'work', place: 'terminal', mac: null, reading: false, newWorktree: false, onModel: '', prompted: false, terminal: 'Ghostty', ...over });
+  const plan = (over: Partial<StartPlan>): StartPlan => ({ lane: where, account: 'work', place: 'terminal', mac: null, reading: false, newWorktree: false, onModel: '', prompted: false, terminal: 'Ghostty', behind: false, ...over });
 
   it('says what each place does with the session', () => {
     expect(startHappens(plan({}))).toBe('Ghostty starts work in feature.');
@@ -300,6 +300,7 @@ describe('what the quick panel says of a start', () => {
     expect(startHappens(plan({ newWorktree: true }))).toBe('Claude Code makes a new worktree of app and starts work there in Ghostty.');
     expect(startHappens(plan({ place: 'background' }))).toBe('work starts in the background in feature, with no terminal. Attach one any time.');
     expect(startHappens(plan({ place: 'background', newWorktree: true, prompted: true }))).toBe('Claude Code makes a new worktree of app and starts work there in the background with this prompt. Attach a terminal any time.');
+    expect(startHappens(plan({ place: 'background', behind: true, prompted: true }))).toBe('Ghostty starts work in feature with this prompt, behind your windows, so you stay where you are.');
     expect(startHappens(plan({ place: 'codealong', prompted: true }))).toBe('Codealong runs work in feature with this prompt. Its panel here shows the reply, takes the next prompt and answers what it asks.');
     expect(startHappens(plan({ place: 'claude-app' }))).toBe('The Claude app opens a new session in feature. You send it from there.');
     expect(startHappens(plan({ place: 'claude-app', prompted: true }))).toBe('The Claude app opens a new session in feature with this prompt filled in. You send it from there.');

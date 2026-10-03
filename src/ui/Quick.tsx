@@ -935,6 +935,7 @@ export function Quick() {
     onModel,
     prompted,
     terminal: terminalName,
+    behind: places.find((p) => p.place === 'background')?.behind ?? false,
   });
   // Only the new-thread page adds the folder as a project; a thread Codealong starts on a prompt
   // shows under the app's Recents.

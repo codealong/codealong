@@ -652,6 +652,11 @@ impl crate::harness::Adapter for ClaudeCode {
     /// A background session, under the account's background service. Its arguments are quoted
     /// in the command itself: the service the session runs under may start from this shell and
     /// keep its environment, so nothing is handed over in that.
+    /// `--bg` runs it under the account's background service.
+    fn runs_in_background(&self) -> bool {
+        true
+    }
+
     fn background_command(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> String {
         format!("{}{}", account.command(), background_args(ask.prompt, ask.model, ask.effort, ask.worktree, (ask.images_dir, ask.files_dir)))
     }

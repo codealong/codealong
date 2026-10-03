@@ -1690,8 +1690,9 @@ Options:
 
           Possible values:
           - terminal
-          - background: Claude Code's background service, with no terminal until you
-            attach one
+          - background: Nothing comes forward: Claude Code's background service, with no
+            terminal until you attach one; any other agent in a terminal opened behind
+            your windows
           - claude-app
           - codex-app
           - codealong:  In Codealong itself, over the account's Agent Client Protocol

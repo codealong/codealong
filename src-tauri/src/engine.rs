@@ -395,7 +395,7 @@ impl Handle {
     pub fn sign_in(&self, name: &str) -> Result<()> {
         let cfg = config::current()?;
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
-        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false };
         launch::terminal_open(&cfg.apps.terminal, place, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
     }
 
@@ -429,7 +429,7 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
     let apps = board.apps.clone();
     let path = PathBuf::from(&lane.path);
     let near = board::terminal_neighbours(&board.lanes, &path);
-    let place = launch::Placement { new_terminal: apps.new_terminal, near: &near };
+    let place = launch::Placement { new_terminal: apps.new_terminal, near: &near, behind: false };
     let parts: Vec<&str> = target_id.splitn(3, '|').collect();
     match parts.as_slice() {
         ["s", key, action] => {

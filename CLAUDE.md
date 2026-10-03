@@ -527,8 +527,8 @@ a change to what's sent shows there. Adding one:
      (the keys typed in place of Return);
    - acting on it: `fork`, `fork_background`, `move_to`, `side`, `stop`, `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
-   - starting (start.rs): `places`, `start_in_terminal`, `background_command` and
-     `start_in_background`, `app_link` and `start_in_app`, `models`, `takes_model`,
+   - starting (start.rs): `places`, `start_in_terminal`, `runs_in_background` with
+     `background_command` and `start_in_background`, `app_link` and `start_in_app`, `models`, `takes_model`,
      `offers_model`, `efforts`, `default_model`, `makes_worktrees`, `before_start`,
      `app_projects`;
    - search (search.rs): `search_files` and `prose` for records that are files of lines, `said`
@@ -1326,6 +1326,14 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   next turn. `current date` inside `tell application "Ghostty"` goes to Ghostty first.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
+- `new window` and `new tab` each ask for Ghostty to be the active app as they open, whatever
+  the script does after (1.3.1's TerminalController `newWindow` and `newTab` call
+  `NSApp.activate(ignoringOtherApps: true)`), and `new tab` makes the new tab the selected one.
+  A Background start of an agent with no background service of its own (Codex, OpenCode,
+  Antigravity) leaves out the script's own `activate window` and `activate`
+  (`launch::Placement::behind`), as iTerm2's and Terminal's do theirs. Not yet checked by hand
+  (2026-10-03): whether macOS lets Ghostty's own ask through while another app is active, which
+  would bring it forward anyway.
 - A tab on another desktop (a Space): `select tab` and `activate window` are
   `makeKeyAndOrderFront`, the second with `NSApp.activate` after it, and `focus` does the same on
   Ghostty's next turn (1.3.1's ScriptTab.swift, ScriptWindow.swift, BaseTerminalController.swift),

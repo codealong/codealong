@@ -796,7 +796,7 @@ impl crate::harness::Adapter for Antigravity {
     /// The command line starts a conversation in a terminal; the app only in its own window.
     fn places(&self, account: &AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
         if account.command.is_some() || cli_installed(home) {
-            Ok(vec![crate::start::Place::Terminal])
+            Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background])
         } else {
             Err(format!("The Antigravity app starts conversations only in its own window. With its command line, {CLI}, installed, {} can start them in a terminal from here.", account.name))
         }

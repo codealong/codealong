@@ -54,7 +54,7 @@ static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 /// Every AppleScript by the hash of its text, so a test names the script that was sent and a
 /// script whose text changed stops being known. Terminal's TYPE and TYPE_LINE are the same text.
 const SCRIPTS: &[(&str, u64)] = &[
-    ("GHOSTTY_NEW", 0x6b68184112ed90d1),
+    ("GHOSTTY_NEW", 0x19596e4c21632b11),
     ("GHOSTTY_LIST", 0xb5f37a7f6c1d405c),
     ("GHOSTTY_FOCUS", 0xb14d181bda8dc4d7),
     ("GHOSTTY_FIND", 0xca41f3863d4f0749),
@@ -63,7 +63,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("GHOSTTY_CLOSE", 0x838b3e2c07f8f8ef),
     ("GHOSTTY_KEY", 0xe38cd6b6c3f7bf31),
     ("GHOSTTY_ACTION", 0x7b0d78d41a2bbe02),
-    ("ITERM_NEW", 0xdbc894bebe8e4047),
+    ("ITERM_NEW", 0xa921c82270e903da),
     ("ITERM_LIST", 0x5062105823ca2b42),
     ("ITERM_IN_FRONT", 0x77aa4e86c8f0c7b0),
     ("ITERM_TTYS", 0x7ea1519eae6b1ee2),
@@ -72,7 +72,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("ITERM_TYPE_LINE+SESSION_ON", 0x9a72e6983148ca8d),
     ("ITERM_PRESS+SESSION_ON", 0xdd3dee147c2951f2),
     ("ITERM_CLOSE+SESSION_ON", 0xd63cd2b0deb962da),
-    ("TERMINAL_NEW", 0x1d427a93217e4252),
+    ("TERMINAL_NEW", 0x6694c693b39996f1),
     ("TERMINAL_IN_FRONT", 0x45e9e0062546e5c4),
     ("TERMINAL_TTYS", 0x8ee9c7bb3dfcb130),
     ("TERMINAL_FOCUS+TAB_ON", 0x7ae29d2776b9d20b),
@@ -284,7 +284,7 @@ mod tests {
     const ITERM_TABS: &str = "/dev/ttys201\t/r/app\t✳ Fix the login\n/dev/ttys202\t/r/other\tcodex\n";
 
     fn window() -> Placement<'static> {
-        Placement { new_terminal: NewTerminal::Window, near: &[] }
+        Placement { new_terminal: NewTerminal::Window, near: &[], behind: false }
     }
 
     fn err<T>(r: anyhow::Result<T>) -> String {
@@ -300,29 +300,34 @@ mod tests {
         let env = [("CODEALONG_PROMPT".to_string(), "Fix the 'flaky' test".to_string()), ("CODEALONG_FILES".to_string(), "/tmp/files".to_string())];
         let p = played(|_| Ok("ok\n".into()), || terminal_run("ghostty", window(), Path::new("/r/my app"), "claude2 --session-id x \"$CODEALONG_PROMPT\"\n", &env));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/my app", "claude2 --session-id x \"$CODEALONG_PROMPT\"\n", "CODEALONG_PROMPT=Fix the 'flaky' test", "CODEALONG_FILES=/tmp/files"]"#]);
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/my app", "claude2 --session-id x \"$CODEALONG_PROMPT\"\n", "front", "CODEALONG_PROMPT=Fix the 'flaky' test", "CODEALONG_FILES=/tmp/files"]"#]);
         assert!(p.launchers.is_empty(), "Ghostty takes the folder and environment itself");
 
-        let tab = Placement { new_terminal: NewTerminal::Tab, near: &[] };
+        let tab = Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false };
         let p = played(|_| Ok("ok\n".into()), move || terminal_run("ghostty", tab, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["front", "", "/r/app", "ls\n"]"#]);
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["front", "", "/r/app", "ls\n", "front"]"#]);
+        // A Background start: Ghostty isn't asked to come forward.
+        let behind = Placement { behind: true, ..tab };
+        let p = played(|_| Ok("ok\n".into()), move || terminal_run("ghostty", behind, Path::new("/r/app"), "ls\n", &[("A".to_string(), "1".to_string())]));
+        p.got.unwrap();
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["front", "", "/r/app", "ls\n", "behind", "A=1"]"#]);
 
         // Beside the tabs of the nearest folders that have any: Ghostty is asked what it has.
         let near = [vec!["/r/app-pins".to_string()], vec!["/r/app".to_string(), "/r/else".to_string()]];
         let answer = |s: &Sent| Ok(if s.what == "GHOSTTY_LIST" { GHOSTTY_TABS.to_string() } else { "ok\n".into() });
-        let p = played(answer, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &near }, Path::new("/r/app"), "ls\n", &[]));
+        let p = played(answer, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false }, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["beside", "T1\nT3", "/r/app", "ls\n"]"#]);
+        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["beside", "T1\nT3", "/r/app", "ls\n", "front"]"#]);
 
         // No tab near, or Ghostty not saying: a window.
         let far = [vec!["/r/none".to_string()]];
-        let p = played(answer, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &far }, Path::new("/r/app"), "ls\n", &[]));
+        let p = played(answer, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &far, behind: false }, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["window", "", "/r/app", "ls\n"]"#]);
-        let p = played(|s| if s.what == "GHOSTTY_LIST" { Err("boom".into()) } else { Ok("ok\n".into()) }, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &near }, Path::new("/r/app"), "ls\n", &[]));
+        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["window", "", "/r/app", "ls\n", "front"]"#]);
+        let p = played(|s| if s.what == "GHOSTTY_LIST" { Err("boom".into()) } else { Ok("ok\n".into()) }, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false }, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["window", "", "/r/app", "ls\n"]"#]);
+        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["window", "", "/r/app", "ls\n", "front"]"#]);
 
         // What goes wrong is said in Ghostty's name.
         let p = played(|_| Err(NOT_ALLOWED.into()), || terminal_run("ghostty", window(), Path::new("/r/app"), "ls\n", &[]));
@@ -331,18 +336,18 @@ mod tests {
         assert_eq!(err(p.got), "Ghostty didn't answer within a minute. It may still open the window; if macOS asked whether Codealong may control Ghostty, allow it and try again.");
         let p = played(|_| Err("boom".into()), || terminal_run("ghostty", window(), Path::new("/r/app"), "", &[]));
         assert_eq!(err(p.got), "Ghostty didn't respond: boom");
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", ""]"#], "a run has no other way to open");
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "", "front"]"#], "a run has no other way to open");
     }
 
     #[test]
     fn ghostty_opens_a_plain_window_another_way_when_its_script_fails() {
         let p = played(|_| Ok("ok\n".into()), || terminal_open("ghostty", window(), Path::new("/r/app"), None));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", ""]"#]);
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "", "front"]"#]);
 
         let p = played(|s| if s.what == "GHOSTTY_NEW" { Err(NOT_ALLOWED.into()) } else { Ok(String::new()) }, || terminal_open("ghostty", window(), Path::new("/r/app"), None));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", ""]"#, r#"/usr/bin/open ["-na", "Ghostty.app", "--args", "--working-directory=/r/app"] (10s)"#]);
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "", "front"]"#, r#"/usr/bin/open ["-na", "Ghostty.app", "--args", "--working-directory=/r/app"] (10s)"#]);
 
         // That failing too, the script's own failure is the one said.
         let p = played(|s| Err(if s.what == "GHOSTTY_NEW" { "boom" } else { "no such app" }.into()), || terminal_open("ghostty", window(), Path::new("/r/app"), None));
@@ -352,10 +357,10 @@ mod tests {
         // With something to type there's no other way.
         let p = played(|_| Err("boom".into()), || terminal_open("ghostty", window(), Path::new("/r/app"), Some("claude --resume x\n")));
         assert_eq!(err(p.got), "Ghostty didn't respond: boom");
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "claude --resume x\n"]"#]);
-        let p = played(|_| Ok("ok\n".into()), || terminal_open("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &[] }, Path::new("/r/app"), Some("claude --resume x\n")));
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "claude --resume x\n", "front"]"#]);
+        let p = played(|_| Ok("ok\n".into()), || terminal_open("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false }, Path::new("/r/app"), Some("claude --resume x\n")));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["front", "", "/r/app", "claude --resume x\n"]"#]);
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["front", "", "/r/app", "claude --resume x\n", "front"]"#]);
     }
 
     #[test]
@@ -368,13 +373,13 @@ mod tests {
                 _ => "/dev/ttys210\n".to_string(),
             })
         };
-        let p = played(answer, || terminal_run("iterm2", Placement { new_terminal: NewTerminal::Project, near: &near }, Path::new("/r/my app"), "claude2 --session-id x\n", &env));
+        let p = played(answer, || terminal_run("iterm2", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false }, Path::new("/r/my app"), "claude2 --session-id x\n", &env));
         p.got.unwrap();
         assert_eq!(
             p.log,
             [
                 "ITERM_LIST []",
-                r#"ITERM_NEW ["beside", "/dev/ttys202", "/bin/sh 'LAUNCHER'"]"#,
+                r#"ITERM_NEW ["beside", "/dev/ttys202", "/bin/sh 'LAUNCHER'", "front"]"#,
                 "wait for shell /dev/ttys210 after LAUNCHER",
                 r#"ITERM_TYPE_LINE+SESSION_ON ["/dev/ttys210", "\u{15}claude2 --session-id x"]"#,
             ]
@@ -384,14 +389,17 @@ mod tests {
         // A window, a tab in the front window, and nothing to type.
         let p = played(answer, || terminal_run("iterm2", window(), Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log[0], r#"ITERM_NEW ["window", "", "/bin/sh 'LAUNCHER'"]"#);
+        assert_eq!(p.log[0], r#"ITERM_NEW ["window", "", "/bin/sh 'LAUNCHER'", "front"]"#);
         assert_eq!(p.log.len(), 3);
-        let p = played(answer, || terminal_open("iterm2", Placement { new_terminal: NewTerminal::Tab, near: &[] }, Path::new("/r/app"), Some("ls\n")));
+        let p = played(answer, || terminal_open("iterm2", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false }, Path::new("/r/app"), Some("ls\n")));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"ITERM_NEW ["front", "", "/bin/sh 'LAUNCHER'"]"#, "wait for shell /dev/ttys210 after LAUNCHER", r#"ITERM_TYPE_LINE+SESSION_ON ["/dev/ttys210", "\u{15}ls"]"#]);
+        assert_eq!(p.log, [r#"ITERM_NEW ["front", "", "/bin/sh 'LAUNCHER'", "front"]"#, "wait for shell /dev/ttys210 after LAUNCHER", r#"ITERM_TYPE_LINE+SESSION_ON ["/dev/ttys210", "\u{15}ls"]"#]);
         let p = played(answer, || terminal_open("iterm2", window(), Path::new("/r/app"), None));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"ITERM_NEW ["window", "", "/bin/sh 'LAUNCHER'"]"#]);
+        assert_eq!(p.log, [r#"ITERM_NEW ["window", "", "/bin/sh 'LAUNCHER'", "front"]"#]);
+        let p = played(answer, || terminal_open("iterm2", Placement { behind: true, ..window() }, Path::new("/r/app"), None));
+        p.got.unwrap();
+        assert_eq!(p.log, [r#"ITERM_NEW ["window", "", "/bin/sh 'LAUNCHER'", "behind"]"#], "a Background start doesn't bring iTerm2 forward");
         assert_eq!(p.launchers, ["rm -f 'LAUNCHER'\ncd '/r/app' 2>/dev/null\nexec SHELL -l"]);
 
         // What goes wrong, and the launcher (which can hold a prompt) taken away with it.
@@ -412,12 +420,12 @@ mod tests {
         let near = [vec!["/r/app".to_string()]];
         let answer = |_: &Sent| Ok("/dev/ttys310\n".to_string());
         // Terminal can't open a tab from a script: wherever it's meant to go, a window.
-        let p = played(answer, || terminal_run("terminal", Placement { new_terminal: NewTerminal::Project, near: &near }, Path::new("/r/my app"), "codex -- \"$CODEALONG_PROMPT\"\n", &env));
+        let p = played(answer, || terminal_run("terminal", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false }, Path::new("/r/my app"), "codex -- \"$CODEALONG_PROMPT\"\n", &env));
         p.got.unwrap();
         assert_eq!(
             p.log,
             [
-                "TERMINAL_NEW []",
+                r#"TERMINAL_NEW ["front"]"#,
                 "wait for shell /dev/ttys310",
                 r#"TERMINAL_TYPE+TAB_ON ["/dev/ttys310", "\u{15} exec /bin/sh 'LAUNCHER'"]"#,
                 "wait for shell /dev/ttys310 after LAUNCHER",
@@ -426,10 +434,13 @@ mod tests {
         );
         assert_eq!(p.launchers, ["rm -f 'LAUNCHER'\ncd '/r/my app' 2>/dev/null\nexport CODEALONG_PROMPT='Fix it'\nexec SHELL -l"]);
 
+        let p = played(answer, || terminal_open("terminal", Placement { behind: true, ..window() }, Path::new("/r/app"), None));
+        p.got.unwrap();
+        assert_eq!(p.log[0], r#"TERMINAL_NEW ["behind"]"#, "a Background start doesn't bring Terminal forward");
         let p = played(answer, || terminal_open("terminal", window(), Path::new("/r/app"), None));
         p.got.unwrap();
-        assert_eq!(p.log, ["TERMINAL_NEW []", "wait for shell /dev/ttys310", r#"TERMINAL_TYPE+TAB_ON ["/dev/ttys310", "\u{15} exec /bin/sh 'LAUNCHER'"]"#, "wait for shell /dev/ttys310 after LAUNCHER"]);
-        let p = played(answer, || terminal_open("terminal", Placement { new_terminal: NewTerminal::Tab, near: &[] }, Path::new("/r/app"), Some("ls\n")));
+        assert_eq!(p.log, [r#"TERMINAL_NEW ["front"]"#, "wait for shell /dev/ttys310", r#"TERMINAL_TYPE+TAB_ON ["/dev/ttys310", "\u{15} exec /bin/sh 'LAUNCHER'"]"#, "wait for shell /dev/ttys310 after LAUNCHER"]);
+        let p = played(answer, || terminal_open("terminal", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false }, Path::new("/r/app"), Some("ls\n")));
         p.got.unwrap();
         assert_eq!(p.log.len(), 5);
         assert_eq!(p.log[4], r#"TERMINAL_TYPE+TAB_ON ["/dev/ttys310", "\u{15}ls"]"#);
@@ -457,7 +468,7 @@ mod tests {
         assert_eq!(err(p.got.0), "Ghostty isn't installed. Install it, or pick another terminal in Settings.");
         assert_eq!(err(p.got.1), "iTerm2 isn't installed. Install it, or pick another terminal in Settings.");
         p.got.2.unwrap();
-        assert_eq!(p.log[0], "TERMINAL_NEW []", "Terminal comes with macOS");
+        assert_eq!(p.log[0], r#"TERMINAL_NEW ["front"]"#, "Terminal comes with macOS");
         let p = play(Setup { installed: false, ..setup() }, |_| Ok(String::new()), || (crate::config::terminal_profiles(), default_terminal()));
         assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("terminal", "Terminal")]);
         assert_eq!(p.got.1, "terminal");

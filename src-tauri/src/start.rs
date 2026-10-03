@@ -35,8 +35,9 @@ pub use codealong_peer::api::{ModelOption, Place, PlaceOption, StartAccount, Sta
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Plan {
-    /// A new terminal window at `cwd`, with `env` set in its shell, typing `input`.
-    Terminal { cwd: PathBuf, input: String, env: Vec<(String, String)> },
+    /// A new terminal window at `cwd`, with `env` set in its shell, typing `input`; `behind` your
+    /// windows for a Background start of a harness with no background service of its own.
+    Terminal { cwd: PathBuf, input: String, env: Vec<(String, String)>, behind: bool },
     /// `command` run by the login shell at `cwd`: a Claude Code background session. Its
     /// arguments are quoted in the command itself: the service the session runs under may start
     /// from this shell and keep its environment, so nothing is handed over in that.
@@ -97,6 +98,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 Ok(ps) => (ps, None),
                 Err(why) => (Vec::new(), Some(why)),
             };
+            let adapter = adapter_of(a);
             let places = places
                 .into_iter()
                 .map(|place| {
@@ -107,12 +109,11 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                         Place::CodexApp => "Codex app".into(),
                         Place::Codealong => "Codealong".into(),
                     };
-                    PlaceOption { place, label }
+                    PlaceOption { place, label, behind: place == Place::Background && !adapter.runs_in_background() }
                 })
                 .collect();
             let chosen = a.start.as_deref().and_then(Place::from_word);
             // What its command line takes; an account with nowhere to start is asked nothing.
-            let adapter = adapter_of(a);
             let tuned = adapter.takes_model() && unavailable.is_none();
             StartAccount {
                 name: a.name.clone(),
@@ -366,11 +367,11 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
     let ask = asked(adapter, prompt, session_id, model, effort, worktree, dirs);
     let cwd = folder.to_path_buf();
     match place {
-        Place::Terminal => {
+        Place::Background if adapter.runs_in_background() => Plan::Background { cwd, command: adapter.background_command(account, &ask) },
+        Place::Terminal | Place::Background => {
             let typed = adapter.start_in_terminal(account, &ask);
-            Plan::Terminal { cwd, input: typed.input, env: typed.env }
+            Plan::Terminal { cwd, input: typed.input, env: typed.env, behind: place == Place::Background }
         }
-        Place::Background => Plan::Background { cwd, command: adapter.background_command(account, &ask) },
         Place::ClaudeApp => Plan::ClaudeApp { url: adapter.app_link(folder, &ask).unwrap_or_default() },
         Place::CodexApp => Plan::CodexApp { url: adapter.app_link(folder, &ask).unwrap_or_default() },
         // The agents take the prompt as text, so attachments go as paths they can read.
@@ -462,15 +463,24 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     let dirs = (attachments::images_dir(), attachments::files_dir());
     let ask = asked(adapter, &spec.prompt, &id, model, effort, worktree, (&dirs.0, &dirs.1));
     match spec.place {
-        Place::Terminal => {
+        Place::Background if adapter.runs_in_background() => adapter.start_in_background(account, folder, &adapter.background_command(account, &ask)),
+        // A harness with no background service of its own starts in its terminal, behind your
+        // windows, so you stay where you are.
+        Place::Terminal | Place::Background => {
+            let behind = spec.place == Place::Background;
             let typed = adapter.start_in_terminal(account, &ask);
             let near = crate::board::terminal_neighbours(&board.lanes, folder);
-            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, folder, &typed.input, &typed.env)?;
+            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind }, folder, &typed.input, &typed.env)?;
             // A harness that names its own sessions shows one on the board once it's written.
-            let message = typed.key.is_none().then(|| format!("{word} is starting in {}.", lane.callsign));
+            let message = typed.key.is_none().then(|| {
+                if behind {
+                    format!("{word} is starting in {}, in {} behind your windows.", lane.callsign, launch::terminal_name(&cfg.apps.terminal))
+                } else {
+                    format!("{word} is starting in {}.", lane.callsign)
+                }
+            });
             Ok(Started { key: typed.key, message })
         }
-        Place::Background => adapter.start_in_background(account, folder, &adapter.background_command(account, &ask)),
         Place::ClaudeApp | Place::CodexApp => {
             let link = adapter.app_link(folder, &ask).ok_or_else(|| anyhow!("{} can't start a session there.", account.name))?;
             adapter.start_in_app(account, &lane.callsign, folder, &spec.prompt, &link)
@@ -571,7 +581,7 @@ pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
     let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
     let fork = crate::harness::adapter(s.harness).fork(&crate::harness::Ctx { account }, s)?;
     let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
-    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &fork.input, &fork.env)?;
+    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false }, &cwd, &fork.input, &fork.env)?;
     // One whose harness names the copy shows on the board once it's written.
     let message = fork.key.is_none().then(|| format!("{} is opening a fork of {} in {}.", s.harness.word(), s.title, lane.callsign));
     // Claude Code's transcript doesn't say what a fork into a terminal copied.
@@ -634,7 +644,7 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
         }
         adapter.before_start(target, &cwd);
         let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
-        if let Err(e) = launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &copy.input, &copy.env) {
+        if let Err(e) = launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false }, &cwd, &copy.input, &copy.env) {
             // No copy started, so there's none to keep.
             if let Some(Err(forgot)) = copy.key.as_deref().map(crate::origins::forget) {
                 eprintln!("The move's terminal didn't open, and its note couldn't be taken back, so its copy shows stopped: {forgot:#}");
@@ -873,10 +883,16 @@ mod tests {
         let o = options(&accounts, "Ghostty", vec!["/r/spur".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
         assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]);
         assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
-        assert_eq!(places(&o, "codex"), vec![Place::CodexApp, Place::Terminal, Place::Codealong]);
-        assert_eq!(places(&o, "codex2"), vec![Place::Terminal, Place::Codealong]);
-        assert_eq!(places(&o, "opencode"), vec![Place::Terminal, Place::Codealong]);
+        assert_eq!(places(&o, "codex"), vec![Place::CodexApp, Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(places(&o, "codex2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(places(&o, "opencode"), vec![Place::Terminal, Place::Background, Place::Codealong]);
         assert!(places(&o, "antigravity").is_empty());
+        // Only Claude Code has a background service of its own; the others' Background is their
+        // terminal, behind your windows.
+        let behind = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().places.iter().find(|p| p.place == Place::Background).map(|p| p.behind);
+        assert_eq!(behind("claude2"), Some(false));
+        assert_eq!(behind("codex2"), Some(true));
+        assert_eq!(behind("opencode"), Some(true));
         assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").contains("its own window"));
         assert_eq!(o.accounts[4].default_model, None);
         assert_eq!(o.accounts[0].places[0].label, "Ghostty");
@@ -902,9 +918,21 @@ mod tests {
         let err = check_start(&accounts[1], "claude-app", home).unwrap_err();
         assert!(err.contains("\"terminal\", \"background\", \"codealong\""), "{err}");
         assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_ok());
+        assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "background", home).is_ok());
         assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "codex-app", home).is_err());
         assert!(check_start(&account("ag", "antigravity", "/Users/me/.gemini/antigravity", None), "terminal", home).unwrap_err().contains("takes no start"));
         assert!(check_start(&accounts[1], "somewhere", home).is_err());
+    }
+
+    #[test]
+    fn background_is_the_terminal_behind_your_windows_without_a_service_of_its_own() {
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let cx = account("codex2", "codex", "~/.codex2", Some("codex2"));
+        let Plan::Terminal { cwd, input, env, behind } = plan(&cx, Place::Background, Path::new("/r/x"), "Fix it", id, None, None, false) else { panic!() };
+        assert!(behind);
+        assert_eq!(plan(&cx, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, None, false), Plan::Terminal { cwd, input, env, behind: false });
+        let claude = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        assert!(matches!(plan(&claude, Place::Background, Path::new("/r/x"), "Fix it", id, None, None, false), Plan::Background { .. }));
     }
 
     #[test]
@@ -964,8 +992,9 @@ mod tests {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let prompt = "Fix the \"flaky\" test\nthen run `npm test` and $(say done)";
-        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/spark-app4"), &format!("  {prompt}\n"), id, None, None, false) else { panic!() };
+        let Plan::Terminal { cwd, input, env, behind } = plan(&a, Place::Terminal, Path::new("/r/spark-app4"), &format!("  {prompt}\n"), id, None, None, false) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/spark-app4"));
+        assert!(!behind);
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         let session = (SESSION_VAR.to_string(), format!("claude:claude2:{id}"));
         assert_eq!(env, vec![session.clone(), (PROMPT_VAR.to_string(), prompt.to_string())]);

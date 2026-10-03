@@ -381,8 +381,15 @@ pub trait Adapter: Sync {
         Typed { input: format!("{}\n", account.command()), env: Vec::new(), key: None }
     }
 
-    /// The command the login shell runs to start a session with no window (`Place::Background`),
-    /// everything in it quoted for the shell.
+    /// Whether it has a background service of its own that runs a session with no terminal
+    /// (`background_command`, `start_in_background`). Background starts a harness without one
+    /// in its terminal, opened behind your windows (start.rs).
+    fn runs_in_background(&self) -> bool {
+        false
+    }
+
+    /// The command the login shell runs to start a session with no window (`Place::Background`
+    /// where `runs_in_background`), everything in it quoted for the shell.
     fn background_command(&self, account: &AccountCfg, _ask: &StartAsk) -> String {
         account.command().to_string()
     }

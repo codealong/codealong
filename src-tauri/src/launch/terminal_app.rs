@@ -44,8 +44,8 @@ impl Terminal for AppleTerminal {
     }
 
     /// Terminal can't open a tab from a script: always a window.
-    fn run(&self, _place: Placement, dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
-        open(dir, input, env)
+    fn run(&self, place: Placement, dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
+        open(place, dir, input, env)
     }
 
     fn focus(&self, at: &str) -> Result<bool> {
@@ -100,12 +100,13 @@ fn with_tab_on(body: &str) -> String {
 }
 
 /// A new window, and its TTY. `do script` with no tab to run in opens a window of its own, and
-/// types what it's given there: an empty line, which a shell just prompts again for.
+/// types what it's given there: an empty line, which a shell just prompts again for. Argument:
+/// whether Terminal comes forward (`front`) or not (`behind`).
 const NEW: &str = r#"
 on run argv
   tell application "Terminal"
     set t to do script ""
-    activate
+    if (item 1 of argv) is "front" then activate
     return tty of t
   end tell
 end run
@@ -214,10 +215,11 @@ end run
 /// Opens a window whose shell `launcher` sets up (Terminal takes no folder or environment from a
 /// script), then types `input` there. Each line waits for the shell that reads it to be ready
 /// (see `wait_for_shell`). The line that runs the launcher starts with a space, which keeps it
-/// out of the history of shells set up to skip such lines.
-pub fn open(dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
+/// out of the history of shells set up to skip such lines. Terminal opens only windows, so of
+/// `place` only whether it comes forward counts.
+pub fn open(place: Placement, dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
     let script = launcher(dir, env)?;
-    let result = open_with(&script, typed_line(input));
+    let result = open_with(&script, typed_line(input), place.forward());
     if result.is_err() {
         // It may never have run, holding the prompt.
         let _ = std::fs::remove_file(&script);
@@ -225,14 +227,14 @@ pub fn open(dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
     result
 }
 
-fn open_with(script: &Path, input: &str) -> Result<()> {
+fn open_with(script: &Path, input: &str, forward: &str) -> Result<()> {
     let type_line = |tty: &str, line: &str| -> Result<()> {
         if osascript(&with_tab_on(TYPE_LINE), &[tty, &fresh_line(line)])?.trim().is_empty() {
             anyhow::bail!("Terminal's new window closed before Codealong could type into it.");
         }
         Ok(())
     };
-    let tty = osascript(NEW, &[])?.trim().to_string();
+    let tty = osascript(NEW, &[forward])?.trim().to_string();
     // A shell without a line editor never says it's ready, and still reads a line typed ahead.
     wait_for_shell(&tty, None);
     type_line(&tty, &format!(" exec /bin/sh {}", sh_quote(&script.to_string_lossy())))?;

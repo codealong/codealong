@@ -124,6 +124,7 @@ on run argv
   set placeAt to item 1 of argv
   set nearTtys to paragraphs of (item 2 of argv)
   set theCommand to item 3 of argv
+  set raise to (item 4 of argv) is "front"
   tell application "iTerm"
     set dest to missing value
     if placeAt is "front" then
@@ -149,11 +150,13 @@ on run argv
     else
       tell window id dest to set t to (create tab with default profile command theCommand)
       set s to current session of t
-      try
-        select window id dest
-      end try
+      if raise then
+        try
+          select window id dest
+        end try
+      end if
     end if
-    activate
+    if raise then activate
     return tty of s
   end tell
 end run
@@ -318,7 +321,7 @@ pub fn open(place: Placement, dir: &Path, input: &str, env: &[(String, String)])
     let (at, beside) = placement(place, sessions);
     let script = launcher(dir, env)?;
     let command = format!("/bin/sh {}", sh_quote(&script.to_string_lossy()));
-    let tty = match osascript(NEW, &[at, &beside, &command]) {
+    let tty = match osascript(NEW, &[at, &beside, &command, place.forward()]) {
         Ok(tty) => tty.trim().to_string(),
         Err(e) => {
             // It never ran, so it's still there holding the prompt.

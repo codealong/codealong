@@ -309,12 +309,25 @@ fn sweep_launchers(tmp: &Path) {
     }
 }
 
-/// Where a new terminal goes: `[apps] new_terminal`, and the folders it belongs beside, nearest
-/// first (`board::terminal_neighbours`).
+/// Where a new terminal goes: `[apps] new_terminal`, the folders it belongs beside, nearest
+/// first (`board::terminal_neighbours`), and whether it stays behind your windows (a Background
+/// start of a harness with no background service of its own) instead of coming forward.
 #[derive(Debug, Clone, Copy)]
 pub struct Placement<'a> {
     pub new_terminal: NewTerminal,
     pub near: &'a [Vec<String>],
+    pub behind: bool,
+}
+
+impl Placement<'_> {
+    /// The word a script that opens a terminal takes for whether its app comes forward.
+    fn forward(&self) -> &'static str {
+        if self.behind {
+            "behind"
+        } else {
+            "front"
+        }
+    }
 }
 
 /// Opens a new terminal at `path`, optionally typing `input` (a command plus return).
@@ -935,7 +948,7 @@ mod tests {
         let _ = std::fs::remove_file(&out);
         let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
         let input = format!("printenv CODEALONG_PROMPT > '{}'; exit\n", out.display());
-        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[] }, &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false }, &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
         for _ in 0..100 {
             if std::fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
                 break;
@@ -974,7 +987,7 @@ mod tests {
         for (profile, ttys, close) in apps {
             let out = dir.join(format!("{profile}.txt"));
             let input = format!("pwd > '{0}'; printenv CODEALONG_PROMPT >> '{0}'\n", out.display());
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[] };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false };
             let before = ttys().unwrap();
             terminal_run(profile, place, &dir, &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
             let got = written(&out);
@@ -1000,7 +1013,7 @@ mod tests {
             let _ = std::fs::remove_file(&ready);
             let want: &[u8] = if profile == "iterm2" { b"\x1b[200~ab\ncd\x1b[201~\r1\x1b" } else { b"\x1b[200~ab\ncd\x1b[201~\r" };
             let input = format!("stty raw -echo; printf '\\033[?2004h'; echo $$ > '{}'; dd bs=1 count={} of='{}' 2>/dev/null; stty sane\n", ready.display(), want.len(), out.display());
-            terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[] }, &dir, &input, &[]).unwrap();
+            terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[], behind: false }, &dir, &input, &[]).unwrap();
             let pid: u32 = written(&ready).and_then(|p| p.trim().parse().ok()).unwrap_or_else(|| panic!("{profile}'s shell never started"));
             let kind = terminal_kind(pid);
             let typed = terminal_type_session(pid, &dir, "ab\ncd", false, Submit::Return).unwrap();
@@ -1039,7 +1052,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>); 2] = [("iterm2", iterm::ttys, iterm::close), ("terminal", terminal_app::ttys, terminal_app::close)];
         for (profile, ttys, close) in apps {
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[] };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false };
             let secs = 7000 + std::process::id() % 1000 + if profile == "terminal" { 1 } else { 0 };
             terminal_open(profile, place, &dir, Some(&format!("sleep {secs}\n"))).unwrap();
             let mut pid = None;
@@ -1078,7 +1091,7 @@ mod tests {
         let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>, fn(&str) -> Result<bool>, &str); 2] =
             [("iterm2", iterm::ttys, iterm::close, iterm::focus, ITERM_FRONT), ("terminal", terminal_app::ttys, terminal_app::close, terminal_app::focus, TERMINAL_FRONT)];
         for (profile, ttys, close, focus, front) in apps {
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[] };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false };
             let mut opened = Vec::new();
             for _ in 0..3 {
                 let before = ttys().unwrap();
@@ -1371,7 +1384,7 @@ end run
         // Terminal comes with macOS, so a config.toml always has a terminal that's here.
         assert!(terminal_app("terminal").unwrap().installed());
         assert!(terminal_app(default_terminal()).unwrap().installed());
-        assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &[] }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
+        assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
     }
 
     #[test]

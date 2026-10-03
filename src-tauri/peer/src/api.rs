@@ -390,7 +390,9 @@ pub enum Way {
 pub enum Place {
     /// A new terminal window running the account's command.
     Terminal,
-    /// Claude Code's background service (`--bg`), with no terminal; `attach` opens one later.
+    /// Started without anything coming forward: Claude Code's background service (`--bg`), with
+    /// no terminal, where `attach` opens one later; for a harness with no background service of
+    /// its own, a terminal opened behind your windows.
     Background,
     /// The Claude app's new-session page, with the folder and prompt filled in.
     ClaudeApp,
@@ -414,6 +416,10 @@ pub struct PlaceOption {
     pub place: Place,
     /// The app's name, the way buttons say it: Ghostty, Claude app, Codex app.
     pub label: String,
+    /// For `Background`: the account's harness has no background service of its own, so the
+    /// session starts in a terminal opened behind your windows.
+    #[serde(default)]
+    pub behind: bool,
 }
 
 /// An account as the new-session sheet offers it.

@@ -441,7 +441,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   (the prompt's default answer quits, and `--bg` refuses a folder it hasn't trusted).
   Background starts it the same way under Claude Code's background service (`claude --bg`),
   with no terminal: it shows on the board like any other, takes prompts from Codealong, and
-  Attach opens a terminal on it when you want one. The
+  Attach opens a terminal on it when you want one. The other agents have no background service
+  of their own, so for them Background opens the terminal behind your windows instead (nothing
+  is asked to come forward, so you stay where you are). The
   Claude app opens a new session with the prompt filled in, and you send it there (its own
   model and worktree choices included). The Codex app runs the new thread on your prompt:
   Codealong makes the thread, opens it in the app and has the app send the prompt, on the

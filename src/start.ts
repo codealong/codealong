@@ -424,6 +424,9 @@ export interface StartPlan {
   prompted: boolean;
   /** What the terminal place is called: Ghostty, iTerm2… */
   terminal: string;
+  /** Background opens the terminal behind your windows: the account's harness has no background
+   *  service of its own. */
+  behind: boolean;
 }
 
 /** The start row's line: what starting does, and where. */
@@ -433,12 +436,13 @@ export function startHappens(p: StartPlan): string {
   return p.mac && p.lane && p.account && p.place ? `On ${mac}: ${there}` : there;
 }
 
-function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal }: StartPlan, mac: string): string {
+function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {
   if (!lane) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
   if (!account || !place) return on?.error ? `${mac} didn’t say where its accounts can start: ${on.error}` : '';
   const withPrompt = prompted ? ' with this prompt' : '';
   switch (place) {
     case 'background':
+      if (behind) return `${terminal} starts ${account}${onModel} in ${newWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}${withPrompt}, behind your windows, so you stay where you are.`;
       return newWorktree
         ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in the background${withPrompt}. Attach a terminal any time.`
         : `${account}${onModel} starts in the background in ${lane.callsign}${withPrompt}, with no terminal. Attach one any time.`;

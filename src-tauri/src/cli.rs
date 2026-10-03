@@ -573,7 +573,7 @@ struct StartArgs {
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
 enum PlaceArg {
     Terminal,
-    /// Claude Code's background service, with no terminal until you attach one.
+    /// Nothing comes forward: Claude Code's background service, with no terminal until you attach one; any other agent in a terminal opened behind your windows.
     Background,
     ClaudeApp,
     CodexApp,

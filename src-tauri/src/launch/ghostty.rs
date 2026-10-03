@@ -50,7 +50,7 @@ impl Terminal for Ghostty {
         let dir = dir.to_string_lossy();
         let (at, beside) = placement(place, terminals);
         let entries: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        let mut args: Vec<&str> = vec![at, &beside, &dir, input];
+        let mut args: Vec<&str> = vec![at, &beside, &dir, input, place.forward()];
         args.extend(entries.iter().map(String::as_str));
         osascript(GHOSTTY_NEW, &args).map(|_| ())
     }
@@ -133,16 +133,20 @@ impl Terminal for Ghostty {
 
 /// Arguments: where it goes (`window`, `front` for a tab in the front window, or `beside` for a
 /// tab in the frontmost window holding any of the terminals listed next), those terminal ids one
-/// per line (or ""), the folder, the input to type (or ""), then any `KEY=VALUE` environment
-/// entries. A tab with no window to go in becomes a window.
+/// per line (or ""), the folder, the input to type (or ""), whether Ghostty comes forward
+/// (`front`) or not (`behind`), then any `KEY=VALUE` environment entries. A tab with no window to
+/// go in becomes a window. Behind, nothing here asks Ghostty forward, though its own code for a
+/// new window or tab still asks to be the active app (`NSApp.activate`, 1.3.1's
+/// TerminalController `newWindow` and `newTab`).
 pub(super) const GHOSTTY_NEW: &str = r#"
 on run argv
   set placeAt to item 1 of argv
   set nearIds to paragraphs of (item 2 of argv)
   set thePath to item 3 of argv
   set theInput to item 4 of argv
+  set raise to (item 5 of argv) is "front"
   set theEnv to {}
-  if (count of argv) > 4 then set theEnv to items 5 thru -1 of argv
+  if (count of argv) > 5 then set theEnv to items 6 thru -1 of argv
   tell application "Ghostty"
     if theInput is "" then
       set cfg to {initial working directory:thePath}
@@ -172,11 +176,13 @@ on run argv
       new window with configuration cfg
     else
       new tab in window id dest with configuration cfg
-      try
-        activate window window id dest
-      end try
+      if raise then
+        try
+          activate window window id dest
+        end try
+      end if
     end if
-    activate
+    if raise then activate
   end tell
   return "ok"
 end run
