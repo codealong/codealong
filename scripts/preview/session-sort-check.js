@@ -2,8 +2,27 @@
 // first, each with its pin, and a drag still reorders them; the sidebar's Sort by switches
 // between status and start, remembers it, and shows only in Sessions.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
-// It needs a project with two pinned sessions or more.
+// It pins three of the shown project's latest sessions itself, in place of yours.
 (function () {
+  // This runs before the app's script, so the first board the page reads has these pins.
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    var p = real(cmd, args, options);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (b) {
+      // The project the window shows, as boardLists.ts `currentProject` picks it.
+      var picked = localStorage.getItem('codealong.project');
+      var project = picked === 'All projects' || b.projects.some(function (x) { return x.name === picked; }) ? picked : (b.projects.find(function (x) { return x.name !== 'Elsewhere'; }) || { name: 'All projects' }).name;
+      var shown = [];
+      b.lanes.forEach(function (l) {
+        if (l.hidden || l.device || (project !== 'All projects' && l.project !== project)) return;
+        l.sessions.forEach(function (x) { if (!x.visitor && !x.archived) shown.push(x); });
+      });
+      shown.sort(function (x, y) { return y.lastActivity - x.lastActivity; });
+      b.pinned = shown.slice(0, 3).map(function (x) { return x.key; });
+      return b;
+    });
+  };
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessionlist .ca-lane')); };
   var ids = function () { return rows().map(function (r) { return r.id; }).join(','); };
   var sortButton = function (label) {
