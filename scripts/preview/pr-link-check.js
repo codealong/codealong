@@ -9,8 +9,10 @@
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
 
   localStorage.setItem('codealong.project', 'All projects');
-  // The first session, in its own worktree, that a PR lists.
+  // The first session, in its own worktree, that a PR lists. Its reply is its excerpt with the
+  // stub's two links after it, so not one whose excerpt has a PR link of its own.
   var picked = null;
+  var linksPr = function (text) { return /github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/i.test(text || ''); };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
@@ -18,7 +20,7 @@
     return p.then(function (board) {
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
-          if (picked || s.visitor || s.archived) return;
+          if (picked || s.visitor || s.archived || l.hidden || linksPr(s.excerpt)) return;
           var pr = board.prs.find(function (x) { return x.sessions.some(function (y) { return y.key === s.key; }); });
           if (pr) picked = { key: s.key, lane: l.id, title: s.title, pr: pr };
         });
@@ -28,6 +30,7 @@
   };
 
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
+  var title = function () { var t = document.querySelector('.ca-sessinsp .ca-sessinsp-title'); return t ? t.textContent : null; };
   var links = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-agent a.ca-prlink')); };
   var card = function () { return document.querySelector('.ca-prhover'); };
   var hover = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };
@@ -39,7 +42,10 @@
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       row().click();
-      return until(function () { return links().length === 2; }, 10000);
+      // With nothing clicked the panel shows the list's top row, which can be another session a
+      // PR lists, with links of its own: the links read are the clicked session's, once its
+      // panel shows (a panel is the session's own, so its conversation starts empty).
+      return until(function () { return title() === picked.title && links().length === 2; }, 10000, 'the clicked session’s panel, with its two links');
     })
     .then(function () {
       var bare = links()[0];
