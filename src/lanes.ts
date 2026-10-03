@@ -406,12 +406,17 @@ export function narrowed(lane: Lane, fs: readonly Filter[], since: string): Lane
   if (forPr) return lane;
   const sessions = lane.sessions.filter((s) => !s.visitor && !s.earlier && fs.includes(AGENT_BAY[s.status] as Filter));
   if (sessions.length === 0) return null;
-  // It shows in its agents' bay even when its other agents put it elsewhere: one working and one
-  // finished shows under Your turn when that's what you picked.
-  const [bay, glyph] = bayOf(sessions, lane.pr);
-  const [headline, detail] = headlineFor(bay, sessions, lane.pr, since);
-  return { ...lane, sessions, bay, glyph, headline, detail };
+  // The same copy while the worktree and the filters stay the same, so its row skips rendering
+  // between pushes, as `ageFiltered`'s does (`keptCopy`).
+  return keptCopy(lane, NARROWED, `${[...fs].sort().join(',')} ${since}`, () => {
+    // It shows in its agents' bay even when its other agents put it elsewhere: one working and
+    // one finished shows under Your turn when that's what you picked.
+    const [bay, glyph] = bayOf(sessions, lane.pr);
+    const [headline, detail] = headlineFor(bay, sessions, lane.pr, since);
+    return { ...lane, sessions, bay, glyph, headline, detail };
+  });
 }
+const NARROWED: LaneCopies = new WeakMap();
 
 /** The statuses that are about agents, not a worktree's PR. */
 const AGENT_FILTERS = new Set<Filter>(['needs', 'working', 'unread']);

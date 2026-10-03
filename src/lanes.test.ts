@@ -148,6 +148,13 @@ describe('narrowed', () => {
     expect(narrowed(idle, ['needs', 'review'], '')).toBe(idle);
   });
 
+  it('gives back the same copy for the same worktree and filters, so its row can skip rendering between pushes', () => {
+    const first = narrowed(mixed, ['unread', 'working'], '')!;
+    expect(narrowed(mixed, ['working', 'unread'], '')).toBe(first);
+    expect(narrowed(mixed, ['working'], '')).not.toBe(first);
+    expect(narrowed({ ...mixed }, ['unread', 'working'], '')).not.toBe(first);
+  });
+
   it('keeps a worktree whole for its PR; Needs you is only about its agents', () => {
     expect(narrowed(mixed, ['work'], '')).toBe(mixed);
     expect(narrowed(mixed, ['review'], '')).toBeNull();
