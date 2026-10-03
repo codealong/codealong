@@ -1,8 +1,9 @@
 // Checks cards pinned to the desktop (DesktopPin.tsx) and the menu items that pin them (App.tsx).
 // In the desktop view, on a worktree's card: it sizes its window, a click on a session line shows
 // that session in the peek and a second click puts it away, a double-click opens the worktree or
-// the line's session where it lives without the peek opening first, its menu shows it in
-// Codealong and takes it off the desktop, and once the board has lost it only Remove is left. On a
+// the line's session where it lives without the peek opening first, its menu (the worktree menu
+// every window has, Remove from desktop with only copying after it) shows it in Codealong and
+// takes it off the desktop, and once the board has lost it only Remove is left. On a
 // session's card, a click shows it in the peek. In the sessions view: a session's menu pins it,
 // and once it's pinned takes it off.
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=worktree scripts/preview.sh desktop '' scripts/preview/desktop-check.js
@@ -94,7 +95,12 @@
         check('and the peek stays shut', calls('peek_open').length === 1, String(calls('peek_open').length));
         var menu = lastMenu();
         var t = texts(menu);
-        check('its menu ends in Remove from desktop', t[t.length - 1] === 'Remove from desktop' && t[t.length - 2] === '-', t.join('|'));
+        // A worktree's menu is the one every window has (menus.ts LANE_MENU): Remove from desktop
+        // is its pins group, after what opens, shows, starts in and reuses it, and only copying
+        // its path, branch and links comes after.
+        var at = t.indexOf('Remove from desktop');
+        var after = t.slice(at + 2);
+        check('its menu has Remove from desktop after the rest, with only copying below it', at > t.indexOf('Show in Codealong') && t.indexOf('Show in Codealong') >= 0 && t.lastIndexOf('Remove from desktop') === at && t[at - 1] === '-' && t[at + 1] === '-' && after.length > 0 && after.every(function (x) { return x.indexOf('Copy ') === 0; }), t.join('|'));
         pick(find(menu, 'Show in Codealong'));
         var shown = last('show_main');
         check('Show in Codealong reveals the worktree', shown && shown.reveal.kind === 'worktree' && shown.reveal.laneId === feed.pin.key, JSON.stringify(shown));
