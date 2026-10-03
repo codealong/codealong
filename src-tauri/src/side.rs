@@ -212,6 +212,9 @@ pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str) -> Result<Side> {
     if text.is_empty() {
         bail!("Ask it something: /side, then your question.");
     }
+    // Pasted files and screenshots go as their paths, which the copy reads, as they do to a session
+    // (send.rs); the question shows as it was typed.
+    let sent = crate::attachments::expand(text, crate::attachments::Style::Path);
     let has_copy = state().open.get(key).is_some_and(|o| o.proc.is_some());
     // Looked up outside the lock: it reads the session's record.
     let made = if has_copy { None } else { Some(recipe(board, cfg, key)?) };
@@ -239,11 +242,11 @@ pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str) -> Result<Side> {
         o.used = Instant::now();
         o.side.turns.push(Turn { question: text.to_string(), at: now, ..Default::default() });
         if o.side.running {
-            o.queue.push_back(text.to_string());
+            o.queue.push_back(sent);
         } else {
             o.side.running = true;
             if let Some(p) = o.proc.as_mut() {
-                let lines = p.dialect.ask(text);
+                let lines = p.dialect.ask(&sent);
                 write(p, &lines);
             }
         }

@@ -55,6 +55,13 @@ export function useSideView(key: string): SideView {
   return useSyncExternalStore(subscribe, () => views.get(key) ?? null);
 }
 
+/** Whether anything of a session's side conversations shows above its box in this window: the
+ *  open one (answering or ended), the list, or one being read. While it does, what's typed in the
+ *  box is for the side conversation, as Codex's `/side` takes its box until you go back. */
+export function useAside(key: string): boolean {
+  return useSyncExternalStore(subscribe, () => sides.has(key) || views.has(key));
+}
+
 /** The side conversations kept for each session this window has shown, the latest first. */
 const kept = new Map<string, SideKept[]>();
 const NONE: SideKept[] = [];

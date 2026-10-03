@@ -30,6 +30,11 @@
 // shows above the box (SideStrip.tsx) while the session carries on, unaware, and `/side` alone
 // shows the side conversations kept from before. Any other `/…` goes to the session as typed.
 //
+// While a side conversation shows above it (the open one, the list, or one being read), the box
+// is the side conversation's, as Codex's `/side` takes its box until you go back: ⏎ asks the copy
+// (a new one when none is open), Escape leaves the session's turn alone, and the placeholder and
+// the line under the box say where it goes. Closing what shows gives the box back to the session.
+//
 // While its turn runs, Escape in the box stops it where Codealong can reach the session (the
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
 // the box is empty, whose placeholder says so (⌘. too, from anywhere in the window). It sends what the harness's own Stop
@@ -49,7 +54,7 @@ import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
-import { showSides } from '../side';
+import { showSides, useAside } from '../side';
 import { slashCommand, slashMatches } from '../slash';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
@@ -339,9 +344,18 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       .finally(() => setAsking(false));
   };
 
-  /** Runs what's in the box when it's one of Codealong's commands, else sends it. */
+  // A side conversation shows above the box, so the box is its.
+  const aside = useAside(s.key);
+
+  /** Runs what's in the box when it's one of Codealong's commands, else sends it: to the session,
+   *  or to its side conversation while that shows. */
   const submit = (): boolean => {
     const command = slashCommand(text, s);
+    if (!command && aside) {
+      if (!text.trim()) return false;
+      askAside(text.trim());
+      return true;
+    }
     if (!command) return send();
     if (command.command.name === 'fork') fork(command.rest);
     if (command.command.name === 'side') askAside(command.rest);
@@ -372,10 +386,11 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   const command = slashCommand(text, s);
   const commands = slashMatches(text, s);
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
-  // sends, the turn taking the message in as it works.
-  const stopButton = canStop && empty;
+  // sends, the turn taking the message in as it works. Not while the box is the side
+  // conversation's: what's done there leaves the session's turn alone.
+  const stopButton = canStop && empty && !aside;
   // Into the turn it's taking at once, where it can be reached that way.
-  const canSendNow = !!s.steerable && !waiting;
+  const canSendNow = !!s.steerable && !waiting && !aside;
   const said = note?.error
     ? note.text
     : going
@@ -386,9 +401,9 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           ? 'Asking a copy of it…'
           : commands.length > 0
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
-          : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext, canSendNow)));
+          : (note?.text ?? (stopping ? 'Stopping…' : aside ? `To the side conversation, not ${s.account}. Close it above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllowNext, canSendNow)));
   return (
-    <div className="ca-composer">
+    <div className={cx('ca-composer', aside && 'is-aside')}>
       <div
         className="ca-composer-field"
         onMouseDown={(e) => {
@@ -403,7 +418,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           ref={box}
           value={text}
           rows={Math.min(LINES, Math.max(2, text.split('\n').length))}
-          placeholder={replyPlaceholder(s, terminal, way) + (canStop ? ' · esc stops its turn' : '')}
+          placeholder={aside ? 'Ask on the side' : replyPlaceholder(s, terminal, way) + (canStop ? ' · esc stops its turn' : '')}
           onChange={(e) => {
             setText(e.target.value);
             if (note && !note.error) setNote(null);
@@ -411,13 +426,15 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           onKeyDown={(e) => {
             // Escape stops a running turn; once it's stopping, Escape does what it does in the
             // window (closes the peek, gives Sessions' list its keys back).
-            if (e.key === 'Escape' && canStop && !stopping && !e.nativeEvent.isComposing) {
+            if (e.key === 'Escape' && canStop && !aside && !stopping && !e.nativeEvent.isComposing) {
               e.preventDefault();
               stop();
               return;
             }
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
-            if (command) {
+            // To the side conversation, whatever the keys: none of the session's own (send now,
+            // send and go on to the next, allow) apply to it.
+            if (command || aside) {
               e.preventDefault();
               submit();
               return;
@@ -439,7 +456,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
             if (send() && e.metaKey) onNext?.('sent.');
           }}
           onPaste={paste}
-          aria-label={`Message to ${s.title}`}
+          aria-label={aside ? `Question on the side about ${s.title}` : `Message to ${s.title}`}
         />
         <div className="ca-composer-buttons">
           {canSendNow && !empty && !command && (
@@ -455,12 +472,12 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
             <button
               type="button"
               className="ca-composer-send"
-              aria-label={command ? `Run /${command.command.name}` : 'Send'}
-              title={command ? `Run /${command.command.name} (⏎)` : waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'}
-              disabled={empty || (waiting && !command) || (!!command && (forking || asking))}
+              aria-label={command ? `Run /${command.command.name}` : aside ? 'Ask on the side' : 'Send'}
+              title={command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'}
+              disabled={empty || (waiting && !command && !aside) || ((!!command || aside) && (forking || asking))}
               onClick={submit}
             >
-              <Icon name={command?.command.icon ?? 'arrow-up'} size={16} stroke={2} />
+              <Icon name={command?.command.icon ?? (aside ? 'help' : 'arrow-up')} size={16} stroke={2} />
             </button>
           )}
         </div>
