@@ -420,9 +420,10 @@ export function App() {
     null;
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows
   // the top row, and it holds there: a session that comes to the top later doesn't take it.
+  // A click in the moment before this runs has picked a row already: it isn't taken back.
   useEffect(() => {
     const top = selected?.key;
-    if (selectedKey === null && top !== undefined) setSelectedKey(top);
+    if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
