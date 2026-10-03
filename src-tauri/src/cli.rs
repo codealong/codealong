@@ -2135,15 +2135,18 @@ fn session_hook(event: &str) {
         return;
     }
     let Ok(hook) = serde_json::from_str::<Value>(&input) else { return };
-    // Questions and plans are left to the prompt: the app isn't asked about them.
-    if !hook.get("tool_name").and_then(Value::as_str).is_some_and(crate::claude::asks::answers_tool) {
-        return;
-    }
+    // Plans are left to the prompt: the app isn't asked about them.
+    let Some((asked, record)) = crate::claude::asks::parse(&hook, now_ms()) else { return };
     // The session's account folder and process, from the environment Claude Code gives its
-    // hooks and its registry: the app watches the registry for the prompt going away.
+    // hooks and its registry: the app watches the registry for the prompt going away, and so
+    // does the hook while no app has it. The app answers none for a session it has no process
+    // of (one it runs itself asks through its adapter).
     let home = std::env::var_os("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| crate::util::home().join(".claude"));
-    let pid = hook.get("session_id").and_then(Value::as_str).and_then(|id| crate::claude::asks::session_process(&home, id));
-    if let Some(out) = server::ask_permission(&hook, pid, &home).and_then(|d| crate::claude::asks::hook_output(&d)) {
+    let Some(pid) = crate::claude::asks::session_process(&home, &asked.session) else { return };
+    let watch = crate::claude::asks::Watch::new(home.clone(), pid, record);
+    let ask = || server::ask_permission(&hook, pid, &home, asked.at, watch.from);
+    let decision = crate::claude::asks::ask_until_replied(&asked, &watch, std::time::Duration::from_secs(1), ask);
+    if let Some(out) = crate::claude::asks::hook_output(&decision) {
         println!("{out}");
     }
 }

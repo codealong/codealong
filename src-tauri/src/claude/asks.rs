@@ -11,6 +11,10 @@
 //! has ended. The second rule also covers the calls Claude Code holds its prompt back for until
 //! the hook returns (a background subagent's): their session doesn't say it's waiting, so the
 //! hook goes a few seconds later and the prompt shows where the session runs.
+//!
+//! A request lives only in the app that holds it. When that app quits before it replies (a
+//! relaunch), or none is up when the hook asks, the hook asks again once one answers, for as
+//! long as the session still waits on it (`ask_until_replied`).
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -220,7 +224,7 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
         }
         if checked.elapsed() >= Duration::from_secs(1) {
             checked = Instant::now();
-            if start.elapsed() >= GRACE && !still_asked(&watch, &id) {
+            if start.elapsed() >= GRACE && !still_asked(&watch, &asked) {
                 break;
             }
         }
@@ -234,10 +238,27 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
 
 /// Whether the session still waits on this request: its registry says it waits on a permission
 /// prompt, and no result for the call has been written since the request came.
-fn still_asked(w: &Watch, id: &str) -> bool {
-    let Some(asked) = held().iter().find(|h| h.asked.id == id).map(|h| h.asked.clone()) else { return false };
+fn still_asked(w: &Watch, asked: &Asked) -> bool {
     let waiting = registry_of(&w.home, w.pid).is_some_and(|r| r.session_id == asked.session && r.waits_on(prompt_of(&asked.tool)));
-    waiting && !call_answered(&w.record, &asked, w.from)
+    waiting && !call_answered(&w.record, asked, w.from)
+}
+
+/// The hook's side of a request: `ask` hands it to the app and gives the app's reply (the
+/// decision, or null once the app let it go), or None when no app replied, because none is up
+/// or it quit first. Then it's asked again every `pause` while the session still waits on it,
+/// with the same grace `hold` gives. Claude Code shows its own prompt meanwhile and leaves the
+/// hook running when it's answered there, so the hook has to see that for itself.
+pub fn ask_until_replied(asked: &Asked, watch: &Watch, pause: Duration, mut ask: impl FnMut() -> Option<Value>) -> Value {
+    let start = Instant::now();
+    loop {
+        if let Some(reply) = ask() {
+            return reply;
+        }
+        std::thread::sleep(pause);
+        if start.elapsed() >= GRACE && !still_asked(watch, asked) {
+            return Value::Null;
+        }
+    }
 }
 
 /// What Claude Code's registry says a session waits on while the tool's prompt is up: a
@@ -562,6 +583,41 @@ mod tests {
         let mut line = String::new();
         std::io::BufRead::read_line(&mut std::io::BufReader::new(&mut hooks), &mut line).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["result"], Value::Null);
+    }
+
+    #[test]
+    fn a_hook_asks_again_while_the_prompt_is_up_until_an_app_replies() {
+        let home = crate::fixtures::scratch("asks-again");
+        std::fs::create_dir_all(home.join("sessions")).unwrap();
+        let registry = |says: Value| {
+            let mut v = json!({ "pid": 4242, "sessionId": "abc", "cwd": "/r" });
+            v.as_object_mut().unwrap().extend(says.as_object().unwrap().clone());
+            std::fs::write(home.join("sessions/4242.json"), v.to_string()).unwrap();
+        };
+        let record = home.join("abc.jsonl");
+        std::fs::write(&record, "").unwrap();
+        let (a, _) = parse(&hook("Bash"), 1).unwrap();
+        let w = Watch::new(home.clone(), 4242, record.clone());
+        registry(json!({ "status": "waiting", "waitingFor": "permission prompt" }));
+        // No app up, then one that quit before it replied, then one that allows it.
+        let mut tries = 0;
+        let got = ask_until_replied(&a, &w, Duration::from_millis(10), || {
+            tries += 1;
+            (tries == 3).then(|| json!({ "behavior": "allow" }))
+        });
+        assert_eq!((tries, got["behavior"].as_str()), (3, Some("allow")));
+        // The app's null is its last word: it let the request go.
+        let mut tries = 0;
+        assert_eq!(ask_until_replied(&a, &w, Duration::from_millis(10), || { tries += 1; Some(Value::Null) }), Value::Null);
+        assert_eq!(tries, 1);
+        // Answered where it runs while no app was up: its result is written, and the hook goes
+        // after the grace without an answer, as the registry still says it waits (on another).
+        let result = json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1" }] } });
+        let call = json!({ "type": "assistant", "message": { "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "rm -rf build" } }] } });
+        std::fs::write(&record, format!("{call}\n{result}\n")).unwrap();
+        let start = Instant::now();
+        assert_eq!(ask_until_replied(&a, &w, Duration::from_millis(50), || None), Value::Null);
+        assert!(start.elapsed() >= GRACE && start.elapsed() < GRACE + Duration::from_secs(2));
     }
 
     #[test]

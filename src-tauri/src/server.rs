@@ -88,6 +88,12 @@ pub enum Request {
         pid: Option<u32>,
         #[serde(default)]
         home: Option<String>,
+        /// When the hook first asked, and how long the call's record was then: a hook asking
+        /// again after the app it asked quit goes by its first ask (claude/asks.rs).
+        #[serde(default)]
+        at: Option<i64>,
+        #[serde(default)]
+        from: Option<u64>,
     },
 }
 
@@ -168,8 +174,8 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers, app: &tauri::A
             continue;
         }
         let req = serde_json::from_str::<Request>(&line);
-        if let Ok(Request::PermissionAsk { hook, pid, home }) = req {
-            hold_permission_ask(engine, &hook, pid, home.as_deref(), &mut out);
+        if let Ok(Request::PermissionAsk { hook, pid, home, at, from }) = req {
+            hold_permission_ask(engine, &hook, pid, home.as_deref(), at, from, &mut out);
             break;
         }
         let reply = handle_request(engine, peers, app, req);
@@ -229,9 +235,9 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
 /// Holds a hook's permission request until it's answered (claude/asks.rs). No answer comes from here
 /// for a session whose process the hook didn't find (one Codealong runs itself has none: it asks
 /// through its adapter), nor for an account config.toml doesn't list.
-fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, out: &mut UnixStream) {
+fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, at: Option<i64>, from: Option<u64>, out: &mut UnixStream) {
     let cfg = crate::config::load_or_default();
-    let found = crate::claude::asks::parse(hook, crate::util::now_ms()).zip(pid).zip(home.and_then(|h| crate::claude::asks::account_for(&cfg, std::path::Path::new(h))));
+    let found = crate::claude::asks::parse(hook, at.unwrap_or_else(crate::util::now_ms)).zip(pid).zip(home.and_then(|h| crate::claude::asks::account_for(&cfg, std::path::Path::new(h))));
     let Some((((asked, record), pid), account)) = found else {
         crate::claude::asks::reply(out, None);
         return;
@@ -242,7 +248,8 @@ fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Op
         crate::claude::asks::reply(out, None);
         return;
     }
-    let watch = crate::claude::asks::Watch::new(account.home_path(), pid, record);
+    let mut watch = crate::claude::asks::Watch::new(account.home_path(), pid, record);
+    watch.from = from.unwrap_or(watch.from);
     crate::claude::asks::hold(out, asked, watch, &|| engine.hosted_changed());
 }
 
@@ -296,12 +303,12 @@ impl DevicesSummary {
 }
 
 /// Hands the running app a hook's permission request and waits, however long it takes, for the
-/// reply: the decision, or None when no app answers, it doesn't know the request (an older
-/// one), or it let the request go unanswered.
-pub fn ask_permission(hook: &Value, pid: Option<u32>, home: &std::path::Path) -> Option<Value> {
+/// reply: the decision, or null when it let the request go unanswered or doesn't know the
+/// request (an older app). None when no app replied: none is up, or it quit first.
+pub fn ask_permission(hook: &Value, pid: u32, home: &std::path::Path, at: i64, from: u64) -> Option<Value> {
     let mut stream = UnixStream::connect(path()).ok()?;
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-    let req = Request::PermissionAsk { hook: hook.clone(), pid, home: Some(home.to_string_lossy().into_owned()) };
+    let req = Request::PermissionAsk { hook: hook.clone(), pid: Some(pid), home: Some(home.to_string_lossy().into_owned()), at: Some(at), from: Some(from) };
     let mut text = serde_json::to_string(&req).ok()?;
     text.push('\n');
     stream.write_all(text.as_bytes()).ok()?;
@@ -309,7 +316,7 @@ pub fn ask_permission(hook: &Value, pid: Option<u32>, home: &std::path::Path) ->
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line).ok()?;
     let reply: Reply = serde_json::from_str(&line).ok()?;
-    reply.result.filter(|v| reply.ok && !v.is_null())
+    Some(reply.result.filter(|_| reply.ok).unwrap_or(Value::Null))
 }
 
 /// One request to the running app, or None when no app answers on the socket.
