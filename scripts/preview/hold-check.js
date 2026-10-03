@@ -5,7 +5,8 @@
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/hold-check.js
 (function () {
   // This runs before the app's script: four real sessions from different worktrees, A waiting on
-  // you, C with a turn to read, B and D idle; every other session idle.
+  // you, C with a turn to read, B and D idle; every other session idle, and none pinned, since
+  // pinned sessions are listed first whatever their status.
   localStorage.setItem('codealong.project', 'All projects');
   var now = Date.now();
   var plan = [
@@ -21,6 +22,7 @@
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (b) {
+      b.pinned = [];
       var lanes = {};
       b.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
