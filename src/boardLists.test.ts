@@ -9,6 +9,7 @@ import {
   laneInQuery,
   pinnedLaneRowsOf,
   prIn,
+  prInDone,
   prInFilter,
   prInQuery,
   projectActions,
@@ -28,6 +29,7 @@ import { needsOn } from './devices';
 import { bayOf } from './lanes';
 import { ALL_PROJECTS } from './quick';
 import * as fx from './testing/fixtures';
+import { prSections } from './ui/PrsView';
 import type { Lane, Pr, ProjectSummary, Session } from './types';
 import type { SessionItem } from './ui/SessionsView';
 
@@ -259,6 +261,19 @@ describe('the PRs view’s lists', () => {
     expect(prRowsOf([fresh, stale], cutoff, new Set([stale.key]), '', [], laneById, index).map((r) => r.pr.number)).toEqual([1, 2]);
     expect(prRowsOf([fresh, stale], 0, new Set(), 'stale', [], laneById, index).map((r) => r.pr.number)).toEqual([2]);
     expect(prRowsOf([fresh, stale], 0, new Set(), '', ['review'], laneById, index).map((r) => r.pr.number)).toEqual([1]);
+  });
+
+  it('lists merged and closed PRs under Merged & closed, which is folded, unless they’re pinned', () => {
+    const merged = fx.prItem({ number: 1, state: 'merged' });
+    expect(prInDone(merged, new Set())).toBe(true);
+    expect(prInDone(fx.prItem({ number: 2, state: 'closed' }), new Set())).toBe(true);
+    expect(prInDone(merged, new Set([merged.key]))).toBe(false);
+    for (const state of ['open', 'draft', 'approved', 'changes'] as const) expect(prInDone(fx.prItem({ state }), new Set())).toBe(false);
+    // The section the view lists it in says the same.
+    for (const state of ['open', 'draft', 'approved', 'changes', 'merged', 'closed'] as const) {
+      const pr = fx.prItem({ state });
+      expect(prSections([prRowOf(pr, laneById, index)])[0].id === 'done').toBe(prInDone(pr, new Set()));
+    }
   });
 });
 

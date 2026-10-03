@@ -201,6 +201,14 @@ export function prRowsOf(prs: PrItem[], cutoff: number, pinned: Set<string>, que
     .filter((r) => prInFilter(r, filter));
 }
 
+/** Whether a PR is listed under Merged & closed, which the PRs view keeps folded until it's
+ *  opened: one that's merged or closed and not pinned, since pinned PRs lead the view whatever
+ *  their state. A window asked to show such a PR opens that section, or the panel would show the
+ *  view's first PR in its place. */
+export function prInDone(pr: PrItem, pinned: ReadonlySet<string>): boolean {
+  return !prIsOpen(pr) && !pinned.has(pr.key);
+}
+
 /** Needs you and Your turn per project, for the switcher's badge and menu. */
 export function projectActions(lanes: Lane[], projects: { name: string }[], cutoff: number, pinned: Set<string>, since: string): Record<string, ActionCounts> {
   const out: Record<string, ActionCounts> = {};

@@ -62,7 +62,7 @@ import { useMainKeys } from './mainKeys';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { laneInQuery, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
+import { laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
 import { inProject } from './quick';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
@@ -543,6 +543,7 @@ export function App() {
     } else if (pr) {
       setView('prs');
       setBayFilter([]);
+      if (prInDone(pr, prPins.set)) setShowDonePrs(true);
       setSelectedKey(`pr:${pr.key}`);
     }
   });

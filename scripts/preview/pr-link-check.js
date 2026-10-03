@@ -3,7 +3,8 @@
 // bare one reads `name#N` with the PR's icon; hovering it shows a card with the PR's title and
 // the session; the older one's card asks GitHub (pr_card) once and shows its answer, and its
 // link then has an icon too; a right-click has the PR's menu; Show in Codealong opens the PR in
-// the PRs view.
+// the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
+// Merged & closed, which is folded until Show in Codealong opens it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-link-check.js
 (function () {
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
@@ -25,6 +26,13 @@
           if (pr) picked = { key: s.key, lane: l.id, title: s.title, pr: pr };
         });
       });
+      if (picked) {
+        board.prs.forEach(function (x) {
+          if (x.key === picked.pr.key) Object.assign(x, { state: 'merged', mergedAt: x.mergedAt || x.updatedAt, closedAt: x.closedAt || x.updatedAt });
+        });
+        // Not pinned, or it would lead the view whatever its state.
+        board.pinnedPrs = (board.pinnedPrs || []).filter(function (k) { return k !== picked.pr.key; });
+      }
       return board;
     });
   };
@@ -116,7 +124,8 @@
       return until(function () { return document.querySelector('.ca-prinsp'); }, 3000);
     })
     .then(function () {
-      check('which shows it in the PRs view', document.querySelector('.ca-prinsp .ca-insp-call').textContent === '#' + picked.pr.number);
+      var shown = document.querySelector('.ca-prinsp .ca-insp-call').textContent;
+      check('which shows it in the PRs view', shown === '#' + picked.pr.number, shown + ', not #' + picked.pr.number);
       check('and closes the card', !card());
     })
     .then(done)
