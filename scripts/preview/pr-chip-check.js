@@ -1,8 +1,9 @@
 // Checks that a worktree's PR opens on GitHub from the rows and cards that show it. In the
 // Sessions and Worktrees views, where a click on a row is the row's: a click on a row's PR chip
 // selects the row and opens nothing, a double-click on it opens the PR once and not the session
-// too, and the row's right-click menu has Open PR. On a session's or worktree's card pinned to the desktop (given a PR and an app
-// if its worktree has none): the card shows the PR, a click on it opens the PR without showing
+// too, and the row's right-click menu has Open PR (the project's latest worktrees are given a PR
+// if they have none). On a session's or worktree's card pinned to the desktop (given a PR and an
+// app if its worktree has none): the card shows the PR, a click on it opens the PR without showing
 // the peek or opening the card's session, and the card's menu has Open PR, and on a worktree's
 // Open preview.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-chip-check.js
@@ -85,18 +86,52 @@
     return;
   }
 
+  // The shown project's three latest worktrees with sessions get a PR each if they have none, so
+  // there's a row with a PR that isn't the one selected on any Mac. This runs before the app's
+  // script, so the first board the page reads has them.
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    var p = real(cmd, args, options);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (b) {
+      // The project the window shows, as boardLists.ts `currentProject` picks it.
+      var picked = localStorage.getItem('codealong.project');
+      var project = picked === 'All projects' || b.projects.some(function (x) { return x.name === picked; }) ? picked : (b.projects.find(function (x) { return x.name !== 'Elsewhere'; }) || { name: 'All projects' }).name;
+      b.lanes
+        .filter(function (l) { return !l.hidden && !l.device && (project === 'All projects' || l.project === project) && l.sessions.some(function (x) { return !x.visitor && !x.archived; }); })
+        .sort(function (x, y) { return y.lastActivity - x.lastActivity; })
+        .slice(0, 3)
+        .forEach(function (l, i) {
+          if (l.pr) return;
+          var number = 4242 + i;
+          l.pr = { number: number, title: 'A PR for the check', url: 'https://github.com/example/app/pull/' + number, state: 'open', checks: { passed: 3, failed: 0, pending: 0, failing: [] }, merge: null, updatedAt: Date.now(), mergedAt: null, closedAt: null };
+        });
+      return b;
+    });
+  };
+
   // On a list's row the chip is the row's to click: a click selects the row and opens nothing,
   // and a double-click opens the PR in place of the row's session (primitives.tsx chipHandlers).
+  // The row a chip is on: its own, or on a worktree's row with agents' lines (a group), where the
+  // chip is on the line under them, its first agent's, which a click there selects.
+  var rowOf = function (chip) {
+    var group = chip.closest('[role="group"]');
+    return chip.closest('[role="option"]') || (group && group.querySelector('[role="option"]'));
+  };
   var chipRow = function () {
-    var chip = document.querySelector('.ca-board-list [role="option"]:not([aria-selected="true"]) .ca-pr');
-    return chip ? { chip: chip, row: chip.closest('[role="option"]') } : null;
+    var chips = all('.ca-board-list .ca-pr');
+    for (var i = 0; i < chips.length; i++) {
+      var r = rowOf(chips[i]);
+      if (r && r.getAttribute('aria-selected') !== 'true') return { chip: chips[i], row: r };
+    }
+    return null;
   };
   var selected = function () { var s = document.querySelector('.ca-board-list [role="option"][aria-selected="true"]'); return s && s.id; };
   var hit = null;
   var n = null;
   // The row and its chip as the page has them now: selecting the row renders it again.
   var row = function () { return document.getElementById(hit.row.id); };
-  var chip = function () { return row().querySelector('.ca-pr'); };
+  var chip = function () { return (row().closest('[role="group"]') || row()).querySelector('.ca-pr'); };
   say('pr chip check: waiting for a row with a PR');
   until(function () { return !!chipRow(); }, 20000)
     // What the window does as the board first lands goes first: until its effects have run, the
