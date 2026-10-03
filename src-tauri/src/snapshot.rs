@@ -73,7 +73,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
     Mode { flag: "--route", takes: "<text> [--project <name>]", run: route_text },
     Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
-    Mode { flag: "--found", takes: "", run: |_, _| Ok(pretty(&detect::unlisted())) },
+    Mode { flag: "--found", takes: "", run: |_, _| Ok(pretty(&detect::unlisted().map_err(|e| Stop::Failed(format!("{e:#}")))?)) },
     Mode { flag: "--accounts", takes: "", run: accounts },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
@@ -275,7 +275,7 @@ fn editor_icons(_: &Args, _: &[String]) -> Done {
 }
 
 fn start_options(_: &Args, _: &[String]) -> Done {
-    let cfg = config::load_or_default();
+    let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
     // A harness whose list of models is asked for in the background (Antigravity's) has
     // none on the first ask: the app asks as it starts, and a one-off waits a moment here.
     let mut options = start::options_for(&cfg);
@@ -293,7 +293,7 @@ fn start_options(_: &Args, _: &[String]) -> Done {
 fn start_plan(args: &Args, rest: &[String]) -> Done {
     let [folder, name, place, more @ ..] = rest else { return Err(Stop::Usage) };
     let place: start::Place = serde_json::from_value(Value::String(place.clone())).map_err(|_| Stop::Usage)?;
-    let cfg = config::load_or_default();
+    let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
     let Some(account) = cfg.accounts.iter().find(|a| &a.name == name) else {
         return Err(Stop::Failed(format!("There's no account named {name}.")));
     };
@@ -309,7 +309,7 @@ fn route_text(args: &Args, rest: &[String]) -> Done {
 }
 
 fn accounts(_: &Args, _: &[String]) -> Done {
-    let cfg = config::load_or_default();
+    let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
     let list: Vec<model::AccountInfo> = cfg.accounts.iter().map(usage::describe).collect();
     Ok(pretty(&list))
 }

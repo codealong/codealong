@@ -784,7 +784,7 @@ async fn pr_card(engine: State<'_, engine::Handle>, repo: String, number: u64) -
 #[tauri::command]
 async fn pr_comment_asks(title: String, comments: Vec<prasks::CommentIn>) -> Result<std::collections::HashMap<String, f64>, String> {
     blocking(move || {
-        let cfg = config::load_or_default();
+        let cfg = config::current().map_err(words)?;
         if !cfg.jev.pull_requests || !jev::has_key() {
             return Ok(Default::default());
         }
@@ -882,7 +882,7 @@ fn set_preferred(engine: State<'_, engine::Handle>, account: String, preferred: 
 /// Accounts on this Mac that config.toml doesn't list, for Settings › Accounts.
 #[tauri::command]
 async fn found_accounts() -> Result<Vec<detect::Found>, String> {
-    blocking(move || detect::unlisted()).await
+    blocking(move || detect::unlisted().map_err(words)).await?
 }
 
 /// The settings as parsed and config.toml as written, for Settings.

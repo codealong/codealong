@@ -236,7 +236,10 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
 /// for a session whose process the hook didn't find (one Codealong runs itself has none: it asks
 /// through its adapter), nor for an account config.toml doesn't list.
 fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, at: Option<i64>, from: Option<u64>, out: &mut UnixStream) {
-    let cfg = crate::config::load_or_default();
+    let Ok(cfg) = crate::config::current() else {
+        crate::claude::asks::reply(out, None);
+        return;
+    };
     let found = crate::claude::asks::parse(hook, at.unwrap_or_else(crate::util::now_ms)).zip(pid).zip(home.and_then(|h| crate::claude::asks::account_for(&cfg, std::path::Path::new(h))));
     let Some((((asked, record), pid), account)) = found else {
         crate::claude::asks::reply(out, None);

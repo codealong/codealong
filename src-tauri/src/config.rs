@@ -399,17 +399,36 @@ pub fn load() -> Result<Option<Config>> {
     read_text()?.map(|text| load_text(&text)).transpose()
 }
 
-/// The settings, the defaults when there's no config.toml yet, and an error when it doesn't
-/// read or parse: for what acts on them, which says so rather than act on settings that aren't
-/// yours.
-pub fn load_strict() -> Result<Config> {
-    Ok(load()?.unwrap_or_default())
+/// The settings the app runs on, which its engine sets each time it reads config.toml: while the
+/// file doesn't parse, the last good ones, as its notice says. None in a process with no app
+/// engine (the `codealong` command, `--snapshot`), which reads the file instead.
+static RUNNING: std::sync::RwLock<Option<Config>> = std::sync::RwLock::new(None);
+
+/// Says which settings the app runs on (the engine, each time it reads config.toml).
+pub fn running_on(cfg: &Config) {
+    *RUNNING.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
 }
 
-/// The settings, or the defaults when there's no config.toml or it doesn't read or parse: for
-/// what goes on either way, and shows the file's error elsewhere (Settings, a notice) if at all.
-pub fn load_or_default() -> Config {
-    load().ok().flatten().unwrap_or_default()
+/// The settings to act on. In the app, the ones it runs on, so a mistake in config.toml never
+/// leaves it half working: everything goes on with the last good settings and the notice says
+/// what's wrong. Elsewhere config.toml itself (the defaults when there's none yet), and when it
+/// doesn't read or parse, an error that says so and where to look, never the defaults in its
+/// place: those have no accounts, and whatever acted on them would act on settings that aren't
+/// yours.
+pub fn current() -> Result<Config> {
+    if let Some(cfg) = RUNNING.read().unwrap_or_else(|e| e.into_inner()).clone() {
+        return Ok(cfg);
+    }
+    from_file(load())
+}
+
+/// The settings `load` read from the file: the defaults when there's no file yet, and when it
+/// doesn't read or parse, an error that says where to look.
+fn from_file(loaded: Result<Option<Config>>) -> Result<Config> {
+    match loaded {
+        Ok(cfg) => Ok(cfg.unwrap_or_default()),
+        Err(e) => Err(anyhow!("{e:#}. `codealong config check` says what's wrong with it.")),
+    }
 }
 
 /// config.toml's text, or `None` when there isn't one yet.
@@ -1036,6 +1055,19 @@ pub fn render(cfg: &Config) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A config.toml that doesn't parse is an error that says where to look, never the
+    /// defaults, which have no accounts: what acted on those would act on settings that aren't
+    /// yours. No file yet is the defaults.
+    #[test]
+    fn settings_that_dont_parse_are_an_error_not_the_defaults() {
+        let broken = load_text("[[accounts]\nname = ");
+        let e = from_file(broken.map(Some)).unwrap_err().to_string();
+        assert!(e.ends_with("`codealong config check` says what's wrong with it."), "{e}");
+        assert_eq!(from_file(Ok(None)).unwrap(), Config::default());
+        let cfg = load_text("[[accounts]]\nname = \"work\"\nharness = \"claude\"\nhome = \"~/.claude\"\n").unwrap();
+        assert_eq!(from_file(Ok(Some(cfg.clone()))).unwrap(), cfg);
+    }
 
     #[test]
     fn renders_and_parses_back() {

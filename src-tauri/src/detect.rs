@@ -422,10 +422,12 @@ pub fn find_all() -> Vec<Found> {
 }
 
 /// The accounts config.toml doesn't list, each new unless Codealong has read its folder or
-/// been told to leave it: what Settings › Accounts and `codealong config show` list.
-pub fn unlisted() -> Vec<Found> {
-    let accounts = crate::config::load_or_default().accounts;
-    not_configured(find_all(), &accounts, &crate::state::known_accounts())
+/// been told to leave it: what Settings › Accounts and `codealong config show` list. An error
+/// when config.toml doesn't parse: every account on this Mac would read as unlisted, and be
+/// offered again.
+pub fn unlisted() -> anyhow::Result<Vec<Found>> {
+    let accounts = crate::config::current()?.accounts;
+    Ok(not_configured(find_all(), &accounts, &crate::state::known_accounts()))
 }
 
 /// The accounts to start config.toml with: the ones in use or signed in.

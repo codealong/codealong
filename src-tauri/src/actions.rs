@@ -379,7 +379,7 @@ pub fn answer(engine: &Handle, name: &str, params: Value) -> Result<Value, Strin
 }
 
 fn cfg() -> Result<config::Config, String> {
-    Ok(config::load_strict().map_err(words)?)
+    Ok(config::current().map_err(words)?)
 }
 
 fn to_value<T: serde::Serialize>(v: T) -> Result<Value, String> {

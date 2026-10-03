@@ -1038,7 +1038,7 @@ fn transcripts_named(home: &Path, id: &str) -> Vec<PathBuf> {
 
 /// An account's folder by its name, as config.toml has it.
 fn home_of_account(name: &str) -> Option<PathBuf> {
-    crate::config::load().ok().flatten()?.accounts.into_iter().find(|a| a.name == name).map(|a| a.home_path())
+    crate::config::current().ok()?.accounts.into_iter().find(|a| a.name == name).map(|a| a.home_path())
 }
 
 /// What `--resume` goes on from for a session under `account`: its ID, or, while it has no

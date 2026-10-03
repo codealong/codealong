@@ -257,7 +257,7 @@ pub fn moved_words(board: &Board, key: &str, copy: &str) -> String {
 /// stand: what a window's reply box, another device's request and `codealong session send`
 /// through the app all come to.
 pub fn send_here(engine: &crate::engine::Handle, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
-    let cfg = crate::config::load_strict()?;
+    let cfg = crate::config::current()?;
     send(&engine.board(), &cfg, key, text, sender, now)
 }
 

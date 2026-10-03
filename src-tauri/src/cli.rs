@@ -689,11 +689,13 @@ impl Client {
         }
     }
 
-    fn cfg(&mut self) -> &Config {
+    /// config.toml's settings, or why they can't be had: a file that doesn't parse stops
+    /// whatever needs them, rather than have it run on the defaults, which have no accounts.
+    fn cfg(&mut self) -> Result<&Config> {
         if self.cfg.is_none() {
-            self.cfg = Some(config::load_or_default());
+            self.cfg = Some(config::current()?);
         }
-        self.cfg.as_ref().unwrap()
+        Ok(self.cfg.as_ref().unwrap())
     }
 
     /// The board: the app's, or a light one from the files (no git, PRs or visitors).
@@ -724,7 +726,8 @@ impl Client {
             false => None,
         };
         let found = from_app.unwrap_or_else(|| {
-            let cfg = self.cfg().clone();
+            // Without settings there are no accounts' records to look through: only titles match.
+            let cfg = self.cfg().cloned().unwrap_or_default();
             search::find_now(search::Scope { accounts: cfg.accounts, days: cfg.search.days }, words, 1000)
         });
         found.hits.into_iter().map(|h| (h.key, h.snippet)).collect()
@@ -777,7 +780,7 @@ impl Client {
             // The session would run in this command's process and end with it.
             bail!("Starting a session in Codealong needs the app running.");
         }
-        let cfg = self.cfg().clone();
+        let cfg = self.cfg()?.clone();
         let board = self.board()?;
         // No engine to hand the todos' start to: it's written to todos.json from here, under
         // its lock.
@@ -1076,6 +1079,9 @@ struct StatusOut {
     config: String,
     todos: String,
     accounts: usize,
+    /// Why config.toml's settings can't be read, when they can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    config_error: Option<String>,
     /// The symlink `install` made, when it's in place.
     command_link: Option<String>,
     /// Where the skill is installed, per account.
@@ -1096,6 +1102,11 @@ struct SkillStatus {
 }
 
 fn status(c: &mut Client, json: bool) -> Result<()> {
+    // Status still answers with settings that don't parse, and says that first.
+    let (cfg, config_error) = match c.cfg() {
+        Ok(cfg) => (cfg.clone(), None),
+        Err(e) => (Config::default(), Some(format!("{e:#}"))),
+    };
     let out = StatusOut {
         app_running: c.app.is_some(),
         app: c.app.clone(),
@@ -1104,12 +1115,12 @@ fn status(c: &mut Client, json: bool) -> Result<()> {
         data_dir: config::support_dir().to_string_lossy().into(),
         config: config::config_path().to_string_lossy().into(),
         todos: todos::path().to_string_lossy().into(),
-        accounts: c.cfg().accounts.len(),
+        accounts: cfg.accounts.len(),
+        config_error,
         command_link: crate::install::command_link().map(|p| p.to_string_lossy().into_owned()),
         skills: {
             let source = crate::install::skill_source();
-            c.cfg()
-                .accounts
+            cfg.accounts
                 .iter()
                 .map(|a| crate::install::account_skill(source.as_deref(), a))
                 .map(|s| SkillStatus { account: s.name, path: s.path, installed: s.installed, current: s.current, edited: s.edited, plugin: s.plugin })
@@ -1124,6 +1135,9 @@ fn status(c: &mut Client, json: bool) -> Result<()> {
         None => println!("Codealong isn't running; the files are read directly."),
     }
     println!("Data: {}", tilde(Path::new(&out.data_dir)));
+    if let Some(e) = &out.config_error {
+        println!("Config: {e}");
+    }
     println!("Accounts: {}", out.accounts);
     match &out.command_link {
         Some(l) => println!("Command: {}", tilde(Path::new(l))),
@@ -1185,7 +1199,7 @@ struct MeterRow {
 }
 
 fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
-    let cfg = c.cfg().clone();
+    let cfg = c.cfg()?.clone();
     let mut rows: Vec<AccountRow> = cfg
         .accounts
         .iter()
@@ -1455,7 +1469,7 @@ struct SessionDetail {
 }
 
 fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
-    let cfg = c.cfg().clone();
+    let cfg = c.cfg()?.clone();
     let key = resolve_session(c, key)?;
     let board = c.board()?;
     let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| anyhow!("There's no session {key}."))?;
@@ -2081,7 +2095,7 @@ const RUNNING_MS: i64 = 5 * 60 * 1000;
 /// agent that hands another the command in a prompt would match as well.
 fn running_this(c: &mut Client) -> Result<Option<String>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let cfg = c.cfg().clone();
+    let cfg = c.cfg()?.clone();
     let now = now_ms();
     let hits: Vec<String> = all_sessions(c.board()?)
         .into_iter()
@@ -2926,7 +2940,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     });
     let account = match a.account.as_str() {
         "auto" => {
-            let cfg = c.cfg().clone();
+            let cfg = c.cfg()?.clone();
             let usages = match c.app.is_some() {
                 true => c.board()?.usage.clone(),
                 false => Vec::new(),
@@ -2939,7 +2953,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     let place = match place {
         Some(p) => p,
         None => {
-            let cfg = c.cfg().clone();
+            let cfg = c.cfg()?.clone();
             let acct = cfg.accounts.iter().find(|x| x.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
             let places = start::ordered_places(acct, &crate::util::home()).map_err(|why| anyhow!(why))?;
             places.first().copied().ok_or_else(|| anyhow!("{account} can't start a session from here."))?
@@ -2949,7 +2963,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     let from = find_me(c)?.0;
     let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from };
     if a.dry_run {
-        let cfg = c.cfg().clone();
+        let cfg = c.cfg()?.clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
         let plan = start::plan(account, spec.place, Path::new(&spec.lane_id), &spec.prompt, &start::new_session_id(), spec.model.as_deref(), spec.effort.as_deref(), spec.worktree);
         if json {
@@ -2999,7 +3013,9 @@ struct ConfigOut {
 }
 
 fn config_view() -> ConfigOut {
-    ConfigOut { view: config::view(), discovered: crate::detect::unlisted() }
+    // The view says what's wrong with a config.toml that doesn't parse; nothing is offered
+    // against it meanwhile.
+    ConfigOut { view: config::view(), discovered: crate::detect::unlisted().unwrap_or_default() }
 }
 
 fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
@@ -3078,7 +3094,7 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
     }
     let accounts: Vec<String> = match a.skill || both {
         true => {
-            let names: Vec<String> = c.cfg().accounts.iter().filter(|x| a.account.is_empty() || a.account.contains(&x.name)).map(|x| x.name.clone()).collect();
+            let names: Vec<String> = c.cfg()?.accounts.iter().filter(|x| a.account.is_empty() || a.account.contains(&x.name)).map(|x| x.name.clone()).collect();
             if names.is_empty() {
                 bail!("No account matches. `codealong accounts` lists them.");
             }

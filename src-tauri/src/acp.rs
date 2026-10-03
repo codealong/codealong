@@ -766,7 +766,7 @@ mod tests {
     #[ignore]
     fn acp_resumes_a_session() {
         let Ok(key) = std::env::var("CODEALONG_TEST_ACP_RESUME") else { return };
-        let cfg = config::load_strict().unwrap();
+        let cfg = config::current().unwrap();
         init(|_| {});
         let account = state().sessions.get(&key).expect("a remembered session").account.clone();
         let a = cfg.accounts.iter().find(|x| x.name == account).unwrap().clone();
@@ -786,7 +786,7 @@ mod tests {
         let (Ok(key), Ok(dir)) = (std::env::var("CODEALONG_TEST_ACP_FORK"), std::env::var("CODEALONG_TEST_ACP_DIR")) else { return };
         let mut parts = key.splitn(3, ':').skip(1);
         let (account, id) = (parts.next().unwrap(), parts.next().unwrap());
-        let cfg = config::load_strict().unwrap();
+        let cfg = config::current().unwrap();
         let a = cfg.accounts.iter().find(|x| x.name == account).expect("an account by that name").clone();
         init(|_| {});
         let copy = fork(&a, id, Path::new(&dir), "Which word did I ask you to remember? Answer with the word alone, in lowercase.").unwrap();
@@ -803,7 +803,7 @@ mod tests {
     #[ignore]
     fn acp_runs_a_session() {
         let (Ok(name), Ok(dir)) = (std::env::var("CODEALONG_TEST_ACP"), std::env::var("CODEALONG_TEST_ACP_DIR")) else { return };
-        let cfg = config::load_strict().unwrap();
+        let cfg = config::current().unwrap();
         let a = cfg.accounts.iter().find(|x| x.name == name).expect("an account by that name").clone();
         let streamed = Arc::new(Mutex::new(String::new()));
         let s2 = streamed.clone();
