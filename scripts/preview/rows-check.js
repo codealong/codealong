@@ -5,7 +5,8 @@
 // that worktree's rows again while every other row, in the list and the sidebar, skips rendering,
 // another worktree's that the check gave an archived session included;
 // a todo linked later appears; a double-click opens where the latest push says the session lives;
-// the arrow keys move the selection; and a hidden window catches up when it's shown.
+// the arrow keys move the selection (in Sessions once Escape has taken the keyboard from the box a
+// click puts it in); and a hidden window catches up when it's shown.
 //   PREVIEW_WAIT=120000 scripts/preview.sh worktrees '' scripts/preview/rows-check.js
 //   PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/rows-check.js
 (function () {
@@ -244,6 +245,12 @@
     var key = all[all.length - 1] === row() ? 'ArrowUp' : 'ArrowDown';
     row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true, detail: 1 }));
     return wait(100).then(function () {
+      // In Sessions the click puts the cursor in the session's box, where the arrows are the
+      // box's own, and Escape there gives the list its keys back (mainKeys.ts).
+      var box = document.activeElement && document.activeElement.closest('.ca-composer');
+      if (box) document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      return wait(100);
+    }).then(function () {
       var before = list.getAttribute('aria-activedescendant');
       window.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true }));
       return wait(200).then(function () {
