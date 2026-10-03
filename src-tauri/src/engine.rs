@@ -508,7 +508,8 @@ fn opens_in(apps: &AppNames, id: &str) -> bool {
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
     // The theme is on the board before the first scan finishes, so windows open in it.
-    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), quick_shortcut: config::quick_shortcut(), ..Default::default() }));
+    let shortcuts = config::shortcuts();
+    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), quick_shortcut: shortcuts.quick_panel, waiting_shortcut: shortcuts.waiting, ..Default::default() }));
     let handle = Handle { tx: tx.clone(), board: board.clone() };
     let ping = tx.clone();
     std::thread::spawn(move || loop {
@@ -2397,6 +2398,7 @@ impl Engine {
         board.pinned_prs = self.seen.pinned_prs.clone();
         board.theme = self.cfg.appearance.theme;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
+        board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();
         board.jev = self.cfg.jev.clone();
         board.devices = self.cfg.devices.clone();
         board.project_rules = self.cfg.projects.clone();

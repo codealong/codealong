@@ -315,7 +315,7 @@ export interface Config {
   apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean };
   appearance: { theme: Theme };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
-  shortcuts: { quick_panel: string };
+  shortcuts: { quick_panel: string; waiting: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
   jev?: JevCfg;
   accounts: AccountCfg[];
@@ -586,6 +586,8 @@ export interface Board {
   labels: Label[];
   /** The quick panel's shortcut from config.toml, as it writes it; empty when it's off. Missing on older boards. */
   quickShortcut?: string;
+  /** The shortcut that goes through what waits on you, as config.toml writes it; empty when off. */
+  waitingShortcut?: string;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
   jev?: JevCfg;
   /** Open todos whose work Jev says looks done, by todo id. Missing on older boards. */
@@ -887,6 +889,8 @@ export interface StartSpec {
 
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */
 export interface ShortcutStatus {
+  /** The quick panel's, or the one that goes through what waits on you. */
+  which: 'quick' | 'waiting';
   /** As config.toml writes it; empty when it's off. */
   shortcut: string;
   error: string | null;

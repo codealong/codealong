@@ -197,8 +197,27 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
         </div>
         <div className="ca-field">
           <span>Quick panel</span>
-          <ShortcutField value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL} onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })} />
+          <ShortcutField
+            which="quick"
+            name="Quick panel shortcut"
+            fallback={DEFAULT_QUICK_PANEL}
+            value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL}
+            other={{ value: cfg.shortcuts?.waiting ?? DEFAULT_WAITING, name: 'the shortcut for what waits on you' }}
+            onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })}
+          />
           <small>Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.</small>
+        </div>
+        <div className="ca-field">
+          <span>What waits on you</span>
+          <ShortcutField
+            which="waiting"
+            name="Shortcut for what waits on you"
+            fallback={DEFAULT_WAITING}
+            value={cfg.shortcuts?.waiting ?? DEFAULT_WAITING}
+            other={{ value: cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL, name: 'the quick panel’s shortcut' }}
+            onChange={(waiting) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, waiting } })}
+          />
+          <small>Opens the first session that waits on you, from any app, to answer one after another: in the notch when the bar is docked there, else in the quick panel. Press it again to put it away.</small>
         </div>
         <label className="ca-field">
           <span>Search what sessions said</span>
@@ -265,6 +284,8 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
 
 /** config.rs's DEFAULT_QUICK_PANEL. */
 const DEFAULT_QUICK_PANEL = 'Option+Cmd+/';
+/** config.rs's DEFAULT_WAITING. */
+const DEFAULT_WAITING = 'Option+Cmd+.';
 
 /** The board goes back this far, so searching further finds nothing more (config.rs). */
 const MAX_SEARCH_DAYS = 14;
@@ -435,13 +456,26 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
   );
 }
 
+interface ShortcutFieldProps {
+  /** Which of the shortcuts it is, for what the engine says of it. */
+  which: ShortcutStatus['which'];
+  /** What it's called, for the button's label. */
+  name: string;
+  /** Its default, which a button puts back. */
+  fallback: string;
+  value: string;
+  /** The other shortcut, which this one can't be too. */
+  other: { value: string; name: string };
+  onChange: (shortcut: string) => void;
+}
+
 /**
- * The quick panel's shortcut: shown the way macOS writes shortcuts, and recorded by pressing it.
- * While it records, the current shortcut is off, so pressing that records it instead of opening
- * the panel. Engine-side problems (a shortcut macOS won't take) show under it, and so does
- * what else on a Mac is known to use the same keys.
+ * One of the shortcuts that work in every app: shown the way macOS writes shortcuts, and recorded
+ * by pressing it. While it records, the shortcuts are off, so pressing one records it instead of
+ * doing what it does. Engine-side problems (a shortcut macOS won't take) show under it, and so
+ * does what else on a Mac is known to use the same keys.
  */
-function ShortcutField({ value, onChange }: { value: string; onChange: (shortcut: string) => void }) {
+function ShortcutField({ which, name, fallback, value, other, onChange }: ShortcutFieldProps) {
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -449,9 +483,9 @@ function ShortcutField({ value, onChange }: { value: string; onChange: (shortcut
   const button = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    void quickShortcut().then(setStatus);
-    return onQuickShortcut(setStatus);
-  }, []);
+    void quickShortcut(which).then(setStatus);
+    return onQuickShortcut((s) => s.which === which && setStatus(s));
+  }, [which]);
 
   const record = (on: boolean) => {
     setRecording(on);
@@ -474,7 +508,7 @@ function ShortcutField({ value, onChange }: { value: string; onChange: (shortcut
           ref={button}
           type="button"
           className={cx('ca-shortcut', recording && 'is-recording', !label && 'is-off')}
-          aria-label={recording ? 'Press the new shortcut' : `Quick panel shortcut: ${label ?? 'off'}. Press to change.`}
+          aria-label={recording ? 'Press the new shortcut' : `${name}: ${label ?? 'off'}. Press to change.`}
           onClick={() => record(!recording)}
           onBlur={() => recording && record(false)}
           onKeyDown={(e) => {
@@ -492,6 +526,10 @@ function ShortcutField({ value, onChange }: { value: string; onChange: (shortcut
             }
             if ('error' in made) {
               setProblem(made.error);
+              return;
+            }
+            if (shortcutLabel(made.shortcut) === shortcutLabel(other.value)) {
+              setProblem(`${shortcutLabel(made.shortcut)} is ${other.name}. Pick another.`);
               return;
             }
             record(false);
@@ -515,9 +553,9 @@ function ShortcutField({ value, onChange }: { value: string; onChange: (shortcut
                 Turn off
               </Button>
             )}
-            {value !== DEFAULT_QUICK_PANEL && (
-              <Button variant="ghost" size="sm" onClick={() => onChange(DEFAULT_QUICK_PANEL)}>
-                Use {shortcutLabel(DEFAULT_QUICK_PANEL)}
+            {value !== fallback && shortcutLabel(fallback) !== shortcutLabel(other.value) && (
+              <Button variant="ghost" size="sm" onClick={() => onChange(fallback)}>
+                Use {shortcutLabel(fallback)}
               </Button>
             )}
           </>

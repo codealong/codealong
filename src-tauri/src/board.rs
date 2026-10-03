@@ -1400,6 +1400,7 @@ pub fn compose(inp: Inputs) -> Board {
         todos: Vec::new(),
         labels: Vec::new(),
         quick_shortcut: String::new(),
+        waiting_shortcut: String::new(),
         jev: Default::default(),
         todo_hints: Default::default(),
         devices: Default::default(),

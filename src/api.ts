@@ -923,6 +923,12 @@ export function onNotchKeys(cb: (has: boolean) => void): () => void {
   return onWindowEvent<boolean>('notch-keys', cb);
 }
 
+/** Calls `cb` when the shortcut that goes through what waits on you is pressed while the bar is
+ *  docked in the notch (quick.rs `work_through`). */
+export function onWaitingShortcut(cb: () => void): () => void {
+  return onWindowEvent<null>('waiting-shortcut', () => cb());
+}
+
 /** Keeps the session the docked bar shows on the desktop, in a window of its own where its card
  *  is (kept.rs): the card as the page measured it, in CSS pixels from the window's top left. */
 export async function keepNotchSession(key: string, card: PillRect): Promise<void> {
@@ -1101,6 +1107,9 @@ export interface QuickOpen {
   keep?: boolean;
   /** A session to answer: the panel opens on its conversation and a box for the reply. */
   reply?: string | null;
+  /** The shortcut that goes through what waits on you: the panel opens on the first session that
+   *  does, to answer one after another, as ⇥ on one in its list does. With none, it opens as usual. */
+  waiting?: boolean;
   /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
    *  part. quick.rs adds it to every open. */
   room?: number;
@@ -1162,19 +1171,21 @@ export function windowLabel(): string | null {
   return inTauri ? getCurrentWebviewWindow().label : null;
 }
 
-/** The quick panel's shortcut and whether it works. */
-export async function quickShortcut(): Promise<ShortcutStatus> {
-  if (!inTauri) return { shortcut: 'Option+Cmd+/', error: null };
-  return (await invoke<ShortcutStatus | null>('quick_shortcut')) ?? { shortcut: 'Option+Cmd+/', error: null };
+/** One of the shortcuts that work in every app, the quick panel's unless `which` says, and
+ *  whether it works. */
+export async function quickShortcut(which: ShortcutStatus['which'] = 'quick'): Promise<ShortcutStatus> {
+  const preview: ShortcutStatus = { which, shortcut: which === 'quick' ? 'Option+Cmd+/' : 'Option+Cmd+.', error: null };
+  if (!inTauri) return preview;
+  return (await invoke<ShortcutStatus | null>('quick_shortcut', { which })) ?? preview;
 }
 
-/** Turns the quick panel's shortcut off while Settings records a new one, and back on. */
+/** Turns the shortcuts off while Settings records a new one, and back on. */
 export async function pauseQuickShortcut(paused: boolean): Promise<void> {
   if (!inTauri) return;
   await invoke('pause_quick_shortcut', { paused });
 }
 
-/** Calls `cb` when the quick panel's shortcut changes or stops working. */
+/** Calls `cb` when one of the shortcuts changes or stops working; the status says which. */
 export function onQuickShortcut(cb: (status: ShortcutStatus) => void): () => void {
   if (!inTauri) return () => {};
   let cancelled = false;

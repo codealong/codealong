@@ -2,7 +2,9 @@
 //! the sessions that need you; typing finds sessions; its last row starts a new one with what
 //! you typed as the prompt. A shortcut that works in every app (`[shortcuts] quick_panel` in
 //! config.toml) opens it, and so do ⌘N and New session in the board's windows, at what's
-//! selected there.
+//! selected there. A second one (`[shortcuts] waiting`) opens it on the first session that waits
+//! on you, to answer one after another, unless the bar is docked in the notch: then the notch
+//! does that (`work_through`).
 //!
 //! Like the floating bar it's a non-activating panel: macOS shows only those on another app's
 //! full-screen Space, and opening one leaves the app you're in active, with Codealong's windows
@@ -22,7 +24,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
@@ -56,6 +58,25 @@ struct Quick {
     /// The open the page hasn't answered yet.
     waiting: Mutex<Option<u64>>,
     shortcut: Mutex<ShortcutState>,
+    waiting_shortcut: Mutex<ShortcutState>,
+}
+
+/// Codealong's shortcuts that work in every app: the quick panel's, and the one that goes through
+/// what waits on you.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Keys {
+    Quick,
+    Waiting,
+}
+
+impl Quick {
+    fn slot(&self, which: Keys) -> &Mutex<ShortcutState> {
+        match which {
+            Keys::Quick => &self.shortcut,
+            Keys::Waiting => &self.waiting_shortcut,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -68,10 +89,11 @@ struct ShortcutState {
     paused: bool,
 }
 
-/// The shortcut as Settings shows it.
+/// A shortcut as Settings shows it.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ShortcutStatus {
+    pub which: Keys,
     /// As config.toml has it; empty when it's off.
     pub shortcut: String,
     /// Why it isn't working, when it isn't.
@@ -274,10 +296,39 @@ pub fn hide(app: &AppHandle) {
 
 /// The shortcut: opens the panel, or closes it when it's up. On the main thread.
 pub fn toggle(app: &AppHandle) {
+    toggle_for(app, Value::Null);
+}
+
+/// Opens the panel for `context`, or hides it if it's up.
+fn toggle_for(app: &AppHandle, context: Value) {
     match app.get_webview_window(LABEL) {
         Some(w) if panel::is_visible(&w) => hide(app),
-        Some(_) => open(app, Value::Null),
+        Some(_) => open(app, context),
         None => {}
+    }
+}
+
+/// The shortcut that goes through what waits on you. Docked in the notch, the bar's page opens
+/// the notch on the session that waits (or puts it away), as a click on the notch does; otherwise
+/// the panel opens on the first session that waits on you, working through them as ⇥ on one
+/// does, or hides. On the main thread.
+pub fn work_through(app: &AppHandle) {
+    if crate::bar::mode_of(app) == crate::bar::Mode::Notch && app.get_webview_window(crate::bar::LABEL).is_some() {
+        let _ = app.emit_to(crate::bar::LABEL, "waiting-shortcut", ());
+        return;
+    }
+    toggle_for(app, serde_json::json!({ "waiting": true }));
+}
+
+/// One of Codealong's shortcuts was pressed: the quick panel's opens or hides it, the other goes
+/// through what waits on you. On the main thread.
+pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
+    let Some(state) = app.try_state::<Quick>() else { return };
+    let is = |which: Keys| state.slot(which).lock().ok().is_some_and(|s| s.registered.as_ref() == Some(shortcut));
+    if is(Keys::Waiting) {
+        work_through(app);
+    } else if is(Keys::Quick) {
+        toggle(app);
     }
 }
 
@@ -339,32 +390,32 @@ pub fn parse_shortcut(text: &str) -> std::result::Result<Option<Shortcut>, Strin
     Ok(Some(shortcut))
 }
 
-/// Registers the shortcut config.toml asks for, in place of the one before. Off a background
+/// Registers a shortcut config.toml asks for, in place of the one before. Off a background
 /// thread only: registering waits on the main thread.
-pub fn apply_shortcut(app: &AppHandle, wanted: &str) {
+pub fn apply_shortcut(app: &AppHandle, which: Keys, wanted: &str) {
     let Some(state) = app.try_state::<Quick>() else { return };
-    let Ok(mut s) = state.shortcut.lock() else { return };
+    let Ok(mut s) = state.slot(which).lock() else { return };
     if s.wanted.as_deref() == Some(wanted) {
         return;
     }
     s.wanted = Some(wanted.to_string());
     register(app, &mut s);
     drop(s);
-    let _ = app.emit("quick-shortcut", status(app));
+    let _ = app.emit("quick-shortcut", status(app, which));
 }
 
-/// Turns the shortcut off while Settings records a new one, and back on after. Off a
-/// background thread only.
-pub fn pause_shortcut(app: &AppHandle, paused: bool) -> ShortcutStatus {
-    if let Some(state) = app.try_state::<Quick>() {
-        if let Ok(mut s) = state.shortcut.lock() {
+/// Turns both shortcuts off while Settings records a new one, so pressing either records it, and
+/// back on after. Off a background thread only.
+pub fn pause_shortcuts(app: &AppHandle, paused: bool) {
+    let Some(state) = app.try_state::<Quick>() else { return };
+    for which in [Keys::Quick, Keys::Waiting] {
+        if let Ok(mut s) = state.slot(which).lock() {
             if s.paused != paused {
                 s.paused = paused;
                 register(app, &mut s);
             }
         }
     }
-    status(app)
 }
 
 fn register(app: &AppHandle, s: &mut ShortcutState) {
@@ -387,10 +438,11 @@ fn register(app: &AppHandle, s: &mut ShortcutState) {
     }
 }
 
-pub fn status(app: &AppHandle) -> ShortcutStatus {
-    let Some(state) = app.try_state::<Quick>() else { return ShortcutStatus { shortcut: String::new(), error: None } };
-    let Ok(s) = state.shortcut.lock() else { return ShortcutStatus { shortcut: String::new(), error: None } };
-    ShortcutStatus { shortcut: s.wanted.as_deref().unwrap_or_default().trim().to_string(), error: s.error.clone() }
+pub fn status(app: &AppHandle, which: Keys) -> ShortcutStatus {
+    let none = ShortcutStatus { which, shortcut: String::new(), error: None };
+    let Some(state) = app.try_state::<Quick>() else { return none };
+    let Ok(s) = state.slot(which).lock() else { return none };
+    ShortcutStatus { which, shortcut: s.wanted.as_deref().unwrap_or_default().trim().to_string(), error: s.error.clone() }
 }
 
 #[cfg(test)]
@@ -406,6 +458,8 @@ mod tests {
         assert_eq!(parse_shortcut("Alt+`").unwrap().unwrap().key, Code::Backquote);
         let s = parse_shortcut(crate::config::DEFAULT_QUICK_PANEL).unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Slash));
+        let s = parse_shortcut(crate::config::DEFAULT_WAITING).unwrap().unwrap();
+        assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Period));
         assert!(parse_shortcut("").unwrap().is_none());
         assert!(parse_shortcut("  ").unwrap().is_none());
         // A function key can stand alone; Command and Space is allowed, for people who moved Spotlight.

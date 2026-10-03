@@ -16,13 +16,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
+import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
 import { ago } from '../format';
 import * as menus from '../menus';
 import { usePerf } from '../perf';
+import { useLatest } from '../latest';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
@@ -451,6 +452,19 @@ export function Bar() {
   // peek: which one, what it works through, and its keys.
   const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? [])].map((i) => i.key)), [allItems, feed]);
   const stage = useNotchSession(items, (key) => onBar.has(key), notch !== null);
+  // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
+  // session that waits (or puts it away), as a click on the notch does. With nothing on the bar
+  // to show, the quick panel opens instead.
+  const pressNow = useLatest(stage.press);
+  const dockedNow = useLatest(notch !== null);
+  useEffect(
+    () =>
+      onWaitingShortcut(() => {
+        if (dockedNow.current && pressNow.current()) return;
+        void showQuick({ waiting: true });
+      }),
+    [pressNow, dockedNow],
+  );
   // The session the peek shows, or the notch: its pill is marked.
   const shownKey = notch ? (stage.open ? stage.key : null) : peeked.key;
 

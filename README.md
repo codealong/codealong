@@ -152,7 +152,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     agent never sees it: the panel shows that prompt faint, marked "Taken back", and puts it back
     in the box, as Claude Code does in its own. The next message Codealong types into that
     terminal clears Claude Code's copy first (not in Terminal, which can't press a single key). When a session waits on you to allow a tool call, the call shows above the
-    box with Allow and Deny: OpenCode's are answered through its service, Claude
+    box with Allow (⌘⏎) and Deny (⌘⌫, with nothing written in the box, and the session stays
+    shown so you can say what to do instead): OpenCode's are answered through its service, Claude
     Code's through the Codealong plugin's `PermissionRequest` hook when the account has the
     plugin (wherever the session runs: any terminal, the Claude app), with Always too where
     Claude Code offers to allow calls like it from now on (its button says what that adds),
@@ -359,7 +360,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   carried several merged PRs.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
-  it what you can do next. With nothing typed it lists the sessions that need you, the
+  it what you can do next. A second shortcut, ⌥⌘. (`[shortcuts] waiting`), goes through what
+  waits on you from any app: with the bar docked in the notch it opens the notch on the session
+  that waits, as a click on the notch does; otherwise it opens this panel on the longest wait,
+  as ⇥ on it would, to answer one after another. Pressed again, it puts it away. With nothing typed it lists the sessions that need you, the
   longest wait first as on the floating bar, then the ones whose turn ended (the working ones when nothing waits on you), and under them the first
   three todos ready to start, in your order. Typed words find
   sessions by title, account, worktree, branch, repo, project or PR, then by what was said in
@@ -378,7 +382,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   shows a todo or PR in Codealong, ⌘1 to ⌘9 do a row, Escape closes. ⇥ on a
   session answers it in the panel: its conversation, and a box that sends it a message where it
   runs (⏎ sends and closes the panel), or what it waits on you to allow, with Allow and Deny
-  (⌘⏎ allows); Escape goes back to the list. It's the card the bar's peek shows: the same
+  (⌘⏎ allows, ⌘⌫ denies); Escape goes back to the list. It's the card the bar's peek shows: the same
   header (the ways to open the session, the check, ⋯), the session's whole menu on ⋯ and on a
   right-click (snooze, archive, pin, rename, show in Codealong and the rest), and the Sessions
   list's shortcuts for it: ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it, ⌃⌘P pins it in
@@ -556,7 +560,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   menus is up. The pin at the end of its right side, or Keep the notch open in its right-click
   menu, keeps it open until you unpin it, across launches. There's no peek beside a docked bar:
   click a session's pill and the notch opens further, into that session under the pills, its
-  header, its conversation and the box that answers it, dark as the notch is. It has the
+  header, its conversation and the box that answers it, dark as the notch is; ⌥⌘. from any
+  app opens it on the session that waits on you. It has the
   keyboard from the click, with the cursor in the box, and works through what waits on you as a
   session's panel in Sessions does, with the same keys: ⌘⏎ sends (or allows what the session
   waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
@@ -723,6 +728,7 @@ theme = "system"               # follows macOS; or "light", "dark"
 
 [shortcuts]
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
+waiting = "Option+Cmd+."            # the first session that waits on you: the notch, or the quick panel
 
 [jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
 model = "jev-latest"

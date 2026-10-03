@@ -265,6 +265,9 @@ export function Quick() {
   // where the queue is set up: a slot the queue fills in below, not a value from above, so it
   // isn't a useLatest.
   const quiet = useRef(() => {});
+  // Opens on the first session that waits on you in a project, working through them from there,
+  // as ⇥ on it in the list does; the shortcut that goes through them asks for it.
+  const answerFirst = useRef<(b: Board, project: string) => void>(() => {});
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
   const inputBox = useRef<HTMLDivElement>(null);
@@ -353,6 +356,8 @@ export function Quick() {
           if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
         }
       }
+      // The shortcut that goes through what waits on you: on the first that does.
+      if (ctx.waiting && b) answerFirst.current(b, ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS));
       setShown(true);
       setOpens((n) => n + 1);
     };
@@ -685,6 +690,14 @@ export function Quick() {
     },
   });
   quiet.current = () => way.say(null);
+  answerFirst.current = (b, inProject) => {
+    const first = queueRows(b, inProject).find((r) => !r.session.snoozedUntil);
+    if (!first) return;
+    way.fresh();
+    setQueued(true);
+    setReplyKey(first.key);
+    setRenameKey(null);
+  };
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 

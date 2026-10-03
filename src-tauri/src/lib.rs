@@ -700,16 +700,17 @@ async fn test_jev(model: String) -> Result<String, String> {
     blocking(move || jev::check(model.trim()).map_err(words)).await?
 }
 
-/// The quick panel's shortcut and why it isn't working, if it isn't.
+/// One of the shortcuts that work in every app (the quick panel's when `which` is left out) and
+/// why it isn't working, if it isn't.
 #[tauri::command(async)]
-fn quick_shortcut(app: tauri::AppHandle) -> quick::ShortcutStatus {
-    quick::status(&app)
+fn quick_shortcut(app: tauri::AppHandle, which: Option<quick::Keys>) -> quick::ShortcutStatus {
+    quick::status(&app, which.unwrap_or(quick::Keys::Quick))
 }
 
-/// Turns the quick panel's shortcut off while Settings records a new one, and back on.
+/// Turns the shortcuts off while Settings records a new one, and back on.
 #[tauri::command(async)]
-fn pause_quick_shortcut(app: tauri::AppHandle, paused: bool) -> quick::ShortcutStatus {
-    quick::pause_shortcut(&app, paused)
+fn pause_quick_shortcut(app: tauri::AppHandle, paused: bool) {
+    quick::pause_shortcuts(&app, paused)
 }
 
 /// Whether the floating bar is on.
@@ -1335,7 +1336,8 @@ pub fn run() {
             app.set_theme(native_theme(theme));
             let shown = std::sync::Mutex::new(theme);
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
-            let shortcut = std::sync::Mutex::new(config::quick_shortcut());
+            let shortcuts = config::shortcuts();
+            let shortcut = std::sync::Mutex::new((shortcuts.quick_panel.clone(), shortcuts.waiting.clone()));
             // Your other devices (peers.rs). They come before the engine, which publishes to them,
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
@@ -1376,10 +1378,13 @@ pub fn run() {
                 // Registering waits on the main thread, so it gets a thread of its own: this one
                 // may hold what a command on the main thread is waiting for.
                 if let Ok(mut shortcut) = shortcut.lock() {
-                    if *shortcut != board.quick_shortcut {
-                        *shortcut = board.quick_shortcut.clone();
-                        let (app, wanted) = (emitter.clone(), board.quick_shortcut.clone());
-                        std::thread::spawn(move || quick::apply_shortcut(&app, &wanted));
+                    let (quick_was, waiting_was) = &mut *shortcut;
+                    for (which, now, was) in [(quick::Keys::Quick, &board.quick_shortcut, quick_was), (quick::Keys::Waiting, &board.waiting_shortcut, waiting_was)] {
+                        if was != now {
+                            *was = now.clone();
+                            let (app, wanted) = (emitter.clone(), now.clone());
+                            std::thread::spawn(move || quick::apply_shortcut(&app, which, &wanted));
+                        }
                     }
                 }
                 let _ = emitter.emit("board", board);
@@ -1443,7 +1448,11 @@ pub fn run() {
             }
             // Registering waits on the main thread, which this is.
             let handle = app.handle().clone();
-            std::thread::spawn(move || quick::apply_shortcut(&handle, &config::quick_shortcut()));
+            std::thread::spawn(move || {
+                let shortcuts = config::shortcuts();
+                quick::apply_shortcut(&handle, quick::Keys::Quick, &shortcuts.quick_panel);
+                quick::apply_shortcut(&handle, quick::Keys::Waiting, &shortcuts.waiting);
+            });
             if let Err(e) = add_settings_menu(app.handle()) {
                 eprintln!("Couldn't add Settings to the menu: {e:#}");
             }
@@ -1455,9 +1464,9 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, _, event| {
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, event| {
             if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                quick::toggle(app);
+                quick::pressed(app, shortcut);
             }
         }).build())
         .on_window_event(|window, event| {

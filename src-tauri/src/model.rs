@@ -124,6 +124,8 @@ pub struct Board {
     pub labels: Vec<crate::todos::Label>,
     /// The quick panel's shortcut, from config.toml; empty when it's off.
     pub quick_shortcut: String,
+    /// The shortcut that goes through what waits on you, from config.toml; empty when it's off.
+    pub waiting_shortcut: String,
     /// What Codealong asks Jev, from `[jev]` in config.toml.
     pub jev: crate::config::JevCfg,
     /// Open todos whose work Jev says looks done, by todo id (todojev.rs).

@@ -122,9 +122,11 @@ interface ComposerProps {
   onFailed?: (why: string) => void;
   /** ⌘⏎ sends, then goes on to the next session that waits on you, saying what was done. */
   onNext?: (done: string) => void;
-  /** ⌘⏎ allows the call the session waits on, then goes on: with nothing to send, or while what
-   *  you write has to wait. */
-  onAllowNext?: () => void;
+  /** ⌘⏎ allows the call the session waits on, then goes on where there's a next: with nothing
+   *  to send, or while what you write has to wait. */
+  onAllow?: () => void;
+  /** ⌘⌫ in an empty box denies it, and stays: what to do instead goes in the box. */
+  onDeny?: () => void;
 }
 
 type Note = { text: string; error: boolean };
@@ -151,7 +153,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent, onFailed, onNext, onAllowNext }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent, onFailed, onNext, onAllow, onDeny }: ComposerProps) {
   const [text, setTextNow] = useState(() => readDraft(s.key));
   // A message to this session on its way, from this box or any other.
   const going = sending(useAhead(), s.key);
@@ -401,7 +403,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           ? 'Asking a copy of it…'
           : commands.length > 0
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
-          : (note?.text ?? (stopping ? 'Stopping…' : aside ? `To the side conversation, not ${s.account}. Close it above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllowNext, canSendNow)));
+          : (note?.text ?? (stopping ? 'Stopping…' : aside ? `To the side conversation, not ${s.account}. Close it above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow)));
   return (
     <div className={cx('ca-composer', aside && 'is-aside')}>
       <div
@@ -431,6 +433,13 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
               stop();
               return;
             }
+            // ⌘⌫ with nothing written denies the call it waits on; with words, it deletes them as
+            // it does in any box.
+            if (e.key === 'Backspace' && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && onDeny && !aside && !text.trim()) {
+              e.preventDefault();
+              onDeny();
+              return;
+            }
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
             // To the side conversation, whatever the keys: none of the session's own (send now,
             // send and go on to the next, allow) apply to it.
@@ -445,9 +454,9 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
               send(true);
               return;
             }
-            if (e.metaKey && onAllowNext && (waiting || !text.trim())) {
+            if (e.metaKey && onAllow && (waiting || !text.trim())) {
               e.preventDefault();
-              onAllowNext();
+              onAllow();
               return;
             }
             // While it waits on you ⏎ sends nothing, and ⌘⏎ goes on to Allow (the quick panel's).
@@ -494,8 +503,8 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
  *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape stops a
  *  turn while it can. */
-function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean, sendNow = false): string {
-  if (waiting) return allowNext ? '⌘⏎ allow + next · send this once it isn’t waiting on you' : 'Send this once it isn’t waiting on you';
+function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false): string {
+  if (waiting) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · send this once it isn’t waiting on you` : 'Send this once it isn’t waiting on you';
   return [next && '⌘⏎ send + next', sendNow && '⌃⏎ send now, into the turn it’s taking'].filter(Boolean).join(' · ');
 }
 
@@ -505,16 +514,29 @@ interface ApprovalProps {
   onOpen: () => void;
   /** After an answer went through, with what happened. */
   onAnswered?: (said: string) => void;
-  /** ⌘⏎ allows, where the keyboard is the way in (the quick panel). */
+  /** ⌘⏎ allows and ⌘⌫ denies from anywhere in the window, where the keyboard is the way in
+   *  (the quick panel, the notch). */
   keys?: boolean;
-  /** Hands the box a way to allow, then go on to the next with `onNext` (null while there's
-   *  nothing to allow here), for its ⌘⏎. */
-  onAllowNext?: (allow: (() => void) | null) => void;
+  /** Hands the box the call's keys (null while there's nothing to answer here): ⌘⏎ allows,
+   *  then goes on to the next with `onNext` where there is one, and ⌘⌫ denies. */
+  onKeys?: (keys: CallKeys | null) => void;
   onNext?: (done: string) => void;
 }
 
+/** What the box's keys do to the call a session waits on. */
+interface CallKeys {
+  allow: () => void;
+  deny: () => void;
+}
+
+/** Whether a key press is someone editing words, which ⌘⌫ deletes there. */
+function editingText(target: EventTarget | null): boolean {
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return target.value.trim() !== '';
+  return target instanceof HTMLElement && target.isContentEditable;
+}
+
 /** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
-function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext, onNext }: ApprovalProps) {
+function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNext }: ApprovalProps) {
   const [pending, setPending] = useState<Pending | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
@@ -556,19 +578,25 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
   useEffect(() => {
     if (!keys || !answerable) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.key !== 'Enter') return;
-      e.preventDefault();
-      // With the keyboard anywhere in the window, as from the box: it allows and goes on.
-      allowRef.current('allow', andNext);
+      if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return;
+      // With the keyboard anywhere in the window, as from the box: ⌘⏎ allows and goes on, and
+      // ⌘⌫ denies, unless it's deleting words you wrote.
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        allowRef.current('allow', andNext);
+      } else if (e.key === 'Backspace' && !editingText(e.target)) {
+        e.preventDefault();
+        allowRef.current('deny');
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [keys, answerable]);
   useEffect(() => {
-    if (!onAllowNext) return;
-    onAllowNext(answerable ? () => allowRef.current('allow', andNext) : null);
-    return () => onAllowNext(null);
-  }, [onAllowNext, answerable]);
+    if (!onKeys) return;
+    onKeys(answerable ? { allow: () => allowRef.current('allow', andNext), deny: () => allowRef.current('deny') } : null);
+    return () => onKeys(null);
+  }, [onKeys, answerable]);
 
   const where = sessionPlace(s, terminal);
   // Questions that can only be answered where it runs still show here, to read before you go.
@@ -636,7 +664,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
       {pending.input && pending.input !== pending.label && <CodeBlock text={pending.input} className="ca-approval-input" />}
       <div className="ca-composer-foot">
         <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (s.hosted ? 'Allows this call once. Deny tells it no, and it carries on.' : 'Allows this call once. Deny stops the turn.'))}</span>
-        <Button size="sm" disabled={busy} onClick={() => answer('deny')}>
+        <Button size="sm" kbd={['⌘', '⌫']} disabled={busy} onClick={() => answer('deny')}>
           Deny
         </Button>
         {pending.always && (
@@ -644,7 +672,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
             Always
           </Button>
         )}
-        <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy} onClick={() => answer('allow')}>
+        <Button variant="primary" size="sm" icon="check" kbd={['⌘', '⏎']} disabled={busy} onClick={() => answer('allow')}>
           Allow
         </Button>
       </div>
@@ -788,16 +816,16 @@ export interface ReplyProps {
  *  it keeps what's in it as the session starts and stops waiting. */
 export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext }: ReplyProps) {
   const waiting = !takesReply(session);
-  // The Allow the box's ⌘⏎ presses, once there's a call to allow here.
-  const [allow, setAllow] = useState<{ run: () => void } | null>(null);
-  const takeAllow = useCallback((run: (() => void) | null) => setAllow(run ? { run } : null), []);
-  const allowNext = waiting && onNext && allow ? allow.run : undefined;
+  // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
+  const [call, setCall] = useState<CallKeys | null>(null);
+  const takeKeys = useCallback((keys: CallKeys | null) => setCall(keys), []);
+  const callKeys = waiting ? call : null;
   return (
     <>
-      {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onAllowNext={onNext ? takeAllow : undefined} onNext={onNext} />}
+      {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} session={session} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAllowNext={allowNext} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAllow={callKeys?.allow} onDeny={callKeys?.deny} />
     </>
   );
 }

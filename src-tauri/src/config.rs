@@ -248,11 +248,15 @@ pub struct ShortcutsCfg {
     /// Opens the quick panel: find a session, or start one.
     #[serde(default = "default_quick_panel")]
     pub quick_panel: String,
+    /// Opens the first session that waits on you, to answer one after another: in the notch when
+    /// the bar is docked there, else in the quick panel.
+    #[serde(default = "default_waiting")]
+    pub waiting: String,
 }
 
 impl Default for ShortcutsCfg {
     fn default() -> Self {
-        ShortcutsCfg { quick_panel: default_quick_panel() }
+        ShortcutsCfg { quick_panel: default_quick_panel(), waiting: default_waiting() }
     }
 }
 
@@ -263,6 +267,14 @@ pub const DEFAULT_QUICK_PANEL: &str = "Option+Cmd+/";
 
 fn default_quick_panel() -> String {
     DEFAULT_QUICK_PANEL.to_string()
+}
+
+/// ⌥⌘., beside the quick panel's ⌥⌘/ with the same keys held, so the two sit together; no
+/// macOS shortcut or common app's uses it. Written as Settings records it.
+pub const DEFAULT_WAITING: &str = "Option+Cmd+.";
+
+fn default_waiting() -> String {
+    DEFAULT_WAITING.to_string()
 }
 
 /// Light or dark. `System` follows macOS, and changes when macOS does.
@@ -450,10 +462,10 @@ pub fn theme() -> Theme {
     load().ok().flatten().map(|c| c.appearance.theme).unwrap_or_default()
 }
 
-/// The quick panel's shortcut config.toml asks for: the default when there's no file yet or it
-/// has an error.
-pub fn quick_shortcut() -> String {
-    load().ok().flatten().map(|c| c.shortcuts.quick_panel).unwrap_or_else(default_quick_panel)
+/// The shortcuts config.toml asks for: the defaults when there's no file yet or it has an error,
+/// as the theme is, since the app registers them before its engine has read the settings.
+pub fn shortcuts() -> ShortcutsCfg {
+    load().ok().flatten().map(|c| c.shortcuts).unwrap_or_default()
 }
 
 /// Whether config.toml lets Codealong look for updates by itself: yes when there's no file yet or
@@ -558,7 +570,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
-const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
+const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the quick panel.\n";
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
 /// from an Open in menu is the one Open in <editor> uses from then on.
@@ -612,7 +624,7 @@ fn set_theme(doc: &mut toml_edit::DocumentMut, theme: Theme) {
     set_value(&mut doc["appearance"]["theme"], Value::from(theme.as_str()));
 }
 
-/// Sets `[shortcuts] quick_panel`. A file from before there were shortcuts gets the table after
+/// Sets `[shortcuts]`. A file from before there were shortcuts gets the table after
 /// `[appearance]`, commented as a new file would be.
 fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
     use toml_edit::{Item, Table, Value};
@@ -630,6 +642,7 @@ fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
         }
     }
     set_value(&mut doc["shortcuts"]["quick_panel"], Value::from(shortcuts.quick_panel.trim()));
+    set_value(&mut doc["shortcuts"]["waiting"], Value::from(shortcuts.waiting.trim()));
 }
 
 /// Moves a table just added (it goes at the end of the file's map) to right after `after`, so
@@ -734,7 +747,11 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if crate::launch::terminal_app(&cfg.apps.terminal).is_none() {
         return Err(format!("[apps] terminal is {:?}; use {}.", cfg.apps.terminal, crate::launch::profile_names()));
     }
-    crate::quick::parse_shortcut(&cfg.shortcuts.quick_panel).map_err(|e| format!("[shortcuts] quick_panel: {e}"))?;
+    let quick = crate::quick::parse_shortcut(&cfg.shortcuts.quick_panel).map_err(|e| format!("[shortcuts] quick_panel: {e}"))?;
+    let waiting = crate::quick::parse_shortcut(&cfg.shortcuts.waiting).map_err(|e| format!("[shortcuts] waiting: {e}"))?;
+    if quick.is_some() && quick == waiting {
+        return Err("[shortcuts] quick_panel and waiting are the same keys; one press can only do one of them.".into());
+    }
     Ok(())
 }
 
@@ -974,6 +991,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(SHORTCUTS_COMMENT);
     s.push_str("[shortcuts]\n");
     s.push_str(&format!("quick_panel = {}\n", q(&cfg.shortcuts.quick_panel)));
+    s.push_str(&format!("waiting = {}\n", q(&cfg.shortcuts.waiting)));
     if cfg.jev != JevCfg::default() {
         s.push('\n');
         s.push_str(JEV_COMMENT);
@@ -1075,7 +1093,7 @@ mod tests {
             scan: vec!["~/projects".into()],
             apps: AppsCfg::default(),
             appearance: AppearanceCfg { theme: Theme::Dark },
-            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into() },
+            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: "Ctrl+Option+N".into() },
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
@@ -1417,6 +1435,22 @@ mod tests {
             let err = check(&cfg).unwrap_err();
             assert!(err.starts_with("[shortcuts] quick_panel: "), "{bad:?}: {err}");
         }
+        cfg.shortcuts.quick_panel = DEFAULT_QUICK_PANEL.into();
+        cfg.shortcuts.waiting = "Cmd+K".into();
+        assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] waiting: "));
+        // One press can't do both, however it's written; both off is fine.
+        cfg.shortcuts.waiting = "cmd+option+/".into();
+        assert!(check(&cfg).unwrap_err().contains("same keys"));
+        cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), waiting: String::new() };
+        assert!(check(&cfg).is_ok());
+    }
+
+    #[test]
+    fn a_file_from_before_the_waiting_shortcut_has_its_default() {
+        let cfg: Config = toml::from_str("[shortcuts]\nquick_panel = \"Cmd+Ctrl+K\"\n").unwrap();
+        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: DEFAULT_WAITING.into() });
+        let text = render(&Config::default());
+        assert!(text.contains("[shortcuts]\nquick_panel = \"Option+Cmd+/\"\nwaiting = \"Option+Cmd+.\"\n"), "{text}");
     }
 
     #[test]
