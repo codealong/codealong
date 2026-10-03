@@ -1,6 +1,7 @@
 // Checks Rename… in a session's right-click menu, in every window that has one, and where the
-// name is typed: the main window's sheet (RenameDialog.tsx, and `r` on the list), and the name
-// field the peek and the quick panel show in the session header (SessionHeader.tsx). Run it in each:
+// name is typed: the main window's sheet (RenameDialog.tsx, and `r` on the list, ⌃⌘R in
+// Sessions, where `r` alone does nothing), and the name field the peek and the quick panel show
+// in the session header (SessionHeader.tsx). Run it in each:
 //   scripts/preview.sh sessions '' scripts/preview/rename-check.js
 //   scripts/preview.sh worktrees '' scripts/preview/rename-check.js
 //   scripts/preview.sh bar '' scripts/preview/rename-check.js
@@ -19,8 +20,10 @@
   say('rename check (' + surface + '): waiting');
 
   // The main window: the menu's Rename… opens the sheet on the name; Rename sends it and the row
-  // shows it at once; `r` on the list opens it too, and Escape leaves the name alone.
+  // shows it at once; `r` on the list opens it too (⌃⌘R in Sessions), and Escape leaves the name
+  // alone.
   if (surface === 'main') {
+    var sessions = (localStorage.getItem('codealong.view') || 'worktrees') === 'sessions';
     var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-lane.is-agent, .ca-agentline')); };
     var row;
     until(function () { return rows().length > 0; }, 20000)
@@ -63,12 +66,21 @@
         return wait(100);
       })
       .then(function () {
+        // Sessions takes no letters alone, so a word typed on its list renames nothing; ⌃⌘R
+        // renames there (mainKeys.ts). The other views take `r`.
+        if (!sessions) return;
         key(window, 'r');
+        return wait(300).then(function () {
+          check('r alone opens nothing in Sessions', !document.querySelector('.ca-renamedlg'));
+        });
+      })
+      .then(function () {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', ctrlKey: sessions, metaKey: sessions, bubbles: true, cancelable: true }));
         return until(function () { return !!document.querySelector('.ca-renamedlg input'); }, 2000);
       })
       .then(function () {
         var input = document.querySelector('.ca-renamedlg input');
-        check('r opens it on the selected session', input.value.length > 0 && input.selectionEnd === input.value.length, input.value);
+        check((sessions ? '⌃⌘R' : 'r') + ' opens it on the selected session', input.value.length > 0 && input.selectionEnd === input.value.length, input.value);
         var before = renames().length;
         key(input, 'Escape');
         return until(function () { return !document.querySelector('.ca-renamedlg'); }, 2000).then(function () {
