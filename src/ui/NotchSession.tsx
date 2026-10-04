@@ -324,6 +324,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         can={can}
         // A session it came from, or that came of it: its menu shows it in Codealong.
         canFor={(l, s) => ({ report, open: host.open, reveal: () => host.showSession(l, s) })}
+        outgoing={session.key !== sessionKey}
         onShowSession={(_l, s) => onShow(s.key)}
         onShowLane={host.showLane}
         onShowTodo={host.showTodo}

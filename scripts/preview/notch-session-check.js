@@ -61,6 +61,8 @@
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd) {
     var p = real.apply(this, arguments);
+    // A step can hold back the board's answer for the session a pill asks for (session_at).
+    if (cmd === 'session_at' && window.__holdSessionAt) return window.__holdSessionAt.then(function () { return p; });
     if (cmd !== 'get_board') return p;
     return p.then(function (b) {
       b.lanes.forEach(function (l) {
@@ -417,6 +419,32 @@
         check('⌃⌘W closes its terminal', c[c.length - 1].key === items[0].key, JSON.stringify(c[c.length - 1]));
         return until(function () { return is('session') && pill(items[2].key) && pill(items[2].key).classList.contains('is-peeked'); }, 3000, 'on to the next after closing').then(function () { check('and goes on to the next that waits', true); });
       });
+    })
+    .then(function () { return until(function () { return showing(items[2].key); }, 3000, 'the card for the one gone on to'); })
+    .then(function () {
+      // Going to another while the board hasn't answered for it yet, the card still shows the one
+      // before: a key pressed then does nothing, where it would act on the session you just left.
+      var release;
+      window.__holdSessionAt = new Promise(function (r) { release = r; });
+      var closes = calls('close_session').length;
+      var seen = calls('mark_seen').length;
+      // Another of the check's sessions still on the bar (the ones dealt with have left it).
+      var other = items.filter(function (i) { return i.key !== items[2].key && pill(i.key); })[0];
+      if (!other) throw new Error('no other of the check’s sessions left on the bar');
+      pill(other.key).click();
+      return until(function () { return pill(other.key).classList.contains('is-peeked'); }, 3000, 'the other pill marked')
+        .then(function () {
+          key({ key: 'w', metaKey: true, ctrlKey: true });
+          key({ key: 'e', metaKey: true });
+          return wait(600);
+        })
+        .then(function () {
+          check('a key pressed before the next card comes does nothing to the one before', calls('close_session').length === closes && calls('mark_seen').length === seen && title() === names[items[2].key], JSON.stringify(calls('close_session').slice(closes)) + ' ' + title());
+          window.__holdSessionAt = null;
+          release();
+          return until(function () { return showing(other.key); }, 3000, 'the other card, once the board answers');
+        })
+        .then(function () { check('and the next card comes once the board answers', true); });
     })
     .then(function () {
       var away = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /esc$/.test(b.textContent); })[0];

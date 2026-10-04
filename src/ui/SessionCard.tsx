@@ -41,6 +41,10 @@ interface SessionCardProps extends Pick<SessionPanelProps, 'queue' | 'notice' | 
   can: WindowCan;
   /** And for another session the header names: one it came from, or that came of it. */
   canFor: (lane: Lane, session: Session) => WindowCan;
+  /** The session shown is on its way out: the window asked for another, which hasn't come yet
+   *  (the notch keeps the old card up meanwhile, never an empty one). Its shortcuts do nothing
+   *  until then, so a quick ⌃⌘W or ⌘E doesn't act on the session you just left. */
+  outgoing?: boolean;
   /** A click on one of those. */
   onShowSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;
@@ -67,7 +71,7 @@ function pinItem(board: CardBoard | null | undefined, s: Session, report: Report
   return { label: on ? 'Unpin session' : 'Pin session', run: () => void save() };
 }
 
-export function SessionCard({ lane, session, apps, now, board, can, canFor, onShowSession, onShowLane, onShowTodo, onShowPr, openLink, prCan, renaming, ...panel }: SessionCardProps) {
+export function SessionCard({ lane, session, apps, now, board, can, canFor, outgoing = false, onShowSession, onShowLane, onShowTodo, onShowPr, openLink, prCan, renaming, ...panel }: SessionCardProps) {
   const { report } = can;
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
@@ -81,6 +85,8 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, onSh
   // The Sessions list's shortcuts, for the session shown. Not while its name is being typed.
   const latest = useRef(actions);
   latest.current = actions;
+  const leaving = useRef(outgoing);
+  leaving.current = outgoing;
   useEffect(() => {
     if (renaming) return;
     const onKey = (e: KeyboardEvent) => {
@@ -88,6 +94,8 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, onSh
       const action = menus.chorded(latest.current, e);
       if (!action) return;
       e.preventDefault();
+      // Taken, so nothing else acts on it, but not run: it would be for the session going.
+      if (leaving.current) return;
       action.run();
     };
     window.addEventListener('keydown', onKey);
