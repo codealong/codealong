@@ -141,7 +141,12 @@ pub struct Board {
     /// (limits.rs) or only offered a move.
     #[serde(default)]
     pub when_limited: crate::config::WhenLimited,
+    /// `[pull_requests] when_approved`: whether the sessions that worked on a PR of yours are
+    /// told when it's approved (nudges.rs).
+    #[serde(default)]
+    pub when_pr_approved: crate::config::WhenApproved,
 }
+
 
 impl Board {
     /// A session and the lane it's listed under as its own, else one it visits (`board::home`).

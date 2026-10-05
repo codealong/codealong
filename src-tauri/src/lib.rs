@@ -47,6 +47,7 @@ mod jev;
 mod kept;
 mod launch;
 mod limits;
+mod nudges;
 mod lineage;
 mod logo;
 mod model;
@@ -1380,6 +1381,7 @@ pub fn run() {
             let publishes = peers.clone();
             let emitter = app.handle().clone();
             let (mover, moves_with) = (std::sync::Mutex::new(limits::Mover::default()), engine_slot.clone());
+            let (nudger, nudges_with) = (std::sync::Mutex::new(nudges::Nudger::default()), engine_slot.clone());
             let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
@@ -1419,6 +1421,16 @@ pub fn run() {
                         std::thread::spawn(move || limits::move_now(&engine, &key, &to));
                     }
                 }
+                // The same for PRs of yours just approved: one thread for the batch, since two
+                // sends typing into one terminal at once would interleave.
+                if let (Some(engine), Ok(mut nudger)) = (nudges_with.get(), nudger.lock()) {
+                    let due = nudger.due(board);
+                    if !due.is_empty() {
+                        let engine = engine.clone();
+                        std::thread::spawn(move || nudges::send_now(&engine, due));
+                    }
+                }
+
             });
             let _ = engine_slot.set(engine.clone());
             // Sessions Codealong runs itself: a turn's start and end recompose the board, and

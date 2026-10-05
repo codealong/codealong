@@ -512,14 +512,26 @@ pub fn tool_activity(name: &str, input: &Value) -> String {
 /// Claude Code marks a command's result with `toolUseResult.gitOperation.pr` (`number`, `url`,
 /// `action`: created, edited, commented, closed) when the command acted on a PR. A closed one
 /// has no URL. Only lines with that mark are parsed.
+/// A PR the session made or changed, from one of two marks on a line: a command's result that
+/// acted on a PR (`toolUseResult.gitOperation.pr`, written for `gh pr create` and the like), or
+/// Claude Code's own `pr-link` line (`prNumber`, `prUrl`, `prRepository`), which it writes once
+/// a command created a PR or pushed to one, however the command did it (`gh api
+/// repos/…/pulls`, a script), and again with every re-stamp of its metadata (2.1.289's
+/// `linkSessionToPR`; a `gh pr list` or `gh pr view` writes none).
 pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
-    if !(line.contains("\"gitOperation\"") && line.contains("\"pr\":{")) {
+    let operated = line.contains("\"gitOperation\"") && line.contains("\"pr\":{");
+    let linked = line.contains("\"type\":\"pr-link\"");
+    if !(operated || linked) {
         return None;
     }
     let v: Value = serde_json::from_str(line).ok()?;
     let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+    if v.get("type").and_then(Value::as_str) == Some("pr-link") {
+        return Some((v.get("prUrl")?.as_str()?.to_string(), at));
+    }
     Some((v.pointer("/toolUseResult/gitOperation/pr/url")?.as_str()?.to_string(), at))
 }
+
 
 /// The start of a transcript, for this folder's tests.
 #[cfg(test)]

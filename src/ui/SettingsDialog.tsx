@@ -9,7 +9,7 @@ import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ShortcutStatus, Theme, Usage, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ShortcutStatus, Theme, Usage, WhenApproved, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
@@ -36,6 +36,15 @@ const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
   { id: 'project', label: 'Tab beside its project', says: 'A tab in the window already showing that worktree, repo or project, or a new window when none does.' },
   { id: 'tab', label: 'Tab in front window', says: 'A tab in the terminal window in front.' },
   { id: 'window', label: 'New window', says: 'A window of its own every time.' },
+];
+
+const WHEN_APPROVED: { id: WhenApproved; label: string; says: string }[] = [
+  { id: 'nothing', label: 'Nothing', says: 'The PRs view and the worktree’s row show it approved.' },
+  {
+    id: 'nudge',
+    label: 'Nudge its sessions',
+    says: 'The sessions that made it or worked on its branch and are still running are sent a message saying so, as one of yours, with where it stands (ready to merge, checks running), and take it from there: merging it, or whatever the repo does once a PR is approved. One that has stopped isn’t resumed.',
+  },
 ];
 
 const WHEN_LIMITED: { id: WhenLimited; label: string; says: string }[] = [
@@ -183,10 +192,12 @@ interface PaneProps {
 
 function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: PaneProps & { view: ConfigView; theme: Theme; onPickTheme: (t: Theme) => void; now: number }) {
   const searchDays = cfg.search?.days ?? MAX_SEARCH_DAYS;
+  const whenApproved = cfg.pull_requests?.when_approved ?? 'nothing';
   return (
     <>
       <div className="ca-settings-intro">
         <h3>General</h3>
+
         <p>Where Codealong looks for repos, which apps it opens things in, and how it looks.</p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
@@ -224,6 +235,17 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <ProfileSelect value={String(searchDays)} profiles={dayOptions(searchDays)} onChange={(d) => void onSave({ ...cfg, search: { days: Number(d) } })} />
           <small>The quick panel and <code>codealong sessions find</code> look for your words in the prompts and replies of sessions active this recently, not just in their titles. Tool output is left out. Codealong keeps this text in memory, a few megabytes a week.</small>
         </label>
+        <div className="ca-field">
+          <span>When a PR of yours is approved</span>
+          <Seg
+            className="ca-settings-theme"
+            label="When a PR of yours is approved"
+            options={WHEN_APPROVED}
+            value={whenApproved}
+            onPick={(id) => id !== whenApproved && void onSave({ ...cfg, pull_requests: { when_approved: id } })}
+          />
+          <small>{WHEN_APPROVED.find((w) => w.id === whenApproved)?.says}</small>
+        </div>
         <label className="ca-field">
           <span>Terminal</span>
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />

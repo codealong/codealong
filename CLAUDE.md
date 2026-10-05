@@ -671,7 +671,20 @@ Claude Code
 - A command that acted on git or GitHub gets a `toolUseResult.gitOperation` on its result line:
   `pr` (`number`, `url`, `action` created, edited, commented or closed; closed has no url),
   `push`, `commit`, `branch`. `prlinks.rs` links a session to each PR its `pr` names, subagents'
-  logs (`<session>/subagents/agent-*.jsonl`, same format) included.
+  logs (`<session>/subagents/agent-*.jsonl`, same format) included. `pr` is written only for
+  commands Claude Code reads as acting on a PR (`gh pr create`…): a PR made with `gh api
+  repos/<owner>/<name>/pulls`, or by a script, gets none. Claude Code's own link is a `pr-link`
+  line, `{"type":"pr-link","sessionId","prNumber","prUrl","prRepository","timestamp"}` (read
+  from 2.1.289's `linkSessionToPR`, 2026-10-05): written once a command created a PR or pushed
+  to one, by the last PR URL in its output, however the command did it (`gh api`, curl, a
+  script); `gh pr list` and `gh pr view` write none. It's "last-wins" metadata, re-stamped with
+  the session's current PR every 32 KB of writes, so one PR has dozens of lines (6,856 lines on
+  this Mac, one PR each). Both marks go by what a command printed, so a command that only
+  prints another session's PR-making command and its URL (a `jq` over a transcript) gets both
+  marks too, `action: "created"` included (this happened to the session that read them,
+  2026-10-05). `claude::transcript::pr_made` reads both marks.
+
+
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
   appears. The prompt argument goes through the same path as typed text: `@"<path>"` mentions
   attach files of up to 256 KB (262,144 bytes), an image as an image and a PDF whatever its

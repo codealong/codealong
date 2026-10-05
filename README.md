@@ -223,8 +223,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     remote (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote
     doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
-    each: the ones that made, edited or commented on it (from their own records), the ones on
-    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). The PRs you pinned come first, in your order (`p`, Pin PR in its
+    each: the ones that made, edited or commented on it, or pushed to it (from their own
+    records: Claude Code's `gitOperation` results and its `pr-link` lines, Codex's commands
+    and attached PRs), the ones on
+    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). With
+    `[pull_requests] when_approved = "nudge"` (Settings › General), the sessions that worked on
+    a PR of yours and are still running are sent a message as it becomes approved, as one of
+    yours, saying so and where it stands (GitHub would merge it now, its checks are still
+    running), so they take it from there; a PR approved before Codealong was looking, or one
+    that isn't yours, tells nobody, and a session that has stopped isn't resumed for it. The PRs you pinned come first, in your order (`p`, Pin PR in its
     menu, or drag its row up to the top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to
     reorder), whatever the age filter says. Then reviews asked of you; they're listed for every
     repo a project has here, one checked out only on its default branch too, whose other PRs
@@ -763,6 +770,10 @@ remote_control = false         # let linked devices act on sessions here
 
 [limits]
 when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Accounts)
+
+[pull_requests]
+when_approved = "nothing"      # "nudge" tells the running sessions that worked on a PR of yours when it's approved (Settings › General)
+
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)

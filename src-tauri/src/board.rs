@@ -1423,6 +1423,8 @@ pub fn compose(inp: Inputs) -> Board {
         devices: Default::default(),
         project_rules: Vec::new(),
         when_limited: Default::default(),
+        when_pr_approved: Default::default(),
+
     }
 }
 

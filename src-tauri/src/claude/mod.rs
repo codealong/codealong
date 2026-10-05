@@ -583,8 +583,9 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn pr_needles(&self) -> &'static [&'static str] {
-        &["\"gitOperation\""]
+        &["\"gitOperation\"", "\"pr-link\""]
     }
+
 
     fn pr_made(&self, line: &str) -> Option<(String, i64)> {
         transcript::pr_made(line)

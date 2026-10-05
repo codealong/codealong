@@ -98,6 +98,8 @@ pub enum Msg {
     RefreshUsage,
     /// A move of a session a usage limit stopped, and why it didn't work if it didn't.
     LimitMoved(Option<String>),
+    /// Sessions told their PR was approved (nudges.rs), and which weren't and why if any.
+    Nudged(Option<String>),
     /// The usage read is over: what it read, or none when it fell over or never started.
     UsageDone(Option<Vec<Usage>>),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
@@ -239,6 +241,12 @@ impl Handle {
     /// (limits.rs): a failure is a notice until a later move works.
     pub fn limit_moved(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::LimitMoved(result.err()));
+    }
+
+    /// How telling sessions their PR was approved went (nudges.rs): a failure is a notice until
+    /// a later nudge works.
+    pub fn nudged(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::Nudged(result.err()));
     }
 
     pub fn set_pinned(&self, keys: Vec<String>) {
@@ -748,6 +756,8 @@ struct Engine {
     reusable_warning: Option<String>,
     /// Why moving a session a usage limit stopped didn't work, when Codealong moved it itself.
     limit_move_warning: Option<String>,
+    /// Why a session wasn't told its PR was approved, when Codealong sends that itself.
+    nudge_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
     /// why (`store::problems`), as of the last board.
     store_warnings: Vec<(String, String)>,
@@ -858,6 +868,7 @@ impl Engine {
             reusable: HashMap::new(),
             reusable_warning: None,
             limit_move_warning: None,
+            nudge_warning: None,
             store_warnings: Vec::new(),
             servers: None,
             git: HashMap::new(),
@@ -1337,6 +1348,10 @@ impl Engine {
                     self.limit_move_warning = why;
                     self.dirty = true;
                 }
+                Ok(Msg::Nudged(why)) => {
+                    self.nudge_warning = why;
+                    self.dirty = true;
+                }
                 Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
                 Ok(Msg::SetArchived(key, archived, reply)) => {
                     self.seen.set_archived(&key, archived, now_ms());
@@ -1765,6 +1780,8 @@ impl Engine {
             said("reusable", "Reusable worktrees weren't read", self.reusable_warning.as_ref()),
             said("held", "Waiting to open a folder", held.as_ref()),
             said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
+            said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
+
         ]
         .into_iter()
         .flatten()
@@ -2418,6 +2435,7 @@ impl Engine {
         });
         board.usage = usage;
         board.when_limited = self.cfg.limits.when_hit;
+        board.when_pr_approved = self.cfg.pull_requests.when_approved;
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.pinned_prs = self.seen.pinned_prs.clone();
         board.theme = self.cfg.appearance.theme;
