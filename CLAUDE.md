@@ -121,6 +121,11 @@ do, for a session Codealong runs and behind the same settings, and a send isn't 
   `/fork` in its box does (`Adapter::fork_background`). Real: it starts a copy (a Claude Code
   background job, `claude rm <job>` after; an OpenCode session). Codex's copy runs over ACP,
   which needs the app.
+- `codealong --snapshot --move <session key> <account | worktree folder>`: moves a session to
+  another account of its harness, or to a worktree (Codealong's chats folder for a chat of its
+  own), as Move to in its menu does. Real: it closes the session where it runs and opens it
+  again elsewhere, so use a scratch session. Archiving what a move leaves behind needs the app's
+  engine; this mode's light one only says it couldn't.
 - `codealong --snapshot --side <session key> <question> [a follow-up…]`: asks a throwaway copy
   of a session, as `/side` in its box does (side.rs, `Adapter::side`), and prints the questions
   with their answers. Real: the copy may do what its session may without asking, so a question
@@ -729,6 +734,15 @@ Claude Code
   Nothing else is written: no line says the limit lifted, and a background task's notification
   wakes the session into another refusal each time. The usage endpoint's meters show no spend
   limit. `claude::transcript::limit_of` reads the line.
+- `--resume <id>` run in another folder goes on as the same session (checked on 2.1.289,
+  2026-10-05, in a terminal and with `-p`): it keeps writing its transcript where it was, under
+  the first folder's project, its new lines' `cwd` is the new folder, and the agent is told the
+  new folder (a prompt's `environment` attachment, `snapshot.workingDirectory`, with a `changes`
+  entry for `workingDirectory`; that attachment follows every `cd` too, so it marks no move).
+  `--bg --resume <id>` keeps the ID only for a session no background job has had: one that has
+  is copied into a new job (`dispatch.launch.fork: true`), and a terminal resume of a stopped
+  job's session keeps it. Move to worktree goes by this (`start::move_to_folder`), and a
+  stopped session's folder is where the latest prompt you sent it was taken (`claude::transcript`).
 - `--resume` takes a transcript's path as well as an ID (2.1.287: an argument ending in `.jsonl`
   is read as a file), from any account's folder, and the copy is written under the account that
   runs it, `--fork-session --session-id` naming it as above. That's how Codealong moves a

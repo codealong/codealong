@@ -205,6 +205,21 @@ pub trait Adapter: Sync {
         bail!("{} can't move a session to another account in the background.", self.harness().word())
     }
 
+    /// What a new terminal in another folder types to go on with the session there as itself,
+    /// keeping its ID and its conversation, on `prompt`, which tells it where it is now. `keep`
+    /// is a folder it may still read without asking: the chat it came from. Moving it
+    /// (start.rs) closes the session's own process first: one conversation runs in one place.
+    fn move_folder(&self, _ctx: &Ctx, _session: &Session, _keep: Option<&Path>, _prompt: &str) -> Result<Typed> {
+        bail!("Codealong can't move a {} session to another folder.", self.harness().word())
+    }
+
+    /// The same, for a session that runs with no window: it goes on in `cwd`, still with none.
+    /// Returns the key it goes on under, when the harness has said it: its own, or a copy's
+    /// where the harness copies rather than moves.
+    fn move_folder_background(&self, _ctx: &Ctx, _session: &Session, _cwd: &Path, _keep: Option<&Path>, _prompt: &str) -> Result<Option<String>> {
+        bail!("Codealong can't move a {} session to another folder in the background.", self.harness().word())
+    }
+
     /// A throwaway copy of the session's conversation as far as it's written, to ask things of
     /// on the side while the session carries on, unaware: the process that runs the copy in
     /// `cwd` and how to talk to it (side.rs). The copy may do what the session itself may

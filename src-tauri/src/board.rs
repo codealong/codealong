@@ -80,6 +80,9 @@ pub struct LaneSeed {
     /// The folder an app keeps its chats in, a folder for each (`engine::chat_roots`): listed
     /// like your projects' worktrees, since you started those sessions yourself.
     pub chats: bool,
+    /// Codealong's own chats, where a session that belongs to no project starts
+    /// (`Lane::starts_chats`).
+    pub starts_chats: bool,
     /// Only sessions started in this very folder are listed in it, not ones in folders inside
     /// it, and work there doesn't count: a plain folder outside your projects can be your home
     /// folder, which would take in everything.
@@ -1369,6 +1372,7 @@ pub fn compose(inp: Inputs) -> Board {
             preview,
             reuse,
             looks_reusable,
+            starts_chats: seed.starts_chats,
             ..Lane::new(&seed.path.to_string_lossy(), &seed.project, &seed.repo)
         });
     }
@@ -1378,11 +1382,14 @@ pub fn compose(inp: Inputs) -> Board {
 
     let mut projects = Vec::new();
     let mut names: Vec<String> = project_order.to_vec();
-    if lanes.iter().any(|l| l.project == ELSEWHERE) && !names.iter().any(|n| n == ELSEWHERE) {
+    // Codealong's chats are always there to start in, and count toward no project until a
+    // session is.
+    let counted = |l: &&Lane| !(l.starts_chats && l.sessions.is_empty());
+    if lanes.iter().filter(counted).any(|l| l.project == ELSEWHERE) && !names.iter().any(|n| n == ELSEWHERE) {
         names.push(ELSEWHERE.to_string());
     }
     for name in names {
-        let mine: Vec<&Lane> = lanes.iter().filter(|l| l.project == name).collect();
+        let mine: Vec<&Lane> = lanes.iter().filter(counted).filter(|l| l.project == name).collect();
         if mine.is_empty() {
             continue;
         }
@@ -1560,6 +1567,7 @@ mod tests {
             default_branch: Some("main".into()),
             elsewhere: false,
             chats: false,
+            starts_chats: false,
             exact: false,
         }
     }
@@ -2651,6 +2659,27 @@ mod tests {
         let archived = Session { archived: true, ..chat };
         let waiting = session_in("notes", "/Users/me/notes", "waiting");
         assert_eq!(hidden(vec![archived, waiting]), (true, false), "archived chats don't hold the lane up");
+    }
+
+    #[test]
+    fn codealongs_chats_wait_hidden_and_make_no_project_until_a_chat_starts() {
+        let apps = AppNames::default();
+        let root = "/Users/me/Library/Application Support/Codealong/chats";
+        let chats = LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, chats: true, starts_chats: true, ..seed(root, "main") };
+        let seeds = vec![seed("/r/spark", "main"), chats];
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Spruce".to_string()];
+        let board = |sessions: Vec<Session>| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[] });
+        let empty = board(vec![]);
+        let lane = empty.lanes.iter().find(|l| l.path == root).unwrap();
+        assert!(lane.starts_chats && lane.hidden, "there to start in, out of sight");
+        assert!(!empty.projects.iter().any(|p| p.name == ELSEWHERE), "an empty chats lane makes no Elsewhere");
+        let mut chat = claude_session(&acct("claude"), Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        chat.cwd = format!("{root}/2026-10-05-a1b2c3");
+        let started = board(vec![chat]);
+        let lane = started.lanes.iter().find(|l| l.path == root).unwrap();
+        assert_eq!((lane.hidden, lane.sessions.len()), (false, 1));
+        assert!(started.projects.iter().any(|p| p.name == ELSEWHERE && p.lanes == 1));
     }
 
     #[test]

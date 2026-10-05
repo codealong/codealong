@@ -556,6 +556,9 @@ struct StartArgs {
     /// Have Claude Code make a fresh worktree for it (`claude --worktree`).
     #[arg(long)]
     new_worktree: bool,
+    /// Start it in no project: in a new folder of its own among Codealong's chats, for a question that belongs to none of your repos. The board lists it under Chats.
+    #[arg(long, conflicts_with_all = ["worktree", "new_worktree"])]
+    chat: bool,
     /// Where it runs. Without it, where the account's `start` setting says, else the terminal (the Codex app for Codex).
     #[arg(long = "in", value_enum)]
     place: Option<PlaceArg>,
@@ -2911,7 +2914,9 @@ fn todos_prompt(ts: &[&Todo]) -> String {
 }
 
 fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
-    let lane_id = resolve_worktree(c, &a.worktree)?;
+    // Codealong's chats are a lane like any other, by their folder, which start.rs gives a chat
+    // of its own.
+    let lane_id = if a.chat { crate::config::chats_dir().to_string_lossy().into_owned() } else { resolve_worktree(c, &a.worktree)? };
     let (prompt, todo_ids) = match (a.todo.as_slice(), &a.prompt) {
         ([], Some(p)) => (p.clone(), Vec::new()),
         ([], None) => bail!("Give --todo or --prompt."),

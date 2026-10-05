@@ -308,6 +308,13 @@ describe('what the quick panel says of a start', () => {
     expect(startHappens(plan({ place: 'codex-app', prompted: true }))).toBe('The Codex app starts a new thread in feature on this prompt.');
   });
 
+  it('says a chat starts on its own', () => {
+    const chat = { repo: 'Chats', callsign: 'Chats', startsChats: true };
+    expect(startHappens(plan({ lane: chat, prompted: true }))).toBe('Ghostty starts work in a chat of its own with this prompt.');
+    expect(startHappens(plan({ lane: chat, place: 'claude-app' }))).toBe('The Claude app opens a new session in a chat of its own. You send it from there.');
+    expect(startingLabel('background', 'work', '', chat, false, null)).toBe('Starting work in a chat of its own in the background…');
+  });
+
   it('says why nothing can start, or nothing when it’s only the account or place missing', () => {
     expect(startHappens(plan({ lane: null }))).toBe('No worktrees in this project yet.');
     expect(startHappens(plan({ lane: null, reading: true }))).toBe('Reading worktrees…');

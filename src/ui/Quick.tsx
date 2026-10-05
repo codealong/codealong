@@ -65,7 +65,7 @@ import { useRowDrag } from './useRowDrag';
 import { useSessionHistory } from '../history';
 import { SESSION_READS, shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountHeadWords,
   agentChipWords,
@@ -495,16 +495,18 @@ export function Quick() {
   }, [shown, deviceNow, remote]);
   const startOptionsNow = deviceNow ? (remote?.options ?? null) : options;
 
-  // Where a session can start: the project's worktrees on that Mac, and the one a window asked for.
-  const lanes = useMemo(() => {
+  // Where a session can start: the project's worktrees on that Mac, and the one a window asked
+  // for. Codealong's chats are apart from them, as No project, whatever the project.
+  const { lanes, chatLane } = useMemo(() => {
     const all = deviceNow ? (devices?.lanes ?? []).filter((l) => shortOf(l.id) === deviceNow) : (board?.lanes ?? []);
-    const mine = all.filter((l) => inProject(l, current));
-    const extra = laneId && !mine.some((l) => l.id === laneId) ? all.filter((l) => l.id === laneId) : [];
-    return [...mine, ...extra];
+    const worktrees = all.filter((l) => !l.startsChats);
+    const mine = worktrees.filter((l) => inProject(l, current));
+    const extra = laneId && !mine.some((l) => l.id === laneId) ? worktrees.filter((l) => l.id === laneId) : [];
+    return { lanes: [...mine, ...extra], chatLane: all.find((l) => l.startsChats) ?? null };
   }, [board?.lanes, devices?.lanes, deviceNow, current, laneId]);
   const groups = useMemo(() => laneGroups(lanes, board?.pinnedWorktrees ?? []), [lanes, board?.pinnedWorktrees]);
   // Without one asked for, the first on the list: a pinned one, else the latest.
-  const lane = lanes.find((l) => l.id === laneId) ?? groups[0]?.lanes[0] ?? null;
+  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && chatLane.id === laneId ? chatLane : null) ?? groups[0]?.lanes[0] ?? null;
 
   // The session answered in place of the list, while it's on the board.
   const replying = useMemo(() => {
@@ -589,8 +591,8 @@ export function Quick() {
     harness,
     places,
     placeNow,
-    makesWorktree,
-    inNewWorktree,
+    makesWorktree: harnessMakesWorktree,
+    inNewWorktree: newWorktreePicked,
     modelNow,
     startsOn,
     effortModel,
@@ -602,6 +604,9 @@ export function Quick() {
     pickPlace,
     stepEffort,
   } = useStartChoice(startPicks, optionsForStart, usage, now);
+  // A chat has no repo to make a worktree of.
+  const makesWorktree = harnessMakesWorktree && !lane?.startsChats;
+  const inNewWorktree = newWorktreePicked && makesWorktree;
 
   /* ---- What for ---- */
 
@@ -937,6 +942,7 @@ export function Quick() {
       reveal: () => revealSession(lane, s),
       reply: replyKeyNow.current === s.key ? undefined : () => replyTo(s),
       rename: () => renameIn(s),
+      worktrees: board?.lanes,
       editors: board ? { apps: board.apps, icons } : undefined,
       desktop: onDesktop,
       left,
@@ -1018,7 +1024,7 @@ export function Quick() {
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean }) => {
     const where = over?.lane ?? lane;
-    const newTree = makesWorktree && (over ? over.newWorktree : newWorktree);
+    const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
     // A skill's name goes as the account's agent takes it.
@@ -1275,20 +1281,24 @@ export function Quick() {
     { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS)] },
   ];
 
-  const worktreeSections: PickerSection[] = groups.map((g) => ({
-    key: g.label,
-    head: g.label,
-    options: g.lanes.map((l) => {
-      const branch = laneBranch(l);
-      return {
-        id: l.id,
-        text: [l.callsign, l.branch ?? '', l.repo, l.project, l.origin === 'main' ? 'main checkout' : ''].join(' '),
-        label: l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign,
-        detail: branch,
-        lead: <StatusGlyph status={l.glyph} size={10} title="" />,
-      };
-    }),
-  }));
+  const worktreeSections: PickerSection[] = [
+    // First, so a long list of worktrees doesn't hide it.
+    ...(chatLane ? [{ key: 'chat', options: [{ id: chatLane.id, text: 'no project chat question', label: NO_PROJECT, detail: 'A chat of its own', lead: <Icon name="message-circle" size={12} /> }] }] : []),
+    ...groups.map((g) => ({
+      key: g.label,
+      head: g.label,
+      options: g.lanes.map((l) => {
+        const branch = laneBranch(l);
+        return {
+          id: l.id,
+          text: [l.callsign, l.branch ?? '', l.repo, l.project, l.origin === 'main' ? 'main checkout' : ''].join(' '),
+          label: l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign,
+          detail: branch,
+          lead: <StatusGlyph status={l.glyph} size={10} title="" />,
+        };
+      }),
+    })),
+  ];
 
   const agentSections: PickerSection[] = useMemo(() => {
     const out: PickerSection[] = [];
@@ -1363,7 +1373,7 @@ export function Quick() {
 
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];
-    const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => inProject(l, current)).length, current);
+    const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => !l.startsChats && inProject(l, current)).length, current);
     const here = devices.me.name || 'This Mac';
     return [
       {
@@ -1842,16 +1852,16 @@ export function Quick() {
             </div>
           )}
           <div className="ca-quick-pick">
-            <button type="button" data-picker-trigger className="ca-quick-chip" title={lane ? `${tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)'} disabled={lanes.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
-              <Icon name="branch" size={14} />
-              <span>{lane ? (lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
+            <button type="button" data-picker-trigger className="ca-quick-chip" title={lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)'} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+              <Icon name={lane?.startsChats ? 'message-circle' : 'branch'} size={14} />
+              <span>{lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
               <Icon name="chevron-down" size={12} />
             </button>
             {picker === 'worktree' && <Picker sections={worktreeSections} value={lane?.id ?? null} placeholder="Worktree, branch or repo" onPick={(id) => { setLaneId(id); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
           </div>
           <label
             className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
-            title={newWorktreeTitle(makesWorktree, placeNow, harness)}
+            title={lane?.startsChats ? 'A chat has no repo to make a worktree of.' : newWorktreeTitle(makesWorktree, placeNow, harness)}
           >
             <input type="checkbox" checked={inNewWorktree} disabled={!makesWorktree} onChange={(e) => setNewWorktree(e.target.checked)} />
             <span className="ca-check-box" aria-hidden="true">

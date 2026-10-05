@@ -12,6 +12,8 @@ import { prFlag } from './prStatus';
 import type { Board, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
 
 export const ALL_PROJECTS = 'All projects';
+/** Codealong's chats, as the worktree picker offers them: a chat of its own, in no project. */
+export const NO_PROJECT = 'No project';
 const ELSEWHERE = 'Elsewhere';
 
 /** Whether a worktree (or a floating bar pill, which carries its worktree's project and whether

@@ -124,6 +124,30 @@ describe('suggestions', () => {
   });
 });
 
+describe('a question that needs no repo', () => {
+  const chats = lane('/chats', [], 'Chats', { project: 'Elsewhere', startsChats: true, hidden: true });
+  const withChats = board([...b.lanes, chats]);
+  const start = (noRepo: number, lanes = [{ id: '/api', p: 0.3 }]) => route({ action: 'start', actions: [['start', 1]], lanes, noRepo });
+
+  it('starts a chat of its own when Jev reads it as needing none of the worktrees', () => {
+    expect(suggestions(start(0.6), withChats).map((x) => [x.key, x.lane.id])).toEqual([
+      ['start:chat', '/chats'],
+      ['start:/api', '/api'],
+    ]);
+    expect(suggestions(start(0.6), withChats)[0]).toMatchObject({ kind: 'start', newWorktree: false, p: 0.6 });
+  });
+
+  it('offers a chat after the worktree Jev likes better, when it’s likely too', () => {
+    expect(suggestions(start(0.2, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api', 'start:chat']);
+    expect(suggestions(start(0.05, [{ id: '/api', p: 0.7 }]), withChats).map((x) => x.key)).toEqual(['start:/api']);
+  });
+
+  it('goes by the worktrees where the board has no chats, or the Mac said nothing of them', () => {
+    expect(suggestions(start(0.6), b).map((x) => x.key)).toEqual(['start:/api']);
+    expect(suggestions(route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 0.3 }] }), withChats).map((x) => x.key)).toEqual(['start:/api']);
+  });
+});
+
 describe('new work in reusable worktrees', () => {
   const start = (lanes: { id: string; p: number }[]) => route({ action: 'start', actions: [['start', 1]], noSession: 1, lanes });
   const kept = (id: string, repo: string, extra: Partial<Lane> = {}) => lane(id, [], repo, extra);
@@ -230,6 +254,12 @@ describe('suggestionWords', () => {
   const send = (over: Partial<Session>): Suggestion => ({ kind: 'send', key: 'k', lane: at, session: fx.session({ title: 'Fix it', account: 'work', startedAt: null, ...over }), p: 1 });
   const open = (over: Partial<Session>): Suggestion => ({ kind: 'open', key: 'k', lane: at, session: fx.session({ title: 'Fix it', account: 'work', startedAt: null, ...over }), p: 1 });
   const start = (l: Lane, newWorktree = false): Suggestion => ({ kind: 'start', key: 'k', lane: l, newWorktree, p: 1 });
+
+  it('says a chat starts in a folder of its own', () => {
+    const chats = lane('/chats', [], 'Chats', { project: 'Elsewhere', startsChats: true, callsign: 'Chats' });
+    expect(suggestionWords(start(chats, true), ctx())).toEqual({ icon: 'message-circle', title: 'Start a chat in no project', why: 'Starts work in a folder of its own.', where: 'No project' });
+    expect(suggestionWords(start(chats), ctx({ place: 'claude-app' })).why).toBe('The Claude app opens a new session in a folder of its own with this prompt filled in.');
+  });
 
   it('says where a session is, and how old it is first', () => {
     const w = suggestionWords(send({ live: true, startedAt: NOW - 3 * 3_600_000 }), ctx());

@@ -526,6 +526,11 @@ pub struct Lane {
     /// making it reusable (`board::looks_reusable`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub looks_reusable: bool,
+    /// Codealong's own chats (the engine's `config::chats_dir`): a session started here gets a
+    /// folder of its own in it, for a question that belongs to none of your projects. It's on
+    /// the board with no sessions too, hidden, so there's always one to start in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub starts_chats: bool,
 }
 
 impl Lane {
@@ -563,6 +568,7 @@ impl Lane {
             preview: None,
             reuse: None,
             looks_reusable: false,
+            starts_chats: false,
         }
     }
 }

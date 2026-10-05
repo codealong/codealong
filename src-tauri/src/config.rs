@@ -435,6 +435,12 @@ pub fn config_path() -> PathBuf {
     support_dir().join("config.toml")
 }
 
+/// Where a session that belongs to none of your projects starts: each in a folder of its own
+/// in here (start.rs), all of them in one lane on the board (`engine::chat_roots`).
+pub fn chats_dir() -> PathBuf {
+    support_dir().join("chats")
+}
+
 /// Loads the config, or `None` when there isn't one yet.
 pub fn load() -> Result<Option<Config>> {
     read_text()?.map(|text| load_text(&text)).transpose()

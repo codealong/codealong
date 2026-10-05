@@ -35,6 +35,9 @@ pub struct TailState {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TranscriptInfo {
     pub session_id: String,
+    /// The folder it runs in: where the latest prompt you sent it was taken, else where it
+    /// started. A session resumed in another folder keeps writing this transcript, in the
+    /// first folder's project, and its lines say the new folder (checked on 2.1.289).
     pub cwd: String,
     pub git_branch: Option<String>,
     pub entrypoint: Option<String>,
@@ -175,7 +178,12 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     // One turn can write far more than the tail holds, so the prompt that started it may be
     // further back. A first read looks back for it once; later reads carry it forward.
     if fresh && info.last_prompt_at.is_none() {
-        info.last_prompt_at = prompt_before(path, tail.start);
+        if let Some((at, cwd)) = prompt_before(path, tail.start) {
+            info.last_prompt_at = Some(at);
+            if let Some(cwd) = cwd {
+                info.cwd = cwd;
+            }
+        }
     }
     state.offset = tail.end;
     if info.last_ts == 0 {
@@ -184,8 +192,9 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     Some((head, info, state))
 }
 
-/// When the last prompt you typed before `end` (a line start) was sent, reading backwards.
-fn prompt_before(path: &Path, end: u64) -> Option<i64> {
+/// When the last prompt you typed before `end` (a line start) was sent, and the folder it was
+/// sent in, reading backwards.
+fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
     let mut at = None;
     scan_lines_back(path, 0, end, |line| {
         // Most lines are tool calls and their results; only a prompt can pass both checks.
@@ -196,7 +205,7 @@ fn prompt_before(path: &Path, end: u64) -> Option<i64> {
         if !you_typed(&v) {
             return false;
         }
-        at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms);
+        at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).map(|t| (t, str_of(&v, "cwd").filter(|c| !c.is_empty())));
         at.is_some()
     });
     at
@@ -315,6 +324,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.limit = None;
                     if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
                         info.last_prompt_at = Some(ts);
+                    }
+                    if let Some(cwd) = str_of(&v, "cwd").filter(|c| !c.is_empty()) {
+                        info.cwd = cwd;
                     }
                 }
             }
@@ -595,6 +607,26 @@ mod tests {
             ]
         );
         assert_eq!(info.last_tool.as_deref(), Some("reading `README.md`"));
+    }
+
+    #[test]
+    fn follows_a_session_resumed_in_another_folder() {
+        // Resumed elsewhere, it goes on in the same transcript, and its prompts say where.
+        let head = r#"{"type":"user","cwd":"/r/chats/2026-10-05-a1b2c3","sessionId":"s","timestamp":"2026-10-05T10:00:00.000Z","message":{"content":"How do I parse dates?"}}
+{"type":"assistant","cwd":"/r/chats/2026-10-05-a1b2c3","sessionId":"s","message":{"content":[{"type":"text","text":"Like this."}]}}
+"#;
+        let moved = r#"{"type":"user","cwd":"/r/app","sessionId":"s","origin":{"kind":"human"},"timestamp":"2026-10-05T11:00:00.000Z","message":{"content":"Use it here"}}
+"#;
+        assert_eq!(parse_lines(head, head).cwd, "/r/chats/2026-10-05-a1b2c3");
+        assert_eq!(parse_lines(head, &format!("{head}{moved}")).cwd, "/r/app");
+
+        // A first read whose tail is all one long turn looks back for the prompt that began it.
+        let dir = crate::fixtures::scratch("resumed-elsewhere");
+        let path = dir.join("s.jsonl");
+        let long = format!("{{\"type\":\"assistant\",\"cwd\":\"/r/app/src\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"{}\"}}]}}}}\n", "x".repeat(300_000));
+        std::fs::write(&path, format!("{head}{moved}{long}")).unwrap();
+        let (head, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!((head.cwd.as_str(), info.cwd.as_str()), ("/r/chats/2026-10-05-a1b2c3", "/r/app"));
     }
 
     #[test]

@@ -36,6 +36,10 @@ export function renames(s: { key: string; archived?: boolean }): boolean {
  *  `moves_accounts`): Claude Code, which resumes another account's transcript by its path. */
 export const MOVES_ACCOUNTS: readonly Harness[] = ['claude'];
 
+/** The harnesses whose sessions move to another folder as themselves (harness.rs
+ *  `move_folder`): Claude Code, which goes on with a session wherever `--resume` runs. */
+export const MOVES_FOLDERS: readonly Harness[] = ['claude'];
+
 /** Where a harness keeps a name given here, in a few words for the rename box. */
 export const NAME_KEPT: Record<Harness, string> = {
   claude: 'Claude Code keeps it with the session, for its terminal and /resume.',

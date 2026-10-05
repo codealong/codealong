@@ -216,6 +216,25 @@ mod tests {
     }
 
     #[test]
+    fn moves_a_session_to_another_folder_as_itself() {
+        use crate::harness::Adapter;
+        let id = "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f";
+        let home = crate::fixtures::scratch("move-folder");
+        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None };
+        let ctx = crate::harness::Ctx { account: &a };
+        let s = Session::new(Harness::Claude, "claude2", id);
+        // It resumes by its own ID wherever the terminal opens, so its key stays.
+        let moved = super::super::ClaudeCode.move_folder(&ctx, &s, None, "You moved").unwrap();
+        assert_eq!(moved.input, format!("claude2 --resume {id} \"$CODEALONG_PROMPT\"\n"));
+        assert_eq!(moved.key.as_deref(), Some(s.key.as_str()));
+        assert!(moved.env.contains(&("CODEALONG_SESSION".to_string(), s.key.clone())));
+        assert!(moved.env.contains(&("CODEALONG_PROMPT".to_string(), "You moved".to_string())));
+        // A chat's folder stays readable, given whole before --resume so it takes nothing more.
+        let from_chat = super::super::ClaudeCode.move_folder(&ctx, &s, Some(Path::new("/c/chats/2026-10-05-a1b2c3")), "You moved").unwrap();
+        assert_eq!(from_chat.input, format!("claude2 --add-dir='/c/chats/2026-10-05-a1b2c3' --resume {id} \"$CODEALONG_PROMPT\"\n"));
+    }
+
+    #[test]
     fn moves_a_session_by_resuming_its_transcript_under_the_other_account() {
         use crate::harness::Adapter;
         let home = crate::fixtures::scratch("move");

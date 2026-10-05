@@ -88,6 +88,13 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   const [s1, s2] = route.sessions;
   const [l1, l2] = route.lanes;
   const sessionP = (s: RoutePick | undefined) => s?.p ?? 0;
+  // New work that needs none of the worktrees, a question about nothing in them, goes to a chat
+  // of its own, in no project, when Jev thinks so more than it thinks of any one worktree.
+  const noRepo = route.noRepo ?? 0;
+  const chats = board.lanes.find((l) => l.startsChats && !l.device);
+  const startChat = (actionP: number): Suggestion | null => (chats && noRepo > 0 ? { kind: 'start', key: 'start:chat', lane: chats, newWorktree: false, p: actionP * noRepo } : null);
+  const inChat = !!chats && noRepo > sessionP(l1);
+  const startNew = (actionP: number) => (inChat ? startChat(actionP) : startIn(l1, actionP));
 
   switch (route.action) {
     case 'send':
@@ -96,16 +103,19 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
       const p = prob(route.action);
       add(toSession(s1, p * sessionP(s1), find));
       if (sessionP(s2) >= RUNNER_UP) add(toSession(s2, p * sessionP(s2), find));
-      if (prob('start') >= RUNNER_UP || route.noSession >= RUNNER_UP) add(startIn(l1, Math.max(prob('start'), route.noSession)));
+      if (prob('start') >= RUNNER_UP || route.noSession >= RUNNER_UP) add(startNew(Math.max(prob('start'), route.noSession)));
       break;
     }
     case 'start': {
       const p = prob('start');
-      add(startIn(l1, p));
+      add(startNew(p));
       // The session that may already be doing it comes next: sending there may be what's meant.
       // Its likelihood is that of sending at all, times that of this session doing the work, so
       // it reads on the same scale as the rows around it (the start row carries the warning).
       if (route.duplicate) add(toSession(route.duplicate, prob('send') * route.duplicate.p, false));
+      // The worktree Jev liked best after a chat, or a chat after it, when either is likely.
+      if (inChat && sessionP(l1) >= RUNNER_UP) add(startIn(l1, p));
+      if (!inChat && noRepo >= RUNNER_UP) add(startChat(p));
       if (sessionP(l2) >= RUNNER_UP) add(startIn(l2, p));
       if (prob('send') >= RUNNER_UP && sessionP(s1) >= RUNNER_UP) add(toSession(s1, prob('send') * sessionP(s1), false));
       break;
@@ -191,19 +201,25 @@ export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: s
   if (sg.kind === 'todo') {
     return { icon: 'list-check', title: `Save as a todo: “${todoTitle(c.text)}”`, why: `In ${sg.lane.project}, linked to ${sg.lane.callsign}. Start it when you’re ready.`, where: sg.lane.callsign };
   }
-  const tree = c.makesWorktree && sg.newWorktree;
+  const tree = c.makesWorktree && sg.newWorktree && !sg.lane.startsChats;
   const who = c.account ? `${c.account}${c.onModel}` : 'a session';
   const background = c.place === 'background' ? ' in the background' : '';
+  // The row's title says it's in no project.
+  const there = sg.lane.startsChats ? 'a folder of its own' : sg.lane.callsign;
   const why =
     c.place === 'codealong'
-      ? `Codealong runs ${who} in ${sg.lane.callsign}.`
+      ? `Codealong runs ${who} in ${there}.`
       : c.place === 'claude-app'
-        ? `The Claude app opens a new session in ${sg.lane.callsign} with this prompt filled in.`
+        ? `The Claude app opens a new session in ${there} with this prompt filled in.`
         : c.place === 'codex-app'
-          ? `The Codex app starts a new thread in ${sg.lane.callsign} on this prompt.`
+          ? `The Codex app starts a new thread in ${there} on this prompt.`
           : tree
             ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${background}.`
-            : `Starts ${who} in ${sg.lane.callsign}${background}.`;
+            : `Starts ${who} in ${there}${background}.`;
+  if (sg.lane.startsChats) {
+    const warnedChat = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}` : why;
+    return { icon: 'message-circle', title: 'Start a chat in no project', why: warnedChat, where: 'No project' };
+  }
   // What the reusable worktree it starts in holds (reusable.ts): new work joins work under way
   // only in a worktree Jev matched it to, not the main worktree.
   const held = tree || !sg.lane.reuse ? '' : sg.lane.reuse === 'free' ? ' It holds no work now.' : sg.lane.reuse === 'landed' ? ' Its last work landed.' : sg.lane.origin === 'main' ? '' : ' It joins the work under way there.';

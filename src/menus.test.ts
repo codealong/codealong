@@ -113,6 +113,42 @@ describe('sessionMenu', () => {
     expect(labels(sessionMenu(remoteLane, remote, { ...base, newSession: noop }))).toContain('New session here…');
   });
 
+  it('moves to another worktree on this Mac, by project, or to a chat of its own', () => {
+    const at = lane();
+    const w = (id: string, over: Partial<Lane> = {}) => fx.lane({ id, project: 'Acme', repo: 'api', ...over });
+    const worktrees = [
+      at,
+      w('/r/api-old', { lastActivity: 1 }),
+      w('/r/api-main', { origin: 'main', callsign: 'api', lastActivity: 0 }),
+      w('/r/api-new', { lastActivity: 9 }),
+      w('/r/web', { repo: 'web' }),
+      w('/r/site', { project: 'Blog', repo: 'site' }),
+      w('/r/far', { project: 'Blog', repo: 'site', device: { short: 'ab12', name: 'Studio', color: 'blue' } as Lane['device'] }),
+      w('/r/stray', { project: 'Elsewhere', repo: 'stray' }),
+      w('/chats', { project: 'Elsewhere', repo: 'Chats', callsign: 'Chats', startsChats: true, hidden: true }),
+    ];
+    const menu = sessionMenu(at, session(), { ...base, worktrees });
+    const move = menu.find((i): i is Extract<typeof i, { items: MenuSpec }> => i !== 'separator' && 'items' in i && i.label === 'Move to worktree');
+    expect(move).toBeDefined();
+    // The session's own project first; never where it is, another Mac's or a stray folder.
+    expect(labels(move!.items)).toEqual(['Acme ›', 'Blog ›', '-', 'A chat of its own']);
+    const acme = move!.items[0] as Extract<MenuSpec[number], { items: MenuSpec }>;
+    // Each repo under its name, its main checkout first, then the latest.
+    expect(labels(acme.items)).toEqual(['api', 'api (main checkout)', 'api-new', 'api-old', '-', 'web', 'web']);
+    expect(labels((move!.items[1] as Extract<MenuSpec[number], { items: MenuSpec }>).items)).toEqual(['site']);
+    // Only what Codealong can close and open again in a terminal moves, and only here.
+    const has = (s: Session, l: Lane = at) => labels(sessionMenu(l, s, { ...base, worktrees })).includes('Move to worktree ›');
+    expect(has(session())).toBe(true);
+    expect(has(session({ surface: 'app' }))).toBe(false);
+    expect(has(session({ hosted: true }))).toBe(false);
+    expect(has(session({ harness: 'codex', key: 'codex:x:1' }))).toBe(false);
+    expect(has(session({ resumeCommand: null }))).toBe(false);
+    expect(has(session({ key: '@ab12:claude:c:1' }))).toBe(false);
+    // A chat moves to a project, not to another chat.
+    const chat = labels((sessionMenu(worktrees[8], session(), { ...base, worktrees }).find((i) => i !== 'separator' && 'items' in i && i.label === 'Move to worktree') as Extract<MenuSpec[number], { items: MenuSpec }>).items);
+    expect(chat).toEqual(['Acme ›', 'Blog ›']);
+  });
+
   it('never starts, ends or doubles a line', () => {
     const spec = sessionMenu(lane({ pr: null }), session({ status: 'idle', resumeCommand: null, live: false }), base);
     const l = labels(spec);

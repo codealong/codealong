@@ -1684,6 +1684,11 @@ Options:
       --new-worktree
           Have Claude Code make a fresh worktree for it (`claude --worktree`)
 
+      --chat
+          Start it in no project: in a new folder of its own among Codealong's chats,
+          for a question that belongs to none of your repos. The board lists it under
+          Chats
+
       --in <PLACE>
           Where it runs. Without it, where the account's `start` setting says, else the
           terminal (the Codex app for Codex)

@@ -683,6 +683,10 @@ pub struct Route {
     pub no_session: f64,
     /// Worktrees (lane ids), most likely first; the top ones only.
     pub lanes: Vec<Pick>,
+    /// How likely it is that the work belongs in none of the worktrees: a question about
+    /// nothing in them, for a chat in no project. Macs of earlier builds don't send it.
+    #[serde(default)]
+    pub no_repo: f64,
     /// Repos, the worktrees' probabilities added up: which repo is clearer than which worktree.
     pub repos: Vec<Pick>,
     /// How likely it is that new work wants a worktree of its own: Jev's answer weighed by how

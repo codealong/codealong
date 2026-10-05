@@ -12,7 +12,7 @@ use crate::config::{self, AccountCfg, Config};
 use crate::engine::Handle;
 use crate::harness::{Adapter, StartAsk};
 use crate::launch;
-use crate::model::{Board, Harness, Meter, Session, Severity, Usage};
+use crate::model::{Board, Harness, Lane, Meter, Origin, Session, Severity, Usage};
 use crate::todos::PendingStart;
 use crate::util::{home, now_ms, tilde};
 
@@ -422,9 +422,22 @@ fn uuid_v4(mut b: [u8; 16]) -> String {
 }
 
 /// Whether a start could go into a new worktree: on the command line of a harness that makes
-/// one (`Adapter::makes_worktrees`), in a terminal or in the background.
-pub fn offers_worktree(cfg: &Config, spec: &StartSpec) -> bool {
-    matches!(spec.place, Place::Terminal | Place::Background) && cfg.accounts.iter().any(|a| a.name == spec.account && adapter_of(a).makes_worktrees())
+/// one (`Adapter::makes_worktrees`), in a terminal or in the background, in a repo's worktree.
+pub fn offers_worktree(board: &Board, cfg: &Config, spec: &StartSpec) -> bool {
+    let chats = board.lanes.iter().any(|l| l.id == spec.lane_id && l.starts_chats);
+    !chats && matches!(spec.place, Place::Terminal | Place::Background) && cfg.accounts.iter().any(|a| a.name == spec.account && adapter_of(a).makes_worktrees())
+}
+
+/// A new folder among Codealong's chats (`chats`, `config::chats_dir`) for a session that
+/// belongs to no project: named for the day and a few random letters, as the Claude app names
+/// its scratch workspaces, so they list in the order they were made. `make_chat_folder` makes it.
+fn chat_folder_in(chats: &Path) -> PathBuf {
+    let (y, m, d) = crate::util::civil_from_days(crate::util::today_local());
+    chats.join(format!("{y:04}-{m:02}-{d:02}-{}", &new_session_id()[..6]))
+}
+
+fn make_chat_folder(folder: &Path) -> Result<()> {
+    std::fs::create_dir_all(folder).map_err(|e| anyhow!("Couldn't make a folder for it in {}: {e}", tilde(folder.parent().unwrap_or(folder))))
 }
 
 /// Starts a session: checks the choice against the board and the config, then hands it to the
@@ -432,13 +445,16 @@ pub fn offers_worktree(cfg: &Config, spec: &StartSpec) -> bool {
 pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     let lane = board.lanes.iter().find(|l| l.id == spec.lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
     let account = cfg.accounts.iter().find(|a| a.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
-    let folder = Path::new(&lane.path);
-    if !folder.is_dir() {
-        bail!("{} isn't there any more.", tilde(folder));
-    }
     let offered = ordered_places(account, &home());
     if !offered.as_ref().is_ok_and(|ps| ps.contains(&spec.place)) {
         bail!(offered.err().unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
+    }
+    // A session in no project gets a folder of its own among Codealong's chats, made once the
+    // start is known to be good.
+    let chat = lane.starts_chats.then(|| chat_folder_in(Path::new(&lane.path)));
+    let folder = chat.as_deref().unwrap_or(Path::new(&lane.path));
+    if chat.is_none() && !folder.is_dir() {
+        bail!("{} isn't there any more.", tilde(folder));
     }
     let adapter = adapter_of(account);
     let word = adapter.harness().word();
@@ -449,15 +465,19 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     let tuned = (on_command_line || spec.place == Place::Codealong) && adapter.takes_model();
     let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && tuned);
     let effort = spec.effort.as_deref().map(str::trim).filter(|e| !e.is_empty() && tuned && !adapter.efforts().is_empty());
-    let worktree = spec.worktree && on_command_line;
+    let worktree = spec.worktree && on_command_line && chat.is_none();
     if let Some(m) = model.filter(|m| !valid_model(m)) {
         bail!("{m:?} isn't a model name Codealong can pass to {word}.");
     }
     if let Some(e) = effort.filter(|e| !adapter.efforts().iter().any(|(id, _)| id == e)) {
         bail!("{e:?} isn't an effort level; {word} takes {}.", adapter.efforts().iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", "));
     }
+    if chat.is_some() {
+        make_chat_folder(folder)?;
+    }
+    // Trusting the chats folder trusts every chat in it, where trust goes by the folders above.
     if on_command_line {
-        adapter.before_start(account, folder);
+        adapter.before_start(account, if chat.is_some() { Path::new(&lane.path) } else { folder });
     }
     let id = new_session_id();
     let dirs = (attachments::images_dir(), attachments::files_dir());
@@ -513,8 +533,10 @@ fn linked(spec: &StartSpec, started: &Started, harness: &str, now: i64) -> Optio
     }
     // One start for all of them: todos started together wait for the same session.
     let pending = started.key.is_none().then(|| PendingStart { lane: spec.lane_id.clone(), harness: harness.to_string(), account: spec.account.clone(), at: now });
-    // A session in a new worktree won't be in the one it started from: only it is linked.
-    let lane = (!(spec.worktree && matches!(spec.place, Place::Terminal | Place::Background))).then(|| spec.lane_id.clone());
+    // A session in a new worktree won't be in the one it started from, and Codealong's chats are
+    // one lane for every chat, whose later ones would each be told of it: only it is linked.
+    let new_tree = spec.worktree && matches!(spec.place, Place::Terminal | Place::Background);
+    let lane = (!new_tree && Path::new(&spec.lane_id) != config::chats_dir()).then(|| spec.lane_id.clone());
     Some(Linked { ids: spec.todos.clone(), lane, session: started.key.clone(), pending })
 }
 
@@ -548,10 +570,8 @@ pub fn start_here(engine: &Handle, spec: &StartSpec) -> Result<Started> {
 pub fn note(engine: &Handle, spec: &StartSpec) {
     // Only a note for later: settings that don't read leave nothing to note.
     let Ok(cfg) = config::current() else { return };
-    if !offers_worktree(&cfg, spec) {
-        return;
-    }
-    let Some(repo) = engine.read(|b| b.lanes.iter().find(|l| l.id == spec.lane_id).map(|l| format!("{}/{}", l.project, l.repo))) else {
+    let offered = |b: &Board| offers_worktree(b, &cfg, spec).then(|| b.lanes.iter().find(|l| l.id == spec.lane_id).map(|l| format!("{}/{}", l.project, l.repo))).flatten();
+    let Some(repo) = engine.read(offered) else {
         return;
     };
     if let Err(e) = crate::starts::record(&repo, spec.worktree) {
@@ -676,6 +696,94 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
     Ok(Started { key: copy, message: Some(message) })
 }
 
+/// Moves a session to another folder, `lane_id`'s, or a new chat when that's Codealong's chats:
+/// it goes on there as itself (`Adapter::move_folder`), in a new terminal, or as a background
+/// job when it is one, told where it is now. Its own process is closed first, since one
+/// conversation runs in one place, and a chat's folder stays readable to it. Not mid-turn: the
+/// caller stops a turn first (actions.rs). Where the harness copies a background job rather
+/// than move it, the copy's key comes back, and the caller hands the session's place over to it.
+pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> Result<Started> {
+    let (s, account) = crate::harness::find(board, cfg, key)?;
+    // The id is typed into a shell, and the harnesses' ids are letters, digits, - and _.
+    if s.id.is_empty() || !s.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        bail!("Codealong won't type {}'s id into a shell: {:?}.", s.title, s.id);
+    }
+    let to = board.lanes.iter().find(|l| l.id == lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
+    if to.device.is_some() {
+        bail!("{} is on another device, and a session moves only between folders on its own Mac.", to.callsign);
+    }
+    let home_lane = board.lanes.iter().find(|l| l.sessions.iter().any(|x| x.key == key && x.visitor.is_none()));
+    if home_lane.is_some_and(|l| l.id == to.id) {
+        bail!("“{}” is in {} already.", s.title, to.callsign);
+    }
+    if crate::harness::turn_running(s) {
+        bail!("“{}” is in the middle of a turn. Stop it or let it finish, then move it.", s.title);
+    }
+    let from = if s.cwd.is_empty() { home_lane.map(|l| PathBuf::from(&l.path)).unwrap_or_default() } else { PathBuf::from(&s.cwd) };
+    let folder = if to.starts_chats { chat_folder_in(Path::new(&to.path)) } else { PathBuf::from(&to.path) };
+    if !to.starts_chats && !folder.is_dir() {
+        bail!("{} isn't there any more.", tilde(&folder));
+    }
+    // What a chat made in its folder may be what it's moved for.
+    let keep = (from.starts_with(config::chats_dir()) && from.is_dir()).then_some(from.as_path());
+    let prompt = moved_prompt(to, &folder, &from, keep.is_some());
+    let adapter = crate::harness::adapter(s.harness);
+    let ctx = crate::harness::Ctx { account };
+    // Asked before anything is closed, as it says whether the harness can move a session at all.
+    let typed = adapter.move_folder(&ctx, s, keep, &prompt)?;
+    if to.starts_chats {
+        make_chat_folder(&folder)?;
+    }
+    adapter.before_start(account, if to.starts_chats { Path::new(&to.path) } else { &folder });
+    let in_background = s.live && s.attach_command.is_some();
+    if s.live {
+        crate::idle::close_one(board, cfg, key).map_err(|e| anyhow!("Couldn't close “{}” where it runs, so it stays where it is: {e:#}", s.title))?;
+        if let Some(pid) = s.pid {
+            let since = std::time::Instant::now();
+            while crate::procs::pid_alive(pid) && since.elapsed() < std::time::Duration::from_secs(10) {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            if crate::procs::pid_alive(pid) {
+                bail!("“{}” hasn't closed yet. Move it once it has.", s.title);
+            }
+        }
+    }
+    let there = if to.starts_chats { "a chat of its own".to_string() } else { to.callsign.clone() };
+    let (goes_on, how) = if in_background {
+        (adapter.move_folder_background(&ctx, s, &folder, keep, &prompt)?, "in the background")
+    } else {
+        let near = crate::board::terminal_neighbours(&board.lanes, &folder);
+        let label = crate::board::tab_label(&board.lanes, &folder, &s.title);
+        launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() }, &folder, &typed.input, &typed.env)
+            .map_err(|e| anyhow!("“{}” is closed, but a terminal didn't open in {there}, so it hasn't moved; resume it from its menu: {e:#}", s.title))?;
+        (typed.key, "in a new terminal")
+    };
+    let copied = goes_on.as_deref().is_some_and(|k| k != key);
+    if let Some(copy) = goes_on.as_deref().filter(|_| copied) {
+        crate::origins::record(copy, key, crate::model::OriginHow::Fork);
+    }
+    let copy_note = if copied { " Claude Code copies a background job's conversation into a new job rather than move it, so the copy takes its place." } else { "" };
+    let message = format!("Moved “{}” to {there}: it goes on there {how}.{copy_note}", s.title);
+    Ok(Started { key: goes_on, message: Some(message) })
+}
+
+/// What a session moved to another folder is told as it goes on there: where it is now, what
+/// that is, and where it was.
+pub fn moved_prompt(to: &Lane, folder: &Path, from: &Path, readable: bool) -> String {
+    let what = if to.starts_chats {
+        "a folder of its own, outside every project".to_string()
+    } else if to.origin == Origin::Main {
+        format!("the main checkout of {}", to.repo)
+    } else if let Some(branch) = &to.branch {
+        format!("a worktree of {} on the branch {branch}", to.repo)
+    } else {
+        format!("{} in {}", to.callsign, to.project)
+    };
+    let before = if readable { format!("What you made before is still in {}, where you can read it.", from.display()) } else { format!("You were in {} before.", from.display()) };
+    let rules = if to.starts_chats { "" } else { " If the folder keeps instructions for agents, such as a CLAUDE.md or AGENTS.md, read them before you change anything." };
+    format!("This conversation has moved to {}, {what}. Work there from now on. {before}{rules}", folder.display())
+}
+
 /// What a session stopped at its usage limit is told as it goes on under another account.
 pub const GO_ON: &str = "Your last turn was stopped by a usage limit, and this conversation has moved to another account that has room. Carry on where you left off.";
 
@@ -694,6 +802,38 @@ fn move_target<'a>(cfg: &'a Config, s: &crate::model::Session, account: &Account
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_a_moved_session_where_it_is_now() {
+        let mut to = Lane::new("/r/app", "Acme", "app");
+        to.origin = Origin::Main;
+        to.callsign = "app".into();
+        let (folder, from) = (Path::new("/r/app"), Path::new("/c/chats/2026-10-05-a1b2c3"));
+        assert_eq!(
+            moved_prompt(&to, folder, from, true),
+            "This conversation has moved to /r/app, the main checkout of app. Work there from now on. What you made before is still in /c/chats/2026-10-05-a1b2c3, where you can read it. If the folder keeps instructions for agents, such as a CLAUDE.md or AGENTS.md, read them before you change anything."
+        );
+        to.origin = Origin::Script;
+        to.branch = Some("login".into());
+        assert!(moved_prompt(&to, folder, Path::new("/r/app-2"), false).starts_with("This conversation has moved to /r/app, a worktree of app on the branch login. Work there from now on. You were in /r/app-2 before. If"));
+        // Into a chat of its own: nothing to read first.
+        let mut chats = Lane::new("/c/chats", "Elsewhere", "Chats");
+        chats.starts_chats = true;
+        assert_eq!(moved_prompt(&chats, Path::new("/c/chats/2026-10-06-ffffff"), Path::new("/r/app"), false), "This conversation has moved to /c/chats/2026-10-06-ffffff, a folder of its own, outside every project. Work there from now on. You were in /r/app before.");
+    }
+
+    #[test]
+    fn a_chat_gets_a_folder_of_its_own_named_for_the_day() {
+        let root = crate::fixtures::scratch("chats");
+        let (a, b) = (chat_folder_in(&root), chat_folder_in(&root));
+        make_chat_folder(&a).unwrap();
+        make_chat_folder(&b).unwrap();
+        assert!(a.is_dir() && b.is_dir() && a != b);
+        let name = crate::util::file_name(&a);
+        let (y, m, d) = crate::util::civil_from_days(crate::util::today_local());
+        assert!(name.starts_with(&format!("{y:04}-{m:02}-{d:02}-")), "{name}");
+        assert_eq!(name.len(), "2026-10-05-a1b2c3".len());
+    }
 
     fn account(name: &str, harness: &str, home: &str, command: Option<&str>) -> AccountCfg {
         AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, preferred: false, acp: None }
@@ -727,6 +867,9 @@ mod tests {
             assert_eq!(linked(&spec(place, true, &["t-1"]), &known, "claude", NOW).unwrap().lane, None);
         }
         assert_eq!(linked(&spec(Place::ClaudeApp, true, &["t-1"]), &unknown, "claude", NOW).unwrap().lane.as_deref(), Some("/r/app"));
+        // Codealong's chats are one lane for every chat: a todo started in one is the session's.
+        let chat = StartSpec { lane_id: config::chats_dir().to_string_lossy().into_owned(), ..spec(Place::Terminal, false, &["t-1"]) };
+        assert_eq!(linked(&chat, &known, "claude", NOW).unwrap().lane, None);
     }
     const HOUR: i64 = 3_600_000;
     const MIN: i64 = 60_000;

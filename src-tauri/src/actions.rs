@@ -41,11 +41,14 @@ pub mod params {
 
     pub use codealong_peer::api::params::*;
 
-    /// `session-move`: the account of its harness it goes on under.
+    /// `session-move`: the account of its harness it goes on under, or the worktree it goes on
+    /// in, by its lane's id (Codealong's chats for a new chat).
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Move {
         pub account: String,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub lane: String,
     }
 
     /// `session-side-ask`: the question for its side conversation.
@@ -227,7 +230,7 @@ fn side_in_windows(_: &Value) -> Result<(), String> {
 }
 
 fn move_in_windows(_: &Value) -> Result<(), String> {
-    Err("A session is moved to another account in Codealong's windows.".into())
+    Err("A session is moved to another account or folder in Codealong's windows.".into())
 }
 
 /// Does `name` for the session or worktree `key` from a window here: on this device, or, for
@@ -573,36 +576,60 @@ fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// Moves it to another account of its harness, `account` (`start::move_to`): the copy goes on
 /// in a new terminal, and the session is closed and archived: from here on the conversation is
 /// the copy's, and so are the todos it was on and its place among the pinned sessions. A session
-/// its account's usage limit stopped is moved to go on, so the copy is told to.
+/// its account's usage limit stopped is moved to go on, so the copy is told to. With a `lane`,
+/// it moves to that worktree instead (`start::move_to_folder`), as itself, so its todos and its
+/// place stay with it, unless its harness copied it there.
 fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
-    let account = c.read::<params::Move>()?.account;
+    let to = c.read::<params::Move>()?;
     let cfg = cfg()?;
     let stopped = stop_to_move(engine, &cfg, key)?;
     let board = engine.board();
+    if !to.lane.is_empty() {
+        // It goes on as itself, unless the harness copied it.
+        let mut started = crate::start::move_to_folder(&board, &cfg, key, &to.lane).map_err(words)?;
+        if stopped {
+            started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so it goes on from where it was interrupted."));
+        }
+        if let Some(copy) = started.key.as_deref().filter(|k| *k != key) {
+            hand_over(engine, &board, key, copy);
+        }
+        return to_value(started);
+    }
     let limited = board.session(key).is_some_and(|(_, s)| s.limit.is_some());
     let prompt = if limited { crate::start::GO_ON } else { "" };
-    let mut started = crate::start::move_to(&board, &cfg, key, &account, prompt).map_err(words)?;
+    let mut started = crate::start::move_to(&board, &cfg, key, &to.account, prompt).map_err(words)?;
     if stopped {
         started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so the copy goes on from where it was interrupted."));
     }
-    if let Some(copy) = &started.key {
-        for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
-            // The session stays on it too, as one that worked on it.
-            let link = crate::todos::TodoOp::Link { id: t.id.clone(), worktree: None, session: Some(copy.clone()), linked: true };
-            if let Err(e) = engine.todo(link) {
-                eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
-            }
-        }
-        // Before it's archived, which unpins it.
-        if board.pinned.iter().any(|k| k == key) {
-            engine.set_pinned(board.pinned.iter().map(|k| if k == key { copy.clone() } else { k.clone() }).collect());
+    match &started.key {
+        Some(copy) => hand_over(engine, &board, key, copy),
+        None => archive_moved(engine, key),
+    }
+    to_value(started)
+}
+
+/// The copy a session moved into takes its place: the todos it was on and its place among the
+/// pinned sessions. The session itself is archived.
+fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
+    for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
+        // The session stays on it too, as one that worked on it.
+        let link = crate::todos::TodoOp::Link { id: t.id.clone(), worktree: None, session: Some(copy.to_string()), linked: true };
+        if let Err(e) = engine.todo(link) {
+            eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
         }
     }
+    // Before it's archived, which unpins it.
+    if board.pinned.iter().any(|k| k == key) {
+        engine.set_pinned(board.pinned.iter().map(|k| if k == key { copy.to_string() } else { k.clone() }).collect());
+    }
+    archive_moved(engine, key);
+}
+
+fn archive_moved(engine: &Handle, key: &str) {
     if let Err(e) = engine.archive(key, true) {
         eprintln!("Moved {key}, but couldn't archive it: {e:#}");
     }
-    to_value(started)
 }
 
 /// Stops the turn a session is taking so it can move, as Stop does (`cancel`), and waits for the

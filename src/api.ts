@@ -453,6 +453,13 @@ export async function moveSession(key: string, account: string): Promise<Started
   return invoke<Started | null>('move_session', { key, account });
 }
 
+/** Moves a session to the worktree `laneId` (start.rs `move_to_folder`), or to a new chat when
+ *  that's Codealong's chats: it's closed where it runs and goes on there as itself. */
+export async function moveSessionTo(key: string, laneId: string): Promise<Started | null> {
+  if (!inTauri) throw new Error('Moving a session needs the app.');
+  return invoke<Started | null>('move_session', { key, lane: laneId });
+}
+
 /** Asks something about a session on the side (side.rs): a throwaway copy of its conversation
  *  answers, and the session carries on, unaware. Resolves with the side conversation, the
  *  question in it; the answer comes through `onSide`. */

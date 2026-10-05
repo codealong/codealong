@@ -7,13 +7,13 @@
 // it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
 import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from './editors';
-import { MOVES_ACCOUNTS, renames } from './harness';
+import { MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { QUEUE_CHORDS } from './queue';
@@ -124,6 +124,8 @@ export interface SessionCan {
   todos?: MenuSpec;
   /** Asks for a new name, where this window asks (a sheet, the peek, the quick panel's box). */
   rename?: () => void;
+  /** The board's worktrees, for Move to worktree, where the window has the board. */
+  worktrees?: Lane[];
   /** Pins it to this window's own list (the main window's Pinned). */
   pin?: MenuAction;
   /** What's on the desktop, as `ref:key`, for Pin to desktop. Without it there's no such item. */
@@ -154,6 +156,8 @@ export interface SessionActions {
   newSession?: MenuAction;
   fork?: MenuAction;
   move?: MenuAction | MenuGroup;
+  /** To another worktree on this Mac, or a chat of its own, as itself. */
+  moveFolder?: MenuGroup;
   /** The move a usage limit's stop suggests: to the account with room (`Session.limit`). */
   moveOn?: MenuAction;
   stop?: MenuAction;
@@ -196,6 +200,18 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       })
       .catch((e: unknown) => report.error(errorText(e)));
   const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => void move(to) });
+  // Another folder: it's closed where it runs and goes on there as itself, so it stays on the
+  // lists it's on, unless its harness copied it.
+  const moveFolder = (to: Lane) =>
+    busy(`Moving ${s.title} to ${to.startsChats ? 'a chat of its own' : to.callsign}…`, moveSessionTo(s.key, to.id))
+      .then((started) => {
+        if (started?.key && started.key !== s.key) can.left?.('archived');
+        if (started?.message) report.info(started.message);
+      })
+      .catch((e: unknown) => report.error(errorText(e)));
+  // Only a session Codealong can close and open again in a terminal moves: not an app's, nor one
+  // Codealong runs itself.
+  const movesFolders = here && !!s.resumeCommand && MOVES_FOLDERS.includes(s.harness) && s.surface === 'cli' && !s.hosted && !s.visitor;
   // A session a usage limit stopped is told to go on where it moves (actions.rs), so it says so.
   const goesOn = s.limit && s.status !== 'working' ? ' and go on' : '';
   const suggested = s.limit?.moveTo && moveTo.includes(s.limit.moveTo) && goesOn ? s.limit.moveTo : null;
@@ -218,6 +234,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
         : moveTo.length === 1
           ? moveItem(moveTo[0], `Move to ${moveTo[0]}${goesOn}`)
           : undefined,
+    moveFolder: movesFolders ? folderMoves(lane, can.worktrees ?? [], (to) => void moveFolder(to)) : undefined,
     moveOn: suggested ? moveItem(suggested, `Move to ${suggested} and go on`) : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
@@ -244,13 +261,36 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
 }
 
+/** Move to worktree: this Mac's worktrees other than `from`, a submenu for each project (the
+ *  session's own first, then in the board's order), each repo's main checkout first and then the
+ *  latest, and last a chat of its own, unless it's a chat already. Undefined when there's
+ *  nowhere to go. */
+export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => void): MenuGroup | undefined {
+  const mine = worktrees.filter((l) => !l.device && l.id !== from.id);
+  const projects = [...new Set(mine.filter((l) => l.project !== 'Elsewhere').map((l) => l.project))].sort((a, b) => Number(b === from.project) - Number(a === from.project));
+  const entry = (l: Lane): MenuAction => ({ label: l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign, run: () => run(l) });
+  const projectMenu = (project: string): MenuGroup => {
+    const lanes = mine.filter((l) => l.project === project);
+    const repos = [...new Set(lanes.map((l) => l.repo))];
+    const byRepo = repos.map((repo): MenuSpec => {
+      const list = lanes.filter((l) => l.repo === repo).sort((a, b) => Number(b.origin === 'main') - Number(a.origin === 'main') || b.lastActivity - a.lastActivity);
+      // A heading says which repo, where the project has more than one.
+      return [...(repos.length > 1 ? [{ label: repo, enabled: false, run: () => {} }] : []), ...list.map(entry)];
+    });
+    return { label: project, items: sections(...byRepo) };
+  };
+  const chat = from.startsChats ? undefined : mine.find((l) => l.startsChats);
+  const items = sections(projects.map(projectMenu), chat ? [{ label: 'A chat of its own', run: () => run(chat) }] : []);
+  return items.length > 0 ? { label: 'Move to worktree', items } : undefined;
+}
+
 /** The order of a session's menu, in groups with a line between: opening it (where it lives,
  *  its folder, its PR, its tabs in Chrome), showing or answering it in Codealong and starting from it; the window's
  *  todos; what it is to you (its turn, its name, seen, pinned, snoozed, closed, archived);
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
-  ['open', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move'],
+  ['open', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos'],
   ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'archive'],
   ['copyId', 'copyResume', 'canvas'],

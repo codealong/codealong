@@ -350,6 +350,32 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(id.map(|id| Session::key_for(Harness::Claude, &to.name, &id)))
     }
 
+    /// Claude Code goes on with a session in whatever folder `--resume` runs in, as itself: its
+    /// transcript stays where it was, in the first folder's project, and its lines say the
+    /// folder it's in now (checked on 2.1.289, 2026-10-05, a session that had been a background
+    /// job too). The folder it may still read comes before `--resume`, whole, so it takes
+    /// nothing after it.
+    fn move_folder(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, keep: Option<&Path>, prompt: &str) -> anyhow::Result<crate::harness::Typed> {
+        let (input, mut env) = claude_resume_input(ctx.account, &resume_args(ctx.account, s, home_of_account), prompt);
+        let input = match keep {
+            Some(dir) => input.replacen(" --resume ", &format!(" --add-dir={} --resume ", crate::util::sh_quote(&dir.to_string_lossy())), 1),
+            None => input,
+        };
+        env.push((crate::start::SESSION_VAR.to_string(), s.key.clone()));
+        Ok(crate::harness::Typed { input, env, key: Some(s.key.clone()) })
+    }
+
+    /// `--bg --resume` goes on with a session as itself only while no background job has had
+    /// it; one that has is copied into a job under a new ID (`fork: true` in the roster;
+    /// checked on 2.1.289, 2026-10-05), and the roster says which.
+    fn move_folder_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, keep: Option<&Path>, prompt: &str) -> anyhow::Result<Option<String>> {
+        let keep = keep.map(|d| format!(" --add-dir={}", crate::util::sh_quote(&d.to_string_lossy()))).unwrap_or_default();
+        let dirs = (crate::attachments::images_dir(), crate::attachments::files_dir());
+        let command = format!("{} --resume {}{keep}{}", ctx.account.command(), resume_args(ctx.account, s, home_of_account), background_args(prompt, None, None, false, (&dirs.0, &dirs.1)));
+        let (_, id) = start_background(ctx.account, cwd, &command)?;
+        Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
+    }
+
     /// Claude Code run headless on a fork of the session that keeps no record (checked on
     /// 2.1.286, 2026-09-30): `--resume <id> --fork-session --no-session-persistence` reads the
     /// conversation as far as it's written and writes no transcript. It runs in the session's

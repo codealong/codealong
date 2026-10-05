@@ -65,6 +65,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--stop", takes: "<session key>", run: stop },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
     Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
+    Mode { flag: "--move", takes: "<session key> <account | worktree folder>", run: move_session },
     Mode { flag: "--side", takes: "<session key> <question> [a follow-up…]", run: side_ask },
     Mode { flag: "--rename", takes: "<session key> <name>", run: rename },
     Mode { flag: "--transcript", takes: "<session key> [--before <cursor>]", run: transcript },
@@ -111,6 +112,9 @@ const MODES: &[Mode] = &[
 /// `codealong --snapshot --stop <session key>`: stops the turn it's taking, as its Stop does.
 /// `codealong --snapshot --fork <session key> [prompt]`: forks it into the background, as `/fork`
 /// in its box does.
+/// `codealong --snapshot --move <session key> <account | worktree folder>`: moves it to another
+/// account of its harness, or to a worktree (a lane's folder: Codealong's chats for a chat of its
+/// own), as Move to in its menu does.
 /// `codealong --snapshot --side <session key> <question> [a follow-up…]`: asks a throwaway copy
 /// of it, as `/side` in its box does, and prints the questions with their answers.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -233,6 +237,13 @@ fn fork(_: &Args, rest: &[String]) -> Done {
     let [key, more @ ..] = rest else { return Err(Stop::Usage) };
     let prompt = more.first().map(String::as_str).unwrap_or("");
     Ok(pretty(&act(api::SESSION_FORK, key, params::Fork { prompt: prompt.to_string(), ..Default::default() })?))
+}
+
+fn move_session(_: &Args, rest: &[String]) -> Done {
+    let [key, to, ..] = rest else { return Err(Stop::Usage) };
+    // A worktree is named by its folder, an account by its name, which has no slash.
+    let to = if to.contains('/') { params::Move { lane: to.clone(), ..Default::default() } } else { params::Move { account: to.clone(), ..Default::default() } };
+    Ok(pretty(&act(actions::MOVE, key, to)?))
 }
 
 fn side_ask(_: &Args, rest: &[String]) -> Done {

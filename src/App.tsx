@@ -829,6 +829,7 @@ export function App() {
           : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
       rename: () => setRenaming(s.key),
+      worktrees: board?.lanes,
       archive: (archived) => {
         if (archived) leftAndOn(s, 'archived');
         setArchived(s.key, archived, s.title);

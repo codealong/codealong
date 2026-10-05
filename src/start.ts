@@ -408,7 +408,7 @@ export function modelWords(takesAModel: boolean, place: StartPlace | null, harne
 /** A start as the start row describes it. */
 export interface StartPlan {
   /** The worktree it starts in, when there's one. */
-  lane: Pick<Lane, 'repo' | 'callsign'> | null;
+  lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats'> | null;
   account: string | null;
   place: StartPlace | null;
   /** On another Mac: its name once your devices are read, and why it didn't say where its
@@ -436,10 +436,17 @@ export function startHappens(p: StartPlan): string {
   return p.mac && p.lane && p.account && p.place ? `On ${mac}: ${there}` : there;
 }
 
-function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {
-  if (!lane) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
+/** Where a start goes, as its words say it: the worktree, or a chat of its own (the worktree
+ *  chip says No project). */
+function startsIn(lane: Pick<Lane, 'callsign' | 'startsChats'>): string {
+  return lane.startsChats ? 'a chat of its own' : lane.callsign;
+}
+
+function startHappensThere({ lane: worktree, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {
+  if (!worktree) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
   if (!account || !place) return on?.error ? `${mac} didn’t say where its accounts can start: ${on.error}` : '';
   const withPrompt = prompted ? ' with this prompt' : '';
+  const lane = { repo: worktree.repo, callsign: startsIn(worktree) };
   switch (place) {
     case 'background':
       if (behind) return `${terminal} starts ${account}${onModel} in ${newWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}${withPrompt}, behind your windows, so you stay where you are.`;
@@ -459,9 +466,9 @@ function startHappensThere({ lane, account, place, mac: on, reading, newWorktree
 
 /** What the window that opened the panel says while a start is under way. `mac` is the other
  *  Mac's name, when it starts on one Codealong has heard from. */
-export function startingLabel(place: StartPlace, account: string, onModel: string, lane: Pick<Lane, 'repo' | 'callsign'>, newWorktree: boolean, mac: string | null): string {
+export function startingLabel(place: StartPlace, account: string, onModel: string, lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats'>, newWorktree: boolean, mac: string | null): string {
   const onMac = mac ? ` on ${mac}` : '';
-  if (place === 'terminal' || place === 'background') return `Starting ${account}${onModel} in ${newWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}${place === 'background' ? ' in the background' : ''}${onMac}…`;
+  if (place === 'terminal' || place === 'background') return `Starting ${account}${onModel} in ${newWorktree ? `a new worktree of ${lane.repo}` : startsIn(lane)}${place === 'background' ? ' in the background' : ''}${onMac}…`;
   if (place === 'codealong') return `Starting ${account}${onModel} in Codealong${onMac}…`;
   if (place === 'claude-app') return `Opening a new session in the Claude app${onMac}…`;
   return `Opening a new thread in Codex${onMac}…`;

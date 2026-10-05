@@ -1648,6 +1648,7 @@ impl Engine {
                     default_branch: default_name.clone(),
                     elsewhere: false,
                     chats: false,
+                    starts_chats: false,
                     exact: false,
                 });
             }
@@ -1673,7 +1674,7 @@ impl Engine {
                 None => Found::Held,
             }
         };
-        let strays = stray_seeds(&seeds, &cwds, &chats, &h, found);
+        let strays = stray_seeds(&seeds, &cwds, &chats, &config::chats_dir(), &h, found);
         seeds.extend(strays);
 
         let live: HashSet<&PathBuf> = seeds.iter().map(|s| &s.path).collect();
@@ -2787,16 +2788,22 @@ fn folder_seed(path: PathBuf, project: &str, name: &str, elsewhere: bool) -> Lan
         default_branch: None,
         elsewhere,
         chats: false,
+        starts_chats: false,
         exact: false,
     }
 }
 
 /// The folders apps keep their chats in, a folder for each, and the name of the lane that holds
-/// them: the Claude app's Code sessions started without a folder, and the Codex app's threads
-/// that belong to no project.
+/// them: the Claude app's Code sessions started without a folder, the Codex app's threads that
+/// belong to no project, and the sessions Codealong starts in no project (`config::chats_dir`).
 fn chat_roots() -> Vec<(PathBuf, &'static str)> {
-    harness::chat_roots()
+    let mut roots = harness::chat_roots();
+    roots.push((config::chats_dir(), CHATS));
+    roots
 }
+
+/// The lane of the sessions Codealong starts in no project.
+const CHATS: &str = "Chats";
 
 /// Which of `roots` holds `path`.
 fn chat_root(roots: &[(PathBuf, &'static str)], path: &Path) -> Option<usize> {
@@ -2816,9 +2823,10 @@ enum Found {
 /// Lanes for the folders sessions ran in that no lane covers, so no session goes unlisted: one
 /// for all of an app's chats (a chat whose folder the app has removed too), one for each repo
 /// outside your projects, and one for each other folder, which takes in only the sessions
-/// started there. A folder that's gone, or whose read is held, has none.
-fn stray_seeds(seeds: &[LaneSeed], cwds: &BTreeSet<String>, chats: &[(PathBuf, &'static str)], home: &Path, found: impl Fn(&Path) -> Found) -> Vec<LaneSeed> {
-    let mut roots = BTreeSet::new();
+/// started there. A folder that's gone, or whose read is held, has none. Codealong's own chats
+/// (`own`, among `chats`) have a lane with no sessions too, to start in.
+fn stray_seeds(seeds: &[LaneSeed], cwds: &BTreeSet<String>, chats: &[(PathBuf, &'static str)], own: &Path, home: &Path, found: impl Fn(&Path) -> Found) -> Vec<LaneSeed> {
+    let mut roots: BTreeSet<usize> = chats.iter().position(|(root, _)| root == own && !seeds.iter().any(|s| s.path == *root)).into_iter().collect();
     let mut repos = BTreeSet::new();
     let mut folders = BTreeSet::new();
     for cwd in cwds {
@@ -2844,7 +2852,7 @@ fn stray_seeds(seeds: &[LaneSeed], cwds: &BTreeSet<String>, chats: &[(PathBuf, &
     let mut out = Vec::new();
     for i in roots {
         let (root, lane) = &chats[i];
-        out.push(LaneSeed { origin: Origin::Folder, chats: true, ..folder_seed(root.clone(), ELSEWHERE, lane, true) });
+        out.push(LaneSeed { origin: Origin::Folder, chats: true, starts_chats: root == own, ..folder_seed(root.clone(), ELSEWHERE, lane, true) });
     }
     for root in repos {
         out.push(folder_seed(root.clone(), ELSEWHERE, &name(&root), true));
@@ -2962,7 +2970,8 @@ mod tests {
         use super::*;
         let home = PathBuf::from("/Users/me");
         let scratch = "/Users/me/Library/Application Support/Claude/scratch-workspaces";
-        let chats = vec![(PathBuf::from(scratch), "Claude app chats"), (PathBuf::from("/Users/me/Documents/Codex"), "Codex chats")];
+        let own = PathBuf::from("/Users/me/Library/Application Support/Codealong/chats");
+        let chats = vec![(PathBuf::from(scratch), "Claude app chats"), (PathBuf::from("/Users/me/Documents/Codex"), "Codex chats"), (own.clone(), CHATS)];
         let seeds = vec![folder_seed(PathBuf::from("/Users/me/projects/app"), "App", "app", false)];
         let cwds: BTreeSet<String> = [
             "/Users/me/projects/app/src".to_string(),
@@ -2986,8 +2995,13 @@ mod tests {
             p => panic!("{p} was looked up"),
         };
         let mut all = seeds.clone();
-        all.extend(stray_seeds(&seeds, &cwds, &chats, &home, found));
+        all.extend(stray_seeds(&seeds, &cwds, &chats, &own, &home, found));
         let lane = |cwd: &str| board::best_seed(&all, Path::new(cwd)).map(|i| (all[i].callsign.as_str(), all[i].chats, all[i].exact));
+        // Codealong's own chats have a lane before any session has started there, to start in.
+        let mine: Vec<&LaneSeed> = all.iter().filter(|s| s.starts_chats).collect();
+        assert_eq!(mine.len(), 1);
+        assert_eq!((mine[0].path.as_path(), mine[0].callsign.as_str(), mine[0].chats, mine[0].elsewhere), (own.as_path(), CHATS, true, true));
+        assert_eq!(lane(&format!("{}/2026-10-05-a1b2c3", own.display())), Some((CHATS, true, false)));
         assert_eq!(lane("/Users/me/projects/app/src"), Some(("app", false, false)));
         assert_eq!(lane(&format!("{scratch}/a/b/scratch-2026-09-28-045217")), Some(("Claude app chats", true, false)));
         assert_eq!(lane(&format!("{scratch}/a/b/scratch-2026-09-26-c8bd6b")), Some(("Claude app chats", true, false)));
@@ -2997,7 +3011,7 @@ mod tests {
         assert_eq!(lane("/Users/me/Downloads"), Some(("Downloads", false, true)));
         assert_eq!(lane("/Users/me/Desktop"), None, "your home folder's lane doesn't take in the folders in it");
         assert_eq!((lane("/Users/me/Documents/held"), lane("/tmp/gone")), (None, None));
-        assert_eq!(all.len(), 6, "one lane for each app's chats");
+        assert_eq!(all.len(), 7, "one lane for each app's chats, and Codealong's");
         assert!(all[1..].iter().all(|s| s.elsewhere && s.project == ELSEWHERE));
     }
 

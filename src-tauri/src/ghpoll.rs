@@ -548,6 +548,7 @@ mod tests {
             default_branch: Some("main".into()),
             elsewhere: false,
             chats: false,
+            starts_chats: false,
             exact: false,
         }
     }

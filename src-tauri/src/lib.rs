@@ -1049,15 +1049,16 @@ async fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers
 }
 
 /// Moves a session to another account of its harness (`start::move_to`): a copy goes on in a new
-/// terminal under `account`, and the session is closed and archived. Its card on the desktop and
-/// its kept window show the copy once the board has it, so neither says it's gone meanwhile.
+/// terminal under `account`, and the session is closed and archived. Or, with `lane`, to that
+/// worktree (`start::move_to_folder`), where it goes on as itself. Its card on the desktop and
+/// its kept window show a copy once the board has it, so neither says it's gone meanwhile.
 #[tauri::command]
-async fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, account: String) -> Result<start::Started, String> {
+async fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, account: Option<String>, lane: Option<String>) -> Result<start::Started, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
     blocking(move || {
-        let got = actions::run(&engine, &peers, actions::MOVE, &key, actions::params::Move { account })?;
+        let got = actions::run(&engine, &peers, actions::MOVE, &key, actions::params::Move { account: account.unwrap_or_default(), lane: lane.unwrap_or_default() })?;
         let started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
-        if let Some(copy) = started.key.clone() {
+        if let Some(copy) = started.key.clone().filter(|c| *c != key) {
             std::thread::spawn(move || {
                 // Its terminal takes a moment to start Claude Code, which then says it's there.
                 let until = std::time::Instant::now() + std::time::Duration::from_secs(60);

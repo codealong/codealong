@@ -205,6 +205,10 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
     for (i, l) in lanes.iter().enumerate() {
         lane_cards.insert(format!("w{}", i + 1), lane_card(l, now));
     }
+    lane_cards.insert(
+        "none".into(),
+        json!("None of these: the message needs no repository at all. It's a general question or task (how something works in general, a fact, a word, a snippet, a piece of writing) that names nothing in them."),
+    );
 
     let mut duplicate_options = Map::new();
     for (i, (_, s)) in sessions.iter().enumerate() {
@@ -372,6 +376,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         sessions: sessions.into_iter().filter(|s| s.p >= SCORED_AT).take(SCORED).collect(),
         no_session,
         lanes: lanes.into_iter().take(TOP).collect(),
+        no_repo: lane_p.get("none").copied().unwrap_or(0.0),
         repos: repos.into_iter().take(TOP).collect(),
         own_worktree: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
         own_worktree_asked: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
@@ -458,6 +463,7 @@ mod tests {
         assert_eq!(req.body["state"]["sessions"]["s1"]["latest"], "Ran cargo test");
         assert_eq!(req.body["state"]["sessions"]["s1"]["last prompted"], "just now");
         assert!(req.body["questions"]["session"]["criteria"]["none"].is_string());
+        assert!(req.body["questions"]["worktree"]["criteria"]["none"].is_string(), "a question can need no repo at all");
         assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["worktree"], "api (main checkout of api)");
         assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["recent sessions"], json!(["Fix login", "Old stopped"]));
         assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["reusable"], "no: it's kept for its own piece of work");
@@ -516,7 +522,18 @@ mod tests {
         assert_eq!(r.no_session, 0.08);
         assert_eq!(r.lanes[0].id, "/p/api");
         assert_eq!(r.repos[0], Pick { id: "Acme/api".into(), p: 0.7 });
+        assert_eq!(r.no_repo, 0.0);
         assert_eq!((r.model.as_str(), r.ms, r.input_tokens), ("jev-1.13.0", 250, 1234));
+    }
+
+    #[test]
+    fn reads_work_that_needs_no_repo() {
+        let b = board();
+        let req = request(&b, "Acme", "what's the difference between a mutex and a semaphore", "m", NOW).unwrap();
+        let r = read(&req, &answer(&[("start", 0.9), ("send", 0.1)], &[("none", 1.0)], &[("w1", 0.1), ("w2", 0.2), ("none", 0.7)], 0.0), 1).unwrap();
+        assert_eq!(r.no_repo, 0.7);
+        // The worktrees keep what Jev gave them, so a runner-up still has its row.
+        assert_eq!(r.lanes.iter().map(|p| (p.id.as_str(), p.p)).collect::<Vec<_>>(), vec![("/p/api", 0.2), ("/p/web", 0.1)]);
     }
 
     #[test]

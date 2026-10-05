@@ -217,6 +217,9 @@ export interface Lane {
   /** Marked neither way, but its branch has carried several merged PRs: Settings suggests
    *  making it reusable. */
   looksReusable?: boolean;
+  /** Codealong's own chats: a session started here gets a folder of its own, for a question
+   *  that belongs to no project. It's on the board with no sessions too, hidden. */
+  startsChats?: boolean;
 }
 
 /** What a reusable worktree holds: no work, so new work can start there; work under way; its
@@ -658,6 +661,9 @@ export interface Route {
   sessions: RoutePick[];
   noSession: number;
   lanes: RoutePick[];
+  /** How likely it is that the work needs none of the worktrees: a chat in no project. Missing
+   *  from Macs of earlier builds. */
+  noRepo?: number;
   repos: RoutePick[];
   /** How likely new work wants a worktree of its own: Jev's answer weighed by your habit. */
   ownWorktree: number;

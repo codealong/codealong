@@ -102,6 +102,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     spend limit shows on no meter). Moved, it's told to carry on where it stopped. `[limits]
     when_hit = "move"` (Settings › Accounts) moves it there by itself, as soon as it stops; a
     session moved there that stops again is offered a move rather than moved back.
+    Move to worktree, in the same menu (in the main window and the quick panel), moves a Claude
+    Code session that runs in a terminal or in the background, or isn't running, to another
+    worktree on this Mac (listed by project) or to a chat of its own. It's closed where it runs
+    and goes on in the new folder as itself, with the same ID, so it keeps its todos, its pin and
+    its card: a terminal session in a new terminal there, a background job as a job there. It's
+    told where it is now, and coming from a chat it can still read the chat's folder. Claude
+    Code copies a background job that has been one before into a new job rather than move it,
+    and the copy takes its place as a move to another account's does.
     `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the
     side: a throwaway copy of its conversation answers above the box, and the session carries
     on and never hears of it. The copy reads files and runs commands to answer, and is told to
@@ -435,7 +443,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
   worktrees and the panel leads with up to three suggestions, each with how likely it is: send
   it to a session that's already going, start new work in a worktree (a new one when it's a
-  change of its own), open a session, or keep it as a todo. ⏎ does the first. The same call
+  change of its own) or, for a question that needs none of your repos, in a chat of its own,
+  open a session, or keep it as a todo. ⏎ does the first. The same call
   says whether a running session may already be doing it (start rows say so, and sending to it
   is offered), and puts the sessions it thinks you mean first among the search results. A
   session that's running leads one that isn't when Jev finds them close (a stopped one counts
@@ -492,7 +501,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   and the panel stays on whatever you're looking at when it appears. Paste or drop screenshots and
   other files into the prompt: Claude Code in a terminal gets them as file mentions (attached
   when they're 256 KB or less, read otherwise, with their folders added so it doesn't ask),
-  and the apps and OpenCode get their paths.
+  and the apps and OpenCode get their paths. **No project**, last in the worktree picker,
+  starts a chat for a question that belongs to none of your repos: the session gets a folder of
+  its own under `~/Library/Application Support/Codealong/chats` (trusted once for Claude Code,
+  for all of them), and no new worktree. The chats are listed together in one lane, Chats, in
+  Elsewhere, and `codealong start --chat` starts one.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
   limits such as Fable, and time to reset. When they don't all fit, each account shows the
   limit it's closest to running out of and the rest on hover, and the bar scrolls sideways.
