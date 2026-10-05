@@ -177,8 +177,9 @@ pub fn claude_moves(live: &HashSet<&str>, transcripts: &HashMap<&str, &Transcrip
     out
 }
 
-/// A job going on from another session's conversation, dated as that conversation: started
-/// when it did, and at rest since its last word, so moving it doesn't make it new or unread.
+/// A job going on from another session's conversation, or a process that came up on its own
+/// and hasn't taken a turn yet, dated as that conversation: started when it did, and at rest
+/// since its last word, so moving or restarting it doesn't make it new or unread.
 pub fn moved_registry(r: &RegistryEntry, from: &TranscriptInfo) -> RegistryEntry {
     let mut r = r.clone();
     r.started_at = from.started_at.or(r.started_at);
@@ -199,6 +200,15 @@ pub fn claude_session(
 ) -> Option<Session> {
     let id = reg.map(|r| r.session_id.clone()).or_else(|| tr.map(|t| t.session_id.clone()))?;
     let cwd = reg.map(|r| r.cwd.clone()).or_else(|| tr.map(|t| t.cwd.clone()))?;
+    // A process that came up after its transcript's last line and has been idle since has said
+    // nothing new: Claude Code's background service restarting its jobs on a new version after
+    // an update, or a `--resume` nobody has typed into yet. Its fresh registry times aren't a
+    // turn that ended.
+    let restarted = reg
+        .zip(tr)
+        .filter(|(r, t)| r.status == "idle" && r.started_at.is_some_and(|s| s > t.last_ts))
+        .map(|(r, t)| moved_registry(r, t));
+    let reg = restarted.as_ref().or(reg);
     // The registry doesn't refresh while a session is busy; its transcript, status changes and
     // subagent logs do. Stuck mid-turn, it can't go on without you.
     let stalled_since = claude_busy_since(reg, tr)
@@ -2185,6 +2195,27 @@ mod tests {
         assert_eq!(claude_session(&a, Some(&moved), Some(&old), NOW - 2 * 3_600_000, NOW, &Quiet::default()).unwrap().status, Status::Unread);
         // Once it's working the job's own times hold.
         assert_eq!(moved_registry(&reg("busy", NOW - 1_000), &old).status_updated_at, Some(NOW - 1_000));
+    }
+
+    #[test]
+    fn a_restarted_process_that_has_said_nothing_since_keeps_its_place_and_what_you_saw() {
+        let a = acct("claude");
+        // Claude Code's background service restarted the job on a new version a minute ago,
+        // hours after its last reply, which you'd seen.
+        let said = TranscriptInfo { started_at: Some(NOW - 5 * 3_600_000), last_prompt_at: Some(NOW - 4 * 3_600_000), last_ts: NOW - 3 * 3_600_000, ..tr() };
+        let job = |status: &str, updated: i64| RegistryEntry { kind: Some("bg".into()), job_id: Some("b887d77f".into()), started_at: Some(NOW - 60_000), ..reg(status, updated) };
+        let s = claude_session(&a, Some(&job("idle", NOW - 58_000)), Some(&said), NOW - 2 * 3_600_000, NOW, &Quiet::default()).unwrap();
+        assert_eq!(s.status, Status::Idle);
+        assert_eq!((s.started_at, s.status_since, s.last_activity), (Some(NOW - 5 * 3_600_000), Some(NOW - 3 * 3_600_000), NOW - 3 * 3_600_000));
+        assert_eq!(s.excerpt.as_deref(), Some("Done."));
+        // A reply you hadn't seen still waits for you.
+        assert_eq!(claude_session(&a, Some(&job("idle", NOW - 58_000)), Some(&said), NOW - 4 * 3_600_000, NOW, &Quiet::default()).unwrap().status, Status::Unread);
+        // A turn it takes after coming up is news once it ends, dated by the process.
+        let answered = TranscriptInfo { last_ts: NOW - 10_000, ..said.clone() };
+        let s = claude_session(&a, Some(&job("idle", NOW - 9_000)), Some(&answered), NOW - 2 * 3_600_000, NOW, &Quiet::default()).unwrap();
+        assert_eq!((s.status, s.started_at, s.last_activity), (Status::Unread, Some(NOW - 60_000), NOW - 9_000));
+        let busy = claude_session(&a, Some(&job("busy", NOW - 30_000)), Some(&said), NOW - 2 * 3_600_000, NOW, &Quiet::default()).unwrap();
+        assert_eq!((busy.status, busy.started_at), (Status::Working, Some(NOW - 60_000)));
     }
 
     #[test]
