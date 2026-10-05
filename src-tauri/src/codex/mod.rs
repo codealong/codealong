@@ -41,6 +41,9 @@ pub const APP_BUNDLE_ID: &str = "com.openai.codex";
 
 /// Codex (`harness::Adapter`): its rollout for the conversation. Approvals aren't recorded
 /// anywhere Codealong can read, so they're answered in Codex.
+/// How many folders down from a skills folder Codex looks for a `SKILL.md`.
+const SKILL_DEPTH: usize = 6;
+
 pub struct Codex;
 
 impl crate::harness::Adapter for Codex {
@@ -78,6 +81,25 @@ impl crate::harness::Adapter for Codex {
 
     fn skills_dir(&self, account: &crate::config::AccountCfg) -> Option<PathBuf> {
         Some(account.home_path().join("skills"))
+    }
+
+    /// `.agents/skills` in each folder from the project's root to the session's, and the
+    /// project's `.codex/skills` (its core-skills loader, which looks six folders down).
+    fn worktree_skills(&self, dir: &Path) -> Vec<crate::skills::Root> {
+        vec![crate::skills::Root::skills(dir.join(".agents/skills"), SKILL_DEPTH), crate::skills::Root::skills(dir.join(".codex/skills"), SKILL_DEPTH)]
+    }
+
+    /// Its home's `skills` (the ones Codex ships are in `.system` there) and `~/.agents/skills`.
+    fn account_skills(&self, account: &crate::config::AccountCfg) -> Vec<crate::skills::Root> {
+        let own = account.home_path().join("skills");
+        vec![crate::skills::Root::skills(own.clone(), SKILL_DEPTH), crate::skills::Root::skills(own.join(".system"), SKILL_DEPTH), crate::skills::Root::skills(crate::util::home().join(".agents/skills"), SKILL_DEPTH)]
+    }
+
+    /// `$name` anywhere in a prompt's text loads the skill, however the prompt gets there: its
+    /// core scans every text input for them. (Two skills of one name are both passed over; the
+    /// TUI writes a link to the file then, which needs the path as the session sees it.)
+    fn skill_mention(&self, name: &str) -> Option<String> {
+        Some(format!("${name}"))
     }
 
     fn acp_command(&self, account: &crate::config::AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {

@@ -7,8 +7,8 @@
 //! (asks.rs), the Claude app's own records (app.rs), the ways a prompt gets in (routes.rs, by
 //! the background service's socket in daemon.rs, a session's own in peer.rs, or the app), starting,
 //! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), what a
-//! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs) and plan
-//! usage (usage.rs). See CLAUDE.md's *Harness facts*.
+//! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs), the skills it
+//! reads (skills.rs) and plan usage (usage.rs). See CLAUDE.md's *Harness facts*.
 
 pub mod app;
 pub mod asks;
@@ -21,6 +21,7 @@ mod registry;
 mod routes;
 mod shells;
 mod side;
+mod skills;
 mod start;
 mod transcript;
 mod trust;
@@ -131,6 +132,23 @@ impl crate::harness::Adapter for ClaudeCode {
     /// `<config dir>/skills`: a second account's config dir is its home here.
     fn skills_dir(&self, account: &crate::config::AccountCfg) -> Option<PathBuf> {
         Some(account.home_path().join("skills"))
+    }
+
+    fn worktree_skills(&self, dir: &Path) -> Vec<crate::skills::Root> {
+        skills::in_folder(&dir.join(".claude"))
+    }
+
+    fn account_skills(&self, account: &crate::config::AccountCfg) -> Vec<crate::skills::Root> {
+        skills::of_account(&account.home_path())
+    }
+
+    /// A skill or a command is run as a slash command, as a first prompt or typed.
+    fn skill_mention(&self, name: &str) -> Option<String> {
+        Some(format!("/{name}"))
+    }
+
+    fn skill_uses(&self, account: &crate::config::AccountCfg) -> std::collections::HashMap<String, (u32, i64)> {
+        skills::uses(&account.home_path())
     }
 
     /// Codealong's plugin (`claude plugin`): its skill, its `bin/codealong` on the Bash tool's

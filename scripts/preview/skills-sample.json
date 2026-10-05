@@ -1,0 +1,13 @@
+{
+  "every": [
+    { "name": "ship", "description": "Commit this session's changes, push them and watch the checks", "hint": "[branch]", "typed": true, "byModel": true, "written": { "claude": "/ship", "codex": "$ship" }, "uses": 58, "lastUsed": 0 },
+    { "name": "house-rules", "description": "How this repo writes its code", "typed": false, "byModel": true, "written": { "claude": "/house-rules", "codex": "$house-rules" }, "uses": 90, "lastUsed": 0 }
+  ],
+  "first": [
+    { "name": "shape-up", "description": "Turn a rough idea into a pitch with a scope and an appetite", "typed": true, "byModel": false, "written": { "claude": "/shape-up" }, "uses": 4, "lastUsed": 0 },
+    { "name": "probe", "description": "Poke the running app and say what answers", "typed": true, "byModel": true, "written": { "codex": "$probe" }, "uses": 1, "lastUsed": 0 }
+  ],
+  "account": [
+    { "name": "notes:tidy", "description": "Tidy the notes of this conversation", "typed": true, "byModel": true, "written": { "claude": "/notes:tidy", "codex": "$notes:tidy" }, "uses": 2, "lastUsed": 0 }
+  ]
+}

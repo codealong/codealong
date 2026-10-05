@@ -70,6 +70,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--transcript", takes: "<session key> [--before <cursor>]", run: transcript },
     Mode { flag: "--editor-icons", takes: "", run: editor_icons },
     Mode { flag: "--start-options", takes: "", run: start_options },
+    Mode { flag: "--skills", takes: "[folder…]", run: skills },
     Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
     Mode { flag: "--route", takes: "<text> [--project <name>]", run: route_text },
     Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
@@ -89,6 +90,8 @@ const MODES: &[Mode] = &[
 /// `codealong --snapshot --config`: the settings and config.toml, as Settings gets them.
 /// `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in
 /// menus get them.
+/// `codealong --snapshot --skills [folder…]`: the skills a session in each folder could be asked
+/// to run by name, and each account's own, as the `/` lists get them.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --pr-card <owner/name> <number>`: a PR the board doesn't list, as a link
@@ -288,6 +291,15 @@ fn start_options(_: &Args, _: &[String]) -> Done {
         options = start::options_for(&cfg);
     }
     Ok(pretty(&options))
+}
+
+/// The skills sessions in the folders given could be asked to run by name, and every account's
+/// own, as the `/` lists get them.
+fn skills(_: &Args, rest: &[String]) -> Done {
+    let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
+    let folders: Vec<String> = rest.iter().filter(|a| !a.starts_with("--")).cloned().collect();
+    let accounts: Vec<String> = cfg.accounts.iter().map(|a| a.name.clone()).collect();
+    Ok(pretty(&crate::skills::list(&folders, &accounts, &cfg)))
 }
 
 fn start_plan(args: &Args, rest: &[String]) -> Done {

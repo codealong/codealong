@@ -29,6 +29,9 @@
 // stay where you are; `/side <question>` (or `/btw`) asks a throwaway copy of it, whose answer
 // shows above the box (SideStrip.tsx) while the session carries on, unaware, and `/side` alone
 // shows the side conversations kept from before. Any other `/…` goes to the session as typed.
+// While the name is typed, a list above the box has those commands and the session's skills
+// (skills.ts: its worktree's, then its account's): ↑ ↓ choose, ⇥ or ⏎ finishes the name, Escape
+// puts the list away. A skill goes as its harness takes it (`$name` for Codex).
 //
 // While a side conversation shows above it (the open one, the list, or one being read), the box
 // is the side conversation's, as Codex's `/side` takes its box until you go back: ⏎ asks the copy
@@ -55,7 +58,9 @@ import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
 import { showSides, useAside } from '../side';
-import { slashCommand, slashMatches } from '../slash';
+import { COMMANDS, slashCommand, slashMatches } from '../slash';
+import { completed, matching, named, sessionSkills, slashAt, writtenFor } from '../skills';
+import { sessionSkillsFor, useSkills } from '../useSkills';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
 import { CodeBlock } from './CopyButton';
@@ -63,6 +68,7 @@ import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { SideStrip } from './SideStrip';
+import { SlashList, type SlashOption } from './SlashList';
 import { errorText } from '../report';
 
 /** The box grows to this many lines, then scrolls. */
@@ -272,10 +278,16 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     return () => window.removeEventListener('keydown', onKey);
   }, [canStop]);
 
+  // The session's skills, read once a slash is typed (its worktree's and its account's).
+  const slash = slashAt(text);
+  const { folders: skillFolders, accounts: skillAccounts } = sessionSkillsFor(s);
+  const skills = sessionSkills(useSkills(skillFolders, skillAccounts, !!slash), s.harness);
+
   /** Sends what's in the box, into the turn it's taking at once with `now`; says whether there was
    *  anything to send. */
   const send = (now = false): boolean => {
-    const t = text.trim();
+    // A skill's name goes as the session's harness takes it.
+    const t = writtenFor(text.trim(), skills, s.harness);
     if (!t || waiting) return false;
     setNote(null);
     setText('');
@@ -387,6 +399,29 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   // A command goes even while the session waits on you: it doesn't reach the session.
   const command = slashCommand(text, s);
   const commands = slashMatches(text, s);
+  // While the name is being typed, what it could be: Codealong's own commands, then the
+  // session's skills, less any Codealong's commands take the name of. Escape puts the list away
+  // until the name changes. Not in a side conversation's box, which takes what's typed as words.
+  const taken = new Set(COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
+  const options: SlashOption[] =
+    !slash?.open || aside
+      ? []
+      : [...commands.map((c) => ({ name: c.name, hint: c.args, about: c.about, own: true })), ...matching(skills.filter((k) => !taken.has(k.name)), slash.name).map((k) => ({ name: k.name, hint: k.hint, about: k.description }))];
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  const [picked, setPicked] = useState(0);
+  const listing = options.length > 0 && closedFor !== slash?.name;
+  const at = Math.min(picked, options.length - 1);
+  /** Finishes the name as the option's, with the cursor after it. */
+  const complete = (o: SlashOption) => {
+    setText(completed(text, o));
+    setPicked(0);
+    window.requestAnimationFrame(() => {
+      box.current?.focus();
+      box.current?.setSelectionRange(o.name.length + 2, o.name.length + 2);
+    });
+  };
+  // The whole name of a skill, with what may follow it, for the line under the box.
+  const skill = slash && !slash.open && !command ? named(skills, slash.name) : undefined;
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works. Not while the box is the side
   // conversation's: what's done there leaves the session's turn alone.
@@ -401,11 +436,16 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         ? 'Forking…'
         : asking
           ? 'Asking a copy of it…'
+          : listing
+          ? '↑ ↓ choose · ⇥ finishes the name · esc puts the list away'
           : commands.length > 0
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
+          : skill
+          ? `/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`
           : (note?.text ?? (stopping ? 'Stopping…' : aside ? `To the side conversation, not ${s.account}. Close it above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow)));
   return (
     <div className={cx('ca-composer', aside && 'is-aside')}>
+      {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
       <div
         className="ca-composer-field"
         onMouseDown={(e) => {
@@ -423,9 +463,32 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           placeholder={aside ? 'Ask on the side' : replyPlaceholder(s, terminal, way) + (canStop ? ' · esc stops its turn' : '')}
           onChange={(e) => {
             setText(e.target.value);
+            setPicked(0);
             if (note && !note.error) setNote(null);
           }}
           onKeyDown={(e) => {
+            // The list's keys come first while it's up: the arrows choose, ⇥ finishes the name,
+            // and so does ⏎ unless the name is already whole, which sends it as ⏎ does. Escape
+            // puts the list away, and stops nothing.
+            if (listing && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+              const whole = options[at].name === slash?.name;
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                setPicked((at + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length);
+                return;
+              }
+              if ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey && !whole)) {
+                e.preventDefault();
+                complete(options[at]);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                setClosedFor(slash?.name ?? null);
+                return;
+              }
+            }
             // Escape stops a running turn; once it's stopping, Escape does what it does in the
             // window (closes the peek, gives Sessions' list its keys back).
             if (e.key === 'Escape' && canStop && !aside && !stopping && !e.nativeEvent.isComposing) {

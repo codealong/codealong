@@ -130,6 +130,8 @@ do, for a session Codealong runs and behind the same settings, and a send isn't 
 - `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in menus
   get them (`editors.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
+- `codealong --snapshot --skills [folder…]`: the skills a session in each folder could be asked to
+  run by name, and each account's own, as the `/` lists get them (skills.rs).
 - `codealong --snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt]
   [--model <model>] [--effort <level>] [--worktree]`: the command or link starting a session would use, without
   starting one.
@@ -175,7 +177,7 @@ sample todos linked to your real worktrees and sessions in place of your own, an
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
 which has no Claude numbers, and `PREVIEW_TRANSCRIPT=<session key>` that
 session's real conversation in its panel (others get placeholders; `PREVIEW_BEFORE=<cursor>` shows the page before that byte offset in its record), and `PREVIEW_NOTICES=scripts/preview/notices-sample.json`
-sample notices in the accounts bar (a snapshot usually has none), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
+sample notices in the accounts bar (a snapshot usually has none), and `PREVIEW_SKILLS=scripts/preview/skills-sample.json` sample skills in the `/` lists (one in every repo, some in the first only, one of the account's own) in place of this Mac's, and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
 under Settings › Accounts › Found on this Mac, and `PREVIEW_DEVICES=scripts/preview/devices-sample.json` other devices
 (Settings › Devices, the sidebar's devices, a link ask, and a few of your worktrees shown as if on those devices), and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
 document (one project's from canvas.json) in place of a fresh tidy, and `PREVIEW_LOADING=1` shows the windows as
@@ -398,6 +400,17 @@ some work is, answer with one.
   `menus.chorded` and `keyed` run. Back, Next and × say the queue's keys, from `queue.ts`
   `QUEUE_CHORDS` and `AWAY_CHORD`, written as `CHORDS` are (`menus.chordSigns` says any of
   them); `CHORDS`' ⌘E is the queue's too. No key is written into the strip itself.
+- Skills are listed by the engine (skills.rs), each once by name with what each harness that
+  reads it writes in a prompt to run it (`Skill::written`: `/ship` for Claude Code, `$ship` for
+  Codex). An adapter says which folders of a worktree and of an account it reads
+  (`worktree_skills`, `account_skills`), how a prompt names a skill (`skill_mention`, None when
+  text can't) and how often each ran (`skill_uses`); nothing is cached, the files are small. The
+  windows write `/name` whatever the harness and swap it as they send or start (`src/skills.ts`
+  `writtenFor`): the quick panel lists a project's repos' skills on a slash, the skill picked
+  says which repo the session starts in (`skillStart`, as new work goes anywhere), and only
+  accounts whose harness is in `written` are offered (asked 2026-10-04: no plain-words
+  fallback); a session's reply box lists its worktree's and its account's (`SlashList.tsx`),
+  under Codealong's own commands. Other devices' folders aren't read.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are
@@ -533,6 +546,8 @@ a change to what's sent shows there. Adding one:
      `app_projects`;
    - search (search.rs): `search_files` and `prose` for records that are files of lines, `said`
      for messages kept in a database;
+   - skills (skills.rs): `worktree_skills` and `account_skills` (the folders it reads them
+     from), `skill_mention` (how a prompt runs one by name) and `skill_uses`;
    - its accounts: `installed`, `signed_in`, `sign_in_command`, `folder_use`, `skills_dir`,
      `installs_plugin` (Codealong goes in as a plugin, not a skill copy), `acp_command`,
      `session_cwds` (first run's projects), `chats` (the folder of sessions it starts without a
@@ -953,6 +968,30 @@ optional `references/`, read by all four harnesses; from their docs, 2026-09-24)
   `~/.config/opencode/skills` (it also reads Claude's folders), Antigravity
   `~/.gemini/config/skills` (workspace ones in `.agents/skills`). `install.rs` copies rather
   than links: not every harness follows links, and the bundle moves on rebuild.
+- Running one by name, and where each looks (2026-10-04). Claude Code 2.1.289 reads
+  `.claude/skills/<name>/SKILL.md` and `.claude/commands/**/*.md` (`a/b.md` is `/a:b`) in the
+  session's folder and those above it, its home's, the ones claude.ai syncs into
+  `<home>/skills/synced/<id>/` (run as `anthropic-skills:<name>`) and its enabled plugins'
+  (`<plugin>:<name>`, from `plugins/installed_plugins.json` and settings.json's
+  `enabledPlugins`); it doesn't read `.agents/skills`. `/name args` runs one, as a first prompt
+  too (checked with `-p '/zebra-check'` on a scratch skill). Its frontmatter's `user-invocable:
+  false` keeps one off the menu and `disable-model-invocation: true` keeps the agent from
+  loading it; `argument-hint` says what follows. `skillUsage` in the account's state file
+  (`~/.claude.json`, `<home>/.claude.json`) counts each name's runs, the agent's own included
+  (`{usageCount, lastUsedAt}`), with no repo. Codex (its core-skills loader, and 0.157.1 here)
+  reads `.agents/skills` in each folder from the project's root to the session's, the project's
+  `.codex/skills`, `<CODEX_HOME>/skills` (its own in `.system` there) and `~/.agents/skills`,
+  six folders down, links followed and a skill counted once by its real path; `$name` anywhere
+  in a prompt's text loads it (`codex exec '$zebra-check'` on a scratch skill did), a plain name
+  two files share is passed over, and `[$name](<path to SKILL.md>)` names one by file. Its
+  app-server has `skills/list {cwds}`. OpenCode 2.0.16 reads `skill` and `skills` under
+  `.opencode`, `.claude` and `.agents`, up the tree and at home, and lists them at `GET
+  /api/skill?location=`; one is run only as a structured mention on a prompt (`skills: [{id,
+  mention}]` in the body of `POST /api/session/<id>/prompt`, `@id` in the TUI) or `POST
+  /api/experimental/session/<id>/skill {id}`, never by text, so Codealong offers none there yet.
+  Antigravity reads `.agents/skills` and `~/.gemini/config/skills` and has `/skills` in its
+  TUI; nothing found runs one by name. In many repos `.agents/skills` is a link to
+  `.claude/skills`.
 - A Claude Code plugin's `bin/` goes on the Bash tool's PATH while it's enabled, so
   `plugin/bin/codealong` is a shim that finds the app; `${CLAUDE_PLUGIN_ROOT}` resolves in
   hooks.

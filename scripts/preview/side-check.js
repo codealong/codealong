@@ -1,5 +1,5 @@
 // Checks /side in the reply box (SessionReply.tsx, slash.ts, SideStrip.tsx), in the bar's peek:
-// typing `/s` says what /side does; ⏎ on `/btw <question>` asks a copy of the session, sends the
+// typing `/s` lists /side with what it does; ⏎ on `/btw <question>` asks a copy of the session, sends the
 // session nothing, clears the box and shows the question above it; the answer shows as the engine
 // tells of it (the tool the copy runs, then its words, and what it did folded under the answer);
 // a second question joins the first; while it shows, the box is its, and plain text asks the copy
@@ -58,7 +58,8 @@
       check('no side conversation shows until one is asked', !strip() && !chip());
       type(box(), '/s');
       await wait(50);
-      check('a / and the start of its name says what /side does', /^\/side \[question\]: /.test(noteText()), noteText());
+      var listed = Array.prototype.map.call(document.querySelectorAll('.ca-slash-row'), function (r) { return r.textContent; });
+      check('a / and the start of its name lists /side with what it does', listed.some(function (t) { return /^\/side \[question\]Codealong: /.test(t); }), listed.join(' | '));
       type(box(), '/btw why a queue?');
       await wait(50);
       check('/btw is the same command', button().getAttribute('aria-label') === 'Run /side' && !button().disabled, button().getAttribute('aria-label'));

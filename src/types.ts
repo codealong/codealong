@@ -826,6 +826,32 @@ export interface PrComment {
 /** Where a new session runs: the terminal, or the Claude or Codex app. */
 export type StartPlace = 'terminal' | 'background' | 'claude-app' | 'codex-app' | 'codealong';
 
+/** A skill a session can be asked to run by name (skills.rs). */
+export interface Skill {
+  /** As it's typed after the slash. */
+  name: string;
+  description: string;
+  /** What may follow its name. */
+  hint?: string;
+  /** Meant to be run by name; false for one its file keeps off the menu. */
+  typed: boolean;
+  /** The agent may load it by itself. */
+  byModel: boolean;
+  /** What goes in a prompt in place of `/name`, for each harness that reads it and can be told
+   *  to run it by name. A harness that isn't here isn't offered the skill. */
+  written: Partial<Record<Harness, string>>;
+  /** How often it's been run, and when last, where a harness keeps count. */
+  uses: number;
+  lastUsed: number;
+}
+
+/** Each folder's skills (its own and those of the folders above it in its worktree), and each
+ *  account's own, plugins' included. */
+export interface SkillsListed {
+  folders: { folder: string; skills: Skill[] }[];
+  accounts: { account: string; skills: Skill[] }[];
+}
+
 /** An account as the new-session sheet offers it (src-tauri/src/start.rs). */
 export interface StartAccount {
   name: string;

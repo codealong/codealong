@@ -56,6 +56,10 @@
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
+# PREVIEW_SKILLS=<file> lists the skills in it (scripts/preview/skills-sample.json has some) in
+# place of this Mac's: `every` in every folder asked about, `first` in the first of them only,
+# so one skill is in several repos and one in a single repo, and `account` for every account.
+#
 # PREVIEW_INSIGHTS=<file> merges Jev's read of sessions and worktrees into the board
 # (scripts/preview/insights-sample.json has some: landing chips, a risk label, a question).
 #
@@ -118,6 +122,9 @@ if [ "$prepare" != skip ]; then
   "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
   "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
   "$bin" --snapshot --editor-icons >"$dir/editor-icons.json" 2>/dev/null
+  # The skills of every worktree on the board, for the `/` lists.
+  python3 -c 'import json, sys; sys.stdout.write("\0".join(sorted({l["path"] for l in json.load(open(sys.argv[1]))["lanes"] if not l.get("device")})))' "$dir/board.json" 2>/dev/null |
+    xargs -0 "$bin" --snapshot --skills >"$dir/skills.json" 2>/dev/null
   "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
   if [ -z "${PREVIEW_FOUND:-}" ] || [ "$prepare" = only ]; then
     "$bin" --snapshot --found >"$dir/found-here.json" 2>/dev/null
@@ -144,6 +151,7 @@ fixture canvas "${PREVIEW_CANVAS:-}"
 fixture usage "${PREVIEW_USAGE:-}"
 fixture devices "${PREVIEW_DEVICES:-}"
 fixture notices "${PREVIEW_NOTICES:-}"
+fixture skills "${PREVIEW_SKILLS:-}"
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"
 if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then
   "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" ${PREVIEW_BEFORE:+--before "$PREVIEW_BEFORE"} >"$dir/transcript.json" 2>/dev/null

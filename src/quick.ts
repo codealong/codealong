@@ -22,7 +22,7 @@ export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: strin
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready' | 'recent';
+export type RowGroup = 'suggested' | 'skills' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready' | 'recent';
 
 /** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
  *  on you like questions do. */

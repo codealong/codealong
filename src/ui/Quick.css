@@ -452,3 +452,8 @@ html.is-quick body {
 .ca-quick-acct .ca-meter-reset {
   display: none;
 }
+/* What may follow a skill's name, after it in its row. */
+.ca-quick-row-hint {
+  color: var(--ink-3);
+  font-weight: 400;
+}

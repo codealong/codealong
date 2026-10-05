@@ -1,6 +1,9 @@
 // Tabler Icons (MIT) outline paths, 24px grid, copied from the Codealong design system (@tabler/icons 3.44.0).
 // `notch` is drawn in their style: a screen with the notch at its top, for the bar docked there.
 export const ICONS: Record<string, string[]> = {
+ "slash": [
+  "M17 5l-10 14"
+ ],
  "pin": [
   "M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5 -1.5l1.5 -4l4 -4",
   "M9 15l-4.5 4.5",

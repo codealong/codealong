@@ -409,6 +409,17 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   engine looks at the command's processes once a minute; when none has started or used CPU for
   15 minutes (a dev server, a sign-in waiting on a browser, `tail -f`), the turn is over and the
   row says *Left running*.
+- **Skills by name**: type `/` and the start of a name. In the quick panel that lists the skills
+  of the project's repos (their `.claude/skills`, `.claude/commands`, `.agents/skills` and
+  `.codex/skills`), the most run first; ⏎ or ⇥ finishes the name, and the skill's repo is where
+  the session starts, in a worktree chosen as new work's is, with the rest of the line as its
+  prompt. A skill several repos have is a row for each. Only accounts whose agent reads that
+  skill's folder are offered, and the start row says which are left out. In a session's reply
+  box the list has Codealong's own commands, then the skills of the session's worktree and of
+  its account (plugins' included): ↑ ↓ choose, ⇥ finishes the name, Escape puts the list away.
+  The name goes as the agent takes it: `/name` to Claude Code, `$name` to Codex. OpenCode and
+  Antigravity can't be told to run a skill by name in a prompt, so they're offered none, and
+  another Mac's skills aren't listed yet.
 - **Suggestions in the quick panel** (optional; Settings › Jev, `[jev] quick_panel` in config.toml):
   once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
   worktrees and the panel leads with up to three suggestions, each with how likely it is: send
@@ -881,6 +892,7 @@ light scan (no git, PRs or visitors).
 | `src/ui/SessionCard.tsx`, `src/ui/cardHost.ts` | A session as a card of its own, for the peek, a session kept on the desktop, the session in the notch and the quick panel's reply view: the session's panel with its menus, what's around it and its shortcuts wired once; and, for the windows that aren't the board's, the session kept up with the board while its card is up |
 | `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek or the notch: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
+| `src-tauri/src/skills.rs`, `src/skills.ts`, `src/useSkills.ts`, `src/ui/SlashList.tsx` | Skills by name: the folders each harness reads them from (`Adapter::worktree_skills`, `account_skills`) listed once by name with how each harness is told to run one, the `/` lists of the quick panel and the reply box, the repo a skill picks and the accounts it leaves out |
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going: its harness's ways in tried in order, typing into its terminal and resuming it here, a way of the harness's own by its module (`send::Own`) |

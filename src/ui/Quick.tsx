@@ -4,6 +4,11 @@
 // new session with what you typed as its prompt, in the worktree, on the agent and in the app
 // chosen at the bottom.
 //
+// A slash and the start of a name list the skills of the project's repos instead (skills.ts):
+// ⏎ or ⇥ finishes the name, and the skill's repo is where the session starts, in a worktree
+// chosen as new work's is, on an account whose agent reads that skill. The prompt goes with the
+// skill's name written as that agent takes it.
+//
 // ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session shows it in Codealong, with its
 // conversation, and ⌥⏎ opens it where it lives; ⌥⏎ on a todo or PR shows that in Codealong. ⌘1 to ⌘9
 // do a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch to one (⌥⌘0 to all of them), ⌘D picks
@@ -78,6 +83,8 @@ import {
   type AgentOption,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
+import { completed, leftOutWords, repoLanes, skillRows, skillStart, slashAt, takes, writtenFor, type SkillRow } from '../skills';
+import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
@@ -119,6 +126,8 @@ const LOOKED_KEY = 'codealong.sessionHistory:quick';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
+/** The quick panel lists repos' skills, not accounts' own. */
+const NO_ACCOUNTS: string[] = [];
 /** How long a read of where accounts can start is used without waiting for a new one. */
 const OPTIONS_FOR_MS = 60_000;
 /** How long after another Mac didn't say where its accounts can start it's asked again. */
@@ -130,7 +139,7 @@ const REPLY_HEIGHT = 640;
 
 type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
 /** A suggestion from Jev, as a row. */
 interface SuggestRow {
@@ -148,7 +157,7 @@ interface MoreRow {
   count: number;
 }
 
-type Row = SessionRow | TodoRow | PrRow | SuggestRow | MoreRow;
+type Row = SessionRow | TodoRow | PrRow | SuggestRow | MoreRow | SkillRow;
 
 /** The most sessions a search lists once you ask for all of them. */
 const FOUND_ALL = 40;
@@ -512,6 +521,57 @@ export function Quick() {
   const replyKeyNow = useLatest(replyKey);
   const shownNow = useLatest(shown);
 
+  /* ---- A skill, which picks its repo ---- */
+
+  // A slash and a name being typed list the skills of the project's repos on this Mac; with
+  // the name whole, the skill of that name is the one a start runs. A todo's prompt is words,
+  // and another Mac's folders aren't read from here.
+  const slashTyped = todoIds.length === 0 && !deviceNow ? slashAt(text) : null;
+  const repos = useMemo(() => repoLanes(lanes), [lanes]);
+  const repoPaths = useMemo(() => repos.map((l) => l.path), [repos]);
+  const listedSkills = useSkills(repoPaths, NO_ACCOUNTS, shown && !!slashTyped);
+  const slashName = slashTyped?.name ?? null;
+  const slashOpen = slashTyped?.open ?? false;
+  const skillsFound = useMemo(() => (slashName === null ? [] : skillRows(listedSkills, repos, slashName, !slashOpen, MAX_ROWS)), [listedSkills, repos, slashName, slashOpen]);
+  // The row picked says which repo's, for a skill several have; else the likeliest.
+  const [skillKey, setSkillKey] = useState<string | null>(null);
+  const skillNow = slashTyped && !slashTyped.open ? (skillsFound.find((r) => r.key === skillKey) ?? skillsFound[0] ?? null) : null;
+  // What starts with a slash but names no skill ("/tmp is full") is words like any other.
+  const slash = slashTyped && (slashTyped.open || skillNow) ? slashTyped : null;
+  // With the name whole and the skill in one repo, or its repo picked, there's nothing to list.
+  const skillsListed = !slash ? [] : slash.open ? skillsFound : skillsFound.length > 1 && !skillsFound.some((r) => r.key === skillKey) ? skillsFound : [];
+  // The session goes where new work in the skill's repo goes; what was chosen before comes back
+  // when the skill's gone from the input. The worktree menu still changes it after.
+  const skillNowKey = skillNow?.key ?? null;
+  const beforeSkill = useRef<{ laneId: string | null; newWorktree: boolean; put: string } | null>(null);
+  const lanesNow = useLatest(lanes);
+  const laneIdNow = useLatest(laneId);
+  const newWorktreeNow = useLatest(newWorktree);
+  const skillLaneNow = useLatest(skillNow?.lane ?? null);
+  useEffect(() => {
+    const repo = skillLaneNow.current;
+    if (!skillNowKey || !repo) {
+      // Only while the worktree is still the one the skill put there: an open that asks for a
+      // worktree, or one you picked since, stays.
+      if (beforeSkill.current && laneIdNow.current === beforeSkill.current.put) {
+        setLaneId(beforeSkill.current.laneId);
+        setNewWorktree(beforeSkill.current.newWorktree);
+      }
+      beforeSkill.current = null;
+      return;
+    }
+    const to = skillStart(repo, lanesNow.current);
+    beforeSkill.current = { laneId: laneIdNow.current, newWorktree: newWorktreeNow.current, ...beforeSkill.current, put: to.lane.id };
+    setLaneId(to.lane.id);
+    setNewWorktree(to.newWorktree);
+  }, [skillNowKey, skillLaneNow, lanesNow, laneIdNow, newWorktreeNow, setNewWorktree]);
+  // Only accounts whose agent reads the skill are offered (asked 2026-10-04).
+  const optionsForStart = useMemo(
+    () => (skillNow && startOptionsNow ? { ...startOptionsNow, accounts: startOptionsNow.accounts.filter((a) => takes(skillNow.skill, a.harness)) } : startOptionsNow),
+    [skillNow, startOptionsNow],
+  );
+  const skillLeftOut = skillNow && startOptionsNow ? leftOutWords(skillNow.skill, startOptionsNow.accounts) : null;
+
   /* ---- Who ---- */
 
   // Another Mac's usage comes with its feed.
@@ -541,7 +601,7 @@ export function Quick() {
     pickAgent: pickAgentLine,
     pickPlace,
     stepEffort,
-  } = useStartChoice(startPicks, startOptionsNow, usage, now);
+  } = useStartChoice(startPicks, optionsForStart, usage, now);
 
   /* ---- What for ---- */
 
@@ -572,10 +632,11 @@ export function Quick() {
   // With a todo to start, the input holds its prompt, not a search: only the new session is
   // listed.
   const prompted = text.trim().length > 0;
-  const query = todo ? '' : text.trim();
+  const query = todo || slash ? '' : text.trim();
   // With nothing typed, a few todos ready to start go under the sessions, which leave them room.
-  const readyList = useMemo(() => (board && !query && !todo ? readyTodos(board, current) : null), [board, current, query, todo]);
-  const attention = useMemo(() => (board && !query && !todo ? attentionRows(board, current, MAX_ROWS - (readyList?.rows.length ?? 0)) : null), [board, current, query, todo, readyList]);
+  const listing = !query && !todo && !slash;
+  const readyList = useMemo(() => (board && listing ? readyTodos(board, current) : null), [board, current, listing]);
+  const attention = useMemo(() => (board && listing ? attentionRows(board, current, MAX_ROWS - (readyList?.rows.length ?? 0)) : null), [board, current, listing, readyList]);
   // Below them, the rest of the day's sessions, for ↓ to reach one that isn't waiting on you.
   const recent = useMemo(() => (board && attention ? recentRows(board, current, new Set(attention.rows.map((r) => r.key)), now) : null), [board, current, attention, now]);
   // What was said in sessions is searched in the engine, once typing pauses; its hits join the
@@ -656,7 +717,7 @@ export function Quick() {
 
   const ranked = rankedBy(foundSessions, route);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
-  const rows: Row[] = query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
+  const rows: Row[] = slash ? skillsListed : query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
   // A result dragged out of the panel is pinned to the desktop: a session, a todo, a PR, or the
   // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
@@ -896,7 +957,7 @@ export function Quick() {
 
   /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
-    if (r.kind === 'more') return;
+    if (r.kind === 'more' || r.kind === 'skill') return;
     const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
     if (r.kind === 'suggest') {
       const sg = r.s;
@@ -960,7 +1021,9 @@ export function Quick() {
     const newTree = makesWorktree && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
-    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
+    // A skill's name goes as the account's agent takes it.
+    const prompt = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
+    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
     const label = startingLabel(placeNow, account, onModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
     const to = opener ?? 'main';
@@ -1038,12 +1101,27 @@ export function Quick() {
     else saveTodo(sg.lane);
   };
 
+  /** Finishes the name as the row's skill, in its repo: what follows is the prompt, and ⏎ then
+   *  starts the session. */
+  const pickSkill = (r: SkillRow) => {
+    const next = completed(textNow.current, r.skill);
+    setText(next);
+    setSkillKey(r.key);
+    setActiveKey(COMPOSE);
+    setError(null);
+    window.requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(next.length, next.length);
+    });
+  };
+
   const activate = (key: string, alt: boolean) => {
     const row = rows.find((r) => r.key === key);
     if (!row) start();
     else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
     else if (row.kind === 'pr') (alt ? revealPr : openPr)(row.pr);
+    else if (row.kind === 'skill') pickSkill(row);
     else if (row.kind === 'more') {
       // The first of those it adds takes its place.
       setAllFor(query);
@@ -1061,6 +1139,11 @@ export function Quick() {
     // ⇥ on a session answers it here; elsewhere it moves the focus as usual.
     if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
       const row = rows.find((r) => r.key === active);
+      if (row?.kind === 'skill') {
+        e.preventDefault();
+        pickSkill(row);
+        return;
+      }
       const session = row?.kind === 'session' ? row.session : row?.kind === 'suggest' && (row.s.kind === 'send' || row.s.kind === 'open') ? row.s.session : null;
       if (session) {
         e.preventDefault();
@@ -1330,7 +1413,7 @@ export function Quick() {
     if (last && last.group === r.group) last.rows.push(r);
     else sections.push({ group: r.group, rows: [r] });
   }
-  const nothingWaits = !query && !!attention && attention.counts.needs + attention.counts.unread === 0;
+  const nothingWaits = listing && !!attention && attention.counts.needs + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
     if (g === 'ready') return readyList?.count ?? shown;
@@ -1500,6 +1583,7 @@ export function Quick() {
                   </p>
                 )}
                 {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
+                {slash?.open && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No repo here to read skills from.' : `No skill of ${current === ALL_PROJECTS ? 'these repos' : `${current}’s repos`} starts like that.`) : 'Reading skills…'}</p>}
                 {query && rows.length === 0 && <p className="ca-quick-note">No sessions, todos or PRs match. Start a session with this prompt below.</p>}
                 {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
                 {sections.map((s) => (
@@ -1545,6 +1629,33 @@ export function Quick() {
                             </span>
                             <span className="ca-quick-row-where">{said.where}</span>
                             <span className={`ca-quick-sure is-${sureness(r.s.p)}`}>{pct}%</span>
+                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                          </div>
+                        );
+                      }
+                      if (r.kind === 'skill') {
+                        return (
+                          <div
+                            key={r.key}
+                            role="option"
+                            aria-selected={active === r.key}
+                            className={cx('ca-quick-row', 'is-skill', active === r.key && 'is-active')}
+                            title={`/${r.skill.name}${r.skill.hint ? ` ${r.skill.hint}` : ''}\n${r.skill.description}\nIn ${r.lane.repo}${r.skill.uses > 0 ? ` · run ${r.skill.uses} ${r.skill.uses === 1 ? 'time' : 'times'}` : ''}\n⏎ or ⇥ finishes the name; a session on it starts in ${r.lane.repo}`}
+                            onMouseMove={handlers.onMouseMove}
+                            onMouseDown={handlers.onMouseDown}
+                            onClick={handlers.onClick}
+                          >
+                            <span className="ca-quick-plus is-suggest">
+                              <Icon name="slash" size={13} stroke={2} />
+                            </span>
+                            <span className="ca-quick-row-main">
+                              <span className="ca-quick-row-title">
+                                <Marked text={`/${r.skill.name}`} marks={r.marks} />
+                                {r.skill.hint && <span className="ca-quick-row-hint"> {r.skill.hint}</span>}
+                              </span>
+                              <span className="ca-quick-row-why">{r.skill.description}</span>
+                            </span>
+                            <span className="ca-quick-row-where">{r.lane.repo}</span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
                         );
@@ -1671,7 +1782,9 @@ export function Quick() {
             <span className="ca-quick-row-main">
               <span className="ca-quick-row-title">{startTitle(forTodos.length, prompted)}</span>
               <span className="ca-quick-row-why">
+                {skillNow && `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. `}
                 {happens}
+                {skillLeftOut && ` ${skillLeftOut}`}
                 {alreadyOn}
                 {attached.length > 0 && attachmentsNote(attached.length)}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}

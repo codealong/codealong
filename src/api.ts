@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, Notice, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, SideKept, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, Notice, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -499,6 +499,12 @@ export function onSide(cb: (side: Side) => void): () => void {
 export async function routeQuick(project: string, text: string): Promise<Route> {
   if (!inTauri) throw new Error('Routing needs the app.');
   return invoke<Route>('route_quick', { project, text });
+}
+
+/** The skills a session in each of `folders` could be asked to run by name, and each of
+ *  `accounts`' own (skills.rs). This Mac's folders and accounts only. */
+export async function listSkills(folders: string[], accounts: string[]): Promise<SkillsListed> {
+  return invoke<SkillsListed>('skills', { folders, accounts });
 }
 
 /** Sessions whose prompts and replies have every word (search.rs). */

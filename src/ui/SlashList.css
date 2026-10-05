@@ -1,0 +1,45 @@
+/* The commands and skills a reply box lists while a slash and the start of a name are typed
+   (SlashList.tsx): a row each, the name then what it does, the chosen one filled. It sits in
+   the composer, above the box, and scrolls past a handful. */
+.ca-slash {
+  display: grid;
+  max-height: 168px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  padding: var(--space-1);
+}
+.ca-slash-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+.ca-slash-row.is-active {
+  background: var(--surface-selected);
+}
+.ca-slash-name {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font: var(--type-code);
+}
+.ca-slash-hint {
+  color: var(--ink-3);
+}
+.ca-slash-about {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}

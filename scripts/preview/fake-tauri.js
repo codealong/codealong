@@ -5,7 +5,8 @@
 // (found_accounts), config.json (get_config), start-options.json (start_options),
 // editor-icons.json (editor_icons), bar-feed.json (bar_feed, for the floating bar) and, when
 // present, pr-detail.json (pr_detail, for any PR), todos-fixture.json (todos to show in place
-// of the board's) and usage-fixture.json (plan usage, likewise).
+// of the board's), usage-fixture.json (plan usage, likewise) and skills.json or
+// skills-fixture.json (skills, for the `/` lists).
 //
 // Native menus aren't drawn, but they're made and "shown" as if they were, so a right-click
 // runs to the end. `window.__menu()` lists the last menu's items as [label, pick] pairs;
@@ -203,6 +204,32 @@ window.__TAURI_INTERNALS__ = {
     }
     var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json', editor_icons: './editor-icons.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
+    // The `/` lists' skills: from skills-fixture.json (PREVIEW_SKILLS) where there is one, else
+    // what the engine listed for every worktree on the board (skills.json), a folder inside a
+    // worktree getting its worktree's.
+    if (cmd === 'skills') {
+      var asked = args || {};
+      var none = { folders: [], accounts: [] };
+      var read = function (file) { return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); };
+      return Promise.all([read('./skills-fixture.json'), read('./skills.json')]).then(function (got) {
+        var folders = asked.folders || [];
+        var accounts = asked.accounts || [];
+        if (got[0]) {
+          return {
+            folders: folders.map(function (f, i) { return { folder: f, skills: (i === 0 ? got[0].first || [] : []).concat(got[0].every || []) }; }),
+            accounts: accounts.map(function (a) { return { account: a, skills: got[0].account || [] }; }),
+          };
+        }
+        var all = got[1] || none;
+        var within = function (f) {
+          return all.folders.filter(function (x) { return f === x.folder || f.indexOf(x.folder + '/') === 0; }).sort(function (a, b) { return b.folder.length - a.folder.length; })[0];
+        };
+        return {
+          folders: folders.map(function (f) { return { folder: f, skills: (within(f) || { skills: [] }).skills }; }),
+          accounts: accounts.map(function (a) { return all.accounts.filter(function (x) { return x.account === a; })[0] || { account: a, skills: [] }; }),
+        };
+      });
+    }
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
     // A listener's id is where its call sits in __calls, counted from 1, so an unlisten can
     // find it again.

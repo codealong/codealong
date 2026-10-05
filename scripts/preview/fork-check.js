@@ -1,5 +1,5 @@
 // Checks /fork in the reply box (SessionReply.tsx, slash.ts), in the bar's peek: typing a `/` and
-// the start of the name says what /fork does, and the send button shows a fork; ⏎ on `/fork <prompt>` asks for a background fork
+// the start of the name lists /fork with what it does, and the send button shows a fork; ⏎ on `/fork <prompt>` asks for a background fork
 // with the prompt, clears the box, leaves the peek open and says what happened; a fork that fails
 // puts what was typed back with why; and any other `/…` is sent to the session as typed.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/fork-check.js
@@ -15,7 +15,8 @@
   var key = picked.key;
   localStorage.setItem('codealong.preview.peek', key);
   localStorage.removeItem('codealong.draft.' + key);
-  var calm = { status: 'idle', live: true, stoppable: false, stalledSince: null, asks: false };
+  // Not one a message can be sent into now: that adds a second button, ahead of Send.
+  var calm = { status: 'idle', live: true, stoppable: false, steerable: false, stalledSince: null, asks: false };
   var failNext = false;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd) {
@@ -42,7 +43,8 @@
       await until(box, 20000);
       type(box(), '/fo');
       await wait(50);
-      check('a / and the start of a name says what /fork does', /^\/fork \[prompt\]: /.test(noteText()), noteText());
+      var listed = Array.prototype.map.call(document.querySelectorAll('.ca-slash-row'), function (r) { return r.textContent; });
+      check('a / and the start of a name lists /fork with what it does', listed.some(function (t) { return /^\/fork \[prompt\]Codealong: /.test(t); }), listed.join(' | '));
       type(box(), '/fork try it with a queue');
       await wait(50);
       check('the button runs it', button().getAttribute('aria-label') === 'Run /fork' && !button().disabled, button().getAttribute('aria-label'));

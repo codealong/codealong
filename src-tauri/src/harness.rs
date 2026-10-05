@@ -6,7 +6,7 @@
 //! for and how to answer, where it opens, how a prompt reaches it, how it's forked, stopped and
 //! renamed; of a start, what its command line takes and what a terminal types; of a search,
 //! what its records say in prose; and of an account, whether it's installed and signed in, how
-//! it signs in, what its folders hold, where its skills go, how Codealong runs it itself, and
+//! it signs in, what its folders hold, where its skills go and which it reads, how Codealong runs it itself, and
 //! whether it has plan limits. The rest of the app asks `adapter(session.harness)` or
 //! `of(account)` and never branches on which harness it is. A new harness is a module with an
 //! `Adapter`, a line in `ADAPTERS`, and a variant of `Harness`; each method a harness can't do
@@ -267,6 +267,29 @@ pub trait Adapter: Sync {
     /// Where an account reads personal skills, where install.rs puts Codealong's.
     fn skills_dir(&self, _account: &AccountCfg) -> Option<PathBuf> {
         None
+    }
+
+    /// The folders of `dir`, a folder of a worktree, it reads skills from when a session runs
+    /// there (skills.rs asks for each folder from the session's up to the worktree's root).
+    fn worktree_skills(&self, _dir: &Path) -> Vec<crate::skills::Root> {
+        Vec::new()
+    }
+
+    /// The folders an account reads its own skills from, whatever folder a session runs in:
+    /// its personal ones, and those of what's installed in it.
+    fn account_skills(&self, _account: &AccountCfg) -> Vec<crate::skills::Root> {
+        Vec::new()
+    }
+
+    /// What a prompt says to run the skill `name`, in place of `/name` as the windows write it.
+    /// None when a prompt's text can't name one: the skill isn't offered on its accounts.
+    fn skill_mention(&self, _name: &str) -> Option<String> {
+        None
+    }
+
+    /// How often an account ran each skill, and when last (ms), where the harness keeps count.
+    fn skill_uses(&self, _account: &AccountCfg) -> HashMap<String, (u32, i64)> {
+        HashMap::new()
     }
 
     /// Whether Codealong goes into an account as a plugin of the harness's own rather than a
