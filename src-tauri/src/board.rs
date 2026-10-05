@@ -1462,8 +1462,7 @@ pub fn session_folder(lane_path: &str, cwd: &str) -> String {
 /// it as a tab in a window already showing the nearest of them. A folder elsewhere (a project of
 /// its own that isn't one, or an app's chats) has only itself for company.
 pub fn terminal_neighbours(lanes: &[Lane], path: &Path) -> Vec<Vec<String>> {
-    let within = |l: &&Lane| path.starts_with(&l.path);
-    let Some(home) = lanes.iter().filter(within).max_by_key(|l| l.path.len()) else {
+    let Some(home) = home_lane(lanes, path) else {
         return vec![vec![path.to_string_lossy().into_owned()]];
     };
     let mut groups = vec![vec![home.path.clone()]];
@@ -1477,6 +1476,32 @@ pub fn terminal_neighbours(lanes: &[Lane], path: &Path) -> Vec<Vec<String>> {
     let project = others(&|l| l.project == home.project && l.repo != home.repo);
     groups.extend([repo, project].into_iter().filter(|g| !g.is_empty()));
     groups
+}
+
+/// The worktree a folder is in: the deepest lane holding it.
+fn home_lane<'a>(lanes: &'a [Lane], path: &Path) -> Option<&'a Lane> {
+    lanes.iter().filter(|l| path.starts_with(&l.path)).max_by_key(|l| l.path.len())
+}
+
+/// The most of a session's title a tab's name keeps, the worktree's name aside.
+const TAB_TITLE: usize = 40;
+
+/// The name of a tab Codealong opens for a session at `path`, where its terminal names tabs: the
+/// worktree's name as the board says it, then the session's title, since the title an agent gives
+/// its tab says nothing of where it works. None outside every worktree, where the agent's own
+/// title is as good. Control characters go, runs of white space become one space, and a long
+/// title is cut to fit a tab.
+pub fn tab_label(lanes: &[Lane], path: &Path, title: &str) -> Option<String> {
+    let words = |s: &str| s.split(|c: char| c.is_whitespace() || c.is_control()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
+    let name = words(&home_lane(lanes, path)?.callsign);
+    if name.is_empty() {
+        return None;
+    }
+    let mut title = words(title);
+    if title.chars().count() > TAB_TITLE {
+        title = format!("{}…", title.chars().take(TAB_TITLE - 1).collect::<String>().trim_end());
+    }
+    Some(if title.is_empty() { name } else { format!("{name} · {title}") })
 }
 
 #[cfg(test)]
@@ -3084,5 +3109,18 @@ mod tests {
         assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);
         assert_eq!(near("/Users/me/Documents/Codex/2026-09-27/can-you"), vec![vec!["/Users/me/Documents/Codex".to_string()]], "other folders elsewhere aren't company");
         assert_eq!(near("/Users/me"), vec![vec!["/Users/me".to_string()]]);
+    }
+
+    #[test]
+    fn a_sessions_tab_is_named_by_its_worktree_then_its_title() {
+        let lanes = vec![crate::fixtures::lane("/r/spark", vec![]), Lane { callsign: "pins".into(), ..crate::fixtures::lane("/r/spark-pins", vec![]) }];
+        let label = |p: &str, title: &str| tab_label(&lanes, Path::new(p), title);
+        assert_eq!(label("/r/spark-pins/src", "Fix the flaky test").as_deref(), Some("pins · Fix the flaky test"));
+        assert_eq!(label("/r/spark", "  Two\tlines\nof \u{1b}[31mtitle ").as_deref(), Some("r/spark · Two lines of [31mtitle"));
+        assert_eq!(label("/r/spark-pins", "").as_deref(), Some("pins"));
+        let long = label("/r/spark-pins", &"word ".repeat(20)).unwrap();
+        assert_eq!(long, format!("pins · {}…", "word ".repeat(8).trim_end()));
+        assert!(long.chars().count() <= "pins · ".len() + TAB_TITLE, "{long}");
+        assert_eq!(label("/tmp/elsewhere", "Fix it"), None, "outside every worktree the agent's own title is as good");
     }
 }

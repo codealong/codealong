@@ -414,7 +414,7 @@ impl Handle {
     pub fn sign_in(&self, name: &str) -> Result<()> {
         let cfg = config::current()?;
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
-        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false };
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false, label: None };
         launch::terminal_open(&cfg.apps.terminal, place, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
     }
 
@@ -448,12 +448,15 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
     let apps = board.apps.clone();
     let path = PathBuf::from(&lane.path);
     let near = board::terminal_neighbours(&board.lanes, &path);
-    let place = launch::Placement { new_terminal: apps.new_terminal, near: &near, behind: false };
+    let place = launch::Placement { new_terminal: apps.new_terminal, near: &near, behind: false, label: None };
     let parts: Vec<&str> = target_id.splitn(3, '|').collect();
     match parts.as_slice() {
         ["s", key, action] => {
             let s = lane.sessions.iter().find(|s| s.key == *key).ok_or_else(|| anyhow!("That session is gone."))?;
             let cwd = if Path::new(&s.cwd).is_dir() { PathBuf::from(&s.cwd) } else { path.clone() };
+            // The session's own tab says which worktree it's in; a plain terminal keeps its shell's titles.
+            let label = board::tab_label(&board.lanes, &path, &s.title);
+            let named = launch::Placement { label: label.as_deref(), ..place };
             match *action {
                 "focus" => {
                     let pid = s.pid.ok_or_else(|| anyhow!("That session isn't running any more."))?;
@@ -465,11 +468,11 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 }
                 "attach" => {
                     let cmd = s.attach_command.clone().ok_or_else(|| anyhow!("This session isn't a background job."))?;
-                    launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
+                    launch::terminal_open(&apps.terminal_id, named, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 "resume" => {
                     let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
-                    launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
+                    launch::terminal_open(&apps.terminal_id, named, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 // A new terminal in the folder it works in, beside the terminals already there
                 // (`place`). Nothing about the session itself was looked at.

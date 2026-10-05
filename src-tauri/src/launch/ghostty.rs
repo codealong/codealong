@@ -45,12 +45,13 @@ impl Terminal for Ghostty {
         process == "ghostty"
     }
 
-    /// Its window configuration takes the folder, the input and the environment as they are.
+    /// Its window configuration takes the folder, the input and the environment as they are, and
+    /// the tab takes its name as an action of Ghostty's own.
     fn run(&self, place: Placement, dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
         let dir = dir.to_string_lossy();
         let (at, beside) = placement(place, terminals);
         let entries: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        let mut args: Vec<&str> = vec![at, &beside, &dir, input, place.forward()];
+        let mut args: Vec<&str> = vec![at, &beside, &dir, input, place.forward(), place.label.unwrap_or("")];
         args.extend(entries.iter().map(String::as_str));
         osascript(GHOSTTY_NEW, &args).map(|_| ())
     }
@@ -134,10 +135,16 @@ impl Terminal for Ghostty {
 /// Arguments: where it goes (`window`, `front` for a tab in the front window, or `beside` for a
 /// tab in the frontmost window holding any of the terminals listed next), those terminal ids one
 /// per line (or ""), the folder, the input to type (or ""), whether Ghostty comes forward
-/// (`front`) or not (`behind`), then any `KEY=VALUE` environment entries. A tab with no window to
-/// go in becomes a window. Behind, nothing here asks Ghostty forward, though its own code for a
-/// new window or tab still asks to be the active app (`NSApp.activate`, 1.3.1's
-/// TerminalController `newWindow` and `newTab`).
+/// (`front`) or not (`behind`), the tab's name (or ""), then any `KEY=VALUE` environment
+/// entries. A tab with no window to go in becomes a window. Behind, nothing here asks Ghostty
+/// forward, though its own code for a new window or tab still asks to be the active app
+/// (`NSApp.activate`, 1.3.1's TerminalController `newWindow` and `newTab`).
+///
+/// Ghostty puts a new tab after the selected one, or last (`window-new-tab-position`), so a tab
+/// that goes beside others is moved to just after the last tab holding one of them
+/// (`move_tab`), and a worktree's tabs sit together. Its name is `set_tab_title`, which outlasts
+/// the titles the program in it sets and takes its text as it is (1.3.1, checked 2026-10-05).
+/// Neither can undo the open, so a failure of either is let go.
 pub(super) const GHOSTTY_NEW: &str = r#"
 on run argv
   set placeAt to item 1 of argv
@@ -145,8 +152,9 @@ on run argv
   set thePath to item 3 of argv
   set theInput to item 4 of argv
   set raise to (item 5 of argv) is "front"
+  set theLabel to item 6 of argv
   set theEnv to {}
-  if (count of argv) > 5 then set theEnv to items 6 thru -1 of argv
+  if (count of argv) > 6 then set theEnv to items 7 thru -1 of argv
   tell application "Ghostty"
     if theInput is "" then
       set cfg to {initial working directory:thePath}
@@ -173,14 +181,47 @@ on run argv
       end repeat
     end if
     if dest is missing value then
-      new window with configuration cfg
+      set made to new window with configuration cfg
     else
-      new tab in window id dest with configuration cfg
-      if raise then
-        try
-          activate window window id dest
-        end try
+      set made to new tab in window id dest with configuration cfg
+    end if
+    set madeIds to {}
+    try
+      set madeIds to id of every terminal of made
+    end try
+    try
+      if placeAt is "beside" and dest is not missing value then
+        set madeTab to id of made
+        set lastAt to 0
+        set tabIds to id of every tab of window id dest
+        repeat with tid in tabIds
+          set inTab to id of every terminal of tab id (contents of tid) of window id dest
+          repeat with t in nearIds
+            if inTab contains (contents of t) then
+              set pos to index of tab id (contents of tid) of window id dest
+              if pos > lastAt then set lastAt to pos
+              exit repeat
+            end if
+          end repeat
+        end repeat
+        set madeAt to index of tab id madeTab of window id dest
+        if lastAt > 0 then
+          if madeAt > lastAt then
+            set moveBy to lastAt + 1 - madeAt
+          else
+            set moveBy to lastAt - madeAt
+          end if
+          if moveBy is not 0 then perform action ("move_tab:" & moveBy) on terminal id (item 1 of madeIds)
+        end if
       end if
+    end try
+    try
+      if theLabel is not "" then perform action ("set_tab_title:" & theLabel) on terminal id (item 1 of madeIds)
+    end try
+    if raise and dest is not missing value then
+      try
+        activate window window id dest
+      end try
     end if
     if raise then activate
   end tell

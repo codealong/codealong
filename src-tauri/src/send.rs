@@ -382,7 +382,8 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
         routes = agent_routes(session, routes)?;
     }
     let near = crate::board::terminal_neighbours(&board.lanes, Path::new(&session.cwd));
-    let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false };
+    let label = crate::board::tab_label(&board.lanes, Path::new(&session.cwd), &session.title);
+    let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() };
     let mut last_err = None;
     // Why typing into its terminal didn't work, for the note on the way it went instead.
     let mut untyped = None;
@@ -602,7 +603,7 @@ mod tests {
     fn a_way_in_of_a_harnesss_own_is_told_whose_the_message_is() {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
         let cfg = Config::default();
-        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false };
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false, label: None };
         let s = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
         let board = Board::default();
         static AGENT: Sender = Sender::Agent(None);

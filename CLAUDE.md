@@ -1417,6 +1417,17 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   2026-09-27; `cargo test ghostty_presses_keys -- --ignored` repeats it. While the screen is
   locked Ghostty doesn't start new terminals ("Terminal surface model is not available"), so
   nothing can be typed into one opened then.
+- `new tab in window id <w>` puts the tab after that window's selected tab (the default
+  `window-new-tab-position = current`; `end` puts it last) and answers the tab, whose `id`
+  and `index` can be read and which `tab id <id> of window id <w>` finds again. `perform action
+  "move_tab:<n>"` on one of its terminals moves it `n` places (negative is back, wrapping at the
+  ends), and `perform action "set_tab_title:<text>"` names its tab: the text is taken as it is
+  (quotes, colons and backslashes too), and the name outlasts the titles the program in it sets
+  (Claude Code's included); `set_tab_title:` with nothing clears it, its docs say
+  (`ghostty +list-actions --docs`). Codealong names the tabs it
+  opens for a session after its worktree and title (`board::tab_label`) and moves a tab that
+  goes beside others to just after the last of them (`GHOSTTY_NEW`). Checked on 1.3.1,
+  2026-10-05; `cargo test ghostty_groups_and_names_tabs -- --ignored` repeats it.
 - Scripts can take many seconds: while Ghostty launches or is busy, and while macOS asks whether
   Codealong may control it. The bundle is ad-hoc signed with a per-build identifier
   (`codealong-<hash>`), so macOS treats each rebuild as a new app and asks again. Ghostty still

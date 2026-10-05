@@ -310,13 +310,15 @@ fn sweep_launchers(tmp: &Path) {
 }
 
 /// Where a new terminal goes: `[apps] new_terminal`, the folders it belongs beside, nearest
-/// first (`board::terminal_neighbours`), and whether it stays behind your windows (a Background
-/// start of a harness with no background service of its own) instead of coming forward.
+/// first (`board::terminal_neighbours`), whether it stays behind your windows (a Background
+/// start of a harness with no background service of its own) instead of coming forward, and the
+/// name its tab is given (`board::tab_label`), which a terminal that can't name a tab ignores.
 #[derive(Debug, Clone, Copy)]
 pub struct Placement<'a> {
     pub new_terminal: NewTerminal,
     pub near: &'a [Vec<String>],
     pub behind: bool,
+    pub label: Option<&'a str>,
 }
 
 impl Placement<'_> {
@@ -948,7 +950,7 @@ mod tests {
         let _ = std::fs::remove_file(&out);
         let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
         let input = format!("printenv CODEALONG_PROMPT > '{}'; exit\n", out.display());
-        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false }, &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }, &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
         for _ in 0..100 {
             if std::fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
                 break;
@@ -959,6 +961,52 @@ mod tests {
         let got = std::fs::read_to_string(&out).expect("the shell wrote nothing");
         let _ = std::fs::remove_file(&out);
         assert_eq!(got.strip_suffix('\n').unwrap_or(&got), prompt);
+    }
+
+    /// Opens a real Ghostty window with a tab in one folder and a tab in another, then a third
+    /// tab beside the first folder's, and reads the window's tabs back: the third sits right
+    /// after the first, though the second was the one selected, and each keeps the name it was
+    /// given over the title its shell sets. Then closes the window. Opt in:
+    /// `cargo test ghostty_groups_and_names_tabs -- --ignored`.
+    #[test]
+    #[ignore]
+    fn ghostty_groups_and_names_tabs() {
+        let scratch = crate::fixtures::scratch("tabs");
+        let dir = std::fs::canonicalize(&*scratch).unwrap();
+        let (alpha, beta) = (dir.join("alpha"), dir.join("beta"));
+        std::fs::create_dir_all(&alpha).unwrap();
+        std::fs::create_dir_all(&beta).unwrap();
+        let ids = || ghostty_terminals().unwrap().into_iter().map(|t| t.id).collect::<Vec<_>>();
+        let before = ids();
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: Some("alpha") }, &alpha, "", &[]).unwrap();
+        let retitles = "printf '\\033]0;its own title\\007'\n";
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: Some("beta") }, &beta, retitles, &[]).unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+        let near = [vec![alpha.to_string_lossy().into_owned()]];
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: Some("alpha · two") }, &alpha, "", &[]).unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        let opened: Vec<String> = ids().into_iter().filter(|t| !before.contains(t)).collect();
+        assert_eq!(opened.len(), 3, "{opened:?}");
+        let read = r#"
+on run argv
+  tell application "Ghostty"
+    set wids to id of (every window whose id of every terminal contains (item 1 of argv))
+    set wid to item 1 of wids
+    set names to name of every tab of window id wid
+  end tell
+  set out to wid
+  repeat with n in names
+    set out to out & linefeed & n
+  end repeat
+  return out
+end run
+"#;
+        let got = osascript(read, &[&opened[0]]).unwrap();
+        let mut lines = got.trim_end().lines();
+        let window = lines.next().unwrap().to_string();
+        let names: Vec<&str> = lines.collect();
+        let _ = osascript("on run argv\n  tell application \"Ghostty\" to close window (window id (item 1 of argv))\nend run", &[&window]);
+        assert_eq!(names, ["alpha", "alpha · two", "beta"]);
     }
 
     /// Waits up to ten seconds for a file to have something in it, and returns what.
@@ -987,7 +1035,7 @@ mod tests {
         for (profile, ttys, close) in apps {
             let out = dir.join(format!("{profile}.txt"));
             let input = format!("pwd > '{0}'; printenv CODEALONG_PROMPT >> '{0}'\n", out.display());
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None };
             let before = ttys().unwrap();
             terminal_run(profile, place, &dir, &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
             let got = written(&out);
@@ -1013,7 +1061,7 @@ mod tests {
             let _ = std::fs::remove_file(&ready);
             let want: &[u8] = if profile == "iterm2" { b"\x1b[200~ab\ncd\x1b[201~\r1\x1b" } else { b"\x1b[200~ab\ncd\x1b[201~\r" };
             let input = format!("stty raw -echo; printf '\\033[?2004h'; echo $$ > '{}'; dd bs=1 count={} of='{}' 2>/dev/null; stty sane\n", ready.display(), want.len(), out.display());
-            terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[], behind: false }, &dir, &input, &[]).unwrap();
+            terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }, &dir, &input, &[]).unwrap();
             let pid: u32 = written(&ready).and_then(|p| p.trim().parse().ok()).unwrap_or_else(|| panic!("{profile}'s shell never started"));
             let kind = terminal_kind(pid);
             let typed = terminal_type_session(pid, &dir, "ab\ncd", false, Submit::Return).unwrap();
@@ -1052,7 +1100,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>); 2] = [("iterm2", iterm::ttys, iterm::close), ("terminal", terminal_app::ttys, terminal_app::close)];
         for (profile, ttys, close) in apps {
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None };
             let secs = 7000 + std::process::id() % 1000 + if profile == "terminal" { 1 } else { 0 };
             terminal_open(profile, place, &dir, Some(&format!("sleep {secs}\n"))).unwrap();
             let mut pid = None;
@@ -1091,7 +1139,7 @@ mod tests {
         let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>, fn(&str) -> Result<bool>, &str); 2] =
             [("iterm2", iterm::ttys, iterm::close, iterm::focus, ITERM_FRONT), ("terminal", terminal_app::ttys, terminal_app::close, terminal_app::focus, TERMINAL_FRONT)];
         for (profile, ttys, close, focus, front) in apps {
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None };
             let mut opened = Vec::new();
             for _ in 0..3 {
                 let before = ttys().unwrap();
@@ -1384,7 +1432,7 @@ end run
         // Terminal comes with macOS, so a config.toml always has a terminal that's here.
         assert!(terminal_app("terminal").unwrap().installed());
         assert!(terminal_app(default_terminal()).unwrap().installed());
-        assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
+        assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
     }
 
     #[test]

@@ -470,7 +470,9 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
             let behind = spec.place == Place::Background;
             let typed = adapter.start_in_terminal(account, &ask);
             let near = crate::board::terminal_neighbours(&board.lanes, folder);
-            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind }, folder, &typed.input, &typed.env)?;
+            // It has no title yet, so its tab goes by what it was asked.
+            let label = crate::board::tab_label(&board.lanes, folder, &spec.prompt);
+            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind, label: label.as_deref() }, folder, &typed.input, &typed.env)?;
             // A harness that names its own sessions shows one on the board once it's written.
             let message = typed.key.is_none().then(|| {
                 if behind {
@@ -581,7 +583,8 @@ pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
     let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
     let fork = crate::harness::adapter(s.harness).fork(&crate::harness::Ctx { account }, s)?;
     let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
-    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false }, &cwd, &fork.input, &fork.env)?;
+    let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
+    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() }, &cwd, &fork.input, &fork.env)?;
     // One whose harness names the copy shows on the board once it's written.
     let message = fork.key.is_none().then(|| format!("{} is opening a fork of {} in {}.", s.harness.word(), s.title, lane.callsign));
     // Claude Code's transcript doesn't say what a fork into a terminal copied.
@@ -644,7 +647,8 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
         }
         adapter.before_start(target, &cwd);
         let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
-        if let Err(e) = launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false }, &cwd, &copy.input, &copy.env) {
+        let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
+        if let Err(e) = launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() }, &cwd, &copy.input, &copy.env) {
             // No copy started, so there's none to keep.
             if let Some(Err(forgot)) = copy.key.as_deref().map(crate::origins::forget) {
                 eprintln!("The move's terminal didn't open, and its note couldn't be taken back, so its copy shows stopped: {forgot:#}");
