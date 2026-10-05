@@ -25,7 +25,8 @@ pub(super) fn side_mode(session: Option<&str>) -> &'static str {
 /// How Codealong talks to a side conversation's copy (side.rs, `Adapter::side`): Claude Code's
 /// stream-json, a line a message each way. A question is a `user` line; the answer comes as
 /// `stream_event` lines (the API's own events: `content_block_delta` with a `text_delta`), each
-/// tool call whole in an `assistant` line, and a `result` line when the turn ends.
+/// tool call whole in an `assistant` line, and a `result` line when the turn ends (one that
+/// isn't for a task notification).
 #[derive(Default)]
 pub struct SideCopy {
     /// It has been told what it is, with its first question.
@@ -76,6 +77,11 @@ impl crate::side::Dialect for SideCopy {
                 let blocks = line.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default();
                 blocks.iter().filter(|b| kind(b) == "tool_use").map(|b| Event::Tool(tool_request(&text(b, "name").unwrap_or_default(), b.get("input").unwrap_or(&Value::Null)))).collect()
             }
+            // A background command the session left running is reported stopped as the copy
+            // resumes, and that report is a turn of its own, ended by its own empty `result`
+            // ahead of the question's: taken for the answer, it ended the question with nothing
+            // said, and the real answer that came after had no question left to go to.
+            "result" if line.pointer("/origin/kind").and_then(Value::as_str) == Some("task-notification") => Vec::new(),
             "result" => {
                 let failed = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 let why = || text(line, "result").filter(|r| !r.trim().is_empty()).unwrap_or_else(|| "It ended without an answer.".into());
@@ -105,6 +111,11 @@ mod tests {
         let said = first[0].pointer("/message/content").and_then(Value::as_str).unwrap();
         assert!(said.starts_with("<system-reminder>\nThis is a side conversation.") && said.ends_with("</system-reminder>\n\nWhat changed?"), "{said}");
         let lines = [
+            // A command the session left running in the background, ended as the copy resumes
+            // (2.1.289): its turn's end isn't the answer's.
+            json!({"type": "system", "subtype": "task_notification", "status": "stopped", "summary": "Background shell command didn't finish before the previous session ended"}),
+            json!({"type": "system", "subtype": "init", "tools": ["Bash"]}),
+            json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "result": "", "origin": {"kind": "task-notification"}}),
             json!({"type": "system", "subtype": "init", "tools": ["Bash"]}),
             json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}}}),
             json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "hm"}}}),

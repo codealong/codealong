@@ -764,7 +764,12 @@ Claude Code
   is a line `{"type":"user","message":{"role":"user","content":…}}`; the answer streams as
   `stream_event` lines (the API's events; `content_block_delta` with a `text_delta`), each tool
   call comes whole in an `assistant` line, and a `result` line ends the turn (`is_error`,
-  `result`, `usage`). No transcript is written and the original is untouched. The flag wins
+  `result`, `usage`). A command the session left running in the background is reported to the
+  copy as it resumes (`system` / `task_notification`, `status: "stopped"`, "Background shell
+  command didn't finish before the previous session ended"), and that report is a turn of its
+  own: its `result` line, `origin: {kind: "task-notification"}`, `num_turns: 0` and an empty
+  `result`, comes before the question's, whose `result` has no `origin` (2.1.289, 2026-10-05).
+  No transcript is written and the original is untouched. The flag wins
   over the account's `defaultMode`, and with nobody to ask, a call that would ask is refused
   (`system` / `permission_denied`: in `default`, a Write or a `touch`), while reads and
   read-only commands run; in `bypassPermissions` a Write went through (2026-10-01). The help
