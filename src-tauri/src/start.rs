@@ -1161,17 +1161,21 @@ mod tests {
         let prompt = "Don't break $HOME or `this`\n![image](images/0123456789abcdef.png)";
         let Plan::Background { cwd, command } = plan_in(&a, Place::Background, Path::new("/r/x"), prompt, id, Some("fable[1m]"), None, true, (images, files)) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/x"));
-        // --worktree first (it takes an optional name), --add-dir before --bg (it takes several
-        // folders), and no --session-id, which --bg ignores.
+        // The prompt after `--`, which neither --worktree (it takes an optional name) nor
+        // --add-dir (it takes several folders) reads as theirs once --bg takes itself out, and no
+        // --session-id, which --bg ignores.
         assert_eq!(
             command,
-            format!("claude2 --worktree --add-dir '{}' --bg --model 'fable[1m]' 'Don'\\''t break $HOME or `this`\n@\"{}/0123456789abcdef.png\"'", images.display(), images.display())
+            format!("claude2 --worktree --add-dir '{}' --bg --model 'fable[1m]' -- 'Don'\\''t break $HOME or `this`\n@\"{}/0123456789abcdef.png\"'", images.display(), images.display())
         );
+        // As the jobs that went wrong had it: nothing between --bg and the prompt.
+        let Plan::Background { command, .. } = plan_in(&a, Place::Background, Path::new("/r/x"), "Fix it\n![image](images/0123456789abcdef.png)", id, None, None, true, (images, files)) else { panic!() };
+        assert_eq!(command, format!("claude2 --worktree --add-dir '{}' --bg -- 'Fix it\n@\"{}/0123456789abcdef.png\"'", images.display(), images.display()));
         let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "  ", id, None, None, false) else { panic!() };
         assert_eq!(command, "claude2 --bg");
         // A one-word prompt keeps its padding, so it isn't read as a command.
         let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "update", id, None, None, false) else { panic!() };
-        assert_eq!(command, "claude2 --bg 'update '");
+        assert_eq!(command, "claude2 --bg -- 'update '");
     }
 
     #[test]

@@ -831,6 +831,14 @@ Claude Code
   started the service, so variables set for one start don't reach it (and a stale
   `CODEALONG_SESSION` can): `start.rs` quotes everything in the command instead. `stop <job>`
   keeps the conversation; `rm <job>` removes it and its worktree once nothing holds the lock.
+- `--bg` takes `--bg` out of the arguments before it reads them (2.1.284 to 2.1.290, read from
+  its code; 2026-10-05), and hands the job what's left, with `--session-id` added (the roster's
+  `dispatch.launch.args`). So the prompt reads as the value of whatever option came before
+  `--bg`: `--add-dir <dir> --bg <prompt>` started a job with no prompt ("idle — send a prompt to
+  start", its intent empty, the prompt taken for a second folder), and `--worktree --bg <prompt>`
+  failed with "Invalid worktree name: must be 64 characters or fewer (got 3903)". After `--` the
+  arguments are the prompt, joined with spaces, and the job gets the `--` and them as they are,
+  so `claude::start::background_args` puts the prompt there.
 - `/background` (`/bg`, optional prompt) moves a terminal's conversation to a background job
   with a session of its own (checked on 2.1.284, 2026-09-29): the roster's
   `workers.<job>.dispatch` says `source: "slash"`, `launch: {mode: "resume", fork: true,

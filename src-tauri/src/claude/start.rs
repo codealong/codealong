@@ -37,8 +37,12 @@ pub fn default_model(a: &AccountCfg) -> Option<String> {
 }
 
 /// What follows the account's command in a background start, quoted for the shell:
-/// the new worktree and attachment folders, `--bg`, the model and effort, and the prompt last.
-/// `--bg` picks the session's ID itself and ignores `--session-id`.
+/// the new worktree and attachment folders, `--bg`, the model and effort, and the prompt last,
+/// after `--`. `--bg` takes itself out of the arguments before it reads them, so without the
+/// `--` the prompt would follow whatever came before `--bg`: `--add-dir`, which takes several
+/// folders, took it as one more and the job started with no prompt, and `--worktree`, which
+/// takes an optional name, named the worktree after it. `--bg` picks the session's ID itself
+/// and ignores `--session-id`.
 pub(super) fn background_args(prompt: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> String {
     let (has_images, has_files) = crate::attachments::kinds(prompt);
     let prompt = crate::attachments::expand_in(prompt, images_dir, files_dir, crate::attachments::Style::Mention);
@@ -60,7 +64,7 @@ pub(super) fn background_args(prompt: &str, model: Option<&str>, effort: Option<
         args.push_str(&format!(" --effort {e}"));
     }
     if !prompt.is_empty() {
-        args.push_str(&format!(" {}", crate::util::sh_quote(&crate::start::as_argument(prompt))));
+        args.push_str(&format!(" -- {}", crate::util::sh_quote(&crate::start::as_argument(prompt))));
     }
     args
 }
@@ -274,10 +278,10 @@ mod tests {
         let dirs = (Path::new("/i"), Path::new("/f"));
         let id = "3628c9e6-0309-4a30-aed9-3e68d0e66b7e";
         assert_eq!(fork_command_in(&a, id, "", dirs), format!("claude2 --resume {id} --fork-session --bg"));
-        assert_eq!(fork_command_in(&a, id, "  try it the other way's round  ", dirs), format!("claude2 --resume {id} --fork-session --bg 'try it the other way'\\''s round'"));
+        assert_eq!(fork_command_in(&a, id, "  try it the other way's round  ", dirs), format!("claude2 --resume {id} --fork-session --bg -- 'try it the other way'\\''s round'"));
         assert_eq!(
             fork_command_in(&a, id, "look\n![image](images/0123456789abcdef.png)", dirs),
-            format!("claude2 --resume {id} --fork-session --add-dir '/i' --bg 'look\n@\"/i/0123456789abcdef.png\"'")
+            format!("claude2 --resume {id} --fork-session --add-dir '/i' --bg -- 'look\n@\"/i/0123456789abcdef.png\"'")
         );
     }
 
