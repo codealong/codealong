@@ -134,7 +134,8 @@ impl Terminal for Ghostty {
 
 /// Arguments: where it goes (`window`, `front` for a tab in the front window, or `beside` for a
 /// tab in the frontmost window holding any of the terminals listed next), those terminal ids one
-/// per line (or ""), the folder, the input to type (or ""), whether Ghostty comes forward
+/// per line (or "": a front tab may have them too, to sit beside where they're in the front
+/// window), the folder, the input to type (or ""), whether Ghostty comes forward
 /// (`front`) or not (`behind`), the tab's name (or ""), then any `KEY=VALUE` environment
 /// entries. A tab with no window to go in becomes a window. Behind, nothing here asks Ghostty
 /// forward, though its own code for a new window or tab still asks to be the active app
@@ -190,7 +191,7 @@ on run argv
       set madeIds to id of every terminal of made
     end try
     try
-      if placeAt is "beside" and dest is not missing value then
+      if dest is not missing value then
         set madeTab to id of made
         set lastAt to 0
         set tabIds to id of every tab of window id dest

@@ -54,7 +54,7 @@ static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 /// Every AppleScript by the hash of its text, so a test names the script that was sent and a
 /// script whose text changed stops being known. Terminal's TYPE and TYPE_LINE are the same text.
 const SCRIPTS: &[(&str, u64)] = &[
-    ("GHOSTTY_NEW", 0xf1e100c4981fc92e),
+    ("GHOSTTY_NEW", 0xcfd07ea6d9f9e85b),
     ("GHOSTTY_LIST", 0xb5f37a7f6c1d405c),
     ("GHOSTTY_FOCUS", 0xb14d181bda8dc4d7),
     ("GHOSTTY_FIND", 0xca41f3863d4f0749),
@@ -321,6 +321,15 @@ mod tests {
         let p = played(answer, || terminal_run("ghostty", named, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
         assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["beside", "T1\nT3", "/r/app", "ls\n", "front", "app · Fix the \"login\": now"]"#]);
+        // A tab in the front window is handed the same tabs, to sit beside where they're there;
+        // with none near, or Ghostty not saying, it still goes in the front window.
+        let p = played(answer, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, ..named }, Path::new("/r/app"), "ls\n", &[]));
+        p.got.unwrap();
+        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["front", "T1\nT3", "/r/app", "ls\n", "front", "app · Fix the \"login\": now"]"#]);
+        let far = [vec!["/r/none".to_string()]];
+        let p = played(|_| Err("boom".into()), || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &far, behind: false, label: None }, Path::new("/r/app"), "ls\n", &[]));
+        assert_eq!(p.log[0], "GHOSTTY_LIST []");
+        assert_eq!(p.log[1], r#"GHOSTTY_NEW ["front", "", "/r/app", "ls\n", "front", ""]"#);
 
         // No tab near, or Ghostty not saying: a window.
         let far = [vec!["/r/none".to_string()]];

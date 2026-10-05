@@ -346,9 +346,9 @@ impl Default for AppsCfg {
     }
 }
 
-/// Where a terminal Codealong opens goes: a window of its own, a tab in the front window, or a
-/// tab in a window already showing the same worktree, repo or project (a window of its own when
-/// none does).
+/// Where a terminal Codealong opens goes: a window of its own, a tab in the front window (after
+/// its worktree's, repo's or project's tabs there, where the terminal orders tabs), or a tab in a
+/// window already showing the same worktree, repo or project (a window of its own when none does).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum NewTerminal {

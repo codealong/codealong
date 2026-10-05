@@ -355,11 +355,13 @@ fn opens_in(profile: &str) -> Result<&'static dyn Terminal> {
 
 /// The first two arguments of a script that opens a terminal: where it goes, and the tabs it
 /// goes beside. For `project`, the tabs already in the nearest folders that have any; with none,
-/// or the app not answering the question, a window.
+/// or the app not answering the question, a window. For `tab`, the front window, with the same
+/// tabs, which a terminal that orders its tabs puts it after when they're in that window.
 fn placement(place: Placement, tabs: impl FnOnce() -> Result<Vec<Tab>>) -> (&'static str, String) {
     match place.new_terminal {
         NewTerminal::Window => ("window", String::new()),
-        NewTerminal::Tab => ("front", String::new()),
+        NewTerminal::Tab if place.near.is_empty() => ("front", String::new()),
+        NewTerminal::Tab => ("front", tabs().map(|ts| terminals_beside(&ts, place.near).join("\n")).unwrap_or_default()),
         NewTerminal::Project => {
             let beside = tabs().map(|ts| terminals_beside(&ts, place.near)).unwrap_or_default();
             if beside.is_empty() {
@@ -964,10 +966,10 @@ mod tests {
     }
 
     /// Opens a real Ghostty window with a tab in one folder and a tab in another, then a third
-    /// tab beside the first folder's, and reads the window's tabs back: the third sits right
-    /// after the first, though the second was the one selected, and each keeps the name it was
-    /// given over the title its shell sets. Then closes the window. Opt in:
-    /// `cargo test ghostty_groups_and_names_tabs -- --ignored`.
+    /// tab beside the first folder's and a fourth, in the front window, beside the second's, and
+    /// reads the window's tabs back: each new one sits right after its folder's, wherever the
+    /// selected tab was, and each keeps the name it was given over the title its shell sets.
+    /// Then closes the window. Opt in: `cargo test ghostty_groups_and_names_tabs -- --ignored`.
     #[test]
     #[ignore]
     fn ghostty_groups_and_names_tabs() {
@@ -984,9 +986,12 @@ mod tests {
         std::thread::sleep(Duration::from_secs(1));
         let near = [vec![alpha.to_string_lossy().into_owned()]];
         terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: Some("alpha · two") }, &alpha, "", &[]).unwrap();
+        // The third is selected now, so Ghostty puts the fourth before the second's tab.
+        let near = [vec![beta.to_string_lossy().into_owned()]];
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &near, behind: false, label: Some("beta · two") }, &beta, "", &[]).unwrap();
         std::thread::sleep(Duration::from_millis(1500));
         let opened: Vec<String> = ids().into_iter().filter(|t| !before.contains(t)).collect();
-        assert_eq!(opened.len(), 3, "{opened:?}");
+        assert_eq!(opened.len(), 4, "{opened:?}");
         let read = r#"
 on run argv
   tell application "Ghostty"
@@ -1006,7 +1011,7 @@ end run
         let window = lines.next().unwrap().to_string();
         let names: Vec<&str> = lines.collect();
         let _ = osascript("on run argv\n  tell application \"Ghostty\" to close window (window id (item 1 of argv))\nend run", &[&window]);
-        assert_eq!(names, ["alpha", "alpha · two", "beta"]);
+        assert_eq!(names, ["alpha", "alpha · two", "beta", "beta · two"]);
     }
 
     /// Waits up to ten seconds for a file to have something in it, and returns what.
