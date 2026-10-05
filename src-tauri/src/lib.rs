@@ -636,12 +636,13 @@ async fn session_way(engine: State<'_, engine::Handle>, peers: State<'_, peers::
 }
 
 /// Allows or denies the tool call `id` a session waits on, if it's still the one waiting; or,
-/// with `answers`, answers the questions it asks (`Pending::questions`).
+/// with `answers`, answers the questions it asks (`Pending::questions`). A deny with `message`
+/// tells it what to do instead.
 #[tauri::command]
-async fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer, answers: Option<serde_json::Value>) -> Result<String, String> {
+async fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer, answers: Option<serde_json::Value>, message: Option<String>) -> Result<String, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
     blocking(move || {
-        let said = actions::run(&engine, &peers, api::SESSION_ANSWER, &key, actions::params::Answer { id, answer: Some(answer), answers, ..Default::default() })?;
+        let said = actions::run(&engine, &peers, api::SESSION_ANSWER, &key, actions::params::Answer { id, answer: Some(answer), answers, message, ..Default::default() })?;
         Ok(said.as_str().unwrap_or_default().to_string())
     })
     .await?

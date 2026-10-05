@@ -1286,8 +1286,9 @@ export function onHostedStream(cb: (s: HostedStream) => void): () => void {
   };
 }
 
-/** Allows or denies the call `id` a session waits on; says what happened. */
-export async function sessionAnswer(key: string, id: string, answer: 'allow' | 'deny' | 'always', answers?: Answers): Promise<string> {
+/** Allows or denies the call `id` a session waits on; says what happened. A deny with a
+ *  `message` tells it what to do instead. */
+export async function sessionAnswer(key: string, id: string, answer: 'allow' | 'deny' | 'always', answers?: Answers, message?: string): Promise<string> {
   if (!inTauri) throw new Error('Answering needs the app.');
-  return invoke<string>('session_answer', { key, id, answer, answers: answers ?? null });
+  return invoke<string>('session_answer', { key, id, answer, answers: answers ?? null, message: message ?? null });
 }

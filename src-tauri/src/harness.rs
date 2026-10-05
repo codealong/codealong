@@ -139,6 +139,13 @@ pub trait Adapter: Sync {
         bail!("Answer it in {}: Codealong can't answer it from here.", self.harness().word())
     }
 
+    /// Denies the pending request `id` and tells it `words` in the same answer, as what to do
+    /// instead, so it goes on with them in the turn it's taking. None where the harness can't
+    /// take words with a deny: actions.rs then denies it and sends them once it no longer waits.
+    fn deny_saying(&self, _ctx: &Ctx, _session: &Session, _id: &str, _words: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Answers the questions of the pending request `id` (`Pending::questions`): `answers` has
     /// each answered question's text for a key, and a choice's label, several for a question
     /// that takes more, or words of your own. Returns what happened, in a sentence.

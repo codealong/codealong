@@ -39,7 +39,8 @@
 
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var button = function (text) {
-    return Array.prototype.filter.call(document.querySelectorAll('.ca-sessinsp .ca-composer.is-approval button'), function (b) { return b.textContent.trim() === text; })[0];
+    // A button's text is its label, then any keys it says (Deny⌘⌫).
+    return Array.prototype.filter.call(document.querySelectorAll('.ca-sessinsp .ca-composer.is-approval button'), function (b) { return b.textContent.trim().indexOf(text) === 0; })[0];
   };
 
   say('always check: waiting for the list');

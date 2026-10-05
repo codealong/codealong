@@ -399,10 +399,16 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     Err(last_err.unwrap_or_else(|| anyhow!("Codealong can't reach {} to send it this. Open it and send it there.", quoted(&session.title))))
 }
 
+/// Whether it waits on you to answer a prompt (a permission, or a turn stuck on a command), not
+/// only asking you something in its reply.
+pub(crate) fn waits_on_you(session: &Session) -> bool {
+    session.status == Status::Needs && !session.asks
+}
+
 /// A session waiting on you is never typed into: what's typed would answer its prompt. One that
 /// only asks you something in its reply (`Session::asks`) takes the answer like any prompt.
 pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
-    if session.status == Status::Needs && !session.asks {
+    if waits_on_you(session) {
         match sender {
             Sender::Agent(_) => bail!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&session.title)),
             _ => bail!("{} is waiting on you; open it to answer.", quoted(&session.title)),

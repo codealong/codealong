@@ -534,7 +534,8 @@ a change to what's sent shows there. Adding one:
    detect.rs finds its accounts), `records`, `targets` (the ways to open a session) and `reader`;
    everything else defaults to saying it can't. What it can answer, by what asks:
    - a session's panel: `conversation` and `conversation_after` (`transcript.rs` pages a file of
-     JSON lines given a line parser), `pending`, `answer`, `answer_questions`, `open_calls`;
+     JSON lines given a line parser), `pending`, `answer`, `deny_saying`, `answer_questions`,
+     `open_calls`;
    - opening: `targets`, and `open` for a way of its own (its app); the engine does `focus`,
      `resume` (`Session::resume_command`) and `attach` for every harness;
    - sending (send.rs): `routes`, best first: typing into its terminal and resuming it in a new
@@ -948,7 +949,11 @@ Claude Code
   "allow"}` ("Allowed by PermissionRequest hook"), with `updatedPermissions` (the suggestions)
   to apply them as the prompt's "don't ask again" does (a `setMode` one switches the session's
   mode), or `{"behavior":"deny","message":…,"interrupt":true}`, which ends the turn as the
-  prompt's No does. A plain allow for `AskUserQuestion` or `ExitPlanMode` is dropped and the
+  prompt's No does. Without `interrupt` the turn goes on, the message being the call's result as
+  given: the prompt's own No with words typed in writes `The user doesn't want to proceed with
+  this tool use. … To tell you how to proceed, the user said:\n<words>` (`asks::REFUSED_SAYING`),
+  so a hook's deny in those words reads as one typed at the prompt (checked with `-p` and a stub
+  hook on 2.1.289, 2026-10-05: the agent read the words and answered them). A plain allow for `AskUserQuestion` or `ExitPlanMode` is dropped and the
   prompt stays (`requiresUserInteraction`); a question takes `updatedInput` with `answers`.
   The registry's `waiting` / `permission prompt` comes from the session's `requires_action`
   state, in a terminal and under the Claude app alike (an `AskUserQuestion` says `input
@@ -1280,7 +1285,8 @@ OpenCode (2.0.16, from its source at that tag and its files here)
 - Permission requests: `GET /api/session/<id>/permission` lists them (`id` `per_…`, `action`
   such as `shell`, `resources` such as the command, `source.id` the tool call);
   `POST /api/session/<id>/permission/<request>/reply` with `{"decision": "once"|"always"|"reject"}`
-  answers one, and the TUI moves on as if you'd answered there. Shell commands in the project
+  answers one, and the TUI moves on as if you'd answered there. A reject takes a `message` beside
+  it, what to do instead (the service's schema, 2026-10-05; not yet watched on a run). Shell commands in the project
   aren't asked about unless a config says so (`opencode.json`: `"permission": {"bash": "ask"}`);
   `--auto` approves everything not denied. `opencode --prompt` fills the prompt in without
   sending it. The free models (`opencode/…`) need no sign-in.

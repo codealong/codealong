@@ -1,22 +1,11 @@
 // Checks the keys for a call a session waits on, in the Sessions view's panel (SessionReply.tsx
 // `Approval`): one session waits on a call and nothing else waits. Allow and Deny say their keys;
 // ⌘⌫ in the box with words in it is the box's, and in an empty box denies and stays; ⌘⏎ allows,
-// and with nothing after it to go on to, stays.
+// and with nothing after it to go on to, stays; ⏎ with words in the box denies the call with them
+// as what to do instead, typing nothing at the prompt, and has them back in the box when that
+// doesn't go.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/call-keys-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
   localStorage.removeItem('codealong.sessionPanelMax');
@@ -32,6 +21,7 @@
     }
     if (cmd === 'session_answer') {
       window.__calls.push([cmd, args, options]);
+      if (args.message === 'This one fails') return Promise.reject('It stopped waiting before the answer reached it. Look where it runs.');
       return Promise.resolve(args.answer === 'deny' ? 'Denied.' : 'Allowed.');
     }
     var p = real(cmd, args, options);
@@ -67,6 +57,15 @@
   var type = function (el, text) {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
     el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  var sendButton = function () { return document.querySelector('.ca-sessinsp .ca-composer:not(.is-approval) .ca-composer-send'); };
+  var sends = function () { return window.__calls.filter(function (c) { return c[0] === 'send_to_session'; }); };
+  // The session asks again: a new call.
+  var askAgain = function (n) {
+    var b = JSON.parse(JSON.stringify(boardNow));
+    b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === picked.key) s.statusSince += 1000 * n; }); });
+    window.__emit('board', b);
+    return until(function () { return asked >= n + 1 && approval() && button('Allow'); }, 5000).then(function () { return wait(100); });
   };
   var answers = function () { return window.__calls.filter(function (c) { return c[0] === 'session_answer'; }).map(function (c) { return c[1]; }); };
 
@@ -112,7 +111,34 @@
       var a = answers()[1];
       check('⌘⏎ allows, with nothing else waiting', a.key === picked.key && a.answer === 'allow', JSON.stringify(a));
       check('and stays', title() === 'Queue A', title());
+      return askAgain(2);
+    })
+    .then(function () {
+      check('the box says ⏎ denies it with what you wrote', /⏎ denies it and sends this instead/.test(note()), note());
+      check('and its placeholder says so', /deny it, and tell .* what to do instead/.test(box().placeholder), box().placeholder);
+      type(box(), 'Explain the change first');
+      return wait(50);
+    })
+    .then(function () {
+      check('Send is on while it waits', sendButton() && !sendButton().disabled, sendButton() && sendButton().title);
+      key(box(), { key: 'Enter' });
+      return until(function () { return answers().length === 3; }, 3000).then(function () { return wait(200); });
+    })
+    .then(function () {
+      var a = answers()[2];
+      check('⏎ denies it with what you wrote', a.key === picked.key && a.answer === 'deny' && a.message === 'Explain the change first', JSON.stringify(a));
+      check('the box clears', box().value === '', box().value);
+      check('nothing is typed at the prompt', sends().length === 0, JSON.stringify(sends()));
+      return askAgain(3);
+    })
+    .then(function () {
+      type(box(), 'This one fails');
+      key(box(), { key: 'Enter' });
+      return until(function () { return answers().length === 4 && box().value === 'This one fails'; }, 3000).then(function () { return wait(100); });
+    })
+    .then(function () {
+      check('what didn’t go is back in the box, with why', box().value === 'This one fails' && /stopped waiting/.test(note()), box().value + ' / ' + note());
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

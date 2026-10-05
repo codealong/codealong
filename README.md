@@ -170,7 +170,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     show the same way through the plugin, with their choices and a box for your own answer, and
     Answer sends your picks. Claude Code's own prompt stays up all the while, and whichever
     answer comes first counts. Others open where they run to be answered. The box stays meanwhile,
-    keeping what you'd written, and Send works again once the session isn't waiting (a session
+    keeping what you'd written. Where the call can be answered here, sending what you wrote (⏎)
+    denies it and tells the agent that instead, as Claude Code's own "No, and tell Claude what to
+    do differently" does, and the panel shows your words as a message of yours; nothing is typed
+    at a prompt that's up. Elsewhere Send works again once the session isn't waiting (a session
     run In Codealong takes it at once, after its current turn). The box's send button sits
     inside it, at its corner, and its placeholder says how a message gets there: typed into its
     Ghostty, iTerm2, Terminal or tmux tab, pasted into its background job, as a message from

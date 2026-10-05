@@ -55,6 +55,8 @@ pub enum Decision {
     Allow,
     Always,
     Deny,
+    /// No, with what to do instead: the call is refused and the turn goes on with your words.
+    DenySaying(String),
     /// A question's answers: each question's text to a label, several, or words of your own.
     Answers(Value),
 }
@@ -79,6 +81,10 @@ fn held() -> std::sync::MutexGuard<'static, Vec<Held>> {
 pub fn answers_tool(tool: &str) -> bool {
     tool != "ExitPlanMode"
 }
+
+/// What Claude Code's own prompt makes a call's result when you say No with words of your own
+/// (2.1.289's code, and the transcripts here): the words follow it.
+pub const REFUSED_SAYING: &str = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). To tell you how to proceed, the user said:\n";
 
 /// Claude Code's tool that asks you questions with choices.
 pub const QUESTIONS: &str = "AskUserQuestion";
@@ -146,6 +152,9 @@ pub fn decision_json(d: &Decision, asked: &Asked) -> Value {
         Decision::Always => json!({ "behavior": "allow", "updatedPermissions": asked.suggestions }),
         // As the prompt's own No does: the turn stops, and the session waits for you.
         Decision::Deny => json!({ "behavior": "deny", "message": "Denied in Codealong.", "interrupt": true }),
+        // As the prompt's No with words typed into it does: the call's result is Claude Code's
+        // own refusal with them (2.1.289's), and without `interrupt` the turn goes on to read it.
+        Decision::DenySaying(words) => json!({ "behavior": "deny", "message": format!("{REFUSED_SAYING}{}", words.trim()) }),
         // The questions as asked, with the answers beside them, as the prompt gives them.
         Decision::Answers(answers) => {
             let mut input = asked.input.clone();
@@ -487,6 +496,9 @@ mod tests {
         assert_eq!(decision_json(&Decision::Allow, &a), json!({ "behavior": "allow" }));
         assert_eq!(decision_json(&Decision::Always, &a)["updatedPermissions"], json!(a.suggestions));
         assert_eq!(decision_json(&Decision::Deny, &a)["interrupt"], json!(true));
+        // Words with a No: the turn isn't interrupted, and they come after Claude Code's own.
+        let d = decision_json(&Decision::DenySaying(" Explain it first\n".into()), &a);
+        assert_eq!(d, json!({ "behavior": "deny", "message": format!("{REFUSED_SAYING}Explain it first") }));
         // What 2.1.284 took for a question: its input with the answers beside the questions.
         let mut q = hook("AskUserQuestion");
         q["tool_input"] = json!({ "questions": [{ "question": "Which color?", "options": [{ "label": "Red" }, { "label": "Blue" }] }] });

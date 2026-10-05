@@ -294,6 +294,15 @@ impl crate::harness::Adapter for ClaudeCode {
         })
     }
 
+    /// Through the hook, which refuses the call with your words as its result and lets the turn
+    /// go on. A prompt answered by a keypress can't take them: Escape ends the turn, and
+    /// actions.rs types them once it no longer waits.
+    fn deny_saying(&self, _ctx: &crate::harness::Ctx, _s: &crate::model::Session, id: &str, words: &str) -> anyhow::Result<Option<String>> {
+        let Some(r) = asks::answer(id, asks::Decision::DenySaying(words.to_string())) else { return Ok(None) };
+        let a = r?;
+        Ok(Some(format!("Denied {}, and told it what to do instead.", tool_request(&a.tool, &a.input))))
+    }
+
     fn answer_questions(&self, _ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: &Value) -> anyhow::Result<String> {
         let Some(asked) = asks::of_session(&s.id).filter(|a| a.id == id) else {
             anyhow::bail!("It isn't waiting on that any more.");

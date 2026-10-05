@@ -215,13 +215,16 @@ fn find(name: &str) -> Option<&'static Request> {
 /// The command may turn down what a session waits on, never let it through: an agent may have
 /// typed it, and allowing a call or answering a question is the session's user's to do. It's
 /// the rule a message from the command goes by too, which isn't sent to a session waiting on
-/// its user (send.rs).
+/// its user (send.rs). Nor does it say what to do instead: the session takes that as its user's
+/// words.
 fn deny_only(params: &Value) -> Result<(), String> {
     let denies = params.get("answer").and_then(Value::as_str) == Some("deny");
     let answers = params.get("answers").is_some_and(|a| !a.is_null());
-    match denies && !answers {
-        true => Ok(()),
-        false => Err("Allowing what a session asks, or answering its questions, is its user's to do, in Codealong or where the session runs. The command can only deny it.".into()),
+    let saying = params.get("message").and_then(Value::as_str).is_some_and(|m| !m.trim().is_empty());
+    match (denies && !answers, saying) {
+        (true, false) => Ok(()),
+        (true, true) => Err("The command can deny it, not say what to do instead: the session would take that as its user's words. Send a message once it's denied.".into()),
+        (false, _) => Err("Allowing what a session asks, or answering its questions, is its user's to do, in Codealong or where the session runs. The command can only deny it.".into()),
     }
 }
 
@@ -428,37 +431,83 @@ fn stream(_: &Handle, c: &Call) -> Result<Value, String> {
     to_value(acp::stream(c.session()?))
 }
 
+/// How long a deny that couldn't carry your words waits for the session to stop waiting on you
+/// before they're sent.
+const ANSWERED_WAIT: Duration = Duration::from_secs(10);
+
 /// Allows or denies the tool call `id` it waits on, if it's still the one waiting; or, with
-/// `answers`, answers the questions it asks (`Pending::questions`).
+/// `answers`, answers the questions it asks (`Pending::questions`). A deny with a `message`
+/// tells it what to do instead: in the same answer where its harness takes words with one
+/// (`Adapter::deny_saying`), else sent as a prompt once it no longer waits.
 fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let p: params::Answer = c.read()?;
     let (answer, id) = (p.answer.ok_or("The request has no answer.")?, p.id);
+    let answers = p.answers.filter(|a| !a.is_null());
+    let saying = p.message.as_deref().map(str::trim).filter(|m| !m.is_empty() && answer == api::Answer::Deny && answers.is_none());
     if acp::hosts(key) {
-        return acp::answer(key, &id, answer).map(Value::String).map_err(words);
+        // A session Codealong runs takes a message while it waits, after its current turn.
+        let said = acp::answer(key, &id, answer).map_err(words)?;
+        return match saying {
+            Some(m) => sent_after(engine, c, key, m, &said),
+            None => Ok(Value::String(said)),
+        };
     }
     let (cfg, board) = (cfg()?, engine.board());
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ctx = harness::Ctx { account };
-    match p.answers.filter(|a| !a.is_null()) {
-        Some(a) => harness::adapter(s.harness).answer_questions(&ctx, s, &id, &a),
-        None => harness::adapter(s.harness).answer(&ctx, s, &id, answer),
+    let adapter = harness::adapter(s.harness);
+    if let Some(m) = saying {
+        if let Some(said) = adapter.deny_saying(&ctx, s, &id, m).map_err(words)? {
+            return Ok(Value::String(said));
+        }
+        let said = adapter.answer(&ctx, s, &id, answer).map_err(words)?;
+        return sent_after(engine, c, key, m, &said);
+    }
+    match answers {
+        Some(a) => adapter.answer_questions(&ctx, s, &id, &a),
+        None => adapter.answer(&ctx, s, &id, answer),
     }
     .map(Value::String)
     .map_err(words)
+}
+
+/// Sends `text` to the session `key` after a deny that couldn't carry it (`said` says how that
+/// went), once the session no longer waits on you: typed into a prompt that's still up, a
+/// Return would answer it (send.rs never types into one).
+fn sent_after(engine: &Handle, c: &Call, key: &str, text: &str, said: &str) -> Result<Value, String> {
+    let until = std::time::Instant::now() + ANSWERED_WAIT;
+    while !acp::hosts(key) {
+        let cfg = cfg()?;
+        let board = engine.board();
+        let (s, _) = harness::find(&board, &cfg, key).map_err(words)?;
+        if !send::waits_on_you(s) {
+            break;
+        }
+        if std::time::Instant::now() > until {
+            return Err(format!("{said} It still says it's waiting on you, so what you wrote wasn't sent."));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let sent = send::send_here(engine, key, text, sender_of(c.from), false).map_err(|e| format!("{said} What you wrote wasn't sent: {}", words(e)))?;
+    Ok(Value::String(format!("Denied it, then sent what you wrote. {}", sent.message)))
+}
+
+/// Who a message is from, as send.rs tells the session.
+fn sender_of(from: &From) -> send::Sender {
+    match from {
+        From::Here => send::Sender::You,
+        From::Device => send::Sender::Elsewhere,
+        From::Command(session) => send::Sender::Agent(session.clone()),
+    }
 }
 
 /// Sends it a prompt where it runs (send.rs), into its running turn at once with `now`: yours
 /// from a window, an agent's from the command. From another device, one that would only open
 /// with the prompt ready to send is refused: that needs someone here.
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let sender = match c.from {
-        From::Here => send::Sender::You,
-        From::Device => send::Sender::Elsewhere,
-        From::Command(session) => send::Sender::Agent(session.clone()),
-    };
     let p: params::Send = c.read()?;
-    let sent = send::send_here(engine, c.session()?, &p.text, sender, p.now).map_err(words)?;
+    let sent = send::send_here(engine, c.session()?, &p.text, sender_of(c.from), p.now).map_err(words)?;
     if *c.from == From::Device && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
@@ -824,6 +873,10 @@ mod tests {
         let deny = json!({ "id": "t1", "answer": "deny" });
         assert!(command_may_ask(api::SESSION_ANSWER, &deny).is_ok() && command_may_ask(api::SESSION_PAGE, &json!({})).is_ok());
         assert!(command_may_ask(api::SESSION_ANSWER, &json!({ "id": "t1", "answer": "allow" })).unwrap_err().contains("can only deny"));
+        // A deny with words would hand the session an agent's words as its user's.
+        let saying = json!({ "id": "t1", "answer": "deny", "message": "Do it this way" });
+        assert!(command_may_ask(api::SESSION_ANSWER, &saying).unwrap_err().contains("not say what to do instead"));
+        assert!(command_may_ask(api::SESSION_ANSWER, &json!({ "id": "t1", "answer": "deny", "message": " " })).is_ok());
         assert!(command_may_ask(api::SESSION_SEND, &json!({ "text": "hi" })).unwrap_err().contains("arrive as its user's own"));
         let send = find(api::SESSION_SEND).unwrap();
         assert!(elsewhere(send, &command).is_err() && elsewhere(send, &From::Here).is_ok());

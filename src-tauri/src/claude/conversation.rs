@@ -7,6 +7,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::ClaudeCode;
+use super::asks::REFUSED_SAYING;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
 use super::transcript::{prompt_words, tool_request, typed_text, you_typed};
@@ -45,17 +46,23 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             // and for an artifact, where it is.
             let answers = if results.len() == 1 { answers_of(v.pointer("/toolUseResult/answers")) } else { Default::default() };
             let link = if results.len() == 1 { artifact_of(v.get("toolUseResult")) } else { None };
-            results
-                .into_iter()
-                .map(|p| Item {
+            let mut out = Vec::new();
+            for p in results {
+                let output = text_of(p.get("content").unwrap_or(&Value::Null));
+                // A No with words of yours, at the prompt or from Codealong: the call was refused,
+                // and the words are a message of yours.
+                let said = output.strip_prefix(REFUSED_SAYING.trim_end()).map(str::trim).filter(|w| !w.is_empty());
+                out.push(Item {
                     id: p.get("tool_use_id").and_then(Value::as_str).map(String::from),
-                    output: Some(clip_output(&text_of(p.get("content").unwrap_or(&Value::Null)))),
+                    output: Some(if said.is_some() { "Denied.".into() } else { clip_output(&output) }),
                     failed: p.get("is_error").and_then(Value::as_bool) == Some(true),
                     answers: answers.clone(),
                     link: link.clone(),
                     ..item(at, "result", "")
-                })
-                .collect()
+                });
+                out.extend(said.map(|w| item(at, "you", w)));
+            }
+            out
         }
         // A message you sent while it worked: Claude Code writes it when the turn takes it in, as
         // a `queued_command` attachment rather than a prompt. Background tasks' notifications
@@ -477,6 +484,20 @@ mod tests {
 
     /// Lines as 2.1.286 wrote them, cut down: a publish, an update, a canvas made from a type, an
     /// artifact opened for you, and two results that name a page without making one.
+    #[test]
+    fn words_said_with_a_no_are_yours() {
+        // As Claude Code wrote one on 2026-10-05, for a No with words typed at its prompt.
+        let refused = format!("{REFUSED_SAYING}Can you access the templates via CIO api?");
+        let line = serde_json::json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": refused, "is_error": true }] }, "toolUseResult": format!("Error: {refused}") });
+        let items: Vec<(&str, String, Option<String>, bool)> = conversation_items(&line, 0).into_iter().map(|i| (i.kind, i.text, i.output, i.failed)).collect();
+        assert_eq!(items, [("result", String::new(), Some("Denied.".into()), true), ("you", "Can you access the templates via CIO api?".into(), None, false)]);
+        // A plain No says only what Claude Code said.
+        let plain = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+        let line = serde_json::json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": plain, "is_error": true }] } });
+        let items = conversation_items(&line, 0);
+        assert_eq!((items.len(), items[0].output.as_deref()), (1, Some(plain)));
+    }
+
     #[test]
     fn a_published_artifact_is_a_link_on_its_calls_result() {
         let call = serde_json::json!({ "type": "assistant", "message": { "content": [

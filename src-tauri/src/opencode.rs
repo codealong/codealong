@@ -864,22 +864,23 @@ impl crate::harness::Adapter for OpenCode {
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
-        let svc = service(&ctx.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running; answer it in OpenCode."))?;
-        let Some(r) = permission_request(&svc, &s.id) else { anyhow::bail!("It isn't waiting on a permission any more.") };
-        if r.id != id {
-            anyhow::bail!("It's waiting on a different request now: {}. Look again before answering.", r.label);
-        }
         let decision = match answer {
             crate::harness::Answer::Allow => "once",
             crate::harness::Answer::Always => "always",
             crate::harness::Answer::Deny => "reject",
         };
-        post(&svc, &format!("/api/session/{}/permission/{}/reply", urlencoding::encode(&s.id), urlencoding::encode(id)), &serde_json::json!({ "decision": decision }))?;
+        let label = reply(ctx, s, id, serde_json::json!({ "decision": decision }))?;
         Ok(match answer {
-            crate::harness::Answer::Allow => format!("Allowed {}.", r.label),
-            crate::harness::Answer::Always => format!("Allowed {}, and from now on.", r.label),
-            crate::harness::Answer::Deny => format!("Denied {}.", r.label),
+            crate::harness::Answer::Allow => format!("Allowed {label}."),
+            crate::harness::Answer::Always => format!("Allowed {label}, and from now on."),
+            crate::harness::Answer::Deny => format!("Denied {label}."),
         })
+    }
+
+    /// Its reply takes a `message` beside a rejection (2.0.16's API), which the run goes on with.
+    fn deny_saying(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, words: &str) -> anyhow::Result<Option<String>> {
+        let label = reply(ctx, s, id, serde_json::json!({ "decision": "reject", "message": words.trim() }))?;
+        Ok(Some(format!("Denied {label}, and told it what to do instead.")))
     }
 
     /// Its command line can't fork, but its service can: the copy is a session of its own
@@ -971,6 +972,18 @@ struct PermissionRequest {
     id: String,
     label: String,
     input: Option<String>,
+}
+
+/// Answers the permission request `id` with `body`, checking first that it's still the one the
+/// session waits on. Returns what it wanted to do, for the sentence that says what happened.
+fn reply(ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, body: Value) -> anyhow::Result<String> {
+    let svc = service(&ctx.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running; answer it in OpenCode."))?;
+    let Some(r) = permission_request(&svc, &s.id) else { anyhow::bail!("It isn't waiting on a permission any more.") };
+    if r.id != id {
+        anyhow::bail!("It's waiting on a different request now: {}. Look again before answering.", r.label);
+    }
+    post(&svc, &format!("/api/session/{}/permission/{}/reply", urlencoding::encode(&s.id), urlencoding::encode(id)), &body)?;
+    Ok(r.label)
 }
 
 /// The oldest permission request a session's waiting on, from the service: what it wants to do

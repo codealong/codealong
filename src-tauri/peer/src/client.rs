@@ -337,7 +337,7 @@ impl Client {
 
     /// Allows or denies tool call `id`, if it's still the one the session waits on. Says how it went.
     pub fn answer(&self, device: &str, key: &str, id: &str, answer: api::Answer) -> std::result::Result<String, String> {
-        read(self.ask(device, api::SESSION_ANSWER, of(params::Answer { key: key.into(), id: id.into(), answer: Some(answer), answers: None }), ACT_WAIT)?)
+        read(self.ask(device, api::SESSION_ANSWER, of(params::Answer { key: key.into(), id: id.into(), answer: Some(answer), ..Default::default() }), ACT_WAIT)?)
     }
 
     /// Sends a session on `device` a prompt, where it runs there.
