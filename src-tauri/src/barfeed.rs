@@ -192,7 +192,7 @@ pub fn feed(board: &Board) -> BarFeed {
     recent.truncate(RECENT_MAX);
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
 
-    let mut prs: Vec<_> = board.prs.iter().filter(|p| p.review_requested && p.state.is_open()).collect();
+    let mut prs: Vec<_> = board.prs.iter().filter(|p| p.waits_on_review()).collect();
     prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let reviews = prs
         .into_iter()
@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_open_prs_that_ask_for_your_review_newest_first() {
+    fn keeps_open_prs_that_ask_for_your_review_newest_first_unless_snoozed() {
         let pr = |n: u64, requested: bool, state: PrState, updated: i64| -> PrItem {
             serde_json::from_value(serde_json::json!({
                 "key": format!("o/r#{n}"), "repoSlug": "o/r", "repo": "r", "project": "P", "number": n, "title": format!("PR {n}"),
@@ -419,7 +419,9 @@ mod tests {
             }))
             .expect("a PR")
         };
-        let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2)]);
+        // One you snoozed is off the bar until its time.
+        let snoozed = PrItem { snoozed_until: Some(NOW + 1_000), ..pr(5, true, PrState::Open, 5) };
+        let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2), snoozed]);
         let got: Vec<(u64, String, Option<String>)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.project, r.requested_by)).collect();
         assert_eq!(got, vec![(4, "P".to_string(), None), (1, "P".to_string(), Some("ana".to_string()))]);
     }

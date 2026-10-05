@@ -81,6 +81,9 @@ pub enum Msg {
     /// Sessions snoozed until then, or woken now with none. The reply is the time of the board
     /// that shows it, published at once.
     Snooze(Vec<String>, Option<i64>, Sender<i64>),
+    /// Reviews asked of you snoozed until then, by PR key, or woken now with none. The reply is
+    /// the time of the board that shows it, published at once.
+    SnoozeReviews(Vec<String>, Option<i64>, Sender<i64>),
     /// Lane path → session keys whose logs mention it, from the scan of that number
     /// (`Visitors::begin`).
     Visitors(u64, HashMap<PathBuf, Vec<String>>),
@@ -210,6 +213,14 @@ impl Handle {
     pub fn snooze(&self, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::Snooze(keys, until, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Snoozes your review of PRs (`owner/name#number`) until `until`, or wakes them with none.
+    /// Returns the time of the board that shows it, as `mark_seen_shown` does.
+    pub fn snooze_reviews(&self, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::SnoozeReviews(keys, until, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -1430,6 +1441,18 @@ impl Engine {
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
+                Ok(Msg::SnoozeReviews(keys, until, reply)) => {
+                    let now = now_ms();
+                    for k in keys {
+                        match until {
+                            Some(until) if until > now => self.seen.snooze_review(&k, now, until),
+                            _ => self.seen.wake_review(&k, now),
+                        }
+                    }
+                    self.save_state();
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -2391,6 +2414,7 @@ impl Engine {
             pr_links: &pr_links,
             previews: &self.previews,
             reusable: &self.reusable,
+            review_snoozes: &self.seen.review_snoozes,
         });
         board.usage = usage;
         board.when_limited = self.cfg.limits.when_hit;

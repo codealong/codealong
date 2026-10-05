@@ -433,14 +433,15 @@ interface AgentRowProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** A snoozed session's chip: how long until it's back on the floating bar, as short as the age
- *  beside it, and the time in its tooltip. */
-function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
-  if (s.snoozedUntil == null) return null;
+/** A snooze's chip: how long until it's back, as short as the age beside it, and the time and
+ *  what the snooze keeps it out of (`away`) in its tooltip. A snoozed review's is this too
+ *  (PrsView.tsx). */
+export function SnoozeChip({ until, now, away = 'off the floating bar' }: { until: number | null | undefined; now: number; away?: string }) {
+  if (until == null) return null;
   return (
-    <Chip className="ca-snoozechip" title={`Snoozed until ${untilWords(s.snoozedUntil, now)}: off the floating bar until then, then back`}>
+    <Chip className="ca-snoozechip" title={`Snoozed until ${untilWords(until, now)}: ${away} until then, then back`}>
       <Icon name="zzz" size={12} />
-      {untilShort(s.snoozedUntil, now)}
+      {untilShort(until, now)}
     </Chip>
   );
 }
@@ -473,7 +474,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
           <div className="ca-agentrow-line1">
             <SessionText s={s} now={now} />
             <span className="ca-chips ca-agentline-tags">
-              <SnoozeChip session={s} now={now} />
+              <SnoozeChip until={s.snoozedUntil} now={now} />
               <InsightChips session={s} />
               <WorktreeChip lane={lane} short />
             </span>
@@ -488,7 +489,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
           <div className="ca-lane-line2">
             <span className="ca-chips ca-lane-lead ca-agentrow-chips">
               <WorktreeChip lane={lane} />
-              <SnoozeChip session={s} now={now} />
+              <SnoozeChip until={s.snoozedUntil} now={now} />
               <TodoChips todos={todos} onShow={onShowTodo} inRow />
               <InsightChips session={s} />
               <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />

@@ -173,6 +173,18 @@ describe('prMenu and todoMenu', () => {
     ]);
     expect(labels(todoMenu(fx.todo(), { report, start: noop, session: s, desktop: new Set() }))).toEqual(['Start session…', 'Open claude: Fix login', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID']);
   });
+
+  it('puts Snooze review beside Approve, where the review waits on you', () => {
+    const snooze = { label: 'Snooze review', items: [] };
+    expect(labels(prMenu({ url: 'https://github.com/acme/api/pull/7', number: 7 }, { report, approve: noop, snooze }))).toEqual([
+      'Open on GitHub',
+      '-',
+      'Approve #7',
+      'Snooze review ›',
+      '-',
+      'Copy link',
+    ]);
+  });
 });
 
 describe('the todo menus', () => {

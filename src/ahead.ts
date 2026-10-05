@@ -1,5 +1,5 @@
 // Changes you make that the engine takes a moment to show: sessions marked seen, snoozed,
-// archived, renamed, or sent a message. The engine takes them in its own loop, which waits behind scans and git on a
+// archived, renamed, or sent a message, and reviews asked of you snoozed. The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
 // board that shows them. So each window shows a change at once, on top of the board it has, and
 // tells the other windows (the `ahead` event): the bar's pill goes as you mark its session seen in
@@ -16,7 +16,7 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, onAhead, renameSession, sendToSession, snoozeSessions, windowLabel } from './api';
+import { archiveSession, emitAhead, markSeen, onAhead, renameSession, sendToSession, snoozeReviews, snoozeSessions, windowLabel } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { relaned, sessionHeadline } from './lanes';
@@ -42,6 +42,8 @@ export type Change =
   | { kind: 'seen'; keys: string[] }
   /** Snoozed until then, or woken now with null. */
   | { kind: 'snooze'; keys: string[]; until: number | null }
+  /** Your review of these PRs (by PR key) snoozed until then, or woken now with null. */
+  | { kind: 'review-snooze'; keys: string[]; until: number | null }
   | { kind: 'archive'; key: string; archived: boolean }
   /** Named, as the board will show it. */
   | { kind: 'rename'; key: string; title: string }
@@ -119,6 +121,8 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   const m = new Map<string, Ahead[]>();
   const add = (k: string, a: Ahead) => m.set(k, [...(m.get(k) ?? []), a]);
   for (const a of changes) {
+    // A review's snooze is a PR's, not a session's.
+    if (a.change.kind === 'review-snooze') continue;
     if (a.change.kind === 'seen' || a.change.kind === 'snooze') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
@@ -190,14 +194,39 @@ export function logoOf(lanes: Lane[], prs: PrItem[]): LogoStatus {
     if (l.hidden) continue;
     for (const s of l.sessions) if (!s.archived && !s.visitor) see(logoColor(s));
   }
-  if (prs.some((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed')) see('needs');
+  if (prs.some((p) => p.reviewRequested && !p.snoozedUntil && p.state !== 'merged' && p.state !== 'closed')) see('needs');
   return LOGO_RANK[best];
+}
+
+/** The last snooze or wake of each review this window's changes snooze or wake: a time, or null
+ *  to wake. */
+function reviewSnoozes(changes: Ahead[]): Map<string, number | null> {
+  const until = new Map<string, number | null>();
+  for (const a of changes) if (a.change.kind === 'review-snooze') for (const k of a.change.keys) until.set(k, a.change.until);
+  return until;
+}
+
+/** The PRs with this window's snoozes of reviews, on the ones that wait on your review, as
+ *  board.rs `apply_review_snoozes` puts them. The same array when nothing changes. */
+export function prsAhead(prs: PrItem[], changes: Ahead[]): PrItem[] {
+  const until = reviewSnoozes(changes);
+  if (until.size === 0) return prs;
+  let changed = false;
+  const out = prs.map((p) => {
+    if (!until.has(p.key) || !p.reviewRequested || p.state === 'merged' || p.state === 'closed') return p;
+    const next = until.get(p.key) ?? null;
+    if ((p.snoozedUntil ?? null) === next) return p;
+    changed = true;
+    return { ...p, snoozedUntil: next };
+  });
+  return changed ? out : prs;
 }
 
 /** The board with this window's changes. The same board when nothing changes. */
 export function boardAhead(board: Board, changes: Ahead[]): Board {
   const lanes = lanesAhead(board.lanes, changes);
-  return lanes === board.lanes ? board : { ...board, lanes, logoStatus: logoOf(lanes, board.prs) };
+  const prs = prsAhead(board.prs, changes);
+  return lanes === board.lanes && prs === board.prs ? board : { ...board, lanes, prs, logoStatus: logoOf(lanes, prs) };
 }
 
 const GROUP_RANK = ['needs', 'unread', 'working'];
@@ -207,7 +236,17 @@ const GROUP_RANK = ['needs', 'unread', 'working'];
  *  snooze), and a renamed one takes its name. The same feed when nothing changes. */
 export function barAhead(feed: BarFeed, changes: Ahead[]): BarFeed {
   if (changes.length === 0) return feed;
-  return barMoved(barRenamed(feed, changes), changes);
+  return barReviews(barMoved(barRenamed(feed, changes), changes), changes);
+}
+
+/** The bar's feed without the reviews snoozed here. One woken comes back with the engine's next
+ *  feed, which has what the pill's menu says of it. The same feed when nothing changes. */
+function barReviews(feed: BarFeed, changes: Ahead[]): BarFeed {
+  const until = reviewSnoozes(changes);
+  if (until.size === 0) return feed;
+  const reviews = feed.reviews.filter((r) => until.get(r.key) == null);
+  if (reviews.length === feed.reviews.length) return feed;
+  return { ...feed, reviews, logoStatus: logoOfBar(feed.items, reviews.length > 0) };
 }
 
 /** The bar's feed with renamed sessions' names. The same feed when nothing changes. */
@@ -343,6 +382,8 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     if (a.doneAt == null) return a;
     if (a.shownAt != null) return v.boardAt != null && v.boardAt >= a.shownAt ? null : a;
     if (now - a.doneAt > UNANSWERED_MS) return null;
+    // A window's view finds sessions, not PRs: a review's snooze goes by the board's time alone.
+    if (c.kind === 'review-snooze') return a;
     const keys = c.kind === 'archive' || c.kind === 'rename' ? [c.key] : c.keys;
     const shows = keys.every((k) => {
       const s = v.find(k);
@@ -506,6 +547,21 @@ export function snoozeAhead(keys: string[], until: number | null): Promise<void>
   const a = made({ kind: 'snooze', keys, until });
   put(a, true);
   return snoozeSessions(keys, until).then(
+    (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+/** Snoozes your review of PRs (by PR key) until `until`, or wakes them now with null, in every
+ *  window at once. */
+export function snoozeReviewsAhead(keys: string[], until: number | null): Promise<void> {
+  if (keys.length === 0) return Promise.resolve();
+  const a = made({ kind: 'review-snooze', keys, until });
+  put(a, true);
+  return snoozeReviews(keys, until).then(
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);

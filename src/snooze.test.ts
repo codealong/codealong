@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { snoozeChoices, snoozeMenu, untilWords } from './snooze';
+import { reviewSnoozeMenu, snoozeChoices, snoozeMenu, untilWords } from './snooze';
 
 // Local times, so the tests read the same in any time zone.
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute).getTime();
@@ -37,5 +37,19 @@ describe('snooze', () => {
     expect(snoozed.label).toBe('Snoozed until 3:40 PM');
     expect(snoozed.items.slice(-2).map((i) => (i === 'separator' ? '-' : i.label))).toEqual(['-', 'Wake now']);
     expect(snoozeMenu(['a', 'b'], NOW, { label: 'Snooze these', onDone }).label).toBe('Snooze these');
+  });
+
+  it('names a review’s snooze as the review’s, with the same times', () => {
+    const onDone = () => {};
+    const pr = { key: 'o/r#12', reviewRequested: true, state: 'open' as const, snoozedUntil: null };
+    const fresh = reviewSnoozeMenu(pr, NOW, onDone);
+    expect(fresh?.label).toBe('Snooze review');
+    expect(fresh?.items).toHaveLength(4);
+    const snoozed = reviewSnoozeMenu({ ...pr, snoozedUntil: at(29, 9) }, NOW, onDone);
+    expect(snoozed?.label).toBe('Review snoozed until tomorrow 9 AM');
+    expect(snoozed?.items.slice(-1).map((i) => (i === 'separator' ? '-' : i.label))).toEqual(['Wake now']);
+    // Only a review that waits on you snoozes.
+    expect(reviewSnoozeMenu({ ...pr, reviewRequested: false }, NOW, onDone)).toBeUndefined();
+    expect(reviewSnoozeMenu({ ...pr, state: 'merged' }, NOW, onDone)).toBeUndefined();
   });
 });

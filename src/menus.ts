@@ -452,6 +452,8 @@ export interface PrCan {
   reveal?: () => void;
   /** Approves it, when you're asked to review it and it's open. */
   approve?: () => void;
+  /** Snooze review (snooze.ts `reviewSnoozeMenu`), when it waits on your review. */
+  snooze?: MenuGroup;
   /** Shows the worktree it's checked out in. */
   showLane?: { lane: Lane; run: () => void };
   /** Pin PR or Unpin PR, where PRs are listed (the main window). */
@@ -462,8 +464,8 @@ export interface PrCan {
   canvas?: MenuSpec;
 }
 
-/** A PR's menu: opening it, its session, reviewing it, showing it; approving it; pinning it; its
- *  worktree and copying its link and branch. */
+/** A PR's menu: opening it, its session, reviewing it, showing it; approving it and snoozing your
+ *  review; pinning it; its worktree and copying its link and branch. */
 export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; key?: string }, can: PrCan): MenuSpec {
   const { report } = can;
   const s = can.session;
@@ -474,7 +476,7 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; 
       ...(can.review ? [{ label: 'Review with', items: can.review }] : []),
       ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
     ],
-    can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : [],
+    [...(can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : []), ...some(can.snooze)],
     [...some(can.pin), ...(can.desktop && pr.key ? [desktopItem('pr', pr.key, can.desktop, report)] : [])],
     [
       ...(can.showLane ? [{ label: `Show worktree ${can.showLane.lane.callsign}`, run: can.showLane.run }] : []),

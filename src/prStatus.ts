@@ -88,7 +88,8 @@ export function prPills(pr: PrFacts): PrPill[] {
  *  are what the Needs you filter keeps. */
 export function prFlag(pr: PrItem): 'ready' | 'attn' | 'alert' | null {
   if (!isOpen(pr.state)) return null;
-  if (pr.reviewRequested) return 'attn';
+  // A review you snoozed waits until its time.
+  if (pr.reviewRequested && !pr.snoozedUntil) return 'attn';
   if (!pr.mine) return null;
   if (prReady(pr)) return 'ready';
   if (pr.checks.failed > 0) return 'alert';

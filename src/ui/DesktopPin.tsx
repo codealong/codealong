@@ -26,6 +26,7 @@ import { cx, STATUS_WORD } from './primitives';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
+import { reviewSnoozeMenu } from '../snooze';
 import { openWhere, where } from '../open';
 
 /** Room around the card for its shadow: the window is this much bigger on every side. */
@@ -223,7 +224,8 @@ export function DesktopPin() {
       case 'pr': {
         const p = data.pr;
         const s = liveOrLatest(lanes.flatMap((lane) => lane.sessions.map((session) => ({ lane, session }))));
-        return menus.prMenu(p, { report: said, session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined, reveal: () => void showMain({ kind: 'pr', key: p.key }), desktop: onDesktop });
+        const snooze = reviewSnoozeMenu(p, Date.now(), (act) => void act.catch(fail));
+        return menus.prMenu(p, { report: said, session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined, reveal: () => void showMain({ kind: 'pr', key: p.key }), snooze, desktop: onDesktop });
       }
       default:
         return [{ label: 'Remove from desktop', run: remove }];

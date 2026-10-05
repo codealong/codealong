@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
-import type { GitInfo } from '../types';
-import { prPlaces, syncWords } from './PrsView';
+import type { GitInfo, PrItem } from '../types';
+import { prPlaces, prSections, syncWords, type PrRowItem } from './PrsView';
 
 const lane = (id: string) => fx.lane({ id });
 const session = (key: string) => fx.session({ key });
@@ -38,5 +38,30 @@ describe('syncWords', () => {
     expect(syncWords(git({ upstream: null }))).toBe('clean');
     expect(syncWords(git({ upstream: null, dirty: 3 }))).toBe('3 uncommitted files');
     expect(syncWords(null)).toBeNull();
+  });
+});
+
+describe('prSections', () => {
+  const row = (number: number, over: Partial<PrItem> = {}): PrRowItem => {
+    const pr = fx.prItem({ number, ...over });
+    return { kind: 'pr', key: pr.key, pr, lane: null, sessions: [], places: [] };
+  };
+
+  it('puts snoozed reviews apart, the soonest back first, until they wait on you again', () => {
+    const rows = [
+      row(1, { reviewRequested: true }),
+      row(2, { reviewRequested: true, snoozedUntil: 300 }),
+      row(3, { mine: true }),
+      row(4),
+      row(5, { reviewRequested: true, snoozedUntil: 100 }),
+      row(6, { state: 'merged', mergedAt: 5 }),
+    ];
+    expect(prSections(rows).map((s) => [s.id, s.rows.map((r) => r.pr.number)])).toEqual([
+      ['requested', [1]],
+      ['mine', [3]],
+      ['others', [4]],
+      ['snoozed', [5, 2]],
+      ['done', [6]],
+    ]);
   });
 });

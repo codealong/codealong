@@ -1,6 +1,7 @@
 // The PRs view: every PR in the project's repos. The ones you pinned come first, in your order;
-// then reviews asked of you, flagged, with one-click Approve; then yours, then everyone else's;
-// merged and closed ones fold at the end. Each row names the local worktree and the sessions that
+// then reviews asked of you, flagged (Approve is in the PR's panel and its menu); then yours,
+// then everyone else's; then the reviews you snoozed, the soonest back first; merged and closed
+// ones fold at the end. Each row names the local worktree and the sessions that
 // worked on the PR. Drag a PR up among the pinned ones to pin it there, a pinned one down to the
 // list to unpin it, and any out of the window to pin it to the desktop (useRowDrag.tsx).
 
@@ -10,6 +11,7 @@ import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
 import { PrPills } from './PrPills';
 import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, Row, WorktreeChip } from './primitives';
+import { SnoozeChip } from './LaneRow';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface PrRowItem {
@@ -60,7 +62,7 @@ export function syncWords(g: GitInfo | null): string | null {
 }
 
 export interface PrSection {
-  id: 'requested' | 'mine' | 'others' | 'done';
+  id: 'requested' | 'mine' | 'others' | 'snoozed' | 'done';
   label: string;
   rows: PrRowItem[];
 }
@@ -69,14 +71,27 @@ export function prIsOpen(pr: PrItem): boolean {
   return pr.state !== 'merged' && pr.state !== 'closed';
 }
 
-/** Review requested, Yours, Others, then Merged & closed (newest first). */
+/** Your review is asked for and you haven't snoozed it: it waits on you now. */
+export function waitsOnReview(pr: PrItem): boolean {
+  return pr.reviewRequested && !pr.snoozedUntil && prIsOpen(pr);
+}
+
+/** Your review is asked for and you snoozed it until a time still to come. */
+export function reviewSnoozed(pr: PrItem): pr is PrItem & { snoozedUntil: number } {
+  return pr.reviewRequested && !!pr.snoozedUntil && prIsOpen(pr);
+}
+
+/** Review requested, Yours, Others, Snoozed (the soonest back first), then Merged & closed
+ *  (newest first). */
 export function prSections(rows: PrRowItem[]): PrSection[] {
-  const open = rows.filter((r) => prIsOpen(r.pr));
+  const open = rows.filter((r) => prIsOpen(r.pr) && !reviewSnoozed(r.pr));
+  const snoozed = rows.filter((r) => reviewSnoozed(r.pr)).sort((a, b) => (a.pr.snoozedUntil ?? 0) - (b.pr.snoozedUntil ?? 0) || a.key.localeCompare(b.key));
   const done = rows.filter((r) => !prIsOpen(r.pr)).sort((a, b) => (b.pr.mergedAt ?? b.pr.closedAt ?? 0) - (a.pr.mergedAt ?? a.pr.closedAt ?? 0));
   const sections: PrSection[] = [
     { id: 'requested', label: 'Review requested', rows: open.filter((r) => r.pr.reviewRequested) },
     { id: 'mine', label: 'Yours', rows: open.filter((r) => !r.pr.reviewRequested && r.pr.mine) },
     { id: 'others', label: 'Others', rows: open.filter((r) => !r.pr.reviewRequested && !r.pr.mine) },
+    { id: 'snoozed', label: 'Snoozed', rows: snoozed },
     { id: 'done', label: 'Merged & closed', rows: done },
   ];
   return sections.filter((s) => s.rows.length > 0);
@@ -123,19 +138,17 @@ interface PrRowProps {
   domId: string;
   now: number;
   selected: boolean;
-  approving: boolean;
   onSelect: () => void;
   onOpen: () => void;
-  onApprove: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onContextMenu: () => void;
   /** Starts a drag of the row; with a `pinIndex`, it's one of the pinned ones. */
   drag?: DragProps;
 }
 
-function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onApprove, onOpenSession, onContextMenu, drag }: PrRowProps) {
+function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag }: PrRowProps) {
   const { pr } = item;
-  const requested = pr.reviewRequested && prIsOpen(pr);
+  const requested = waitsOnReview(pr);
   const flag = prFlag(pr);
   const shown = item.sessions.slice(0, 2);
   return (
@@ -165,6 +178,7 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
             {/* The repo · branch · author line comes after the pills, so it's the one that
                 drops out of the lead. */}
             <span className="ca-prrow-lead">
+              {reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />}
               <PrPills pr={pr} />
               <span className="ca-prrow-meta" title={`${pr.repoSlug} · ${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
                 {pr.repo} · {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
@@ -185,25 +199,6 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
           </span>
         </div>
       </div>
-      <div className="ca-seg ca-prrow-act">
-        {requested && (
-          <button
-            type="button"
-            className="ca-btn ca-btn--primary ca-btn--sm"
-            disabled={approving}
-            title={`Approve #${pr.number} as you`}
-            onMouseDown={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onApprove();
-            }}
-          >
-            <Icon name="check" size={14} stroke={2} />
-            <span>{approving ? 'Approving…' : 'Approve'}</span>
-          </button>
-        )}
-      </div>
       <div className="ca-seg ca-seg-age" title={`Updated ${absolute(pr.updatedAt)}`}>
         {ago(pr.updatedAt, now)}
       </div>
@@ -220,10 +215,8 @@ interface PrsViewProps {
   domId: (row: PrRowItem) => string;
   showDone: boolean;
   onToggleDone: () => void;
-  approving: Set<string>;
   onSelect: (row: PrRowItem) => void;
   onOpen: (row: PrRowItem) => void;
-  onApprove: (row: PrRowItem) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onContextMenu: (row: PrRowItem) => void;
   /** Puts a PR at insertion point `index` among the pinned ones showing: a pinned one moves
@@ -233,10 +226,10 @@ interface PrsViewProps {
   onUnpin: (key: string) => void;
 }
 
-const SECTION_ICON: Record<PrSection['id'], string> = { requested: 'eye', mine: 'user', others: 'pr', done: 'merge' };
+const SECTION_ICON: Record<PrSection['id'], string> = { requested: 'eye', mine: 'user', others: 'pr', snoozed: 'zzz', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
-  const { pinned, sections, now, selectedKey, domId, showDone, onToggleDone, approving, onSelect, onOpen, onApprove, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
+  const { pinned, sections, now, selectedKey, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
   const byKey = (key: string) => pinned.find((r) => r.pr.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.pr.key === key);
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -256,10 +249,8 @@ export function PrsView(props: PrsViewProps) {
       domId={domId(r)}
       now={now}
       selected={r.key === selectedKey}
-      approving={approving.has(r.pr.key)}
       onSelect={() => onSelect(r)}
       onOpen={() => onOpen(r)}
-      onApprove={() => onApprove(r)}
       onOpenSession={onOpenSession}
       onContextMenu={() => onContextMenu(r)}
       drag={drag.rowProps(r.pr.key, index, pinned.length)}

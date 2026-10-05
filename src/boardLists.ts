@@ -13,7 +13,7 @@ import { ALL_PROJECTS, inProject } from './quick';
 import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
-import { prIsOpen, prPlaces, prSections, type PrRowItem } from './ui/PrsView';
+import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem } from './ui/PrsView';
 import { sortSessions, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
 
 const ELSEWHERE = 'Elsewhere';
@@ -309,7 +309,7 @@ export function useBoardLists(input: ListsInput) {
   const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key))), [prRows, prPins.set]);
   const prVisible = useMemo<ListRow[]>(() => [...pinnedPrRows, ...prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows))], [pinnedPrRows, prSecs, showDonePrs]);
   const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
-  const requestedCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.reviewRequested).length, [projectPrs]);
+  const requestedCount = useMemo(() => projectPrs.filter(waitsOnReview).length, [projectPrs]);
 
   // The Todo view: the project's todos, with the worktrees and sessions they're linked to.
   const homes = useMemo<Map<string, Placed>>(() => sessionHomes(lanes), [lanes]);

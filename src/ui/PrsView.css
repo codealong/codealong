@@ -1,7 +1,7 @@
 /* PR rows in the PRs view (PrsView.tsx). */
 
 .ca-lane.ca-prrow {
-  grid-template-columns: 32px minmax(0, 1fr) auto 52px;
+  grid-template-columns: 32px minmax(0, 1fr) 52px;
 }
 .ca-prrow .ca-seg-main {
   border-left: 0;
@@ -84,20 +84,7 @@
   align-items: center;
   gap: var(--chip-gap);
 }
-/* The diff keeps to the right edge, as in the Worktrees view. Beside an Approve button, where
-   room is shortest, it doesn't hold its column's full width, so the pills keep their words. */
+/* The diff keeps to the right edge, as in the Worktrees view. */
 .ca-prrow .ca-diff {
   justify-content: flex-end;
-}
-.ca-prrow.is-requested .ca-diff {
-  min-width: 0;
-}
-.ca-prrow-act {
-  justify-content: center;
-  align-items: flex-end;
-  padding: 0 var(--space-2) 0 0;
-  border-left: 0;
-}
-.ca-prrow-act .ca-btn {
-  gap: var(--space-1);
 }

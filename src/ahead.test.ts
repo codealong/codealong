@@ -13,7 +13,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { barAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, renameAhead, sendAhead, settled, type Ahead, type View } from './ahead';
+import { barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, renameAhead, sendAhead, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf } from './lanes';
 import * as fx from './testing/fixtures';
@@ -109,6 +109,24 @@ describe('lanesAhead', () => {
   it('colors the mark from what’s left', () => {
     const lanes = lanesAhead([lane([session('a', 'unread'), session('b', 'working')])], [change({ kind: 'seen', keys: ['a'] })]);
     expect(logoOf(lanes, [])).toBe('working');
+  });
+});
+
+describe('boardAhead', () => {
+  it('snoozes a review asked of you, and the mark leaves it out', () => {
+    const asked = fx.prItem({ number: 1, reviewRequested: true });
+    const other = fx.prItem({ number: 2 });
+    const board = fx.board({ lanes: [lane([session('a', 'idle')])], prs: [asked, other], logoStatus: 'needs' });
+    const out = boardAhead(board, [change({ kind: 'review-snooze', keys: [asked.key, other.key], until: NOW + 900_000 })]);
+    expect(out.prs.map((p) => p.snoozedUntil ?? null)).toEqual([NOW + 900_000, null]);
+    expect(out.prs[1]).toBe(other);
+    expect(out.lanes).toBe(board.lanes);
+    expect(out.logoStatus).toBe('idle');
+    // Woken, it waits on you again.
+    const back = boardAhead(out, [change({ kind: 'review-snooze', keys: [asked.key], until: null })]);
+    expect(back.prs[0].snoozedUntil).toBeNull();
+    expect(back.logoStatus).toBe('needs');
+    expect(boardAhead(board, [change({ kind: 'review-snooze', keys: [other.key], until: NOW + 1 })])).toBe(board);
   });
 });
 
@@ -217,6 +235,16 @@ describe('barAhead', () => {
     const out = barAhead(f, ['n', 'r', 'z'].map((key) => change({ kind: 'rename', key, title: `Named ${key}` })));
     expect([out.items[0].title, out.recent[0].title, out.snoozed[0].title]).toEqual(['Named n', 'Named r', 'Named z']);
     expect(barAhead(f, [change({ kind: 'rename', key: 'n', title: 'n' })])).toBe(f);
+  });
+
+  it('takes a snoozed review off the bar, and the mark with it', () => {
+    const f = { ...feed([item('w', 'working', NOW)]), reviews: [fx.barReview({ key: 'o/r#1' }), fx.barReview({ key: 'o/r#2' })] };
+    const one = barAhead(f, [change({ kind: 'review-snooze', keys: ['o/r#1'], until: NOW + 900_000 })]);
+    expect(one.reviews.map((r) => r.key)).toEqual(['o/r#2']);
+    expect(one.logoStatus).toBe('needs');
+    const both = barAhead(f, [change({ kind: 'review-snooze', keys: ['o/r#1', 'o/r#2'], until: NOW + 900_000 })]);
+    expect(both.reviews).toEqual([]);
+    expect(both.logoStatus).toBe('working');
   });
 
   it('hands back the same feed when nothing applies', () => {

@@ -78,6 +78,14 @@ export async function snoozeSessions(keys: string[], until: number | null): Prom
   return (await invoke<number | null>('snooze_sessions', { keys, until })) ?? null;
 }
 
+/** Snoozes your review of PRs (`owner/name#number`) until `until`, or wakes them now with null.
+ *  Returns the time of the board that shows it, as `markSeen` does; windows snooze through
+ *  ahead.ts. */
+export async function snoozeReviews(keys: string[], until: number | null): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('snooze_reviews', { keys, until })) ?? null;
+}
+
 export async function refresh(): Promise<void> {
   if (!inTauri) return;
   await invoke('refresh');

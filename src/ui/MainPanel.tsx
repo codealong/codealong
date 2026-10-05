@@ -96,6 +96,8 @@ export interface MainPanelProps {
   prChipMenu: (lane: Lane, pr: Pr) => void;
   approve: (pr: PrItem) => void;
   reviewMenuFrom: (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, el: Element) => void;
+  /** Drops Snooze review's times from a button. */
+  snoozeMenuFrom: (pr: PrItem, el: Element) => void;
   reviewedPr: (lane: Lane, pr: Pr) => Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>;
   setPreviewFor: (laneId: string) => void;
   markSeen: (keys: string[]) => void;
@@ -103,7 +105,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prChipMenu, approve, reviewMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
   const { startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -158,6 +160,7 @@ export function MainPanel(props: MainPanelProps) {
       approving={approving.has(item.pr.key)}
       onApprove={() => approve(item.pr)}
       onReview={(el) => reviewMenuFrom(item.pr, el)}
+      onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
       onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}

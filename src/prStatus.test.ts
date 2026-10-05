@@ -44,6 +44,7 @@ describe('prPills', () => {
 describe('prFlag', () => {
   it('flags a review asked of you, whoever wrote the PR', () => {
     expect(prFlag(item({ mine: false, reviewRequested: true }))).toBe('attn');
+    expect(prFlag(item({ mine: false, reviewRequested: true, snoozedUntil: 5 }))).toBeNull();
   });
 
   it('flags your PRs that are ready or held up by something you can fix', () => {

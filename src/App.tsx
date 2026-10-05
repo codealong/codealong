@@ -51,6 +51,7 @@ import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText } from './report';
+import { reviewSnoozeMenu } from './snooze';
 import { useSessionHistory } from './history';
 import { QUEUE_CHORDS } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
@@ -760,6 +761,14 @@ export function App() {
     void showContextMenu(spec, below(el)).catch((e: unknown) => setToast(String(e)));
   };
 
+  /** Snooze review, for a PR that asks for your review: the times it can wait, and Wake now. */
+  const snoozeReview = (p: PrItem) => reviewSnoozeMenu(p, Date.now(), (act) => void act.catch((e: unknown) => setToast(errorText(e))));
+  /** Drops Snooze review's times from a button, as the PR panel has it. */
+  const snoozeMenuFrom = (p: PrItem, el: Element) => {
+    const menu = snoozeReview(p);
+    if (menu) void showContextMenu(menu.items, below(el)).catch((e: unknown) => setToast(String(e)));
+  };
+
   /** A PR's right-click menu, as every window has it (menus.ts), with this window's own. */
   const prMenuSpec = (r: PrRowItem): MenuSpec => {
     const p = r.pr;
@@ -768,6 +777,7 @@ export function App() {
       report,
       review: reviewItems(p),
       approve: p.reviewRequested && prIsOpen(p) ? () => approve(p) : undefined,
+      snooze: snoozeReview(p),
       showLane: lane ? { lane, run: () => focusLane(lane) } : undefined,
       pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
       desktop: onDesktop,
@@ -1448,13 +1458,11 @@ export function App() {
                 domId={domId}
                 showDone={showDonePrs}
                 onToggleDone={() => setShowDonePrs(!showDonePrs)}
-                approving={approving}
                 onSelect={(r) => setSelectedKey(r.key)}
                 onOpen={(r) => {
                   setSelectedKey(r.key);
                   openRow(r);
                 }}
-                onApprove={(r) => approve(r.pr)}
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
                 onContextMenu={(r) => prMenu(r)}
               />
@@ -1587,6 +1595,7 @@ export function App() {
           prChipMenu={prChipMenu}
           approve={approve}
           reviewMenuFrom={reviewMenuFrom}
+          snoozeMenuFrom={snoozeMenuFrom}
           reviewedPr={reviewedPr}
           setPreviewFor={setPreviewFor}
           markSeen={markSeen}

@@ -179,6 +179,10 @@ pub struct PrItem {
     /// Who asked for it, when GitHub says; often not the author.
     #[serde(default)]
     pub requested_by: Option<String>,
+    /// You snoozed your review from Codealong until then (`board::apply_review_snoozes`): it's
+    /// out of Review requested, the floating bar's reviews and the mark until the time comes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<i64>,
     pub head: String,
     pub base: Option<String>,
     pub checks: Checks,
@@ -194,6 +198,14 @@ pub struct PrItem {
     pub lanes: Vec<String>,
     /// The sessions that worked on the PR, each with the worktree it's listed under.
     pub sessions: Vec<PrSession>,
+}
+
+impl PrItem {
+    /// It's open, your review is asked for, and you haven't snoozed it: what the floating bar
+    /// lists and the mark says needs you.
+    pub fn waits_on_review(&self) -> bool {
+        self.review_requested && self.state.is_open() && self.snoozed_until.is_none()
+    }
 }
 
 /// A session that worked on a PR.

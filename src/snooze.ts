@@ -1,9 +1,12 @@
 // Snoozing a session: it stays off the floating bar's Needs you and Your turn until the time you
-// pick, then comes back, as Your turn if nothing else would bring it (board::apply_snooze). The
-// engine keeps snoozes in state.json; this is the menu that sets them.
+// pick, then comes back, as Your turn if nothing else would bring it (board::apply_snooze). A
+// review asked of you snoozes the same way: the PR stays out of Review requested, the bar's
+// reviews and the mark until its time (board::apply_review_snoozes). The engine keeps snoozes in
+// state.json; these are the menus that set them.
 
-import { snoozeAhead } from './ahead';
+import { snoozeAhead, snoozeReviewsAhead } from './ahead';
 import type { MenuAction, MenuGroup } from './contextMenu';
+import type { PrItem } from './types';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -55,12 +58,34 @@ export function snoozeChordIndex(key: string): number {
   return SNOOZE_CHORDS.indexOf(`Ctrl+Cmd+${key}`);
 }
 
-/** The Snooze submenu for sessions: the times, and Wake now for one that's snoozed already. With
- *  `chords` each time says its chord, where the window takes them. `onDone` gets each snooze as
- *  it goes, to say how it went the window's way. */
-export function snoozeMenu(keys: string[], now: number, opts: { label?: string; until?: number | null; onDone: (act: Promise<void>) => void; chords?: boolean }): MenuGroup {
+interface SnoozeOpts {
+  label?: string;
+  /** When the snooze it has now ends, for one that's snoozed. */
+  until?: number | null;
+  /** Gets each snooze as it goes, to say how it went the window's way. */
+  onDone: (act: Promise<void>) => void;
+  /** Each time says its chord, where the window takes them. */
+  chords?: boolean;
+}
+
+/** A snooze's times as a submenu, each setting it with `set`, and Wake now for one that's
+ *  snoozed already. */
+function timesMenu(set: (until: number | null) => Promise<void>, now: number, opts: SnoozeOpts, label: string): MenuGroup {
   const done = opts.onDone;
-  const items: (MenuAction | 'separator')[] = snoozeChoices(now).map((c, i) => ({ label: c.label, run: () => done(snoozeAhead(keys, c.until)), ...(opts.chords && SNOOZE_CHORDS[i] ? { accelerator: SNOOZE_CHORDS[i] } : {}) }));
-  if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(snoozeAhead(keys, null)) });
-  return { label: opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'), items };
+  const items: (MenuAction | 'separator')[] = snoozeChoices(now).map((c, i) => ({ label: c.label, run: () => done(set(c.until)), ...(opts.chords && SNOOZE_CHORDS[i] ? { accelerator: SNOOZE_CHORDS[i] } : {}) }));
+  if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(set(null)) });
+  return { label, items };
+}
+
+/** The Snooze submenu for sessions: the times, and Wake now for one that's snoozed already. */
+export function snoozeMenu(keys: string[], now: number, opts: SnoozeOpts): MenuGroup {
+  return timesMenu((until) => snoozeAhead(keys, until), now, opts, opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'));
+}
+
+/** The Snooze review submenu for an open PR that asks for your review: the times, and Wake now
+ *  for one that's snoozed already. None for any other PR. */
+export function reviewSnoozeMenu(pr: Pick<PrItem, 'key' | 'reviewRequested' | 'state' | 'snoozedUntil'>, now: number, onDone: SnoozeOpts['onDone']): MenuGroup | undefined {
+  if (!pr.reviewRequested || pr.state === 'merged' || pr.state === 'closed') return undefined;
+  const until = pr.snoozedUntil;
+  return timesMenu((u) => snoozeReviewsAhead([pr.key], u), now, { until, onDone }, until ? `Review snoozed until ${untilWords(until, now)}` : 'Snooze review');
 }

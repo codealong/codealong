@@ -1,7 +1,9 @@
 //! What you've seen, pinned and snoozed. A finished turn is "Your turn" until you open the
 //! session from Codealong or mark it seen. Pinned sessions stay at the top of the Sessions view
 //! and pinned worktrees at the top of the Worktrees view, each in your order. A snoozed session
-//! stays off the floating bar's Needs you and Your turn until its time (`board::apply_snooze`).
+//! stays off the floating bar's Needs you and Your turn until its time (`board::apply_snooze`),
+//! and a PR whose review you snoozed stays out of Review requested, the bar's reviews and the
+//! mark until its time (`board::apply_review_snoozes`).
 //! Stored in `state.json` next to the config.
 
 use std::collections::HashMap;
@@ -42,6 +44,10 @@ pub struct SeenState {
     /// Sessions snoozed from Codealong, the latest snooze of each.
     #[serde(default)]
     pub snoozed: Vec<Snooze>,
+    /// Reviews asked of you that you snoozed from Codealong, by PR key (`owner/name#number`), the
+    /// latest snooze of each.
+    #[serde(default)]
+    pub review_snoozes: Vec<Snooze>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -93,6 +99,7 @@ impl SeenState {
         let cutoff = now_ms() - 30 * DAY_MS;
         self.seen.retain(|_, at| *at >= cutoff);
         self.snoozed.retain(|z| z.until >= cutoff);
+        self.review_snoozes.retain(|z| z.until >= cutoff);
         // Through a temporary file: Settings reads this while the engine writes it.
         store::save(path, self)
     }
@@ -108,19 +115,26 @@ impl SeenState {
 
     /// Snoozes a session until `until`, in place of any snooze it had.
     pub fn snooze(&mut self, key: &str, at: i64, until: i64) {
-        self.snoozed.retain(|z| z.key != key);
-        self.snoozed.push(Snooze { key: key.to_string(), at, until });
+        snooze_in(&mut self.snoozed, key, at, until);
     }
 
     /// Ends a session's snooze now, as if its time had come: it comes back to the bar.
     pub fn wake(&mut self, key: &str, now: i64) {
-        if let Some(z) = self.snoozed.iter_mut().find(|z| z.key == key && z.until > now) {
-            z.until = now;
-        }
+        wake_in(&mut self.snoozed, key, now);
     }
 
     pub fn snooze_of(&self, key: &str) -> Option<&Snooze> {
         self.snoozed.iter().find(|z| z.key == key)
+    }
+
+    /// Snoozes your review of a PR until `until`, in place of any snooze it had.
+    pub fn snooze_review(&mut self, key: &str, at: i64, until: i64) {
+        snooze_in(&mut self.review_snoozes, key, at, until);
+    }
+
+    /// Ends a review's snooze now: the PR waits on your review again.
+    pub fn wake_review(&mut self, key: &str, now: i64) {
+        wake_in(&mut self.review_snoozes, key, now);
     }
 
     /// Replaces the pinned list, keeping the first of any repeats.
@@ -184,6 +198,18 @@ pub fn path() -> PathBuf {
 /// The account folders state.json knows, for those that only look: none when it doesn't read.
 pub fn known_accounts() -> Vec<String> {
     SeenState::load().map(|s| s.known_accounts).unwrap_or_default()
+}
+
+fn snooze_in(list: &mut Vec<Snooze>, key: &str, at: i64, until: i64) {
+    list.retain(|z| z.key != key);
+    list.push(Snooze { key: key.to_string(), at, until });
+}
+
+/// A snooze woken stays, ended now, as one whose time has passed does.
+fn wake_in(list: &mut [Snooze], key: &str, now: i64) {
+    if let Some(z) = list.iter_mut().find(|z| z.key == key && z.until > now) {
+        z.until = now;
+    }
 }
 
 /// The keys in order, without empty ones or repeats.
@@ -306,6 +332,22 @@ mod tests {
         assert_eq!(s.snooze_of("claude:claude:a").map(|z| z.until), Some(50));
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.snoozed.is_empty());
+    }
+
+    #[test]
+    fn review_snoozes_are_a_list_of_their_own() {
+        let mut s = SeenState::default();
+        s.snooze("claude:claude:a", 10, 100);
+        s.snooze_review("o/r#12", 10, 100);
+        s.snooze_review("o/r#12", 20, 300);
+        assert_eq!(s.review_snoozes, vec![Snooze { key: "o/r#12".into(), at: 20, until: 300 }]);
+        assert_eq!(s.snoozed.len(), 1);
+        s.wake_review("o/r#12", 50);
+        assert_eq!(s.review_snoozes[0].until, 50);
+        assert_eq!(s.snooze_of("claude:claude:a").map(|z| z.until), Some(100));
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""reviewSnoozes":[{"key":"o/r#12","at":20,"until":50}]"#));
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
+        assert!(old.review_snoozes.is_empty());
     }
 
     #[test]

@@ -226,9 +226,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     each: the ones that made, edited or commented on it (from their own records), the ones on
     its branch while it was open, and any linked by hand (`codealong pr link|unlink`). The PRs you pinned come first, in your order (`p`, Pin PR in its
     menu, or drag its row up to the top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to
-    reorder), whatever the age filter says. Then reviews asked of you, with one-click Approve;
-    they're listed for every repo a project has here, one checked out only on its default
-    branch too, whose other PRs aren't read.
+    reorder), whatever the age filter says. Then reviews asked of you; they're listed for every
+    repo a project has here, one checked out only on its default branch too, whose other PRs
+    aren't read. Approve is in a PR's panel and its menu, not on its row. Snooze review (in the
+    menu, or Snooze… in the panel) puts one off for 15 minutes, an hour, three hours or until 9
+    the next morning: it leaves Review requested, the bar's reviews pill, the mark and the
+    sidebar's count, and waits under Snoozed with when it's back, the soonest first, until its
+    time or Wake now.
     A PR's right-click menu, on its row here or on its number where a worktree or session shows
     it (and the worktree's panel), opens it on GitHub or in Codex and copies its link; a
     worktree's own menu copies its PR's link too. Colored pills say where

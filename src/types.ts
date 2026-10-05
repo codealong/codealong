@@ -758,6 +758,9 @@ export interface PrItem {
   reviewRequested: boolean;
   /** Who asked for your review, when GitHub says; often not the author. */
   requestedBy?: string | null;
+  /** You snoozed your review until then: it's out of Review requested, the floating bar's
+   *  reviews and the mark until the time comes (board.rs, `apply_review_snoozes`). */
+  snoozedUntil?: number | null;
   head: string;
   base: string | null;
   checks: Checks;

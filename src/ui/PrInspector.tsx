@@ -13,7 +13,8 @@ import type { Lane, PrComment, PrDetail, PrFile, Session } from '../types';
 import { PanelPlace } from './PanelSession';
 import { PrPills } from './PrPills';
 import { Button, cx, Icon } from './primitives';
-import { ChecksSummary, PrGlyph, prIsOpen, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import { untilWords } from '../snooze';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 
@@ -130,6 +131,8 @@ interface PrInspectorProps {
   onApprove: () => void;
   /** Drops Review with… from the button. */
   onReview: (button: Element) => void;
+  /** Drops Snooze review's times from the button. */
+  onSnooze: (button: Element) => void;
   /** Shows a session in the panel, in place of the PR until you go back. */
   onShowSession: (lane: Lane, session: Session) => void;
   /** Opens a session where it runs. */
@@ -141,7 +144,7 @@ interface PrInspectorProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function PrInspector({ item, now, approving, onApprove, onReview, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
+export function PrInspector({ item, now, approving, onApprove, onReview, onSnooze, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
   const { pr } = item;
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
@@ -213,7 +216,14 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onShowS
           <PrGlyph pr={pr} />
           <span className="ca-insp-call">#{pr.number}</span>
           <span className="ca-prinsp-status">
-            {requested && <span className="ca-tag is-attn">Review requested</span>}
+            {reviewSnoozed(pr) ? (
+              <span className="ca-tag" title="Out of Review requested and off the floating bar until then">
+                <Icon name="zzz" size={12} />
+                Review snoozed until {untilWords(pr.snoozedUntil, now)}
+              </span>
+            ) : (
+              requested && <span className="ca-tag is-attn">Review requested</span>
+            )}
             <PrPills pr={pr} />
           </span>
         </div>
@@ -239,6 +249,11 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onShowS
         {requested && (
           <Button variant="primary" icon="check" disabled={approving} onClick={onApprove}>
             {approving ? 'Approving…' : 'Approve'}
+          </Button>
+        )}
+        {requested && (
+          <Button icon="zzz" title="Out of Review requested and off the floating bar until the time you pick" onClick={(e) => onSnooze(e.currentTarget)}>
+            Snooze…
           </Button>
         )}
         <Button icon="external" onClick={() => void openUrl(pr.url)}>
