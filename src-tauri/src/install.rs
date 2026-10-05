@@ -167,14 +167,14 @@ pub fn refresh_installed() {
             continue;
         }
         if state.from.is_none() && state.version != shipped {
-            if let Err(e) = stage_marketplace().and_then(|_| claude_plugin(&home, &["update", PLUGIN])) {
+            if let Err(e) = stage_marketplace().and_then(|_| plugin_verb(&home, "update")) {
                 eprintln!("Couldn't update the plugin in {}: {e:#}", home.display());
             }
         }
         // Installed from Codealong's folder and not turned off by anyone, but not on either: the
         // write that turned it on was lost.
         if state.from.is_none() && enabled_entry(&home).is_none() {
-            if let Err(e) = claude_plugin(&home, &["enable", PLUGIN]) {
+            if let Err(e) = plugin_verb(&home, "enable") {
                 eprintln!("Couldn't turn the plugin on in {}: {e:#}", home.display());
             }
         }
@@ -507,6 +507,18 @@ fn claude_plugin(home: &Path, args: &[&str]) -> Result<String> {
     crate::procs::run("/usr/bin/env", &all, Some(&crate::util::home()), std::time::Duration::from_secs(120))
 }
 
+/// Runs `claude plugin <verb>` on the plugin as the account's own (user scope), the install
+/// `plugin_state` reads. Without a scope Claude Code goes by the folder it runs in, and takes the
+/// install made for that folder's project when there is one: an account here had one for the
+/// home folder beside its own, and Update brought that one up to date every time while the
+/// account's own stayed behind, still saying an update was available (checked on 2.1.289,
+/// 2026-10-05). Such an install isn't taken away from here: in the home folder it's recorded in
+/// `~/.claude/settings.json`, which is also the `~/.claude` account's own settings, and
+/// uninstalling it turns the plugin off there.
+fn plugin_verb(home: &Path, verb: &str) -> Result<String> {
+    claude_plugin(home, &[verb, PLUGIN, "--scope", "user"])
+}
+
 /// Installs the plugin in a Claude Code account from Codealong's marketplace, or brings it up
 /// to date there, and turns it on; then takes away the skill copy Codealong made there before.
 /// A `codealong` marketplace from elsewhere (the GitHub repo) is replaced, taking its copy of the
@@ -524,12 +536,12 @@ pub fn install_plugin(a: &AccountCfg) -> Result<()> {
         claude_plugin(&home, &["marketplace", "add", &dir.to_string_lossy()])?;
     }
     if plugin_state(&home).version.is_none() {
-        claude_plugin(&home, &["install", PLUGIN])?;
+        plugin_verb(&home, "install")?;
     } else {
-        claude_plugin(&home, &["update", PLUGIN])?;
+        plugin_verb(&home, "update")?;
     }
     if plugin_state(&home).disabled {
-        claude_plugin(&home, &["enable", PLUGIN])?;
+        plugin_verb(&home, "enable")?;
     }
     remove_skill_copy(a)
 }
@@ -860,7 +872,7 @@ mod tests {
         assert!(!skill_dir(&a).unwrap().exists(), "the skill copy went");
         // Again: nothing to do, and it says so without failing.
         install_plugin(&a).unwrap();
-        claude_plugin(&home, &["disable", PLUGIN]).unwrap();
+        plugin_verb(&home, "disable").unwrap();
         assert!(plugin_state(&home).disabled);
         install_plugin(&a).unwrap();
         assert!(!plugin_state(&home).disabled);

@@ -1017,7 +1017,13 @@ optional `references/`, read by all four harnesses; from their docs, 2026-09-24)
   installPath}`), with `enabledPlugins` in settings.json (false once disabled; `list --json` says
   the same). `update` rereads a folder marketplace by itself and updates on any change to the
   version string (`0.2.1+aaaa` to `0.2.1+bbbb` updated), succeeding when there's nothing to do;
-  new sessions get it. `enable` fails on an enabled plugin. `marketplace remove` uninstalls the
+  new sessions get it. `enable` fails on an enabled plugin. One account can have the plugin
+  installed twice, its own (`scope: "user"`) and a project's (`scope: "project"`, `projectPath`);
+  without `--scope`, `update` takes the one for the folder it runs in when there is one, so
+  install.rs passes `--scope user` (2.1.289, 2026-10-05: a `~/.claude2` with a project install
+  for the home folder never moved its own). A project install for the home folder is recorded in
+  `~/.claude/settings.json`, the `~/.claude` account's own settings, so uninstalling it from
+  another account turns the plugin off in that one. `marketplace remove` uninstalls the
   marketplace's plugins with it. A GitHub marketplace (`owner/repo`) is cloned over SSH, then
   HTTPS, with git's prompts off: a private repo works wherever git can already clone it. A `SessionStart` or `UserPromptSubmit` command hook's stdout (exit 0) is added to
   the model's context, which is how `plugin/hooks/hooks.json` hands a session its todo.
