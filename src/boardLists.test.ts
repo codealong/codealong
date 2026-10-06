@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ageListingPr,
   archivedIn,
   bayRowsOf,
   currentProject,
@@ -274,6 +275,32 @@ describe('the PRs view’s lists', () => {
       const pr = fx.prItem({ state });
       expect(prSections([prRowOf(pr, laneById, index)])[0].id === 'done').toBe(prInDone(pr, new Set()));
     }
+  });
+});
+
+describe('ageListingPr', () => {
+  const ages = [
+    { id: '1d', ms: DAY },
+    { id: '3d', ms: 3 * DAY },
+    { id: '7d', ms: 7 * DAY },
+    { id: 'all', ms: 0 },
+  ] as const;
+  const old = fx.prItem({ number: 4, updatedAt: NOW - 5 * DAY });
+
+  it('widens the age filter as little as lists a PR asked to be shown', () => {
+    expect(ageListingPr(old, new Set(), ages, '1d', NOW)).toBe('7d');
+    expect(ageListingPr(old, new Set(), ages, '3d', NOW)).toBe('7d');
+    expect(ageListingPr(fx.prItem({ updatedAt: NOW - 10 * DAY }), new Set(), ages, '1d', NOW)).toBe('all');
+    // What it widens to lists it, by the rule the PRs view goes by.
+    expect(prRowsOf([old], NOW - 7 * DAY, new Set(), '', [], new Map(), sessionIndexOf([])).map((r) => r.pr.number)).toEqual([4]);
+  });
+
+  it('leaves the filter alone when it lists the PR already', () => {
+    expect(ageListingPr(old, new Set(), ages, '7d', NOW)).toBeNull();
+    expect(ageListingPr(old, new Set(), ages, 'all', NOW)).toBeNull();
+    expect(ageListingPr(fx.prItem({ updatedAt: NOW - DAY / 2 }), new Set(), ages, '1d', NOW)).toBeNull();
+    // A pinned PR is listed whatever its age.
+    expect(ageListingPr(old, new Set([old.key]), ages, '1d', NOW)).toBeNull();
   });
 });
 

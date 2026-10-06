@@ -4,12 +4,16 @@
 // the session; the older one's card asks GitHub (pr_card) once and shows its answer, and its
 // link then has an icon too; a right-click has the PR's menu; Show in Codealong opens the PR in
 // the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
-// Merged & closed, which is folded until Show in Codealong opens it.
+// Merged & closed, which is folded until Show in Codealong opens it. It's also made five days
+// old, with the age filter at 24 hours, so Show in Codealong has to widen the filter to list it;
+// the session stays active in the last minute, so its row shows under that filter.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-link-check.js
 (function () {
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
+  var DAY = 86400e3;
 
   localStorage.setItem('codealong.project', 'All projects');
+  localStorage.setItem('codealong.age', '1d');
   // The first session, in its own worktree, that a PR lists. Its reply is its excerpt with the
   // stub's two links after it, so not one whose excerpt has a PR link of its own.
   var picked = null;
@@ -27,8 +31,12 @@
         });
       });
       if (picked) {
+        var old = Date.now() - 5 * DAY;
         board.prs.forEach(function (x) {
-          if (x.key === picked.pr.key) Object.assign(x, { state: 'merged', mergedAt: x.mergedAt || x.updatedAt, closedAt: x.closedAt || x.updatedAt });
+          if (x.key === picked.pr.key) Object.assign(x, { state: 'merged', updatedAt: old, mergedAt: old, closedAt: old });
+        });
+        board.lanes.forEach(function (l) {
+          l.sessions.forEach(function (s) { if (s.key === picked.key) s.lastActivity = Math.max(s.lastActivity, Date.now() - 60e3); });
         });
         // Not pinned, or it would lead the view whatever its state.
         board.pinnedPrs = (board.pinnedPrs || []).filter(function (k) { return k !== picked.pr.key; });
@@ -126,6 +134,7 @@
     .then(function () {
       var shown = document.querySelector('.ca-prinsp .ca-insp-call').textContent;
       check('which shows it in the PRs view', shown === '#' + picked.pr.number, shown + ', not #' + picked.pr.number);
+      check('widening the age filter as far as lists it', localStorage.getItem('codealong.age') === '7d', localStorage.getItem('codealong.age'));
       check('and closes the card', !card());
     })
     .then(done)

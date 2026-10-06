@@ -209,6 +209,18 @@ export function prInDone(pr: PrItem, pinned: ReadonlySet<string>): boolean {
   return !prIsOpen(pr) && !pinned.has(pr.key);
 }
 
+/** The age filter a window asked to show a PR widens to, from `current`: the narrowest of `ages`
+ *  (narrowest first, a span of 0 for no limit) that lists a PR last updated when this one was,
+ *  as `prRowsOf` goes by. Null when the filter lists it already, or it's pinned, which lists it
+ *  whatever its age. Without it the PR isn't listed and can't be selected, and the panel would
+ *  show the view's first PR in its place, as it did for one under Merged & closed (`prInDone`). */
+export function ageListingPr<A extends string>(pr: PrItem, pinned: ReadonlySet<string>, ages: readonly { id: A; ms: number }[], current: A, now: number): A | null {
+  const lists = (ms: number) => ms === 0 || pr.updatedAt >= now - ms;
+  const at = ages.find((a) => a.id === current);
+  if (pinned.has(pr.key) || !at || lists(at.ms)) return null;
+  return ages.find((a) => lists(a.ms))?.id ?? null;
+}
+
 /** Needs you and Your turn per project, for the switcher's badge and menu. */
 export function projectActions(lanes: Lane[], projects: { name: string }[], cutoff: number, pinned: Set<string>, since: string): Record<string, ActionCounts> {
   const out: Record<string, ActionCounts> = {};

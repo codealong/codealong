@@ -63,7 +63,7 @@ import { useMainKeys } from './mainKeys';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
+import { ageListingPr, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
 import { inProject } from './quick';
 import { setPageZoom, type ZoomStep } from './zoom';
 
@@ -558,6 +558,9 @@ export function App() {
       setView('prs');
       setBayFilter([]);
       if (prInDone(pr, prPins.set)) setShowDonePrs(true);
+      // One older than the age filter lets through: the filter widens as far as it.
+      const wider = ageListingPr(pr, prPins.set, AGES, age, Date.now());
+      if (wider) setAge(wider);
       setSelectedKey(`pr:${pr.key}`);
     }
   });
