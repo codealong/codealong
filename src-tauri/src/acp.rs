@@ -350,7 +350,7 @@ fn log_file(account: &str) -> std::fs::File {
 fn hear(account: &str, link: &rpc::Link, msg: &Value) {
     let method = msg.get("method").and_then(Value::as_str);
     match (method, msg.get("id")) {
-        (Some("session/update"), _) => on_update(account, msg.get("params").unwrap_or(&Value::Null)),
+        (Some("session/update"), _) => on_update(account, link, msg.get("params").unwrap_or(&Value::Null)),
         (Some("session/request_permission"), Some(id)) => on_permission(account, link, id.clone(), msg.get("params").unwrap_or(&Value::Null)),
         (Some(_), Some(id)) => {
             // Files and terminals are the agents' own; nothing else was offered.
@@ -360,14 +360,21 @@ fn hear(account: &str, link: &rpc::Link, msg: &Value) {
     }
 }
 
+/// Whether `link` is the account's process. One that another start beat to it (`agent`) is let
+/// go, and nothing it says or does as it goes is about the sessions of the one that stayed.
+fn current(st: &State, account: &str, link: &rpc::Link) -> bool {
+    st.agents.get(account).is_some_and(|a| std::ptr::eq::<rpc::Link>(&*a.client, link))
+}
+
 /// An account's process ended. Its requests have failed (the client fails them first), and its
 /// sessions stop until they're sent to again.
 fn stopped(account: &str, link: &rpc::Link) {
     {
         let mut st = state();
-        if st.agents.get(account).is_some_and(|a| std::ptr::eq::<rpc::Link>(&*a.client, link)) {
-            st.agents.remove(account);
+        if !current(&st, account, link) {
+            return;
         }
+        st.agents.remove(account);
         for h in st.sessions.values_mut().filter(|h| h.account == account && h.loaded) {
             h.loaded = false;
             if h.running {
@@ -382,14 +389,19 @@ fn stopped(account: &str, link: &rpc::Link) {
     notify(Change::Board);
 }
 
-fn session_key(account: &str, params: &Value) -> Option<String> {
+/// The key of the session a message from the account's process `link` is about; none from a
+/// process that isn't the account's (`current`).
+fn session_key(account: &str, link: &rpc::Link, params: &Value) -> Option<String> {
     let id = params.get("sessionId").and_then(Value::as_str)?;
     let st = state();
+    if !current(&st, account, link) {
+        return None;
+    }
     st.sessions.iter().find(|(_, h)| h.account == account && h.id == id).map(|(k, _)| k.clone())
 }
 
-fn on_update(account: &str, params: &Value) {
-    let Some(key) = session_key(account, params) else { return };
+fn on_update(account: &str, link: &rpc::Link, params: &Value) {
+    let Some(key) = session_key(account, link, params) else { return };
     let u = params.get("update").unwrap_or(&Value::Null);
     let kind = u.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
     let stream = {
@@ -427,7 +439,7 @@ fn one_line(s: &str) -> String {
 }
 
 fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
-    let Some(key) = session_key(account, params) else {
+    let Some(key) = session_key(account, link, params) else {
         let _ = link.respond(&rpc, json!({ "outcome": { "outcome": "cancelled" } }));
         return;
     };
@@ -1095,6 +1107,44 @@ mod tests {
         );
         state().sessions.remove(&key);
         state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two starts at once each start the account a process, and the one that's second is let go
+    /// (`agent`): what it says and asks as it goes, and its end, leave the sessions of the one
+    /// that stayed as they are; the end of the account's own process is theirs.
+    #[test]
+    fn a_process_let_go_leaves_the_accounts_sessions_alone() {
+        let dir = store::test_dir("acp-let-go");
+        let (stayed, let_go) = (dir.join("stayed"), dir.join("let-go"));
+        std::fs::create_dir_all(&stayed).unwrap();
+        std::fs::create_dir_all(&let_go).unwrap();
+        let keeps = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#;
+        let account = "test-adapter-let-go";
+        let key = key_of(Harness::Codex, account, "s1");
+        let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![("ok".into(), "allow_once".into())], answering: false };
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, permission: Some(asked), queue: vec!["And then?".into()], text: "Working".into(), ..Default::default() });
+        let ag = stand_in(account, keeps, &stayed);
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", keeps, "sh"]).arg(let_go.join("heard"));
+        let other = connect(account, cmd, std::fs::File::create(let_go.join("log")).unwrap()).unwrap();
+
+        hear(account, &other.client, &json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "s1", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": " on it" } } } }));
+        hear(account, &other.client, &json!({ "jsonrpc": "2.0", "id": "l1", "method": "session/request_permission", "params": { "sessionId": "s1", "toolCall": { "toolCallId": "call-l1", "title": "Run rm" }, "options": [{ "optionId": "ok", "kind": "allow_once" }] } }));
+        stopped(account, &other.client);
+        let h = state().sessions[&key].clone();
+        assert_eq!((h.loaded, h.running, h.text.as_str(), h.queue.len(), h.error), (true, true, "Working", 1, None));
+        assert_eq!(h.permission.map(|p| p.tool_call).as_deref(), Some("call-w1"));
+        assert!(state().agents.get(account).is_some_and(|a| Arc::ptr_eq(a, &ag)));
+        // What it asked is answered as asked of nobody's session, and only to it.
+        wait_until("its question to be answered", 10, || !heard(&let_go).is_empty());
+        assert_eq!(heard(&let_go), [r#"{"id":"l1","jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}"#]);
+        assert!(heard(&stayed).is_empty());
+
+        stopped(account, &ag.client);
+        let h = state().sessions.remove(&key).unwrap();
+        assert_eq!((h.loaded, h.running, h.queue.len(), h.permission.is_none(), h.error.as_deref()), (false, false, 0, true, Some("Its agent stopped.")));
+        assert!(!state().agents.contains_key(account));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
