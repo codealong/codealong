@@ -486,8 +486,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   is resumed with the prompt where the row at the foot of its box says, in the places its account
   starts sessions in that its harness can go on in: a terminal, the background (Claude Code's
   background service, else a terminal behind your windows), its app, or Codealong, which runs it
-  from then on. Beside the places is the account's model and effort menu, as the start menu has
-  it, and picking a model leaves only the places that take one. It goes on where the account's
+  from then on. Beside Send, where a running session's box says its model, is the account's
+  model and effort menu, as the start menu has it, and picking a model leaves only the places
+  that take one. It goes on where the account's
   last one did, else in a terminal; Resume in, in its right-click menu, has the same places, to
   go on without a prompt. One waiting on you is opened instead, so what you typed can't
   answer its question. A running session's box says the model it's on beside Send (the one its

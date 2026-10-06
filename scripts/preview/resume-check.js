@@ -1,6 +1,7 @@
 // Checks going on with a session that isn't running from its box (ResumeBar.tsx, start.ts
-// `resumeChoice`): the row under the text offers the places its account's sessions go on in and
-// the account's models; the placeholder says what sending does; a model leaves only the places
+// `resumeChoice`): the row under the text offers the places its account's sessions go on in, and
+// the chip beside Send the account's models, where a running session's box has its model; the
+// placeholder says what sending does; a model leaves only the places
 // that take one; a send asks the engine to resume it there, on that model, and the place is kept
 // for the account's next one; and its menu has Resume in, with the same places.
 //   scripts/preview.sh peek '' scripts/preview/resume-check.js
@@ -41,7 +42,7 @@
   var places = function () { return all('.ca-peek .ca-resume .ca-places button').map(function (b) { return b.textContent.trim(); }); };
   var on = function () { var b = q('.ca-peek .ca-resume .ca-places button.is-on'); return b ? b.textContent.trim() : ''; };
   var place = function (label) { return all('.ca-peek .ca-resume .ca-places button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
-  var chip = function () { return q('.ca-peek .ca-resume .ca-modelmenu-chip'); };
+  var chip = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); };
   var enter = function (el) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
   var other = acct.models.filter(function (m) { return m.id !== acct.defaultModel; })[0];
 
@@ -52,6 +53,7 @@
       check('it goes on in a terminal unless picked otherwise', on() === labelOf('terminal'), on());
       check('the placeholder says it resumes in the terminal', box().getAttribute('aria-placeholder').indexOf('resumes it in ' + board.apps.terminal) >= 0, box().getAttribute('aria-placeholder'));
       check('the model chip says the account’s own model', !!chip() && chip().textContent.length > 0, chip() ? chip().textContent : 'none');
+      check('the chip sits beside Send, right of the places', !!chip() && !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')) && chip().getBoundingClientRect().left >= row().getBoundingClientRect().right, chip() ? chip().getBoundingClientRect().left + ' / ' + row().getBoundingClientRect().right : 'none');
       place(labelOf('background')).click();
       return wait(50);
     })
@@ -70,10 +72,10 @@
     })
     .then(function () {
       chip().click();
-      return until(function () { return !!q('.ca-peek .ca-resume .ca-picker'); }, 3000, 'no model menu');
+      return until(function () { return !!q('.ca-peek .ca-modelmenu .ca-picker'); }, 3000, 'no model menu');
     })
     .then(function () {
-      var menu = q('.ca-peek .ca-resume .ca-picker');
+      var menu = q('.ca-peek .ca-modelmenu .ca-picker');
       var rect = menu.getBoundingClientRect();
       check('the model menu opens upward, over the conversation', rect.bottom <= chip().getBoundingClientRect().top + 1, rect.bottom + ' / ' + chip().getBoundingClientRect().top);
       var opt = all('.ca-picker-opt', menu).filter(function (b) { return b.querySelector('.ca-picker-title').textContent.trim() === other.label.split(':')[0].replace(/ \(1M context\)$/, ' 1M'); })[0];
@@ -82,7 +84,7 @@
       return wait(50);
     })
     .then(function () {
-      check('the menu closes on a pick', !q('.ca-peek .ca-resume .ca-picker'), 'open');
+      check('the menu closes on a pick', !q('.ca-peek .ca-modelmenu .ca-picker'), 'open');
       check('a model leaves only the places that take one', places().indexOf('Claude app') < 0 && on() === labelOf('background'), places().join(', ') + ' · ' + on());
       type(box(), 'Carry on where you left off');
       enter(box());

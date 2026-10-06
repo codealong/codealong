@@ -74,7 +74,7 @@ import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { BoxText, Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
-import { offersResume, ResumeBar } from './ResumeBar';
+import { offersResume, ResumeModel, ResumePlaces } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SideStrip } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
@@ -202,7 +202,8 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   }, [s.key, s.live, s.pid, s.surface, s.attachCommand]);
 
   // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
-  // its account offers a choice; without one, a send resumes it in a terminal.
+  // its account offers a choice; without one, a send resumes it in a terminal. The places are a
+  // row under the text; the model is beside Send, where a running one's is.
   const here = !shortOf(s.key);
   const resumable = way?.kind === 'resume' && here;
   const account = accountOf(useStartAccounts(here && (resumable || s.live)), s);
@@ -520,7 +521,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     <div className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
       <div
-        className={cx('ca-composer-field', resuming && !aside && 'has-tools')}
+        className={cx('ca-composer-field', resuming && account && !aside && resuming.places.length > 1 && 'has-tools')}
         onMouseDown={(e) => {
           // A press anywhere in the box but its buttons and the row under the text puts the
           // cursor in it.
@@ -607,8 +608,9 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           onPaste={paste}
           aria-label={aside ? `Question on the side about ${s.title}` : `Message to ${s.title}`}
         />
-        {resuming && account && !aside && <ResumeBar account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
+        {resuming && account && !aside && resuming.places.length > 1 && <ResumePlaces picks={resumePicks} chosen={resuming} onPicks={setResumePicks} />}
         <div className="ca-composer-buttons">
+          {resuming && account && !aside && resuming.takesAModel && <ResumeModel account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
           {saysModel && !aside && <SessionModel session={s} account={account} switches={switches} busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting} onSwitch={switchModel} onDone={() => box.current?.focus()} />}
           {canSendNow && !empty && !command && (
             <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>

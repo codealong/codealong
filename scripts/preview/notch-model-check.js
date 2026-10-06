@@ -1,6 +1,7 @@
 // Checks a session's box in the notch (NotchSession.tsx, SessionReply.tsx) offers what the peek's
 // does: for one that isn't running, where it goes on and on what (ResumeBar.tsx), and for one
-// that's running, the model it's on beside Send (SessionModel.tsx), each inside the card's width.
+// that's running, the model it's on (SessionModel.tsx), the model beside Send in both, each inside
+// the card's width.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-model-check.js
 (function () {
   var json = function (url) {
@@ -51,16 +52,18 @@
       var row = q('.ca-notch-session .ca-resume');
       var labels = all('.ca-places button', row).map(function (b) { return b.textContent.trim(); });
       check('one that isn’t running offers where it goes on', labels.length > 1, labels.join(', '));
-      check('and on what, beside the places', !!q('.ca-modelmenu-chip', row), 'no chip');
+      var chip = q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip');
+      check('and on what, beside Send', !!chip, 'no chip');
       check('the row fits the card', inside(row), JSON.stringify(row.getBoundingClientRect()));
+      check('so does the chip', !!chip && inside(chip), chip ? JSON.stringify(chip.getBoundingClientRect()) : 'none');
       note('resume row ' + Math.round(row.getBoundingClientRect().height) + 'px tall in a ' + Math.round(card().getBoundingClientRect().width) + 'px card');
       pill(running.key).click();
-      return until(function () { return !!q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip'); }, 8000, 'no model chip in the notch');
+      // The one that isn't running has a chip beside Send too: wait for its row to go.
+      return until(function () { return !q('.ca-notch-session .ca-resume') && !!q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip'); }, 8000, 'no model chip without a resume row in the notch');
     })
     .then(function () {
       var chip = q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip');
       check('one that’s running says its model beside Send', chip.textContent.trim().length > 0, chip.textContent);
-      check('with no resume row', !q('.ca-notch-session .ca-resume'), 'a resume row');
       check('the chip fits the card', inside(chip), JSON.stringify(chip.getBoundingClientRect()));
     })
     .then(done, stopped);

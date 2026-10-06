@@ -1,4 +1,4 @@
-// A session's model, as a chip in its box (SessionReply.tsx) that opens its account's
+// A session's model, as a chip beside Send in its box (SessionReply.tsx) that opens its account's
 // models above the box: what a session that isn't running goes on with (ResumeBar.tsx), with the
 // effort under them, or what a running one switches to (SessionModel.tsx). The lines are the
 // start menu's for that account (StartControls.tsx `agentLine`); what picking one does is the

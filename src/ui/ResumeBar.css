@@ -1,6 +1,5 @@
-/* Where a session that isn't running goes on, and on what (ResumeBar.tsx): a row at the foot of
-   its box, under the text and beside Send, as chat apps put their model picker. The text then
-   takes the box's whole width. */
+/* Where a session that isn't running goes on (ResumeBar.tsx): a row at the foot of its box,
+   under the text, to the left of the model and Send. The text then takes the box's whole width. */
 .ca-composer-field.has-tools > .ca-composer-text {
   grid-column: 1 / -1;
 }
