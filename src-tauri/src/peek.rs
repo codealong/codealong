@@ -41,10 +41,13 @@ const FAR: f64 = 32.0;
 /// On the side toward the bar the window is only this much bigger, so it never covers the bar's
 /// pills (a window takes the clicks on its clear parts too). The shadow falls away from there.
 const NEAR: f64 = 8.0;
-/// The window's width: the card and its margins.
-const WIDTH: f64 = 480.0 + 2.0 * MARGIN;
-/// The tallest the window gets.
-const MAX_HEIGHT: f64 = 580.0 + FAR + NEAR;
+/// The card at actual size, in points: its width, and the tallest it gets. A zoom scales both, so
+/// the card shows as much of the conversation, bigger (zoom.rs).
+const CARD: (f64, f64) = (480.0, 580.0);
+/// The window's width at actual size: the card and its margins.
+const WIDTH: f64 = CARD.0 + 2.0 * MARGIN;
+/// The tallest the window gets at actual size.
+const MAX_HEIGHT: f64 = CARD.1 + FAR + NEAR;
 /// The smallest a peek can be dragged to, and a kept session's window (kept.rs): the window, its
 /// margins included.
 pub const MIN_SIZE: (f64, f64) = (360.0 + 2.0 * MARGIN, 240.0 + FAR + NEAR);
@@ -75,6 +78,8 @@ const PANEL: panel::Config = panel::Config { keys: panel::Keys::OnClick, level: 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Place {
     pub x: f64,
+    /// Its width, which goes with the zoom.
+    pub w: f64,
     pub edge: f64,
     pub below: bool,
     /// The tallest the window can be there.
@@ -91,9 +96,9 @@ impl Place {
     pub fn frame(&self, height: f64) -> Rect {
         let h = height.min(self.room).max(1.0);
         if self.below {
-            Rect { x: self.x, y: self.edge - h, w: WIDTH, h }
+            Rect { x: self.x, y: self.edge - h, w: self.w, h }
         } else {
-            Rect { x: self.x, y: self.edge, w: WIDTH, h }
+            Rect { x: self.x, y: self.edge, w: self.w, h }
         }
     }
 
@@ -108,17 +113,19 @@ impl Place {
 
 /// Where the peek goes for a pill: under the bar's card (`bar` is its window, or a desktop card's),
 /// centered on the pill and kept on the screen, or over it when there's too little room under it
-/// and more over it.
-pub fn place(bar: Rect, pill: Rect, screen: Rect) -> Place {
+/// and more over it. At a `zoom` (a percent) it's as much wider and may be as much taller.
+pub fn place(bar: Rect, pill: Rect, screen: Rect, zoom: u32) -> Place {
     let below_edge = bar.y + BAR_MARGIN - GAP + NEAR;
     let above_edge = bar.top() - BAR_MARGIN + GAP - NEAR;
     let room_below = below_edge - screen.y;
     let room_above = screen.top() - above_edge;
     let below = room_below >= MIN_ROOM || room_below >= room_above;
+    let z = crate::zoom::factor(zoom);
+    let w = (CARD.0 * z + 2.0 * MARGIN).min(screen.w).round();
     let (cx, _) = pill.center();
-    let x = (cx - WIDTH / 2.0).min(screen.right() - WIDTH).max(screen.x).round();
+    let x = (cx - w / 2.0).min(screen.right() - w).max(screen.x).round();
     let room = if below { room_below } else { room_above };
-    Place { x, edge: if below { below_edge } else { above_edge }, below, room: room.min(MAX_HEIGHT), full: room, wide: screen.right() - x }
+    Place { x, w, edge: if below { below_edge } else { above_edge }, below, room: room.min((CARD.1 * z).round() + FAR + NEAR), full: room, wide: screen.right() - x }
 }
 
 /// The peek's frame dragged by its header: moved as far as the pointer has gone since the drag
@@ -153,6 +160,8 @@ struct Opening {
     /// The editors installed here, for the session menu's Open folder in (menus.ts).
     apps: crate::model::AppNames,
     theme: Theme,
+    /// The zoom the card draws at, in percent (zoom.rs).
+    zoom: u32,
     /// The tallest the window can be where it opens.
     room: f64,
     /// Under the bar, so the card sits at the window's top; over it, at its bottom.
@@ -218,12 +227,14 @@ pub struct Target {
     pub terminal: String,
     pub apps: crate::model::AppNames,
     pub theme: Theme,
+    /// The zoom, in percent: the card draws at it, and the window is as much bigger.
+    pub zoom: u32,
 }
 
 /// The session and its lane, as the board has them.
 pub fn target(board: &Board, key: &str) -> Option<Target> {
     let (lane, session) = board.session(key).map(|(l, s)| (l.clone(), s.clone()))?;
-    Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme })
+    Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme, zoom: board.zoom })
 }
 
 /// Shows a session in the peek, for a hover over its pill (`pill`: the window it's in, the bar or
@@ -258,7 +269,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, foc
         // goes by the shape (`bar::peek_frame`).
         let by = if host.is_some() && host == bar { crate::bar::peek_frame(app) } else { host };
         if let (Some(h), Some(a), Some(sc)) = (by, anchor, screen) {
-            s.place = Some(place(h, a, sc));
+            s.place = Some(place(h, a, sc, target.zoom));
         }
         s.opens += 1;
         s.waiting = Some(s.opens);
@@ -269,8 +280,8 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, foc
         s.drag = None;
         (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
     };
-    let Target { lane, session, terminal, apps, theme } = target;
-    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, apps, theme, room, below, focus, rename, perf_log: crate::perf::enabled() });
+    let Target { lane, session, terminal, apps, theme, zoom } = target;
+    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, apps, theme, zoom, room, below, focus, rename, perf_log: crate::perf::enabled() });
     // A page that doesn't answer doesn't keep the peek from showing.
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -578,7 +589,7 @@ mod tests {
     fn hangs_under_the_bar_centered_on_the_pill() {
         let bar = r(500.0, 800.0, 600.0, 56.0);
         let pill = r(600.0, 817.0, 120.0, 22.0);
-        let p = place(bar, pill, SCREEN);
+        let p = place(bar, pill, SCREEN, 100);
         assert!(p.below);
         // The window starts where the bar's card ends, so it never covers a pill.
         assert_eq!(p.edge, 800.0 + BAR_MARGIN);
@@ -594,23 +605,36 @@ mod tests {
     #[test]
     fn stays_on_the_screen_by_a_pill_near_its_edge() {
         let bar = r(0.0, 800.0, 400.0, 56.0);
-        assert_eq!(place(bar, r(20.0, 817.0, 80.0, 22.0), SCREEN).x, 0.0);
+        assert_eq!(place(bar, r(20.0, 817.0, 80.0, 22.0), SCREEN, 100).x, 0.0);
         let bar = r(1100.0, 800.0, 400.0, 56.0);
-        assert_eq!(place(bar, r(1420.0, 817.0, 80.0, 22.0), SCREEN).x, 1500.0 - WIDTH);
+        assert_eq!(place(bar, r(1420.0, 817.0, 80.0, 22.0), SCREEN, 100).x, 1500.0 - WIDTH);
+    }
+
+    #[test]
+    fn zoomed_it_is_as_much_wider_and_may_be_as_much_taller() {
+        let bar = r(500.0, 800.0, 600.0, 56.0);
+        let pill = r(600.0, 817.0, 120.0, 22.0);
+        let p = place(bar, pill, SCREEN, 125);
+        assert_eq!(p.w, CARD.0 * 1.25 + 2.0 * MARGIN);
+        assert_eq!(p.x, 660.0 - p.w / 2.0);
+        assert_eq!(p.room, CARD.1 * 1.25 + FAR + NEAR);
+        assert_eq!(p.frame(300.0).w, p.w);
+        // Never wider than the screen.
+        assert_eq!(place(bar, pill, Rect { w: 500.0, ..SCREEN }, 200).w, 500.0);
     }
 
     #[test]
     fn opens_over_a_bar_that_sits_low() {
         let bar = r(500.0, 40.0, 600.0, 56.0);
-        let p = place(bar, r(600.0, 57.0, 120.0, 22.0), SCREEN);
+        let p = place(bar, r(600.0, 57.0, 120.0, 22.0), SCREEN, 100);
         assert!(!p.below);
         assert_eq!(p.edge, 96.0 - BAR_MARGIN);
         // It grows up from its bottom edge.
         assert_eq!(p.frame(300.0).y, p.edge);
         // A little room under it is still enough when there's less over it.
         let short = Rect { h: 500.0, ..SCREEN };
-        assert!(place(r(500.0, 250.0, 600.0, 56.0), r(600.0, 267.0, 120.0, 22.0), short).below);
-        assert!(!place(r(500.0, 200.0, 600.0, 56.0), r(600.0, 217.0, 120.0, 22.0), short).below);
+        assert!(place(r(500.0, 250.0, 600.0, 56.0), r(600.0, 267.0, 120.0, 22.0), short, 100).below);
+        assert!(!place(r(500.0, 200.0, 600.0, 56.0), r(600.0, 217.0, 120.0, 22.0), short, 100).below);
     }
 
     #[test]

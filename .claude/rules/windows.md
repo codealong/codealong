@@ -125,6 +125,11 @@ under `src-tauri/src/`.
   the page doesn't prevent it; WKWebView's `pageZoom` shrinks the page's CSS pixels and is in
   its `devicePixelRatio` (2.5 on a Retina screen at 125%). Both checked in a WKWebView whose
   window was never on screen, on 2026-10-06: `zoom.rs` (module header, `add_menu`).
+- CSS `zoom` on an element, as the cards in the windows that float take it, behaves as the
+  standard has it: rects, hit testing and the pointer are on the screen's scale; `offset*`,
+  `scroll*`, ResizeObserver and lengths written in CSS (a `position: fixed` element's `left`
+  too) are in the element's own pixels; a box sized by its parent (a percent, flex) fills it.
+  Checked in the same way on 2026-10-06: `src/zoom.ts` (module header, `scaleOf`).
 - The background computer-use tools click through raw input: the app comes forward for a moment
   and the one before is put back, which takes the keyboard from the quick panel and hides it.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
@@ -134,7 +139,10 @@ under `src-tauri/src/`.
 - Not yet checked by hand (2026-10-06): zooming in the real app. View's Actual size, Zoom in and
   Zoom out and their keys; every board window following a step, and a project window opening at
   the zoom; a menu dropped from a button (a session header's More) landing under it at 125%. The
-  preview only shows the keys asking for it (`zoom-check.js`).
+  preview only shows the keys asking for it (`zoom-check.js`). In the windows that float: the
+  peek opening wider and taller at a zoom (`peek::place`), the notch's open card following a
+  step while it's up, and ⌘= in the notch reaching its card while it has the keyboard; the
+  preview shows the cards drawn at it and their keys (`card-zoom-check.js`).
 
 - Not yet checked by hand (2026-10-06): ⌃` in the real app. That WKWebView hands ⌃` to the page
   from a session's box as it does ⌃-, in the main window and the floating panels (the peek, the

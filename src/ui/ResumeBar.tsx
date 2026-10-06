@@ -7,6 +7,7 @@
 import { useRef, useState, type CSSProperties } from 'react';
 import { agentId, agentOptions, effortStep, parseAgent, placeTakesModel, resumeAccount, type ChosenStart, type ResumePicks } from '../start';
 import type { StartAccount, StartPlace } from '../types';
+import { scaleOf } from '../zoom';
 import { Picker } from './Picker';
 import { Icon } from './primitives';
 import { agentLine, EffortFoot, PlaceToggle } from './StartControls';
@@ -23,7 +24,10 @@ export function ResumeBar({ account, picks, chosen, onPicks, onDone }: { account
   const [room, setRoom] = useState<number | null>(null);
   const row = useRef<HTMLDivElement>(null);
   const open = () => {
-    const top = row.current?.closest('.ca-composer-field')?.getBoundingClientRect().top;
+    const field = row.current?.closest<HTMLElement>('.ca-composer-field');
+    // On the screen's scale; the menu's height is in the card's own pixels, which a zoom makes
+    // bigger (zoom.ts `scaleOf`).
+    const top = field ? field.getBoundingClientRect().top / scaleOf(field) : null;
     setRoom(top == null ? null : Math.max(MENU_MIN, top - MENU_MARGIN));
     setMenu(true);
   };

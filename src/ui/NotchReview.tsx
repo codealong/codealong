@@ -40,9 +40,11 @@ interface NotchReviewProps {
   onLeft: (key: string, done: menus.Left) => void;
   /** The board no longer lists it. */
   onGone: (key: string) => void;
+  /** The zoom the card draws at, in percent, from the bar's feed (zoom.ts). */
+  zoom?: number;
 }
 
-export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onLeft, onGone }: NotchReviewProps) {
+export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onLeft, onGone, zoom }: NotchReviewProps) {
   const live = useLivePr(prKey, true);
   const gone = useRef(onGone);
   gone.current = onGone;
@@ -86,6 +88,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
         key={pr.key}
         item={item}
         now={now}
+        zoom={zoom}
         lanes={live.lanes}
         usage={live.usage}
         can={can}

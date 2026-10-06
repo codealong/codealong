@@ -160,18 +160,22 @@ export interface NotchSizes {
  *  laid out once in the biggest it can get (`full`) and shown through a clip (`notchClip`). The
  *  window is that big too, with room for the corners and the shadow, so it keeps its size
  *  whatever shows, a session being dragged bigger included, and never cuts the shadow off.
- *  `room` is the widest the pills can get. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null): NotchSizes {
+ *  `room` is the widest the pills can get. At a `zoom` (a factor) the session's card draws bigger
+ *  (zoom.ts), so its usual size and the most it can be dragged to are as much bigger, within the
+ *  screen; a size you dragged it to stays as you left it. */
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1): NotchSizes {
   const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
   // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
   // points, where they're sharp.
   const widened = (w: number) => closed.w + 2 * Math.ceil(Math.max(0, w - closed.w) / 2);
   const pills = { w: widened(Math.max(body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad))), h: Math.ceil(notch.height + body.h + NOTCH.pad) };
-  const narrowest = Math.max(pills.w, widened(NOTCH.session.width));
-  const widest = Math.max(narrowest, widened(Math.min(NOTCH.session.widest, screen.w - NOTCH.session.clear)));
-  const tallest = Math.max(NOTCH.session.least, Math.min(NOTCH.session.tallest, Math.floor(screen.h - pills.h - NOTCH.session.clear)));
-  const tall = Math.min(tallest, Math.max(NOTCH.session.least, Math.round(want?.h ?? NOTCH.session.height)));
-  const session = { w: Math.min(widest, Math.max(narrowest, widened(want?.w ?? NOTCH.session.width))), h: pills.h + tall };
+  const across = screen.w - NOTCH.session.clear;
+  const usual = { w: Math.min(Math.round(NOTCH.session.width * zoom), across), h: Math.round(NOTCH.session.height * zoom) };
+  const narrowest = Math.max(pills.w, widened(usual.w));
+  const widest = Math.max(narrowest, widened(Math.min(NOTCH.session.widest * zoom, across)));
+  const tallest = Math.max(NOTCH.session.least, Math.min(Math.round(NOTCH.session.tallest * zoom), Math.floor(screen.h - pills.h - NOTCH.session.clear)));
+  const tall = Math.min(tallest, Math.max(NOTCH.session.least, Math.round(want?.h ?? usual.h)));
+  const session = { w: Math.min(widest, Math.max(narrowest, widened(want?.w ?? usual.w))), h: pills.h + tall };
   const full = { w: Math.max(widest, widened(room + 2 * NOTCH.pad)), h: pills.h + tallest };
   const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
   return { closed, pills, session, full, window: { w: full.w + 2 * margin, h: full.h + NOTCH.shadow.bottom } };

@@ -5,7 +5,8 @@
 // came from and that came of it), the session's menu on ⋯ and on a right-click, the menus of the
 // PRs and sessions the header names, and the Sessions list's shortcuts for the session shown:
 // ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it, ⌃⌘P pins it in Sessions and ⌃` opens a
-// terminal in its folder, each shown beside its item in the menu.
+// terminal in its folder, each shown beside its item in the menu. It draws at the zoom, and ⌘=
+// ⌘- ⌘0 zoom it as they do the board's windows (zoom.ts, cardHost.ts `zoomKey`).
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the session has left (the peek goes away, the waiting window goes
@@ -17,8 +18,10 @@ import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu'
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { errorText, type Report } from '../report';
+import { useLatest } from '../latest';
 import { sessionContext } from '../sessionContext';
 import type { Board, Lane, Pr, PrItem, Session, Todo } from '../types';
+import { zoomKey } from './cardHost';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
@@ -29,7 +32,7 @@ export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos'> & { pinned?: stri
  *  the board gives its worktrees, for Move to worktree. */
 export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'reply' | 'rename' | 'left' | 'worktrees'>;
 
-interface SessionCardProps extends Pick<SessionPanelProps, 'queue' | 'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded'> {
+interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' |'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded'> {
   lane: Lane;
   session: Session;
   /** The terminal's name and the editors installed, for the ways to open it. */
@@ -80,15 +83,18 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   const context = useMemo(() => sessionContext(board, lane, session), [board, lane, session]);
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
-  // The Sessions list's shortcuts, for the session shown. Not while its name is being typed.
+  // The Sessions list's shortcuts, for the session shown, and ⌘= ⌘- ⌘0, which zoom it as they do
+  // the board's windows. Not while its name is being typed.
   const latest = useRef(actions);
   latest.current = actions;
   const leaving = useRef(outgoing);
   leaving.current = outgoing;
+  const reportNow = useLatest(report);
   useEffect(() => {
     if (renaming) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
+      if (zoomKey(e, reportNow.current)) return;
       const action = menus.chorded(latest.current, e);
       if (!action) return;
       e.preventDefault();
@@ -98,7 +104,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [renaming]);
+  }, [renaming, reportNow]);
 
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   /** A PR's menu, as every window has it: for one the board lists, with showing it in Codealong

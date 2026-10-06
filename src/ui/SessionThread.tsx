@@ -46,6 +46,7 @@ import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
+import { scaleOf } from '../zoom';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -467,12 +468,15 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     pin();
   };
 
-  /** Your prompts in the view, where each starts and ends from the top of what's scrolled. */
+  /** Your prompts in the view, where each starts and ends from the top of what's scrolled, in the
+   *  view's own pixels as its scrollTop is: a card drawn at a zoom has rects on the screen's scale
+   *  (zoom.ts `scaleOf`). */
   const promptsIn = (el: HTMLElement) => {
-    const top = el.getBoundingClientRect().top - el.scrollTop;
+    const box = el.getBoundingClientRect().top;
+    const scale = scaleOf(el);
     return [...el.querySelectorAll<HTMLElement>('[data-prompt]')].map((p) => {
       const r = p.getBoundingClientRect();
-      return { el: p, key: p.dataset.prompt ?? '', at: r.top - top, end: r.bottom - top };
+      return { el: p, key: p.dataset.prompt ?? '', at: (r.top - box) / scale + el.scrollTop, end: (r.bottom - box) / scale + el.scrollTop };
     });
   };
   const padOf = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingTop) || 0;

@@ -566,7 +566,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   puts them back, as in VS Code and a browser, from anywhere in them, a text field too; View has
   the same as Zoom in, Zoom out and Actual size. It goes in steps from 50% to 200%, is saved in
   config.toml (`[appearance] zoom`), and every board window follows it. In the Canvas view the
-  keys zoom the canvas, unless you're typing in it. The floating windows stay at actual size.
+  keys zoom the canvas, unless you're typing in it. The session or PR shown in the notch, the
+  peek, a kept session and the waiting window draws at the same zoom, and the keys work there
+  too; the notch and the peek open as much bigger, while the notch's shape and the bar's pills
+  stay at actual size.
 - **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
   double-click it to go back to the default width. The PR panel keeps a width of its own.
 - **Floating bar**: a small bar on top of every window, on every Space and over full-screen
@@ -803,7 +806,7 @@ move_pointer = false           # move the pointer to a terminal brought forward 
 
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"
-zoom = 110                     # the main and project windows, in percent, 50 to 200 (⌘= ⌘- ⌘0); absent at actual size
+zoom = 110                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0); absent at actual size
 
 [shortcuts]
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
@@ -987,7 +990,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
 | `src-tauri/src/usage.rs` | Plan usage: what every harness's numbers go into, and each account's state for the Accounts dialog; the numbers are the harnesses' own (Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
-| `src-tauri/src/zoom.rs`, `src/zoom.ts` | Zooming the board's windows: the steps, the View menu's items, setting the webview's page zoom on every board window, and the keys that ask for it |
+| `src-tauri/src/zoom.rs`, `src/zoom.ts` | Zooming: the steps, the View menu's items, the webview's page zoom on every board window, the CSS zoom a card takes in the windows that float, and the keys that ask for it |
 | `src-tauri/src/store.rs` | The small JSON files next to the config, read, locked and written one way: a temporary file of the write's own and a rename, a read-modify-write under the file's `.lock`, and a file that doesn't parse left as it is, with an error |
 | `src-tauri/src/reusable.rs`, `src/reusable.ts` | Reusable worktrees: the marks made by hand (`worktrees.json`); `board::reusable`, `reuse_of`, `earlier` and `looks_reusable` have the rules, `git::new_work` reads the reflog, and `src/route.ts` sends Jev's new work to them |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |

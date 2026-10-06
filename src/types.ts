@@ -974,6 +974,8 @@ export interface BarFeed {
    *  arrives (ahead.ts). Missing from a feed an older app sent. */
   generatedAt?: number;
   theme: Theme;
+  /** The zoom, in percent: the session or PR the notch shows draws at it (zoom.ts). */
+  zoom?: number;
   /** What the mark's colors say, as on the board. */
   logoStatus: LogoStatus;
   perfLog: boolean;
@@ -1119,6 +1121,8 @@ export interface PeekOpen {
    *  an app older than the menu. */
   apps?: Board['apps'];
   theme: Theme;
+  /** The zoom the card draws at, in percent (zoom.ts). */
+  zoom?: number;
   /** The tallest the peek's window can be where it opens. */
   room: number;
   /** Under the floating bar; otherwise over it. */

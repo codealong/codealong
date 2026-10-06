@@ -46,6 +46,8 @@ pub struct BarFeed {
     /// arrives (src/pending.ts).
     pub generated_at: i64,
     pub theme: Theme,
+    /// The zoom, in percent: the session or PR the notch shows draws at it (zoom.rs).
+    pub zoom: u32,
     /// What the mark's colors say, as on the board.
     pub logo_status: LogoStatus,
     pub perf_log: bool,
@@ -226,6 +228,7 @@ pub fn feed(board: &Board) -> BarFeed {
         loading: board.loading,
         generated_at: board.generated_at,
         theme: board.theme,
+        zoom: board.zoom,
         logo_status: board.logo_status,
         perf_log: board.perf_log,
         terminal: board.apps.terminal.clone(),

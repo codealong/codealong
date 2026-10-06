@@ -1,10 +1,19 @@
-// Zooming the board's windows as VS Code and a browser do: ⌘= (or ⌘+) bigger, ⌘- smaller, ⌘0
-// back to actual size. The engine keeps the zoom in config.toml and sets it on every board window
-// (src-tauri/src/zoom.rs); this says which keys ask for it and what the page is zoomed to now.
+// Zooming as VS Code and a browser do: ⌘= (or ⌘+) bigger, ⌘- smaller, ⌘0 back to actual size.
+// The engine keeps the zoom in config.toml (src-tauri/src/zoom.rs); this says which keys ask for
+// it, and how a window draws at it.
 //
-// It's the webview's own page zoom, so the page and its events agree on CSS pixels, and
-// devicePixelRatio has it in it; only a spot handed to the window in points needs it (api.ts
-// `popupMenu`, a menu dropped from a button).
+// The board's windows zoom their whole page: the engine sets the webview's page zoom on them, so
+// the page and its events agree on CSS pixels and devicePixelRatio has it in it; only a spot
+// handed to the window in points needs it (api.ts `popupMenu`). The windows that float can't zoom
+// their page, which is their window's size and shape (the notch's is the camera's), so a card in
+// them, a session's or a PR's, zooms itself with CSS `zoom` (`cardZoom`).
+//
+// Under CSS zoom WebKit gives rects and the pointer on the screen's scale, and offsets, scroll
+// positions and the lengths written in CSS on the element's own; a box sized by its parent (a
+// percent, flex) fills it, with its contents laid out bigger. Checked in a WKWebView on
+// 2026-10-06. So code inside a card that mixes the two converts with `scaleOf`.
+
+import type { CSSProperties } from 'react';
 
 /** Which way a key or View's menu zooms, as the engine's `zoom` command takes it. */
 export type ZoomStep = 'in' | 'out' | 'actual';
@@ -19,11 +28,29 @@ export function zoomStep(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 
   return null;
 }
 
+/** A zoom in percent as a factor; 1 for none. */
+export function zoomFactor(percent: number | undefined): number {
+  return percent && percent > 0 ? percent / 100 : 1;
+}
+
+/** The style that draws a card at the zoom, for the windows that float; none at actual size. */
+export function cardZoom(percent: number | undefined): CSSProperties | undefined {
+  const z = zoomFactor(percent);
+  return z === 1 ? undefined : { zoom: z };
+}
+
+/** How much bigger than its own CSS pixels an element draws: its card's zoom, 1 elsewhere. A
+ *  distance between two rects divided by it is one in the element's CSS pixels. */
+export function scaleOf(el: HTMLElement): number {
+  const w = el.offsetWidth;
+  return w > 0 ? el.getBoundingClientRect().width / w : 1;
+}
+
 let factor = 1;
 
 /** The board's zoom, in percent, as this window draws it: the board windows set it as boards come. */
 export function setPageZoom(percent: number | undefined): void {
-  factor = percent && percent > 0 ? percent / 100 : 1;
+  factor = zoomFactor(percent);
 }
 
 /** Points on the window per CSS pixel on the page; 1 in a window that isn't zoomed. */

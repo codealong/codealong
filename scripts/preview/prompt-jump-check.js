@@ -80,10 +80,11 @@
     return e;
   };
   var pages_read = function (who) { return window.__calls.filter(function (c) { return c[0] === 'session_page' && c[1].key === (who || picked).key; }).map(function (c) { return String(c[1].before); }); };
-  // The prompt at the top of the view, if one sits there.
+  // The prompt at the top of the view, if one sits there. The padding is in the view's own pixels,
+  // which a card drawn at a zoom makes bigger on the screen (zoom.ts `scaleOf`).
   var atTop = function () {
     var el = thread();
-    var pad = parseFloat(getComputedStyle(el).paddingTop);
+    var pad = parseFloat(getComputedStyle(el).paddingTop) * (el.getBoundingClientRect().width / el.offsetWidth);
     var top = el.getBoundingClientRect().top + pad;
     var found = null;
     el.querySelectorAll('[data-prompt]').forEach(function (p) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pageZoom, setPageZoom, zoomStep } from './zoom';
+import { cardZoom, pageZoom, setPageZoom, zoomStep } from './zoom';
 
 const key = (k: string, mods: { shift?: boolean; ctrl?: boolean; alt?: boolean; meta?: boolean } = {}) => ({ key: k, metaKey: mods.meta ?? true, ctrlKey: !!mods.ctrl, altKey: !!mods.alt, shiftKey: !!mods.shift });
 
@@ -19,6 +19,14 @@ describe('zoomStep', () => {
     expect(zoomStep(key('-', { ctrl: true }))).toBeNull();
     expect(zoomStep(key(')', { shift: true }))).toBeNull();
     expect(zoomStep(key('=', { meta: false }))).toBeNull();
+  });
+});
+
+describe('cardZoom', () => {
+  it('draws a card at the zoom, and leaves one at actual size alone', () => {
+    expect(cardZoom(125)).toEqual({ zoom: 1.25 });
+    expect(cardZoom(100)).toBeUndefined();
+    expect(cardZoom(undefined)).toBeUndefined();
   });
 });
 

@@ -285,6 +285,7 @@ export function Waiting() {
           session={replying.session}
           apps={apps}
           now={now}
+          zoom={board?.zoom}
           board={board}
           can={can(replying.lane, replying.session)}
           canFor={can}
@@ -327,6 +328,7 @@ export function Waiting() {
           key={reviewing.key}
           item={reviewItem(reviewing)}
           now={now}
+          zoom={board?.zoom}
           lanes={board?.lanes ?? []}
           usage={board?.usage ?? []}
           can={reviewCan(reviewing)}

@@ -5,9 +5,10 @@
 // now, while the card is up (`useLiveSession`), and what a click on something around it does,
 // which is show it in the main window and put the card away (`useCardHost`). A PR waiting on
 // your review shown as a card (PrCard.tsx, in the notch) is kept up the same way (`useLivePr`).
+// A card in a window that floats draws at the zoom and takes its keys (`zoomKey`, zoom.ts).
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import { barNote, getBoard, onBoard, prAt, showMain } from '../api';
+import { barNote, getBoard, onBoard, prAt, showMain, zoomWindows } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -18,6 +19,7 @@ import { prRefOf } from '../prLinks';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
 import type { Board, Lane, PrItem, Session, Theme, Todo, Usage } from '../types';
+import { zoomStep } from '../zoom';
 import { usePrLinks } from './PrLink';
 import type { CardBoard } from './SessionCard';
 
@@ -34,6 +36,8 @@ export interface LiveSession {
   session: Session | null;
   /** The theme, once a board has said. */
   theme: Theme | null;
+  /** The zoom, in percent, once a board has said. */
+  zoom: number | null;
   /** The board's PRs, worktrees and todos, for what the header says around the session and for
    *  PR links in the conversation. The last ones stay for the next session shown. */
   board: CardBoard | null;
@@ -46,7 +50,7 @@ export interface LiveSession {
  *  pushes that come while it's up. What a push says counts only for the telling it came under:
  *  told of a session again, the window shows it as told, which is newer. */
 export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
-  const [live, setLive] = useState<{ under: Told; lane: Lane; session: Session; theme: Theme } | null>(null);
+  const [live, setLive] = useState<{ under: Told; lane: Lane; session: Session; theme: Theme; zoom: number | null } | null>(null);
   const [board, setBoard] = useState<CardBoard | null>(null);
   const takeBoard = useCallback((b: Board) => setBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, pinned: b.pinned })), []);
   const toldNow = useRef(told);
@@ -64,7 +68,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
       observe(boardView(b.generatedAt, [b.lanes]));
       const under = toldNow.current;
       const home = under && homeOf(b.lanes, under.session.key);
-      if (under && home) setLive({ under, ...home, theme: b.theme });
+      if (under && home) setLive({ under, ...home, theme: b.theme, zoom: b.zoom ?? null });
       takeBoard(b);
     });
   }, [up, takeBoard]);
@@ -75,7 +79,20 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   const lane = useMemo(() => (engineLane ? lanesAhead([engineLane], ahead)[0] : null), [engineLane, ahead]);
   const session = lane?.sessions.find((s) => s.key === key) ?? now?.session ?? told?.session ?? null;
   const needBoard = useCallback(() => void getBoard().then(takeBoard, () => setBoard((prev) => prev ?? { prs: [], lanes: [], todos: [] })), [takeBoard]);
-  return { lane, session, theme: now?.theme ?? null, board, needBoard };
+  return { lane, session, theme: now?.theme ?? null, zoom: now?.zoom ?? null, board, needBoard };
+}
+
+/** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and
+ *  the card says where it got to. True when it took the key. */
+export function zoomKey(e: KeyboardEvent, report: Report): boolean {
+  const step = zoomStep(e);
+  if (!step) return false;
+  e.preventDefault();
+  zoomWindows(step).then(
+    (percent) => report.info(`Zoomed to ${percent}%.`),
+    (err: unknown) => report.error(errorText(err)),
+  );
+  return true;
 }
 
 export interface LivePr {

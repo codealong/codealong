@@ -11,8 +11,12 @@
 //! at 125%, checked in a WKWebView on 2026-10-06). A spot the page hands the window in points is
 //! scaled where it crosses (`src/api.ts` `popupMenu`).
 //!
-//! The windows that float (the bar, the notch, the peek, the quick panel, the waiting window,
-//! cards on the desktop) size themselves to their pages in points, so they stay at actual size.
+//! The windows that float (the bar, the notch, the peek, a kept session, the waiting window, cards
+//! on the desktop) are the size and shape of their pages, in points (the notch's closed shape is
+//! the camera's), so their pages stay at actual size. What they show of a session or a PR to
+//! review zooms instead: the card zooms itself with CSS `zoom` and takes the keys too
+//! (`src/zoom.ts` `cardZoom`, SessionCard.tsx, PrCard.tsx), and the peek (`peek::place`) and the
+//! notch's open card (`src/bar.ts` `notchSizes`) open as much bigger, so as much of it shows.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -43,6 +47,11 @@ pub fn stepped(now: u32, step: Step) -> u32 {
         Step::In => ZOOMS.into_iter().find(|&z| z > now).unwrap_or(MAX),
         Step::Out => ZOOMS.into_iter().rev().find(|&z| z < now).unwrap_or(MIN),
     }
+}
+
+/// A zoom as a factor, within the ends: 1.25 for 125.
+pub fn factor(percent: u32) -> f64 {
+    f64::from(percent.clamp(MIN, MAX)) / 100.0
 }
 
 /// The zoom the board's windows draw at now; 0 before the first is set.
@@ -77,10 +86,10 @@ fn set(window: &tauri::WebviewWindow, percent: u32) {
 
 /// Puts Actual size (⌘0), Zoom in (⌘=) and Zoom out (⌘-) at the top of the View menu, as a
 /// browser has them. Choosing one asks the front board window to zoom, as its keys do, so what
-/// goes wrong shows there; with none in front there's nothing to zoom. The page has the keys
-/// before the menu does: WebKit sends a key equivalent to the page first, and to the menu only
-/// when the page doesn't prevent it (checked in a WKWebView on 2026-10-06). So a press zooms
-/// once, and the canvas keeps ⌘= and ⌘- for its own zoom.
+/// goes wrong shows there; with another window in front (the waiting window), the engine steps it
+/// itself. The page has the keys before the menu does: WebKit sends a key equivalent to the page
+/// first, and to the menu only when the page doesn't prevent it (checked in a WKWebView on
+/// 2026-10-06). So a press zooms once, and the canvas keeps ⌘= and ⌘- for its own zoom.
 pub fn add_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
     let Some(menu) = app.menu() else { return Ok(()) };
@@ -94,15 +103,23 @@ pub fn add_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let smaller = MenuItem::with_id(app, MENU_OUT, "Zoom out", true, Some("CmdOrCtrl+-"))?;
     view.prepend_items(&[&actual, &bigger, &smaller, &PredefinedMenuItem::separator(app)?])?;
     app.on_menu_event(|app, event| {
-        let step = match event.id().as_ref() {
-            MENU_ACTUAL => "actual",
-            MENU_IN => "in",
-            MENU_OUT => "out",
+        let (step, name) = match event.id().as_ref() {
+            MENU_ACTUAL => (Step::Actual, "actual"),
+            MENU_IN => (Step::In, "in"),
+            MENU_OUT => (Step::Out, "out"),
             _ => return,
         };
         if let Some(w) = crate::front_window(app) {
             // `emit_to`, not a window's `emit`: that one reaches every window.
-            let _ = app.emit_to(w.label(), "zoom", step);
+            let _ = app.emit_to(w.label(), "zoom", name);
+        } else if let Some(engine) = app.try_state::<crate::engine::Handle>() {
+            // Off the main thread: it reads and writes config.toml.
+            let engine = engine.inner().clone();
+            std::thread::spawn(move || {
+                if let Err(e) = engine.zoom(step) {
+                    eprintln!("Couldn't zoom: {e:#}");
+                }
+            });
         }
     });
     Ok(())

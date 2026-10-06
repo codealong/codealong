@@ -258,9 +258,11 @@ interface NotchSessionProps {
   onLeft: (key: string, done: Left) => void;
   /** The board no longer has it. */
   onGone: (key: string) => void;
+  /** The zoom the card draws at, in percent, from the bar's feed (zoom.ts). */
+  zoom?: number;
 }
 
-export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onNext, onLeft, onGone }: NotchSessionProps) {
+export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onNext, onLeft, onGone, zoom }: NotchSessionProps) {
   // The session as the engine has it, asked for as it's shown; the one before stays until it
   // comes, so going from one to the next never shows an empty notch.
   const [told, setTold] = useState<(Told & { apps: Board['apps'] }) | null>(null);
@@ -331,6 +333,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         session={session}
         apps={told.apps}
         now={now}
+        zoom={zoom}
         board={live.board}
         can={can}
         // A session it came from, or that came of it: its menu shows it in Codealong.

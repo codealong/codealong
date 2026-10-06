@@ -7,7 +7,8 @@
 // approves it with what's in the box and goes on, as it sends a session's message and goes on;
 // ⌥⌘⏎ comments; ⌃⌘1 to ⌃⌘4 snooze the review; ⌃⌘R starts a review on an account (review.ts);
 // ⌃⌘G opens it on GitHub. Asking for changes is a button in the box, with no key to press by
-// mistake, and needs something written, as a comment does.
+// mistake, and needs something written, as a comment does. It draws at the zoom, and ⌘= ⌘- ⌘0
+// zoom it, as a session's card (SessionCard.tsx).
 //
 // Any review settles GitHub's request to you, so each of those is how the PR left what waits on
 // you (`can.left`), and the window goes on to the next. What you wrote stays with the PR until it
@@ -19,12 +20,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { openUrl, reviewPr } from '../api';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
+import { useLatest } from '../latest';
 import * as menus from '../menus';
 import { errorText, type Report } from '../report';
 import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
 import { useStartAccounts } from '../startAccounts';
 import type { Lane, Session, Usage, Verdict } from '../types';
+import { cardZoom } from '../zoom';
+import { zoomKey } from './cardHost';
 import { PrDetails } from './PrInspector';
 import { prIsOpen, type PrRowItem } from './PrsView';
 import { Button, cx } from './primitives';
@@ -62,6 +66,8 @@ interface PrCardProps {
   onShowLane: (lane: Lane) => void;
   onLaneMenu: (lane: Lane) => void;
   onSessionMenu: (lane: Lane, session: Session) => void;
+  /** It draws at the zoom, in percent, as a session's card does (zoom.ts `cardZoom`). */
+  zoom?: number;
 }
 
 /** What's written for each PR, kept while the card goes from one to the next and back. */
@@ -74,7 +80,7 @@ const DONE: Record<Verdict, { past: string; left: menus.Left }> = {
   'request-changes': { past: 'Requested changes on', left: 'changes requested' },
 };
 
-export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrCardProps) {
+export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom }: PrCardProps) {
   const { pr } = item;
   const { report } = can;
   const [text, setText] = useState(() => drafts.get(pr.key) ?? '');
@@ -138,14 +144,17 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     github: { label: 'Open on GitHub', run: () => open(pr.url) },
   };
 
-  // The PR's chords, for the card shown. Not for one on its way out.
+  // The PR's chords, for the card shown, and ⌘= ⌘- ⌘0, which zoom it as a session's card. Not for
+  // one on its way out.
   const latest = useRef(actions);
   latest.current = actions;
   const leaving = useRef(outgoing);
   leaving.current = outgoing;
+  const reportNow = useLatest(report);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
+      if (zoomKey(e, reportNow.current)) return;
       const action = menus.prChorded(latest.current, e);
       if (!action) return;
       e.preventDefault();
@@ -154,7 +163,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [reportNow]);
 
   const menu = (at?: { x: number; y: number }) =>
     show(
@@ -186,6 +195,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   return (
     <div
       className={cx('ca-reply', 'ca-prreview')}
+      style={cardZoom(zoom)}
       onContextMenu={(e) => {
         if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;
         e.preventDefault();

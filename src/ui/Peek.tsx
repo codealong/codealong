@@ -33,6 +33,7 @@ import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText } from '../report';
+import { zoomFactor } from '../zoom';
 import { cx } from './primitives';
 
 /** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
@@ -67,7 +68,7 @@ async function previewOpen(): Promise<PeekOpen | null> {
   const home = homeOf(board.lanes, key);
   if (!home) return null;
   const { lane, session } = home;
-  return { id: 1, lane, session, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false, rename: false };
+  return { id: 1, lane, session, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, zoom: board.zoom, room: Math.round(580 * zoomFactor(board.zoom)) + FAR + NEAR, below: true, focus: false, rename: false };
 }
 
 export function Peek({ kept = false }: { kept?: boolean }) {
@@ -138,7 +139,7 @@ export function Peek({ kept = false }: { kept?: boolean }) {
         if (home) {
           setGone(false);
           setShown(true);
-          setOpen((o) => o ?? { id: 1, lane: home.lane, session: home.session, terminal: b.apps.terminal, apps: b.apps, theme: b.theme, room: 0, below: true, focus: false, rename: false });
+          setOpen((o) => o ?? { id: 1, lane: home.lane, session: home.session, terminal: b.apps.terminal, apps: b.apps, theme: b.theme, zoom: b.zoom, room: 0, below: true, focus: false, rename: false });
           stop();
         } else if (!b.loading) {
           setGone(true);
@@ -165,6 +166,9 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   const { lane, session } = live;
   const theme = live.theme ?? open?.theme ?? 'system';
   useTheme(theme);
+  // The card draws at the zoom, which the open said and the board keeps up (zoom.ts); the peek's
+  // window opens as much bigger (peek.rs `place`).
+  const zoom = live.zoom ?? open?.zoom;
 
   const measure = () => Math.ceil((card.current?.getBoundingClientRect().height ?? 0) + FAR + NEAR);
 
@@ -386,6 +390,7 @@ export function Peek({ kept = false }: { kept?: boolean }) {
           session={session}
           apps={open.apps ?? { terminal: open.terminal, terminalId: '', editor: 'Editor', editorId: '' }}
           now={now}
+          zoom={zoom}
           board={live.board}
           can={can}
           // A session it came from, or that came of it: its menu shows it in Codealong. What's

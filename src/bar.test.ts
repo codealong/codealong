@@ -168,6 +168,19 @@ describe('the bar docked in the notch', () => {
     expect(sizes(body, 60, { w: 1000, h: 700 }, { w: 5000, h: 5000 }).session).toEqual({ w: 905, h: 700 - NOTCH.session.clear });
   });
 
+  it('opens a zoomed session as much bigger, within the screen, and leaves a dragged one as it was', () => {
+    const body = { w: 300, h: 24 };
+    const zoomed = notchSizes(notch, body, 60, room, screen, null, 1.25);
+    // 850 across, widened to whole points a side; 650 under the pills.
+    expect(zoomed.session).toEqual({ w: 851, h: 66 + 650 });
+    // It can be dragged as much bigger too, but no further than the screen leaves clear.
+    expect(notchSizes(notch, body, 60, room, screen, { w: 5000, h: 5000 }, 1.25).full).toEqual({ w: 1301, h: 982 - NOTCH.session.clear });
+    expect(notchSizes(notch, body, 60, room, screen, null, 2).session.w).toBe(1361);
+    expect(notchSizes(notch, body, 60, room, { w: 1200, h: 982 }, null, 2).session.w).toBe(1105);
+    // A size you dragged it to stays, if it's no narrower than the zoomed usual width.
+    expect(notchSizes(notch, body, 60, room, screen, { w: 900, h: 500 }, 1.25).session).toEqual({ w: 901, h: 66 + 500 });
+  });
+
   it('pulls a corner out as far on the other side, the notch staying centered', () => {
     const from = { w: 641, h: 520 };
     expect(notchDragged(from, 'right', 30, 40)).toEqual({ w: 701, h: 560 });

@@ -27,6 +27,7 @@ import { CHORDS, chordSigns, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
+import { cardZoom } from '../zoom';
 import { Button, Icon, Rich } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
@@ -60,6 +61,9 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'next' | 'co
   /** A panel in the main window, or a card of its own (the bar's peek, the waiting
    *  window), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';
+  /** A card draws at the zoom, in percent, in the windows that float (zoom.ts `cardZoom`); the
+   *  main window zooms its whole page instead. */
+  zoom?: number;
   /** Working through what waits on you: what's left after this one, and how the one before went. */
   queue?: Queue;
   notice?: Notice | null;
@@ -197,7 +201,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
 }
 
-export function SessionPanel({ variant = 'panel', queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, ...header }: SessionPanelProps) {
+export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
   const terminal = apps.terminal;
   const openIt = () => onOpen(s.openTarget);
@@ -243,6 +247,7 @@ export function SessionPanel({ variant = 'panel', queue, notice, hotkeys, autoFo
     return (
       <div
         className="ca-reply"
+        style={cardZoom(zoom)}
         onContextMenu={(e) => {
           // The box keeps its own menu, for copy and paste, as does anything inside with one.
           if (!onMenu || e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;

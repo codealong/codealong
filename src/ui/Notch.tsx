@@ -27,6 +27,7 @@ import type { LogoStatus, Status } from '../types';
 import { MarkLive } from './MarkLive';
 import { cx, Icon, StatusGlyph } from './primitives';
 import { readStored, writeStored, type Codec } from '../stored';
+import { zoomFactor } from '../zoom';
 
 /** How long the pointer rests on the closed notch before it opens, and is off it before it
  *  closes. */
@@ -62,6 +63,8 @@ export interface NotchShellProps {
   /** The widest the pills below can get, and the screen, which a session fits. */
   room: number;
   screen: Size;
+  /** The zoom, in percent: the session shown draws at it, and opens as much bigger (zoom.ts). */
+  zoom?: number;
   /** The project button, beside the mark while it's open. */
   project: ReactNode;
   /** Keeps it open: a menu is up, or a pill is being dragged off it. */
@@ -89,7 +92,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, screen, project, held, session, sessionOpen, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -121,7 +124,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
   const [want, setWant] = useState<Size | null>(() => readStored(SIZE_KEY, SIZE_STORED, null));
   // An edge is being dragged: the shape follows the pointer, with no easing to catch up.
   const [sizing, setSizing] = useState(false);
-  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want);
+  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom));
   const state: NotchState = sessionOpen ? 'session' : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
   // Something shows under the notch.
@@ -265,7 +268,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
     if (!d?.moved) return;
     cancelAnimationFrame(d.frame);
     setSizing(false);
-    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to);
+    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to, zoomFactor(zoom));
     const kept = { w: s.session.w, h: s.session.h - s.pills.h };
     setWant(kept);
     writeStored(SIZE_KEY, SIZE_STORED, kept);
