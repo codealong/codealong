@@ -187,6 +187,13 @@ pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Said> {
 pub fn transcript_page<T>(db: &Path, session: &str, before: Option<u64>, limit: usize, items: impl Fn(&Value, u64, i64) -> Vec<T>) -> crate::transcript::PageOf<T> {
     let Some(db) = open(db) else { return crate::transcript::PageOf { items: Vec::new(), before: None, after: 0 } };
     let newest: i64 = db.query_row("SELECT COALESCE(MAX(seq), 0) FROM session_message WHERE session_id = ?1", [session], |r| r.get(0)).unwrap_or(0);
+    // Asked before the messages are read: a reply that has ended by now is read whole below, and
+    // one still going is read again from its own place.
+    let after = db
+        .query_row("SELECT seq, data FROM session_message WHERE session_id = ?1 AND type = 'assistant' AND seq <= ?2 ORDER BY seq DESC LIMIT 1", rusqlite::params![session, newest], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .ok()
+        .filter(|(_, data)| streaming(&serde_json::from_str(data).unwrap_or(Value::Null)))
+        .map_or(newest, |(seq, _)| (seq - 1).max(0));
     let mut out: Vec<Vec<T>> = Vec::new();
     let mut count = 0;
     let mut first_seq: Option<i64> = None;
@@ -215,23 +222,39 @@ pub fn transcript_page<T>(db: &Path, session: &str, before: Option<u64>, limit: 
     }
     let oldest = first_seq.unwrap_or(0);
     let has_older: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id = ?1 AND seq < ?2)", rusqlite::params![session, oldest], |r| r.get(0)).unwrap_or(false);
-    crate::transcript::PageOf { items: out.into_iter().rev().flatten().collect(), before: (first_seq.is_some() && has_older).then_some(oldest as u64), after: newest as u64 }
+    crate::transcript::PageOf { items: out.into_iter().rev().flatten().collect(), before: (first_seq.is_some() && has_older).then_some(oldest as u64), after: after as u64 }
 }
 
-/// A session's messages after `after` (by `seq`), oldest first. A message still streaming is
-/// read again as it grows, from its own `seq`, so the panel replaces it by its place.
+/// Whether an assistant message is still being written. OpenCode writes a reply into its row as
+/// it streams, the same row each time, and stamps `time.completed` when it ends.
+fn streaming(message: &Value) -> bool {
+    message.pointer("/time/completed").map_or(true, Value::is_null)
+}
+
+/// A session's messages after `after` (by `seq`), oldest first. The `after` it hands back stops
+/// short of a reply still streaming, so the next read has that message again as it grows, and
+/// the panel replaces it by its place (its cursor).
 pub fn transcript_newer<T>(db: &Path, session: &str, after: u64, items: impl Fn(&Value, u64, i64) -> Vec<T>) -> crate::transcript::PageOf<T> {
     let Some(db) = open(db) else { return crate::transcript::PageOf { items: Vec::new(), before: None, after } };
     let read = || -> rusqlite::Result<(Vec<T>, u64)> {
-        let mut stmt = db.prepare("SELECT seq, time_created, data FROM session_message WHERE session_id = ?1 AND seq > ?2 AND type IN ('user', 'assistant') ORDER BY seq")?;
+        let mut stmt = db.prepare("SELECT seq, time_created, data, type FROM session_message WHERE session_id = ?1 AND seq > ?2 AND type IN ('user', 'assistant') ORDER BY seq")?;
         let mut last = after;
+        // The newest reply read, and whether it's still going: only the newest can be, as a
+        // session runs one turn at a time, though a prompt queued meanwhile can come after it.
+        let mut reply: Option<(u64, bool)> = None;
         let mut out = Vec::new();
-        for (seq, at, data) in stmt.query_map(rusqlite::params![session, after as i64], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?.flatten() {
+        for (seq, at, data, kind) in stmt.query_map(rusqlite::params![session, after as i64], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))?.flatten() {
             let v: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+            if kind == "assistant" {
+                reply = Some((seq as u64, streaming(&v)));
+            }
             out.extend(items(&v, seq as u64, at));
             last = seq as u64;
         }
-        Ok((out, last))
+        match reply {
+            Some((seq, true)) => Ok((out, seq.saturating_sub(1))),
+            _ => Ok((out, last)),
+        }
     };
     match read() {
         Ok((items, last)) => crate::transcript::PageOf { items, before: None, after: last },
@@ -1005,15 +1028,15 @@ fn permission_request(svc: &Service, session: &str) -> Option<PermissionRequest>
 mod tests {
     use super::*;
 
+    /// The tables read, with the columns read.
+    const SCHEMA: &str = "CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT 'p', parent_id TEXT, directory TEXT NOT NULL, title TEXT, \
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, time_idle INTEGER, idle_outcome TEXT, time_archived INTEGER, time_viewed INTEGER);\
+        CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL, \
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);";
+
     fn db_with(sql: &str) -> Connection {
         let db = Connection::open_in_memory().unwrap();
-        db.execute_batch(
-            "CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT 'p', parent_id TEXT, directory TEXT NOT NULL, title TEXT, \
-             time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, time_idle INTEGER, idle_outcome TEXT, time_archived INTEGER, time_viewed INTEGER);\
-             CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL, \
-             time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);",
-        )
-        .unwrap();
+        db.execute_batch(SCHEMA).unwrap();
         db.execute_batch(sql).unwrap();
         db
     }
@@ -1075,6 +1098,44 @@ mod tests {
         let mut done = a.clone();
         done.idle_at = Some(4600);
         assert!(!done.turn_open());
+    }
+
+    /// A reply OpenCode is still writing grows in its row, under the same `seq`: the panel's
+    /// next read has it again, until it's stamped complete.
+    #[test]
+    fn a_reply_still_streaming_is_read_again_as_it_grows() {
+        let dir = crate::fixtures::scratch("oc-stream");
+        let path = dir.join("opencode.db");
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch(SCHEMA).unwrap();
+        let reply = |text: &str, done: bool| {
+            let time = if done { serde_json::json!({ "created": 1, "completed": 9 }) } else { serde_json::json!({ "created": 1 }) };
+            serde_json::json!({ "time": time, "content": [{ "type": "text", "text": text }] }).to_string()
+        };
+        let write = |seq: i64, kind: &str, data: &str| {
+            db.execute("INSERT OR REPLACE INTO session_message VALUES (?1, 'ses_a', ?2, ?3, ?3, ?3, ?4)", rusqlite::params![format!("m{seq}"), kind, seq, data]).unwrap();
+        };
+        let texts = |items: &[Item]| items.iter().map(|i| (i.cursor, i.text.clone())).collect::<Vec<_>>();
+        write(1, "user", r#"{"text":"Count to three"}"#);
+        write(2, "assistant", &reply("One", false));
+        let first = transcript_page(&path, "ses_a", None, 50, conversation_items);
+        assert_eq!(texts(&first.items), [(1, "Count to three".to_string()), (2, "One".to_string())]);
+        // The same message, longer: read again, from its own place.
+        write(2, "assistant", &reply("One, two", false));
+        let next = transcript_newer(&path, "ses_a", first.after, conversation_items);
+        assert_eq!(texts(&next.items), [(2, "One, two".to_string())]);
+        // A prompt queued meanwhile comes after it, and doesn't stop it being read again.
+        write(3, "user", r#"{"text":"Then stop"}"#);
+        write(2, "assistant", &reply("One, two, three", true));
+        let done = transcript_newer(&path, "ses_a", next.after, conversation_items);
+        assert_eq!(texts(&done.items), [(2, "One, two, three".to_string()), (3, "Then stop".to_string())]);
+        // Once it's complete, nothing is read twice.
+        assert_eq!(done.after, 3);
+        assert!(transcript_newer(&path, "ses_a", done.after, conversation_items).items.is_empty());
+        // A new reply found by a newer read is read again too.
+        write(4, "assistant", &reply("Stopping", false));
+        let found = transcript_newer(&path, "ses_a", done.after, conversation_items);
+        assert_eq!((texts(&found.items), found.after), (vec![(4, "Stopping".to_string())], 3));
     }
 
     #[test]

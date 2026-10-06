@@ -13,7 +13,10 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   `XDG_DATA_HOME` moves it). The tables and the columns read: `opencode.rs` (header, `ROW`,
   `SessionRow`). In `session_message`'s `data`, a user message has `text`, and an assistant's
   `content` has parts of type text, reasoning or tool, a tool part with `name` and
-  `state.input`. The `event` table stayed empty when a session was made through the API, so a
+  `state.input`. An assistant message's `time` has `created`, `streamed` and `completed`; the
+  reply is written into the same row as it streams, and every finished one on this Mac had
+  `completed` (`opencode.rs`, `streaming`, `transcript_newer`; not yet watched mid-reply). The
+  `event` table stayed empty when a session was made through the API, so a
   run in progress is a user message newer than `time_idle` (`SessionRow::turn_open`).
 - The background service is `opencode serve --service`, which the TUI starts.
   `~/.local/state/opencode/service.json` is mode 600. `GET /api/session/active` answers `{data:
