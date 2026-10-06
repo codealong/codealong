@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { resetsPhrase } from './format';
 import {
   accountFor,
@@ -27,6 +27,12 @@ import {
   placesFor,
   placeTakesModel,
   preferredNames,
+  resumeAccount,
+  resumeChoice,
+  resumedIn,
+  resumeIn,
+  resumeWords,
+  rememberResumed,
   settledPlace,
   startChoice,
   startHappens,
@@ -500,5 +506,65 @@ describe('startChoice', () => {
     const fable = [fx.usage({ account: 'claude', meters: [fx.meter({ key: 'week', percent: 10 }), fx.meter({ key: 'model:opus', model: 'Opus', percent: 95 })] }), fx.usage({ account: 'claude2', meters: [fx.meter({ key: 'week', percent: 97 })] }), fx.usage({ account: 'codex', meters: [fx.meter({ key: 'week', percent: 99 })] })];
     const c = choose({}, fable);
     expect([c.account, c.modelNow, c.startsOn, c.effortModel]).toEqual(['claude', 'sonnet', 'sonnet', 'sonnet']);
+  });
+});
+
+describe('resuming a session that isn’t running', () => {
+  const models = [
+    { id: 'opus', label: 'Opus' },
+    { id: 'haiku', label: 'Haiku' },
+  ];
+  const efforts = [{ id: 'high', label: 'High' }];
+  const background = { place: 'background' as const, label: 'Background' };
+  const codealong = { place: 'codealong' as const, label: 'Codealong' };
+  // Its `start` setting says new sessions start in the Claude app; that's not where one goes on.
+  const claude = fx.startAccount({ name: 'claude', places: [claudeApp, ghostty, background, codealong], resumes: ['claude-app', 'terminal', 'background', 'codealong'], chosen: 'claude-app', defaultModel: 'opus', models, efforts });
+  const none = { agent: null, effort: null, place: null };
+
+  it('offers only where its sessions go on, without the account’s start setting', () => {
+    const a = resumeAccount({ ...claude, resumes: ['terminal', 'codealong'] });
+    expect([a.places.map((p) => p.place), a.chosen]).toEqual([['terminal', 'codealong'], null]);
+    // A Mac from before resuming had a place offers none.
+    expect(resumeAccount({ ...claude, resumes: undefined }).places).toEqual([]);
+  });
+
+  it('goes on in a terminal on its own model, unless it went on elsewhere last', () => {
+    const c = resumeChoice(claude, [], none, undefined);
+    expect([c.placeNow, c.modelNow, c.effortNow, c.modelShown]).toEqual(['terminal', null, null, 'Opus']);
+    expect(c.places.map((p) => p.place)).toEqual(['claude-app', 'terminal', 'background', 'codealong']);
+    expect(resumeChoice(claude, [], none, 'codealong').placeNow).toBe('codealong');
+    expect(resumeIn(resumeChoice(claude, [], { ...none, place: 'background' }, 'codealong'))).toEqual({ place: 'background', model: null, effort: null });
+  });
+
+  it('asks for a model and effort as a start does: only where they go, so the app drops out', () => {
+    const c = resumeChoice(claude, [], { agent: agentId('claude', 'haiku'), effort: 'high', place: null }, undefined);
+    expect(c.places.map((p) => p.place)).toEqual(['terminal', 'background', 'codealong']);
+    expect(resumeIn(c)).toEqual({ place: 'terminal', model: 'haiku', effort: null });
+    // Haiku takes no effort; Opus does.
+    expect(resumeIn(resumeChoice(claude, [], { agent: agentId('claude', 'opus'), effort: 'high', place: 'codealong' }, undefined))).toEqual({ place: 'codealong', model: 'opus', effort: 'high' });
+    // The app picks its own.
+    expect(resumeIn(resumeChoice(claude, [], { ...none, place: 'claude-app' }, undefined))).toEqual({ place: 'claude-app', model: null, effort: null });
+  });
+
+  it('says what a send to it does', () => {
+    expect(resumeWords('terminal', 'Ghostty')).toBe('this resumes it in Ghostty');
+    expect(resumeWords('background', 'Ghostty')).toBe('this resumes it in the background');
+    expect(resumeWords('background', 'Ghostty', true)).toBe('this resumes it in Ghostty, behind your windows');
+    expect(resumeWords('claude-app', 'Ghostty')).toBe('the Claude app opens it with this on the clipboard');
+    expect(resumeWords('codealong', 'Ghostty')).toBe('Codealong runs it from now on');
+  });
+
+  it('remembers where each account’s sessions went on', () => {
+    const items = new Map<string, string>();
+    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v), removeItem: (k: string) => void items.delete(k) } });
+    expect(resumedIn('claude')).toBeUndefined();
+    rememberResumed('claude', 'background');
+    rememberResumed('codex', 'codealong');
+    expect([resumedIn('claude'), resumedIn('codex')]).toEqual(['background', 'codealong']);
+    // The way it's written never changes, or what people chose is lost with an update.
+    expect(items.get('codealong.resumed')).toBe('{"claude":"background","codex":"codealong"}');
+    items.set('codealong.resumed', '{"claude":"moon"}');
+    expect(resumedIn('claude')).toBeUndefined();
+    vi.unstubAllGlobals();
   });
 });

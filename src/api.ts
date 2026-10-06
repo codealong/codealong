@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -534,6 +534,13 @@ export async function searchText(words: string[]): Promise<TextFound> {
 export async function sendToSession(key: string, text: string, now = false): Promise<Sent> {
   if (!inTauri) return { message: 'Sent.', opened: false };
   return invoke<Sent>('send_to_session', { key, text, now });
+}
+
+/** Goes on with a session that isn't running where `resume` says (start.rs `resume`), on
+ *  `prompt` when there's one, else waiting for one. Says how it went, as a send does. */
+export async function resumeSession(key: string, resume: ResumeIn, prompt = ''): Promise<Sent> {
+  if (!inTauri) return { message: 'Resumed.', opened: false };
+  return invoke<Sent>('resume_session', { key, resume, prompt });
 }
 
 /** Whether there's a TypeSafe API key in the keychain. */

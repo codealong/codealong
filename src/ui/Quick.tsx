@@ -63,9 +63,7 @@ import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, find
 import {
   accountHeadWords,
   agentChipWords,
-  agentOptionWords,
   autoOptionWords,
-  effortNote,
   isAuto,
   newWorktreeTitle,
   onModelWords,
@@ -74,7 +72,6 @@ import {
   startHappens,
   startingLabel,
   startOptionsFailed,
-  type AgentOption,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, leftOutWords, mentionAt, mentionsIn, repoLanes, skillRows, skillStart, takes, writtenFor, type Mention, type SkillRow } from '../skills';
@@ -83,10 +80,11 @@ import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, su
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { cx, Icon, Kbd, Mark, Seg, STATUS_WORD, StatusGlyph } from './primitives';
+import { agentLine, EffortFoot, PlaceToggle } from './StartControls';
+import { cx, Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -1224,18 +1222,7 @@ export function Quick() {
       out.push({
         key: a.name,
         head: <AccountHead name={a.name} detail={head.detail} meters={cant ? null : (u?.meters ?? [])} note={head.note} now={now} />,
-        options: mine.map((o: AgentOption) => {
-          const said = agentOptionWords(o, a, models);
-          return {
-            id: o.id,
-            lead: <span className="ca-picker-check">{o.id === agentNow ? <Icon name="check" size={14} /> : null}</span>,
-            text: said.text,
-            label: said.label,
-            detail: said.detail,
-            disabled: cant,
-            title: cant ? (a.unavailable ?? undefined) : undefined,
-          };
-        }),
+        options: mine.map((o) => agentLine(o, a, models, agentNow)),
       });
     }
     return out;
@@ -1247,23 +1234,7 @@ export function Quick() {
     refocus();
   };
 
-  const effortFoot =
-    efforts.length > 0 ? (
-      <>
-        <span className="ca-picker-foot-label">Effort</span>
-        <Seg
-          label="Effort"
-          options={[{ id: null, label: 'Default', title: 'The account’s own: settings.json’s effortLevel, else the model’s' }, ...efforts.map((e) => ({ id: e.id as string | null, label: e.label, title: e.id === 'max' ? 'Deepest reasoning. It can use a great many tokens; for the hardest tasks.' : undefined }))]}
-          value={effort}
-          // The filter keeps the keyboard.
-          keepsFocus
-          onPick={setEffort}
-        />
-        <span className="ca-picker-foot-note">
-          {effortNote(harness, effortModel) ?? <Kbd keys={['←', '→']} />}
-        </span>
-      </>
-    ) : null;
+  const effortFoot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={effort} onPick={setEffort} harness={harness} model={effortModel} /> : null;
 
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];
@@ -1703,22 +1674,11 @@ export function Quick() {
             </button>
             {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
           </div>
-          {places.length > 1 ? (
-            <Seg className="ca-quick-places" label="Opens in" iconSize={13} options={places.map((p) => ({ id: p.place, label: p.label, icon: placeIcon(p.place) }))} value={placeNow} onPick={pickPlace} />
-          ) : places.length === 1 ? (
-            <span className="ca-quick-place">
-              <Icon name={placeIcon(places[0].place)} size={13} />
-              {places[0].label}
-            </span>
-          ) : null}
+          <PlaceToggle className="ca-quick-places" label="Opens in" places={places} value={placeNow} onPick={pickPlace} />
         </div>
       </div>
     </div>
   );
-}
-
-function placeIcon(place: StartPlace): string {
-  return place === 'terminal' ? 'terminal' : place === 'background' ? 'stack' : 'app';
 }
 
 function ProjectCounts({ needs, unread }: { needs: number; unread: number }) {

@@ -239,9 +239,26 @@ impl crate::harness::Adapter for Codex {
 
     /// `codex resume <id> <prompt>`; its files go as paths, and `--` keeps a prompt that starts
     /// with a dash from reading as an option.
-    fn resume(&self, account: &AccountCfg, s: &Session, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
+    /// `codex resume` takes no model or effort here (`takes_model`), and without a prompt it
+    /// opens on the thread and waits for one.
+    fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        let prompt = crate::attachments::expand(ask.prompt, crate::attachments::Style::Path).trim().to_string();
+        if prompt.is_empty() {
+            return Ok((format!("{} resume -- {}\n", account.command(), s.id), Vec::new()));
+        }
         let input = format!("{} resume -- {} \"${}\"\n", account.command(), s.id, crate::start::PROMPT_VAR);
-        Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), crate::attachments::expand(text, crate::attachments::Style::Path).trim().to_string())]))
+        Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), prompt)]))
+    }
+
+    /// A terminal (Background one behind your windows), the Codex app, which reads the same
+    /// threads for the account it runs, and Codealong (codex-acp loads a thread by its ID).
+    fn resumes_in(&self, place: crate::start::Place) -> bool {
+        use crate::start::Place;
+        matches!(place, Place::Terminal | Place::Background | Place::CodexApp | Place::Codealong)
+    }
+
+    fn app_way(&self) -> Option<crate::send::Route> {
+        Some(ipc::InApp.into())
     }
 
     fn app(&self) -> &'static str {

@@ -1,11 +1,12 @@
 //! Sending a prompt to a session that already exists, the way its harness takes one in.
 //!
 //! Each harness says which ways reach a session, best first (`Adapter::routes`), and they're
-//! tried in that order until one works. Two are the same for every harness and are done here:
-//! typing the prompt into the session's terminal, where it arrives as if you'd typed it, and
-//! resuming a session that isn't running in a new terminal, on the prompt. The others are a
-//! harness's own (`Own`: its background service, a socket its sessions listen on, its app),
-//! and its module sends by them.
+//! tried in that order until one works. Two are the same for every harness: typing the prompt
+//! into the session's terminal, where it arrives as if you'd typed it, done here, and resuming a
+//! session that isn't running in a new terminal, on the prompt, which is `start::resume`'s (a
+//! window's box asks that for the other places it can go on in). The others are a harness's own
+//! (`Own`: its background service, a socket its sessions listen on, its app), and its module
+//! sends by them.
 //!
 //! What you type in Codealong's windows here is yours, as if typed in the session. A message
 //! from another device isn't known to be, and an agent's never is. Every way in is told whose
@@ -381,14 +382,11 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     if msg.from_agent() {
         routes = agent_routes(session, routes)?;
     }
-    let near = crate::board::terminal_neighbours(&board.lanes, Path::new(&session.cwd));
-    let label = crate::board::tab_label(&board.lanes, Path::new(&session.cwd), &session.title);
-    let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() };
     let mut last_err = None;
     // Why typing into its terminal didn't work, for the note on the way it went instead.
     let mut untyped = None;
     for route in routes {
-        match attempt(&route, session, account, cfg, place, &msg, untyped.as_deref()) {
+        match attempt(&route, board, session, account, cfg, &msg, untyped.as_deref()) {
             Ok(Tried::Sent(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
             Ok(Tried::Passed(why)) => untyped = why.or(untyped),
@@ -452,7 +450,7 @@ pub(crate) fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<
 
 /// One way in: it went, or nothing went and the next way is tried, or it failed. `untyped` is
 /// why typing into the session's terminal didn't work, when that was tried first.
-fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, msg: &Message, untyped: Option<&str>) -> Result<Tried> {
+fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg, cfg: &Config, msg: &Message, untyped: Option<&str>) -> Result<Tried> {
     let text: &str = &msg.text;
     let busy = session.status == Status::Working;
     let now = msg.now_for(session);
@@ -482,13 +480,15 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
             }
         }
-        Route::Resume => {
-            let (input, env) = adapter.resume(account, session, text)?;
-            launch::terminal_run(&cfg.apps.terminal, place, Path::new(&session.cwd), &input, &env)?;
-            Ok(Tried::Sent(sent(format!("Resumed {title} in {} with this prompt.", launch::terminal_name(&cfg.apps.terminal)))))
-        }
+        Route::Resume => Ok(Tried::Sent(crate::start::resume(board, cfg, &session.key, &crate::start::ResumeIn::default(), text)?.sent)),
         Route::Own(own) => own.deliver(&msg.delivery(session, account, untyped)).map(Tried::Sent),
     }
+}
+
+/// Sends your prompt one of a harness's own ways in, outside a send: its app's, for a session
+/// that goes on there (`start::resume`). An empty prompt opens the session there.
+pub(crate) fn deliver_yours(own: &dyn Own, session: &Session, account: &AccountCfg, text: &str) -> Result<Sent> {
+    own.deliver(&Delivery { session, account, text, agent: None, bypasses: true, now: false, untyped: None })
 }
 
 /// A prompt as it's pasted into a session's input box, for the Return that follows to send it.
@@ -609,7 +609,6 @@ mod tests {
     fn a_way_in_of_a_harnesss_own_is_told_whose_the_message_is() {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
         let cfg = Config::default();
-        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false, label: None };
         let s = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
         let board = Board::default();
         static AGENT: Sender = Sender::Agent(None);
@@ -622,7 +621,7 @@ mod tests {
         assert_eq!(told(&Sender::Elsewhere), (None, false, false, Some("no tab".into())));
         assert_eq!(told(&AGENT), (Some("codealong".into()), false, true, Some("no tab".into())));
         let msg = Message::new(&board, &cfg, "hi", &Sender::You, false);
-        let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &s, &account, &cfg, place, &msg, None).unwrap() else { panic!("it passed") };
+        let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &board, &s, &account, &cfg, &msg, None).unwrap() else { panic!("it passed") };
         assert_eq!(went.message, "Stood in for “Fix the build”.");
     }
 

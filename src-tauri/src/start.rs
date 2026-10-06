@@ -29,7 +29,7 @@ pub const FILES_VAR: &str = "CODEALONG_FILES";
 
 /// What a start asks for and gets back goes between devices too (a phone starts sessions on your
 /// Macs), so those types are in codealong-peer.
-pub use codealong_peer::api::{ModelOption, Place, PlaceOption, StartAccount, StartOptions, StartSpec, Started};
+pub use codealong_peer::api::{ModelOption, Place, PlaceOption, ResumeIn, StartAccount, StartOptions, StartSpec, Started};
 
 /// What a start does. `--snapshot --start-plan` prints it.
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -87,6 +87,14 @@ pub fn ordered_places(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Pl
     Ok(places)
 }
 
+/// Where one of an account's sessions that isn't running can go on (`resume`): the places it
+/// starts sessions in that its harness can take a session up again in (`Adapter::resumes_in`),
+/// in the same order.
+pub fn resume_places(a: &AccountCfg, home: &Path) -> Vec<Place> {
+    let adapter = adapter_of(a);
+    ordered_places(a, home).unwrap_or_default().into_iter().filter(|&p| adapter.resumes_in(p)).collect()
+}
+
 /// Where each account can start a session, as the sheet offers it. `default_model` reads an
 /// account's default model.
 pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
@@ -99,6 +107,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 Err(why) => (Vec::new(), Some(why)),
             };
             let adapter = adapter_of(a);
+            let resumes = places.iter().copied().filter(|&p| adapter.resumes_in(p)).collect();
             let places = places
                 .into_iter()
                 .map(|place| {
@@ -126,6 +135,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 models: if tuned { adapter.models(a) } else { Vec::new() },
                 efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
                 worktree: adapter.makes_worktrees(),
+                resumes,
             }
         })
         .collect();
@@ -458,20 +468,10 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
     let adapter = adapter_of(account);
     let word = adapter.harness().word();
-    // A model, an effort level and a new worktree go where the harness's command line takes
-    // them: in a terminal or the background, or through its adapter under Codealong, which
-    // takes the same names. The apps pick their own.
+    let (model, effort) = tuning(adapter, spec.place, spec.model.as_deref(), spec.effort.as_deref())?;
+    // A new worktree goes where the harness's command line takes it.
     let on_command_line = matches!(spec.place, Place::Terminal | Place::Background);
-    let tuned = (on_command_line || spec.place == Place::Codealong) && adapter.takes_model();
-    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && tuned);
-    let effort = spec.effort.as_deref().map(str::trim).filter(|e| !e.is_empty() && tuned && !adapter.efforts().is_empty());
     let worktree = spec.worktree && on_command_line && chat.is_none();
-    if let Some(m) = model.filter(|m| !valid_model(m)) {
-        bail!("{m:?} isn't a model name Codealong can pass to {word}.");
-    }
-    if let Some(e) = effort.filter(|e| !adapter.efforts().iter().any(|(id, _)| id == e)) {
-        bail!("{e:?} isn't an effort level; {word} takes {}.", adapter.efforts().iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", "));
-    }
     if chat.is_some() {
         make_chat_folder(folder)?;
     }
@@ -512,6 +512,106 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
             Ok(Started { key: Some(key), message: None })
         }
     }
+}
+
+/// The model and effort asked for, where `place` takes them: a model, an effort level and a new
+/// worktree go where the harness's command line takes them, in a terminal or the background,
+/// or through its adapter under Codealong, which takes the same names. The apps pick their own,
+/// so there they're left out. One the harness doesn't take is an error.
+fn tuning<'a>(adapter: &dyn Adapter, place: Place, model: Option<&'a str>, effort: Option<&'a str>) -> Result<(Option<&'a str>, Option<&'a str>)> {
+    let word = adapter.harness().word();
+    let tuned = matches!(place, Place::Terminal | Place::Background | Place::Codealong) && adapter.takes_model();
+    let model = model.map(str::trim).filter(|m| !m.is_empty() && tuned);
+    let effort = effort.map(str::trim).filter(|e| !e.is_empty() && tuned && !adapter.efforts().is_empty());
+    if let Some(m) = model.filter(|m| !valid_model(m)) {
+        bail!("{m:?} isn't a model name Codealong can pass to {word}.");
+    }
+    if let Some(e) = effort.filter(|e| !adapter.efforts().iter().any(|(id, _)| id == e)) {
+        bail!("{e:?} isn't an effort level; {word} takes {}.", adapter.efforts().iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", "));
+    }
+    Ok((model, effort))
+}
+
+/// How a session that wasn't running went on: the key it goes on under (a copy's, where its
+/// harness copied it; none where the harness hasn't said yet), and what to say of it, as a send
+/// says how it went.
+#[derive(Debug, Clone)]
+pub struct Resumed {
+    pub key: Option<String>,
+    pub sent: crate::send::Sent,
+}
+
+/// Goes on with a session that isn't running where `how` says, of the places its account starts
+/// sessions in (`resume_places`): a new terminal; Background, under the harness's background
+/// service where it has one, else in a terminal behind your windows; its app; or Codealong,
+/// which runs it from then on. On the model and effort where the place takes them, as a start
+/// is, and on `prompt` when there's one, else waiting for one. What a box's send to a session
+/// that isn't running comes to (send.rs `Route::Resume`), and Resume in, in its menu.
+pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &str) -> Result<Resumed> {
+    let (s, account, _, cwd) = to_fork(board, cfg, key)?;
+    let title = format!("“{}”", s.title);
+    if s.live {
+        bail!("{title} is running already; send it a message instead.");
+    }
+    let adapter = crate::harness::adapter(s.harness);
+    if !resume_places(account, &home()).contains(&how.place) {
+        bail!("{title} can't go on {} from here.", place_words(how.place, cfg));
+    }
+    let (model, effort) = tuning(adapter, how.place, how.model.as_deref(), how.effort.as_deref())?;
+    let dirs = (attachments::images_dir(), attachments::files_dir());
+    let ask = asked(adapter, prompt, &s.id, model, effort, false, (&dirs.0, &dirs.1));
+    let ctx = crate::harness::Ctx { account };
+    let prompted = !prompt.trim().is_empty();
+    let on = model.map(|m| format!(" on {}", model_label(adapter, account, m))).unwrap_or_default();
+    let (goes_on, message) = match how.place {
+        Place::Background if adapter.runs_in_background() => {
+            let job = adapter.resume_in_background(&ctx, s, &cwd, &ask)?;
+            let copied = job.as_deref().is_some_and(|k| k != key);
+            if let Some(copy) = job.as_deref().filter(|_| copied) {
+                crate::origins::record(copy, key, crate::model::OriginHow::Fork);
+            }
+            let copy_note = if copied { " Claude Code copies a session a background job had before into a new job, so the copy takes its place." } else { "" };
+            (job, format!("{title} goes on in the background{on}. Attach a terminal any time.{copy_note}"))
+        }
+        Place::Terminal | Place::Background => {
+            let behind = how.place == Place::Background;
+            let (input, env) = adapter.resume(account, s, &ask)?;
+            let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
+            let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
+            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind, label: label.as_deref() }, &cwd, &input, &env)?;
+            let terminal = launch::terminal_name(&cfg.apps.terminal);
+            let behind = if behind { " behind your windows" } else { "" };
+            (Some(key.to_string()), format!("Resumed {title} in {terminal}{behind}{on}{}.", if prompted { " with this prompt" } else { "" }))
+        }
+        Place::ClaudeApp | Place::CodexApp => {
+            let Some(crate::send::Route::Own(app)) = adapter.app_way() else { bail!("{title} can't go on in {} from here.", adapter.app()) };
+            let sent = crate::send::deliver_yours(app.as_ref(), s, account, prompt)?;
+            return Ok(Resumed { key: Some(key.to_string()), sent });
+        }
+        Place::Codealong => {
+            let hosted = crate::acp::adopt(account, &s.id, &cwd, &hosted_prompt(&ask), model, effort)?;
+            let then = if prompted { "it's on it" } else { "its panel here takes the next prompt" };
+            (Some(hosted), format!("Codealong runs {title} now{on}: {then}."))
+        }
+    };
+    Ok(Resumed { key: goes_on, sent: crate::send::sent(message) })
+}
+
+/// Where a place is, as "can't go on …" says it.
+fn place_words(place: Place, cfg: &Config) -> String {
+    match place {
+        Place::Terminal => format!("in {}", launch::terminal_name(&cfg.apps.terminal)),
+        Place::Background => "in the background".into(),
+        Place::ClaudeApp => "in the Claude app".into(),
+        Place::CodexApp => "in the Codex app".into(),
+        Place::Codealong => "in Codealong".into(),
+    }
+}
+
+/// A model the way the account's list names it (`Opus Plan Mode` for `opusplan`), else as asked for.
+fn model_label(adapter: &dyn Adapter, account: &AccountCfg, model: &str) -> String {
+    let listed = adapter.models(account).into_iter().find(|m| m.id == model);
+    listed.and_then(|m| m.label.split(':').next().map(str::to_string)).unwrap_or_else(|| model.to_string())
 }
 
 /// What a start from todos leaves to link them by (`TodoStore::started`): the worktree it's
@@ -579,8 +679,8 @@ pub fn note(engine: &Handle, spec: &StartSpec) {
     }
 }
 
-/// A session to fork, with its account, the worktree it's in and the folder the copy starts in:
-/// the session's own, or its worktree's when that's gone.
+/// A session to fork, move or resume, with its account, the worktree it's in and the folder it
+/// goes on in: the session's own, or its worktree's when that's gone.
 fn to_fork<'a>(board: &'a Board, cfg: &'a Config, key: &str) -> Result<(&'a crate::model::Session, &'a AccountCfg, &'a crate::model::Lane, PathBuf)> {
     let (s, account) = crate::harness::find(board, cfg, key)?;
     // The id is typed into a shell, and the harnesses' ids are letters, digits, - and _.
@@ -1013,6 +1113,32 @@ mod tests {
         assert_eq!(preferred_names(&[&claude, &starred, &claude2]), vec!["codex"]);
     }
 
+    #[test]
+    fn resumes_only_a_session_that_isnt_running_where_its_account_can() {
+        let home = crate::fixtures::scratch("resume-home");
+        let running = crate::fixtures::session("live");
+        let stopped = crate::model::Session { live: false, ..crate::fixtures::session("stopped") };
+        let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![running, stopped])], ..Board::default() };
+        let cfg = Config { accounts: vec![account("claude", "claude", &home.to_string_lossy(), None)], ..Config::default() };
+        let to = |place| ResumeIn { place, model: None, effort: None };
+        let refused = |key: &str, how: ResumeIn| resume(&board, &cfg, key, &how, "").unwrap_err().to_string();
+        assert_eq!(refused("live", to(Place::Terminal)), "“Title live” is running already; send it a message instead.");
+        // The Claude app runs the account in ~/.claude only.
+        assert_eq!(refused("stopped", to(Place::ClaudeApp)), "“Title stopped” can't go on in the Claude app from here.");
+        // What's asked of the command line is checked as a start's is.
+        assert!(refused("stopped", ResumeIn { model: Some("opus; rm -rf ~".into()), ..to(Place::Terminal) }).contains("isn't a model name"));
+        assert!(refused("stopped", ResumeIn { effort: Some("ludicrous".into()), ..to(Place::Background) }).contains("isn't an effort level"));
+    }
+
+    #[test]
+    fn a_model_goes_only_where_the_command_line_or_codealong_takes_it() {
+        let claude = crate::harness::adapter(Harness::Claude);
+        assert_eq!(tuning(claude, Place::Terminal, Some(" opus "), Some("high")).unwrap(), (Some("opus"), Some("high")));
+        assert_eq!(tuning(claude, Place::Codealong, Some("sonnet"), None).unwrap(), (Some("sonnet"), None));
+        assert_eq!(tuning(claude, Place::ClaudeApp, Some("opus"), Some("high")).unwrap(), (None, None));
+        assert_eq!(tuning(crate::harness::adapter(Harness::Codex), Place::Terminal, Some("gpt-5"), Some("high")).unwrap(), (None, None));
+    }
+
     fn places(o: &StartOptions, name: &str) -> Vec<Place> {
         o.accounts.iter().find(|a| a.name == name).unwrap().places.iter().map(|p| p.place).collect()
     }
@@ -1044,6 +1170,14 @@ mod tests {
         assert_eq!(o.accounts[4].default_model, None);
         assert_eq!(o.accounts[0].places[0].label, "Ghostty");
         assert_eq!(o.codex_projects, vec!["/r/spur".to_string()]);
+        // A session that isn't running goes on in the places its account starts sessions in
+        // where its harness takes one up again: OpenCode's run in its service, never stopped.
+        let resumes = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().resumes.clone();
+        assert_eq!(resumes("claude"), places(&o, "claude"));
+        assert_eq!(resumes("claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(resumes("codex"), places(&o, "codex"));
+        assert!(resumes("opencode").is_empty() && resumes("antigravity").is_empty());
+        assert_eq!(resume_places(&accounts[1], Path::new("/Users/me")), resumes("claude2"));
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));

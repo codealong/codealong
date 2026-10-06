@@ -56,6 +56,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
+import { shortOf } from '../devices';
 import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
@@ -64,16 +65,22 @@ import { stoppable } from '../lanes';
 import { showSides, useAside } from '../side';
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
+import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
+import { accountOf, useStartAccounts } from '../startAccounts';
 import { sessionSkillsFor, useSkills } from '../useSkills';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
-import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
+import type { Answers, Pending, Question, Sent, Session, StartPlace, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
+import { offersResume, ResumeBar } from './ResumeBar';
 import { SideStrip } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { errorText } from '../report';
+
+/** Nothing picked for a resume: it goes on where it went on last, on the account's own model. */
+const NO_PICKS: ResumePicks = { agent: null, effort: null, place: null };
 
 /** The box grows to this many lines, then scrolls. */
 const LINES = 8;
@@ -88,8 +95,9 @@ export function takesReply(s: Session): boolean {
 
 /** What the box asks for, and how a message gets there (`way`, once the engine has said): typed
  *  into its terminal, pasted into its background job, a message from Codealong, or its app; or,
- *  where it can't reach the session itself, what happens instead. */
-export function replyPlaceholder(s: Session, terminal: string, way?: Way | null): string {
+ *  where it can't reach the session itself, what happens instead. A session that isn't running
+ *  goes on where its row under the text says (`resuming`), else in a terminal. */
+export function replyPlaceholder(s: Session, terminal: string, way?: Way | null, resuming?: { place: StartPlace; behind: boolean } | null): string {
   const to = s.asks ? `Answer ${s.account}` : `Send to ${s.account}`;
   if (s.hosted) return s.status === 'working' || s.status === 'needs' ? `${to}: it takes this after its current turn` : to;
   const working = s.status === 'working' ? ': it takes this in as it works' : '';
@@ -105,7 +113,7 @@ export function replyPlaceholder(s: Session, terminal: string, way?: Way | null)
     case 'opencode':
       return `${to} via OpenCode${working}`;
     case 'resume':
-      return `${to}: it isn’t running, so this resumes it in ${way.app}`;
+      return `${to}: it isn’t running, so ${resumeWords(resuming?.place ?? 'terminal', way.app, resuming?.behind)}`;
     case 'claude-app':
       return `${to}: it isn’t running, so the Claude app opens it with this on the clipboard`;
   }
@@ -191,6 +199,17 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       live = false;
     };
   }, [s.key, s.live, s.pid, s.surface, s.attachCommand]);
+
+  // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
+  // its account offers a choice; without one, a send resumes it in a terminal.
+  const resumable = way?.kind === 'resume' && !shortOf(s.key);
+  const account = accountOf(useStartAccounts(resumable), s);
+  const [resumePicks, setResumePicks] = useState<ResumePicks>(NO_PICKS);
+  useEffect(() => setResumePicks(NO_PICKS), [s.key]);
+  const resumeChosen = resumable && account ? resumeChoice(account, [], resumePicks, resumedIn(account.name)) : null;
+  const resuming = offersResume(resumeChosen) ? resumeChosen : null;
+  const resumeHow = resuming ? resumeIn(resuming) : null;
+  const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resuming?.places.find((p) => p.place === resumeHow.place)?.behind };
 
   const setText = (t: string) => {
     setTextNow(t);
@@ -306,7 +325,8 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     // What happens next is told to whichever box is showing then: this one may be gone by then
     // (the peek closes as it sends).
     const key = s.key;
-    sendAhead(s, t, { now }).then(
+    if (resumeHow) rememberResumed(s.account, resumeHow.place);
+    sendAhead(s, t, { now, resume: resumeHow ?? undefined }).then(
       (sent) => {
         land(key, { text: sent?.message ?? 'Sent.', error: false });
         onSent?.(sent);
@@ -481,10 +501,11 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     <div className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
       <div
-        className="ca-composer-field"
+        className={cx('ca-composer-field', resuming && !aside && 'has-tools')}
         onMouseDown={(e) => {
-          // A press anywhere in the box but its buttons puts the cursor in it.
-          if ((e.target as Element).closest('button, textarea')) return;
+          // A press anywhere in the box but its buttons and the row under the text puts the
+          // cursor in it.
+          if ((e.target as Element).closest('button, textarea, .ca-resume')) return;
           e.preventDefault();
           box.current?.focus();
         }}
@@ -494,7 +515,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           ref={box}
           value={text}
           rows={Math.min(LINES, Math.max(2, text.split('\n').length))}
-          placeholder={aside ? 'Ask on the side' : waiting && onDenySaying ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way) + (canStop ? ' · esc stops its turn' : '')}
+          placeholder={aside ? 'Ask on the side' : waiting && onDenySaying ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? ' · esc stops its turn' : '')}
           onChange={(e) => {
             setText(e.target.value);
             setCaret(e.target.selectionStart);
@@ -567,6 +588,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           onPaste={paste}
           aria-label={aside ? `Question on the side about ${s.title}` : `Message to ${s.title}`}
         />
+        {resuming && account && !aside && <ResumeBar account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
         <div className="ca-composer-buttons">
           {canSendNow && !empty && !command && (
             <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>

@@ -1,0 +1,78 @@
+/* Where a session that isn't running goes on, and on what (ResumeBar.tsx): a row at the foot of
+   its box, under the text and beside Send, as chat apps put their model picker. The text then
+   takes the box's whole width. */
+.ca-composer-field.has-tools {
+  position: relative;
+}
+.ca-composer-field.has-tools > textarea {
+  grid-column: 1 / -1;
+}
+.ca-resume {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0 0 5px 5px;
+  cursor: default;
+}
+.ca-resume .ca-segctl button {
+  gap: var(--space-1);
+  height: 22px;
+  padding: 0 7px;
+}
+.ca-resume .ca-place {
+  padding: 0 4px;
+}
+/* Its menu is placed against the box, not the chip (below). */
+.ca-resume-pick {
+  min-width: 0;
+}
+.ca-resume-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-resume-model > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-resume-model-detail {
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.ca-resume-model > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-resume-model:hover,
+.ca-resume-model[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-resume-model:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+/* The box is at the foot of its window, so the model menu opens above it, over the
+   conversation, at its right edge by Send, as wide as the quick panel's agent menu (which has the
+   same effort row) or the box, whichever is narrower. */
+.ca-resume .ca-picker.is-up {
+  top: auto;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: auto;
+  width: min(440px, 100%);
+  max-height: min(360px, var(--ca-menu-room, 60vh));
+}

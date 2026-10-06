@@ -285,6 +285,11 @@ impl Own for InApp {
     fn deliver(&self, d: &Delivery) -> Result<Sent> {
         let title = d.title();
         let prompt = attachments::expand(d.text, Style::Path);
+        // Going on there with nothing to say yet (`Adapter::app_way`): the thread opens.
+        if prompt.trim().is_empty() {
+            launch::open_codex(&launch::codex_thread_url(&d.session.id))?;
+            return Ok(opened(format!("Codex has {title} open.")));
+        }
         if d.now {
             match codex_steer_turn(&d.account.home_path(), &d.session.id, &prompt, &d.session.cwd) {
                 Ok(()) => return Ok(sent(format!("Sent now to {title} in Codex: it takes it into the turn it's taking."))),

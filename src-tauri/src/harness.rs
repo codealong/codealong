@@ -121,11 +121,34 @@ pub trait Adapter: Sync {
         None
     }
 
-    /// What a new terminal types to go on with a session that isn't running, on a prompt
-    /// (`send::Route::Resume`), and the environment that carries the prompt: typed through the
-    /// shell, as a new session's is, so no quoting of yours can break the command.
-    fn resume(&self, _account: &AccountCfg, _session: &Session, _text: &str) -> Result<(String, Vec<(String, String)>)> {
+    /// What a new terminal types to go on with a session that isn't running (`start::resume`),
+    /// on the prompt, model and effort `ask` has where there are any, and the environment that
+    /// carries the prompt: typed through the shell, as a new session's is, so no quoting of
+    /// yours can break the command. `ask.session_id` is the session's own.
+    fn resume(&self, _account: &AccountCfg, _session: &Session, _ask: &StartAsk) -> Result<(String, Vec<(String, String)>)> {
         bail!("{} can't go on with a session from a prompt.", self.harness().word())
+    }
+
+    /// Of the places its accounts start sessions in, the ones a session of its that isn't
+    /// running can go on in (`start::resume`): a terminal, where `resume` says what to type
+    /// (Background then a terminal behind your windows, or the background service where there's
+    /// one: `resume_in_background`), its app (`app_way`), and Codealong, whose adapter loads a
+    /// session by its ID (acp.rs).
+    fn resumes_in(&self, _place: crate::start::Place) -> bool {
+        false
+    }
+
+    /// Goes on with a session that isn't running under the harness's background service, in
+    /// `cwd`, as `ask` says (`resumes_in(Background)` where `runs_in_background`). Returns the
+    /// key it goes on under, when the service has said: a copy's, where it copied the session.
+    fn resume_in_background(&self, _ctx: &Ctx, _session: &Session, _cwd: &Path, _ask: &StartAsk) -> Result<Option<String>> {
+        bail!("{} can't go on with a session in the background.", self.harness().word())
+    }
+
+    /// The way its app goes on with a session that isn't running (`resumes_in` its app): the app
+    /// opens it, and takes the prompt the way it takes one, when there is one.
+    fn app_way(&self) -> Option<crate::send::Route> {
+        None
     }
 
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.
@@ -960,14 +983,21 @@ mod tests {
 
     #[test]
     fn resumes_with_the_prompt_in_the_environment() {
+        let ask = |prompt: &'static str, model: Option<&'static str>, effort: Option<&'static str>| StartAsk { prompt, session_id: "abc", model, effort, worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
         let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
-        let (input, env) = adapter(Harness::Claude).resume(&account, &Session::new(Harness::Claude, "claude2", "abc"), "-v please").unwrap();
+        let claude = Session::new(Harness::Claude, "claude2", "abc");
+        let (input, env) = adapter(Harness::Claude).resume(&account, &claude, &ask("-v please", None, None)).unwrap();
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), " -v please".to_string())]);
+        // On another model and effort, or with nothing to say yet: it opens on the conversation.
+        let tuned = adapter(Harness::Claude).resume(&account, &claude, &ask("", Some("opus[1m]"), Some("high"))).unwrap();
+        assert_eq!(tuned, ("claude2 --model 'opus[1m]' --effort high --resume abc\n".to_string(), Vec::new()));
         let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
-        let (input, env) = adapter(Harness::Codex).resume(&codex, &Session::new(Harness::Codex, "codex", "01a0e379"), "-v please").unwrap();
+        let thread = Session::new(Harness::Codex, "codex", "01a0e379");
+        let (input, env) = adapter(Harness::Codex).resume(&codex, &thread, &ask("-v please", None, None)).unwrap();
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
+        assert_eq!(adapter(Harness::Codex).resume(&codex, &thread, &ask(" ", None, None)).unwrap(), ("codex resume -- 01a0e379\n".to_string(), Vec::new()));
     }
 
     /// Only Claude Code takes Codealong as a plugin; the others get a copy of its skill.

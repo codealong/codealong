@@ -474,7 +474,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   session whose tab can't be found gets such a message too, and the note (on the bar, from the
   peek) says it wasn't typed and why; once typing has started, nothing else is tried, so it
   can't arrive twice, and the same text sent again while it's on its way goes once. A session that isn't running
-  is resumed with the prompt; one waiting on you is opened instead, so what you typed can't
+  is resumed with the prompt where the row at the foot of its box says, in the places its account
+  starts sessions in that its harness can go on in: a terminal, the background (Claude Code's
+  background service, else a terminal behind your windows), its app, or Codealong, which runs it
+  from then on. Beside the places is the account's model and effort menu, as the start menu has
+  it, and picking a model leaves only the places that take one. It goes on where the account's
+  last one did, else in a terminal; Resume in, in its right-click menu, has the same places, to
+  go on without a prompt. One waiting on you is opened instead, so what you typed can't
   answer its question. The API key stays in the login keychain. What you type, repo names and
   session titles and latest lines go to TypeSafe.
 - **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's
@@ -940,11 +946,12 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |
 | `src-tauri/src/previews.rs`, `src-tauri/src/chrome.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL and Chrome profile (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; Chrome's profiles and opening a page in one; the row's chip, the panel's section and the URL sheet |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
-| `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
+| `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick; and going on with one that isn't running, by the same rules (`resume`) |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut and the waiting window's, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/waiting.rs`, `src/ui/Waiting.tsx` | The waiting window: an ordinary window, made when first asked for and hidden on close, that keeps where it was, comes from ⌥⌘., Window › Waiting on you and ⇥ in the quick panel, and works through what waits on you one card at a time (`quick.ts` `queueRows`, `queue.ts`) |
+| `src/ui/StartControls.tsx`, `src/startAccounts.ts` | Where a session goes and on what, as the start row and a stopped session's box both draw it (the places, a model menu's lines, the effort row), and this Mac's accounts as they offer them, read once a minute |
 | `src-tauri/src/harness.rs` | The interface each harness implements: an `Adapter` for a session (its record and conversation, what it waits on you to allow, opening, sending, starting, searching, renaming with `src/ui/RenameDialog.tsx`) and for an account, and a `Reader` that reads its sessions for the board; CLAUDE.md's "Adding a harness" lists it all |
-| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
+| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx`, `src/ui/ResumeBar.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on, and for one that isn't running, where it goes on and on what |
 | `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's card (`ui/SessionCard.tsx`), as the waiting window does |
 | `src/ui/Notch.tsx`, `src/ui/NotchSession.tsx`, `src/ui/NotchReview.tsx` | The bar docked in the notch: its three states (closed, the pills, a session or a review under them) shown through one clip, and what it shows in place of a peek: which session or PR, the queue of both it works through and its keys |
 | `src/ui/PrCard.tsx`, `src/review.ts` | A PR waiting on your review as a card of its own, in the notch and the waiting window: the PR panel's details with the strip over them, the box that approves, comments or asks for changes, the PR's menu and its chords; and Review with…, which starts a review session on an account or opens the Codex app's review page |
@@ -954,7 +961,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/skills.rs`, `src/skills.ts`, `src/useSkills.ts`, `src/ui/SlashList.tsx` | Skills by name: the folders each harness reads them from (`Adapter::worktree_skills`, `account_skills`) listed once by name with how each harness is told to run one, the `/` lists of the quick panel and the reply box, the repo a skill picks and the accounts it leaves out |
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
-| `src-tauri/src/send.rs` | Sending a prompt to a session that's already going: its harness's ways in tried in order, typing into its terminal and resuming it here, a way of the harness's own by its module (`send::Own`) |
+| `src-tauri/src/send.rs` | Sending a prompt to a session that's already going: its harness's ways in tried in order, typing into its terminal and resuming it (`start::resume`), a way of the harness's own by its module (`send::Own`) |
 | `src-tauri/src/runcode.rs`, `src/ui/RunButton.tsx` | Run on a code block: the lines of a shell block to type into a new terminal (comments out, here-documents and quoted text whole), and the button |
 | `src-tauri/src/peers.rs`, `peerfeed.rs` | Your other devices: links, connections, and the feed of worktrees and sessions sent a change at a time; `design/plans/devices.md` has the reasoning |
 | `src-tauri/peer/` | codealong-peer, what goes between devices: the protocol (each side proves its device key), link codes and iroh, feeds, the requests and their answers, the worktree and session model, and a device that only watches. The iPhone app ([codealong-ios](https://github.com/codealong/codealong-ios)) builds on it; `design/plans/ios.md` has the plan |

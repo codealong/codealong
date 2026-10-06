@@ -390,22 +390,6 @@ html.is-quick body {
 .ca-quick-agent {
   margin-left: auto;
 }
-.ca-quick-places button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-}
-.ca-quick-place {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font: 500 12px/16px var(--font-sans);
-  color: var(--ink-2);
-}
-.ca-quick-place .ca-icon {
-  color: var(--ink-3);
-}
 .ca-quick-counts {
   display: inline-flex;
   gap: 6px;

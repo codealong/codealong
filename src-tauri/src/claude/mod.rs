@@ -48,7 +48,7 @@ use names::name_transcript;
 use registry::{read_registry, registry_of, session_entry, Forks, INPUT_NEEDED, PERMISSION_PROMPT};
 use routes::claude_routes;
 use side::{side_mode, SideCopy};
-use start::{background_args, claude_resume_input, default_model, fork_args, fork_as, fork_command, start_background, stop_command, EFFORTS, MODELS};
+use start::{background_args, claude_resume_input, default_model, fork_args, fork_as, fork_command, resume_job_command, start_background, stop_command, EFFORTS, MODELS};
 use transcript::{parse_transcript, reply_text, tool_request, transcript_cwd, transcript_files, typed_text, PLAN, Parsed};
 use trust::{state_file, trust_folder};
 
@@ -365,7 +365,7 @@ impl crate::harness::Adapter for ClaudeCode {
     /// job too). The folder it may still read comes before `--resume`, whole, so it takes
     /// nothing after it.
     fn move_folder(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, keep: Option<&Path>, prompt: &str) -> anyhow::Result<crate::harness::Typed> {
-        let (input, mut env) = claude_resume_input(ctx.account, &resume_args(ctx.account, s, home_of_account), prompt);
+        let (input, mut env) = claude_resume_input(ctx.account, &resume_args(ctx.account, s, home_of_account), prompt, None, None);
         let input = match keep {
             Some(dir) => input.replacen(" --resume ", &format!(" --add-dir={} --resume ", crate::util::sh_quote(&dir.to_string_lossy())), 1),
             None => input,
@@ -374,13 +374,9 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(crate::harness::Typed { input, env, key: Some(s.key.clone()) })
     }
 
-    /// `--bg --resume` goes on with a session as itself only while no background job has had
-    /// it; one that has is copied into a job under a new ID (`fork: true` in the roster;
-    /// checked on 2.1.289, 2026-10-05), and the roster says which.
+    /// As itself, unless a background job has had it (`resume_job_command`); the roster says which.
     fn move_folder_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, keep: Option<&Path>, prompt: &str) -> anyhow::Result<Option<String>> {
-        let keep = keep.map(|d| format!(" --add-dir={}", crate::util::sh_quote(&d.to_string_lossy()))).unwrap_or_default();
-        let dirs = (crate::attachments::images_dir(), crate::attachments::files_dir());
-        let command = format!("{} --resume {}{keep}{}", ctx.account.command(), resume_args(ctx.account, s, home_of_account), background_args(prompt, None, None, false, (&dirs.0, &dirs.1)));
+        let command = resume_job_command(ctx.account, &resume_args(ctx.account, s, home_of_account), keep, prompt, None, None);
         let (_, id) = start_background(ctx.account, cwd, &command)?;
         Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
     }
@@ -582,8 +578,26 @@ impl crate::harness::Adapter for ClaudeCode {
         true
     }
 
-    fn resume(&self, account: &AccountCfg, s: &Session, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        Ok(claude_resume_input(account, &resume_args(account, s, home_of_account), text))
+    fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        Ok(claude_resume_input(account, &resume_args(account, s, home_of_account), ask.prompt, ask.model, ask.effort))
+    }
+
+    /// A terminal, the background service, the Claude app (`claude://resume` takes a session
+    /// the command line started) and Codealong (the ACP session is the Claude session).
+    fn resumes_in(&self, place: crate::start::Place) -> bool {
+        use crate::start::Place;
+        matches!(place, Place::Terminal | Place::Background | Place::ClaudeApp | Place::Codealong)
+    }
+
+    /// As itself, unless a background job has had it (`resume_job_command`); the roster says which.
+    fn resume_in_background(&self, ctx: &crate::harness::Ctx, s: &Session, cwd: &Path, ask: &crate::harness::StartAsk) -> anyhow::Result<Option<String>> {
+        let command = resume_job_command(ctx.account, &resume_args(ctx.account, s, home_of_account), None, ask.prompt, ask.model, ask.effort);
+        let (_, id) = start_background(ctx.account, cwd, &command)?;
+        Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
+    }
+
+    fn app_way(&self) -> Option<crate::send::Route> {
+        Some(app::InApp.into())
     }
 
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it
@@ -1299,7 +1313,7 @@ mod tests {
         let path = crate::util::sh_quote(&transcript.to_string_lossy());
         assert_eq!(copy.resume_command, Some(format!("claude2 --resume {path} --fork-session --session-id c0")));
         let home_of = |name: &str| (name == "claude").then(|| old_home.to_path_buf());
-        let (input, _) = claude_resume_input(&to, &resume_args(&to, copy, home_of), "Go on");
+        let (input, _) = claude_resume_input(&to, &resume_args(&to, copy, home_of), "Go on", None, None);
         assert_eq!(input, format!("claude2 --resume {path} --fork-session --session-id c0 \"${}\"\n", crate::start::PROMPT_VAR));
 
         // While its process runs the registry has it, and the reader shows it from there.

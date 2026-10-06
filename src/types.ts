@@ -894,6 +894,18 @@ export interface StartAccount {
   efforts?: { id: string; label: string }[];
   /** Its command line makes a new worktree for a session when asked. */
   worktree?: boolean;
+  /** Of `places`, where one of its sessions that isn't running can go on, in the same order.
+   *  Missing from Macs before 2026-10-06, which resume one only in a terminal. */
+  resumes?: StartPlace[];
+}
+
+/** Where a session that isn't running goes on, and on what (start.rs `resume`): one of its
+ *  account's `resumes`, with the model and effort where that place takes them; null for the
+ *  account's own. */
+export interface ResumeIn {
+  place: StartPlace;
+  model: string | null;
+  effort: string | null;
 }
 
 export interface StartOptions {

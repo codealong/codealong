@@ -142,8 +142,9 @@ fn claude_app_session(records: &Path, cli_session_id: &str) -> Option<String> {
     })
 }
 
-/// The way in for one of the app's sessions that isn't running: the app opens it, with the
-/// prompt on the clipboard for you to paste.
+/// The way in for one of the app's sessions that isn't running, or one the command line started
+/// that goes on there (`Adapter::app_way`): the app opens it, with the prompt on the clipboard
+/// for you to paste, when there's one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InApp;
 
@@ -157,7 +158,12 @@ impl Own for InApp {
     }
 
     fn deliver(&self, d: &Delivery) -> Result<Sent> {
-        copy(&attachments::expand(d.text, Style::Path))?;
+        let prompt = attachments::expand(d.text, Style::Path);
+        if prompt.trim().is_empty() {
+            crate::launch::open_url(&claude_app_url(&d.session.id))?;
+            return Ok(opened(format!("{} is open in the Claude app.", d.title())));
+        }
+        copy(&prompt)?;
         crate::launch::open_url(&claude_app_url(&d.session.id))?;
         Ok(opened(format!("{} is open in the Claude app and the prompt is on the clipboard. Paste it there to send it.", d.title())))
     }

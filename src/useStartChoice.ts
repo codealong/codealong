@@ -4,7 +4,7 @@
 // what the picks come to is start.ts `startChoice`.
 
 import { useMemo, useState } from 'react';
-import { agentId, agentOptions, autoPick, initialChoice, parseAgent, remembered, settledPlace, startChoice, withLists } from './start';
+import { agentId, agentOptions, autoPick, effortStep, initialChoice, parseAgent, placeTakesModel, remembered, settledPlace, startChoice, withLists } from './start';
 import type { StartOptions, StartPlace, Usage } from './types';
 
 /** What's picked, with its setters. The quick panel keeps these from one open to the next only
@@ -48,15 +48,13 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
    *  on its default. */
   const pickPlace = (p: StartPlace) => {
     setPlace(p);
-    if (p !== 'terminal' && choice && chosenModel) setAgent(agentId(choice, null));
+    if (!placeTakesModel(p) && choice && chosenModel) setAgent(agentId(choice, null));
   };
 
   // The effort under the agent menu's models: a setting for whichever is chosen, so it stays
-  // while you look through them. It goes to Claude Code only, and not to Haiku.
-  const effortSteps: (string | null)[] = [null, ...efforts.map((e) => e.id)];
-  // From the effort as it is, not as last drawn: a held key can repeat before the menu redraws.
-  const stepEffort = (delta: -1 | 1) =>
-    setEffort((e) => effortSteps[Math.min(effortSteps.length - 1, Math.max(0, Math.max(0, effortSteps.indexOf(e)) + delta))]);
+  // while you look through them. It goes to Claude Code only, and not to Haiku. From the effort as
+  // it is, not as last drawn: a held key can repeat before the menu redraws.
+  const stepEffort = (delta: -1 | 1) => setEffort((e) => effortStep(efforts, e, delta));
 
   return { ...chosen, accounts, models, efforts, pick, agents, pickAgent, pickPlace, stepEffort };
 }

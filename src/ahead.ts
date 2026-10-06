@@ -16,11 +16,11 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, onAhead, renameSession, sendToSession, snoozeReviews, snoozeSessions, windowLabel } from './api';
+import { archiveSession, emitAhead, markSeen, onAhead, renameSession, resumeSession, sendToSession, snoozeReviews, snoozeSessions, windowLabel } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { relaned, sessionHeadline } from './lanes';
-import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, PrItem, Sent, Session, Status, TranscriptItem } from './types';
+import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, PrItem, ResumeIn, Sent, Session, Status, TranscriptItem } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
  *  working; if the session isn't working either, the thread says it may not have reached it. */
@@ -608,9 +608,10 @@ const tails = new Map<string, Promise<unknown>>();
  * doesn't go, it and every message sent after it are back in the session's draft, before
  * whatever's been written since, and each rejects with why. `toDraft: false` leaves the draft
  * alone, for a caller that puts the text back itself (the quick panel's input). `now` sends it
- * into the turn the session is taking at once (Send now).
+ * into the turn the session is taking at once (Send now). `resume`: a session that isn't running
+ * goes on there with it (start.rs `resume`), rather than in a terminal.
  */
-export function sendAhead(s: Session, text: string, { toDraft = true, now = false }: { toDraft?: boolean; now?: boolean } = {}): Promise<Sent> {
+export function sendAhead(s: Session, text: string, { toDraft = true, now = false, resume }: { toDraft?: boolean; now?: boolean; resume?: ResumeIn } = {}): Promise<Sent> {
   const key = s.key;
   const a = made({ kind: 'send', key, text, working: s.status === 'working', starts: startsTurn(s) });
   put(a, true);
@@ -628,7 +629,7 @@ export function sendAhead(s: Session, text: string, { toDraft = true, now = fals
     .then(() => {
       // One before it didn't go, so this one didn't either: it's in the box already.
       if (mine.failed !== undefined) throw mine.failed;
-      return sendToSession(key, text, now);
+      return resume ? resumeSession(key, resume, text) : sendToSession(key, text, now);
     });
   tails.set(key, flight);
   const clear = () => {

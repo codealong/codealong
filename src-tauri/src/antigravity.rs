@@ -920,9 +920,27 @@ impl crate::harness::Adapter for Antigravity {
 
     /// `agy --conversation <id> -i <prompt>` goes on with a conversation in its terminal UI, on
     /// the prompt (checked on 1.2.14).
-    fn resume(&self, account: &AccountCfg, s: &Session, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        let input = format!("{} --conversation {} -i \"${}\"\n", cli_command(account), s.id, crate::start::PROMPT_VAR);
-        Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), crate::attachments::expand(text, crate::attachments::Style::Path).trim().to_string())]))
+    /// On the model asked for, as a start is, and without a prompt it opens on the
+    /// conversation and waits for one.
+    fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        let prompt = crate::attachments::expand(ask.prompt, crate::attachments::Style::Path).trim().to_string();
+        let mut input = format!("{} --conversation {}", cli_command(account), s.id);
+        if let Some(m) = ask.model {
+            input.push_str(&format!(" --model '{m}'"));
+        }
+        let mut env = Vec::new();
+        if !prompt.is_empty() {
+            input.push_str(&format!(" -i \"${}\"", crate::start::PROMPT_VAR));
+            env.push((crate::start::PROMPT_VAR.to_string(), prompt));
+        }
+        input.push('\n');
+        Ok((input, env))
+    }
+
+    /// A terminal, or one behind your windows.
+    fn resumes_in(&self, place: crate::start::Place) -> bool {
+        use crate::start::Place;
+        matches!(place, Place::Terminal | Place::Background)
     }
 
     /// What its step waits on you to allow. It's answered where the conversation runs: nothing
@@ -1182,9 +1200,12 @@ mod tests {
         // An account's own command starts and resumes it.
         let own = AccountCfg { command: Some("agy --sandbox".into()), ..a.clone() };
         assert_eq!(Antigravity.start_in_terminal(&own, &ask("", None)).input, "agy --sandbox\n");
-        let (input, env) = Antigravity.resume(&own, &Session::new(Harness::Antigravity, &own.name, "88db39ed"), "-v please").unwrap();
+        let conversation = Session::new(Harness::Antigravity, &own.name, "88db39ed");
+        let (input, env) = Antigravity.resume(&own, &conversation, &ask("-v please", None)).unwrap();
         assert_eq!(input, format!("agy --sandbox --conversation 88db39ed -i \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
+        // On another model, or with nothing to say yet: it opens on the conversation.
+        assert_eq!(Antigravity.resume(&own, &conversation, &ask("", Some("gemini-3.8-flash-low"))).unwrap(), ("agy --sandbox --conversation 88db39ed --model 'gemini-3.8-flash-low'\n".to_string(), Vec::new()));
     }
 
     #[test]

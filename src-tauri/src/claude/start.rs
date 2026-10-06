@@ -179,10 +179,11 @@ pub(super) fn fork_args(from: &str, new_id: &str) -> String {
     format!("{from} --fork-session --session-id {new_id}")
 }
 
-/// The terminal input that resumes a Claude Code session with a prompt, and the environment
-/// that carries the prompt (`Adapter::resume`). `from` is what `--resume` takes: the session's
-/// ID, or `fork_args` for a moved copy made again.
-pub fn claude_resume_input(account: &AccountCfg, from: &str, text: &str) -> (String, Vec<(String, String)>) {
+/// The terminal input that resumes a Claude Code session, on `model` and `effort` when they're
+/// asked for and with a prompt when there's one, and the environment that carries the prompt
+/// (`Adapter::resume`). `from` is what `--resume` takes: the session's ID, or `fork_args` for a
+/// moved copy made again. Without a prompt it opens on the conversation and waits for one.
+pub fn claude_resume_input(account: &AccountCfg, from: &str, text: &str, model: Option<&str>, effort: Option<&str>) -> (String, Vec<(String, String)>) {
     let (has_images, has_files) = attachments::kinds(text);
     let mut input = account.command().to_string();
     let mut env = Vec::new();
@@ -192,9 +193,31 @@ pub fn claude_resume_input(account: &AccountCfg, from: &str, text: &str) -> (Str
             env.push((var.to_string(), dir.to_string_lossy().to_string()));
         }
     }
-    input.push_str(&format!(" --resume {from} \"${}\"\n", crate::start::PROMPT_VAR));
-    env.push((crate::start::PROMPT_VAR.to_string(), crate::start::as_argument(attachments::expand(text, Style::Mention).trim())));
+    if let Some(m) = model.filter(|m| crate::start::valid_model(m)) {
+        input.push_str(&format!(" --model '{m}'"));
+    }
+    if let Some(e) = effort {
+        input.push_str(&format!(" --effort {e}"));
+    }
+    input.push_str(&format!(" --resume {from}"));
+    let prompt = attachments::expand(text, Style::Mention);
+    if !prompt.trim().is_empty() {
+        input.push_str(&format!(" \"${}\"", crate::start::PROMPT_VAR));
+        env.push((crate::start::PROMPT_VAR.to_string(), crate::start::as_argument(prompt.trim())));
+    }
+    input.push('\n');
     (input, env)
+}
+
+/// The command that goes on with a session as a background job: `--bg` with `--resume`, on
+/// `model` and `effort` when they're asked for, with `keep` a folder it may still read, and on
+/// `prompt` when there's one, else waiting for one. `from` is what `--resume` takes. While no
+/// background job has had the session it goes on as itself; one that has is copied into a job
+/// under a new ID (`fork: true` in the roster; checked on 2.1.289, 2026-10-05).
+pub(super) fn resume_job_command(account: &AccountCfg, from: &str, keep: Option<&Path>, prompt: &str, model: Option<&str>, effort: Option<&str>) -> String {
+    let keep = keep.map(|d| format!(" --add-dir={}", crate::util::sh_quote(&d.to_string_lossy()))).unwrap_or_default();
+    let dirs = (attachments::images_dir(), attachments::files_dir());
+    format!("{} --resume {from}{keep}{}", account.command(), background_args(prompt, model, effort, false, (&dirs.0, &dirs.1)))
 }
 
 #[cfg(test)]

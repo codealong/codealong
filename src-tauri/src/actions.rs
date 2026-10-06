@@ -188,6 +188,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::START_OPTIONS, here: start_options, ..ANY },
     Request { name: api::START, here: start, there: start_there, back: started_back, ..ANY },
     Request { name: api::SESSION_FORK, here: fork, ..ANY },
+    Request { name: api::SESSION_RESUME, here: resume, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
     // A move opens a terminal too, and closes the session's own. Which account a conversation
@@ -512,6 +513,23 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
     to_value(sent)
+}
+
+/// Goes on with a session that isn't running where it says (`start::resume`), answering how it
+/// went as a send does. Where its harness copied it (a background job's), the copy takes its
+/// place, as a move's does.
+fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    let p: params::Resume = c.read()?;
+    let board = engine.board();
+    let resumed = crate::start::resume(&board, &cfg()?, key, &p.resume, &p.prompt).map_err(words)?;
+    if let Some(copy) = resumed.key.as_deref().filter(|k| *k != key) {
+        hand_over(engine, &board, key, copy);
+    }
+    if *c.from == From::Device && resumed.sent.opened {
+        return Err(format!("It needs someone at this device: {}", resumed.sent.message));
+    }
+    to_value(resumed.sent)
 }
 
 /// Stops the turn it's taking: one Codealong runs, through its agent; any other, through its

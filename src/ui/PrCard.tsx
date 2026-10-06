@@ -17,13 +17,14 @@
 // Codealong, what it does once the PR has left, and what it adds (a queue).
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { openUrl, reviewPr, startOptions } from '../api';
+import { openUrl, reviewPr } from '../api';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import * as menus from '../menus';
 import { errorText, type Report } from '../report';
 import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
-import type { Lane, Session, StartAccount, Usage, Verdict } from '../types';
+import { useStartAccounts } from '../startAccounts';
+import type { Lane, Session, Usage, Verdict } from '../types';
 import { PrDetails } from './PrInspector';
 import { prIsOpen, type PrRowItem } from './PrsView';
 import { Button, cx } from './primitives';
@@ -65,30 +66,6 @@ interface PrCardProps {
 
 /** What's written for each PR, kept while the card goes from one to the next and back. */
 const drafts = new Map<string, string>();
-
-/** The accounts a review can start on, read once a card is up and kept a while: the read is the
- *  engine's, and every card would ask again otherwise. */
-let accountsRead: { at: number; accounts: StartAccount[] } | null = null;
-const ACCOUNTS_FRESH_MS = 60_000;
-
-function useStartAccounts(): StartAccount[] {
-  const [accounts, setAccounts] = useState<StartAccount[]>(() => accountsRead?.accounts ?? []);
-  useEffect(() => {
-    if (accountsRead && Date.now() - accountsRead.at < ACCOUNTS_FRESH_MS) return;
-    let live = true;
-    startOptions().then(
-      (o) => {
-        accountsRead = { at: Date.now(), accounts: o.accounts };
-        if (live) setAccounts(o.accounts);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
-  return accounts;
-}
 
 /** How the box says each verdict went. */
 const DONE: Record<Verdict, { past: string; left: menus.Left }> = {

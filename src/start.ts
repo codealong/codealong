@@ -7,7 +7,8 @@
 import { resetsPhrase } from './format';
 import { HARNESS_WORD } from './harness';
 import { failedNotice } from './notices';
-import type { Harness, Lane, Meter, Notice, StartAccount, StartOptions, StartPlace, Usage } from './types';
+import { readStored, writeStored, type Codec } from './stored';
+import type { Harness, Lane, Meter, Notice, ResumeIn, StartAccount, StartOptions, StartPlace, Usage } from './types';
 
 /** The notice while where each account can start a session can't be read (the main window's
  *  Review with and the quick panel ask), which ends once it's read. */
@@ -557,4 +558,82 @@ export function remember(choice: Choice, place: StartPlace): void {
   } catch {
     // Storage can be unavailable; the sheet just won't remember.
   }
+}
+
+/** The effort one step along from `effort` (null is the account's own), among `efforts`, kept
+ *  within them: ← and → under a model menu. */
+export function effortStep(efforts: { id: string }[], effort: string | null, delta: -1 | 1): string | null {
+  const steps: (string | null)[] = [null, ...efforts.map((e) => e.id)];
+  return steps[Math.min(steps.length - 1, Math.max(0, Math.max(0, steps.indexOf(effort)) + delta))];
+}
+
+// Going on with a session that isn't running (start.rs `resume`): a start for the session's own
+// account, so the picks come to what they would for a start (`startChoice`), among the places
+// its sessions go on in.
+
+/** What a resume picks: a line of the agent menu for the session's account (its own model, or
+ *  one of its models), the effort and the place. */
+export type ResumePicks = Pick<StartPicks, 'agent' | 'effort' | 'place'>;
+
+/** The session's account as a resume offers it: only the places its sessions go on in, and no
+ *  `start` setting, which says where new sessions start. */
+export function resumeAccount(a: StartAccount): StartAccount {
+  return { ...a, places: a.places.filter((p) => a.resumes?.includes(p.place)), chosen: null };
+}
+
+/**
+ * What a resume's picks come to (`startChoice` for the session's account alone): where it can go
+ * on, only where a model goes once one is picked, and the model and effort where the place takes
+ * them. Without a place picked it goes on where its account's sessions last went on from here
+ * (`last`), else in a terminal, as one did before there was a choice.
+ */
+export function resumeChoice(account: StartAccount, models: ModelOption[], picks: ResumePicks, last: StartPlace | undefined): ChosenStart {
+  const a = resumeAccount(account);
+  const listed = a.models ?? models;
+  return startChoice([a], listed, a.efforts ?? [], [], null, agentOptions([a], listed, null), a.name, { ...picks, newWorktree: false }, () => last ?? 'terminal');
+}
+
+/** What the engine is asked for, from what the picks came to. */
+export function resumeIn(c: Pick<ChosenStart, 'placeNow' | 'modelNow' | 'effortNow'>): ResumeIn | null {
+  return c.placeNow ? { place: c.placeNow, model: c.modelNow, effort: c.effortNow } : null;
+}
+
+/** What sending to a session that isn't running does, after "it isn't running, so": its box's
+ *  placeholder says it. `behind`: Background is a terminal behind your windows. */
+export function resumeWords(place: StartPlace, terminal: string, behind = false): string {
+  switch (place) {
+    case 'background':
+      return behind ? `this resumes it in ${terminal}, behind your windows` : 'this resumes it in the background';
+    case 'claude-app':
+      return 'the Claude app opens it with this on the clipboard';
+    case 'codex-app':
+      return 'this goes on in the Codex app';
+    case 'codealong':
+      return 'Codealong runs it from now on';
+    default:
+      return `this resumes it in ${terminal}`;
+  }
+}
+
+const RESUMED_KEY = 'codealong.resumed';
+const PLACES: StartPlace[] = ['terminal', 'background', 'claude-app', 'codex-app', 'codealong'];
+
+/** The place each account's sessions last went on in, as JSON; what isn't a place is left out. */
+const placeByAccount: Codec<Record<string, StartPlace>> = {
+  parse: (raw) => {
+    const v: unknown = JSON.parse(raw);
+    if (typeof v !== 'object' || v === null) return undefined;
+    return Object.fromEntries(Object.entries(v).filter((e): e is [string, StartPlace] => PLACES.includes(e[1] as StartPlace)));
+  },
+  format: (v) => JSON.stringify(v),
+};
+
+/** Where `account`'s sessions last went on from this Mac's windows. */
+export function resumedIn(account: string): StartPlace | undefined {
+  return readStored(RESUMED_KEY, placeByAccount, {} as Record<string, StartPlace>)[account];
+}
+
+/** Keeps where a session of `account` went on, for the next one. */
+export function rememberResumed(account: string, place: StartPlace): void {
+  writeStored(RESUMED_KEY, placeByAccount, { ...readStored(RESUMED_KEY, placeByAccount, {} as Record<string, StartPlace>), [account]: place });
 }

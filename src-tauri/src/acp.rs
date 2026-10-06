@@ -463,16 +463,7 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     let ag = agent(a)?;
     let r = ag.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), Some(REQUEST_TIMEOUT))?;
     let id = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no session.", a.name))?.to_string();
-    // Only what the agent offers: Claude Code's aliases (opus, sonnet…) are among its models. The
-    // effort levels are the model's, so they're looked up in the options the model's answer lists.
-    let mut options = r.get("configOptions").cloned().unwrap_or(Value::Null);
-    for (category, value) in [("model", model), ("thought_level", effort)] {
-        let Some((v, config_id)) = value.and_then(|v| Some((v, offered_option(&options, category, v)?))) else { continue };
-        let got = ag.request("session/set_config_option", json!({ "sessionId": id, "configId": config_id, "value": v }), Some(REQUEST_TIMEOUT))?;
-        if let Some(o) = got.get("configOptions") {
-            options = o.clone();
-        }
-    }
+    tune(&ag, &id, &r, model, effort)?;
     let key = key_of(harness, &a.name, &id);
     let cwd_s = cwd.to_string_lossy().into_owned();
     remember(Remembered { harness, account: a.name.clone(), id: id.clone(), cwd: cwd_s.clone() });
@@ -482,6 +473,49 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     }
     notify(Change::Board);
     Ok(key)
+}
+
+/// Takes on session `id`, which its harness's command line or app ran, and runs it from now on as
+/// one Codealong started (`start::resume` in Codealong): loaded in the account's process from its
+/// harness's record of it, on `model` and `effort` where the agent offers them, and on `prompt`
+/// when there's one. Returns its key, the session's own: the ACP session is the harness's.
+pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&str>, effort: Option<&str>) -> Result<String> {
+    in_app()?;
+    let harness = Harness::from_config(&a.harness);
+    let ag = agent(a)?;
+    let key = key_of(harness, &a.name, id);
+    let cwd_s = cwd.to_string_lossy().into_owned();
+    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id: id.to_string(), cwd: cwd_s.clone(), loaded: false, ..Default::default() });
+    let loaded = match load(&ag, &key, id, &cwd_s) {
+        Ok(r) => r,
+        Err(e) => {
+            state().sessions.remove(&key);
+            return Err(e);
+        }
+    };
+    remember(Remembered { harness, account: a.name.clone(), id: id.to_string(), cwd: cwd_s });
+    tune(&ag, id, &loaded, model, effort)?;
+    if !prompt.trim().is_empty() {
+        run_turn(ag, key.clone(), prompt.to_string());
+    }
+    notify(Change::Board);
+    Ok(key)
+}
+
+/// Asks for `model` and `effort` of session `id`, where the agent's answer about the session
+/// (`answer`, which lists its `configOptions`) offers them: Claude Code's aliases (opus,
+/// sonnet…) are among its models. The effort levels are the model's, so they're looked up in the
+/// options the model's answer lists.
+fn tune(ag: &Agent, id: &str, answer: &Value, model: Option<&str>, effort: Option<&str>) -> Result<()> {
+    let mut options = answer.get("configOptions").cloned().unwrap_or(Value::Null);
+    for (category, value) in [("model", model), ("thought_level", effort)] {
+        let Some((v, config_id)) = value.and_then(|v| Some((v, offered_option(&options, category, v)?))) else { continue };
+        let got = ag.request("session/set_config_option", json!({ "sessionId": id, "configId": config_id, "value": v }), Some(REQUEST_TIMEOUT))?;
+        if let Some(o) = got.get("configOptions") {
+            options = o.clone();
+        }
+    }
+    Ok(())
 }
 
 /// Forks session `id` into a new one Codealong runs (`session/fork`): a copy of its
@@ -554,20 +588,21 @@ pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
 }
 
 /// Opens a session in the process: resumed where the agent can, else loaded from its history.
-fn load(ag: &Arc<Agent>, key: &str, id: &str, cwd: &str) -> Result<()> {
+/// Returns the agent's answer, which lists the session's config options.
+fn load(ag: &Arc<Agent>, key: &str, id: &str, cwd: &str) -> Result<Value> {
     let params = json!({ "sessionId": id, "cwd": cwd, "mcpServers": [] });
-    if ag.can("resume") {
-        ag.request("session/resume", params, Some(REQUEST_TIMEOUT))?;
+    let answer = if ag.can("resume") {
+        ag.request("session/resume", params, Some(REQUEST_TIMEOUT))?
     } else if ag.can("load") {
         set(key, |h| h.replaying = true);
         let r = ag.request("session/load", params, Some(REQUEST_TIMEOUT));
         set(key, |h| h.replaying = false);
-        r?;
+        r?
     } else {
         bail!("{}'s agent can't pick a session up again.", ag.account);
-    }
+    };
     set(key, |h| h.loaded = true);
-    Ok(())
+    Ok(answer)
 }
 
 fn set(key: &str, f: impl FnOnce(&mut Hosted)) {
@@ -793,6 +828,26 @@ mod tests {
         println!("{copy}");
         wait_until("the copy's turn to end", 240, || !state().sessions[&copy].running);
         assert!(state().sessions[&copy].error.is_none(), "{:?}", state().sessions[&copy].error);
+    }
+
+    /// Against a real adapter: `CODEALONG_TEST_ACP_ADOPT=<key of a session of your own that isn't
+    /// running> CODEALONG_TEST_ACP_DIR=<its folder> cargo test acp_takes_on -- --ignored
+    /// --nocapture`. Takes it on as Resume in Codealong does, on Haiku, with a question only its
+    /// conversation answers; its transcript has the answer and the model. It's remembered in
+    /// hosted.json from then on: take it out after.
+    #[test]
+    #[ignore]
+    fn acp_takes_on_a_session() {
+        let (Ok(key), Ok(dir)) = (std::env::var("CODEALONG_TEST_ACP_ADOPT"), std::env::var("CODEALONG_TEST_ACP_DIR")) else { return };
+        let mut parts = key.splitn(3, ':').skip(1);
+        let (account, id) = (parts.next().unwrap(), parts.next().unwrap());
+        let cfg = config::current().unwrap();
+        let a = cfg.accounts.iter().find(|x| x.name == account).expect("an account by that name").clone();
+        init(|_| {});
+        let hosted = adopt(&a, id, Path::new(&dir), "Which word did I ask you to remember? Answer with the word alone, in lowercase.", Some("haiku"), None).unwrap();
+        assert_eq!(hosted, key);
+        wait_until("the turn to end", 180, || !state().sessions[&key].running);
+        assert!(state().sessions[&key].error.is_none(), "{:?}", state().sessions[&key].error);
     }
 
     /// Against a real adapter: `CODEALONG_TEST_ACP=<account> CODEALONG_TEST_ACP_DIR=<folder>

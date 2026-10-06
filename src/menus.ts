@@ -7,7 +7,7 @@
 // it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -18,8 +18,10 @@ import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { chordPressed, QUEUE_CHORDS } from './queue';
 import { snoozeChordIndex, snoozeMenu } from './snooze';
+import { rememberResumed, resumeAccount } from './start';
+import { accountOf, startAccountsNow } from './startAccounts';
 import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
-import type { AccountInfo, DesktopPinned, Label, Lane, Pr, Session, Todo } from './types';
+import type { AccountInfo, DesktopPinned, Label, Lane, Pr, Session, StartAccount, Todo } from './types';
 import { errorText, type Report } from './report';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
@@ -149,6 +151,9 @@ export interface SessionCan {
  *  when each applies is here and nowhere else. */
 export interface SessionActions {
   open: MenuAction;
+  /** A session on this Mac that isn't running: each place its account's sessions go on in, on
+   *  the account's own model (its box picks another). */
+  resume?: MenuGroup;
   folder?: MenuAction | MenuGroup;
   pr?: MenuAction;
   chrome?: MenuAction;
@@ -210,6 +215,16 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
         if (started?.message) report.info(started.message);
       })
       .catch((e: unknown) => report.error(errorText(e)));
+  // One that isn't running goes on where its account's sessions can (start.rs `resume`), as its
+  // box offers, where there's more than the terminal Open resumes it in.
+  const resumeTo = here && !s.live && !s.hosted && s.surface === 'cli' ? resumePlaces(s) : [];
+  const resume = (to: StartAccount['places'][number]) =>
+    busy(`Resuming ${s.title}…`, resumeSession(s.key, { place: to.place, model: null, effort: null }))
+      .then((sent) => {
+        rememberResumed(s.account, to.place);
+        report.info(sent.message);
+      })
+      .catch((e: unknown) => report.error(errorText(e)));
   // Only a session Codealong can close and open again in a terminal moves: not an app's, nor one
   // Codealong runs itself.
   const movesFolders = here && !!s.resumeCommand && MOVES_FOLDERS.includes(s.harness) && s.surface === 'cli' && !s.hosted && !s.visitor;
@@ -219,6 +234,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
+    resume: resumeTo.length > 1 ? { label: 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
     folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key })) : undefined,
     pr: prItem(lane, report),
     // Its tab in Chrome, in whichever profile's window has it; Chrome here, so not for a session
@@ -262,6 +278,12 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
 }
 
+/** Where a session of this Mac's that isn't running can go on: its account's places for that. */
+function resumePlaces(s: Pick<Session, 'account' | 'harness'>): StartAccount['places'] {
+  const a = accountOf(startAccountsNow(), s);
+  return a ? resumeAccount(a).places : [];
+}
+
 /** Move to worktree: this Mac's worktrees other than `from`, a submenu for each project (the
  *  session's own first, then in the board's order), each repo's main checkout first and then the
  *  latest, and last a chat of its own, unless it's a chat already. Undefined when there's
@@ -291,7 +313,7 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
-  ['open', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
+  ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos'],
   ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'archive'],
   ['copyId', 'copyResume', 'canvas'],

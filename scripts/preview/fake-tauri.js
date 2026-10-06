@@ -470,6 +470,7 @@ window.__TAURI_INTERNALS__ = {
       return Promise.resolve(null);
     }
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
+    if (cmd === 'resume_session') return Promise.resolve({ message: 'Resumed (in the preview nothing starts anywhere).', opened: false });
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     // Close idle terminals: the board's live terminal sessions quiet that long, without the
     // engine's checks for Ghostty, Jev or questions; nothing is closed.
