@@ -373,6 +373,7 @@ pub(super) fn asked_pending(a: &Asked) -> crate::harness::Pending {
         input: questions.is_empty().then(|| clip_input(&claude_input(&a.tool, &a.input))),
         cannot: None,
         always: questions.is_empty() && !a.suggestions.is_empty(),
+        no_once: false,
         plan: false,
         always_rule: always_text(&a.suggestions),
         questions,

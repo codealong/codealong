@@ -252,6 +252,7 @@ impl crate::harness::Adapter for ClaudeCode {
                 input: None,
                 cannot: Some("Codealong didn't get these as they were asked, so they're answered where the session runs.".into()),
                 always: false,
+                no_once: false,
                 plan: false,
                 always_rule: None,
                 questions: call.questions,
@@ -267,7 +268,7 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, plan, always_rule: None, questions: Vec::new(), unwritten: false })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, always_rule: None, questions: Vec::new(), unwritten: false })
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {

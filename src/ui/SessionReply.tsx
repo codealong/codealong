@@ -670,7 +670,8 @@ interface ApprovalProps {
 
 /** What the box's keys do to the call a session waits on. */
 interface CallKeys {
-  allow: () => void;
+  /** None for a call that can't be allowed just this once (`Pending.noOnce`). */
+  allow?: () => void;
   deny: () => void;
   /** Denies it, telling it `words` instead: why that didn't go, or null once it did. */
   denySaying: (words: string) => Promise<string | null>;
@@ -722,6 +723,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   const asks = !!pending?.questions?.length;
   // Questions take picks, so ⌘⏎ doesn't allow them from the box.
   const answerable = !!pending && !pending.cannot && !asks;
+  // Nor does it allow a call its agent lets through only from now on.
+  const allowable = answerable && !pending.noOnce;
   const allowRef = useRef(answer);
   allowRef.current = answer;
   // Where it goes on to next is read once the answer is in, as it is then.
@@ -737,7 +740,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       // ⌘⌫ denies, unless it's deleting words you wrote.
       if (e.key === 'Enter') {
         e.preventDefault();
-        void allowRef.current('allow', andNext);
+        if (allowable) void allowRef.current('allow', andNext);
       } else if (e.key === 'Backspace' && !editingText(e.target)) {
         e.preventDefault();
         void allowRef.current('deny');
@@ -745,12 +748,12 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [keys, answerable]);
+  }, [keys, answerable, allowable]);
   useEffect(() => {
     if (!onKeys) return;
-    onKeys(answerable ? { allow: () => void allowRef.current('allow', andNext), deny: () => void allowRef.current('deny'), denySaying: (words) => allowRef.current('deny', undefined, undefined, words) } : null);
+    onKeys(answerable ? { allow: allowable ? () => void allowRef.current('allow', andNext) : undefined, deny: () => void allowRef.current('deny'), denySaying: (words) => allowRef.current('deny', undefined, undefined, words) } : null);
     return () => onKeys(null);
-  }, [onKeys, answerable]);
+  }, [onKeys, answerable, allowable]);
 
   const where = sessionPlace(s, terminal);
   // Questions that can only be answered where it runs still show here, to read before you go.
@@ -821,7 +824,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       </div>
       {pending.input && pending.input !== pending.label && <CodeBlock text={pending.input} className="ca-approval-input" />}
       <div className="ca-composer-foot">
-        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (s.hosted ? 'Allows this call once. Deny tells it no, and it carries on.' : 'Allows this call once. Deny stops the turn, or write below what to do instead.'))}</span>
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (pending.noOnce ? `Its agent ${pending.always ? 'allows calls like this only from now on, not just this once' : 'offers no way to allow this'}. Deny tells it no, and it carries on.` : s.hosted ? 'Allows this call once. Deny tells it no, and it carries on.' : 'Allows this call once. Deny stops the turn, or write below what to do instead.'))}</span>
         <Button size="sm" kbd={['⌘', '⌫']} disabled={busy} onClick={() => answer('deny')}>
           Deny
         </Button>
@@ -830,9 +833,11 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
             Always
           </Button>
         )}
-        <Button variant="primary" size="sm" icon="check" kbd={['⌘', '⏎']} disabled={busy} onClick={() => answer('allow')}>
-          Allow
-        </Button>
+        {!pending.noOnce && (
+          <Button variant="primary" size="sm" icon="check" kbd={['⌘', '⏎']} disabled={busy} onClick={() => answer('allow')}>
+            Allow
+          </Button>
+        )}
       </div>
     </div>
   );

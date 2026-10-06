@@ -66,6 +66,8 @@ struct Permission {
     input: Option<String>,
     /// (optionId, kind) as offered.
     options: Vec<(String, String)>,
+    /// An answer to it is being written: a second isn't sent with it.
+    answering: bool,
 }
 
 /// A session Codealong runs, as the process last said.
@@ -451,7 +453,7 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
         let mut st = state();
         let Some(h) = st.sessions.get_mut(&key) else { return };
         // A request still unanswered is overtaken: the agent only asks one at a time.
-        h.permission = Some(Permission { rpc, tool_call, label, input: input.map(|i| truncate(&i, 4000)), options });
+        h.permission = Some(Permission { rpc, tool_call, label, input: input.map(|i| truncate(&i, 4000)), options, answering: false });
     }
     notify(Change::Board);
 }
@@ -717,28 +719,56 @@ pub fn cancel(key: &str) -> Result<()> {
 pub fn pending(key: &str) -> Option<Pending> {
     let st = state();
     let p = st.sessions.get(key)?.permission.as_ref()?;
-    let always = p.options.iter().any(|(_, kind)| kind == "allow_always");
-    Some(Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always, plan: false, always_rule: None, questions: Vec::new(), unwritten: false })
+    let offers = |kind: &str| p.options.iter().any(|(_, k)| k == kind);
+    Some(Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always: offers("allow_always"), no_once: !offers("allow_once"), plan: false, always_rule: None, questions: Vec::new(), unwritten: false })
 }
 
-/// Answers the permission request for tool call `id`.
+/// Answers the permission request for tool call `id` with the option its agent offered for that
+/// answer, and no other: an Allow is only ever an `allow_once` and a Deny a `reject_once`, never
+/// the option that would allow or refuse calls like it from now on, which the agent keeps. The
+/// request stays waiting until the answer is written, so one that couldn't be is answered again.
 pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
-    let (account, p) = {
-        let mut st = state();
+    let kind = match answer {
+        Answer::Allow => "allow_once",
+        Answer::Always => "allow_always",
+        Answer::Deny => "reject_once",
+    };
+    let (ag, rpc, option) = {
+        let mut guard = state();
+        let st = &mut *guard;
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
-        match &h.permission {
-            Some(p) if p.tool_call == id => (h.account.clone(), h.permission.take().expect("checked")),
+        let p = match h.permission.as_mut() {
+            Some(p) if p.tool_call == id => p,
             _ => bail!("It isn't waiting on that any more."),
+        };
+        if p.answering {
+            bail!("It's still answering that.");
         }
+        let Some((option, _)) = p.options.iter().find(|(_, k)| k == kind) else {
+            bail!(match answer {
+                Answer::Allow if p.options.iter().any(|(_, k)| k == "allow_always") => "Its agent offers no way to allow this just once, only from now on: Always does that.",
+                Answer::Allow => "Its agent offers no way to allow this.",
+                Answer::Always => "Its agent offers no way to allow this from now on.",
+                Answer::Deny => "Its agent offers no way to deny this just once.",
+            });
+        };
+        let option = option.clone();
+        let ag = st.agents.get(&h.account).cloned().ok_or_else(|| anyhow!("That session's agent stopped."))?;
+        p.answering = true;
+        (ag, p.rpc.clone(), option)
     };
-    let wanted: &[&str] = match answer {
-        Answer::Allow => &["allow_once", "allow_always"],
-        Answer::Always => &["allow_always"],
-        Answer::Deny => &["reject_once", "reject_always"],
-    };
-    let option = wanted.iter().find_map(|k| p.options.iter().find(|(_, kind)| kind == k)).map(|(o, _)| o.clone()).ok_or_else(|| anyhow!("The agent offered no way to answer that."))?;
-    let ag = state().agents.get(&account).cloned().ok_or_else(|| anyhow!("That session's agent stopped."))?;
-    ag.client.respond(&p.rpc, json!({ "outcome": { "outcome": "selected", "optionId": option } }))?;
+    let written = ag.client.respond(&rpc, json!({ "outcome": { "outcome": "selected", "optionId": option } }));
+    {
+        let mut st = state();
+        // The agent may have asked something else since, which stays.
+        if let Some(h) = st.sessions.get_mut(key).filter(|h| h.permission.as_ref().is_some_and(|p| p.rpc == rpc)) {
+            match &written {
+                Ok(()) => h.permission = None,
+                Err(_) => h.permission.as_mut().expect("checked").answering = false,
+            }
+        }
+    }
+    written?;
     notify(Change::Board);
     Ok(match answer {
         Answer::Allow => "Allowed.".into(),
@@ -1003,6 +1033,68 @@ mod tests {
         let h = state().sessions.remove(&key).unwrap();
         assert_eq!((h.loaded, h.running, h.error.as_deref()), (false, false, Some("Its agent stopped.")));
         assert_eq!(ag.request("session/new", json!({}), None).unwrap_err().to_string(), "test-adapter-lines's agent stopped.");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A stand-in adapter, made `account`'s process: `script` runs in sh with the file to keep
+    /// each line it reads in as `$1`, `heard` in `dir`.
+    fn stand_in(account: &str, script: &str, dir: &Path) -> Arc<Agent> {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", script, "sh"]).arg(dir.join("heard"));
+        let ag = connect(account, cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
+        state().agents.insert(account.into(), ag.clone());
+        ag
+    }
+
+    /// The lines a stand-in has read.
+    fn heard(dir: &Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("heard")).unwrap_or_default().lines().map(String::from).collect()
+    }
+
+    /// A permission request as a stand-in asks it of session s1, with `options` as JSON.
+    fn asks(id: &str, options: &str) -> String {
+        format!(r#"echo '{{"jsonrpc":"2.0","id":"{id}","method":"session/request_permission","params":{{"sessionId":"s1","toolCall":{{"toolCallId":"call-{id}","title":"Run ls"}},"options":[{options}]}}}}'"#)
+    }
+
+    /// Allow is only ever the agent's answer that allows a call once, and Deny the one that refuses
+    /// it once: an agent offering to allow calls like it from now on, and not once, isn't allowed
+    /// them for good by an Allow. What can't be answered the way asked waits on, answered by none.
+    #[test]
+    fn an_allow_is_never_taken_for_good() {
+        let dir = store::test_dir("acp-once");
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in"#.to_string(),
+            // Once greeted it asks, offering to allow from now on but not once.
+            format!(r#"*'"method":"initialize"'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}'; {};;"#, asks("p1", r#"{"optionId":"always","kind":"allow_always"},{"optionId":"no","kind":"reject_once"}"#)),
+            // Answered, it asks again, offering to refuse from now on but not once.
+            format!(r#"*'"id":"p1"'*) {};; esac; done"#, asks("p2", r#"{"optionId":"ok","kind":"allow_once"},{"optionId":"never","kind":"reject_always"}"#)),
+        ]
+        .join(" ");
+        let account = "test-adapter-once";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        ag.initialize().unwrap();
+        wait_until("it to ask", 10, || pending(&key).is_some());
+        assert_eq!(pending(&key).map(|p| (p.always, p.no_once)), Some((true, true)));
+        let e = answer(&key, "call-p1", Answer::Allow).unwrap_err().to_string();
+        assert!(e.contains("no way to allow this just once"), "{e}");
+        // Nothing was written, and it can still be answered.
+        assert!(pending(&key).is_some_and(|p| p.id == "call-p1"));
+        assert_eq!(answer(&key, "call-p1", Answer::Deny).unwrap(), "Denied.");
+        wait_until("it to ask again", 10, || pending(&key).is_some_and(|p| p.id == "call-p2"));
+        assert_eq!(pending(&key).map(|p| (p.always, p.no_once)), Some((false, false)));
+        let e = answer(&key, "call-p2", Answer::Deny).unwrap_err().to_string();
+        assert!(e.contains("no way to deny this just once"), "{e}");
+        assert_eq!(answer(&key, "call-p2", Answer::Allow).unwrap(), "Allowed.");
+        assert!(pending(&key).is_none());
+        wait_until("both answers to be read", 10, || heard(&dir).len() == 3);
+        assert_eq!(
+            heard(&dir)[1..],
+            [r#"{"id":"p1","jsonrpc":"2.0","result":{"outcome":{"optionId":"no","outcome":"selected"}}}"#, r#"{"id":"p2","jsonrpc":"2.0","result":{"outcome":{"optionId":"ok","outcome":"selected"}}}"#]
+        );
+        state().sessions.remove(&key);
+        state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

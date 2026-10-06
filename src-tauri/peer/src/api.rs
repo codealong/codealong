@@ -328,6 +328,11 @@ pub struct Pending {
     /// It can also be allowed from now on (`Answer::Always`), not just this once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub always: bool,
+    /// It can't be allowed just this once: its agent offers no answer that does (an Agent Client
+    /// Protocol adapter needn't), so the windows offer no Allow, only Always where `always` says
+    /// so. Devices that don't know it offer Allow, and it's refused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_once: bool,
     /// It's a plan to approve (Claude Code's plan mode): `input` is the plan, in Markdown, to read
     /// as prose rather than as a command.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

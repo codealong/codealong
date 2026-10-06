@@ -1220,6 +1220,9 @@ export interface Pending {
   cannot: string | null;
   /** It can also be allowed from now on, not just this once. */
   always?: boolean;
+  /** It can't be allowed just this once (its agent offers no such answer): no Allow, only Always
+   *  where `always` says so. */
+  noOnce?: boolean;
   /** What allowing it from now on adds, in a sentence, when Codealong can say. */
   alwaysRule?: string;
   /** Questions it asks you: answered with your picks rather than allowed. */
