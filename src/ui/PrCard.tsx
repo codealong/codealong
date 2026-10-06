@@ -31,7 +31,7 @@ import { cardZoom } from '../zoom';
 import { zoomKey } from './cardHost';
 import { PrDetails } from './PrInspector';
 import { prIsOpen, type PrRowItem } from './PrsView';
-import { Button, cx } from './primitives';
+import { BoxText, Button, cx } from './primitives';
 import { Hotkey, QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue } from './SessionPanel';
 
 /** What a window does for a PR's actions, less what the card knows for every window. */
@@ -218,11 +218,11 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
             box.current?.focus();
           }}
         >
-          <textarea
+          <BoxText
             ref={box}
             value={text}
             rows={Math.min(6, Math.max(2, text.split('\n').length))}
-            placeholder={requested ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
+            hint={requested ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
             disabled={busy !== null}
             onChange={(e) => {
               setText(e.target.value);

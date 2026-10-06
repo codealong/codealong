@@ -32,16 +32,35 @@
   grid-column: 1 / -1;
   padding: 8px 10px 0;
 }
+/* The text and the hint drawn over it while it's empty (primitives.tsx `BoxText`), in its place
+   and its type. */
+.ca-composer-text {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.ca-composer textarea,
+.ca-composer-hint {
+  padding: 8px 10px;
+  font: 400 13px/19px var(--font-sans);
+}
 .ca-composer textarea {
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 10px;
   border: 0;
   background: transparent;
   color: var(--ink);
-  font: 400 13px/19px var(--font-sans);
   resize: none;
   outline: none;
+}
+.ca-composer-hint {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
 }
 /* Send, or Stop while a turn runs and the box is empty: round, in the box's corner. Send now goes
    before Send while the turn can take a message at once, quieter, as the second way to send. */

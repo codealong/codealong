@@ -97,7 +97,7 @@
       check('a copy that stops says why', turns()[1].indexOf('The copy stopped: usage limit reached') > 0 && strip().textContent.indexOf('Its copy has ended') > 0, strip().textContent);
 
       // While it shows, the box is the side conversation's.
-      check('while it shows, the box says it asks on the side', box().placeholder === 'Ask on the side' && button().getAttribute('aria-label') === 'Ask on the side' && noteText().indexOf('To the side conversation, not ') === 0 && !!document.querySelector('.ca-composer.is-aside'), box().placeholder + ' / ' + noteText());
+      check('while it shows, the box says it asks on the side', box().getAttribute('aria-placeholder') === 'Ask on the side' && button().getAttribute('aria-label') === 'Ask on the side' && noteText().indexOf('To the side conversation, not ') === 0 && !!document.querySelector('.ca-composer.is-aside'), box().getAttribute('aria-placeholder') + ' / ' + noteText());
       type(box(), 'and with a queue of one?');
       await wait(50);
       enter();
@@ -111,7 +111,7 @@
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
       check('Close ends it', calls('side_close').length === 1 && calls('side_close')[0][1].key === key);
-      check('and gives the box back to the session', box().placeholder !== 'Ask on the side' && !document.querySelector('.ca-composer.is-aside'), box().placeholder);
+      check('and gives the box back to the session', box().getAttribute('aria-placeholder') !== 'Ask on the side' && !document.querySelector('.ca-composer.is-aside'), box().getAttribute('aria-placeholder'));
       type(box(), 'now to the session');
       await wait(50);
       enter();
@@ -139,7 +139,7 @@
       check('/side alone lists the ones kept, the latest first', rows[0].indexOf('why a queue?') === 0 && rows[0].indexOf('3 questions') > 0 && rows[1].indexOf('is the queue tested?') === 0 && rows[1].indexOf('and where') < 0 && rows[1].indexOf('2h ago · 1 question') > 0, rows.join(' / '));
       check('asking and sending nothing', calls('side_ask').length === askedBefore && calls('send_to_session').length === sentBefore && box().value === '', box().value);
       check('the header counts both, and is lit while they show', chip().textContent === '2 side conversations' && chip().getAttribute('aria-pressed') === 'true', chip().textContent);
-      check('while the list shows, the box asks on the side too', box().placeholder === 'Ask on the side');
+      check('while the list shows, the box asks on the side too', box().getAttribute('aria-placeholder') === 'Ask on the side');
       strip().querySelectorAll('.ca-sidestrip-kept')[1].click();
       await until(function () { return turns().length === 1; }, 5000);
       check('one opens to read', turns()[0].indexOf('is the queue tested?') === 0 && turns()[0].indexOf('In send.rs.') > 0 && strip().textContent.indexOf('closed') > 0 && !!strip().querySelector('.ca-sidestrip-steps'), strip().textContent);

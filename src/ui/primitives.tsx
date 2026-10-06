@@ -1,7 +1,7 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
-import type { ButtonHTMLAttributes, FormEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
-import { Fragment, useId, useRef } from 'react';
+import type { ButtonHTMLAttributes, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
+import { forwardRef, Fragment, useId, useRef } from 'react';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { sessionPlace } from '../harness';
@@ -176,6 +176,31 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
     </button>
   );
 }
+
+interface BoxTextProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'placeholder' | 'value'> {
+  value: string;
+  /** What the empty box says. */
+  hint: string;
+}
+
+/** The text of a box to write in (a session's reply, a PR's review), with its hint drawn over it
+ *  while it's empty, in place of the textarea's own placeholder. WebKit lays a placeholder out as
+ *  wide as its box times a card's CSS zoom (zoom.ts), so in a card drawn at a zoom the empty box
+ *  scrolled sideways and a long hint was cut off, and no CSS on `::placeholder` takes it out of
+ *  the layout (checked in a WKWebView on 2026-10-06). The hint is the textarea's
+ *  `aria-placeholder`, for a screen reader. */
+export const BoxText = forwardRef<HTMLTextAreaElement, BoxTextProps>(function BoxText({ value, hint, ...rest }, ref) {
+  return (
+    <div className="ca-composer-text">
+      <textarea ref={ref} value={value} aria-placeholder={hint} {...rest} />
+      {value === '' && (
+        <span className="ca-composer-hint" aria-hidden="true">
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+});
 
 interface DialogProps {
   title: string;

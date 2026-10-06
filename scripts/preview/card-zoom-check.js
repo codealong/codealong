@@ -72,6 +72,14 @@
         var w = document.querySelector('.ca-notch-card').getBoundingClientRect().width;
         check('the notch opens its session as much wider', w > 680 * 1.2, Math.round(w) + ' wide');
       }
+      // The empty box's hint is drawn over it, not the textarea's own placeholder, which WebKit lays
+      // out zoom times too wide (primitives.tsx `BoxText`; Chrome, here, never did).
+      var t = box();
+      var hint = document.querySelector('.ca-reply .ca-composer-hint');
+      var at = hint && hint.getBoundingClientRect();
+      var field = t.getBoundingClientRect();
+      check('the empty box says its hint over it, with no placeholder of its own', !!hint && hint.textContent === t.getAttribute('aria-placeholder') && !t.hasAttribute('placeholder') && Math.abs(at.left - field.left) < 1 && Math.abs(at.top - field.top) < 1, hint ? hint.textContent : 'no hint');
+      check('and doesn’t scroll sideways', t.scrollWidth <= t.clientWidth, t.scrollWidth + ' of ' + t.clientWidth);
       box().focus();
       key({ key: '=', code: 'Equal' }, box());
       key({ key: '-', code: 'Minus' }, box());

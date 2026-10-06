@@ -50,19 +50,19 @@
     .then(function () {
       check('it offers the places its account’s sessions go on in', places().join(', ') === offered.map(function (p) { return p.label; }).join(', '), places().join(', '));
       check('it goes on in a terminal unless picked otherwise', on() === labelOf('terminal'), on());
-      check('the placeholder says it resumes in the terminal', box().placeholder.indexOf('resumes it in ' + board.apps.terminal) >= 0, box().placeholder);
+      check('the placeholder says it resumes in the terminal', box().getAttribute('aria-placeholder').indexOf('resumes it in ' + board.apps.terminal) >= 0, box().getAttribute('aria-placeholder'));
       check('the model chip says the account’s own model', !!chip() && chip().textContent.length > 0, chip() ? chip().textContent : 'none');
       place(labelOf('background')).click();
       return wait(50);
     })
     .then(function () {
       var behind = (offered.filter(function (p) { return p.place === 'background'; })[0] || {}).behind;
-      check('Background says where it goes', box().placeholder.indexOf(behind ? 'behind your windows' : 'resumes it in the background') >= 0, box().placeholder);
+      check('Background says where it goes', box().getAttribute('aria-placeholder').indexOf(behind ? 'behind your windows' : 'resumes it in the background') >= 0, box().getAttribute('aria-placeholder'));
       if (labelOf('claude-app')) {
         place(labelOf('claude-app')).click();
         return wait(50).then(function () {
           check('the Claude app picks its own model, so the chip goes', !chip(), chip() ? chip().textContent : 'gone');
-          check('the Claude app takes it on the clipboard', box().placeholder.indexOf('Claude app opens it') >= 0, box().placeholder);
+          check('the Claude app takes it on the clipboard', box().getAttribute('aria-placeholder').indexOf('Claude app opens it') >= 0, box().getAttribute('aria-placeholder'));
           place(labelOf('background')).click();
           return wait(50);
         });

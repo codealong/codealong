@@ -115,7 +115,7 @@
     })
     .then(function () {
       check('the box says ⏎ denies it with what you wrote', /⏎ denies it and sends this instead/.test(note()), note());
-      check('and its placeholder says so', /deny it, and tell .* what to do instead/.test(box().placeholder), box().placeholder);
+      check('and its placeholder says so', /deny it, and tell .* what to do instead/.test(box().getAttribute('aria-placeholder')), box().getAttribute('aria-placeholder'));
       type(box(), 'Explain the change first');
       return wait(50);
     })

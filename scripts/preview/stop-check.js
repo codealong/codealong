@@ -42,7 +42,7 @@
     try {
       await until(stopButton, 20000);
       check('shows Stop in the box', stopButton().getAttribute('aria-label') === 'Stop' && !sendButton());
-      check('its placeholder says Escape stops it', /esc stops its turn$/.test(box().placeholder), box().placeholder);
+      check('its placeholder says Escape stops it', /esc stops its turn$/.test(box().getAttribute('aria-placeholder')), box().getAttribute('aria-placeholder'));
       type(box(), 'and then');
       await wait(50);
       check('turns to Send once something is typed', !stopButton() && sendButton() && !sendButton().disabled);

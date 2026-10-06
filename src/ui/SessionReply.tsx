@@ -72,7 +72,7 @@ import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, StartPlace, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
-import { Button, Chip, cx, Icon, Rich } from './primitives';
+import { BoxText, Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { offersResume, ResumeBar } from './ResumeBar';
 import { SessionModel } from './SessionModel';
@@ -530,11 +530,11 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         }}
       >
         {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
-        <textarea
+        <BoxText
           ref={box}
           value={text}
           rows={Math.min(LINES, Math.max(2, text.split('\n').length))}
-          placeholder={aside ? 'Ask on the side' : waiting && onDenySaying ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? ' · esc stops its turn' : '')}
+          hint={aside ? 'Ask on the side' : waiting && onDenySaying ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? ' · esc stops its turn' : '')}
           onChange={(e) => {
             setText(e.target.value);
             setCaret(e.target.selectionStart);
