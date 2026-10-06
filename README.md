@@ -242,7 +242,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     its branch while it was open, and any linked by hand (`codealong pr link|unlink`). With
     `[pull_requests] when_approved = "nudge"` (Settings › General), the sessions that worked on
     a PR of yours and are still running are sent a message as it becomes approved, as one of
-    yours, saying so and where it stands (GitHub would merge it now, its checks are still
+    yours, saying so and where it stands (ready to merge, its checks are still
     running), so they take it from there; a PR approved before Codealong was looking, or one
     that isn't yours, tells nobody, and a session that has stopped isn't resumed for it. The PRs you pinned come first, in your order (`p`, Pin PR in its
     menu, or drag its row up to the top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to
@@ -257,7 +257,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     it (and the worktree's panel), opens it on GitHub or in Codex and copies its link; a
     worktree's own menu copies its PR's link too. Colored pills say where
     each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one
-    green Ready to merge when GitHub would merge it now. Rows that are your move are marked
+    green Ready to merge when GitHub says it can be merged now. Rows that are your move are marked
     at the left edge: amber for a review asked of you or something to fix, red for failing
     checks, green for your PRs that are ready to merge. Selecting a PR shows its
     description, reviews, checks, comments (with `[jev] pull_requests`, the ones asking the

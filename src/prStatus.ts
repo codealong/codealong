@@ -29,7 +29,7 @@ const isOpen = (state: PrState) => state !== 'merged' && state !== 'closed';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** GitHub would merge it now: the reviews the repo requires, passing checks and no conflicts.
+/** GitHub says it can be merged now: the reviews the repo requires, passing checks and no conflicts.
  *  Only GitHub can say so; approved with passing checks can still conflict with its base. */
 export function prReady(pr: PrFacts): boolean {
   return isOpen(pr.state) && pr.state !== 'draft' && pr.merge === 'clean' && pr.checks.failed === 0 && pr.checks.pending === 0;

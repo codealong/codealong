@@ -60,7 +60,7 @@ impl Nudger {
 /// What the session is told: the PR, where it stands, and that it's the session's to take on.
 pub fn words(pr: &PrItem) -> String {
     let standing = match (pr.merge, &pr.checks) {
-        (Merge::Clean, _) => " GitHub would merge it now.",
+        (Merge::Clean, _) => " It's ready to merge.",
         (Merge::Conflicts, _) => " Its branch conflicts with its base.",
         (Merge::Behind, _) => " Its branch is behind its base, which the repo wants brought up to date first.",
         (_, c) if c.failed > 0 => " Some of its checks failed.",
@@ -68,7 +68,7 @@ pub fn words(pr: &PrItem) -> String {
         _ => "",
     };
     format!(
-        "Codealong: your PR #{} “{}” was approved on GitHub.{standing} {}\nTake it from here, as this repo does with an approved PR (merging it, say), unless you were told to leave that to someone else.",
+        "Codealong: your PR #{} “{}” was approved on GitHub.{standing} {}\nDo what this repo does next with an approved PR, such as merging it, unless you were told to leave that to someone else.",
         pr.number,
         pr.title.trim(),
         pr.url
@@ -203,7 +203,7 @@ mod tests {
             let p = PrItem { merge, checks: Checks { failed, pending, ..Checks::default() }, ..pr("o/r#1", PrState::Approved, &[]) };
             words(&p).lines().next().unwrap().trim_start_matches("Codealong: your PR #1 “Let the agent add photos” was approved on GitHub.").trim_end_matches(" https://github.com/o/r/pull/1").to_string()
         };
-        assert_eq!(standing(Merge::Clean, 0, 0), " GitHub would merge it now.");
+        assert_eq!(standing(Merge::Clean, 0, 0), " It's ready to merge.");
         assert_eq!(standing(Merge::Conflicts, 0, 2), " Its branch conflicts with its base.");
         assert_eq!(standing(Merge::Blocked, 1, 2), " Some of its checks failed.");
         assert_eq!(standing(Merge::Unknown, 0, 2), " Its checks are still running.");
