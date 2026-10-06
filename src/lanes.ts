@@ -199,7 +199,10 @@ export function bayOf(sessions: Session[], pr: Pr | null): [Bay, Status] {
  * lane's order, the one you last sent a prompt; the rest get a plain one.
  */
 function headlineFor(bay: Bay, own: Session[], pr: Pr | null, since: string): [string, string | null] {
-  const first = (...statuses: Status[]) => statuses.map((st) => own.find((s) => s.status === st)).find((s) => s != null);
+  // In the engine's order, whatever order they came in: a lane changed ahead of the engine
+  // (ahead.ts) keeps its sessions where they were.
+  const ordered = [...own].sort(bySession);
+  const first = (...statuses: Status[]) => statuses.map((st) => ordered.find((s) => s.status === st)).find((s) => s != null);
   const agent = bay === 'needs' ? first('needs', 'error') : bay === 'working' || bay === 'unread' ? first(bay) : undefined;
   if (agent) return [agent.headline, agent.detail];
   if (pr && bay === 'merged') return [`#${pr.number} ${pr.state === 'closed' ? 'closed' : 'merged'}`, null];
@@ -319,12 +322,19 @@ export function relaned(lane: Lane, sessions: Session[]): Lane {
   return { ...next, headline, detail };
 }
 
-/** The lane with only `sessions`. When that changes its status, the bay, glyph and headline are worked out again. */
+/**
+ * The lane with only `sessions`, its status worked out again from its own current ones, as the
+ * engine's is (archived ones and a reusable worktree's earlier work left out). An agent bay's
+ * sentence is always worked out again: it's the first agent's of that status (board.rs
+ * `headline`), and the one the engine named may be one the filter took out, with another of the
+ * same status left. A PR's or an idle worktree's sentence stays the engine's while its bay does.
+ */
 function withSessions(lane: Lane, sessions: Session[], since: string): Lane {
   if (sessions.length === lane.sessions.length) return lane;
-  const own = sessions.filter((s) => !s.visitor && !s.earlier);
+  const own = sessions.filter((s) => !s.visitor && !s.archived && !s.earlier);
   const [bay, glyph] = bayOf(own, lane.pr);
-  if (bay === lane.bay && glyph === lane.glyph) return { ...lane, sessions };
+  const agents = bay === 'needs' || bay === 'working' || bay === 'unread';
+  if (!agents && bay === lane.bay && glyph === lane.glyph) return { ...lane, sessions };
   const [headline, detail] = headlineFor(bay, own, lane.pr, since);
   return { ...lane, sessions, bay, glyph, headline, detail };
 }

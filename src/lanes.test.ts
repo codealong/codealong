@@ -49,6 +49,30 @@ describe('ageFiltered', () => {
     expect([l.bay, l.headline, l.detail]).toEqual(['unread', '`claude` · Fix it', 'Pushed the fix']);
   });
 
+  it('names an agent that is left when the one the engine named is filtered out, in the same bay', () => {
+    // Two wait on you; the engine names the one that has waited longest, which is older than the cutoff.
+    const waited = { ...session('waited', 'needs', NOW - 3 * DAY), headline: '`claude` asks you · Old question', detail: 'Which one?' };
+    const asking = { ...session('asking', 'needs', NOW - 3_600_000), headline: '`codex` asks for approval · New work', detail: 'rm -rf build' };
+    const l = { ...lane([waited, asking], null), headline: waited.headline, detail: waited.detail };
+    const aged = ageFiltered(l, NOW - DAY, 'in the last 24 hours');
+    expect(aged.sessions.map((s) => s.key)).toEqual(['asking']);
+    expect([aged.bay, aged.glyph, aged.headline, aged.detail]).toEqual(['needs', 'needs', asking.headline, asking.detail]);
+    // Still the same copy while the worktree and the cutoff are, so its row skips rendering.
+    expect(ageFiltered(l, NOW - DAY, 'in the last 24 hours')).toBe(aged);
+    // The one that's first in the engine's order, whatever order they come in.
+    const fresh = { ...session('fresh', 'needs', NOW - 60_000), statusSince: NOW - 60_000, headline: '`claude` needs you · Newest', detail: null };
+    const out = ageFiltered({ ...l, sessions: [waited, fresh, asking] }, NOW - DAY, 'in the last 24 hours');
+    expect(out.headline).toBe(asking.headline);
+  });
+
+  it('leaves archived sessions out of the status, as the engine does', () => {
+    const archived = { ...session('put-away', 'needs', NOW - 60_000), archived: true };
+    const old = session('old', 'idle', NOW - 3 * DAY);
+    const l = fx.lane({ id: '/r', sessions: [old, archived], pr: null, bay: 'idle', glyph: 'idle', headline: 'from the engine', detail: 'x' });
+    const aged = ageFiltered(l, NOW - DAY, 'in the last 24 hours');
+    expect([aged.bay, aged.glyph, aged.headline]).toEqual(['idle', 'idle', 'from the engine']);
+  });
+
   it('leaves a lane alone when nothing in it is filtered out', () => {
     const l = lane([stuck, mine], null);
     expect(ageFiltered(l, NOW - 4 * DAY, '')).toBe(l);
