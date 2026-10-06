@@ -254,9 +254,13 @@ html.is-notch body {
   right: 0;
   cursor: nwse-resize;
 }
+/* Dragged to a size, or zoomed, the shape takes it at once (Notch.tsx `zooming`). */
 .ca-notch.is-sizing .ca-notch-shape,
 .ca-notch.is-sizing .ca-notch-ear,
-.ca-notch.is-sizing .ca-notch-shadow {
+.ca-notch.is-sizing .ca-notch-shadow,
+.ca-notch.is-zooming .ca-notch-shape,
+.ca-notch.is-zooming .ca-notch-ear,
+.ca-notch.is-zooming .ca-notch-shadow {
   transition: none;
 }
 .ca-notch.is-sizing .ca-notch-session {

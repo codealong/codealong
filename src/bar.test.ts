@@ -173,10 +173,15 @@ describe('the bar docked in the notch', () => {
     const zoomed = notchSizes(notch, body, 60, room, screen, null, 1.25);
     // 850 across, widened to whole points a side; 650 under the pills.
     expect(zoomed.session).toEqual({ w: 851, h: 66 + 650 });
-    // It can be dragged as much bigger too, but no further than the screen leaves clear.
-    expect(notchSizes(notch, body, 60, room, screen, { w: 5000, h: 5000 }, 1.25).full).toEqual({ w: 1301, h: 982 - NOTCH.session.clear });
-    expect(notchSizes(notch, body, 60, room, screen, null, 2).session.w).toBe(1361);
+    // The window stays as it was, so the zoom resizes only the shape inside it.
+    expect(zoomed.full).toEqual(sizes(body, 60).full);
+    expect(zoomed.window).toEqual(sizes(body, 60).window);
+    // Past the most it gets, it grows to the zoomed usual size, within what the screen leaves clear.
+    const big = notchSizes(notch, body, 60, room, screen, null, 2);
+    expect(big.session.w).toBe(1361);
+    expect(big.full.w).toBe(1361);
     expect(notchSizes(notch, body, 60, room, { w: 1200, h: 982 }, null, 2).session.w).toBe(1105);
+    expect(notchSizes(notch, body, 60, room, { w: 1512, h: 700 }, null, 2).session.h).toBe(700 - NOTCH.session.clear);
     // A size you dragged it to stays, if it's no narrower than the zoomed usual width.
     expect(notchSizes(notch, body, 60, room, screen, { w: 900, h: 500 }, 1.25).session).toEqual({ w: 901, h: 66 + 500 });
   });

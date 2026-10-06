@@ -1,7 +1,8 @@
 // Checks the zoom in the windows that float (zoom.ts `cardZoom`, SessionCard.tsx, cardHost.ts
 // `zoomKey`): the card of the session shown draws at the board's zoom and still fills its window
-// across; ⌘= and ⌘- from its box ask the engine to zoom, as in the board's windows; and the notch
-// opens its session as much wider (bar.ts `notchSizes`). The board and the bar's feed here say
+// across; ⌘= and ⌘- from its box ask the engine to zoom, as in the board's windows; the notch
+// opens its session as much wider (bar.ts `notchSizes`), and a step while it's up resizes the
+// shape at once, with no easing, in the window it had (Notch.tsx `zooming`). The board and the bar's feed here say
 // 125%; the stub's answers to a step are fake-tauri.js's. A peek's window opening bigger is the
 // engine's (peek.rs `place`), which the preview doesn't size.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-zoom-check.js
@@ -78,7 +79,23 @@
     })
     .then(function () {
       check('⌘= and ⌘- from its box ask the engine to zoom', steps() === 'in out', steps());
-      done();
+      if (!inNotch) return;
+      // A step while it's up: the shape takes its new size with no easing, in the window it had.
+      var fits = function () { return sent('fit_bar').map(function (a) { return a.width + 'x' + a.height; }); };
+      var windowBefore = fits().pop();
+      var classes = [];
+      var watch = new MutationObserver(function () { classes.push(document.querySelector('.ca-notch').className); });
+      watch.observe(document.querySelector('.ca-notch'), { attributes: true, attributeFilter: ['class'] });
+      window.__emit('bar-feed', Object.assign({}, feed, { zoom: 150 }));
+      return until(function () { return getComputedStyle(card()).zoom === '1.5'; }, 3000, 'the card at 150%')
+        .then(function () { return wait(400); })
+        .then(function () {
+          watch.disconnect();
+          var eased = getComputedStyle(document.querySelector('.ca-notch-shape')).transitionProperty;
+          check('a zoom step resizes the shape with no easing, and the easing comes back', classes.some(function (c) { return /is-zooming/.test(c); }) && !/is-zooming/.test(document.querySelector('.ca-notch').className) && eased !== 'none', classes.join(' → ') + '; then ' + eased);
+          check('in the window it had', fits().pop() === windowBefore, windowBefore + ' → ' + fits().pop());
+        });
     })
+    .then(done)
     .catch(stopped);
 })();

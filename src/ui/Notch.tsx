@@ -124,6 +124,22 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   const [want, setWant] = useState<Size | null>(() => readStored(SIZE_KEY, SIZE_STORED, null));
   // An edge is being dragged: the shape follows the pointer, with no easing to catch up.
   const [sizing, setSizing] = useState(false);
+  // The zoom changed: the shape takes its new size at once, as the card in it does, rather than
+  // easing after a card that's already bigger. Known as the render that changes it is, so its
+  // size and the easing's going come in one style change; back two frames on, once that's drawn.
+  const [zoomDrawn, setZoomDrawn] = useState(zoom);
+  const zooming = zoom !== zoomDrawn;
+  useEffect(() => {
+    if (!zooming) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setZoomDrawn(zoom));
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [zooming, zoom]);
   const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom));
   const state: NotchState = sessionOpen ? 'session' : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
@@ -292,7 +308,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
 
   return (
     <div
-      className={cx('ca-notch', `is-${state}`, below && 'is-open', sizing && 'is-sizing', !notch.real && 'is-drawn')}
+      className={cx('ca-notch', `is-${state}`, below && 'is-open', sizing && 'is-sizing', zooming && 'is-zooming', !notch.real && 'is-drawn')}
       style={{ left: x, width: sizes.full.w, height: sizes.full.h, '--notch-w': `${notch.width}px`, '--notch-h': `${notch.height}px` } as CSSProperties}
     >
       <span
