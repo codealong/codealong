@@ -230,6 +230,7 @@ Each rule names the file whose header has the rest.
   value is written never change. A value that a listener, timer or callback reads after its
   render is `useLatest` (`latest.ts`).
 - Settings are read with `config::current()`; nothing reads config.toml again for itself.
+  Codealong writes it only from config.rs, under its lock (`config::update`).
 - What AppKit is told about the windows that float is in `src-tauri/src/panel.rs` and nowhere
   else; rectangles, the flip between AppKit's y and a page's, and which screen a thing is on are
   `src-tauri/src/geometry.rs`, not arithmetic where they're used.

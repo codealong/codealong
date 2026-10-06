@@ -4,7 +4,7 @@
 //! tab saves the text as typed, once it parses.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -498,17 +498,54 @@ pub fn updates_check() -> bool {
     load().ok().flatten().map(|c| c.updates.check).unwrap_or(true)
 }
 
-/// Writes config.toml afresh. Returns the text written.
+/// Writes a new config.toml, for the first launch. Returns the text written, or the file's own
+/// when one appeared meanwhile, which is left as it is.
 pub fn write(cfg: &Config) -> Result<String> {
-    std::fs::create_dir_all(support_dir())?;
+    let path = config_path();
+    let _lock = crate::store::lock(&path)?;
+    if let Some(there) = crate::store::text(&path)? {
+        return Ok(there);
+    }
     let text = render(cfg);
-    write_atomic(&text)?;
+    crate::store::write(&path, &text)?;
     Ok(text)
 }
 
-/// Writes config.toml through a temporary file, so the watcher never reads half a file.
-fn write_atomic(text: &str) -> Result<()> {
-    crate::store::write(&config_path(), text)
+/// Changes config.toml's text with `change` and writes it back, keeping everything `change`
+/// leaves as written; returns what `change` answers alongside. See `update_at`.
+fn update<R>(change: impl FnMut(&str) -> Result<(String, R)>) -> Result<R> {
+    update_at(&config_path(), change)
+}
+
+/// The file's text as a change starts from: a new file's when there's none yet. One that's
+/// there and can't be read (its permissions, text that isn't UTF-8) is an error, never the
+/// defaults, which would be written over it with every account and project lost.
+fn text_to_change(path: &Path) -> Result<String> {
+    Ok(crate::store::text(path)?.unwrap_or_else(|| render(&Config::default())))
+}
+
+/// How every change Codealong makes to config.toml is made: the theme and zoom buttons, an Open
+/// in menu, Settings, the account list. Each holds the one lock on `config.toml.lock`
+/// (`store::lock`) from reading the file to writing it, so two of them, in this process or the
+/// `codealong` command, never write over each other's change. An agent or an editor saving the
+/// file by hand takes no lock, so the file is read again just before it's replaced, and a
+/// change saved meanwhile is changed in turn rather than written over (a file that changes
+/// under every try is left alone, with an error); only one saved in the moment between that
+/// read and the write can be lost. Written through a temporary file (`store::write`), so the
+/// watcher never reads half a file.
+fn update_at<R>(path: &Path, mut change: impl FnMut(&str) -> Result<(String, R)>) -> Result<R> {
+    let _lock = crate::store::lock(path)?;
+    let mut text = text_to_change(path)?;
+    for _ in 0..3 {
+        let (changed, answer) = change(&text)?;
+        let now = text_to_change(path)?;
+        if now == text {
+            crate::store::write(path, changed)?;
+            return Ok(answer);
+        }
+        text = now;
+    }
+    Err(anyhow!("{} kept changing while Codealong saved it, so this change wasn't saved; try it again.", crate::util::tilde(path)))
 }
 
 pub const HARNESSES: [&str; 4] = ["claude", "codex", "opencode", "antigravity"];
@@ -543,13 +580,7 @@ pub fn check_accounts(accounts: &[AccountCfg]) -> std::result::Result<(), String
 /// Replaces the `[[accounts]]` tables in config.toml and keeps everything else as written.
 pub fn save_accounts(accounts: &[AccountCfg]) -> Result<()> {
     check_accounts(accounts).map_err(anyhow::Error::msg)?;
-    std::fs::create_dir_all(support_dir())?;
-    let path = config_path();
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(_) => render(&Config::default()),
-    };
-    write_atomic(&with_accounts(&text, accounts)?)
+    update(|text| Ok((with_accounts(text, accounts)?, ())))
 }
 
 /// `text` with its `[[accounts]]` tables replaced. The comment above the first one stays.
@@ -599,12 +630,7 @@ const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Opt
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
 /// from an Open in menu is the one Open in <editor> uses from then on.
 pub fn save_editor(id: &str) -> Result<()> {
-    std::fs::create_dir_all(support_dir())?;
-    let text = match std::fs::read_to_string(config_path()) {
-        Ok(t) => t,
-        Err(_) => render(&Config::default()),
-    };
-    write_atomic(&with_editor(&text, id)?)
+    update(|text| Ok((with_editor(text, id)?, ())))
 }
 
 pub fn with_editor(text: &str, id: &str) -> Result<String> {
@@ -616,12 +642,7 @@ pub fn with_editor(text: &str, id: &str) -> Result<String> {
 
 /// Sets `[appearance] theme` in config.toml and keeps everything else as written.
 pub fn save_theme(theme: Theme) -> Result<()> {
-    std::fs::create_dir_all(support_dir())?;
-    let text = match std::fs::read_to_string(config_path()) {
-        Ok(t) => t,
-        Err(_) => render(&Config::default()),
-    };
-    write_atomic(&with_theme(&text, theme)?)
+    update(|text| Ok((with_theme(text, theme)?, ())))
 }
 
 /// `text` with its theme set. A file from before there was a theme gets an `[appearance]`
@@ -640,18 +661,9 @@ fn set_theme(doc: &mut toml_edit::DocumentMut, theme: Theme) {
 /// Steps `[appearance] zoom` in config.toml from what it says now (zoom.rs `stepped`), keeping
 /// everything else as written, and answers the zoom it's at. It reads the file each time, not
 /// the settings the app runs on, which catch up a moment later: so presses quicker than that
-/// each step from the one before.
+/// each step from the one before, one at a time under the file's lock (`update`).
 pub fn step_zoom(step: crate::zoom::Step) -> Result<u32> {
-    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
-    std::fs::create_dir_all(support_dir())?;
-    let text = match std::fs::read_to_string(config_path()) {
-        Ok(t) => t,
-        Err(_) => render(&Config::default()),
-    };
-    let (text, zoom) = with_zoom_step(&text, step)?;
-    write_atomic(&text)?;
-    Ok(zoom)
+    update(|text| with_zoom_step(text, step))
 }
 
 /// `text` with its zoom stepped, and the zoom it's at. Only a file that zooms, or has the key
@@ -823,19 +835,14 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
 /// Saves every setting in config.toml, in place. The watcher sees the change and reloads.
 pub fn save(cfg: &Config) -> Result<()> {
     check(cfg).map_err(anyhow::Error::msg)?;
-    std::fs::create_dir_all(support_dir())?;
-    let text = match std::fs::read_to_string(config_path()) {
-        Ok(t) => t,
-        Err(_) => render(&Config::default()),
-    };
-    write_atomic(&with_config(&text, cfg)?)
+    update(|text| Ok((with_config(text, cfg)?, ())))
 }
 
-/// Saves config.toml as typed, once it parses as settings.
+/// Saves config.toml as typed, once it parses as settings: the whole of it, as you see it in
+/// Settings, but after any other change Codealong is making to it (`update`).
 pub fn save_text(text: &str) -> Result<()> {
     parse(text)?;
-    std::fs::create_dir_all(support_dir())?;
-    write_atomic(text)
+    update(|_| Ok((text.to_string(), ())))
 }
 
 /// The settings in `text`, or why it can't be saved.
@@ -1299,6 +1306,93 @@ mod tests {
         let text = render(&cfg);
         assert!(text.contains("[appearance]\ntheme = \"light\"\n"));
         assert_eq!(toml::from_str::<Config>(&text).unwrap(), cfg);
+    }
+
+    /// `text` with `item` added to its `scan` list, as a change that keeps everything else would.
+    fn scanning(text: &str, item: &str) -> Result<(String, ())> {
+        let mut doc: toml_edit::DocumentMut = text.parse()?;
+        doc["scan"].as_array_mut().unwrap().push(item);
+        Ok((doc.to_string(), ()))
+    }
+
+    fn scanned(path: &Path) -> Vec<String> {
+        from_text(&std::fs::read_to_string(path).unwrap()).unwrap().scan
+    }
+
+    #[test]
+    fn changes_to_the_settings_from_two_places_at_once_both_land() {
+        let dir = crate::fixtures::scratch("config-update");
+        let path = dir.join("config.toml");
+        // No file yet: a change starts from a new one's text.
+        update_at(&path, |t| with_theme(t, Theme::Dark).map(|t| (t, ()))).unwrap();
+        let first = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(from_text(&first).unwrap(), Config { appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() }, ..Config::default() });
+        // Settings and the theme buttons, say, each changing the file as the other does.
+        let each = 25;
+        let threads: Vec<_> = ["a", "b"]
+            .into_iter()
+            .map(|who| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for i in 0..each {
+                        update_at(&path, |t| scanning(t, &format!("{who}{i}"))).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let scan = scanned(&path);
+        for who in ["a", "b"] {
+            assert_eq!(scan.iter().filter(|s| s.starts_with(who)).count(), each, "{scan:?}");
+        }
+        assert_eq!(from_text(&std::fs::read_to_string(&path).unwrap()).unwrap().appearance.theme, Theme::Dark, "the first change is kept too");
+    }
+
+    #[test]
+    fn a_change_saved_by_hand_meanwhile_is_changed_in_turn() {
+        let dir = crate::fixtures::scratch("config-by-hand");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "scan = [\"~/projects\"]\n").unwrap();
+        // An agent saves the file, taking no lock, while the theme is being set.
+        let mut tries = 0;
+        update_at(&path, |t| {
+            tries += 1;
+            if tries == 1 {
+                std::fs::write(&path, "scan = [\"~/projects\", \"~/work\"]\n").unwrap();
+            }
+            scanning(t, "~/src")
+        })
+        .unwrap();
+        assert_eq!(tries, 2);
+        assert_eq!(scanned(&path), ["~/projects", "~/work", "~/src"]);
+        // One that changes under every try is left as it is.
+        let mut n = 0;
+        let e = update_at(&path, |t| {
+            n += 1;
+            std::fs::write(&path, format!("scan = [\"{n}\"]\n")).unwrap();
+            scanning(t, "~/src")
+        })
+        .unwrap_err();
+        assert!(e.to_string().contains("kept changing while Codealong saved it"), "{e}");
+        assert_eq!(scanned(&path), ["3"]);
+    }
+
+    #[test]
+    fn a_config_that_cannot_be_read_is_never_replaced_by_the_defaults() {
+        let dir = crate::fixtures::scratch("config-unreadable");
+        let path = dir.join("config.toml");
+        // Not UTF-8: read_to_string fails, as it does for a file without permission to read it.
+        let bytes = b"[[accounts]]\nname = \"w\xffrk\"\n".to_vec();
+        std::fs::write(&path, &bytes).unwrap();
+        let e = update_at(&path, |t| with_theme(t, Theme::Light).map(|t| (t, ()))).unwrap_err().to_string();
+        assert!(e.starts_with("Couldn't read ") && e.contains("config.toml"), "{e}");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        // A change that can't be made leaves the file as it is too.
+        std::fs::write(&path, "scan = [").unwrap();
+        assert!(update_at(&path, |t| with_theme(t, Theme::Light).map(|t| (t, ()))).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "scan = [");
     }
 
     #[test]
