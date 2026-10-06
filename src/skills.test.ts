@@ -17,9 +17,22 @@ describe('mentionsIn and mentionAt', () => {
   });
 
   it('passes over a slash inside a word or a path', () => {
-    expect(mentionsIn('/Users/me/file.txt is wrong')).toEqual([{ name: 'Users', start: 0, end: 6 }]);
+    expect(mentionsIn('/Users/me/file.txt is wrong')).toEqual([]);
+    expect(mentionsIn('Read /review/notes.md and /review/')).toEqual([]);
     expect(mentionsIn('see src/app.ts and a/b')).toEqual([]);
+    expect(mentionsIn('/ship\\it or /ship~ or /ship@2')).toEqual([]);
     expect(mentionsIn('')).toEqual([]);
+    // Typing a path past its first part leaves no name being typed.
+    expect(mentionAt('/review/', 8)).toBeNull();
+  });
+
+  it('ends a name at punctuation that ends a word in prose', () => {
+    expect(mentionsIn('then /ship, and (/db) or /review!').map((m) => m.name)).toEqual(['ship', 'review']);
+    expect(mentionsIn('then “run /ship” now').map((m) => m.name)).toEqual(['ship']);
+    expect(mentionsIn('/ship; then /db?')).toEqual([
+      { name: 'ship', start: 0, end: 5 },
+      { name: 'db', start: 12, end: 15 },
+    ]);
   });
 
   it('gives the one the caret is in or just after', () => {
@@ -59,6 +72,13 @@ describe('writtenFor', () => {
     expect(writtenFor('/probe it', skills, 'claude')).toBe('/probe it');
     expect(writtenFor('/shipping', skills, 'codex')).toBe('/shipping');
     expect(writtenFor('src/ship is a folder', skills, 'codex')).toBe('src/ship is a folder');
+  });
+
+  it('leaves a path whose first part names a skill as typed', () => {
+    const withReview = [...skills, skill('review')];
+    expect(writtenFor('Read /review/notes.md', withReview, 'codex')).toBe('Read /review/notes.md');
+    expect(writtenFor('/ship/out.log then /review, please', withReview, 'codex')).toBe('/ship/out.log then $review, please');
+    expect(skillNamed('Read /review/notes.md', withReview)).toBeUndefined();
   });
 
   it('names the first skill the text names', () => {

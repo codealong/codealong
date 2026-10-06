@@ -12,9 +12,12 @@ import type { Harness, Lane, Skill, SkillsListed } from './types';
 
 /** What a skill's name may hold, as the engine lets them through (skills.rs `typeable`). */
 const NAME = String.raw`[A-Za-z0-9_:.-]`;
-/** A slash and a name, at the start of the text or after a space: `/ship` in "then /ship it",
- *  not the one in a path. */
-const MENTION = new RegExp(String.raw`(^|\s)/(${NAME}*)`, 'g');
+/** A slash and a name, at the start of the text or after a space, that ends the word: `/ship` in
+ *  "then /ship it" or "then /ship, and", not the one in a path. A path's first part is no skill,
+ *  even one that names a skill (`/review/notes.md` with a skill named `review`), so the name has
+ *  to end at a space, the end of the text or punctuation that ends a word in prose, never at the
+ *  slash or anything else a path goes on with. */
+const MENTION = new RegExp(String.raw`(^|\s)/(${NAME}*)(?=$|[\s,;!?)\]}"'’”])`, 'g');
 
 /** A `/name` in the text: where its slash is, where its name ends, and the name so far. */
 export interface Mention {
