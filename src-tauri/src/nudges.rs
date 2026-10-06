@@ -1,18 +1,18 @@
-//! Telling sessions their PR was approved, when config.toml says to (`[pull_requests]
-//! when_approved = "nudge"`). Every board the engine publishes is looked at for PRs of yours
-//! that have just become approved, and each session that worked on one (`PrItem::sessions`, as
-//! the PRs view lists them) and still runs here is sent a message saying so, as a message of
-//! yours from a window is (actions.rs `session-send`: typed into its terminal, or its harness's
-//! own way in), on a thread of its own, since a send can take a moment. Left at `nothing`,
-//! nothing here sends anything, and the board shows the approval as it does anyway.
+//! Telling sessions their PR was approved, for the PRs it's turned on for. It's off for every PR
+//! until someone turns it on for that one: you, from the PR's card or menu, or an agent with
+//! `codealong pr nudge` (both write pr-links.json, prlinks.rs), and a PR says so while it's open
+//! (`PrItem::nudge`). Every board the engine publishes is looked at for such PRs that have just
+//! become approved, and each session that worked on one (`PrItem::sessions`, as the PRs view
+//! lists them) and still runs here is sent a message saying so, as a message of yours from a
+//! window is (actions.rs `session-send`: typed into its terminal, or its harness's own way in),
+//! on a thread of its own, since a send can take a moment.
 
 use std::collections::HashMap;
 
-use crate::config::WhenApproved;
 use crate::engine::Handle;
 use crate::model::{Board, Merge, PrItem, PrState};
 
-/// A message due to a session: that this PR of yours was approved.
+/// A message due to a session: that this PR was approved.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Nudge {
     pub session: String,
@@ -20,28 +20,29 @@ pub struct Nudge {
     pub text: String,
 }
 
-/// What each PR on the board stood at when last seen, so an approval is told once, as it
-/// happens.
+/// Whether each PR on the board was due its nudge when last seen (approved, with its nudge on),
+/// so each approval is told once, as it happens.
 #[derive(Default)]
 pub struct Nudger {
-    seen: HashMap<String, PrState>,
+    seen: HashMap<String, bool>,
 }
 
 impl Nudger {
-    /// The nudges due now: for each PR of yours that the last board showed open and not approved
-    /// and this one shows approved, one for each session that worked on it and runs on this Mac.
-    /// A PR first seen approved was approved before Codealong looked (before a launch, or while
-    /// the setting was off), so it's only noted; approved again after changes were asked for, it's
-    /// told again. PRs the board no longer lists are forgotten.
+    /// The nudges due now: for each PR that the last board showed not yet due and this one shows
+    /// approved with its nudge on, one for each session that worked on it and runs on this Mac.
+    /// So a PR is told as it's approved, and also as its nudge is turned on once it's approved
+    /// already. A PR first seen due was so before Codealong looked (before a launch), so it's
+    /// only noted; approved again after changes were asked for, it's told again. PRs the board
+    /// no longer lists are forgotten.
     pub fn due(&mut self, board: &Board) -> Vec<Nudge> {
         let mut out = Vec::new();
         let mut now = HashMap::with_capacity(board.prs.len());
         for pr in &board.prs {
             let key = crate::prlinks::pr_key(&pr.key);
+            let ready = pr.nudge && pr.state == PrState::Approved;
             let was = self.seen.get(&key).copied();
-            now.insert(key, pr.state);
-            let fresh = was.is_some_and(|s| s.is_open() && s != PrState::Approved) && pr.state == PrState::Approved;
-            if !(fresh && pr.mine && board.when_pr_approved == WhenApproved::Nudge) {
+            now.insert(key, ready);
+            if !(ready && was == Some(false)) {
                 continue;
             }
             let text = words(pr);
@@ -68,7 +69,8 @@ pub fn words(pr: &PrItem) -> String {
         _ => "",
     };
     format!(
-        "Codealong: your PR #{} “{}” was approved on GitHub.{standing} {}\nDo what this repo does next with an approved PR, such as merging it, unless you were told to leave that to someone else.",
+        "Codealong: {} #{} “{}” was approved on GitHub.{standing} {}\nDo what this repo does next with an approved PR, such as merging it, unless you were told to leave that to someone else.",
+        if pr.mine { "your PR" } else { "PR" },
         pr.number,
         pr.title.trim(),
         pr.url
@@ -94,6 +96,7 @@ mod tests {
     use super::*;
     use crate::model::{Checks, PrSession, Session};
 
+    /// A PR of yours with its nudge on.
     fn pr(key: &str, state: PrState, sessions: &[&str]) -> PrItem {
         PrItem {
             key: key.into(),
@@ -110,6 +113,7 @@ mod tests {
             requested_by: None,
             requested_at: None,
             snoozed_until: None,
+            nudge: true,
             head: "photos".into(),
             base: Some("main".into()),
             checks: Checks::default(),
@@ -126,12 +130,16 @@ mod tests {
         }
     }
 
+    fn off(p: PrItem) -> PrItem {
+        PrItem { nudge: false, ..p }
+    }
+
     fn live(key: &str) -> Session {
         Session { live: true, ..crate::fixtures::session(key) }
     }
 
-    fn board(when: WhenApproved, prs: Vec<PrItem>, sessions: Vec<Session>) -> Board {
-        Board { when_pr_approved: when, prs, lanes: vec![crate::fixtures::lane("/work", sessions)], ..Board::default() }
+    fn board(prs: Vec<PrItem>, sessions: Vec<Session>) -> Board {
+        Board { prs, lanes: vec![crate::fixtures::lane("/work", sessions)], ..Board::default() }
     }
 
     const A: &str = "claude:claude:a";
@@ -142,55 +150,56 @@ mod tests {
         let mut nudger = Nudger::default();
         let sessions = vec![live(A), Session { live: false, ..crate::fixtures::session(B) }];
         // First seen open: noted. Then approved: told, once, and only the session that runs.
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Open, &[A, B])], sessions.clone())).is_empty());
-        let due = nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Approved, &[A, B])], sessions.clone()));
+        assert!(nudger.due(&board(vec![pr("o/r#1", PrState::Open, &[A, B])], sessions.clone())).is_empty());
+        let due = nudger.due(&board(vec![pr("o/r#1", PrState::Approved, &[A, B])], sessions.clone()));
         assert_eq!(due.len(), 1);
         assert_eq!((due[0].session.as_str(), due[0].pr.as_str()), (A, "o/r#1"));
         assert!(due[0].text.starts_with("Codealong: your PR #1 “Let the agent add photos” was approved on GitHub. https://github.com/o/r/pull/1\n"), "{}", due[0].text);
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Approved, &[A, B])], sessions.clone())).is_empty(), "told once");
+        assert!(nudger.due(&board(vec![pr("o/r#1", PrState::Approved, &[A, B])], sessions.clone())).is_empty(), "told once");
         // Changes asked for, then approved again: told again.
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Changes, &[A, B])], sessions.clone())).is_empty());
-        assert_eq!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Approved, &[A, B])], sessions)).len(), 1);
+        assert!(nudger.due(&board(vec![pr("o/r#1", PrState::Changes, &[A, B])], sessions.clone())).is_empty());
+        assert_eq!(nudger.due(&board(vec![pr("o/r#1", PrState::Approved, &[A, B])], sessions)).len(), 1);
     }
 
     #[test]
-    fn a_pr_first_seen_approved_and_one_that_isnt_yours_are_left_alone() {
+    fn only_a_pr_its_turned_on_for_tells_anyone_whoever_opened_it() {
         let mut nudger = Nudger::default();
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).is_empty());
-        // Gone from the board and back approved: first sight again.
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![], vec![live(A)])).is_empty());
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).is_empty());
+        // Off, as every PR is until it's turned on: approved, nobody is told.
+        assert!(nudger.due(&board(vec![off(pr("o/r#1", PrState::Open, &[A]))], vec![live(A)])).is_empty());
+        assert!(nudger.due(&board(vec![off(pr("o/r#1", PrState::Approved, &[A]))], vec![live(A)])).is_empty());
+        // Turned on once it's approved already: told then. Off and on again tells again.
+        assert_eq!(nudger.due(&board(vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).len(), 1);
+        assert!(nudger.due(&board(vec![off(pr("o/r#1", PrState::Approved, &[A]))], vec![live(A)])).is_empty());
+        assert_eq!(nudger.due(&board(vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).len(), 1);
+        // Someone else's PR that it's on for is told as yours is, without "your".
         let mut nudger = Nudger::default();
         let theirs = PrItem { mine: false, ..pr("o/r#2", PrState::Open, &[A]) };
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![theirs.clone()], vec![live(A)])).is_empty());
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![PrItem { state: PrState::Approved, ..theirs }], vec![live(A)])).is_empty());
+        assert!(nudger.due(&board(vec![theirs.clone()], vec![live(A)])).is_empty());
+        let due = nudger.due(&board(vec![PrItem { state: PrState::Approved, ..theirs }], vec![live(A)]));
+        assert!(due[0].text.starts_with("Codealong: PR #2 “"), "{}", due[0].text);
     }
 
     #[test]
-    fn nothing_is_sent_unless_asked_for_but_the_states_are_still_kept() {
+    fn a_pr_first_seen_approved_is_left_alone() {
         let mut nudger = Nudger::default();
-        assert!(nudger.due(&board(WhenApproved::Nothing, vec![pr("o/r#1", PrState::Open, &[A])], vec![live(A)])).is_empty());
-        assert!(nudger.due(&board(WhenApproved::Nothing, vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).is_empty());
-        // Turned on after the approval: nothing to tell; the next approval is told.
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).is_empty());
-        assert!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Open, &[A])], vec![live(A)])).is_empty());
-        assert_eq!(nudger.due(&board(WhenApproved::Nudge, vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).len(), 1);
+        assert!(nudger.due(&board(vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).is_empty());
+        // Gone from the board and back approved: first sight again.
+        assert!(nudger.due(&board(vec![], vec![live(A)])).is_empty());
+        assert!(nudger.due(&board(vec![pr("o/r#1", PrState::Approved, &[A])], vec![live(A)])).is_empty());
     }
 
     #[test]
     fn a_session_on_two_prs_is_told_of_each_and_one_on_another_device_not_at_all() {
-
         use crate::model::DeviceTag;
         let mut nudger = Nudger::default();
         let two = |state| vec![pr("o/r#1", state, &[A]), pr("o/r#2", state, &[A])];
-        nudger.due(&board(WhenApproved::Nudge, two(PrState::Open), vec![live(A)]));
-        let due = nudger.due(&board(WhenApproved::Nudge, two(PrState::Approved), vec![live(A)]));
+        nudger.due(&board(two(PrState::Open), vec![live(A)]));
+        let due = nudger.due(&board(two(PrState::Approved), vec![live(A)]));
         assert_eq!(due.iter().map(|n| (n.session.as_str(), n.pr.as_str())).collect::<Vec<_>>(), vec![(A, "o/r#1"), (A, "o/r#2")]);
         let mut nudger = Nudger::default();
         let elsewhere = |state| {
-            let mut b = board(WhenApproved::Nudge, vec![pr("o/r#1", state, &[A])], vec![live(A)]);
+            let mut b = board(vec![pr("o/r#1", state, &[A])], vec![live(A)]);
             b.lanes[0].device = Some(DeviceTag { name: "Studio".into(), short: "st".into(), color: "blue".into(), online: true, last_seen: None });
-
             b
         };
         nudger.due(&elsewhere(PrState::Open));

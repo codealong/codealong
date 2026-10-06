@@ -513,6 +513,8 @@ window.__TAURI_INTERNALS__ = {
     // one, else on the first that waits on you; asking for it again only brings it up.
     if (cmd === 'waiting_asked') return Promise.resolve(window.__WAITING_ASKED__ || null);
     if (cmd === 'show_waiting') return Promise.resolve(null);
+    // A PR's nudge is turned on or off without an answer; the board that follows says so.
+    if (cmd === 'set_pr_nudge') return Promise.resolve(null);
     // Nothing is pinned to the desktop until a check pushes `desktop-pins`.
     if (cmd === 'desktop_pins') return Promise.resolve([]);
     // A PNG is kept as an image to show; anything else as a file, by the name it came with.

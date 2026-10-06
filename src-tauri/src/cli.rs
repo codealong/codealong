@@ -462,6 +462,17 @@ enum PrCmd {
     Link(PrLinkArgs),
     /// Take a session off a PR it's listed on but didn't work on. It stays off, however it matched, until linked again.
     Unlink(PrLinkArgs),
+    /// Have a PR's sessions told when it's approved: each session that worked on it and is still running then gets a message saying so and where the PR stands (ready to merge, checks running), to take it from there. Off for every PR until turned on for it, here or from its card in the app; one approved already tells its sessions now.
+    Nudge(PrNudgeArgs),
+}
+
+#[derive(Args, Debug)]
+struct PrNudgeArgs {
+    /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
+    pr: String,
+    /// Turn it off again.
+    #[arg(long)]
+    off: bool,
 }
 
 #[derive(Args, Debug)]
@@ -877,6 +888,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Pr { cmd: PrCmd::Show { pr } } => pr_show(c, &pr, json),
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
+        Cmd::Pr { cmd: PrCmd::Nudge(a) } => pr_nudge(c, &a, json),
         Cmd::Preview { cmd: PreviewCmd::Show(a) } => preview_show(c, &a.worktree, json),
         Cmd::Preview { cmd: PreviewCmd::Set(a) } => {
             // What's left out stays: the URL set (and its port, unless one is given), and the worktree's own profile.
@@ -1710,6 +1722,9 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
     if rows.is_empty() {
         println!("No session is linked. `codealong pr link {} --session <key>` links one.", p.key);
     }
+    if p.nudge {
+        println!("Its running sessions are told when it's approved (`codealong pr nudge {} --off` stops that).", p.key);
+    }
     Ok(())
 }
 
@@ -1740,6 +1755,46 @@ fn pr_link(c: &mut Client, a: &PrLinkArgs, linked: bool, json: bool) -> Result<(
     }
     let what = if linked { "Linked" } else { "Unlinked" };
     println!("{what} {} {} {}{}", out.session, if linked { "to" } else { "from" }, key, if changed { "" } else { " (it already was)" });
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrNudgeOut {
+    pr: String,
+    /// Whether its sessions are told when it's approved, now.
+    nudge: bool,
+    /// False when it was already so.
+    changed: bool,
+}
+
+/// Turns telling a PR's sessions when it's approved on or off (nudges.rs), in pr-links.json,
+/// which the app watches.
+fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, json: bool) -> Result<()> {
+    let key = resolve_pr(c, &a.pr)?;
+    let on = !a.off;
+    if on && c.app.is_some() {
+        match find_pr(c.board()?, &key) {
+            None => eprintln!("Note: Codealong doesn't read {key} yet (it's new, its repo isn't in a project, or it's old), so nobody is told until it does."),
+            Some(p) if !p.state.is_open() => eprintln!("Note: {key} is {}, so there's no approval left to tell of.", lower_debug(&p.state)),
+            Some(_) => {}
+        }
+    }
+    let mut changed = false;
+    crate::prlinks::change(|store| {
+        changed = store.set_nudge(&key, on);
+        changed
+    })?;
+    let out = PrNudgeOut { pr: crate::prlinks::pr_key(&key), nudge: on, changed };
+    if json {
+        return print_json(&out);
+    }
+    let already = if changed { "" } else { " (it already was)" };
+    if on {
+        println!("The sessions that worked on {key} and are running then are told when it's approved{already}.");
+    } else {
+        println!("Nobody is told when {key} is approved{already}.");
+    }
     Ok(())
 }
 

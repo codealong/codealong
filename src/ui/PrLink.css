@@ -78,3 +78,25 @@
   gap: 6px;
   margin-top: var(--space-2);
 }
+
+/* The card's switch for an open PR: its sessions are told when it's approved (nudges.rs). */
+.ca-prhover-nudge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: default;
+}
+.ca-prhover-nudge:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-focus);
+}

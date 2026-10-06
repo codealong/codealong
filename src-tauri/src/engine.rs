@@ -100,6 +100,8 @@ pub enum Msg {
     LimitMoved(Option<String>),
     /// Sessions told their PR was approved (nudges.rs), and which weren't and why if any.
     Nudged(Option<String>),
+    /// pr-links.json was changed from a window: read now, without waiting for the watcher.
+    PrLinksChanged,
     /// The usage read is over: what it read, or none when it fell over or never started.
     UsageDone(Option<Vec<Usage>>),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
@@ -249,6 +251,12 @@ impl Handle {
     /// a later nudge works.
     pub fn nudged(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Nudged(result.err()));
+    }
+
+    /// pr-links.json was just changed here (a PR's nudge turned on or off): the board follows
+    /// at once, where the file's watcher would take a moment.
+    pub fn pr_links_changed(&self) {
+        let _ = self.tx.send(Msg::PrLinksChanged);
     }
 
     pub fn set_pinned(&self, keys: Vec<String>) {
@@ -1361,6 +1369,10 @@ impl Engine {
                     self.limit_move_warning = why;
                     self.dirty = true;
                 }
+                Ok(Msg::PrLinksChanged) => {
+                    self.load_pr_links();
+                    self.dirty = true;
+                }
                 Ok(Msg::Nudged(why)) => {
                     self.nudge_warning = why;
                     self.dirty = true;
@@ -2107,8 +2119,7 @@ impl Engine {
 
     /// A PR the board doesn't list, matched to these lanes' worktrees and sessions.
     fn pr_card(&self, lanes: &[Lane], slug: &str, raw: &PrRaw, login: Option<&str>) -> PrItem {
-        let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
-        let links = board::PrLinks { worked, unlinked };
+        let links = self.pr_links();
         board::pr_card(&self.seeds, lanes, slug, self.github.repo_names(), raw, self.github.login().or(login), &links)
     }
 
@@ -2148,6 +2159,12 @@ impl Engine {
             let dir = chrometabs::Clues::read().profile_of(&u);
             let _ = tx.send(Msg::ChromeProfile(key, u.group, dir, chrome::profiles()));
         });
+    }
+
+    /// What pr-links.json and the sessions' records say of PRs, for the board.
+    fn pr_links(&self) -> board::PrLinks {
+        let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
+        board::PrLinks { worked, unlinked, nudged: self.pr_store.nudges.iter().cloned().collect() }
     }
 
     fn load_pr_links(&mut self) {
@@ -2429,8 +2446,7 @@ impl Engine {
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
         let notices = self.notices();
         let usage = self.compose_usage(now);
-        let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
-        let pr_links = board::PrLinks { worked, unlinked };
+        let pr_links = self.pr_links();
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
@@ -2453,7 +2469,7 @@ impl Engine {
         });
         board.usage = usage;
         board.when_limited = self.cfg.limits.when_hit;
-        board.when_pr_approved = self.cfg.pull_requests.when_approved;
+
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.pinned_prs = self.seen.pinned_prs.clone();
         board.theme = self.cfg.appearance.theme;

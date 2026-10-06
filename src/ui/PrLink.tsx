@@ -3,7 +3,8 @@
 // Codealong knows the PR. Hovering it brings up a card: where the PR stands on GitHub, the
 // worktrees that hold it and the sessions that worked on it, as the PRs view has them. A click
 // opens the link in the browser, and a right-click has the PR's menu (menus.ts). A PR's chip in a
-// session's panel (`PrChipCard`) has the same card.
+// session's panel (`PrChipCard`) has the same card. For an open PR the board lists, the card has
+// the switch that has its sessions told when it's approved (nudges.rs), off until turned on.
 //
 // It costs nothing until you hover: the board already lists the PRs in your projects' repos with
 // their sessions, and each link watches only its own PR there, so a push re-renders a link only
@@ -13,7 +14,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { openUrl, prCard } from '../api';
+import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { prIndex, prRefOf, type PrRef } from '../prLinks';
 import { errorText } from '../report';
@@ -320,6 +321,22 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
     .sort((a, b) => Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity);
   const holding = (pr?.lanes ?? []).flatMap((id) => laneById.get(id) ?? []);
   const ended = pr?.mergedAt ?? pr?.closedAt ?? null;
+  // The nudge, for an open PR the board lists: shown as just set until the board says so too.
+  const [wanted, setWanted] = useState<boolean | null>(null);
+  const [nudgeError, setNudgeError] = useState<string | null>(null);
+  const canNudge = !!listed && listed.state !== 'merged' && listed.state !== 'closed';
+  const nudges = wanted ?? !!listed?.nudge;
+  useEffect(() => {
+    if (wanted !== null && !!listed?.nudge === wanted) setWanted(null);
+  }, [listed?.nudge, wanted]);
+  const setNudge = (key: string, on: boolean) => {
+    setWanted(on);
+    setNudgeError(null);
+    setPrNudge(key, on).catch((e: unknown) => {
+      setWanted(null);
+      setNudgeError(errorText(e));
+    });
+  };
   // Doing something from the card closes it first.
   const act = (f: (a: PrLinkActions) => void) => {
     onClose();
@@ -388,6 +405,24 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
             ))}
           </div>
           {sessions.length > SESSIONS_SHOWN && <p className="ca-prhover-meta">and {sessions.length - SESSIONS_SHOWN} more</p>}
+        </div>
+      )}
+      {canNudge && listed && (
+        <div className="ca-prhover-sec">
+          <button type="button" className="ca-prhover-nudge" role="switch" aria-checked={nudges} onClick={() => setNudge(listed.key, !nudges)}>
+            <span>Nudge {sessions.length === 1 ? 'its session' : 'its sessions'} when approved</span>
+            <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
+          </button>
+          <p className="ca-prhover-meta">
+            {nudges
+              ? listed.state === 'approved'
+                ? 'On, and it’s approved. Turn it off and on to tell its running sessions again.'
+                : 'On: when it’s approved, each session still running is sent a message saying so and where it stands, as one of yours.'
+              : listed.state === 'approved'
+                ? 'Off for this PR. It’s approved already: turning this on tells its running sessions now.'
+                : 'Off for this PR. Turned on, its sessions still running are sent a message when it’s approved.'}
+          </p>
+          {nudgeError && <p className="ca-prhover-error">{nudgeError}</p>}
         </div>
       )}
       <div className="ca-prhover-foot">

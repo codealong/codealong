@@ -335,8 +335,6 @@ export interface Config {
   updates?: { check: boolean };
   /** What's done about a session a usage limit stopped. Older files have none: suggest. */
   limits?: { when_hit: WhenLimited };
-  /** What's done when a PR of yours is approved. Older files have none: nothing. */
-  pull_requests?: { when_approved: WhenApproved };
   debug: { perf_log: boolean };
 }
 
@@ -608,8 +606,6 @@ export interface Board {
   devices?: DevicesCfg;
   /** `[limits] when_hit`: whether a session a usage limit stopped is moved by itself. */
   whenLimited?: WhenLimited;
-  /** `[pull_requests] when_approved`: whether sessions are told when their PR is approved. */
-  whenPrApproved?: WhenApproved;
 }
 
 /** Why a todo looks done: how sure Jev is, and what showed it. */
@@ -627,9 +623,6 @@ export interface TodoSuggested {
 
 /** `suggest` offers to move a session a usage limit stopped; `move` moves it by itself. */
 export type WhenLimited = 'suggest' | 'move';
-
-/** `nothing` leaves an approved PR to the board; `nudge` tells the sessions that worked on it. */
-export type WhenApproved = 'nothing' | 'nudge';
 
 
 /** `[jev]` in config.toml: the model, and each feature's switch. */
@@ -784,6 +777,9 @@ export interface PrItem {
   /** You snoozed your review until then: it's out of Review requested, the floating bar's
    *  reviews and the mark until the time comes (board.rs, `apply_review_snoozes`). */
   snoozedUntil?: number | null;
+  /** Its sessions are told when it's approved (nudges.rs): turned on for this PR, from its card
+   *  or menu or by `codealong pr nudge`. Said only while it's open. */
+  nudge?: boolean;
   head: string;
   base: string | null;
   checks: Checks;

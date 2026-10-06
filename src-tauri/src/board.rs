@@ -140,6 +140,8 @@ pub struct PrLinks {
     pub worked: HashMap<String, Vec<String>>,
     /// (PR, session) pairs unlinked by hand: never listed, however they matched.
     pub unlinked: HashSet<(String, String)>,
+    /// PRs whose sessions are told when they're approved (nudges.rs).
+    pub nudged: HashSet<String>,
 }
 
 fn plain(s: &str) -> String {
@@ -798,6 +800,7 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         requested_by: p.requested_by.clone().filter(|_| p.review_requested),
         requested_at: p.requested_at.filter(|_| p.review_requested),
         snoozed_until: None,
+        nudge: p.state.is_open() && links.nudged.contains(&key),
         head: p.head_ref.clone(),
         base: p.base_ref.clone(),
         checks: p.checks.clone(),
@@ -1452,7 +1455,7 @@ pub fn compose(inp: Inputs) -> Board {
         devices: Default::default(),
         project_rules: Vec::new(),
         when_limited: Default::default(),
-        when_pr_approved: Default::default(),
+
 
     }
 }

@@ -1275,6 +1275,11 @@ Commands:
           worktree that isn't on its branch
   unlink  Take a session off a PR it's listed on but didn't work on. It stays off,
           however it matched, until linked again
+  nudge   Have a PR's sessions told when it's approved: each session that worked on it
+          and is still running then gets a message saying so and where the PR stands
+          (ready to merge, checks running), to take it from there. Off for every PR
+          until turned on for it, here or from its card in the app; one approved already
+          tells its sessions now
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1372,6 +1377,38 @@ Options:
           A session key, id, or `me`
           
           [default: me]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr nudge
+
+```
+Have a PR's sessions told when it's approved: each session that worked on it and is
+still running then gets a message saying so and where the PR stands (ready to merge,
+checks running), to take it from there. Off for every PR until turned on for it, here or
+from its card in the app; one approved already tells its sessions now
+
+Usage: codealong pr nudge [OPTIONS] <PR>
+
+Arguments:
+  <PR>
+          The PR: its URL, owner/name#number, or a number (#123) in the repo of the
+          current folder's worktree
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --off
+          Turn it off again
 
       --table
           Tables, even when piped

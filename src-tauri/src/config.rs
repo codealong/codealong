@@ -40,8 +40,6 @@ pub struct Config {
     #[serde(default)]
     pub limits: LimitsCfg,
     #[serde(default)]
-    pub pull_requests: PullRequestsCfg,
-    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -60,7 +58,6 @@ impl Default for Config {
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
-            pull_requests: PullRequestsCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -213,32 +210,6 @@ impl WhenLimited {
         match self {
             WhenLimited::Suggest => "suggest",
             WhenLimited::Move => "move",
-        }
-    }
-}
-
-/// What Codealong does when a PR of yours is approved (nudges.rs).
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct PullRequestsCfg {
-    #[serde(default)]
-    pub when_approved: WhenApproved,
-}
-
-/// `nothing`: the board shows the approval. `nudge`: the sessions that worked on the PR and
-/// still run here are sent a message saying so, as one of yours, so they take it from there.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum WhenApproved {
-    #[default]
-    Nothing,
-    Nudge,
-}
-
-impl WhenApproved {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            WhenApproved::Nothing => "nothing",
-            WhenApproved::Nudge => "nudge",
         }
     }
 }
@@ -622,7 +593,6 @@ const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` se
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
-const PULL_REQUESTS_COMMENT: &str = "# When a PR of yours is approved. when_approved: \"nothing\" leaves it to the board; \"nudge\" sends the sessions\n# that worked on it and still run here a message saying so, as one of yours, so they take it from there.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
@@ -966,15 +936,13 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["limits"]["when_hit"], Value::from(cfg.limits.when_hit.as_str()));
     }
 
-    if cfg.pull_requests != PullRequestsCfg::default() || doc.get("pull_requests").is_some() {
-        if !doc.get("pull_requests").is_some_and(toml_edit::Item::is_table_like) {
-            let mut t = Table::new();
-            t.decor_mut().set_prefix(format!("\n{PULL_REQUESTS_COMMENT}"));
-            doc.insert("pull_requests", Item::Table(t));
-            let after = ["limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
-            place_after(&mut doc, "pull_requests", after);
+    // `[pull_requests] when_approved` was a setting for a day (2026-10-05); nudges are turned on
+    // PR by PR now (nudges.rs), so a file that still has it loses it, and the table with it.
+    if let Some(t) = doc.get_mut("pull_requests").and_then(Item::as_table_like_mut) {
+        t.remove("when_approved");
+        if t.is_empty() {
+            doc.remove("pull_requests");
         }
-        set_value(&mut doc["pull_requests"]["when_approved"], Value::from(cfg.pull_requests.when_approved.as_str()));
     }
 
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
@@ -1143,12 +1111,6 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[limits]\n");
         s.push_str(&format!("when_hit = {}\n", q(cfg.limits.when_hit.as_str())));
     }
-    if cfg.pull_requests != PullRequestsCfg::default() {
-        s.push('\n');
-        s.push_str(PULL_REQUESTS_COMMENT);
-        s.push_str("[pull_requests]\n");
-        s.push_str(&format!("when_approved = {}\n", q(cfg.pull_requests.when_approved.as_str())));
-    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\".\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -1225,7 +1187,6 @@ mod tests {
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
-            pull_requests: PullRequestsCfg { when_approved: WhenApproved::Nudge },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1404,7 +1365,6 @@ mod tests {
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
-            pull_requests: PullRequestsCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
     }
@@ -1425,22 +1385,14 @@ mod tests {
     }
 
     #[test]
-    fn an_approved_pr_nudges_nobody_unless_the_file_says_to() {
-        assert_eq!(toml::from_str::<Config>("").unwrap().pull_requests.when_approved, WhenApproved::Nothing);
-        let old = render(&full());
-        assert!(!old.contains("[pull_requests]"), "{old}");
-        assert!(!with_config(&old, &full()).unwrap().contains("[pull_requests]"));
-        let nudging = Config { pull_requests: PullRequestsCfg { when_approved: WhenApproved::Nudge }, ..full() };
-        let out = with_config(&old, &nudging).unwrap();
-        assert!(out.contains("[pull_requests]\nwhen_approved = \"nudge\"\n"), "{out}");
-        assert_eq!(parse(&out).unwrap().pull_requests.when_approved, WhenApproved::Nudge);
-        assert_eq!(parse(&render(&nudging)).unwrap(), nudging);
-        // Back to nothing keeps the table, the value changed in place; after [limits] when both are there.
-        let both = Config { limits: LimitsCfg { when_hit: WhenLimited::Move }, ..nudging };
-        let out = with_config(&with_config(&old, &both).unwrap(), &Config { limits: LimitsCfg { when_hit: WhenLimited::Move }, ..full() }).unwrap();
-        let (limits, prs) = (out.find("[limits]").unwrap(), out.find("[pull_requests]\nwhen_approved = \"nothing\"").unwrap());
-        assert!(limits < prs, "{out}");
-        assert!(parse(&"[pull_requests]\nwhen_approved = \"merge\"\n".to_string()).is_err());
+    fn a_file_from_when_nudging_was_a_setting_still_reads_and_loses_it_when_saved() {
+        let old = format!("{}\n[pull_requests]\nwhen_approved = \"nudge\"\n", render(&full()));
+        assert_eq!(parse(&old).unwrap(), full());
+        let out = with_config(&old, &full()).unwrap();
+        assert!(!out.contains("pull_requests]") && !out.contains("when_approved"), "{out}");
+        // A table someone keeps other things in stays, without the key.
+        let kept = with_config(&format!("{old}theirs = 1\n"), &full()).unwrap();
+        assert!(kept.contains("[pull_requests]\ntheirs = 1") && !kept.contains("when_approved"), "{kept}");
     }
 
 

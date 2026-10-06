@@ -7,7 +7,7 @@
 // it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -581,9 +581,19 @@ export interface PrCan {
   canvas?: MenuSpec;
 }
 
-/** A PR's menu: opening it, its session, reviewing it, showing it; approving it and snoozing your
- *  review; pinning it; its worktree and copying its link and branch. */
-export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; key?: string }, can: PrCan): MenuSpec {
+/** Nudge its sessions when approved, checked while it's on: for a PR the board lists, which has
+ *  a key, while it's open. Each PR's own, and off until turned on (nudges.rs). */
+function nudgeItem(pr: { key?: string; state?: Pr['state']; nudge?: boolean }, report: Report): MenuAction | undefined {
+  const { key, state } = pr;
+  if (!key || !state || state === 'merged' || state === 'closed') return undefined;
+  const on = !!pr.nudge;
+  return { label: 'Nudge its sessions when approved', checked: on, run: () => void setPrNudge(key, !on).catch((e: unknown) => report.error(errorText(e))) };
+}
+
+/** A PR's menu: opening it, its session, reviewing it, showing it; approving it, snoozing your
+ *  review and having its sessions told when it's approved; pinning it; its worktree and copying
+ *  its link and branch. */
+export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; key?: string; state?: Pr['state']; nudge?: boolean }, can: PrCan): MenuSpec {
   const { report } = can;
   const s = can.session;
   return sections(
@@ -593,7 +603,7 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; 
       ...(can.review ? [{ label: 'Review with', items: can.review }] : []),
       ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
     ],
-    [...(can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : []), ...some(can.snooze)],
+    [...(can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : []), ...some(can.snooze), ...some(nudgeItem(pr, report))],
     [...some(can.pin), ...(can.desktop && pr.key ? [desktopItem('pr', pr.key, can.desktop, report)] : [])],
     [
       ...(can.showLane ? [{ label: `Show worktree ${can.showLane.lane.callsign}`, run: can.showLane.run }] : []),
