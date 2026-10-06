@@ -547,10 +547,14 @@ pub struct Resumed {
 /// service where it has one, else in a terminal behind your windows; its app; or Codealong,
 /// which runs it from then on. On the model and effort where the place takes them, as a start
 /// is, and on `prompt` when there's one, else waiting for one. What a box's send to a session
-/// that isn't running comes to (send.rs `Route::Resume`), and Resume in, in its menu.
-pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &str) -> Result<Resumed> {
+/// that isn't running comes to (send.rs `Route::Resume`), and Resume in, in its menu. Only as
+/// `sender` may: never for an agent (`send::ensure_may_resume`).
+pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &str, sender: &crate::send::Sender) -> Result<Resumed> {
     // Before the folder is readied for the harness (`to_fork`), let alone anything started.
     crate::send::ensure_not_moved(&crate::origins::current(), board, key)?;
+    if let Some((_, s)) = board.session(key).filter(|(_, s)| !s.live) {
+        crate::send::ensure_may_resume(sender, &s.title)?;
+    }
     let (s, account, _, cwd) = to_fork(board, cfg, key)?;
     let title = format!("“{}”", s.title);
     if s.live {
@@ -1124,8 +1128,14 @@ mod tests {
         let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![running, stopped])], ..Board::default() };
         let cfg = Config { accounts: vec![account("claude", "claude", &home.to_string_lossy(), None)], ..Config::default() };
         let to = |place| ResumeIn { place, model: None, effort: None };
-        let refused = |key: &str, how: ResumeIn| resume(&board, &cfg, key, &how, "").unwrap_err().to_string();
+        let you = crate::send::Sender::You;
+        let refused = |key: &str, how: ResumeIn| resume(&board, &cfg, key, &how, "", &you).unwrap_err().to_string();
         assert_eq!(refused("live", to(Place::Terminal)), "“Title live” is running already; send it a message instead.");
+        // An agent's words don't start it again, nor does an agent with none: that's its user's to do.
+        for prompt in ["Go on", ""] {
+            let e = resume(&board, &cfg, "stopped", &to(Place::Terminal), prompt, &crate::send::Sender::Agent(Some("claude:claude:me".into()))).unwrap_err().to_string();
+            assert_eq!(e, "“Title stopped” isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session.");
+        }
         // The Claude app runs the account in ~/.claude only.
         assert_eq!(refused("stopped", to(Place::ClaudeApp)), "“Title stopped” can't go on in the Claude app from here.");
         // What's asked of the command line is checked as a start's is.

@@ -188,7 +188,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::START_OPTIONS, here: start_options, ..ANY },
     Request { name: api::START, here: start, there: start_there, back: started_back, ..ANY },
     Request { name: api::SESSION_FORK, here: fork, ..ANY },
-    Request { name: api::SESSION_RESUME, here: resume, ..ANY },
+    Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
@@ -228,6 +228,13 @@ fn deny_only(params: &Value) -> Result<(), String> {
         (true, true) => Err("The command can deny it, not say what to do instead: the session would take that as its user's words. Send a message once it's denied.".into()),
         (false, _) => Err("Allowing what a session asks, or answering its questions, is its user's to do, in Codealong or where the session runs. The command can only deny it.".into()),
     }
+}
+
+/// The command never resumes a session, on a prompt or on none: an agent may have typed it, and a
+/// message from an agent doesn't start a session again (send.rs `NOT_STARTED_AGAIN`), here or on
+/// another device.
+fn resume_is_its_users(_: &Value) -> Result<(), String> {
+    Err(format!("That session {}", send::NOT_STARTED_AGAIN))
 }
 
 fn side_in_windows(_: &Value) -> Result<(), String> {
@@ -523,7 +530,7 @@ fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let p: params::Resume = c.read()?;
     let board = engine.board();
-    let resumed = crate::start::resume(&board, &cfg()?, key, &p.resume, &p.prompt).map_err(words)?;
+    let resumed = crate::start::resume(&board, &cfg()?, key, &p.resume, &p.prompt, &sender_of(c.from)).map_err(words)?;
     if let Some(copy) = resumed.key.as_deref().filter(|k| *k != key) {
         hand_over(engine, &board, key, copy);
     }
@@ -893,6 +900,16 @@ mod tests {
             let err = ask(name, json!({ "name": "A name", "text": "hi" })).unwrap_err();
             assert!(err.contains("isn't on the board"), "{name}: {err}");
         }
+        // Nor does it resume a session, on a prompt or on none, as a message from it doesn't.
+        for params in [json!({ "prompt": "Go on" }), json!({ "resume": { "place": "background" }, "prompt": "" })] {
+            let err = ask(api::SESSION_RESUME, params).unwrap_err();
+            assert_eq!(err, "That session isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session.");
+        }
+        // A window may, and so may a device: both get as far as the session.
+        for from in [From::Here, From::Device] {
+            let err = local(&engine, &from, api::SESSION_RESUME, "claude:claude:abc", json!({ "prompt": "Go on" })).unwrap_err();
+            assert!(err.contains("isn't on the board"), "{from:?}: {err}");
+        }
         // Nor may it have another device do any of that, or send a prompt there, where it would
         // arrive as the user's own.
         let deny = json!({ "id": "t1", "answer": "deny" });
@@ -903,6 +920,14 @@ mod tests {
         assert!(command_may_ask(api::SESSION_ANSWER, &saying).unwrap_err().contains("not say what to do instead"));
         assert!(command_may_ask(api::SESSION_ANSWER, &json!({ "id": "t1", "answer": "deny", "message": " " })).is_ok());
         assert!(command_may_ask(api::SESSION_SEND, &json!({ "text": "hi" })).unwrap_err().contains("arrive as its user's own"));
+        assert!(command_may_ask(api::SESSION_RESUME, &json!({ "prompt": "Go on" })).unwrap_err().contains("doesn't start it again"));
+        // Another device's session isn't resumed for it, where a window's request goes there (and
+        // finds it isn't linked).
+        let (peers, _dir) = no_devices();
+        let there = "@a1b2c3d4e5:claude:claude:abc";
+        let err = run_as(&engine, &peers, &command, api::SESSION_RESUME, On::Key(there), json!({ "prompt": "Go on" })).unwrap_err();
+        assert!(err.contains("doesn't start it again"), "{err}");
+        assert!(run_as(&engine, &peers, &From::Here, api::SESSION_RESUME, On::Key(there), json!({ "prompt": "Go on" })).unwrap_err().contains("isn't linked"));
         let send = find(api::SESSION_SEND).unwrap();
         assert!(elsewhere(send, &command).is_err() && elsewhere(send, &From::Here).is_ok());
         assert!(elsewhere(find(FORK_TERMINAL).unwrap(), &From::Here).unwrap_err().contains("on the Mac it runs on"));

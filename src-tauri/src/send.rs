@@ -422,6 +422,22 @@ pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<(
     Ok(())
 }
 
+/// Why an agent never starts a session that isn't running again, after the session's name:
+/// resumed on its words, the session would take them as its user's own prompt, and spend their
+/// usage, with nobody at this Mac having asked. A send never resumes one for an agent
+/// (`agent_routes`), nor does a resume (`ensure_may_resume`), and the command can't ask for one
+/// (actions.rs).
+pub(crate) const NOT_STARTED_AGAIN: &str = "isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session.";
+
+/// Whether `sender` may start the session `title` names again where it isn't running (start.rs
+/// `resume`): you may, from a window here or another of your devices; an agent never does.
+pub(crate) fn ensure_may_resume(sender: &Sender, title: &str) -> Result<()> {
+    if matches!(sender, Sender::Agent(_)) {
+        bail!("{} {NOT_STARTED_AGAIN}", quoted(title));
+    }
+    Ok(())
+}
+
 /// The ways in an agent's message may take, of the session's own. A harness with a way in for
 /// other sessions' messages (`Adapter::takes_messages`: one that tells the model a message is
 /// another session's, and may hold it for the session's user) takes it only that way: typed
@@ -445,7 +461,7 @@ pub(crate) fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<
         bail!(if left_to_send {
             format!("{word} takes no prompts from outside; Codealong can only put one on the clipboard for someone at this Mac, so nothing was sent.")
         } else if !session.live {
-            format!("{title} isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session.")
+            format!("{title} {NOT_STARTED_AGAIN}")
         } else if adapter.takes_messages() {
             format!("{title} doesn't take messages from other sessions (its {word} doesn't listen for them), and typing into its terminal would read as its user's words, so nothing was sent.")
         } else {
@@ -487,7 +503,7 @@ fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
             }
         }
-        Route::Resume => Ok(Tried::Sent(crate::start::resume(board, cfg, &session.key, &crate::start::ResumeIn::default(), text)?.sent)),
+        Route::Resume => Ok(Tried::Sent(crate::start::resume(board, cfg, &session.key, &crate::start::ResumeIn::default(), text, msg.sender)?.sent)),
         Route::Own(own) => own.deliver(&msg.delivery(session, account, untyped)).map(Tried::Sent),
     }
 }
