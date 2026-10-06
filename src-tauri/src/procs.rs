@@ -479,46 +479,11 @@ fn output_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: D
             });
         }
     }
-    cmd.args(args)
-        .env("PATH", path)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args(args).env("PATH", path).env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0");
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    let mut child = cmd.spawn().map_err(|e| anyhow!("couldn't start {program}: {e}"))?;
-    let mut stdout = child.stdout.take().expect("piped stdout");
-    let mut stderr = child.stderr.take().expect("piped stderr");
-    let out_reader = std::thread::spawn(move || {
-        let mut s = Vec::new();
-        let _ = stdout.read_to_end(&mut s);
-        s
-    });
-    let err_reader = std::thread::spawn(move || {
-        let mut s = Vec::new();
-        let _ = stderr.read_to_end(&mut s);
-        s
-    });
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if started.elapsed() > timeout {
-            let _ = child.kill();
-            // A process stuck in the kernel dies only once the kernel lets it go, minutes later
-            // on a Mac that has stalled: it's reaped out of the way, so the timeout holds.
-            std::thread::spawn(move || child.wait());
-            return Err(anyhow!("{program} timed out after {}s", timeout.as_secs()));
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    };
-    let out = String::from_utf8_lossy(&out_reader.join().unwrap_or_default()).into_owned();
-    let err = String::from_utf8_lossy(&err_reader.join().unwrap_or_default()).into_owned();
-    Ok(Output { ok: status.success(), out, err })
+    drive(cmd, program, None, timeout)
 }
 
 /// Runs a program with input on stdin (used for AppleScript).
@@ -527,33 +492,149 @@ pub fn run_stdin(program: &str, args: &[&str], input: &str, timeout: Duration) -
     if let Some(answer) = stand_in::run(program, args, Some(input), timeout) {
         return answer;
     }
-    use std::io::Write;
-    let mut child = Command::new(program)
-        .args(args)
-        .env("PATH", user_path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| anyhow!("couldn't start {program}: {e}"))?;
-    child.stdin.take().expect("piped stdin").write_all(input.as_bytes())?;
-    let started = Instant::now();
-    loop {
-        if child.try_wait()?.is_some() {
-            break;
-        }
-        if started.elapsed() > timeout {
-            let _ = child.kill();
-            std::thread::spawn(move || child.wait());
-            return Err(anyhow!("{program} timed out"));
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    let output = child.wait_with_output()?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    let mut cmd = Command::new(program);
+    cmd.args(args).env("PATH", user_path());
+    let o = drive(cmd, program, Some(input.as_bytes()), timeout)?;
+    if o.ok {
+        Ok(o.out)
     } else {
-        Err(anyhow!("{}", String::from_utf8_lossy(&output.stderr).trim()))
+        Err(anyhow!("{}", o.err.trim()))
+    }
+}
+
+/// How long the output pipes are read after the program exits, for the last of what it wrote
+/// to reach them. A program that leaves something running in the background hands it its
+/// stdout, which then stays open as long as that runs; what the program itself printed is all
+/// in the pipe by the time it exits, so this needn't be long.
+const LINGER: Duration = Duration::from_millis(100);
+
+/// Starts `cmd` and sees it through under one deadline: `input` goes in on stdin while stdout
+/// and stderr are read, all without blocking, so a program that prints more than a pipe holds
+/// before it reads its input, or prints a lot before it exits, never waits on Codealong. The
+/// deadline covers the writing, the reading and the exit; once the program has exited its
+/// pipes get `LINGER` more, whoever else holds them.
+fn drive(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration) -> Result<Output> {
+    use std::io::{ErrorKind, Write};
+    use std::os::fd::AsRawFd;
+
+    let deadline = Instant::now() + timeout;
+    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| anyhow!("couldn't start {program}: {e}"))?;
+    let mut stdin = child.stdin.take().inspect(|w| nonblocking(w.as_raw_fd()));
+    let mut pending = input.unwrap_or_default();
+    let mut out = Drain::new(child.stdout.take());
+    let mut err = Drain::new(child.stderr.take());
+    let mut exited: Option<(std::process::ExitStatus, Instant)> = None;
+    loop {
+        if let Some(w) = stdin.as_mut() {
+            loop {
+                if pending.is_empty() {
+                    // Closed, so the program sees the end of its input.
+                    stdin = None;
+                    break;
+                }
+                match w.write(pending) {
+                    Ok(n) => pending = &pending[n..],
+                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                    // The program closed its stdin without reading it all, which is its call.
+                    Err(_) => {
+                        stdin = None;
+                        break;
+                    }
+                }
+            }
+        }
+        if exited.is_none() {
+            if let Some(status) = child.try_wait()? {
+                exited = Some((status, Instant::now()));
+                stdin = None;
+            }
+        }
+        // Read after the exit is seen, so everything the program wrote is in the pipes by then.
+        out.read();
+        err.read();
+        let now = Instant::now();
+        match exited {
+            Some((status, at)) => {
+                if (!out.open() && !err.open()) || now >= (at + LINGER).min(deadline) {
+                    return Ok(Output { ok: status.success(), out: String::from_utf8_lossy(&out.got).into_owned(), err: String::from_utf8_lossy(&err.got).into_owned() });
+                }
+            }
+            None if now >= deadline => {
+                let _ = child.kill();
+                // A process stuck in the kernel dies only once the kernel lets it go, minutes later
+                // on a Mac that has stalled: it's reaped out of the way, so the timeout holds.
+                std::thread::spawn(move || child.wait());
+                return Err(anyhow!("{program} timed out after {}s", timeout.as_secs()));
+            }
+            None => {}
+        }
+        // Waits for a pipe to be ready, or a few milliseconds for the exit, which no pipe says.
+        let mut fds: Vec<libc::pollfd> = [out.fd(), err.fd()].into_iter().flatten().map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 }).collect();
+        if let Some(w) = stdin.as_ref() {
+            fds.push(libc::pollfd { fd: w.as_raw_fd(), events: libc::POLLOUT, revents: 0 });
+        }
+        let wait = deadline.saturating_duration_since(now).min(Duration::from_millis(5));
+        // SAFETY: `fds` is a live array of pollfd of the length passed.
+        unsafe {
+            libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, wait.as_millis().max(1) as libc::c_int);
+        }
+    }
+}
+
+fn nonblocking(fd: std::os::fd::RawFd) {
+    // SAFETY: fcntl on a descriptor this process owns, changing only its status flags.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        if flags >= 0 {
+            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        }
+    }
+}
+
+/// One of a child's output pipes, read without blocking until it ends.
+struct Drain<R> {
+    pipe: Option<R>,
+    got: Vec<u8>,
+}
+
+impl<R: Read + std::os::fd::AsRawFd> Drain<R> {
+    fn new(pipe: Option<R>) -> Self {
+        if let Some(p) = &pipe {
+            nonblocking(p.as_raw_fd());
+        }
+        Drain { pipe, got: Vec::new() }
+    }
+
+    fn open(&self) -> bool {
+        self.pipe.is_some()
+    }
+
+    fn fd(&self) -> Option<std::os::fd::RawFd> {
+        self.pipe.as_ref().map(|p| p.as_raw_fd())
+    }
+
+    /// Takes what's in the pipe now. At most a megabyte a call, far more than a pipe holds, so
+    /// something writing as fast as it's read can't keep the deadline from being looked at.
+    fn read(&mut self) {
+        let Some(p) = self.pipe.as_mut() else { return };
+        let mut buf = [0u8; 16 * 1024];
+        for _ in 0..64 {
+            match p.read(&mut buf) {
+                Ok(0) => {
+                    self.pipe = None;
+                    return;
+                }
+                Ok(n) => self.got.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return,
+                Err(_) => {
+                    self.pipe = None;
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -641,5 +722,32 @@ mod tests {
         assert_eq!(run("/bin/echo", &["hi"], None, Duration::from_secs(2)).unwrap(), "hi\n");
         assert!(run("/bin/sleep", &["3"], None, Duration::from_millis(200)).is_err());
         assert!(run("/usr/bin/false", &[], None, Duration::from_secs(2)).is_err());
+    }
+
+    #[test]
+    fn output_and_input_bigger_than_a_pipe_go_through_at_once() {
+        // The shell prints 200 KB before it reads a byte of its 200 KB of input: neither fits
+        // in a pipe, so the input has to go in while the output is read.
+        let input = "x".repeat(200_000);
+        let out = run_stdin("/bin/sh", &["-c", "head -c 200000 /dev/zero | tr '\\0' a; wc -c"], &input, Duration::from_secs(10)).unwrap();
+        assert_eq!(out.len() - out.trim_start_matches('a').len(), 200_000);
+        assert_eq!(out.trim_start_matches('a').trim(), "200000");
+    }
+
+    #[test]
+    fn input_nobody_reads_is_cut_off_by_the_deadline() {
+        let started = Instant::now();
+        let e = run_stdin("/bin/sleep", &["10"], &"x".repeat(1 << 20), Duration::from_millis(300)).unwrap_err();
+        assert!(e.to_string().contains("timed out"), "{e}");
+        assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn something_left_running_with_the_output_doesnt_hold_the_answer() {
+        // The background sleep keeps the shell's stdout and stderr open after the shell exits.
+        let started = Instant::now();
+        assert_eq!(run("/bin/sh", &["-c", "echo hi; sleep 10 &"], None, Duration::from_secs(8)).unwrap(), "hi\n");
+        assert_eq!(run_stdin("/bin/sh", &["-c", "cat; sleep 10 &"], "typed", Duration::from_secs(8)).unwrap(), "typed");
+        assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
     }
 }
