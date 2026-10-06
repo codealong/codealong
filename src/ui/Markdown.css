@@ -72,12 +72,20 @@
   font-size: 12px;
   line-height: 17px;
 }
+/* The thread's overflow-wrap: anywhere, there so a long path can't widen it, would let a column
+   shrink to one letter: a table sizes its columns from the narrowest their cells can go, and it
+   squeezed a count to "5,7 / 28". In a table words stay whole, and one too wide scrolls (above). */
 .ca-md th,
 .ca-md td {
   padding: 4px 10px;
   border: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
+  overflow-wrap: normal;
+}
+.ca-md th .ca-ic,
+.ca-md td .ca-ic {
+  overflow-wrap: normal;
 }
 .ca-md th {
   background: var(--neutral-tint);
