@@ -108,6 +108,15 @@ describe('sessionSkills', () => {
     ]);
     expect(sessionSkills(null, 'codex')).toEqual([]);
   });
+
+  it('offers the account’s skill when the worktree’s of that name is for another harness', () => {
+    const listed: SkillsListed = {
+      folders: [{ folder: '/r/app', skills: [skill('deploy', { written: { claude: '/deploy' } })] }],
+      accounts: [{ account: 'codex', skills: [skill('deploy', { description: 'the account’s', written: { codex: '$deploy' } })] }],
+    };
+    expect(sessionSkills(listed, 'codex').map((s) => [s.name, s.description])).toEqual([['deploy', 'the account’s']]);
+    expect(sessionSkills(listed, 'claude').map((s) => [s.name, s.description])).toEqual([['deploy', 'deploy things']]);
+  });
 });
 
 describe('leftOutWords', () => {

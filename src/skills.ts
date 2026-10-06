@@ -74,11 +74,14 @@ export function named(skills: Skill[], name: string): Skill | undefined {
 }
 
 /** A session's skills from what the engine listed for its folder and account: the worktree's
- *  first, which win a name both have. Only the ones its harness can be told to run. */
+ *  first, which win a name both have. Only the ones its harness can be told to run, picked
+ *  before the names are made unique: a worktree's skill another harness reads doesn't hide the
+ *  account's skill of the same name that this one does. */
 export function sessionSkills(listed: SkillsListed | null, harness: Harness): Skill[] {
   if (!listed) return [];
   const all = [...listed.folders.flatMap((f) => f.skills), ...listed.accounts.flatMap((a) => a.skills)];
-  return all.filter((s, i) => !!s.written[harness] && all.findIndex((x) => x.name === s.name) === i);
+  const runnable = all.filter((s) => takes(s, harness));
+  return runnable.filter((s, i) => runnable.findIndex((x) => x.name === s.name) === i);
 }
 
 /** What goes to a session on `harness` for what's typed: each skill named as the harness wants
