@@ -434,11 +434,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   engine looks at the command's processes once a minute; when none has started or used CPU for
   15 minutes (a dev server, a sign-in waiting on a browser, `tail -f`), the turn is over and the
   row says *Left running*.
-- **Skills by name**: type `/` and the start of a name. In the quick panel that lists the skills
+- **Skills by name**: type `/` and the start of a name, first or after any words. In the quick panel that lists the skills
   of the project's repos (their `.claude/skills`, `.claude/commands`, `.agents/skills` and
   `.codex/skills`), the most run first; ⏎ or ⇥ finishes the name, and the skill's repo is where
   the session starts, in a worktree chosen as new work's is, with the rest of the line as its
-  prompt. A skill several repos have is a row for each. Only accounts whose agent reads that
+  prompt, and every skill named in it is written for the agent. A skill several repos have is a row for each. Only accounts whose agent reads that
   skill's folder are offered, and the start row says which are left out. In a session's reply
   box the list has Codealong's own commands, then the skills of the session's worktree and of
   its account (plugins' included): ↑ ↓ choose, ⇥ finishes the name, Escape puts the list away.

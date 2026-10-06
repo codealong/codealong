@@ -1,8 +1,8 @@
 // Skills in the `/` lists: the quick panel's, where picking one also picks the repo a session
 // starts in, and a session's reply box's. The engine lists them (skills.rs): each once by name,
 // with what each harness that reads it writes in a prompt to run it (`/ship` for Claude Code,
-// `$ship` for Codex). Here: what's typed so far, which skills it could be, what goes to the
-// session in its place, and which accounts a skill leaves out. A skill is offered only on
+// `$ship` for Codex). Here: the `/name`s in the text and the one being typed at the caret, which
+// skills it could be, what goes to the session in their place, and which accounts a skill leaves out. A skill is offered only on
 // accounts whose harness reads the folder it's in (asked 2026-10-04): the others would get its
 // name as plain words. Kept free of React so the rules have tests.
 
@@ -12,13 +12,40 @@ import type { Harness, Lane, Skill, SkillsListed } from './types';
 
 /** What a skill's name may hold, as the engine lets them through (skills.rs `typeable`). */
 const NAME = String.raw`[A-Za-z0-9_:.-]`;
-const SLASH = new RegExp(String.raw`^/(${NAME}*)(\s[\s\S]*)?$`);
+/** A slash and a name, at the start of the text or after a space: `/ship` in "then /ship it",
+ *  not the one in a path. */
+const MENTION = new RegExp(String.raw`(^|\s)/(${NAME}*)`, 'g');
 
-/** What's typed, when it starts with a slash and a name: the name so far, what follows it, and
- *  whether the name is still being typed (nothing after it yet, not a space). */
-export function slashAt(text: string): { name: string; rest: string; open: boolean } | null {
-  const m = SLASH.exec(text.trimStart());
-  return m ? { name: m[1], rest: (m[2] ?? '').trim(), open: m[2] === undefined } : null;
+/** A `/name` in the text: where its slash is, where its name ends, and the name so far. */
+export interface Mention {
+  name: string;
+  start: number;
+  end: number;
+}
+
+/** Every `/name` in the text, in order. */
+export function mentionsIn(text: string): Mention[] {
+  const out: Mention[] = [];
+  for (const m of text.matchAll(MENTION)) {
+    const start = m.index + m[1].length;
+    out.push({ name: m[2], start, end: start + 1 + m[2].length });
+  }
+  return out;
+}
+
+/** The `/name` the caret is in or just after: the one being typed. */
+export function mentionAt(text: string, caret: number): Mention | null {
+  return mentionsIn(text).find((m) => m.start < caret && caret <= m.end) ?? null;
+}
+
+/** What's typed with a mention's name finished as `skill`'s, and a space after it unless one is
+ *  there, with where the caret goes. */
+export function completed(text: string, mention: Mention, skill: Pick<Skill, 'name'>): { text: string; caret: number } {
+  const after = text.slice(mention.end);
+  const spaced = /^\s/.test(after);
+  const name = `/${skill.name}${spaced ? '' : ' '}`;
+  // The caret goes past the space either way, ready for what follows.
+  return { text: text.slice(0, mention.start) + name + after, caret: mention.start + name.length + (spaced ? 1 : 0) };
 }
 
 /** Where `word` is in a skill's name: 0 at its start or at the start of the part after its
@@ -51,20 +78,23 @@ export function sessionSkills(listed: SkillsListed | null, harness: Harness): Sk
   return all.filter((s, i) => !!s.written[harness] && all.findIndex((x) => x.name === s.name) === i);
 }
 
-/** What goes to a session on `harness` for what's typed: the skill's name as its harness wants
- *  it, in place of `/name`. As typed when it doesn't start with a skill the harness reads. */
+/** What goes to a session on `harness` for what's typed: each skill named as the harness wants
+ *  it, in place of its `/name`. What names no skill the harness reads stays as typed. */
 export function writtenFor(text: string, skills: Skill[], harness: Harness): string {
-  const at = slashAt(text);
-  const to = at && named(skills, at.name)?.written[harness];
-  if (!at || !to) return text;
-  const start = text.length - text.trimStart().length;
-  return text.slice(0, start) + to + text.slice(start + 1 + at.name.length);
+  let out = '';
+  let at = 0;
+  for (const m of mentionsIn(text)) {
+    const to = named(skills, m.name)?.written[harness];
+    if (!to) continue;
+    out += text.slice(at, m.start) + to;
+    at = m.end;
+  }
+  return out + text.slice(at);
 }
 
-/** What's typed with the name finished as `skill`'s, ready for what follows it. */
-export function completed(text: string, skill: Pick<Skill, 'name'>): string {
-  const at = slashAt(text);
-  return `/${skill.name} ${at?.rest ?? ''}`;
+/** The first skill the text names, whole. */
+export function skillNamed(text: string, skills: Skill[]): Skill | undefined {
+  return mentionsIn(text).map((m) => named(skills, m.name)).find((s) => !!s);
 }
 
 /** Whether an account's harness can be asked to run a skill. */

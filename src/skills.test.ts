@@ -1,22 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import { completed, leftOutWords, matching, repoLanes, sessionSkills, skillRows, skillStart, slashAt, writtenFor } from './skills';
+import { completed, leftOutWords, matching, mentionAt, mentionsIn, repoLanes, sessionSkills, skillNamed, skillRows, skillStart, writtenFor } from './skills';
 import * as fx from './testing/fixtures';
 import type { Skill, SkillsListed } from './types';
 
 const skill = (name: string, over: Partial<Skill> = {}): Skill => ({ name, description: `${name} things`, typed: true, byModel: true, written: { claude: `/${name}`, codex: `$${name}` }, uses: 0, lastUsed: 0, ...over });
 
-describe('slashAt', () => {
-  it('reads a name being typed, and one with what follows it', () => {
-    expect(slashAt('/')).toEqual({ name: '', rest: '', open: true });
-    expect(slashAt('/sh')).toEqual({ name: 'sh', rest: '', open: true });
-    expect(slashAt('/ship ')).toEqual({ name: 'ship', rest: '', open: false });
-    expect(slashAt('  /figma:figma-use the header\nand the footer')).toEqual({ name: 'figma:figma-use', rest: 'the header\nand the footer', open: false });
+describe('mentionsIn and mentionAt', () => {
+  it('finds a slash and a name at the start or after a space, wherever it is', () => {
+    expect(mentionsIn('/')).toEqual([{ name: '', start: 0, end: 1 }]);
+    expect(mentionsIn('/sh')).toEqual([{ name: 'sh', start: 0, end: 3 }]);
+    expect(mentionsIn('fix the login then /ship it\nand /figma:figma-use')).toEqual([
+      { name: 'ship', start: 19, end: 24 },
+      { name: 'figma:figma-use', start: 32, end: 48 },
+    ]);
+    expect(mentionsIn('  /ship')).toEqual([{ name: 'ship', start: 2, end: 7 }]);
   });
 
-  it('is nothing for text that only has a slash in it', () => {
-    expect(slashAt('fix /ship')).toBeNull();
-    expect(slashAt('/Users/me/file.txt is wrong')).toBeNull();
-    expect(slashAt('')).toBeNull();
+  it('passes over a slash inside a word or a path', () => {
+    expect(mentionsIn('/Users/me/file.txt is wrong')).toEqual([{ name: 'Users', start: 0, end: 6 }]);
+    expect(mentionsIn('see src/app.ts and a/b')).toEqual([]);
+    expect(mentionsIn('')).toEqual([]);
+  });
+
+  it('gives the one the caret is in or just after', () => {
+    const text = 'then /sh and /db';
+    expect(mentionAt(text, 8)?.name).toBe('sh');
+    expect(mentionAt(text, 6)?.name).toBe('sh');
+    expect(mentionAt(text, 5)).toBeNull();
+    expect(mentionAt(text, 9)).toBeNull();
+    expect(mentionAt(text, 16)?.name).toBe('db');
   });
 });
 
@@ -34,25 +46,33 @@ describe('matching', () => {
 describe('writtenFor', () => {
   const skills = [skill('ship'), skill('probe', { written: { codex: '$probe' } })];
 
-  it('writes a skill’s name as the harness takes it', () => {
+  it('writes each skill’s name as the harness takes it, wherever it is', () => {
     expect(writtenFor('/ship the fix', skills, 'claude')).toBe('/ship the fix');
     expect(writtenFor('/ship the fix', skills, 'codex')).toBe('$ship the fix');
     expect(writtenFor('/ship', skills, 'codex')).toBe('$ship');
     expect(writtenFor(' /ship\nand then rest', skills, 'codex')).toBe(' $ship\nand then rest');
+    expect(writtenFor('fix it, then /ship and /probe it', skills, 'codex')).toBe('fix it, then $ship and $probe it');
   });
 
   it('leaves what isn’t one of the harness’s skills as typed', () => {
     expect(writtenFor('/compact', skills, 'codex')).toBe('/compact');
     expect(writtenFor('/probe it', skills, 'claude')).toBe('/probe it');
     expect(writtenFor('/shipping', skills, 'codex')).toBe('/shipping');
-    expect(writtenFor('run /ship', skills, 'codex')).toBe('run /ship');
+    expect(writtenFor('src/ship is a folder', skills, 'codex')).toBe('src/ship is a folder');
+  });
+
+  it('names the first skill the text names', () => {
+    expect(skillNamed('fix it, then /probe and /ship', skills)?.name).toBe('probe');
+    expect(skillNamed('/compact then /ship', skills)?.name).toBe('ship');
+    expect(skillNamed('/shi', skills)).toBeUndefined();
   });
 });
 
 describe('completed', () => {
-  it('finishes the name and keeps what followed', () => {
-    expect(completed('/sh', skill('ship'))).toBe('/ship ');
-    expect(completed('/sh the fix', skill('ship'))).toBe('/ship the fix');
+  it('finishes the name and keeps what’s around it', () => {
+    expect(completed('/sh', mentionAt('/sh', 3)!, skill('ship'))).toEqual({ text: '/ship ', caret: 6 });
+    expect(completed('/sh the fix', mentionAt('/sh the fix', 3)!, skill('ship'))).toEqual({ text: '/ship the fix', caret: 6 });
+    expect(completed('fix it then /sh now', mentionAt('fix it then /sh now', 15)!, skill('ship'))).toEqual({ text: 'fix it then /ship now', caret: 18 });
   });
 });
 

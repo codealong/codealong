@@ -4,8 +4,9 @@
 // new session with what you typed as its prompt, in the worktree, on the agent and in the app
 // chosen at the bottom.
 //
-// A slash and the start of a name list the skills of the project's repos instead (skills.ts):
-// ⏎ or ⇥ finishes the name, and the skill's repo is where the session starts, in a worktree
+// A slash and the start of a name, at the start or after a space, wherever the caret is, list
+// the skills of the project's repos instead (skills.ts): ⏎ or ⇥ finishes the name, and the
+// first skill named is the one whose repo is where the session starts, in a worktree
 // chosen as new work's is, on an account whose agent reads that skill. The prompt goes with the
 // skill's name written as that agent takes it.
 //
@@ -84,7 +85,7 @@ import {
   type AgentOption,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { completed, leftOutWords, repoLanes, skillRows, skillStart, slashAt, takes, writtenFor, type SkillRow } from '../skills';
+import { completed, leftOutWords, mentionAt, mentionsIn, repoLanes, skillRows, skillStart, takes, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
@@ -540,23 +541,34 @@ export function Quick() {
 
   /* ---- A skill, which picks its repo ---- */
 
-  // A slash and a name being typed list the skills of the project's repos on this Mac; with
-  // the name whole, the skill of that name is the one a start runs. A todo's prompt is words,
-  // and another Mac's folders aren't read from here.
-  const slashTyped = todoIds.length === 0 && !deviceNow ? slashAt(text) : null;
+  // A slash and a name being typed, at the caret, list the skills of the project's repos on
+  // this Mac; the first skill the text names whole is the one a start runs, and its repo is
+  // where. A todo's prompt is words, and another Mac's folders aren't read from here.
+  const mentions = useMemo(() => (todoIds.length === 0 && !deviceNow ? mentionsIn(text) : []), [text, todoIds.length, deviceNow]);
+  // Where the caret is, moved as the text is typed, the caret moved, or a name finished.
+  const [caret, setCaret] = useState(0);
+  const typing: Mention | null = mentions.length > 0 ? mentionAt(text, Math.min(caret, text.length)) : null;
   const repos = useMemo(() => repoLanes(lanes), [lanes]);
   const repoPaths = useMemo(() => repos.map((l) => l.path), [repos]);
-  const listedSkills = useSkills(repoPaths, NO_ACCOUNTS, shown && !!slashTyped);
-  const slashName = slashTyped?.name ?? null;
-  const slashOpen = slashTyped?.open ?? false;
-  const skillsFound = useMemo(() => (slashName === null ? [] : skillRows(listedSkills, repos, slashName, !slashOpen, MAX_ROWS)), [listedSkills, repos, slashName, slashOpen]);
+  const listedSkills = useSkills(repoPaths, NO_ACCOUNTS, shown && mentions.length > 0);
+  const typingName = typing?.name ?? null;
+  const skillsFound = useMemo(() => (typingName === null ? [] : skillRows(listedSkills, repos, typingName, false, MAX_ROWS)), [listedSkills, repos, typingName]);
+  // The first name that's a skill of some repo, with its rows (one a repo that has it).
+  const named = useMemo(() => {
+    for (const m of mentions) {
+      const rows = skillRows(listedSkills, repos, m.name, true, MAX_ROWS);
+      if (rows.length > 0) return { mention: m, rows };
+    }
+    return null;
+  }, [mentions, listedSkills, repos]);
   // The row picked says which repo's, for a skill several have; else the likeliest.
   const [skillKey, setSkillKey] = useState<string | null>(null);
-  const skillNow = slashTyped && !slashTyped.open ? (skillsFound.find((r) => r.key === skillKey) ?? skillsFound[0] ?? null) : null;
-  // What starts with a slash but names no skill ("/tmp is full") is words like any other.
-  const slash = slashTyped && (slashTyped.open || skillNow) ? slashTyped : null;
-  // With the name whole and the skill in one repo, or its repo picked, there's nothing to list.
-  const skillsListed = !slash ? [] : slash.open ? skillsFound : skillsFound.length > 1 && !skillsFound.some((r) => r.key === skillKey) ? skillsFound : [];
+  const skillNow = named ? (named.rows.find((r) => r.key === skillKey) ?? named.rows[0]) : null;
+  // The list is the skills' while a name is typed or a skill of several repos waits on its repo;
+  // what has a slash but names no skill ("/tmp is full") is words like any other.
+  const choosing = !!named && named.rows.length > 1 && !named.rows.some((r) => r.key === skillKey);
+  const slash = !!typing || !!skillNow;
+  const skillsListed = typing ? skillsFound : choosing ? named.rows : [];
   // The session goes where new work in the skill's repo goes; what was chosen before comes back
   // when the skill's gone from the input. The worktree menu still changes it after.
   const skillNowKey = skillNow?.key ?? null;
@@ -1068,8 +1080,9 @@ export function Quick() {
     const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
-    // A skill's name goes as the account's agent takes it.
-    const prompt = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
+    // Each skill's name goes as the account's agent takes it: the repo's skills, wherever they are
+    // in the prompt.
+    const prompt = skillNow && harness && !over ? writtenFor(text, listedSkills?.folders.find((f) => f.folder === skillNow.lane.path)?.skills ?? [skillNow.skill], harness) : text;
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
     const label = startingLabel(placeNow, account, onModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
@@ -1151,15 +1164,21 @@ export function Quick() {
   /** Finishes the name as the row's skill, in its repo: what follows is the prompt, and ⏎ then
    *  starts the session. */
   const pickSkill = (r: SkillRow) => {
-    const next = completed(textNow.current, r.skill);
-    setText(next);
+    const at = typing ?? mentionsIn(textNow.current).find((m) => m.name === r.skill.name);
+    if (at) {
+      const next = completed(textNow.current, at, r.skill);
+      setText(next.text);
+      setCaret(next.caret);
+      window.requestAnimationFrame(() => {
+        input.current?.focus();
+        input.current?.setSelectionRange(next.caret, next.caret);
+        // Focusing puts the old selection back for a moment, which the box reports.
+        setCaret(next.caret);
+      });
+    }
     setSkillKey(r.key);
     setActiveKey(COMPOSE);
     setError(null);
-    window.requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.setSelectionRange(next.length, next.length);
-    });
   };
 
   const activate = (key: string, alt: boolean) => {
@@ -1646,9 +1665,11 @@ export function Quick() {
             placeholder={draft ? 'Find a session, or describe new work… ↑ brings back your draft' : history.length ? 'Find a session, or describe new work… ↑ for earlier prompts' : 'Find a session, or describe new work…'}
             onChange={(e) => {
               setText(e.target.value);
+              setCaret(e.target.selectionStart);
               setRecall(null);
               setActiveKey(null);
             }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
             onKeyDown={onInputKey}
             onPaste={(e) => {
               const files = filesToAttach(e);
@@ -1689,7 +1710,7 @@ export function Quick() {
                   </p>
                 )}
                 {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
-                {slash?.open && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No repo here to read skills from.' : `No skill of ${current === ALL_PROJECTS ? 'these repos' : `${current}’s repos`} starts like that.`) : 'Reading skills…'}</p>}
+                {typing && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No repo here to read skills from.' : `No skill of ${current === ALL_PROJECTS ? 'these repos' : `${current}’s repos`} starts like that.`) : 'Reading skills…'}</p>}
                 {query && rows.length === 0 && <p className="ca-quick-note">No sessions, todos or PRs match. Start a session with this prompt below.</p>}
                 {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
                 {sections.map((s) => (

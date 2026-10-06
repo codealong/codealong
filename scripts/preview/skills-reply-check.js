@@ -1,5 +1,5 @@
 // Checks the skills in a session's reply box (SessionReply.tsx, SlashList.tsx, skills.ts), in the
-// bar's peek: a slash and the start of a name list the session's skills (its worktree's and its
+// bar's peek: a slash and the start of a name, first or after other words, list the session's skills (its worktree's and its
 // account's, only the ones its agent reads) under Codealong's own commands; ↑ ↓ choose, ⇥
 // finishes the name, Escape puts the list away without stopping anything; and a skill is sent
 // as the session's agent takes it (`$name` to Codex, `/name` to Claude Code).
@@ -95,6 +95,19 @@
       key(box(), { key: 'Enter' });
       await until(function () { return sent('send_to_session').length > sends; }, 5000, 'a whole name wasn’t sent');
       check('⏎ on a whole name sends it', last('send_to_session').text === (codex ? '$ship' : '/ship'), last('send_to_session').text);
+
+      // A name after other words lists at the caret too, and each skill named is written.
+      sends = sent('send_to_session').length;
+      type(box(), 'look at it, then /shi');
+      await until(function () { return rows().length > 0 && names()[0] === '/ship'; }, 3000, 'no list for a name after words');
+      check('Codealong’s own commands aren’t offered after other words', names().indexOf('/fork') < 0, names().join(' '));
+      key(box(), { key: 'Tab' });
+      await until(function () { return box().value === 'look at it, then /ship '; }, 3000, 'the name after words wasn’t finished: ' + box().value);
+      type(box(), 'look at it, then /ship and /ship again');
+      await wait(50);
+      key(box(), { key: 'Enter' });
+      await until(function () { return sent('send_to_session').length > sends; }, 5000, 'nothing sent with a skill after words');
+      check('each skill named goes as the agent takes it', last('send_to_session').text === (codex ? 'look at it, then $ship and $ship again' : 'look at it, then /ship and /ship again'), last('send_to_session').text);
 
       sends = sent('send_to_session').length;
       type(box(), '/compact');
