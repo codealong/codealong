@@ -59,7 +59,8 @@ pub fn read<T: DeserializeOwned>(path: &Path, what: &str) -> Result<Option<T>> {
 
 /// The file's value, or the default when there's no file or it doesn't parse. For showing what
 /// a file says, and for caches and the like that are fine to start over: whatever is read this
-/// way and saved again replaces a file that didn't parse.
+/// way and saved again replaces a file that didn't parse. A file of yours that the app keeps in
+/// memory and saves whole is read with `load_whole` instead.
 pub fn read_or_default<T: DeserializeOwned + Default>(path: &Path) -> T {
     std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
@@ -140,6 +141,54 @@ pub fn change<T: DeserializeOwned + Serialize + Default>(path: &Path, what: &str
         save(path, &value)?;
     }
     Ok(value)
+}
+
+/// Files `load_whole` found there and couldn't read, with why: nothing saves over them.
+static UNREAD: Mutex<BTreeMap<PathBuf, String>> = Mutex::new(BTreeMap::new());
+
+/// Reads a file of yours that a part of the app reads once, keeps in memory and saves whole as
+/// it changes (`save_whole`): the cards pinned to the desktop, the sessions kept there, the
+/// devices linked with this one. The default when there's no file. One that's there and doesn't
+/// read is the default too, so that part starts empty, but the file is remembered and left as
+/// it is (`save_whole` won't write over it), and a notice says why (`problems`).
+pub fn load_whole<T: DeserializeOwned + Default>(path: &Path, what: &str) -> T {
+    let mut unread = UNREAD.lock().unwrap_or_else(|e| e.into_inner());
+    match read(path, what) {
+        Ok(value) => {
+            unread.remove(path);
+            value.unwrap_or_default()
+        }
+        Err(e) => {
+            let why = format!("{e:#}");
+            unread.insert(path.to_path_buf(), why.clone());
+            let _ = noted(path, Err::<(), _>(anyhow::anyhow!(why)));
+            T::default()
+        }
+    }
+}
+
+/// Saves the whole of a value `load_whole` read, in one step, and notes how it went (`noted`),
+/// for a part of the app that saves in the background. Refused while the file is one that didn't
+/// read when it was loaded: what's in memory started from empty, so saving it would lose what
+/// the file holds. Once that file is gone (removed by hand), there's nothing left to lose.
+pub fn save_whole<T: Serialize + DeserializeOwned>(path: &Path, value: &T) -> Result<()> {
+    let mut unread = UNREAD.lock().unwrap_or_else(|e| e.into_inner());
+    let done = match unread.get(path) {
+        Some(why) if path.symlink_metadata().is_ok() => {
+            // Fixed by hand since, it holds what this run never read, so it's still not written
+            // over; read again at the next launch, it's used as it is.
+            if read::<T>(path, "").is_ok() {
+                Err(anyhow::anyhow!("{} was fixed after Codealong found it didn't read; quit and reopen Codealong to use it. Until then, changes to it aren't saved.", name(path)))
+            } else {
+                Err(anyhow::anyhow!("{why} Until then, changes to it aren't saved."))
+            }
+        }
+        _ => {
+            unread.remove(path);
+            save(path, value)
+        }
+    };
+    noted(path, done)
 }
 
 /// Changes nobody waited on that couldn't be made, by file, with the file's time and size then.
@@ -295,6 +344,48 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         assert!(problems(&dir).is_empty());
         add().unwrap();
+        assert!(problems(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_whole_file_that_did_not_read_is_never_saved_over() {
+        let dir = test_dir("store-whole");
+        let path = dir.join("pins.json");
+        // None yet: empty, and saved as it changes.
+        assert!(load_whole::<Vec<String>>(&path, "pinned cards").is_empty());
+        save_whole(&path, &vec!["a".to_string()]).unwrap();
+        assert_eq!(load_whole::<Vec<String>>(&path, "pinned cards"), ["a"]);
+        assert!(problems(&dir).is_empty());
+
+        // A newer build's shape reads as empty, but stays as it is, and the notice says so.
+        let newer = r#"{"version": 2, "pins": ["a"]}"#;
+        std::fs::write(&path, newer).unwrap();
+        assert!(load_whole::<Vec<String>>(&path, "pinned cards").is_empty());
+        let said = problems(&dir);
+        assert_eq!(said.len(), 1);
+        assert!(said[0].1.starts_with("pins.json doesn't read as pinned cards ("), "{said:?}");
+        let e = save_whole(&path, &vec!["b".to_string()]).unwrap_err().to_string();
+        assert!(e.starts_with("pins.json doesn't read as pinned cards (") && e.ends_with("Until then, changes to it aren't saved."), "{e}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer);
+        assert_eq!(problems(&dir), [("pins.json".to_string(), e)]);
+
+        // Fixed by hand, it holds what this run never read: still not saved over until a launch reads it.
+        std::fs::write(&path, r#"["a", "c"]"#).unwrap();
+        let e = save_whole(&path, &vec!["b".to_string()]).unwrap_err().to_string();
+        assert!(e.contains("was fixed after Codealong found it didn't read; quit and reopen Codealong"), "{e}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"["a", "c"]"#);
+        assert_eq!(problems(&dir).len(), 1);
+        assert_eq!(load_whole::<Vec<String>>(&path, "pinned cards"), ["a", "c"]);
+        save_whole(&path, &vec!["a".to_string(), "c".to_string(), "d".to_string()]).unwrap();
+        assert!(problems(&dir).is_empty());
+
+        // Removed by hand, there's nothing left to lose.
+        std::fs::write(&path, "[").unwrap();
+        assert!(load_whole::<Vec<String>>(&path, "pinned cards").is_empty());
+        std::fs::remove_file(&path).unwrap();
+        save_whole(&path, &vec!["e".to_string()]).unwrap();
+        assert_eq!(load_whole::<Vec<String>>(&path, "pinned cards"), ["e"]);
         assert!(problems(&dir).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }

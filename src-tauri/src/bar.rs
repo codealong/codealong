@@ -156,6 +156,9 @@ impl Saved {
         }
     }
 
+    /// Read leniently: bar.json is only where the bar was and how you left it (on or off, in the
+    /// notch), which a drag or a click sets again, so one that doesn't read starts the bar afresh
+    /// and is saved over at its next move, rather than leaving the bar unable to keep its place.
     fn load() -> Saved {
         crate::store::read_or_default(&support_dir().join("bar.json"))
     }

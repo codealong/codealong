@@ -47,12 +47,15 @@ struct Saved {
 }
 
 impl Saved {
+    /// What you kept is yours: a kept.json that doesn't read is left as it is, and a notice says
+    /// so, rather than read as nothing kept and saved over (`store::load_whole`).
     fn load() -> Saved {
-        crate::store::read_or_default(&support_dir().join("kept.json"))
+        crate::store::load_whole(&support_dir().join("kept.json"), "the sessions kept on the desktop")
     }
 
     fn save(&self) {
-        let _ = crate::store::save(&support_dir().join("kept.json"), self);
+        // A failure is a notice (`store::save_whole`); the windows stay up either way.
+        let _ = crate::store::save_whole(&support_dir().join("kept.json"), self);
     }
 }
 

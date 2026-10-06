@@ -36,6 +36,8 @@ struct Saved {
 }
 
 impl Saved {
+    /// Read leniently: waiting.json is only where the window was, which the next drag sets
+    /// again, so one that doesn't read puts the window in its first place and is saved over.
     fn load() -> Saved {
         crate::store::read_or_default(&support_dir().join("waiting.json"))
     }

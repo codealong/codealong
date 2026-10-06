@@ -76,12 +76,15 @@ struct Saved {
 }
 
 impl Saved {
+    /// What you pinned is yours: a desktop.json that doesn't read is left as it is, and a notice
+    /// says so, rather than read as nothing pinned and saved over (`store::load_whole`).
     fn load() -> Saved {
-        crate::store::read_or_default(&support_dir().join("desktop.json"))
+        crate::store::load_whole(&support_dir().join("desktop.json"), "the cards pinned to the desktop")
     }
 
     fn save(&self) {
-        let _ = crate::store::save(&support_dir().join("desktop.json"), self);
+        // A failure is a notice (`store::save_whole`); the cards stay up either way.
+        let _ = crate::store::save_whole(&support_dir().join("desktop.json"), self);
     }
 }
 

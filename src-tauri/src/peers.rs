@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use iroh::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::config::{DevicesCfg, ProjectCfg};
 use crate::irohnet::{Iroh, Ticket};
@@ -1378,20 +1378,24 @@ fn cache_path(dir: &Path) -> PathBuf {
     dir.join("device-feeds.json")
 }
 
+/// `devices.json`, the devices this one trusts.
+#[derive(Serialize, Deserialize, Default)]
+struct LinkedFile {
+    #[serde(default)]
+    linked: Vec<Linked>,
+}
+
+/// The devices this one trusts. A devices.json that doesn't read trusts none, and is left as it
+/// is with a notice, rather than read as none linked and saved over (`store::load_whole`).
 fn load_linked(dir: &Path) -> Vec<Linked> {
-    #[derive(Deserialize, Default)]
-    struct File {
-        #[serde(default)]
-        linked: Vec<Linked>,
-    }
-    crate::store::read_or_default::<File>(&linked_path(dir)).linked
+    crate::store::load_whole::<LinkedFile>(&linked_path(dir), "a list of linked devices").linked
 }
 
 fn save_linked(dir: &Path, linked: &[Linked]) {
-    let text = serde_json::to_string_pretty(&json!({ "linked": linked })).unwrap_or_default();
-    let _ = crate::store::write(&linked_path(dir), text);
+    let _ = crate::store::save_whole(&linked_path(dir), &LinkedFile { linked: linked.to_vec() });
 }
 
+/// Read leniently: what each device last said is a cache, filled again as each connects.
 fn load_cache(dir: &Path) -> HashMap<String, Cached> {
     crate::store::read_or_default(&cache_path(dir))
 }
@@ -1406,6 +1410,7 @@ fn save_cache(dir: &Path, cache: &HashMap<String, Cached>) {
 mod tests {
     use super::*;
     use crate::model::{Session, Status};
+    use serde_json::json;
     use std::net::TcpListener;
 
     fn session(key: &str, status: Status) -> Session {
