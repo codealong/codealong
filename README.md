@@ -760,6 +760,7 @@ Next: the menu bar icon and popover, and notifications (the design system's *Bui
 npm install
 npm run tauri dev      # the app with hot reload
 scripts/relaunch.sh    # build Codealong Dev, then quit it and reopen it from Applications
+scripts/catch-up-main.sh  # fast-forward the main checkout to origin/main (relaunch.sh does too)
 scripts/release.sh     # the installer for other Macs (design/plans/releases.md)
 npm run snapshot       # print the board as a table without opening a window
 ```

@@ -118,11 +118,12 @@ agents work in this repo at the same time, many of them in the main checkout (th
    (`git rebase origin/main`), rerun the checks the rebase could affect, and `git push origin
    HEAD:main`. We prefer rebasing to merge commits: `main` stays a straight line of real
    changes. A rejected push means someone pushed first: fetch, rebase and push again.
-3. Fast-forward the main checkout when it's on `main`: `git -C <main checkout> merge --ff-only
-   origin/main`. That can't lose anything: git refuses when uncommitted edits there touch files
-   the update changes, or when that `main` has commits `origin/main` doesn't. If it refuses,
-   leave the checkout as it is and say why; never stash, reset or commit another session's work
-   to get past it.
+3. Bring the main checkout up to `origin/main`: step 4's `relaunch.sh` does it after its build,
+   and with nothing to relaunch, `scripts/catch-up-main.sh` does it alone. It only fast-forwards
+   a main checkout on `main`, so it can't lose anything: git refuses when uncommitted edits there
+   touch files the update changes, and a `main` with commits `origin/main` doesn't is left alone.
+   It prints where the main checkout stands; when it couldn't catch up, leave the checkout as it
+   is and say why; never stash, reset or commit another session's work to get past it.
 4. Run `scripts/relaunch.sh` from your worktree, clean and at `origin/main`, never from a
    checkout holding other sessions' edits. Skip it when nothing the app runs changed (docs,
    tests). With others building it can take many minutes; the app is relaunched once the script

@@ -131,4 +131,6 @@ else
   where="not in origin/main"
 fi
 clean || where="$where, with uncommitted changes"
+# The main checkout is brought up to origin/main too (landing's step 3), and says how that went.
+scripts/catch-up-main.sh
 echo "Relaunched Codealong Dev from $(git rev-parse --short HEAD) ($where)"
