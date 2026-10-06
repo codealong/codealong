@@ -18,15 +18,9 @@
 // prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
 // the page sees it.)
 //
-// ⇥ on a session answers it here: the panel shows its conversation and a box that sends it a
-// message where it runs, or what it waits on you to allow (SessionPanel.tsx, as a card). ⏎ sends, and Escape
-// goes back to the list, as marking it seen or archiving it from its header does. Answering one
-// from the empty panel's list works through the list: once it's sent, allowed, marked seen,
-// snoozed or archived, the next that waits on you takes the view (the longest wait first), and
-// after the last one the panel closes. The keys for getting about are the ones a session's panel
-// has in Sessions and in the notch, from the same code (queue.ts, useWaitingQueue.ts): ⌘] or ⌥⇧↓
-// skips to the next and ⌥⇧↑ goes back, ⌘E on one that doesn't wait on you goes on, ⌥↑ ⌥↓ step
-// along the sessions the list has, and ⌃- ⌃⇧- go back and forward through the ones answered here.
+// ⇥ on a session answers it, and ⏎ or ⇥ on a PR waiting on your review reviews it, in the waiting
+// window (Waiting.tsx), which goes on from there to the rest that waits on you: the panel finds
+// and starts, and answering is that window's.
 
 import { reuse } from '../reuse';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -45,13 +39,14 @@ import {
   searchText,
   showMain,
   showQuick,
+  showWaiting,
   startFromQuick,
   startOptions,
   tellOpener,
   todoOp,
   type QuickOpen,
 } from '../api';
-import { boardAhead, boardView, observe, renameAhead, sendAhead, useAhead } from '../ahead';
+import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
 import { useKeyPerf, usePerf } from '../perf';
@@ -63,11 +58,8 @@ import { ago, tildePath } from '../format';
 import { usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
-import { useSessionHistory } from '../history';
-import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { prPills } from '../prStatus';
-import type { Reads } from '../queue';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, reviewSince, shortcutLabel, startTitle, statusTime, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type QueueRow, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountHeadWords,
   agentChipWords,
@@ -94,12 +86,10 @@ import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { PrCard, type PrWindowCan } from './PrCard';
-import { SessionCard } from './SessionCard';
 import { cx, Icon, Kbd, Mark, Seg, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
-import { PrGlyph, prPlaces, type PrRowItem } from './PrsView';
+import { PrGlyph } from './PrsView';
 import { useTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
@@ -123,15 +113,6 @@ declare global {
 
 const PROJECT_KEY = 'codealong.quick.project';
 const HISTORY_KEY = 'codealong.quick.history';
-/** Where the sessions answered in the reply view are kept, for ⌃- and ⌃⇧- (history.ts), apart from
- *  the main window's and the notch's. */
-const LOOKED_KEY = 'codealong.sessionHistory:quick';
-/** How the queue reads the panel's rows: a session's row by its session, a review's by its PR. */
-const QUEUE_READS: Reads<QueueRow> = {
-  keyOf: (r) => (r.kind === 'session' ? r.session.key : r.pr.key),
-  sinceOf: (r) => (r.kind === 'session' ? statusTime(r.session) : reviewSince(r.pr)),
-  titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
-};
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
@@ -143,8 +124,6 @@ const OPTIONS_FOR_MS = 60_000;
 const RETRY_MS = 5_000;
 /** The device menu's id for this Mac; the others go by their short ids, which are hex. */
 const HERE = 'here';
-/** The tallest the card gets while it answers a session; the conversation scrolls inside. */
-const REPLY_HEIGHT = 640;
 
 type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
 
@@ -272,22 +251,6 @@ export function Quick() {
   }, [info]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerKind | null>(null);
-  // The session the panel answers in place of the list (⇥ on its row).
-  const [replyKey, setReplyKey] = useState<string | null>(null);
-  // The session shown with its name ready to change (Rename in a row's menu).
-  const [renameKey, setRenameKey] = useState<string | null>(null);
-  // Answered from the empty list: the view goes on to the next session that waits on you as each
-  // one's done, and says how the last one went (`way`, below, once the list is known).
-  const [queued, setQueued] = useState(false);
-  // Takes back what the reply view's strip says, for the open's script, which runs ahead of
-  // where the queue is set up: a slot the queue fills in below, not a value from above, so it
-  // isn't a useLatest.
-  const quiet = useRef(() => {});
-  // Starts the way through what waits on you afresh, for a review the bar opened the panel on.
-  const fresh = useRef(() => {});
-  // Opens on the first session that waits on you in a project, working through them from there,
-  // as ⇥ on it in the list does; the shortcut that goes through them asks for it.
-  const answerFirst = useRef<(b: Board, project: string) => void>(() => {});
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
   const inputBox = useRef<HTMLDivElement>(null);
@@ -359,12 +322,6 @@ export function Quick() {
         setDevice(ctx.laneId ? shortOf(ctx.laneId) : null);
         setNewWorktree(false);
         setActiveKey(null);
-        setReplyKey(ctx.review ?? ctx.reply ?? null);
-        // A review from the floating bar's pill is one of what waits on you: the view goes on
-        // from it to the rest.
-        setQueued(!!ctx.review);
-        quiet.current();
-        if (ctx.review) fresh.current();
       }
       if (b) {
         setBoard(b);
@@ -379,8 +336,6 @@ export function Quick() {
           if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
         }
       }
-      // The shortcut that goes through what waits on you: on the first that does.
-      if (ctx.waiting && b) answerFirst.current(b, ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS));
       setShown(true);
       setOpens((n) => n + 1);
     };
@@ -522,21 +477,6 @@ export function Quick() {
   // Without one asked for, the first on the list: a pinned one, else the latest.
   const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && chatLane.id === laneId ? chatLane : null) ?? groups[0]?.lanes[0] ?? null;
 
-  // The session answered in place of the list, while it's on the board.
-  const replying = useMemo(() => {
-    if (!board || !replyKey) return null;
-    for (const l of board.lanes) {
-      const session = l.sessions.find((x) => x.key === replyKey);
-      if (session) return { lane: l, session };
-    }
-    return null;
-  }, [board, replyKey]);
-  // A PR waiting on your review, reviewed in place of the list, while the board lists it.
-  const reviewing = useMemo(() => (board && replyKey && !replying ? (board.prs.find((p) => p.key === replyKey) ?? null) : null), [board, replyKey, replying]);
-  // What it works through, and what's left after the one showing. Snoozed ones wait their time.
-  const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => r.kind !== 'session' || !r.session.snoozedUntil) : []), [board, queued, current]);
-  // Read when a send fails, which can be long after the view went on to another session.
-  const replyKeyNow = useLatest(replyKey);
   const shownNow = useLatest(shown);
 
   /* ---- A skill, which picks its repo ---- */
@@ -742,10 +682,9 @@ export function Quick() {
   const duplicate = board ? duplicateOf(route, board) : null;
   const alreadyOn = alreadyOnWords(duplicate);
 
-  const replyingKey = replying?.session.key ?? reviewing?.key ?? null;
-  // The panel's height, as the list may change it while you type and as a reply's conversation
-  // grows, told to quick.rs (useQuickSize.ts).
-  useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered: !routing && (!textFor || !!textFound), replyingKey, opening, reported });
+  // The panel's height, as the list may change it while you type, told to quick.rs
+  // (useQuickSize.ts).
+  useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered: !routing && (!textFor || !!textFound), opening, reported });
 
   const ranked = rankedBy(foundSessions, route);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
@@ -758,40 +697,6 @@ export function Quick() {
     desktop: (key) => deskPin(rowsNow.current.find((r) => r.key === key)),
     label: (key) => deskTitle(rowsNow.current.find((r) => r.key === key)),
   });
-  // The reply view's way through what waits on you (useWaitingQueue.ts), as Sessions' panel and
-  // the notch have it. What differs here: the queue is the empty panel's list, and only while a
-  // session was answered from it (`queued`); ⌥↑ ⌥↓ step along the sessions the panel lists,
-  // whatever it lists now; a session that leaves has left the view, so it always goes on; and
-  // marking seen is the card's (SessionCard.tsx), which says so through `left`.
-  const answerable = useMemo(() => new Set(board ? [...board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...board.prs.map((p) => p.key)] : []), [board]);
-  // Back and forward through the sessions and reviews answered here, apart from the other
-  // windows'. One that's gone or archived is passed over.
-  const looked = useSessionHistory(shown ? replyingKey : null, (key) => answerable.has(key), LOOKED_KEY);
-  const way = useWaitingQueue<QueueRow>({
-    waiting: queue,
-    along: rows.filter((r): r is QueueRow => r.kind === 'session' || r.kind === 'review'),
-    reads: QUEUE_READS,
-    shown: replying ? shownSession(replying.session) : reviewing ? { key: reviewing.key, title: `#${reviewing.number} ${reviewing.title}`, since: reviewSince(reviewing), seenable: false, skipsOnSeen: true } : null,
-    show: (row) => setReplyKey(row.key),
-    travel: (dir) => {
-      const to = dir === 'back' ? looked.goBack() : looked.goForward();
-      if (to) {
-        setReplyKey(to);
-        setRenameKey(null);
-      }
-      return to !== null;
-    },
-  });
-  quiet.current = () => way.say(null);
-  fresh.current = () => way.fresh();
-  answerFirst.current = (b, inProject) => {
-    const first = queueRows(b, inProject).find((r) => r.kind !== 'session' || !r.session.snoozedUntil);
-    if (!first) return;
-    way.fresh();
-    setQueued(true);
-    setReplyKey(first.key);
-    setRenameKey(null);
-  };
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
@@ -854,60 +759,16 @@ export function Quick() {
     revealSession(lane, session);
   };
 
-  /** Answers a session here: its conversation, and a box for the reply. What's typed in the input
-   *  stays for when you go back. */
-  const replyTo = (session: Session) => {
-    const fromList = !!attention?.rows.some((r) => r.key === session.key && r.group !== 'working');
-    if (fromList) way.fresh();
-    setQueued(fromList);
-    way.say(null);
-    setReplyKey(session.key);
-    setRenameKey(null);
-    setPicker(null);
+  /** Answers a session, or reviews a PR waiting on your review, in the waiting window
+   *  (Waiting.tsx), which goes on from it to the rest that waits on you; `rename` shows a session
+   *  with its name ready to change. The search that found it is done with, as when it opens
+   *  where it lives. */
+  const answerIn = (key: string, rename = false) => {
+    setText('');
+    setActiveKey(null);
     setError(null);
-  };
-
-  /** Reviews a PR here: its card, and the box that reviews it. From the list, the view goes on
-   *  to the rest that waits on you. */
-  const reviewHere = (pr: PrItem) => {
-    const fromList = !!attention?.rows.some((r) => r.key === pr.key);
-    if (fromList) way.fresh();
-    setQueued(fromList);
-    way.say(null);
-    setReplyKey(pr.key);
-    setRenameKey(null);
-    setPicker(null);
-    setError(null);
-  };
-
-  /** Shows a session with its name ready to change; done, it's back to the list. */
-  const renameIn = (session: Session) => {
-    setQueued(false);
-    way.say(null);
-    setReplyKey(session.key);
-    setRenameKey(session.key);
-    setPicker(null);
-    setError(null);
-  };
-
-  const leaveReply = () => {
-    setReplyKey(null);
-    setRenameKey(null);
-    setQueued(false);
-    way.say(null);
-    refocus();
-  };
-
-  /** Renames the session shown, or leaves its name, and goes back to the list. */
-  const renamed = (s: Session, name: string | null) => {
-    leaveReply();
-    if (name) renameAhead(s.key, name).catch((e: unknown) => setError(errorText(e)));
-  };
-
-  /** Done with a session answered from the list: the next that waits on you takes the view, saying
-   *  how this one went. With none left, the panel is done. */
-  const advance = (s: Session, done: string, said: string | null = null) => {
-    if (way.answered(s.key, done) === 'last') replied(said);
+    void hideQuick();
+    void showWaiting({ key, rename });
   };
 
   /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
@@ -965,42 +826,23 @@ export function Quick() {
     return liveOrLatest(found);
   };
 
-  /** How the menus say how things went: in the answer view, its notice; else under the input. */
-  const menuReport: Report = {
-    error: (message) => (replyKeyNow.current ? way.say({ text: message, error: true }) : setError(message)),
-    info: (message) => (replyKeyNow.current ? way.say({ text: message, error: false }) : setInfo(message)),
-  };
+  /** How the menus say how things went: under the input. */
+  const menuReport: Report = { error: setError, info: setInfo };
 
-  /** What the panel can do to a session (menus.ts): its menu, and the answer view's buttons.
-   *  Something that went wrong with one the view has gone on from says which it was. */
-  const quickCan = (lane: Lane, s: Session, left?: menus.SessionCan['left']): menus.SessionCan => ({
-      report: {
-        ...menuReport,
-        error: (message) => (replyKeyNow.current && replyKeyNow.current !== s.key ? way.say({ text: `${s.title}: ${message}`, error: true }) : menuReport.error(message)),
-      },
+  /** What the panel can do to a session (menus.ts), for its menu. Reply here and Rename… go to
+   *  the waiting window. */
+  const quickCan = (lane: Lane, s: Session): menus.SessionCan => ({
+      report: menuReport,
       open: openHere,
       terminal: board?.apps.terminal ?? 'Terminal',
       reveal: () => revealSession(lane, s),
-      reply: replyKeyNow.current === s.key ? undefined : () => replyTo(s),
-      rename: () => renameIn(s),
+      reply: () => answerIn(s.key),
+      rename: () => answerIn(s.key, true),
       worktrees: board?.lanes,
       editors: board ? { apps: board.apps, icons } : undefined,
       desktop: onDesktop,
-      left,
   });
   const sessionMenuSpec = (lane: Lane, s: Session): MenuSpec => menus.sessionMenu(lane, s, quickCan(lane, s));
-  /** A worktree's menu, for the ones a PR reviewed here is checked out in. */
-  const laneMenuSpec = (lane: Lane): MenuSpec =>
-    menus.laneMenu(lane, {
-      report: menuReport,
-      open: openHere,
-      reveal: () => {
-        void hideQuick();
-        void showMain({ kind: 'worktree', laneId: lane.id });
-      },
-      editors: board?.apps ? { apps: board.apps, icons } : undefined,
-      desktop: onDesktop,
-    });
 
   /** A PR's menu, as every window has it. */
   const prMenuSpec = (pr: PrItem): MenuSpec => {
@@ -1187,7 +1029,7 @@ export function Quick() {
     else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
     else if (row.kind === 'pr') (alt ? revealPr : openPr)(row.pr);
-    else if (row.kind === 'review') (alt ? revealPr : reviewHere)(row.pr);
+    else if (row.kind === 'review') (alt ? revealPr(row.pr) : answerIn(row.pr.key));
     else if (row.kind === 'skill') pickSkill(row);
     else if (row.kind === 'more') {
       // The first of those it adds takes its place.
@@ -1203,7 +1045,7 @@ export function Quick() {
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
-    // ⇥ on a session answers it here; elsewhere it moves the focus as usual.
+    // ⇥ on a session answers it in the waiting window; elsewhere it moves the focus as usual.
     if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
       const row = rows.find((r) => r.key === active);
       if (row?.kind === 'skill') {
@@ -1214,13 +1056,13 @@ export function Quick() {
       const session = row?.kind === 'session' ? row.session : row?.kind === 'suggest' && (row.s.kind === 'send' || row.s.kind === 'open') ? row.s.session : null;
       if (session) {
         e.preventDefault();
-        replyTo(session);
+        answerIn(session.key);
         return;
       }
-      // And on a PR waiting on your review, it reviews it here, as ⏎ does.
+      // And on a PR waiting on your review, it reviews it there, as ⏎ does.
       if (row?.kind === 'review') {
         e.preventDefault();
-        reviewHere(row.pr);
+        answerIn(row.pr.key);
         return;
       }
     }
@@ -1274,22 +1116,7 @@ export function Quick() {
         if (picker) {
           setPicker(null);
           refocus();
-        } else if (replying || reviewing) leaveReply();
-        else void hideQuick();
-        return;
-      }
-      // Answering a session, only ⌘Q and ⌘H mean something here, and the keys for getting from
-      // one session to the next, which are the ones Sessions' panel and the notch have (queue.ts
-      // `QUEUE_CHORDS`): the list's keys are for the list, and the session's own (⌘E on one to
-      // mark seen, ⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's (SessionCard.tsx). Not while its name is typed.
-      if (replying || reviewing) {
-        const k = e.key.toLowerCase();
-        if (e.metaKey && !e.ctrlKey && !e.altKey && (k === 'q' || k === 'h')) {
-          e.preventDefault();
-          void hideQuick();
-        } else if ((!replying || renameKey !== replying.session.key) && way.onKey(e)) {
-          e.preventDefault();
-        }
+        } else void hideQuick();
         return;
       }
       // ⌥⌘ digits switch projects, as in the main window. ⌥ changes the character, so they go by
@@ -1503,55 +1330,11 @@ export function Quick() {
   const agentChip = agentChipWords({ auto: autoFor, account, accounts: accounts.length, remote: deviceNow ? { read: !!startOptionsNow, error: remote?.error ?? null } : null, model: modelShown, effortWord });
   const shortcut = shortcutLabel(board?.quickShortcut);
 
-  /** A reply is on its way, or what it waited on was answered: the panel is done. The window that
-   *  opened it hears what happened. */
-  // The session answered here: what's done to it from the view goes on to the next that waits
-  // on you, or back to the list it's left.
-  const replyCan = replying
-    ? quickCan(replying.lane, replying.session, (done) => {
-        if (!queued) leaveReply();
-        else if (way.left(replying.session.key, done) === 'last') replied(null);
-      })
-    : null;
-
-  /** What the panel can do to a PR reviewed here (PrCard.tsx): what takes it off what waits on
-   *  you goes on to the next, or back to the list it was picked from. */
-  const reviewCan = (pr: PrItem): PrWindowCan => ({
-    report: menuReport,
-    open: openHere,
-    reveal: () => revealPr(pr),
-    openLink,
-    left: (done) => {
-      if (!queued) leaveReply();
-      else if (way.left(pr.key, done) === 'last') replied(null);
-    },
-  });
-  /** A PR as its card shows it: with where it lives on this Mac (PrsView.tsx `prPlaces`). */
-  const reviewItem = (pr: PrItem): PrRowItem => {
-    const lanes = board?.lanes ?? [];
-    const holding = lanes.filter((l) => pr.lanes.includes(l.id));
-    const sessions = pr.sessions.flatMap((x) => {
-      const lane = lanes.find((l) => l.id === x.lane);
-      const session = lane?.sessions.find((s) => s.key === x.key);
-      return lane && session ? [{ lane, session }] : [];
-    });
-    return { kind: 'pr', key: pr.key, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
-  };
-
-  const replied = (message: string | null) => {
-    setReplyKey(null);
-    setQueued(false);
-    way.say(null);
-    setActiveKey(null);
-    void hideQuick();
-    if (message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message });
-  };
-
-  // PR links in a conversation shown here (PrLink.tsx): a session on a PR's card is answered here
-  // too, and the PR is shown in the main window.
+  // PR links in the list's rows (PrLink.tsx): a PR, or a session on its card, shows in the main
+  // window, as ⏎ on a row does.
   usePrLinks(board?.prs, board?.lanes, {
     showPr: revealPr,
-    showSession: (_lane, s) => replyTo(s),
+    showSession,
     openSession,
     sessionMenu: (lane, s) => void showContextMenu(sessionMenuSpec(lane, s)).catch((e: unknown) => setError(errorText(e))),
     prMenu: (url, pr) => {
@@ -1570,81 +1353,6 @@ export function Quick() {
       }}
     >
       {drag.ghost}
-      {replying && (
-        <div ref={card} className="ca-quick is-reply" role="dialog" aria-label={`Answer ${replying.session.title}`} style={{ maxHeight: Math.min(REPLY_HEIGHT, room ? room - 2 * MARGIN : REPLY_HEIGHT) }}>
-          <SessionCard
-            lane={replying.lane}
-            session={replying.session}
-            apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
-            now={now}
-            board={board}
-            can={replyCan ?? quickCan(replying.lane, replying.session)}
-            canFor={quickCan}
-            // A session it came from, or that came of it, is answered here in its place.
-            onShowSession={(_l, x) => replyTo(x)}
-            onShowLane={(l) => {
-              void hideQuick();
-              void showMain({ kind: 'worktree', laneId: l.id });
-            }}
-            onShowTodo={(t) => {
-              void hideQuick();
-              void showMain({ kind: 'todo', id: t.id });
-            }}
-            onShowPr={revealPr}
-            openLink={openLink}
-            prCan={(pr) => {
-              const on = prSession(pr);
-              return { session: on ? { ...on, open: () => openSession(on.lane, on.session) } : undefined };
-            }}
-            autoFocus
-            keys
-            back={{ label: 'Back', title: 'Back to the list (Esc)', onBack: leaveReply }}
-            renaming={renameKey === replying.session.key}
-            onRename={(name) => renamed(replying.session, name)}
-            queue={queued ? way.queue : undefined}
-            notice={way.notice}
-            onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}
-            onSent={(sent) => {
-              if (sent.message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message: sent.message });
-            }}
-            // Back on the session, with what you wrote in the box and why it didn't go; or, when the
-            // view went on to another, it says so, and the session is back in what's left.
-            onFailed={(why) => {
-              const s = replying.session;
-              if (shownNow.current && replyKeyNow.current && replyKeyNow.current !== s.key) {
-                way.again(s.key);
-                way.say({ text: `Didn’t send to ${s.title}: ${why}`, error: true });
-              } else reopen(() => setReplyKey(s.key));
-            }}
-            onAnswered={(said) => (queued ? advance(replying.session, said, said) : replied(said))}
-          />
-        </div>
-      )}
-      {reviewing && (
-        <div ref={card} className="ca-quick is-reply" role="dialog" aria-label={`Review #${reviewing.number} ${reviewing.title}`} style={{ maxHeight: Math.min(REPLY_HEIGHT, room ? room - 2 * MARGIN : REPLY_HEIGHT) }}>
-          <PrCard
-            key={reviewing.key}
-            item={reviewItem(reviewing)}
-            now={now}
-            lanes={board?.lanes ?? []}
-            usage={board?.usage ?? []}
-            can={reviewCan(reviewing)}
-            autoFocus
-            back={{ label: 'Back', title: 'Back to the list (Esc)', onBack: leaveReply }}
-            queue={queued ? way.queue : undefined}
-            notice={way.notice}
-            onShowSession={(_l, s) => replyTo(s)}
-            onOpenSession={openSession}
-            onShowLane={(l) => {
-              void hideQuick();
-              void showMain({ kind: 'worktree', laneId: l.id });
-            }}
-            onLaneMenu={(l) => void showContextMenu(laneMenuSpec(l)).catch((e: unknown) => setError(errorText(e)))}
-            onSessionMenu={(l, s) => void showContextMenu(sessionMenuSpec(l, s)).catch((e: unknown) => setError(errorText(e)))}
-          />
-        </div>
-      )}
-      {!replying && !reviewing && (
       <div ref={card} className="ca-quick" role="dialog" aria-label="Codealong" style={room ? { maxHeight: room - 2 * MARGIN } : undefined}>
         <div ref={inputBox} className="ca-quick-head">
         <div className="ca-quick-input">
@@ -1864,7 +1572,7 @@ export function Quick() {
                           role="option"
                           aria-selected={active === r.key}
                           className={cx('ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`)}
-                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it here · ⌥⏎ opens it where it lives`}
+                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`}
                           {...handlers}
                         >
                           <StatusGlyph status={s2.status} />
@@ -2005,7 +1713,6 @@ export function Quick() {
           ) : null}
         </div>
       </div>
-      )}
     </div>
   );
 }

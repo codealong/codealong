@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answered, chordPressed, keyStep, left, leftAfter, leftGoesOn, QUEUE_CHORDS, queueKey, seenStep, standing, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown } from './queue';
+import { answered, chordPressed, firstLeft, keyStep, left, leftAfter, leftGoesOn, QUEUE_CHORDS, queueKey, seenStep, standing, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown } from './queue';
 
 // A window's rows, as the bar's pills are: a session's key, when its status began, its title.
 interface Row {
@@ -24,7 +24,7 @@ const shown = (r: Row): Shown => ({ key: r.key, title: READS.titleOf(r), since: 
 /** Sessions' panel in the main window: ⌘E is its own, a row that left without waiting stays, and
  *  ⌥↑ ⌥↓ and ⌃- ⌃⇧- are the window's. */
 const sessions = (on: Row | null, waiting = WAITING): QueueView<Row> => ({ waiting, reads: READS, shown: on && shown(on), marksSeen: true, leftStays: true });
-/** The session in the notch, and the quick panel's reply view: a card that marks seen itself, over
+/** The session in the notch, and the waiting window: a card that marks seen itself, over
  *  a list it steps along, with a history of its own. */
 const card = (on: Row | null, waiting = WAITING, along = [...WAITING, W]): QueueView<Row> => ({ waiting, reads: READS, shown: on && shown(on), along, travels: true });
 const none: Handled = new Map();
@@ -108,6 +108,18 @@ describe('what’s left after a session', () => {
     const running = standing(card(W), new Map([['A', 10]]));
     expect(running && keys(running.left)).toEqual(['B', 'C', 'D']);
     expect(running?.waiting).toBe(false);
+  });
+
+  it('gives a window that shows nothing the first not dealt with, and the next that comes to wait', () => {
+    expect(firstLeft(card(null), none)).toBe(A);
+    // After the last: what the board still shows waiting until it catches up isn't gone back to.
+    const all: Handled = new Map(WAITING.map((r) => [r.key, r.since]));
+    expect(firstLeft(card(null), all)).toBeUndefined();
+    // One that waits on you anew, or for the first time, is.
+    const fresh: Row = { key: 'E', since: 60 };
+    expect(firstLeft(card(null, [...WAITING, fresh]), all)).toBe(fresh);
+    expect(firstLeft(card(null, WAITING.map((r) => (r.key === 'C' ? { ...r, since: 70 } : r))), all)?.key).toBe('C');
+    expect(firstLeft(card(null, []), none)).toBeUndefined();
   });
 });
 

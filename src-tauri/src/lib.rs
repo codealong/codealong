@@ -84,6 +84,7 @@ mod transcript;
 mod updates;
 mod usage;
 mod util;
+mod waiting;
 
 use tauri::{Emitter, Manager, State};
 use util::words;
@@ -585,6 +586,19 @@ fn quick_ready(app: tauri::AppHandle, height: f64) {
 #[tauri::command]
 fn fit_quick(app: tauri::AppHandle, height: f64) {
     quick::fit(&app, height);
+}
+
+/// Brings up the window that works through what waits on you (waiting.rs), on a session or PR
+/// waiting on your review when the context names one (`key`).
+#[tauri::command]
+fn show_waiting(app: tauri::AppHandle, context: Option<serde_json::Value>) {
+    waiting::open(&app, context.unwrap_or(serde_json::Value::Null));
+}
+
+/// What the latest open of the waiting window asked for, for its page as it comes up.
+#[tauri::command]
+fn waiting_asked(app: tauri::AppHandle) -> serde_json::Value {
+    waiting::asked(&app)
 }
 
 /// Starts a session from the quick panel, which has already hidden itself, then asks macOS to
@@ -1490,6 +1504,9 @@ pub fn run() {
             if let Err(e) = quick::setup(app.handle()) {
                 eprintln!("Couldn't make the quick panel: {e:#}");
             }
+            if let Err(e) = waiting::setup(app.handle()) {
+                eprintln!("Couldn't add Waiting on you to the menu: {e:#}");
+            }
             if let Err(e) = peek::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar's peek: {e:#}");
             }
@@ -1526,18 +1543,25 @@ pub fn run() {
         .on_window_event(|window, event| {
             bar::on_window_event(window, event);
             quick::on_window_event(window, event);
+            waiting::on_window_event(window, event);
             peek::on_window_event(window, event);
             desktop::on_window_event(window, event);
             kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, review_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, review_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, show_waiting, waiting_asked, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
             // The Dock icon brings the main window back after it was closed.
-            if let tauri::RunEvent::Reopen { .. } = event {
-                let _ = front::show_main(app, None);
+            match event {
+                tauri::RunEvent::Reopen { .. } => {
+                    let _ = front::show_main(app, None);
+                }
+                // Where the waiting window is, written when it's put away, for one that's up as
+                // Codealong quits.
+                tauri::RunEvent::Exit => waiting::save(app),
+                _ => {}
             }
         });
 }
@@ -1599,7 +1623,7 @@ mod tests {
         let allowed = |label: &str| listed.iter().any(|w| *w == label || w.strip_suffix('*').is_some_and(|prefix| label.starts_with(prefix)));
         let card = format!("{}1", desktop::PREFIX);
         let kept = format!("{}1", kept::PREFIX);
-        for label in ["main", project_window_label("Spur").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
+        for label in ["main", project_window_label("Spur").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, waiting::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
             assert!(allowed(label), "{label} isn't in capabilities/default.json");
         }
     }
@@ -1636,7 +1660,7 @@ mod tests {
         // These say they're key while they aren't, or never show a dialog.
         let card = format!("{}1", desktop::PREFIX);
         let kept = format!("{}1", kept::PREFIX);
-        for label in [bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
+        for label in [bar::LABEL, peek::LABEL, quick::LABEL, waiting::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
             assert!(!shows_board(label), "{label}");
         }
     }

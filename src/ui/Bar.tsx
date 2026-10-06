@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
+import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, showWaiting, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
@@ -455,14 +455,14 @@ export function Bar() {
   const stage = useNotchStage(items, reviews, (key) => onBar.has(key) || reviews.some((r) => r.key === key), notch !== null);
   // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
   // session that waits (or puts it away), as a click on the notch does. With nothing on the bar
-  // to show, the quick panel opens instead.
+  // to show, the waiting window opens instead, and says so.
   const pressNow = useLatest(stage.press);
   const dockedNow = useLatest(notch !== null);
   useEffect(
     () =>
       onWaitingShortcut(() => {
         if (dockedNow.current && pressNow.current()) return;
-        void showQuick({ waiting: true });
+        void showWaiting();
       }),
     [pressNow, dockedNow],
   );
@@ -734,10 +734,10 @@ export function Bar() {
   };
 
   /** The reviews pill: docked in the notch, the one PR opens under the pills, as a session's pill
-   *  opens its session, and several drop a menu to pick from; floating, it shows the PR in
-   *  Codealong, or the quick panel's reply view when that's where you answer. */
+   *  opens its session, and several drop a menu to pick from; floating, it shows the PR in the
+   *  waiting window, with the box that reviews it. */
   const reviewsMenu = (e: MouseEvent<HTMLButtonElement>) => {
-    const to = (p: BarReview) => (notch ? stage.show(p.key) : void showQuick({ review: p.key, project: p.project || null }));
+    const to = (p: BarReview) => (notch ? stage.show(p.key) : void showWaiting({ key: p.key }));
     if (reviews.length === 1) {
       if (notch) stage.toggle(reviews[0].key);
       else to(reviews[0]);

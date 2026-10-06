@@ -1,6 +1,6 @@
 // A window's way through what waits on you (queue.ts has the rules): the sessions dealt with,
 // how the last one went, and the steps a key, a button or an answer takes. Sessions' panel in
-// the main window, the session in the notch and the quick panel's reply view all work through
+// the main window, the session in the notch and the waiting window all work through
 // their lists with it, so a key for getting about means one thing in all three. A window passes
 // only what differs: its rows, how it shows a session, and what's its own to do.
 
@@ -22,7 +22,7 @@ export function shownSession(s: Session): Shown {
   return { key: s.key, title: s.title, since: statusTime(s), seenable: seenable(s) };
 }
 
-/** How the queue reads rows that carry their session: Sessions' and the quick panel's. */
+/** How the queue reads rows that carry their session: Sessions'. */
 export const SESSION_READS: Reads<{ session: Session }> = {
   keyOf: (r) => r.session.key,
   sinceOf: (r) => statusTime(r.session),
@@ -42,12 +42,15 @@ export interface WaitingQueueOptions<T, H = undefined> extends Omit<QueueView<T>
   markSeen?: (key: string) => void;
 }
 
-export interface WaitingQueue<H = undefined> {
+export interface WaitingQueue<H = undefined, T = unknown> {
   /** What the strip over the header goes by: what's left after the session shown, the next, and
    *  whether it waits itself. Undefined with no session shown. */
   queue: Queue | undefined;
   /** How the last one went, on the session gone on to, or what the window said (`say`). */
   notice: Notice | null;
+  /** With nothing shown, the first that waits on you and hasn't been dealt with here (queue.ts
+   *  `firstLeft`): what the waiting window goes to. Null while something shows. */
+  first: T | null;
   /** Runs a key's action on the session shown (queue.ts `keyStep`). True when the queue took it;
    *  false when it's the window's own or the card's, or nothing shows. */
   run: (action: QueueAction, how?: H) => boolean;
@@ -70,7 +73,7 @@ export interface WaitingQueue<H = undefined> {
   fresh: () => void;
 }
 
-export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T, H>): WaitingQueue<H> {
+export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T, H>): WaitingQueue<H, T> {
   const handled = useRef<Handled>(new Map());
   // What the strip says, and the session it says it on: how one went is for the one gone on to,
   // not for whichever shows after a click elsewhere.
@@ -134,9 +137,10 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const next = useCallback(() => void run('next'), [run]);
 
   const stands = rules.standing(view, handled.current);
-  const first = stands?.left[0];
-  const queue: Queue | undefined = stands ? { left: stands.left.length, next: first !== undefined ? { title: view.reads.titleOf(first) } : null, onNext: next, waiting: stands.waiting } : undefined;
+  const after = stands?.left[0];
+  const queue: Queue | undefined = stands ? { left: stands.left.length, next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, waiting: stands.waiting } : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
+  const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);
 
-  return { queue, notice, run, onKey, answered, left, again, say, fresh };
+  return { queue, notice, first, run, onKey, answered, left, again, say, fresh };
 }

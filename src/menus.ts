@@ -116,14 +116,14 @@ export interface SessionCan {
   heading?: boolean;
   /** Shows it in the main window, from the other windows. */
   reveal?: () => void;
-  /** Answers it in this window: the peek from the bar, the quick panel's box. */
+  /** Answers it where this window does: the peek from the bar, the waiting window from the others. */
   reply?: () => void;
   editors?: Editors;
   /** New session here…, when it's more than the quick panel on the worktree. */
   newSession?: () => void;
   /** Add to todo and Remove from todo, where the todos are (the main window). */
   todos?: MenuSpec;
-  /** Asks for a new name, where this window asks (a sheet, the peek, the quick panel's box). */
+  /** Asks for a new name, where this window asks (a sheet, the peek, the waiting window). */
   rename?: () => void;
   /** The board's worktrees, for Move to worktree, where the window has the board. */
   worktrees?: Lane[];
@@ -133,7 +133,7 @@ export interface SessionCan {
   desktop?: ReadonlySet<string>;
   /** Archives or unarchives it, where that does more (an undo in the main window). */
   archive?: (archived: boolean) => void;
-  /** It left the list it was picked from, and how: the peek goes away, the quick panel's queue
+  /** It left the list it was picked from, and how: the peek goes away, the waiting window's queue
    *  and the notch's go on to the next. */
   left?: (done: Left) => void;
   /** Add to canvas, where there's a canvas. */

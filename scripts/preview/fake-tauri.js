@@ -505,6 +505,10 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
+    // The waiting window (preview.sh waiting) opens on PREVIEW_TRANSCRIPT's session when there is
+    // one, else on the first that waits on you; asking for it again only brings it up.
+    if (cmd === 'waiting_asked') return Promise.resolve(window.__WAITING_ASKED__ || null);
+    if (cmd === 'show_waiting') return Promise.resolve(null);
     // Nothing is pinned to the desktop until a check pushes `desktop-pins`.
     if (cmd === 'desktop_pins') return Promise.resolve([]);
     // A PNG is kept as an image to show; anything else as a file, by the name it came with.

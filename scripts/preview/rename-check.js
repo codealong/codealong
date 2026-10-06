@@ -1,12 +1,14 @@
 // Checks Rename… in a session's right-click menu, in every window that has one, and where the
 // name is typed: the main window's sheet (RenameDialog.tsx, and `r` on the list, ⌃⌘R in
-// Sessions, where `r` alone does nothing), and the name field the peek and the quick panel show
-// in the session header (SessionHeader.tsx). Run it in each:
+// Sessions, where `r` alone does nothing), and the name field the peek and the waiting window
+// show in the session header (SessionHeader.tsx), the quick panel's Rename… opening the waiting
+// window on it. Run it in each:
 //   scripts/preview.sh sessions '' scripts/preview/rename-check.js
 //   scripts/preview.sh worktrees '' scripts/preview/rename-check.js
 //   scripts/preview.sh bar '' scripts/preview/rename-check.js
 //   PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/rename-check.js
 //   scripts/preview.sh quick '' scripts/preview/rename-check.js
+//   scripts/preview.sh waiting '' scripts/preview/rename-check.js
 //   scripts/preview.sh peek '' scripts/preview/rename-check.js
 // The board needs a Claude Code, Codex or OpenCode session.
 (function () {
@@ -16,7 +18,7 @@
   var key = function (el, k) { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); };
   var renames = function () { return calls('rename_session'); };
   var NAME = 'Renamed in a preview';
-  var surface = window.__CODEALONG_PEEK__ ? 'peek' : window.__CODEALONG_QUICK__ ? 'quick' : window.__CODEALONG_DESKTOP__ ? 'desktop' : window.__CODEALONG_BAR__ ? 'bar' : 'main';
+  var surface = window.__CODEALONG_PEEK__ ? 'peek' : window.__CODEALONG_QUICK__ ? 'quick' : window.__CODEALONG_WAITING__ ? 'waiting' : window.__CODEALONG_DESKTOP__ ? 'desktop' : window.__CODEALONG_BAR__ ? 'bar' : 'main';
   say('rename check (' + surface + '): waiting');
 
   // The main window: the menu's Rename… opens the sheet on the name; Rename sends it and the row
@@ -116,8 +118,8 @@
     return;
   }
 
-  // The quick panel: Rename… on a session's row shows it with its name as a field; ⏎ renames it
-  // and it's back to the list.
+  // The quick panel: Rename… on a session's row hands it to the waiting window, with its name
+  // ready to change, and the panel puts itself away.
   if (surface === 'quick') {
     var sessionRow = function () { return document.querySelector('.ca-quick-row:not(.is-suggest):not(.is-todo):not(.is-more):not(.is-pr)'); };
     until(function () { return calls('quick_ready').length > 0 && !!sessionRow(); }, 20000)
@@ -128,6 +130,29 @@
       .then(function () {
         check('a session row’s menu has Rename…', labels().indexOf('Rename…') >= 0, labels().join('|'));
         choose('Rename…');
+        return until(function () { return calls('show_waiting').length > 0; }, 2000);
+      })
+      .then(function () {
+        var asked = calls('show_waiting').pop().context;
+        check('Rename… opens the waiting window on its name', !!asked.key && asked.rename === true, JSON.stringify(asked));
+        check('and the panel puts itself away', calls('hide_quick').length > 0);
+      })
+      .then(done)
+      .catch(stopped);
+    return;
+  }
+
+  // The waiting window, asked to show a session with its name ready to change: the name is a
+  // field with the keyboard; ⏎ renames it and the session stays.
+  if (surface === 'waiting') {
+    var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
+    var shown;
+    until(function () { return !!title(); }, 20000)
+      .then(function () { return window.__TAURI_INTERNALS__.invoke('get_board'); })
+      .then(function (b) {
+        var lane = b.lanes.find(function (l) { return !l.hidden && l.sessions.some(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; }); });
+        shown = lane.sessions.find(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; });
+        window.__emit('waiting-open', { key: shown.key, rename: true });
         return until(function () { return !!document.querySelector('.ca-sessinsp-name'); }, 2000);
       })
       .then(function () {
@@ -140,8 +165,8 @@
       })
       .then(function () {
         var r = renames().pop();
-        check('⏎ renames it', r && r.name === NAME, JSON.stringify(r));
-        check('and it’s back to the list', !document.querySelector('.ca-quick.is-reply') && !!document.querySelector('.ca-quick-list'));
+        check('⏎ renames it', r && r.key === shown.key && r.name === NAME, JSON.stringify(r));
+        check('and the session stays', title() === NAME, title());
       })
       .then(done)
       .catch(stopped);

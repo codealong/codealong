@@ -4,6 +4,7 @@
 //   PREVIEW_WAIT=20000 scripts/preview.sh bar '' scripts/preview/menus-check.js
 //   PREVIEW_WAIT=20000 scripts/preview.sh peek '' scripts/preview/menus-check.js
 //   PREVIEW_WAIT=20000 scripts/preview.sh quick '' scripts/preview/menus-check.js
+//   PREVIEW_WAIT=20000 scripts/preview.sh waiting '' scripts/preview/menus-check.js
 //   PREVIEW_WAIT=20000 scripts/preview.sh desktop '' scripts/preview/menus-check.js
 // The peek also drops its menu from the header's ⋯ button, which should list the same items.
 (function () {

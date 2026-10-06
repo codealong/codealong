@@ -3,15 +3,14 @@
 // prompt at all, and the first with prompts 1 to 3. ⌘⇧↑ in the box brings up the latest prompt,
 // then the one before; ⌘↑ in the box is the box's; from the list ⌘↑ and ⌘↓ jump and the list's
 // selection stays; up past what's read reads on through the page with no prompt to the one before
-// it; ⌘↓ past the last prompt goes to the end. In the quick panel, ⇥ opens it and the keys work
+// it; ⌘↓ past the last prompt goes to the end. The waiting window opens on it, and the keys work
 // from its box the same way. A second session whose newest page has no prompt, nor the one before
 // it, pins the prompt two pages back from the start, and a click on it reads up to it with the
 // pages already read.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/prompt-jump-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/prompt-jump-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/prompt-jump-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
-  localStorage.setItem('codealong.quick.project', 'All projects');
   var now = Date.now();
   var picked = null;
   var long = function (what) {
@@ -54,7 +53,7 @@
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread' || s.status === 'working') s.status = 'idle';
           if (pickedB || l.hidden || s.visitor || s.archived) return;
           s.status = 'unread';
-          // A's turn ended last, so the quick panel's ⇥ answers it first.
+          // A's turn ended last, so the waiting window opens on it first.
           s.statusSince = now - (picked ? 120e3 : 60e3);
           s.lastActivity = s.statusSince;
           s.hosted = false;
@@ -64,13 +63,13 @@
           else picked = { key: s.key, lane: l.id };
         });
       });
-      // No PR waits on your review either: a review would come before A in the quick panel's list.
+      // No PR waits on your review either: a review would come before A in the waiting window.
       (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
       return board;
     });
   };
 
-  var quick = function () { return !!document.querySelector('.ca-quick'); };
+  var inWindow = function () { return !!document.querySelector('.ca-waiting'); };
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea, .ca-reply .ca-composer textarea'); };
   var thread = function () { return document.querySelector('.ca-sessinsp .ca-thread, .ca-reply .ca-thread'); };
@@ -142,12 +141,11 @@
       });
   };
 
-  // The quick panel's reply view: its box, both ways, and on to the end.
-  var inQuick = function () {
-    key(document.querySelector('.ca-quick-input textarea'), { key: 'Tab' });
+  // The waiting window: its box, both ways, and on to the end.
+  var waiting = function () {
     return opened()
       .then(function () {
-        check('⇥ opens it at the end', title() === 'Jump A' && atEnd(), title());
+        check('it opens at the end', title() === 'Jump A' && atEnd(), title());
         check('with the cursor in its box', document.activeElement === box());
         return press({ shiftKey: true });
       })
@@ -174,10 +172,10 @@
   };
 
   say('prompt jump check: waiting for the list');
-  until(function () { return pickedB && (row() || document.querySelector('.ca-quick-input textarea')); }, 20000)
+  until(function () { return pickedB && (row() || inWindow()); }, 20000)
     .then(function () { return wait(300); })
     .then(function () {
-      if (quick()) return inQuick().then(function () { throw 'quick'; });
+      if (inWindow()) return waiting().then(function () { throw 'waiting'; });
     })
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
@@ -260,6 +258,6 @@
         });
       });
     })
-    .catch(function (e) { if (e !== 'quick') check('ran', false, String(e) + ' picked ' + !!picked + ' ' + !!pickedB + ' quick ' + quick()); })
+    .catch(function (e) { if (e !== 'waiting') check('ran', false, String(e) + ' picked ' + !!picked + ' ' + !!pickedB + ' waiting ' + inWindow()); })
     .then(done);
 })();

@@ -8,6 +8,7 @@ import { DesktopLines } from './ui/DesktopLines';
 import { DesktopPin } from './ui/DesktopPin';
 import { Peek } from './ui/Peek';
 import { Quick } from './ui/Quick';
+import { Waiting } from './ui/Waiting';
 import './styles/app.css';
 
 declare global {
@@ -16,6 +17,8 @@ declare global {
     __CODEALONG_BAR__?: boolean;
     /** Set on the quick panel's window before the page loads. */
     __CODEALONG_QUICK__?: boolean;
+    /** Set on the waiting window before the page loads. */
+    __CODEALONG_WAITING__?: boolean;
     /** Set on the floating bar's peek before the page loads. */
     __CODEALONG_PEEK__?: boolean;
     /** Set on the window of a session kept on the desktop before the page loads. */
@@ -28,25 +31,27 @@ declare global {
 }
 
 // Every window loads this page; the floating bar's shows the bar, its peek's the peek, a session
-// kept on the desktop's that session as the peek shows it, the quick panel's the panel, a card
-// pinned to the desktop's the card, and the window under the cards the lines between them,
-// instead of the board.
+// kept on the desktop's that session as the peek shows it, the quick panel's the panel, the
+// waiting window what waits on you, a card pinned to the desktop's the card, and the window under
+// the cards the lines between them, instead of the board.
 const isBar = window.__CODEALONG_BAR__ === true;
 const isQuick = window.__CODEALONG_QUICK__ === true;
+const isWaiting = window.__CODEALONG_WAITING__ === true;
 const isKept = window.__CODEALONG_KEPT__ === true;
 const isPeek = window.__CODEALONG_PEEK__ === true || isKept;
 const isDesktop = window.__CODEALONG_DESKTOP__ === true;
 const isLineage = window.__CODEALONG_LINEAGE__ === true;
 if (isBar) document.documentElement.classList.add('is-bar');
 if (isQuick) document.documentElement.classList.add('is-quick');
+if (isWaiting) document.documentElement.classList.add('is-waiting');
 if (isPeek) document.documentElement.classList.add('is-peek');
 if (isDesktop) document.documentElement.classList.add('is-desktop');
 if (isLineage) document.documentElement.classList.add('is-lineage');
 // The board's windows draw the notices, at the end of the accounts bar: their own, and those the
 // other windows hand on.
-if (!isBar && !isQuick && !isPeek && !isDesktop && !isLineage) drawNoticesHere();
+if (!isBar && !isQuick && !isWaiting && !isPeek && !isDesktop && !isLineage) drawNoticesHere();
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isPeek ? <Peek kept={isKept} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
+createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isPeek ? <Peek kept={isKept} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
 
 watchCaret();
 

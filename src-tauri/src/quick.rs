@@ -2,9 +2,9 @@
 //! the sessions that need you; typing finds sessions; its last row starts a new one with what
 //! you typed as the prompt. A shortcut that works in every app (`[shortcuts] quick_panel` in
 //! config.toml) opens it, and so do ⌘N and New session in the board's windows, at what's
-//! selected there. A second one (`[shortcuts] waiting`) opens it on the first session that waits
-//! on you, to answer one after another, unless the bar is docked in the notch: then the notch
-//! does that (`work_through`).
+//! selected there. Answering what waits on you, one after another, is the waiting window's
+//! (waiting.rs), which a second shortcut (`[shortcuts] waiting`) brings up, unless the bar is
+//! docked in the notch: then the notch does that (`work_through`). Both shortcuts are kept here.
 //!
 //! Like the floating bar it's a non-activating panel: macOS shows only those on another app's
 //! full-screen Space, and opening one leaves the app you're in active, with Codealong's windows
@@ -310,14 +310,14 @@ fn toggle_for(app: &AppHandle, context: Value) {
 
 /// The shortcut that goes through what waits on you. Docked in the notch, the bar's page opens
 /// the notch on the session that waits (or puts it away), as a click on the notch does; otherwise
-/// the panel opens on the first session that waits on you, working through them as ⇥ on one
-/// does, or hides. On the main thread.
+/// the waiting window comes up (waiting.rs), or goes away when it's the window you're in. On the
+/// main thread.
 pub fn work_through(app: &AppHandle) {
     if crate::bar::mode_of(app) == crate::bar::Mode::Notch && app.get_webview_window(crate::bar::LABEL).is_some() {
         let _ = app.emit_to(crate::bar::LABEL, "waiting-shortcut", ());
         return;
     }
-    toggle_for(app, serde_json::json!({ "waiting": true }));
+    crate::waiting::toggle(app);
 }
 
 /// One of Codealong's shortcuts was pressed: the quick panel's opens or hides it, the other goes

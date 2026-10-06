@@ -278,7 +278,7 @@ pub struct ShortcutsCfg {
     #[serde(default = "default_quick_panel")]
     pub quick_panel: String,
     /// Opens the first session that waits on you, to answer one after another: in the notch when
-    /// the bar is docked there, else in the quick panel.
+    /// the bar is docked there, else in the waiting window.
     #[serde(default = "default_waiting")]
     pub waiting: String,
 }
@@ -606,7 +606,7 @@ const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then,
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const PULL_REQUESTS_COMMENT: &str = "# When a PR of yours is approved. when_approved: \"nothing\" leaves it to the board; \"nudge\" sends the sessions\n# that worked on it and still run here a message saying so, as one of yours, so they take it from there.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
-const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the quick panel.\n";
+const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
 /// from an Open in menu is the one Open in <editor> uses from then on.

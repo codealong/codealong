@@ -6,6 +6,7 @@ paths:
   - "src-tauri/src/peek.rs"
   - "src-tauri/src/kept.rs"
   - "src-tauri/src/quick.rs"
+  - "src-tauri/src/waiting.rs"
   - "src-tauri/src/desktop.rs"
   - "src-tauri/src/lineage.rs"
   - "src-tauri/src/front.rs"
@@ -18,6 +19,7 @@ paths:
   - "src/ui/Notch*.tsx"
   - "src/ui/Peek.tsx"
   - "src/ui/Quick.tsx"
+  - "src/ui/Waiting.tsx"
   - "src/ui/DesktopPin.tsx"
   - "src/ui/DesktopLines.tsx"
   - "src/bar.ts"
@@ -98,6 +100,12 @@ under `src-tauri/src/`.
   `focused(false)` doesn't do by itself. It follows the board only while it's up, and an open
   brings the board in the script that opens the page: `quick.rs` (module header), `panel.rs`
   (`present`, `take_keys`, `Keys::Always`), `src/ui/Quick.tsx`.
+- The waiting window is an ordinary window, not a panel: it activates Codealong (`set_focus`),
+  sizes natively, and so doesn't go onto another app's full-screen Space. It's made on first open
+  and hidden on close; its page reads what the latest open asked for as it comes up, and hears
+  later opens as `waiting-open`. The shortcut that puts it away gives the keyboard back to the
+  app that had it, by bundle ID (`front::frontmost_other`; NSRunningApplication's
+  `processIdentifier` needs objc2-app-kit's `libc` feature, which isn't on): `waiting.rs`.
 - The peek: hover shows it without the keyboard, a click gives it the keyboard, it watches the
   pointer to close, keeps a thin margin on the bar's side, and is dragged from the engine:
   `peek.rs` (module header, `watch_pointer`, `NEAR`, `drag`), `panel.rs` (`Keys::OnClick`).
@@ -117,6 +125,12 @@ under `src-tauri/src/`.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
 
 ## Unchecked
+
+- Not yet checked by hand (2026-10-06): the waiting window in the real app. Whether ⌥⌘. from
+  another app brings only it forward or Codealong's other windows too (`set_focus` is tao's
+  `makeKeyAndOrderFront` and `activateIgnoringOtherApps`); that ⌥⌘. again gives the keyboard back
+  to that app; that Window › Waiting on you opens it; that where it was is kept across a relaunch.
+  The preview only shows its page.
 
 - Not yet checked by hand (2026-10-05): that the app you were in gets its keys back at once when
   the unseen panel takes them from the docked bar and is ordered out, and that the notch no

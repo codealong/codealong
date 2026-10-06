@@ -228,7 +228,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
             other={{ value: cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL, name: 'the quick panel’s shortcut' }}
             onChange={(waiting) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, waiting } })}
           />
-          <small>Opens the first session that waits on you, from any app, to answer one after another: in the notch when the bar is docked there, else in the quick panel. Press it again to put it away.</small>
+          <small>Opens the first session that waits on you, from any app, to answer one after another: in the notch when the bar is docked there, else in a window of its own. Press it again to put it away.</small>
         </div>
         <label className="ca-field">
           <span>Search what sessions said</span>

@@ -1,7 +1,7 @@
 // Checks the shortcut that goes through what waits on you with the bar docked in the notch
 // (quick.rs `work_through`, Bar.tsx): pressed, the notch opens on the first session that waits,
 // with the keyboard, as a click on the notch does; pressed again, it puts it away and gives the
-// keyboard back; and with nothing on the bar to show, the quick panel opens on what waits.
+// keyboard back; and with nothing on the bar to show, the waiting window opens.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-waiting-check.js
 (function () {
   var calls = sent;
@@ -45,7 +45,7 @@
     .then(function () { return wait(500); })
     .then(function () {
       check('pressed again it puts it away and gives the keyboard back', !is('open') && keysCalls().join() === 'true,false', keysCalls().join());
-      check('the quick panel stays out of it', calls('show_quick').length === 0, JSON.stringify(calls('show_quick')));
+      check('the waiting window stays out of it', calls('show_waiting').length === 0, JSON.stringify(calls('show_waiting')));
       // Nothing on the bar to show.
       return feed.then(function (f) { window.__emit('bar-feed', Object.assign({}, f, { items: [] })); return wait(400); });
     })
@@ -54,8 +54,9 @@
       return wait(400);
     })
     .then(function () {
-      var asked = calls('show_quick');
-      check('with nothing on the bar the quick panel opens on what waits', asked.length === 1 && asked[0].context.waiting === true, JSON.stringify(asked));
+      var asked = calls('show_waiting');
+      check('with nothing on the bar the waiting window opens', asked.length === 1 && !asked[0].context.key, JSON.stringify(asked));
+      check('and the quick panel stays out of it', calls('show_quick').length === 0, JSON.stringify(calls('show_quick')));
     })
     .then(done)
     .catch(function (e) { stopped(e.message + ' (' + (notch() ? notch().className : 'no notch') + ')'); });

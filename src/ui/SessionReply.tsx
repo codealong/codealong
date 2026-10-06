@@ -3,7 +3,7 @@
 // harness can be answered from here (harness.rs: OpenCode through its service, Claude Code by a
 // keypress in its Ghostty, iTerm2 or tmux tab, once its own record says the prompt is up). Otherwise it
 // offers to open the session to answer there; questions it asks still show, to read before you go.
-// The session panel, the floating bar's peek and the quick panel's reply view all end with it.
+// The session panel, the floating bar's peek and the waiting window all end with it.
 //
 // The box stays while the session waits on you, so a session that starts waiting as you type
 // doesn't take what you wrote away. While it waits on a call Codealong can answer, sending what
@@ -559,7 +559,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
               return;
             }
             // While it waits on you ⏎ denies it with what you wrote, where it can be answered here
-            // (and sends nothing elsewhere), and ⌘⏎ goes on to Allow (the quick panel's).
+            // (and sends nothing elsewhere), and ⌘⏎ goes on to Allow (the waiting window's).
             if (waiting && e.metaKey) return;
             e.preventDefault();
             if (send() && e.metaKey) onNext?.('sent.');
@@ -616,7 +616,7 @@ interface ApprovalProps {
   /** After an answer went through, with what happened. */
   onAnswered?: (said: string) => void;
   /** ⌘⏎ allows and ⌘⌫ denies from anywhere in the window, where the keyboard is the way in
-   *  (the quick panel, the notch). */
+   *  (the waiting window, the notch). */
   keys?: boolean;
   /** Hands the box the call's keys (null while there's nothing to answer here): ⌘⏎ allows,
    *  then goes on to the next with `onNext` where there is one, and ⌘⌫ denies. */
@@ -795,7 +795,7 @@ interface QuestionsProps {
   /** Where the session runs, for its Open link; none for one Codealong runs. */
   where: string | null;
   onOpen: () => void;
-  /** ⌘⏎ answers, where the keyboard is the way in (the quick panel). */
+  /** ⌘⏎ answers, where the keyboard is the way in (the waiting window). */
   keys?: boolean;
   busy: boolean;
   note: { text: string; error: boolean } | null;

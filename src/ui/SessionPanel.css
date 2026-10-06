@@ -30,8 +30,8 @@
   overflow-wrap: anywhere;
 }
 
-/* A session as a card of its own (SessionPanel.tsx): the floating bar's peek and the quick panel's
-   reply view. Its header, the one its panel has in the main window, stays put; the conversation
+/* A session as a card of its own (SessionPanel.tsx): the floating bar's peek and the waiting
+   window. Its header, the one its panel has in the main window, stays put; the conversation
    scrolls between it and the box. */
 .ca-reply {
   display: flex;

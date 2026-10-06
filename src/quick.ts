@@ -48,7 +48,8 @@ export interface SessionRow {
 }
 
 /** A PR waiting on your review, in the empty panel's list among the sessions, keyed by the PR's
- *  key (`owner/name#12`), which no session's key looks like. ⏎ on it reviews it in the panel. */
+ *  key (`owner/name#12`), which no session's key looks like. ⏎ on it reviews it in the waiting
+ *  window. */
 export interface ReviewRow {
   kind: 'review';
   key: string;
@@ -57,7 +58,7 @@ export interface ReviewRow {
   marks: [number, number][];
 }
 
-/** A row the reply view works through: a session, or a review asked of you. */
+/** A row the waiting window works through: a session, or a review asked of you. */
 export type QueueRow = SessionRow | ReviewRow;
 
 /** When a review began waiting on you, as the queue keeps it for the ones dealt with (queue.ts
@@ -124,10 +125,10 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
 const ORDER: RowGroup[] = ['needs', 'unread', 'working'];
 
 /**
- * What the reply view works through when you answer one from the empty panel's list: every
- * session in the project that needs you, the longest wait first, then the PRs waiting on your
- * review, then the sessions whose turn ended, the newest first, as the list has them. queue.ts
- * has how it goes from one to the next.
+ * What the waiting window works through (Waiting.tsx): every session in the project that needs
+ * you, the longest wait first, then the PRs waiting on your review, then the sessions whose turn
+ * ended, the newest first, as the empty panel's list has them. queue.ts has how it goes from one
+ * to the next.
  */
 export function queueRows(board: Board, project: string): QueueRow[] {
   return attentionRows(board, project, Infinity).rows.filter((r) => r.group !== 'working');

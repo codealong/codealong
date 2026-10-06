@@ -25,15 +25,13 @@ export interface QuickSize {
   room: number | null;
   /** Jev's suggestions and the search of what sessions said are in for what's typed. */
   answered: boolean;
-  /** The session answered in place of the list, if one is. */
-  replyingKey: string | null;
   /** Who opens the panel while it's being laid out: the script that returns the height, or the page. */
   opening: MutableRefObject<'script' | 'page' | null>;
   /** The height last reported, which the opening script returns. */
   reported: MutableRefObject<number>;
 }
 
-export function useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered, replyingKey, opening, reported }: QuickSize): void {
+export function useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered, opening, reported }: QuickSize): void {
   // The window is as tall as the card, or an open menu where it reaches below the card.
   const measure = useCallback(() => {
     const c = card.current?.getBoundingClientRect();
@@ -91,18 +89,4 @@ export function useQuickSize({ card, list, scroller, input, text, opens, shown, 
     reported.current = h;
     void fitQuick(h);
   });
-  // Answering a session, the conversation loads and grows on its own, without the panel drawing
-  // again: the window follows the card.
-  useLayoutEffect(() => {
-    const el = card.current;
-    if (!replyingKey || !el || !shown || opens === 0) return;
-    const observer = new ResizeObserver(() => {
-      const h = measure();
-      if (h === reported.current) return;
-      reported.current = h;
-      void fitQuick(h);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [replyingKey, shown, opens, measure, card, reported]);
 }

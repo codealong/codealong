@@ -198,16 +198,16 @@ Each rule names the file whose header has the rest.
 - One thing, one component, wherever it shows: a card's face is `src/ui/card/` (`CanvasCard.tsx`
   and `DesktopPin.tsx` add where it goes and what a click does); a session with its conversation
   is `ui/SessionPanel.tsx`, its header `ui/SessionHeader.tsx`; and every window that shows one
-  session as a card (the peek, a kept session, the notch, the quick panel's reply view) goes
+  session as a card (the peek, a kept session, the notch, the waiting window) goes
   through `ui/SessionCard.tsx`, the ones that aren't the board's reading through
   `ui/cardHost.ts`; a PR waiting on your review, shown with a box to review it in the notch and
-  the quick panel, is `ui/PrCard.tsx` the same way (the PR panel's `PrDetails`, the strip, the
+  the waiting window, is `ui/PrCard.tsx` the same way (the PR panel's `PrDetails`, the strip, the
   box, its chords in `menus.ts` `PR_CHORDS`; a review is one engine command, `review_pr`). A
   change goes there, never into one window's file.
 - Keys for getting about what waits on you are `src/queue.ts`'s (`QUEUE_CHORDS`, `keyStep`),
   which `useWaitingQueue` runs for each window over its rows: sessions and the PRs waiting on
-  your review as one list (`bar.ts` `notchRows` for the notch, `quick.ts` `attentionRows` for
-  the quick panel), a review leaving it through `left` as a snoozed session does. An action's key
+  your review as one list (`bar.ts` `notchRows` for the notch, `quick.ts` `queueRows` for
+  the waiting window), a review leaving it through `left` as a snoozed session does. An action's key
   is in `menus.ts` `CHORDS` and shows on the queue strip, in the menus and in every window at
   once. No key is written into one window or into the strip.
 - Skills are listed by the engine (skills.rs) and named by each harness's adapter; the windows

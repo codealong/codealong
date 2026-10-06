@@ -1135,14 +1135,6 @@ export interface QuickOpen {
   opener?: string | null;
   /** Brings the panel back as you left it (after a failed start). */
   keep?: boolean;
-  /** A session to answer: the panel opens on its conversation and a box for the reply. */
-  reply?: string | null;
-  /** A PR waiting on your review, by its key: the panel opens on its card, with the box that
-   *  reviews it. */
-  review?: string | null;
-  /** The shortcut that goes through what waits on you: the panel opens on the first session that
-   *  does, to answer one after another, as ⇥ on one in its list does. With none, it opens as usual. */
-  waiting?: boolean;
   /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
    *  part. quick.rs adds it to every open. */
   room?: number;
@@ -1176,6 +1168,37 @@ export async function fitQuick(height: number): Promise<void> {
 /** Calls `cb` when the quick panel has hidden, by Escape, a click elsewhere or its shortcut. */
 export function onQuickHidden(cb: () => void): () => void {
   return onWindowEvent<null>('quick-hidden', () => cb());
+}
+
+/** What the waiting window opens for (waiting.rs). With nothing, it shows the session it shows
+ *  while it's up, else the first that waits on you. */
+export interface WaitingOpen {
+  /** A session, or a PR waiting on your review, to show first. */
+  key?: string | null;
+  /** With its name ready to change. */
+  rename?: boolean;
+}
+
+/** Brings up the window that works through what waits on you. */
+export async function showWaiting(context: WaitingOpen = {}): Promise<void> {
+  if (!inTauri) return;
+  await invoke('show_waiting', { context });
+}
+
+/** What the latest open of the waiting window asked for, for its page as it comes up. */
+export async function waitingAsked(): Promise<WaitingOpen | null> {
+  if (!inTauri) return null;
+  return invoke<WaitingOpen | null>('waiting_asked');
+}
+
+/** Calls `cb` as the waiting window is brought up again, with what for. */
+export function onWaitingOpen(cb: (context: WaitingOpen | null) => void): () => void {
+  return onWindowEvent<WaitingOpen | null>('waiting-open', cb);
+}
+
+/** Calls `cb` when the waiting window is put away. */
+export function onWaitingHidden(cb: () => void): () => void {
+  return onWindowEvent<null>('waiting-hidden', () => cb());
 }
 
 /** Starts a session from the quick panel and brings the app it started in forward. */

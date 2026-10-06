@@ -56,8 +56,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     tab, closes that tab whatever the session is doing, and End background job stops a Claude
     Code background job; either way its conversation is kept and resumes. Rename a session
     with ⌃⌘R (`r` elsewhere) or its right-click menu, here or wherever a session has one
-    (the floating bar's pills, cards on the desktop and the quick panel's rows change the name
-    in place). The name
+    (the floating bar's pills and cards on the desktop change the name in place, and the quick
+    panel's rows in the waiting window). The name
     goes where its harness keeps names, so the harness shows it too: a Claude Code session's
     transcript, which `/resume` lists it by and a running session takes up, in its terminal's
     title too, the next time it reads its transcript's end; a Codex thread, which the Codex app
@@ -104,7 +104,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     spend limit shows on no meter). Moved, it's told to carry on where it stopped. `[limits]
     when_hit = "move"` (Settings › Accounts) moves it there by itself, as soon as it stops; a
     session moved there that stops again is offered a move rather than moved back.
-    Move to worktree, in the same menu (in the main window and the quick panel), moves a Claude
+    Move to worktree, in the same menu (in the main window, the quick panel and the waiting
+    window), moves a Claude
     Code session that runs in a terminal or in the background, or isn't running, to another
     worktree on this Mac (listed by project) or to a chat of its own. It's closed where it runs
     and goes on in the new folder as itself, with the same ID, so it keeps its todos, its pin and
@@ -154,9 +155,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
     terminal where the session works, or where the command ran, and types the commands there
     without their comments. The box at the bottom sends it a message where it runs,
-    as the quick panel does; paste a screenshot or a file into it and the agent gets its path,
+    as the waiting window does; paste a screenshot or a file into it and the agent gets its path,
     and what you'd written to a session and not sent stays with that session until you send
-    it, in every window (the panel, the floating bar's peek, the quick panel) and across
+    it, in every window (the panel, the floating bar's peek, the waiting window) and across
     restarts. A session whose last reply asks you something (Jev's read) takes your answer there
     like any message. A Claude Code turn stopped before any reply takes its prompt back, so the
     agent never sees it: the panel shows that prompt faint, marked "Taken back", and puts it back
@@ -384,10 +385,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   carried several merged PRs.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
-  it what you can do next. A second shortcut, ⌥⌘. (`[shortcuts] waiting`), goes through what
-  waits on you from any app: with the bar docked in the notch it opens the notch on the session
-  that waits, as a click on the notch does; otherwise it opens this panel on the longest wait,
-  as ⇥ on it would, to answer one after another. Pressed again, it puts it away. With nothing typed it lists the sessions that need you, the
+  it what you can do next: it finds and starts, and answering is the waiting window's (below).
+  With nothing typed it lists the sessions that need you, the
   longest wait first as on the floating bar, then the PRs waiting on your review under Review
   requested, the longest wait first, then the sessions whose turn ended (the working ones when nothing waits on you), and under them the first
   three todos ready to start, in your order. Typed words find
@@ -402,26 +401,35 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   lives. ⏎ on a todo
   shows its session the same way, or, when it has none, gets a session ready to start for it (its prompt,
   its worktree, linked to it); on a PR it opens the PR on GitHub, and the PR's right-click menu
-  copies its link. ⏎ or ⇥ on a PR under Review requested reviews it here: its card takes the
-  panel, with the PR's details and a box at its foot, and the same keys work through it as through
-  the sessions (below, in the notch). The last row starts a new session with what you typed as its
-  prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
-  shows a todo or PR in Codealong, ⌘1 to ⌘9 do a row, Escape closes. ⇥ on a
-  session answers it in the panel: its conversation, and a box that sends it a message where it
-  runs (⏎ sends and closes the panel), or what it waits on you to allow, with Allow and Deny
-  (⌘⏎ allows, ⌘⌫ denies); Escape goes back to the list. It's the card the bar's peek shows: the same
-  header (the ways to open the session, the check, ⋯), the session's whole menu on ⋯ and on a
-  right-click (snooze, archive, pin, rename, show in Codealong and the rest), and the Sessions
-  list's shortcuts for it: ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it, ⌃⌘P pins it in
-  Sessions. Answered from the list with nothing typed, the
-  panel works through what waits on you: once a session is sent a message, allowed, marked
-  seen, snoozed or archived, the next one that waits on you takes its place, and a line at the
-  top says how the last one went and how many are left. ⌘] skips to the next (a skipped one
-  comes round again after the rest), and after the last one the panel closes. A message that
-  doesn't go is back in its session's box, and that session comes round again. Each open starts empty,
+  copies its link. ⏎ or ⇥ on a PR under Review requested reviews it in the waiting window, and
+  ⇥ on a session answers it there; the panel puts itself away. The last row starts a new session
+  with what you typed as its prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
+  shows a todo or PR in Codealong, ⌘1 to ⌘9 do a row, Escape closes. Each open starts empty,
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list doesn't shrink until you pause and the answers are in, so the panel holds still. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
+- **Waiting on you** (⌥⌘. from any app, `[shortcuts] waiting`; Window › Waiting on you; ⇥ on a
+  session in the quick panel): a window of its own, sized and placed as you like and kept up
+  until you close it, that works through what waits on you one at a time: every session that
+  needs you, the longest wait first, then the PRs waiting on your review, then the sessions whose
+  turn ended, newest first, snoozed ones left out. With the bar docked in the notch, ⌥⌘. opens the
+  notch instead, as a click on the notch does. Pressed while the window is the one you're in, ⌥⌘.
+  puts it away and gives the keyboard back to the app you were in. A session shows as the card the
+  bar's peek shows: the same header (the ways to open the session, the check, ⋯), the session's
+  whole menu on ⋯ and on a right-click, its conversation, and a box that sends it a message where
+  it runs (⏎ sends and stays, to watch the reply; ⌘⏎ sends and goes on to the next), or what it
+  waits on you to allow, with Allow and Deny (⌘⏎ allows, ⌘⌫ denies). A PR shows with its details
+  and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts a review session on
+  an account). A strip at the top has what's commonly done, with its keys (⌘E marks a finished
+  turn seen, ⌃⌘1 to ⌃⌘4 snooze, ⌃⌘A archives, ⌃⌘R renames, ⌃⌘P pins it in Sessions), and says how
+  the last one went and how many are left. Once one is sent a message, allowed, reviewed, marked
+  seen, snoozed or archived, the next that waits on you takes its place. ⌘] or ⌥⇧↓ skips to the
+  next (a skipped one comes round again after the rest) and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along what
+  waits, and ⌃- ⌃⇧- go back and forward through the ones you looked at. A message that doesn't go
+  is back in its session's box, and that session comes round again. With nothing left it says
+  nothing waits on you, and the next that comes to wait on you shows by itself. Brought up again
+  while it's open, it stays where you were; closed and brought up again, it starts on the longest
+  wait. Where it was is kept for the next launch.
 - **Session status from Jev** (optional; Settings › Jev, `[jev] sessions`): once per turn,
   Jev reads the end of the last reply and the command a session runs or waits on. A reply
   that asks you something turns *Your turn* into *Needs you*, with the question; a busy session
@@ -550,7 +558,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Floating bar**: a small bar on top of every window, on every Space and over full-screen
   apps, with a pill for each agent that needs you, whose turn just ended, or that's running,
   one for PRs waiting on your review (its menu lists each with its repo and who asked; a click
-  opens the quick panel on the PR's card, to review it there), and
+  opens the waiting window on the PR's card, to review it there), and
   one for todos ready to start. The project button
   beside the mark shows one project or all of them; a badge on it counts what needs you in the
   others. Rest the pointer on a session's pill and its peek opens under the bar: the session's
@@ -663,7 +671,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   names the session it was forked from, moved from or started by over its title, and shows the latest one that came of it under the title,
   with its status and a "+N more" for the rest; a click shows one and a right-click gives its
   menu, so Pin to desktop there
-  puts its card beside the one you're on. The bar's peek and the quick panel's reply view have
+  puts its card beside the one you're on. The bar's peek and the waiting window have
   the same header, and its card's popover on the canvas lists them too. On the canvas, hovering or selecting a session draws a line from the session
   it came from and to the ones that came of it, and a session's card on the desktop does the
   same to the cards of those sessions pinned on the same screen.
@@ -784,7 +792,7 @@ theme = "system"               # follows macOS; or "light", "dark"
 
 [shortcuts]
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
-waiting = "Option+Cmd+."            # the first session that waits on you: the notch, or the quick panel
+waiting = "Option+Cmd+."            # the first session that waits on you: the notch, or the waiting window
 
 [jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
 model = "jev-latest"
@@ -933,13 +941,14 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/previews.rs`, `src-tauri/src/chrome.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL and Chrome profile (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; Chrome's profiles and opening a page in one; the row's chip, the panel's section and the URL sheet |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
-| `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut and the waiting window's, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/waiting.rs`, `src/ui/Waiting.tsx` | The waiting window: an ordinary window, made when first asked for and hidden on close, that keeps where it was, comes from ⌥⌘., Window › Waiting on you and ⇥ in the quick panel, and works through what waits on you one card at a time (`quick.ts` `queueRows`, `queue.ts`) |
 | `src-tauri/src/harness.rs` | The interface each harness implements: an `Adapter` for a session (its record and conversation, what it waits on you to allow, opening, sending, starting, searching, renaming with `src/ui/RenameDialog.tsx`) and for an account, and a `Reader` that reads its sessions for the board; CLAUDE.md's "Adding a harness" lists it all |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
-| `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's card (`ui/SessionCard.tsx`), as the quick panel's ⇥ does |
+| `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's card (`ui/SessionCard.tsx`), as the waiting window does |
 | `src/ui/Notch.tsx`, `src/ui/NotchSession.tsx`, `src/ui/NotchReview.tsx` | The bar docked in the notch: its three states (closed, the pills, a session or a review under them) shown through one clip, and what it shows in place of a peek: which session or PR, the queue of both it works through and its keys |
-| `src/ui/PrCard.tsx`, `src/review.ts` | A PR waiting on your review as a card of its own, in the notch and the quick panel's reply view: the PR panel's details with the strip over them, the box that approves, comments or asks for changes, the PR's menu and its chords; and Review with…, which starts a review session on an account or opens the Codex app's review page |
-| `src/ui/SessionCard.tsx`, `src/ui/cardHost.ts` | A session as a card of its own, for the peek, a session kept on the desktop, the session in the notch and the quick panel's reply view: the session's panel with its menus, what's around it and its shortcuts wired once; and, for the windows that aren't the board's, the session kept up with the board while its card is up |
+| `src/ui/PrCard.tsx`, `src/review.ts` | A PR waiting on your review as a card of its own, in the notch and the waiting window: the PR panel's details with the strip over them, the box that approves, comments or asks for changes, the PR's menu and its chords; and Review with…, which starts a review session on an account or opens the Codex app's review page |
+| `src/ui/SessionCard.tsx`, `src/ui/cardHost.ts` | A session as a card of its own, for the peek, a session kept on the desktop, the session in the notch and the waiting window: the session's panel with its menus, what's around it and its shortcuts wired once; and, for the windows that aren't the board's, the session kept up with the board while its card is up |
 | `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek or the notch: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/skills.rs`, `src/skills.ts`, `src/useSkills.ts`, `src/ui/SlashList.tsx` | Skills by name: the folders each harness reads them from (`Adapter::worktree_skills`, `account_skills`) listed once by name with how each harness is told to run one, the `/` lists of the quick panel and the reply box, the repo a skill picks and the accounts it leaves out |

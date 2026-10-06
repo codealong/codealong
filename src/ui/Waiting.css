@@ -1,0 +1,32 @@
+/* The waiting window (Waiting.tsx): an ordinary window that the card of what waits on you fills,
+   whatever size you drag it to. The header and the box stay put and the conversation scrolls
+   between them, as in the card's other windows. */
+
+html.is-waiting body {
+  background: var(--surface-raised);
+}
+.ca-waiting {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+/* Nothing waits on you, or the board isn't read yet. */
+.ca-waiting-empty {
+  margin: auto;
+  max-width: 360px;
+  padding: var(--space-6);
+  color: var(--ink-3);
+  font: var(--type-body);
+  text-align: center;
+}
+.ca-waiting-empty h1 {
+  margin: 0 0 var(--space-2);
+  color: var(--ink);
+  font: var(--type-heading);
+}
+.ca-waiting-empty p {
+  margin: 0;
+}

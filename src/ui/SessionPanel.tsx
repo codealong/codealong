@@ -2,7 +2,7 @@
 // top (SessionHeader.tsx), its whole conversation in the middle (SessionThread.tsx), and at the
 // bottom a box that sends it a message where it runs, or what it waits on you to allow
 // (SessionReply.tsx). The main window shows it as a panel, on the canvas and in Sessions; the
-// floating bar's peek, a session kept on the desktop and the quick panel's reply view show it as a
+// floating bar's peek, a session kept on the desktop and the waiting window show it as a
 // card of their own (SessionCard.tsx, which wires it the same for all three), for the pill under
 // the pointer, the session kept and the one picked there, and a right-click anywhere on the card
 // but the box gives the session's menu. In a panel the header gives it (SessionHeader.tsx): the
@@ -57,8 +57,8 @@ export interface Hotkeys {
 export type Notice = { text: string; error: boolean };
 
 export interface SessionPanelProps extends Omit<SessionHeaderProps, 'next' | 'compact'> {
-  /** A panel in the main window, or a card of its own (the bar's peek, the quick panel's reply
-   *  view), where a right-click anywhere but the box gives the session's menu. */
+  /** A panel in the main window, or a card of its own (the bar's peek, the waiting
+   *  window), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';
   /** Working through what waits on you: what's left after this one, and how the one before went. */
   queue?: Queue;
@@ -67,7 +67,7 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'next' | 'co
   hotkeys?: Hotkeys;
   /** Puts the cursor in the box. */
   autoFocus?: boolean;
-  /** ⌘⏎ allows what it waits on (the quick panel, which is used from the keyboard). */
+  /** ⌘⏎ allows what it waits on (the waiting window and the notch, which are used from the keyboard). */
   keys?: boolean;
   /** As a message goes on its way; `onSent` once it went, `onFailed` if it didn't and the box
    *  isn't showing to say so (SessionReply.tsx). */

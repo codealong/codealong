@@ -1,15 +1,13 @@
 // Checks a session's card (SessionCard.tsx), the same in the bar's peek, a session kept on the
-// desktop and the quick panel's reply view: its header leaves snoozing, archiving, pinning and
+// desktop and the waiting window: its header leaves snoozing, archiving, pinning and
 // showing it in Codealong to its menu; the ⋯ button and a right-click give that menu, with the
 // Sessions list's shortcuts beside what they run; and the shortcuts run them (⌃⌘P pins, ⌃⌘R
 // renames, ⌘E marks seen, ⌃⌘A archives).
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/card-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/card-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/card-check.js
 // Marking seen is checked where the session shown waits on you.
 (function () {
-  localStorage.setItem('codealong.quick.project', 'All projects');
-  var quick = window.__CODEALONG_QUICK__ === true;
   var head = function () { return document.querySelector('.ca-reply .ca-sessinsp-head'); };
   var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
   var key = function (init) { window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -25,13 +23,7 @@
   var seenable = false;
 
   say('card check: waiting for the session');
-  (quick
-    ? until(function () { return calls('quick_ready').length > 0 && document.querySelectorAll('.ca-quick-row').length > 0; }, 20000).then(function () {
-        document.querySelector('.ca-quick-input textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
-      })
-    : Promise.resolve()
-  )
-    .then(function () { return until(function () { return !!head(); }, 20000); })
+  until(function () { return !!head(); }, 20000)
     .then(function () { return wait(400); })
     .then(function () {
       seenable = !!button('Mark as seen');
@@ -71,9 +63,9 @@
       return wait(300);
     })
     .then(function () {
-      // Leaving the name puts the peek away and takes the quick panel back to its list; the
-      // preview's peek stays, and a kept session never leaves.
-      if (quick) return;
+      // Leaving the name puts the peek away; the preview's peek stays, and a kept session and
+      // the waiting window never leave. In the waiting window ⌘E goes on to the next, which
+      // ⌃⌘A archives.
       key({ key: 'e', code: 'KeyE', metaKey: true });
       return wait(200).then(function () {
         check('⌘E marks it seen, when it has a turn to see', calls('mark_seen').length === (seenable ? 1 : 0), String(calls('mark_seen').length));

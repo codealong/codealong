@@ -42,3 +42,15 @@ fn activate_app(bundle_id: &str) {
         let _ = apps.objectAtIndex(0).activateWithOptions(NSApplicationActivationOptions::empty());
     }
 }
+
+/// The app in front, by its bundle ID, when it isn't Codealong and has one.
+pub fn frontmost_other() -> Option<String> {
+    let id = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?.bundleIdentifier()?.to_string();
+    let own = NSRunningApplication::currentApplication().bundleIdentifier().map(|i| i.to_string());
+    (own.as_deref() != Some(id.as_str())).then_some(id)
+}
+
+/// Asks the app with this bundle ID to come forward, if it's still running. On the main thread.
+pub fn activate(bundle_id: &str) {
+    activate_app(bundle_id);
+}

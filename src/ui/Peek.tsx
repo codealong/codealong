@@ -1,6 +1,6 @@
 // The floating bar's peek (peek.rs has its window): the session whose pill is under the pointer,
 // with the header its panel has in the main window, its conversation, and the box that answers it
-// (SessionCard.tsx, which the quick panel's reply view shows too). A click in it gives it the
+// (SessionCard.tsx, which the waiting window shows too). A click in it gives it the
 // keyboard; ⏎ sends and the peek closes at once, so the app you were in has the keyboard back (a
 // message that doesn't go says so on the bar, and is back in the box). Once an answer went
 // through it closes too, but stays while the box holds something for you to send next. Escape

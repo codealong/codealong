@@ -224,14 +224,6 @@ html.is-quick body {
   font: 500 11px/14px var(--font-sans);
   white-space: nowrap;
 }
-/* The panel answering a session (⇥ on its row, SessionPanel.tsx as a card): the conversation scrolls between
-   its head and the box. */
-.ca-quick.is-reply {
-  overflow: hidden;
-}
-.ca-quick.is-reply .ca-composer:last-child {
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-}
 /* The last row: a new session. A line sets it apart from the sessions above. */
 .ca-quick-compose {
   flex: none;

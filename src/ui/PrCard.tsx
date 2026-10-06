@@ -1,6 +1,6 @@
 // A PR waiting on your review as a card of its own, wherever a window works through what waits
 // on you with a PR among the sessions: under the pills of the bar docked in the notch
-// (NotchReview.tsx) and in the quick panel's reply view (Quick.tsx). It's the PR panel's details
+// (NotchReview.tsx) and in the waiting window (Waiting.tsx). It's the PR panel's details
 // (PrInspector.tsx `PrDetails`) with what's the same in both done once: the strip over the header
 // with what's commonly done to the PR as buttons that say their keys, the box at its foot that
 // reviews it, the PR's menu on a right-click, and its chords (menus.ts `PR_CHORDS`): ⌘⏎
@@ -14,7 +14,7 @@
 // goes, so skipping to the next and coming back loses nothing.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
-// Codealong, what it does once the PR has left, and what it adds (a way back, a queue).
+// Codealong, what it does once the PR has left, and what it adds (a queue).
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { openUrl, reviewPr, startOptions } from '../api';
@@ -26,7 +26,7 @@ import { reviewSnoozeMenu } from '../snooze';
 import type { Lane, Session, StartAccount, Usage, Verdict } from '../types';
 import { PrDetails } from './PrInspector';
 import { prIsOpen, type PrRowItem } from './PrsView';
-import { Button, cx, Icon } from './primitives';
+import { Button, cx } from './primitives';
 import { Hotkey, QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue } from './SessionPanel';
 
 /** What a window does for a PR's actions, less what the card knows for every window. */
@@ -38,9 +38,6 @@ export interface PrWindowCan {
   reveal?: () => void;
   /** It left what waits on you, and how: the window goes on to the next. */
   left?: (done: menus.Left) => void;
-  /** Opens a web link, where the window does more than open it (the quick panel puts itself
-   *  away first). */
-  openLink?: (url: string) => void;
 }
 
 interface PrCardProps {
@@ -59,8 +56,6 @@ interface PrCardProps {
   hotkeys?: Hotkeys;
   /** Puts the cursor in the box. */
   autoFocus?: boolean;
-  /** A way back to the list, where the card took a list's place (the quick panel). */
-  back?: { label: string; title: string; onBack: () => void };
   onShowSession: (lane: Lane, session: Session) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;
@@ -102,7 +97,7 @@ const DONE: Record<Verdict, { past: string; left: menus.Left }> = {
   'request-changes': { past: 'Requested changes on', left: 'changes requested' },
 };
 
-export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, back, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrCardProps) {
+export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrCardProps) {
   const { pr } = item;
   const { report } = can;
   const [text, setText] = useState(() => drafts.get(pr.key) ?? '');
@@ -121,7 +116,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     if (autoFocus) box.current?.focus();
   }, [autoFocus, pr.key]);
 
-  const open = can.openLink ?? ((url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e))));
+  const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
   /** Sends a review with what's in the box. The PR has then left what waits on you. */
@@ -222,12 +217,6 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     >
       <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} />
       <div className="ca-prreview-top">
-        {back && (
-          <button type="button" className="ca-linkbtn ca-sessinsp-back" title={back.title} onClick={back.onBack}>
-            <Icon name="chevron-left" size={12} />
-            {back.label}
-          </button>
-        )}
         <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, review with, pin, copy and more" onClick={(e) => menu(below(e.currentTarget))} />
       </div>
       <div className="ca-prreview-body ca-prinsp">

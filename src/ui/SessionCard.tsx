@@ -1,6 +1,6 @@
 // A session as a card of its own, wherever a window shows one session with a box to answer it:
-// the floating bar's peek and a session kept on the desktop (Peek.tsx), and the quick panel's
-// reply view (Quick.tsx). It's the session's panel (SessionPanel.tsx) with what's the same in all
+// the floating bar's peek and a session kept on the desktop (Peek.tsx), and the waiting window
+// (Waiting.tsx). It's the session's panel (SessionPanel.tsx) with what's the same in all
 // of them done once: what the header says around the session (its PRs, its todos, the sessions it
 // came from and that came of it), the session's menu on ⋯ and on a right-click, the menus of the
 // PRs and sessions the header names, and the Sessions list's shortcuts for the session shown:
@@ -8,8 +8,8 @@
 // beside its item in the menu.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
-// Codealong, what it does once the session has left (the peek goes away, the quick panel goes on
-// to the next), and what it adds (a way back, a queue, a pin that keeps it on the desktop).
+// Codealong, what it does once the session has left (the peek goes away, the waiting window goes
+// on to the next), and what it adds (a queue, a pin that keeps it on the desktop).
 
 import { useEffect, useMemo, useRef } from 'react';
 import { openUrl, setPinned } from '../api';
@@ -25,10 +25,11 @@ import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos'> & { pinned?: string[] };
 
 /** What a window does for a session's actions (menus.ts `SessionCan`), less what the card knows
- *  for every window: the apps, what's on the desktop, the pin and the shortcuts. */
-export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'reply' | 'rename' | 'left'>;
+ *  for every window: the apps, what's on the desktop, the pin and the shortcuts. A window that has
+ *  the board gives its worktrees, for Move to worktree. */
+export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'reply' | 'rename' | 'left' | 'worktrees'>;
 
-interface SessionCardProps extends Pick<SessionPanelProps, 'queue' | 'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'back' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded'> {
+interface SessionCardProps extends Pick<SessionPanelProps, 'queue' | 'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded'> {
   lane: Lane;
   session: Session;
   /** The terminal's name and the editors installed, for the ways to open it. */
@@ -51,9 +52,6 @@ interface SessionCardProps extends Pick<SessionPanelProps, 'queue' | 'notice' | 
   onShowTodo: (todo: Todo) => void;
   /** Shows a PR the board lists in the main window: Show in Codealong, in its menu. */
   onShowPr?: (pr: PrItem) => void;
-  /** Opens a PR on GitHub, where the window does more than open the link (the quick panel puts
-   *  itself away first). */
-  openLink?: (url: string) => void;
   /** More of the menu of a PR the board lists, where the window has more (its session). */
   prCan?: (pr: PrItem) => Partial<menus.PrCan>;
 }
@@ -71,7 +69,7 @@ function pinItem(board: CardBoard | null | undefined, s: Session, report: Report
   return { label: on ? 'Unpin session' : 'Pin session', run: () => void save() };
 }
 
-export function SessionCard({ lane, session, apps, now, board, can, canFor, outgoing = false, onShowSession, onShowLane, onShowTodo, onShowPr, openLink, prCan, renaming, ...panel }: SessionCardProps) {
+export function SessionCard({ lane, session, apps, now, board, can, canFor, outgoing = false, onShowSession, onShowLane, onShowTodo, onShowPr, prCan, renaming, ...panel }: SessionCardProps) {
   const { report } = can;
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
@@ -102,12 +100,12 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     return () => window.removeEventListener('keydown', onKey);
   }, [renaming]);
 
-  const open = openLink ?? ((url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e))));
+  const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   /** A PR's menu, as every window has it: for one the board lists, with showing it in Codealong
    *  and pinning it to the desktop. */
   const prMenu = (pr: Pr) => {
     const item = board?.prs.find((p) => p.url === pr.url);
-    show(menus.prMenu(item ?? pr, { report, open: openLink && (() => openLink(pr.url)), reveal: item && onShowPr ? () => onShowPr(item) : undefined, desktop: onDesktop, ...(item ? prCan?.(item) : undefined) }));
+    show(menus.prMenu(item ?? pr, { report, reveal: item && onShowPr ? () => onShowPr(item) : undefined, desktop: onDesktop, ...(item ? prCan?.(item) : undefined) }));
   };
 
   return (

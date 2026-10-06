@@ -1,5 +1,5 @@
 // A session's header, the same wherever the session is shown with its conversation: its panel in
-// the main window, the floating bar's peek and the quick panel's reply view (SessionPanel.tsx puts
+// the main window, the floating bar's peek and the waiting window (SessionPanel.tsx puts
 // it over the conversation in all three). It keeps to a few lines so the conversation has the room:
 // the title with the ways to open it and act on it (its folder in your terminal and your editors
 // among them), one line of where it stands and where it works, and one of the PRs it worked on
@@ -89,14 +89,14 @@ export interface SessionHeaderProps {
   onRename?: (name: string | null) => void;
   /** The device it's on, when that's another of yours: it opens there. */
   device?: DeviceView | null;
-  /** Shown from somewhere to go back to (a PR's or a todo's panel, the quick panel's list). */
+  /** Shown from somewhere to go back to (a PR's or a todo's panel). */
   back?: { label: string; onBack: () => void; title?: string };
   /** There's another to go on to once this one is seen. */
   next?: boolean;
   /** In Sessions: whether the panel takes the whole window, and the way to switch. */
   maximized?: boolean;
   onMaximize?: () => void;
-  /** In a card short of room (the peek, the quick panel): Details is left to the main window, so
+  /** In a card short of room (the peek, the waiting window): Details is left to the main window, so
    *  the title keeps its place beside the buttons. */
   compact?: boolean;
 }

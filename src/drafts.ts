@@ -1,5 +1,5 @@
 // What you wrote to a session and haven't sent, kept per session in local storage, which every
-// window of Codealong shares: the floating bar's peek, the quick panel's reply view and a
+// window of Codealong shares: the floating bar's peek, the waiting window and a
 // session's panel show the same draft. It outlasts the peek closing or moving to another session,
 // the session changing its place on the bar, and a restart. Sending it clears it.
 
