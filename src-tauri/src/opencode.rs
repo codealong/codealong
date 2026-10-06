@@ -2,7 +2,7 @@
 //! session (`session_v2`) and message (`session_message`), and its background service
 //! (`~/.local/state/opencode/service.json`) says which sessions are running right now and what
 //! they're waiting on. Permission and question requests never reach the database, so they come
-//! from the service alone. See *Harness adapters*.
+//! from the service alone. See .claude/rules/opencode.md.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

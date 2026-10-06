@@ -1,6 +1,6 @@
 //! Apple's Terminal through its AppleScript dictionary. Every tab has a `tty`, so a session's tab
 //! is found by its process's TTY. Its scripting is thin: `do script` types a line and always
-//! presses Return after it, and it can't open a tab or close one. See *Harness facts*, Terminal.
+//! presses Return after it, and it can't open a tab or close one. See .claude/rules/terminals.md.
 
 use std::path::Path;
 

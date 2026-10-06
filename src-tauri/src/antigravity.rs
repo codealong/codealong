@@ -3,7 +3,7 @@
 //! `conversation_summaries.db` lists a folder's conversations; `conversations/<id>.db` holds
 //! one's steps; `brain/<id>/.system_generated/logs/transcript_full.jsonl` is the same steps as
 //! JSON lines, which is what a panel reads; and a command line process keeps
-//! `presence/<id>.lock` open while it has a conversation. See *Harness adapters*.
+//! `presence/<id>.lock` open while it has a conversation. See .claude/rules/antigravity.md.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

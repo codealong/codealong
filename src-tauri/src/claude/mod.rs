@@ -8,7 +8,7 @@
 //! the background service's socket in daemon.rs, a session's own in peer.rs, or the app), starting,
 //! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), what a
 //! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs), the skills it
-//! reads (skills.rs) and plan usage (usage.rs). See CLAUDE.md's *Harness facts*.
+//! reads (skills.rs) and plan usage (usage.rs). See .claude/rules/claude-code.md.
 
 pub mod app;
 pub mod asks;

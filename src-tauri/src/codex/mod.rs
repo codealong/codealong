@@ -4,7 +4,7 @@
 //! board. Beside it: rollouts and the thread index (rollout.rs), the conversation a rollout
 //! holds (conversation.rs), its app-server, for what Codex does itself (appserver.rs), the
 //! socket the app's windows talk on (ipc.rs), its terminal UIs (terminals.rs), side
-//! conversations (side.rs) and plan usage (usage.rs). See CLAUDE.md's *Harness facts*.
+//! conversations (side.rs) and plan usage (usage.rs). See .claude/rules/codex.md.
 
 mod appserver;
 mod conversation;

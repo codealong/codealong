@@ -1,7 +1,7 @@
 //! Actions Codex owns, done the way the Codex app does them: a short-lived `codex app-server`
 //! over stdio. Archiving a thread moves its rollout into `archived_sessions` and marks it in
 //! Codex's shared state database, so the Codex app sees the change the next time it reads its
-//! threads. See *Harness adapters*, Archiving.
+//! threads. See .claude/rules/codex.md.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

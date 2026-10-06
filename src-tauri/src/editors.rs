@@ -1,5 +1,5 @@
 //! The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed,
-//! and any other app `[apps] editor` names. See *Apps*.
+//! and any other app `[apps] editor` names. See README.md's Settings section.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

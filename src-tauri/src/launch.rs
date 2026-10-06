@@ -1,5 +1,5 @@
 //! Opening things where they live: the terminals and the Claude and Codex deep links. Editors
-//! are in editors.rs. See *Apps*.
+//! are in editors.rs. See `[apps]` in README.md's Settings section.
 //!
 //! Each terminal is a module of its own behind `Terminal` (Ghostty, iTerm2 and Terminal through
 //! AppleScript, tmux through its command). What's here is what they share: where a new terminal

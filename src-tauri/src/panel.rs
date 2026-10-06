@@ -8,7 +8,7 @@
 //! happens; it never reaches AppKit itself.
 //!
 //! Nearly everything here is odd for a reason, found by the plain way failing, and much of it
-//! can only be checked by hand in the running app: CLAUDE.md's "Tauri and macOS" says what was,
+//! can only be checked by hand in the running app: `.claude/rules/windows.md` says what was,
 //! when, and what hasn't been yet.
 //!
 //! All of it is the main thread's. Off it these functions do nothing and answer nothing, and a

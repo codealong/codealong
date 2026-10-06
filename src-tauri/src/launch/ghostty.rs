@@ -1,7 +1,7 @@
 //! Ghostty through its AppleScript dictionary. Its terminals have an id, a folder and a title,
 //! but no TTY or PID, so a session's terminal is found by a mark: a unique folder reported (OSC 7)
-//! on the session's TTY, which Ghostty then shows as that terminal's. See *Harness facts*,
-//! Ghostty.
+//! on the session's TTY, which Ghostty then shows as that terminal's. See
+//! .claude/rules/terminals.md.
 
 use std::path::Path;
 use std::time::Duration;

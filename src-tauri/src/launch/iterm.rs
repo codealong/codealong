@@ -1,5 +1,5 @@
 //! iTerm2 through its AppleScript dictionary. Every session has a `tty`, so a session's tab is
-//! found by its process's TTY, with no marks as Ghostty needs. See *Harness facts*, iTerm2.
+//! found by its process's TTY, with no marks as Ghostty needs. See .claude/rules/terminals.md.
 
 use std::path::Path;
 

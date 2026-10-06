@@ -561,16 +561,14 @@ pub fn tool_activity(name: &str, input: &Value) -> String {
     .unwrap_or_else(|| format!("using {}", code(name)))
 }
 
-/// The PR a transcript line says a command made or changed, by its URL, with the line's time:
-/// Claude Code marks a command's result with `toolUseResult.gitOperation.pr` (`number`, `url`,
-/// `action`: created, edited, commented, closed) when the command acted on a PR. A closed one
-/// has no URL. Only lines with that mark are parsed.
-/// A PR the session made or changed, from one of two marks on a line: a command's result that
-/// acted on a PR (`toolUseResult.gitOperation.pr`, written for `gh pr create` and the like), or
-/// Claude Code's own `pr-link` line (`prNumber`, `prUrl`, `prRepository`), which it writes once
-/// a command created a PR or pushed to one, however the command did it (`gh api
-/// repos/…/pulls`, a script), and again with every re-stamp of its metadata (2.1.289's
-/// `linkSessionToPR`; a `gh pr list` or `gh pr view` writes none).
+/// The PR a transcript line says the session made or changed, by its URL, with the line's time,
+/// from one of two marks: a command's result that acted on a PR
+/// (`toolUseResult.gitOperation.pr`: `number`, `url`, `action` created, edited, commented or
+/// closed; written for `gh pr create` and the like, and a closed one has no URL), or Claude
+/// Code's own `pr-link` line (`prNumber`, `prUrl`, `prRepository`), which it writes once a
+/// command created a PR or pushed to one, however the command did it (`gh api repos/…/pulls`, a
+/// script), and again with every re-stamp of its metadata (2.1.289's `linkSessionToPR`; a `gh pr
+/// list` or `gh pr view` writes none). Only lines with one of the marks are parsed.
 pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
     let operated = line.contains("\"gitOperation\"") && line.contains("\"pr\":{");
     let linked = line.contains("\"type\":\"pr-link\"");
