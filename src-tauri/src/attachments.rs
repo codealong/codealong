@@ -161,16 +161,17 @@ fn hash16(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
+/// Keeps `bytes` at `path` unless a file is there already: named by its content, one that's
+/// there holds the same bytes. Windows reading one conversation keep its new images at the same
+/// moment, so each write goes through a temporary file of its own (`store::write`): a shared one
+/// let a window rename another's half-written file, or find it gone and drop the image. The last
+/// rename puts the same bytes in place, and a write that fails once the file is there anyway
+/// has nothing left to do.
 fn write_once(path: &Path, bytes: &[u8]) -> Result<()> {
     if path.exists() {
         return Ok(());
     }
-    let dir = path.parent().context("no folder")?;
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{}.tmp", path.file_name().and_then(|n| n.to_str()).unwrap_or("file")));
-    std::fs::write(&tmp, bytes).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    crate::store::write(path, bytes).or_else(|e| if path.exists() { Ok(()) } else { Err(e) })
 }
 
 /// Keeps a file's bytes under `images` or `files`, by what they are, and says how to refer to it.
@@ -618,6 +619,31 @@ mod tests {
         assert_eq!(keep_image_in(&images, b"<svg xmlns='http://www.w3.org/2000/svg'/>"), None);
         assert_eq!(keep_image_in(&images, b""), None);
         assert_eq!(std::fs::read_dir(&*files).unwrap().count(), 0, "nothing else is kept");
+    }
+
+    #[test]
+    fn windows_keeping_the_same_new_image_at_once_all_get_it() {
+        // Each round, a folder without the image and threads that all keep it at the same moment,
+        // as windows reading one conversation with an image not seen before do.
+        for _ in 0..30 {
+            let images = crate::fixtures::scratch("attach-race");
+            let start = std::sync::Arc::new(std::sync::Barrier::new(4));
+            let threads: Vec<_> = (0..4)
+                .map(|_| {
+                    let (images, start) = (images.to_path_buf(), start.clone());
+                    std::thread::spawn(move || {
+                        start.wait();
+                        keep_image_in(&images, PNG)
+                    })
+                })
+                .collect();
+            let kept: Vec<Option<String>> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+            assert!(kept.iter().all(|k| k.is_some()), "every window shows the image: {kept:?}");
+            // The image, whole, and nothing else left in the folder.
+            let names: Vec<_> = std::fs::read_dir(&*images).unwrap().map(|e| e.unwrap().file_name()).collect();
+            assert_eq!(names.len(), 1, "{names:?}");
+            assert_eq!(std::fs::read(images.join(&names[0])).unwrap(), PNG);
+        }
     }
 
     #[test]
