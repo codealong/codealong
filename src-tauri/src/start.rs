@@ -136,6 +136,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
                 worktree: adapter.makes_worktrees(),
                 resumes,
+                switches_model: tuned && adapter.model_command().is_some(),
             }
         })
         .collect();
@@ -609,7 +610,7 @@ fn place_words(place: Place, cfg: &Config) -> String {
 }
 
 /// A model the way the account's list names it (`Opus Plan Mode` for `opusplan`), else as asked for.
-fn model_label(adapter: &dyn Adapter, account: &AccountCfg, model: &str) -> String {
+pub(crate) fn model_label(adapter: &dyn Adapter, account: &AccountCfg, model: &str) -> String {
     let listed = adapter.models(account).into_iter().find(|m| m.id == model);
     listed.and_then(|m| m.label.split(':').next().map(str::to_string)).unwrap_or_else(|| model.to_string())
 }
@@ -1178,6 +1179,9 @@ mod tests {
         assert_eq!(resumes("codex"), places(&o, "codex"));
         assert!(resumes("opencode").is_empty() && resumes("antigravity").is_empty());
         assert_eq!(resume_places(&accounts[1], Path::new("/Users/me")), resumes("claude2"));
+        // Claude Code's running sessions switch models by a command typed into them; Codex's take none.
+        let switches = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_model;
+        assert!(switches("claude") && switches("claude2") && !switches("codex") && !switches("opencode"));
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));

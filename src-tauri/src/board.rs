@@ -318,6 +318,7 @@ pub fn claude_session(
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
         limit,
+        model: tr.and_then(|t| t.model.clone()),
         ..known
     })
 }
@@ -396,6 +397,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         app_account: account.home_path() == crate::util::home().join(".codex"),
         branch: th.branch.clone(),
         origin: codex_origin(account, th),
+        model: th.model.clone(),
         ..known
     }
 }

@@ -189,6 +189,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::START, here: start, there: start_there, back: started_back, ..ANY },
     Request { name: api::SESSION_FORK, here: fork, ..ANY },
     Request { name: api::SESSION_RESUME, here: resume, ..ANY },
+    Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
     // A move opens a terminal too, and closes the session's own. Which account a conversation
@@ -530,6 +531,12 @@ fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
         return Err(format!("It needs someone at this device: {}", resumed.sent.message));
     }
     to_value(resumed.sent)
+}
+
+/// Switches a running session's model, for it alone (`send::switch_model`). Says what happened.
+fn switch_model(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Model = c.read()?;
+    to_value(send::switch_model(&engine.board(), &cfg()?, c.session()?, &p.model).map_err(words)?)
 }
 
 /// Stops the turn it's taking: one Codealong runs, through its agent; any other, through its

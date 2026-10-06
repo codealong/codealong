@@ -600,6 +600,13 @@ impl crate::harness::Adapter for ClaudeCode {
         Some(app::InApp.into())
     }
 
+    /// `/model <name>` switches the session alone; its picker, `/model` with no name, saves the
+    /// pick as the default for new sessions too (2.1.280: "Set model to `opus[1m]
+    /// (claude-opus-5-5[1m])`" against "… and saved as your default for new sessions").
+    fn model_command(&self) -> Option<&'static str> {
+        Some("/model")
+    }
+
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it
     /// makes for it.
     fn chats(&self) -> Option<(PathBuf, &'static str)> {

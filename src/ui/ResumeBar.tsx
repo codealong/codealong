@@ -4,33 +4,13 @@
 // them. What the picks come to is start.ts's `resumeChoice`, a start's rules for that account; the
 // box's placeholder says what sending does then, and the send asks for it.
 
-import { useRef, useState, type CSSProperties } from 'react';
 import { agentId, agentOptions, effortStep, parseAgent, placeTakesModel, resumeAccount, type ChosenStart, type ResumePicks } from '../start';
 import type { StartAccount, StartPlace } from '../types';
-import { scaleOf } from '../zoom';
-import { Picker } from './Picker';
-import { Icon } from './primitives';
-import { agentLine, EffortFoot, PlaceToggle } from './StartControls';
-
-/** The model menu is never shorter than this, and keeps this far from the window's top. */
-const MENU_MIN = 160;
-const MENU_MARGIN = 12;
+import { ModelMenu } from './ModelMenu';
+import { EffortFoot, PlaceToggle } from './StartControls';
 
 /** The row, for `account`'s session, with what its picks came to (`chosen`). */
 export function ResumeBar({ account, picks, chosen, onPicks, onDone }: { account: StartAccount; picks: ResumePicks; chosen: ChosenStart; onPicks: (picks: ResumePicks) => void; onDone: () => void }) {
-  const [menu, setMenu] = useState(false);
-  // The room above the box, as the menu opens: a window sized to what it shows (the peek) has no
-  // more than its conversation's height to open the menu into.
-  const [room, setRoom] = useState<number | null>(null);
-  const row = useRef<HTMLDivElement>(null);
-  const open = () => {
-    const field = row.current?.closest<HTMLElement>('.ca-composer-field');
-    // On the screen's scale; the menu's height is in the card's own pixels, which a zoom makes
-    // bigger (zoom.ts `scaleOf`).
-    const top = field ? field.getBoundingClientRect().top / scaleOf(field) : null;
-    setRoom(top == null ? null : Math.max(MENU_MIN, top - MENU_MARGIN));
-    setMenu(true);
-  };
   const a = resumeAccount(account);
   const models = a.models ?? [];
   const efforts = a.efforts ?? [];
@@ -44,28 +24,26 @@ export function ResumeBar({ account, picks, chosen, onPicks, onDone }: { account
     const { model } = parseAgent(id);
     const place = model && chosen.placeNow && !placeTakesModel(chosen.placeNow) ? 'terminal' : picks.place;
     onPicks({ ...picks, agent: id, place });
-    close();
   };
-  const close = () => {
-    setMenu(false);
-    onDone();
-  };
-
-  const section = { key: a.name, options: agentOptions([a], models, null).map((o) => agentLine(o, a, models, chosen.agentNow ?? agentId(a.name, null))) };
   const foot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={picks.effort} onPick={(effort) => onPicks({ ...picks, effort })} harness={a.harness} model={chosen.effortModel} /> : null;
 
   return (
-    <div ref={row} className="ca-resume" style={room == null ? undefined : ({ '--ca-menu-room': `${room}px` } as CSSProperties)}>
+    <div className="ca-composer-tools ca-resume">
       <PlaceToggle label="Goes on in" places={chosen.places} value={chosen.placeNow} onPick={pickPlace} />
       {chosen.takesAModel && (
-        <div className="ca-resume-pick">
-          <button type="button" data-picker-trigger className="ca-resume-model" title="Model and effort it goes on with" aria-haspopup="dialog" aria-expanded={menu} onClick={() => (menu ? close() : open())}>
-            <span>{chosen.modelShown}</span>
-            {chosen.effortWord && <span className="ca-resume-model-detail">{chosen.effortWord}</span>}
-            <Icon name="chevron-down" size={12} />
-          </button>
-          {menu && <Picker className="is-up" sections={[section]} value={chosen.agentNow} placeholder="Model" onPick={pickModel} onClose={close} foot={foot} onStep={foot ? (delta) => onPicks({ ...picks, effort: effortStep(efforts, picks.effort, delta) }) : undefined} />}
-        </div>
+        <ModelMenu
+          account={a}
+          lines={agentOptions([a], models, null)}
+          models={models}
+          value={chosen.agentNow ?? agentId(a.name, null)}
+          label={chosen.modelShown}
+          detail={chosen.effortWord}
+          title="Model and effort it goes on with"
+          foot={foot}
+          onStep={foot ? (delta) => onPicks({ ...picks, effort: effortStep(efforts, picks.effort, delta) }) : undefined}
+          onPick={pickModel}
+          onDone={onDone}
+        />
       )}
     </div>
   );

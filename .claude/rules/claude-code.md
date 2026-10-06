@@ -164,6 +164,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   it: `claude/start.rs` (`MODELS`, `default_model`); it takes a full name too (`claude/mod.rs`
   `offers_model`). Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches
   found").
+- `/model <name>` in a running session switches that session alone, where its picker (`/model`
+  with no name) saves the pick as the default for new sessions too; what each writes to the
+  transcript, and the model a reply names (without its context size): `claude/mod.rs`
+  (`model_command`), `claude/transcript.rs` (`model_set`).
 - `--effort`'s levels and what a model that doesn't take one gets (2.1.284): `claude/start.rs`
   (`EFFORTS`). Without it a session starts on `settings.json`'s
   `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default (the

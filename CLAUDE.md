@@ -83,7 +83,8 @@ it.
   <text> [--now]`, `--snapshot --rename <key> <name>`, `--snapshot --stop <key>`,
   `--snapshot --fork <key> [prompt]` (a copy to remove after), `--snapshot --move <key>
   <account | worktree folder>`, `--snapshot --resume <key> <place> [prompt] [--model <model>]`
-  (one that isn't running), `--snapshot --side <key> <question> [follow-ups]` (spends usage).
+  (one that isn't running), `--snapshot --switch-model <key> <model>` (one that is),
+  `--snapshot --side <key> <question> [follow-ups]` (spends usage).
 - `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`.
 - `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app>
   [prompt] [--model <model>] [--effort <level>] [--worktree]`: what a start would run, without

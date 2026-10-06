@@ -43,6 +43,10 @@ pub const SESSION_FORK: &str = "session-fork";
 /// there's one, answering how it went as a send does (`Sent`). A `session-send` to one goes on
 /// in a terminal. Macs before 2026-10-06 refuse it as a request they don't know.
 pub const SESSION_RESUME: &str = "session-resume";
+/// Switches a running session (`key`) to another of its account's models (`model`), for that
+/// session alone, answering what happened in a sentence. Macs before 2026-10-06 refuse it as a
+/// request they don't know.
+pub const SESSION_MODEL: &str = "session-model";
 
 /// What each request carries, as its makers write it (the engine's windows and command, and a
 /// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
@@ -109,6 +113,15 @@ pub mod params {
         pub key: String,
         pub text: String,
         pub now: bool,
+    }
+
+    /// `session-model`: the model, as its account's list names it (`opus`, `haiku[1m]`).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Model {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub model: String,
     }
 
     /// `session-resume`: where it goes on, and the prompt it goes on with, or none to wait for one.
@@ -197,7 +210,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 18] = [
+pub const REQUESTS: [(&str, Reach); 19] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -216,6 +229,7 @@ pub const REQUESTS: [(&str, Reach); 18] = [
     (START, Reach::Control),
     (SESSION_FORK, Reach::Control),
     (SESSION_RESUME, Reach::Control),
+    (SESSION_MODEL, Reach::Control),
 ];
 
 /// Who may make `method` of a device; None for a request this crate doesn't know.
@@ -473,6 +487,11 @@ pub struct StartAccount {
     /// same order. Missing from devices before 2026-10-06, which resume one only in a terminal.
     #[serde(default)]
     pub resumes: Vec<Place>,
+    /// Its running sessions that Codealong types into can be switched to another of `models`
+    /// (`session-model`); those Codealong runs can be, whatever their harness. Missing from Macs
+    /// before 2026-10-06.
+    #[serde(default)]
+    pub switches_model: bool,
 }
 
 /// Where a session that isn't running goes on, and on what: a place its account starts sessions
@@ -632,6 +651,7 @@ mod tests {
         let background = ResumeIn { place: Place::Background, model: Some("opus".into()), effort: None };
         assert_eq!(v(&params::Resume { key: key(), resume: background, prompt: String::new() }), json!({ "key": "claude:claude:abc", "resume": { "place": "background", "model": "opus", "effort": null }, "prompt": "" }));
         assert_eq!(serde_json::from_value::<params::Resume>(json!({ "resume": { "place": "codealong" } })).unwrap().resume, ResumeIn { place: Place::Codealong, model: None, effort: None });
+        assert_eq!(v(&params::Model { key: String::new(), model: "haiku".into() }), json!({ "model": "haiku" }));
         // Without a place it goes on in a terminal, as a send to it does.
         assert_eq!(serde_json::from_value::<params::Resume>(json!({ "prompt": "go on" })).unwrap().resume, ResumeIn::default());
         assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));

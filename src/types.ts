@@ -85,6 +85,9 @@ export interface Session {
   chrome?: ChromeTabs;
   /** Its last turn ended on its account's usage limit, and nothing has been said since. */
   limit?: SessionLimit;
+  /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
+   *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
+  model?: string;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -901,6 +904,9 @@ export interface StartAccount {
   /** Of `places`, where one of its sessions that isn't running can go on, in the same order.
    *  Missing from Macs before 2026-10-06, which resume one only in a terminal. */
   resumes?: StartPlace[];
+  /** Its running sessions that Codealong types into can be switched to another of `models`;
+   *  those Codealong runs can be, whatever their harness. */
+  switchesModel?: boolean;
 }
 
 /** Where a session that isn't running goes on, and on what (start.rs `resume`): one of its

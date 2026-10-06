@@ -241,6 +241,11 @@ pub struct Session {
     /// Its last turn ended on its account's usage limit, and nothing has been said since.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<SessionLimit>,
+    /// The model it's on, as its harness names it (`claude-opus-5-5`, `gpt-5.5`): the one its
+    /// latest reply came from, or one it was switched to since. None where the harness doesn't
+    /// say, and from Macs before 2026-10-06.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// A session's id as lists show it: its first seven characters.
@@ -304,6 +309,7 @@ impl Session {
             earlier: false,
             chrome: None,
             limit: None,
+            model: None,
         }
     }
 }

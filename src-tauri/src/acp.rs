@@ -88,6 +88,8 @@ struct Hosted {
     tool: Option<String>,
     /// Why the last turn failed, when it did.
     error: Option<String>,
+    /// Its config options as the agent last listed them (`configOptions`), for switching its model.
+    options: Value,
 }
 
 /// One adapter process.
@@ -463,11 +465,11 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     let ag = agent(a)?;
     let r = ag.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), Some(REQUEST_TIMEOUT))?;
     let id = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no session.", a.name))?.to_string();
-    tune(&ag, &id, &r, model, effort)?;
+    let options = tune(&ag, &id, &r, model, effort)?;
     let key = key_of(harness, &a.name, &id);
     let cwd_s = cwd.to_string_lossy().into_owned();
     remember(Remembered { harness, account: a.name.clone(), id: id.clone(), cwd: cwd_s.clone() });
-    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, ..Default::default() });
+    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, options, ..Default::default() });
     if !prompt.trim().is_empty() {
         run_turn(ag, key.clone(), prompt.to_string());
     }
@@ -494,7 +496,8 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
         }
     };
     remember(Remembered { harness, account: a.name.clone(), id: id.to_string(), cwd: cwd_s });
-    tune(&ag, id, &loaded, model, effort)?;
+    let options = tune(&ag, id, &loaded, model, effort)?;
+    set(&key, |h| h.options = options);
     if !prompt.trim().is_empty() {
         run_turn(ag, key.clone(), prompt.to_string());
     }
@@ -505,8 +508,8 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
 /// Asks for `model` and `effort` of session `id`, where the agent's answer about the session
 /// (`answer`, which lists its `configOptions`) offers them: Claude Code's aliases (opus,
 /// sonnet…) are among its models. The effort levels are the model's, so they're looked up in the
-/// options the model's answer lists.
-fn tune(ag: &Agent, id: &str, answer: &Value, model: Option<&str>, effort: Option<&str>) -> Result<()> {
+/// options the model's answer lists. Returns the options as the agent lists them after.
+fn tune(ag: &Agent, id: &str, answer: &Value, model: Option<&str>, effort: Option<&str>) -> Result<Value> {
     let mut options = answer.get("configOptions").cloned().unwrap_or(Value::Null);
     for (category, value) in [("model", model), ("thought_level", effort)] {
         let Some((v, config_id)) = value.and_then(|v| Some((v, offered_option(&options, category, v)?))) else { continue };
@@ -515,6 +518,29 @@ fn tune(ag: &Agent, id: &str, answer: &Value, model: Option<&str>, effort: Optio
             options = o.clone();
         }
     }
+    Ok(options)
+}
+
+/// Switches a session Codealong runs to `model` (`send::switch_model`), picking it up in the
+/// account's process first when that's new since. The model must be one its agent offers.
+pub fn set_model(a: &AccountCfg, key: &str, model: &str) -> Result<()> {
+    in_app()?;
+    let (id, cwd, loaded) = {
+        let st = state();
+        let h = st.sessions.get(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
+        (h.id.clone(), h.cwd.clone(), h.loaded && st.agents.contains_key(&a.name))
+    };
+    let ag = agent(a)?;
+    if !loaded {
+        load(&ag, key, &id, &cwd)?;
+    }
+    let options = state().sessions.get(key).map(|h| h.options.clone()).unwrap_or_default();
+    if offered_option(&options, "model", model).is_none() {
+        bail!("{}'s agent doesn't offer {model}.", a.name);
+    }
+    let options = tune(&ag, &id, &json!({ "configOptions": options }), Some(model), None)?;
+    set(key, |h| h.options = options);
+    notify(Change::Board);
     Ok(())
 }
 
@@ -549,6 +575,12 @@ fn offered_option(options: &Value, category: &str, value: &str) -> Option<String
     let o = options.as_array()?.iter().find(|o| o.get("category").and_then(Value::as_str) == Some(category))?;
     let id = o.get("id")?.as_str()?.to_string();
     o.get("options")?.as_array()?.iter().any(|x| x.get("value").and_then(Value::as_str) == Some(value)).then_some(id)
+}
+
+/// The value a session's config option in `category` is set to (`currentValue`).
+fn current_option(options: &Value, category: &str) -> Option<String> {
+    let o = options.as_array()?.iter().find(|o| o.get("category").and_then(Value::as_str) == Some(category))?;
+    o.get("currentValue")?.as_str().filter(|v| !v.is_empty()).map(String::from)
 }
 
 /// Whether Codealong runs this session (or ran it, and can again).
@@ -601,7 +633,11 @@ fn load(ag: &Arc<Agent>, key: &str, id: &str, cwd: &str) -> Result<Value> {
     } else {
         bail!("{}'s agent can't pick a session up again.", ag.account);
     };
-    set(key, |h| h.loaded = true);
+    let options = answer.get("configOptions").cloned().unwrap_or_default();
+    set(key, |h| {
+        h.loaded = true;
+        h.options = options;
+    });
     Ok(answer)
 }
 
@@ -732,6 +768,11 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
         s.pid = None;
     }
     s.open_target = format!("s|{}|hosted", s.key);
+    // Its agent says the model it's on as soon as it's switched; its record says so only once the
+    // next turn starts.
+    if let Some(m) = current_option(&h.options, "model") {
+        s.model = Some(m);
+    }
     if h.permission.is_some() {
         s.status = Status::Needs;
         s.status_since = Some(h.since);
@@ -769,6 +810,18 @@ mod tests {
             assert!(std::time::Instant::now() < end, "timed out waiting for {what}");
             std::thread::sleep(Duration::from_millis(200));
         }
+    }
+
+    #[test]
+    fn reads_the_model_a_session_is_set_to() {
+        let options = json!([
+            { "id": "mode", "category": "mode", "type": "select", "currentValue": "default", "options": [] },
+            { "id": "model", "category": "model", "type": "select", "currentValue": "sonnet", "options": [{ "value": "sonnet", "name": "Sonnet" }, { "value": "haiku", "name": "Haiku" }] },
+        ]);
+        assert_eq!(current_option(&options, "model").as_deref(), Some("sonnet"));
+        assert_eq!(offered_option(&options, "model", "haiku").as_deref(), Some("model"));
+        assert_eq!(offered_option(&options, "model", "opus"), None);
+        assert_eq!(current_option(&Value::Null, "model"), None);
     }
 
     #[test]
@@ -833,8 +886,8 @@ mod tests {
     /// Against a real adapter: `CODEALONG_TEST_ACP_ADOPT=<key of a session of your own that isn't
     /// running> CODEALONG_TEST_ACP_DIR=<its folder> cargo test acp_takes_on -- --ignored
     /// --nocapture`. Takes it on as Resume in Codealong does, on Haiku, with a question only its
-    /// conversation answers; its transcript has the answer and the model. It's remembered in
-    /// hosted.json from then on: take it out after.
+    /// conversation answers, then switches it to Sonnet as its box does; its transcript has the
+    /// answer and both models. It's remembered in hosted.json from then on: take it out after.
     #[test]
     #[ignore]
     fn acp_takes_on_a_session() {
@@ -848,6 +901,10 @@ mod tests {
         assert_eq!(hosted, key);
         wait_until("the turn to end", 180, || !state().sessions[&key].running);
         assert!(state().sessions[&key].error.is_none(), "{:?}", state().sessions[&key].error);
+        // Between turns it switches to another of the agent's models, and only one it offers.
+        set_model(&a, &key, "sonnet").unwrap();
+        assert_eq!(current_option(&state().sessions[&key].options, "model").as_deref(), Some("sonnet"));
+        assert!(set_model(&a, &key, "no-such-model").unwrap_err().to_string().contains("doesn't offer no-such-model"));
     }
 
     /// Against a real adapter: `CODEALONG_TEST_ACP=<account> CODEALONG_TEST_ACP_DIR=<folder>

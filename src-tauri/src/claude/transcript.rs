@@ -320,6 +320,12 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 if user_prompt(&v).is_some() {
                     open_tools.clear();
                 }
+                // Written as the line's text, or its first text part.
+                let content = v.pointer("/message/content");
+                let said = content.and_then(Value::as_str).or_else(|| content?.as_array()?.iter().find_map(|i| i.get("text")?.as_str()));
+                if let Some(m) = said.and_then(model_set) {
+                    info.model = Some(m);
+                }
                 if you_typed(&v) {
                     info.limit = None;
                     if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
@@ -334,6 +340,20 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         }
     }
     info.pending_tool = open_tools.last().map(|(_, req)| req.clone());
+}
+
+/// The model `/model` switched to, from what it wrote: "Set model to `haiku
+/// (claude-haiku-4-5-20251001)`" for `/model haiku` (2.1.280), which switches the session alone;
+/// "Set model to `Opus 5.5` and saved as your default for new sessions" from its picker; "Set
+/// model to claude-opus-5" before 2.1.220. The model's ID where it's given, else its name.
+fn model_set(content: &str) -> Option<String> {
+    let rest = content.strip_prefix("<local-command-stdout>")?.strip_prefix("Set model to ")?;
+    let said = match rest.strip_prefix('`') {
+        Some(quoted) => quoted.split('`').next()?,
+        None => rest.split(['<', ' ']).next()?,
+    };
+    let id = said.rsplit_once(" (").and_then(|(_, id)| id.strip_suffix(')')).unwrap_or(said);
+    Some(id.trim().to_string()).filter(|m| !m.is_empty())
 }
 
 /// The usage limit an assistant line says the API refused the turn on: Claude Code writes the
@@ -595,6 +615,25 @@ mod tests {
     use super::*;
     use crate::claude::conversation::claude_input;
     use crate::claude::peer::FROM_YOU;
+
+    #[test]
+    fn reads_the_model_model_switched_to() {
+        let said = |text: &str| model_set(&format!("<local-command-stdout>{text}</local-command-stdout>"));
+        assert_eq!(said("Set model to `haiku (claude-haiku-4-5-20251001)`").as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert_eq!(said("Set model to `opus[1m] (claude-opus-5-5[1m])`").as_deref(), Some("claude-opus-5-5[1m]"));
+        assert_eq!(said("Set model to `Opus 5.5` and saved as your default for new sessions").as_deref(), Some("Opus 5.5"));
+        assert_eq!(said("Set model to claude-opus-5").as_deref(), Some("claude-opus-5"));
+        assert_eq!(said("Kept model as Opus"), None);
+        // Until the next reply, the switch is the model it's on; the reply says it after.
+        let line = |kind: &str, body: &str| format!(r#"{{"type":"{kind}","sessionId":"s","message":{body}}}"#);
+        let tail = [
+            line("assistant", r#"{"model":"claude-opus-5-5","content":[{"type":"text","text":"Done."}]}"#),
+            line("user", r#"{"role":"user","content":"<local-command-stdout>Set model to `haiku (claude-haiku-4-5-20251001)`</local-command-stdout>"}"#),
+        ];
+        assert_eq!(parse_lines("", &tail.join("\n")).model.as_deref(), Some("claude-haiku-4-5-20251001"));
+        let replied = [tail[1].clone(), line("assistant", r#"{"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"Hi."}]}"#)];
+        assert_eq!(parse_lines("", &replied.join("\n")).model.as_deref(), Some("claude-haiku-4-5-20251001"));
+    }
 
     #[test]
     fn reads_identity_titles_and_pending_tools() {

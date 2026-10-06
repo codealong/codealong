@@ -57,7 +57,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk } from '../api';
+import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -75,6 +75,7 @@ import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { offersResume, ResumeBar } from './ResumeBar';
+import { SessionModel } from './SessionModel';
 import { SideStrip } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { errorText } from '../report';
@@ -202,14 +203,30 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
 
   // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
   // its account offers a choice; without one, a send resumes it in a terminal.
-  const resumable = way?.kind === 'resume' && !shortOf(s.key);
-  const account = accountOf(useStartAccounts(resumable), s);
+  const here = !shortOf(s.key);
+  const resumable = way?.kind === 'resume' && here;
+  const account = accountOf(useStartAccounts(here && (resumable || s.live)), s);
   const [resumePicks, setResumePicks] = useState<ResumePicks>(NO_PICKS);
   useEffect(() => setResumePicks(NO_PICKS), [s.key]);
   const resumeChosen = resumable && account ? resumeChoice(account, [], resumePicks, resumedIn(account.name)) : null;
   const resuming = offersResume(resumeChosen) ? resumeChosen : null;
   const resumeHow = resuming ? resumeIn(resuming) : null;
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resuming?.places.find((p) => p.place === resumeHow.place)?.behind };
+  // A running one says what model it's on, beside Send, and where Codealong can switch it
+  // (SessionModel.tsx): one it runs, or one whose terminal it types into, by its harness's command.
+  const switches = here && s.live && !!account && (account.models?.length ?? 0) > 0 && (!!s.hosted || (way?.kind === 'typed' && !!account.switchesModel));
+  const saysModel = !resuming && s.live && (switches || !!s.model);
+  const [switching, setSwitching] = useState(false);
+  const switchModel = (model: string) => {
+    setSwitching(true);
+    setNote(null);
+    switchSessionModel(s.key, model)
+      .then(
+        (said) => setNote({ text: said, error: false }),
+        (e: unknown) => setNote({ text: errorText(e), error: true }),
+      )
+      .finally(() => setSwitching(false));
+  };
 
   const setText = (t: string) => {
     setTextNow(t);
@@ -488,6 +505,8 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       ? 'Sending…'
       : forking
         ? 'Forking…'
+        : switching
+        ? 'Switching its model…'
         : asking
           ? 'Asking a copy of it…'
           : listing
@@ -590,6 +609,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         />
         {resuming && account && !aside && <ResumeBar account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
         <div className="ca-composer-buttons">
+          {saysModel && !aside && <SessionModel session={s} account={account} switches={switches} busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting} onSwitch={switchModel} onDone={() => box.current?.focus()} />}
           {canSendNow && !empty && !command && (
             <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>
               <Icon name="bolt" size={14} stroke={2} />

@@ -485,6 +485,46 @@ fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg
     }
 }
 
+/// Switches a running session to `model`, one of its account's (`Adapter::models`), for that
+/// session alone: one Codealong runs through its agent (acp.rs `set_model`), any other by its
+/// harness's command typed into its terminal (`Adapter::model_command`), the way a prompt is
+/// typed. Only typed: another way in would take the command as a prompt. Not mid-turn, where it
+/// would wait as a prompt does, nor while the session waits on you, where it would answer.
+pub fn switch_model(board: &Board, cfg: &Config, key: &str, model: &str) -> Result<String> {
+    let (session, account) = crate::harness::find(board, cfg, key)?;
+    let adapter = crate::harness::adapter(session.harness);
+    let title = quoted(&session.title);
+    let model = model.trim();
+    if !adapter.takes_model() || !crate::start::valid_model(model) {
+        bail!("{model:?} isn't a model Codealong can switch {title} to.");
+    }
+    if !session.live {
+        bail!("{title} isn't running: pick its model as it resumes.");
+    }
+    if crate::harness::turn_running(session) {
+        bail!("{title} is in the middle of a turn: switch its model once the turn ends.");
+    }
+    ensure_not_waiting(session, &Sender::You)?;
+    let label = crate::start::model_label(adapter, account, model);
+    if session.hosted {
+        crate::acp::set_model(account, key, model)?;
+        return Ok(format!("{title} is on {label} now."));
+    }
+    let Some(command) = adapter.model_command() else {
+        bail!("{} has no command to switch a running session's model.", adapter.harness().word());
+    };
+    let text = format!("{command} {model}");
+    let msg = Message::new(board, cfg, &text, &Sender::You, false);
+    let mut why = None;
+    for route in adapter.routes(account, session).iter().filter(|r| matches!(r, Route::Type { .. })) {
+        match attempt(route, board, session, account, cfg, &msg, None)? {
+            Tried::Sent(_) => return Ok(format!("Switched {title} to {label}: `{text}` went into its terminal.")),
+            Tried::Passed(passed) => why = passed.or(why),
+        }
+    }
+    bail!("Codealong can't type into {title}'s terminal{}, so its model wasn't switched. Run `{text}` there.", why.map(|w| format!(" ({w})")).unwrap_or_default())
+}
+
 /// Sends your prompt one of a harness's own ways in, outside a send: its app's, for a session
 /// that goes on there (`start::resume`). An empty prompt opens the session there.
 pub(crate) fn deliver_yours(own: &dyn Own, session: &Session, account: &AccountCfg, text: &str) -> Result<Sent> {
@@ -627,6 +667,22 @@ mod tests {
 
     fn board_with(s: Session) -> Board {
         Board { lanes: vec![crate::fixtures::lane("/w", vec![s])], ..Board::default() }
+    }
+
+    /// Switching a running session's model is refused where the command would go in as a
+    /// prompt or answer what's asked, and for a model the account doesn't take.
+    #[test]
+    fn switches_a_model_only_between_turns() {
+        let cfg: Config = serde_json::from_value(json!({ "accounts": [{ "name": "claude", "harness": "claude", "home": "/h" }, { "name": "codex", "harness": "codex", "home": "/c" }] })).unwrap();
+        let refused = |s: Session, model: &str| switch_model(&board_with(s.clone()), &cfg, &s.key, model).unwrap_err().to_string();
+        let idle = session(Harness::Claude, Surface::Cli, Status::Idle, true, Some(7));
+        assert_eq!(refused(Session { live: false, status: Status::Stopped, ..idle.clone() }, "haiku"), "“Fix the build” isn't running: pick its model as it resumes.");
+        assert_eq!(refused(Session { status: Status::Working, ..idle.clone() }, "haiku"), "“Fix the build” is in the middle of a turn: switch its model once the turn ends.");
+        assert!(refused(Session { status: Status::Needs, ..idle.clone() }, "haiku").contains("is waiting on you"));
+        assert!(refused(idle.clone(), "haiku; rm -rf ~").contains("isn't a model Codealong can switch"));
+        // Codex's command line takes no model from Codealong.
+        let thread = Session { key: "codex:codex:t1".into(), account: "codex".into(), harness: Harness::Codex, ..idle };
+        assert!(refused(thread, "gpt-5").contains("isn't a model Codealong can switch"));
     }
 
     #[test]

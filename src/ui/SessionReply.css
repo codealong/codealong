@@ -14,6 +14,8 @@
    box's foot, with the send button in a column of its own at the right, so the text and its
    scrollbar never run under it. What the box has to say goes below it. */
 .ca-composer-field {
+  /* What opens over the conversation from inside it (ModelMenu.tsx) is placed against it. */
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;

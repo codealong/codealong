@@ -557,6 +557,13 @@ export async function resumeSession(key: string, resume: ResumeIn, prompt = ''):
   return invoke<Sent>('resume_session', { key, resume, prompt });
 }
 
+/** Switches a running session to `model`, one of its account's, for that session alone
+ *  (send.rs `switch_model`). Says what happened. */
+export async function switchSessionModel(key: string, model: string): Promise<string> {
+  if (!inTauri) return 'Switched.';
+  return invoke<string>('switch_session_model', { key, model });
+}
+
 /** Whether there's a TypeSafe API key in the keychain. */
 export async function jevKey(): Promise<boolean> {
   if (!inTauri) return false;

@@ -65,6 +65,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--stop", takes: "<session key>", run: stop },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
     Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
+    Mode { flag: "--switch-model", takes: "<session key> <model>", run: switch_model },
     Mode { flag: "--resume", takes: "<session key> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>]", run: resume },
     Mode { flag: "--move", takes: "<session key> <account | worktree folder>", run: move_session },
     Mode { flag: "--side", takes: "<session key> <question> [a follow-up…]", run: side_ask },
@@ -115,6 +116,8 @@ const MODES: &[Mode] = &[
 /// in its box does.
 /// `codealong --snapshot --resume <session key> <place> [prompt] [--model <model>] [--effort
 /// <level>]`: goes on with a session that isn't running there, as its box and Resume in do.
+/// `codealong --snapshot --switch-model <session key> <model>`: switches a running session's
+/// model, as its box does.
 /// `codealong --snapshot --move <session key> <account | worktree folder>`: moves it to another
 /// account of its harness, or to a worktree (a lane's folder: Codealong's chats for a chat of its
 /// own), as Move to in its menu does.
@@ -240,6 +243,11 @@ fn fork(_: &Args, rest: &[String]) -> Done {
     let [key, more @ ..] = rest else { return Err(Stop::Usage) };
     let prompt = more.first().map(String::as_str).unwrap_or("");
     Ok(pretty(&act(api::SESSION_FORK, key, params::Fork { prompt: prompt.to_string(), ..Default::default() })?))
+}
+
+fn switch_model(_: &Args, rest: &[String]) -> Done {
+    let [key, model, ..] = rest else { return Err(Stop::Usage) };
+    said(act(api::SESSION_MODEL, key, params::Model { model: model.clone(), ..Default::default() })?)
 }
 
 fn resume(args: &Args, rest: &[String]) -> Done {

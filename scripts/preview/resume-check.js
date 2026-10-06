@@ -41,7 +41,7 @@
   var places = function () { return all('.ca-peek .ca-resume .ca-places button').map(function (b) { return b.textContent.trim(); }); };
   var on = function () { var b = q('.ca-peek .ca-resume .ca-places button.is-on'); return b ? b.textContent.trim() : ''; };
   var place = function (label) { return all('.ca-peek .ca-resume .ca-places button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
-  var chip = function () { return q('.ca-peek .ca-resume-model'); };
+  var chip = function () { return q('.ca-peek .ca-resume .ca-modelmenu-chip'); };
   var enter = function (el) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
   var other = acct.models.filter(function (m) { return m.id !== acct.defaultModel; })[0];
 

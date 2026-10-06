@@ -151,6 +151,13 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// The command that, typed into a running session's terminal with one of `models` after it,
+    /// switches that session to the model, and only that session (`send::switch_model`). None
+    /// where there's no such command.
+    fn model_command(&self) -> Option<&'static str> {
+        None
+    }
+
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.
     fn pending(&self, _ctx: &Ctx, _session: &Session) -> Option<Pending> {
         None

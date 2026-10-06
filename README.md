@@ -484,7 +484,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   it, and picking a model leaves only the places that take one. It goes on where the account's
   last one did, else in a terminal; Resume in, in its right-click menu, has the same places, to
   go on without a prompt. One waiting on you is opened instead, so what you typed can't
-  answer its question. The API key stays in the login keychain. What you type, repo names and
+  answer its question. A running session's box says the model it's on beside Send (the one its
+  latest reply came from, or that it was switched to since), and where Codealong types into its
+  terminal or runs it, that's a menu of its account's models: picking one switches that session
+  alone (`/model <name>` typed into a Claude Code session, its agent's model for one Codealong
+  runs), between turns. The API key stays in the login keychain. What you type, repo names and
   session titles and latest lines go to TypeSafe.
 - **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's
   selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's
@@ -964,7 +968,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/waiting.rs`, `src/ui/Waiting.tsx` | The waiting window: an ordinary window, made when first asked for and hidden on close, that keeps where it was, comes from ⌥⌘., Window › Waiting on you and ⇥ in the quick panel, and works through what waits on you one card at a time (`quick.ts` `queueRows`, `queue.ts`) |
 | `src/ui/StartControls.tsx`, `src/startAccounts.ts` | Where a session goes and on what, as the start row and a stopped session's box both draw it (the places, a model menu's lines, the effort row), and this Mac's accounts as they offer them, read once a minute |
 | `src-tauri/src/harness.rs` | The interface each harness implements: an `Adapter` for a session (its record and conversation, what it waits on you to allow, opening, sending, starting, searching, renaming with `src/ui/RenameDialog.tsx`) and for an account, and a `Reader` that reads its sessions for the board; CLAUDE.md's "Adding a harness" lists it all |
-| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx`, `src/ui/ResumeBar.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on, and for one that isn't running, where it goes on and on what |
+| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx`, `src/ui/ResumeBar.tsx`, `src/ui/SessionModel.tsx`, `src/ui/ModelMenu.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on, with the model it's on, and for one that isn't running, where it goes on and on what |
 | `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's card (`ui/SessionCard.tsx`), as the waiting window does |
 | `src/ui/Notch.tsx`, `src/ui/NotchSession.tsx`, `src/ui/NotchReview.tsx` | The bar docked in the notch: its three states (closed, the pills, a session or a review under them) shown through one clip, and what it shows in place of a peek: which session or PR, the queue of both it works through and its keys |
 | `src/ui/PrCard.tsx`, `src/review.ts` | A PR waiting on your review as a card of its own, in the notch and the waiting window: the PR panel's details with the strip over them, the box that approves, comments or asks for changes, the PR's menu and its chords; and Review with…, which starts a review session on an account or opens the Codex app's review page |

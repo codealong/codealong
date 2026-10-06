@@ -40,6 +40,8 @@ pub struct ThreadInfo {
     pub cli: bool,
     /// The thread it's a fork of (`forked_from_id`): `codex fork`, or the app's Fork.
     pub forked_from: Option<String>,
+    /// The model its latest turn ran on, from its `turn_context`.
+    pub model: Option<String>,
     /// The thread whose agent made it (`thread_source: agent_created_thread`): the app's
     /// `create_thread` tool answers the new thread's first turn with a `<codex_delegation>` that
     /// names it in `<source_thread_id>`.
@@ -437,6 +439,12 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
         }
         return;
     }
+    if v.get("type").and_then(Value::as_str) == Some("turn_context") {
+        if let Some(m) = v.pointer("/payload/model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+            info.model = Some(m.to_string());
+        }
+        return;
+    }
     let Some(payload) = event_payload(v) else { return };
     let kind = payload.get("type").and_then(Value::as_str).unwrap_or_default();
     if matches!(kind, "task_started" | "task_complete" | "turn_aborted") {
@@ -590,6 +598,14 @@ mod tests {
         for v in parse_events(text) {
             apply_event(info, &v);
         }
+    }
+
+    #[test]
+    fn reads_the_model_its_latest_turn_ran_on() {
+        let mut info = ThreadInfo::default();
+        let turn = |model: &str| format!(r#"{{"timestamp":"2026-10-06T10:00:00.000Z","type":"turn_context","payload":{{"model":"{model}","effort":"high"}}}}"#);
+        apply_events(&mut info, &[turn("gpt-5.4"), turn("gpt-5.5")].join("\n"));
+        assert_eq!(info.model.as_deref(), Some("gpt-5.5"));
     }
 
     const META_USER: &str = r#"{"timestamp":"2026-09-21T15:47:36.000Z","type":"session_meta","payload":{"id":"01a0c4a6-bc7b-7212-b766-77fcc7a15d43","cwd":"/Users/me/projects/sparkhq/spark-infra","originator":"Codex Desktop","source":"vscode","thread_source":"user","git":{"branch":"main"}}}"#;
