@@ -1275,11 +1275,13 @@ Commands:
           worktree that isn't on its branch
   unlink  Take a session off a PR it's listed on but didn't work on. It stays off,
           however it matched, until linked again
-  nudge   Have a PR's sessions told when it's approved: each session that worked on it
-          and is still running then gets a message saying so and where the PR stands
-          (ready to merge, checks running), to take it from there. Off for every PR
-          until turned on for it, here or from its card in the app; one approved already
-          tells its sessions now
+  nudge   Have a PR's sessions told of what happens on it: each session that worked on
+          it and is still running gets a message when someone else reviews it, asks for
+          changes or comments (with what they wrote), when it's approved, merged or
+          closed, and when its checks fail, with where the PR stands. What the signed-in
+          user did, which is what its own agent did through gh, isn't told. Off for
+          every PR until turned on for it, here or from its card in the app; one
+          approved already tells its sessions that now
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1391,10 +1393,12 @@ Options:
 ## codealong pr nudge
 
 ```
-Have a PR's sessions told when it's approved: each session that worked on it and is
-still running then gets a message saying so and where the PR stands (ready to merge,
-checks running), to take it from there. Off for every PR until turned on for it, here or
-from its card in the app; one approved already tells its sessions now
+Have a PR's sessions told of what happens on it: each session that worked on it and is
+still running gets a message when someone else reviews it, asks for changes or comments
+(with what they wrote), when it's approved, merged or closed, and when its checks fail,
+with where the PR stands. What the signed-in user did, which is what its own agent did
+through gh, isn't told. Off for every PR until turned on for it, here or from its card
+in the app; one approved already tells its sessions that now
 
 Usage: codealong pr nudge [OPTIONS] <PR>
 

@@ -191,7 +191,7 @@ pub struct PrItem {
     /// out of Review requested, the floating bar's reviews and the mark until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snoozed_until: Option<i64>,
-    /// Its sessions are told when it's approved (nudges.rs): turned on for this PR, from its
+    /// Its sessions are told of what happens on it (nudges.rs): turned on for this PR, from its
     /// card or menu or by `codealong pr nudge`, and said only while it's open.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub nudge: bool,

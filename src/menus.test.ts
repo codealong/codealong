@@ -212,8 +212,8 @@ describe('prMenu and todoMenu', () => {
 
   it('offers the nudge for an open PR the board lists, checked while it is on', () => {
     const pr = { url: 'https://github.com/acme/api/pull/7', number: 7, key: 'acme/api#7' };
-    const item = (over: object) => prMenu({ ...pr, ...over }, { report }).find((i) => i !== 'separator' && i.label === 'Nudge its sessions when approved');
-    expect(labels(prMenu({ ...pr, state: 'open' }, { report }))).toEqual(['Open on GitHub', '-', 'Nudge its sessions when approved', '-', 'Copy link']);
+    const item = (over: object) => prMenu({ ...pr, ...over }, { report }).find((i) => i !== 'separator' && i.label === 'Nudge its sessions on updates');
+    expect(labels(prMenu({ ...pr, state: 'open' }, { report }))).toEqual(['Open on GitHub', '-', 'Nudge its sessions on updates', '-', 'Copy link']);
     expect(item({ state: 'open' })).toMatchObject({ checked: false });
     expect(item({ state: 'approved', nudge: true })).toMatchObject({ checked: true });
     // Not once it's merged, nor for a PR the board doesn't list (no key).

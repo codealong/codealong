@@ -581,17 +581,17 @@ export interface PrCan {
   canvas?: MenuSpec;
 }
 
-/** Nudge its sessions when approved, checked while it's on: for a PR the board lists, which has
- *  a key, while it's open. Each PR's own, and off until turned on (nudges.rs). */
+/** Nudge its sessions on updates, checked while it's on: for a PR the board lists, which has a
+ *  key, while it's open. Each PR's own, and off until turned on (nudges.rs). */
 function nudgeItem(pr: { key?: string; state?: Pr['state']; nudge?: boolean }, report: Report): MenuAction | undefined {
   const { key, state } = pr;
   if (!key || !state || state === 'merged' || state === 'closed') return undefined;
   const on = !!pr.nudge;
-  return { label: 'Nudge its sessions when approved', checked: on, run: () => void setPrNudge(key, !on).catch((e: unknown) => report.error(errorText(e))) };
+  return { label: 'Nudge its sessions on updates', checked: on, run: () => void setPrNudge(key, !on).catch((e: unknown) => report.error(errorText(e))) };
 }
 
 /** A PR's menu: opening it, its session, reviewing it, showing it; approving it, snoozing your
- *  review and having its sessions told when it's approved; pinning it; its worktree and copying
+ *  review and having its sessions told of what happens on it; pinning it; its worktree and copying
  *  its link and branch. */
 export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; key?: string; state?: Pr['state']; nudge?: boolean }, can: PrCan): MenuSpec {
   const { report } = can;

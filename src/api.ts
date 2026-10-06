@@ -83,7 +83,7 @@ export async function snoozeSessions(keys: string[], until: number | null): Prom
 /** Snoozes your review of PRs (`owner/name#number`) until `until`, or wakes them now with null.
  *  Returns the time of the board that shows it, as `markSeen` does; windows snooze through
  *  ahead.ts. */
-/** Turns telling a PR's sessions when it's approved on or off (nudges.rs), by its key
+/** Turns telling a PR's sessions of what happens on it on or off (nudges.rs), by its key
  *  (`owner/name#number`). The board that follows says so (`PrItem.nudge`). */
 export async function setPrNudge(key: string, on: boolean): Promise<void> {
   if (!inTauri) return;

@@ -777,8 +777,8 @@ export interface PrItem {
   /** You snoozed your review until then: it's out of Review requested, the floating bar's
    *  reviews and the mark until the time comes (board.rs, `apply_review_snoozes`). */
   snoozedUntil?: number | null;
-  /** Its sessions are told when it's approved (nudges.rs): turned on for this PR, from its card
-   *  or menu or by `codealong pr nudge`. Said only while it's open. */
+  /** Its sessions are told of what happens on it (nudges.rs): turned on for this PR, from its
+   *  card or menu or by `codealong pr nudge`. Said only while it's open. */
   nudge?: boolean;
   head: string;
   base: string | null;

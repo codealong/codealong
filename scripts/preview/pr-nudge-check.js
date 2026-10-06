@@ -1,4 +1,4 @@
-// Checks the switch that has a PR's sessions told when it's approved (PrLink.tsx, nudges.rs), on
+// Checks the switch that has a PR's sessions told of what happens on it (PrLink.tsx, nudges.rs), on
 // the card of a session's PR chip. The first session a PR lists has that PR made an open one with
 // the nudge off, as every PR starts: hovering its chip in the session's header shows the card with
 // the switch off; a click turns it on for that PR alone (set_pr_nudge with its key) and the card
@@ -78,7 +78,7 @@
       var sent = calls('set_pr_nudge');
       var a = sent.length && sent[sent.length - 1][1];
       check('a click turns it on for that PR', sent.length === 1 && a.key === picked.pr.key && a.on === true, JSON.stringify(a));
-      check('and the card stays up and says so at once', !!toggle() && on() && /^On: when it’s approved/.test(toggle().parentNode.querySelector('.ca-prhover-meta').textContent), toggle() && toggle().parentNode.textContent);
+      check('and the card stays up and says so at once', !!toggle() && on() && /^On: each session/.test(toggle().parentNode.querySelector('.ca-prhover-meta').textContent), toggle() && toggle().parentNode.textContent);
       push({ nudge: true });
       return wait(200);
     })
@@ -88,7 +88,7 @@
       return wait(200);
     })
     .then(function () {
-      check('approved, it says how to tell them again', /^On, and it’s approved/.test(toggle().parentNode.querySelector('.ca-prhover-meta').textContent), toggle().parentNode.textContent);
+      check('approved, it still says so', /^On: each session/.test(toggle().parentNode.querySelector('.ca-prhover-meta').textContent), toggle().parentNode.textContent);
       toggle().click();
       return wait(100);
     })

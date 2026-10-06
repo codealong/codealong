@@ -1,7 +1,7 @@
 //! Sessions tied to PRs other than by branch: the ones whose own records show they made or
 //! changed a PR, and the ones linked or unlinked with `codealong pr link|unlink`. The links
 //! are kept in `pr-links.json` next to the config; the command writes it under a lock and the
-//! engine watches it. The same file has the PRs whose sessions are told when they're approved
+//! engine watches it. The same file has the PRs whose sessions are told of what happens on them
 //! (nudges.rs), which a PR's card and menu and `codealong pr nudge` turn on one by one.
 
 use std::collections::HashMap;
@@ -37,7 +37,7 @@ pub struct PrLink {
 pub struct LinkStore {
     #[serde(default)]
     pub links: Vec<PrLink>,
-    /// The PRs whose sessions are told when they're approved (nudges.rs), as `pr_key` writes
+    /// The PRs whose sessions are told of what happens on them (nudges.rs), as `pr_key` writes
     /// them. A build from before this field drops it when it next writes the file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nudges: Vec<String>,
@@ -55,7 +55,7 @@ impl LinkStore {
         true
     }
 
-    /// Turns telling a PR's sessions when it's approved on or off. True when that changed it.
+    /// Turns telling a PR's sessions of what happens on it on or off. True when that changed it.
     pub fn set_nudge(&mut self, pr: &str, on: bool) -> bool {
         let pr = pr_key(pr);
         let was = self.nudges.contains(&pr);

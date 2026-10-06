@@ -4,7 +4,7 @@
 // worktrees that hold it and the sessions that worked on it, as the PRs view has them. A click
 // opens the link in the browser, and a right-click has the PR's menu (menus.ts). A PR's chip in a
 // session's panel (`PrChipCard`) has the same card. For an open PR the board lists, the card has
-// the switch that has its sessions told when it's approved (nudges.rs), off until turned on.
+// the switch that has its sessions told of what happens on it (nudges.rs), off until turned on.
 //
 // It costs nothing until you hover: the board already lists the PRs in your projects' repos with
 // their sessions, and each link watches only its own PR there, so a push re-renders a link only
@@ -410,17 +410,15 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
       {canNudge && listed && (
         <div className="ca-prhover-sec">
           <button type="button" className="ca-prhover-nudge" role="switch" aria-checked={nudges} onClick={() => setNudge(listed.key, !nudges)}>
-            <span>Nudge {sessions.length === 1 ? 'its session' : 'its sessions'} when approved</span>
+            <span>Nudge {sessions.length === 1 ? 'its session' : 'its sessions'} on updates</span>
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
           <p className="ca-prhover-meta">
             {nudges
-              ? listed.state === 'approved'
-                ? 'On, and it’s approved. Turn it off and on to tell its running sessions again.'
-                : 'On: when it’s approved, each session still running is sent a message saying so and where it stands, as one of yours.'
+              ? 'On: each session still running is sent a message, as one of yours, when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail.'
               : listed.state === 'approved'
-                ? 'Off for this PR. It’s approved already: turning this on tells its running sessions now.'
-                : 'Off for this PR. Turned on, its sessions still running are sent a message when it’s approved.'}
+                ? 'Off for this PR. It’s approved already: turning this on tells its running sessions that now, then of what happens on it next.'
+                : 'Off for this PR. Turned on, its sessions still running are told of reviews, comments, an approval, a merge and failing checks.'}
           </p>
           {nudgeError && <p className="ca-prhover-error">{nudgeError}</p>}
         </div>

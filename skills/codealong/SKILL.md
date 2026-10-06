@@ -163,13 +163,15 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   only mentioned the PR's folder, say). It stays off until linked again. Unlink others'
   sessions only when the user asks.
 - `codealong session show <key>` lists the PRs a session worked on (`prs`).
-- `codealong pr nudge <pr>` has Codealong tell a PR's sessions when it's approved: each one that
-  worked on it and is still running then gets a message saying so and where the PR stands, as
-  if the user had sent it. It's off for every PR until turned on for that one (the user can
-  also turn it on from the PR's card in the app). Turn it on for a PR you opened when what's
-  left is yours to do once it's approved (merging it, landing it) and you'd otherwise sit
-  polling for the review; don't when the user wants to merge it themselves. `--off` turns it
-  off; `codealong pr show <pr>` says whether it's on (`nudge`).
+- `codealong pr nudge <pr>` has Codealong tell a PR's sessions what happens on it: each one that
+  worked on it and is still running gets a message, as if the user had sent it, when someone
+  else reviews it, asks for changes or comments (with what they wrote), when it's approved,
+  merged or closed, and when its checks fail, with where the PR stands. What you do to it
+  yourself through `gh` isn't told back. It's off for every PR until turned on for that one (the
+  user can also turn it on from the PR's card in the app). Turn it on for a PR you opened when
+  you'd otherwise sit polling GitHub for its review or its checks; don't when the user wants to
+  handle its review themselves. `--off` turns it off; `codealong pr show <pr>` says whether it's
+  on (`nudge`).
 
 ## Accounts
 

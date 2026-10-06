@@ -140,7 +140,7 @@ pub struct PrLinks {
     pub worked: HashMap<String, Vec<String>>,
     /// (PR, session) pairs unlinked by hand: never listed, however they matched.
     pub unlinked: HashSet<(String, String)>,
-    /// PRs whose sessions are told when they're approved (nudges.rs).
+    /// PRs whose sessions are told of what happens on them (nudges.rs).
     pub nudged: HashSet<String>,
 }
 

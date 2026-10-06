@@ -244,15 +244,17 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     records: Claude Code's `gitOperation` results and its `pr-link` lines, Codex's commands
     and attached PRs), the ones on
     its branch while it was open, and any linked by hand (`codealong pr link|unlink`). A PR's
-    sessions can be nudged when it's approved, PR by PR: it's off for every PR until turned on
-    for that one, with the switch on the PR's card (hover its chip in a session's header, or a
-    link to it in a conversation), Nudge its sessions when approved in its menu, or by an agent
-    for a PR it opened (`codealong pr nudge <pr>`, `--off` to stop). The sessions that worked on
-    it and are still running are then sent a message as it becomes approved, as one of yours,
-    saying so and where it stands (ready to merge, its checks are still running), so they take
-    it from there. Turned on for a PR that's approved already, they're told at once; a PR
-    approved while Codealong wasn't running tells nobody until it's turned off and on, and a
-    session that has stopped isn't resumed for it. The PRs you pinned come first, in your order (`p`, Pin PR in its
+    sessions can be nudged with what happens on it, PR by PR: it's off for every PR until
+    turned on for that one, with the switch on the PR's card (hover its chip in a session's
+    header, or a link to it in a conversation), Nudge its sessions on updates in its menu, or by
+    an agent for a PR it opened (`codealong pr nudge <pr>`, `--off` to stop). The sessions that
+    worked on it and are still running are then sent a message, as one of yours, when someone
+    else reviews it, asks for changes or comments (with what they wrote, read from GitHub as the
+    PR changes), when it's approved, merged or closed, and when its checks fail, with where it
+    stands (ready to merge, its checks are still running), so they take it from there; what you
+    did to it yourself, which is what its agent did through `gh`, isn't told back. Turned on for
+    a PR that's approved already, they're told that at once; what happened while Codealong
+    wasn't running isn't told, and a session that has stopped isn't resumed for it. The PRs you pinned come first, in your order (`p`, Pin PR in its
     menu, or drag its row up to the top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to
     reorder), whatever the age filter says. Then reviews asked of you; they're listed for every
     repo a project has here, one checked out only on its default branch too, whose other PRs
@@ -874,7 +876,7 @@ chrome_profile = "Work"        # its worktrees' previews open in this Chrome pro
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
 kept in `state.json` next to it; whether the bar is on, floating or in the notch, and where you
 left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`; each project's canvas in `canvas.json`; which session started or was forked into which, where the harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from
-them by hand, and the PRs whose sessions are nudged when they're approved, in `pr-links.json`; worktrees marked reusable or not in `worktrees.json`. Todos and labels are in `todos.json`, which is watched, so an
+them by hand, and the PRs whose sessions are nudged with what happens on them, in `pr-links.json`; worktrees marked reusable or not in `worktrees.json`. Todos and labels are in `todos.json`, which is watched, so an
 agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
 other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
 this one is linked with are in `devices.json`, and what each last said in `device-feeds.json`;
@@ -999,7 +1001,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/zoom.rs`, `src/zoom.ts` | Zooming: the steps, the View menu's items, the webview's page zoom on every board window, the CSS zoom a card takes in the windows that float, and the keys that ask for it |
 | `src-tauri/src/store.rs` | The small JSON files next to the config, read, locked and written one way: a temporary file of the write's own and a rename, a read-modify-write under the file's `.lock`, and a file that doesn't parse left as it is, with an error |
 | `src-tauri/src/reusable.rs`, `src/reusable.ts` | Reusable worktrees: the marks made by hand (`worktrees.json`); `board::reusable`, `reuse_of`, `earlier` and `looks_reusable` have the rules, `git::new_work` reads the reflog, and `src/route.ts` sends Jev's new work to them |
-| `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, links made by hand, and the PRs whose sessions are nudged when approved (`pr-links.json`) |
+| `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, links made by hand, and the PRs whose sessions are nudged with what happens on them (`pr-links.json`) |
 | `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |
 | `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
