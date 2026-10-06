@@ -277,6 +277,9 @@ struct State {
     asking: HashSet<String>,
     /// Link codes made here and not used yet: the secret and when it stops working.
     codes: Vec<(String, i64)>,
+    /// Why a device that said yes to this one's ask still isn't linked here: its link couldn't
+    /// be saved. For `link_with_code`, which waits on the answer.
+    link_failed: HashMap<String, String>,
     pending: HashMap<u64, (String, Sender<std::result::Result<Value, String>>)>,
     tailnet: Option<tailnet::Status>,
     tailnet_error: Option<String>,
@@ -449,17 +452,17 @@ impl Peers {
         let ask = st.asks.remove(i);
         let Some(conn) = st.conns.get(key) else { return Err(format!("{} went away.", ask.name)) };
         let (tx, via) = (conn.tx.clone(), conn.via);
-        if accept {
-            inner.add_linked(&mut st, key, &ask.name, via);
-        }
-        let _ = tx.send(Msg::LinkAnswer { accepted: accept });
-        if accept {
+        // A link this device can't keep isn't made: the other is told no, and you why.
+        let linked = if accept { inner.add_linked(&mut st, key, &ask.name, via).map_err(|e| format!("{} isn't linked: {e}", ask.name)) } else { Ok(()) };
+        let accepted = accept && linked.is_ok();
+        let _ = tx.send(Msg::LinkAnswer { accepted });
+        if accepted {
             let _ = tx.send(Msg::Standing { linked: true });
         }
         st.view_dirty = true;
         drop(st);
         inner.wake.notify_all();
-        Ok(())
+        linked
     }
 
     /// Gives a linked device a color of your choosing; none goes back to the one its key picks.
@@ -471,27 +474,36 @@ impl Peers {
         }
         let inner = &self.0;
         let mut st = inner.lock();
-        let l = st.linked.iter_mut().find(|l| l.key == key).ok_or("That device isn't linked.")?;
-        l.color = color;
-        save_linked(&inner.dir, &st.linked);
+        if !Inner::is_linked(&st, key) {
+            return Err("That device isn't linked.".into());
+        }
+        inner.change_linked(&mut st, |linked| {
+            if let Some(l) = linked.iter_mut().find(|l| l.key == key) {
+                l.color = color;
+            }
+        })?;
         st.view_dirty = true;
         drop(st);
         inner.wake.notify_all();
         Ok(())
     }
 
+    /// Stops trusting a linked device, and tells it so when it's connected. Done only once
+    /// devices.json no longer has it: trust left there would come back at the next launch, so a
+    /// device that can't be taken off the list stays linked, here and there, and you hear why.
     pub fn unlink(&self, key: &str) -> std::result::Result<(), String> {
         let inner = &self.0;
         let mut st = inner.lock();
         if !st.linked.iter().any(|l| l.key == key) {
             return Err("That device isn't linked.".into());
         }
+        let name = inner.name_of(&st, key);
+        inner.forget(&mut st, key).map_err(|e| format!("{name} is still linked: {e}"))?;
         if let Some(conn) = st.conns.get_mut(key) {
             let _ = conn.tx.send(Msg::Unlinked);
             let _ = conn.tx.send(Msg::Standing { linked: false });
             conn.outbox = Outbox::default();
         }
-        inner.forget(&mut st, key);
         drop(st);
         inner.wake.notify_all();
         Ok(())
@@ -525,6 +537,7 @@ impl Peers {
         if let Some(l) = inner.lock().linked.iter().find(|l| l.key == hex) {
             return Ok(l.name.clone());
         }
+        inner.lock().link_failed.remove(&hex);
         let iroh = inner.iroh.lock().ok().and_then(|i| i.clone()).ok_or("iroh isn't running; turn it on in Settings › Devices.")?;
         let wire = iroh.connect(t.key).map_err(|e| format!("Couldn't reach that device: {e:#}"))?;
         let gen = inner.gen.load(Ordering::SeqCst);
@@ -535,9 +548,12 @@ impl Peers {
         let mut asked = false;
         while Instant::now() < until {
             std::thread::sleep(Duration::from_millis(200));
-            let st = inner.lock();
+            let mut st = inner.lock();
             if let Some(l) = st.linked.iter().find(|l| l.key == hex) {
                 return Ok(l.name.clone());
+            }
+            if let Some(why) = st.link_failed.remove(&hex) {
+                return Err(why);
             }
             asked |= st.asking.contains(&hex);
             if asked && !st.asking.contains(&hex) {
@@ -647,7 +663,18 @@ impl Inner {
         st.linked.iter().any(|l| l.key == key)
     }
 
-    fn add_linked(&self, st: &mut State, key: &str, name: &str, via: Via) {
+    /// Changes the list of linked devices, and takes the change here only once devices.json has
+    /// it: what's trusted here is then always what the next launch trusts. A change that
+    /// couldn't be saved is said as well as returned, for the ones made in the background.
+    fn change_linked(&self, st: &mut State, change: impl FnOnce(&mut Vec<Linked>)) -> std::result::Result<(), String> {
+        let mut linked = st.linked.clone();
+        change(&mut linked);
+        save_linked(&self.dir, &linked).map_err(|e| format!("{e:#}"))?;
+        st.linked = linked;
+        Ok(())
+    }
+
+    fn add_linked(&self, st: &mut State, key: &str, name: &str, via: Via) -> std::result::Result<(), String> {
         st.asking.remove(key);
         st.asks.retain(|a| a.key != key);
         if !Self::is_linked(st, key) {
@@ -657,8 +684,11 @@ impl Inner {
                 Via::Test => "test",
             };
             let kind = st.conns.get(key).and_then(|c| c.kind.clone());
-            st.linked.push(Linked { key: key.to_string(), name: name.to_string(), linked_at: now_ms(), via: via.into(), color: None, kind });
-            save_linked(&self.dir, &st.linked);
+            let device = Linked { key: key.to_string(), name: name.to_string(), linked_at: now_ms(), via: via.into(), color: None, kind };
+            if let Err(e) = self.change_linked(st, |linked| linked.push(device)) {
+                st.view_dirty = true;
+                return Err(e);
+            }
         }
         if let Some(c) = st.conns.get_mut(key) {
             c.outbox = Outbox::default();
@@ -667,14 +697,17 @@ impl Inner {
         st.board_dirty = true;
         st.board_at = None;
         st.view_dirty = true;
+        Ok(())
     }
 
-    fn forget(&self, st: &mut State, key: &str) {
-        st.linked.retain(|l| l.key != key);
+    /// Takes a device off the list, and forgets what it last said, once devices.json no longer
+    /// has it; when that can't be saved, it stays linked.
+    fn forget(&self, st: &mut State, key: &str) -> std::result::Result<(), String> {
+        self.change_linked(st, |linked| linked.retain(|l| l.key != key))?;
         st.replicas.remove(key);
-        save_linked(&self.dir, &st.linked);
         st.cache_dirty = true;
         st.view_dirty = true;
+        Ok(())
     }
 
     /// Runs a linked device's request, after checking it may make it.
@@ -968,10 +1001,15 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         }
         let linked = Inner::is_linked(&st, &hex);
         if linked {
-            if let Some(l) = st.linked.iter_mut().find(|l| l.key == hex).filter(|l| l.name != name || l.kind != kind) {
-                l.name = name.clone();
-                l.kind = kind.clone();
-                save_linked(&inner.dir, &st.linked);
+            if st.linked.iter().any(|l| l.key == hex && (l.name != name || l.kind != kind)) {
+                // Only its name and kind as it says them now: one that can't be saved is a
+                // notice, and the old ones do meanwhile.
+                let _ = inner.change_linked(&mut st, |linked| {
+                    if let Some(l) = linked.iter_mut().find(|l| l.key == hex) {
+                        l.name = name.clone();
+                        l.kind = kind.clone();
+                    }
+                });
             }
             st.board_dirty = true;
             st.board_at = None;
@@ -1112,9 +1150,8 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
                 Some(false)
             };
             if let Some(accepted) = accept {
-                if accepted {
-                    inner.add_linked(&mut st, key, &name, via);
-                }
+                // A link this device can't keep is answered no (the notice says why).
+                let accepted = accepted && inner.add_linked(&mut st, key, &name, via).is_ok();
                 let _ = tx.send(Msg::LinkAnswer { accepted });
                 if accepted {
                     let _ = tx.send(Msg::Standing { linked: true });
@@ -1126,8 +1163,17 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             if st.asking.remove(key) {
                 if accepted {
                     let (name, via) = st.conns.get(key).map(|c| (c.name.clone(), c.via)).unwrap_or(("device".into(), Via::Test));
-                    inner.add_linked(&mut st, key, &name, via);
-                    let _ = tx.send(Msg::Standing { linked: true });
+                    match inner.add_linked(&mut st, key, &name, via) {
+                        Ok(()) => {
+                            let _ = tx.send(Msg::Standing { linked: true });
+                        }
+                        Err(e) => {
+                            // It said yes, but this device can't keep the link: it's told to
+                            // forget this one too, so neither trusts the other.
+                            let _ = tx.send(Msg::Unlinked);
+                            st.link_failed.insert(key.to_string(), format!("{name} isn't linked: {e}"));
+                        }
+                    }
                 }
                 st.view_dirty = true;
             }
@@ -1135,7 +1181,9 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
         Msg::Unlinked => {
             let mut st = inner.lock();
             if Inner::is_linked(&st, key) {
-                inner.forget(&mut st, key);
+                // One that can't be taken off the list stays on it, as devices.json has it, and
+                // the notice says why.
+                let _ = inner.forget(&mut st, key);
             }
             if let Some(c) = st.conns.get_mut(key) {
                 c.linked_there = false;
@@ -1391,8 +1439,9 @@ fn load_linked(dir: &Path) -> Vec<Linked> {
     crate::store::load_whole::<LinkedFile>(&linked_path(dir), "a list of linked devices").linked
 }
 
-fn save_linked(dir: &Path, linked: &[Linked]) {
-    let _ = crate::store::save_whole(&linked_path(dir), &LinkedFile { linked: linked.to_vec() });
+/// Writes devices.json; a failure is also a notice (`store::save_whole`).
+fn save_linked(dir: &Path, linked: &[Linked]) -> Result<()> {
+    crate::store::save_whole(&linked_path(dir), &LinkedFile { linked: linked.to_vec() })
 }
 
 /// Read leniently: what each device last said is a cache, filled again as each connects.
@@ -1430,10 +1479,17 @@ mod tests {
     }
 
     fn device(name: &str, lanes: Vec<Lane>) -> Device {
+        device_where(name, lanes, |_| {})
+    }
+
+    /// A device whose folder `before` gets ready before it starts.
+    fn device_where(name: &str, lanes: Vec<Lane>, before: impl FnOnce(&Path)) -> Device {
         // Tests run side by side; each device gets a folder of its own.
         static N: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!("codealong-peers-{}-{name}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
         let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        before(&dir);
         let cfg = DevicesCfg { enabled: true, name: name.into(), tailscale: false, iroh: false, ..DevicesCfg::default() };
         // The board carries `[devices]`, as the engine's does, so publishing it keeps them on.
         let board = Arc::new(Mutex::new(Board { lanes, devices: cfg.clone(), ..Board::default() }));
@@ -1580,7 +1636,7 @@ mod tests {
         {
             let mut st = mac.peers.0.lock();
             let key = st.linked[0].key.clone();
-            mac.peers.0.forget(&mut st, &key);
+            mac.peers.0.forget(&mut st, &key).unwrap();
         }
         phone.connect_wire(reconnect(&mac), mac.peers.0.me.get().unwrap().key);
         until("the phone to hear it's forgotten", || phone.devices().first().is_some_and(|d| d.online && !d.linked_back));
@@ -1677,6 +1733,61 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         assert!(a.peers.view().asks.is_empty() && !a.peers.view().devices.iter().any(|d| d.key == alex_key));
         for m in [&a, &b, &c] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    #[test]
+    fn a_device_stays_linked_until_devices_json_no_longer_has_it() {
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![]);
+        join(&a, &b);
+        link(&a, &b);
+        let (a_key, b_key) = (key_of(&a), key_of(&b));
+        // devices.json can't be replaced (a folder in its place, as a full disk would refuse it).
+        let file = linked_path(&a.dir);
+        std::fs::remove_file(&file).unwrap();
+        std::fs::create_dir(&file).unwrap();
+        let e = a.peers.unlink(&b_key).unwrap_err();
+        assert!(e.starts_with("Mini is still linked: Couldn't write ") && e.contains("devices.json"), "{e}");
+        assert!(crate::store::problems(&a.dir).iter().any(|(f, why)| f == "devices.json" && e.ends_with(why.as_str())), "a notice says so too");
+        // Still trusted here, as the next launch would have it, and the Mini wasn't told otherwise.
+        assert!(a.peers.view().devices.iter().any(|d| d.key == b_key));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(b.peers.view().devices.iter().any(|d| d.key == a_key && d.linked_back));
+        // A color that can't be saved isn't taken either.
+        assert!(a.peers.set_color(&b_key, Some("green".into())).is_err());
+        assert_eq!(a.peers.view().devices[0].color, color_of(&Linked { color: None, ..a.peers.0.lock().linked[0].clone() }));
+
+        // Once it can be written, the unlink goes through on both.
+        std::fs::remove_dir(&file).unwrap();
+        a.peers.unlink(&b_key).unwrap();
+        assert!(load_linked(&a.dir).is_empty() && a.peers.view().devices.is_empty());
+        until("b to forget a", || b.peers.view().devices.is_empty());
+        assert!(crate::store::problems(&a.dir).is_empty());
+        for m in [&a, &b] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    #[test]
+    fn a_devices_json_that_does_not_read_trusts_no_one_and_links_no_one() {
+        let newer = r#"{"linked": {"by-key": {}}}"#;
+        let a = device_where("Book", vec![], |dir| std::fs::write(linked_path(dir), newer).unwrap());
+        let b = device("Mini", vec![]);
+        assert!(a.peers.view().devices.is_empty());
+        assert!(crate::store::problems(&a.dir).iter().any(|(f, why)| f == "devices.json" && why.starts_with("devices.json doesn't read as a list of linked devices")));
+        join(&a, &b);
+        until("b to find a", || b.peers.view().found.iter().any(|f| f.key == key_of(&a)));
+        b.peers.link(&key_of(&a)).unwrap();
+        until("a to be asked", || !a.peers.view().asks.is_empty());
+        let e = a.peers.answer_link(&key_of(&b), true).unwrap_err();
+        assert!(e.starts_with("Mini isn't linked: devices.json doesn't read as a list of linked devices"), "{e}");
+        // The Mini heard no, and nothing was written over the file.
+        until("b to stop asking", || !b.peers.view().found[0].asking);
+        assert!(a.peers.view().devices.is_empty() && b.peers.view().devices.is_empty());
+        assert_eq!(std::fs::read_to_string(linked_path(&a.dir)).unwrap(), newer);
+        for m in [&a, &b] {
             let _ = std::fs::remove_dir_all(&m.dir);
         }
     }
