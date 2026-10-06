@@ -6,6 +6,7 @@ import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
 import type { TodoOp } from './todos';
+import { pageZoom, type ZoomStep } from './zoom';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -27,10 +28,11 @@ export async function pageUnfocused(): Promise<void> {
   if (inTauri) await invoke('page_unfocused');
 }
 
-/** Pops up a menu made with `Menu.new` at `at` (logical window coordinates) or the pointer, and
- *  resolves when it has closed. */
+/** Pops up a menu made with `Menu.new` at `at` (a spot on the page) or the pointer, and
+ *  resolves when it has closed. The window takes points, which a zoomed page's pixels aren't. */
 export async function popupMenu(rid: number, at?: { x: number; y: number }): Promise<void> {
-  await invoke('popup_menu', { rid, at: at ? { Logical: at } : null });
+  const z = pageZoom();
+  await invoke('popup_menu', { rid, at: at ? { Logical: { x: at.x * z, y: at.y * z } } : null });
 }
 
 /** Calls `cb` with every board the engine publishes. Returns an unsubscribe function. */
@@ -385,6 +387,18 @@ export function onCheckUpdates(cb: () => void): () => void {
   };
 }
 
+/** Zooms every board window a step, saved to config.toml (src-tauri/src/zoom.rs); answers the
+ *  zoom, in percent. */
+export async function zoomWindows(step: ZoomStep): Promise<number> {
+  if (!inTauri) throw new Error('Zooming needs the app.');
+  return invoke<number>('zoom', { step });
+}
+
+/** Calls `cb` when View's Zoom in, Zoom out or Actual size asks this window to zoom. */
+export function onZoomMenu(cb: (step: ZoomStep) => void): () => void {
+  return onWindowEvent<ZoomStep>('zoom', cb);
+}
+
 /** Calls `cb` when the app menu's Settings… asks this window to open Settings. */
 export function onSettings(cb: () => void): () => void {
   if (!inTauri) return () => {};
@@ -619,7 +633,8 @@ export function onFileDrop(cb: (paths: string[], at: { x: number; y: number }) =
   void getCurrentWebviewWindow()
     .onDragDropEvent((e) => {
       if (e.payload.type !== 'drop') return;
-      // Tauri reports physical pixels; the page works in CSS pixels.
+      // Tauri reports physical pixels; the page works in CSS pixels. WebKit's devicePixelRatio
+      // has the page's zoom in it (2.5 on a Retina screen at 125%, checked 2026-10-06).
       const scale = window.devicePixelRatio || 1;
       cb(e.payload.paths, { x: e.payload.position.x / scale, y: e.payload.position.y / scale });
     })

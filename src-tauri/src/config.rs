@@ -265,10 +265,23 @@ pub struct DebugCfg {
     pub perf_log: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppearanceCfg {
     #[serde(default)]
     pub theme: Theme,
+    /// How big the board's windows draw, in percent; ⌘= and ⌘- step it (zoom.rs).
+    #[serde(default = "default_zoom")]
+    pub zoom: u32,
+}
+
+impl Default for AppearanceCfg {
+    fn default() -> Self {
+        AppearanceCfg { theme: Theme::default(), zoom: default_zoom() }
+    }
+}
+
+fn default_zoom() -> u32 {
+    crate::zoom::ACTUAL
 }
 
 /// Keyboard shortcuts that work whichever app is in front. An empty one is off.
@@ -497,6 +510,11 @@ pub fn theme() -> Theme {
     load().ok().flatten().map(|c| c.appearance.theme).unwrap_or_default()
 }
 
+/// The zoom config.toml asks for: actual size when there's no file yet or it has an error.
+pub fn zoom() -> u32 {
+    load().ok().flatten().map_or(crate::zoom::ACTUAL, |c| c.appearance.zoom)
+}
+
 /// The shortcuts config.toml asks for: the defaults when there's no file yet or it has an error,
 /// as the theme is, since the app registers them before its engine has read the settings.
 pub fn shortcuts() -> ShortcutsCfg {
@@ -598,7 +616,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 }
 
 const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\" or \"terminal\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n";
-const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
+const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
@@ -645,7 +663,46 @@ pub fn with_theme(text: &str, theme: Theme) -> Result<String> {
 }
 
 fn set_theme(doc: &mut toml_edit::DocumentMut, theme: Theme) {
-    use toml_edit::{Item, Table, Value};
+    ensure_appearance(doc);
+    set_value(&mut doc["appearance"]["theme"], toml_edit::Value::from(theme.as_str()));
+}
+
+/// Steps `[appearance] zoom` in config.toml from what it says now (zoom.rs `stepped`), keeping
+/// everything else as written, and answers the zoom it's at. It reads the file each time, not
+/// the settings the app runs on, which catch up a moment later: so presses quicker than that
+/// each step from the one before.
+pub fn step_zoom(step: crate::zoom::Step) -> Result<u32> {
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    std::fs::create_dir_all(support_dir())?;
+    let text = match std::fs::read_to_string(config_path()) {
+        Ok(t) => t,
+        Err(_) => render(&Config::default()),
+    };
+    let (text, zoom) = with_zoom_step(&text, step)?;
+    write_atomic(&text)?;
+    Ok(zoom)
+}
+
+/// `text` with its zoom stepped, and the zoom it's at. Only a file that zooms, or has the key
+/// already, gets it; a comment after the value stays.
+pub fn with_zoom_step(text: &str, step: crate::zoom::Step) -> Result<(String, u32)> {
+    use crate::zoom::{stepped, ACTUAL};
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before zooming")?;
+    let said = doc.get("appearance").and_then(|a| a.get("zoom"));
+    let now = said.and_then(toml_edit::Item::as_integer).map_or(ACTUAL, |z| u32::try_from(z.max(0)).unwrap_or(u32::MAX));
+    let zoom = stepped(now, step);
+    if zoom != ACTUAL || said.is_some() {
+        ensure_appearance(&mut doc);
+        set_value(&mut doc["appearance"]["zoom"], toml_edit::Value::from(i64::from(zoom)));
+    }
+    Ok((doc.to_string(), zoom))
+}
+
+/// Gives a file from before there was an `[appearance]` table one after `[apps]`, commented as a
+/// new file would be.
+fn ensure_appearance(doc: &mut toml_edit::DocumentMut) {
+    use toml_edit::{Item, Table};
     if !doc.get("appearance").is_some_and(Item::is_table_like) {
         let mut t = Table::new();
         t.decor_mut().set_prefix(format!("\n{APPEARANCE_COMMENT}"));
@@ -657,7 +714,6 @@ fn set_theme(doc: &mut toml_edit::DocumentMut, theme: Theme) {
         doc.insert("appearance", Item::Table(t));
         place_after(doc, "appearance", "apps");
     }
-    set_value(&mut doc["appearance"]["theme"], Value::from(theme.as_str()));
 }
 
 /// Sets `[shortcuts]`. A file from before there were shortcuts gets the table after
@@ -776,6 +832,9 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     }
     if cfg.devices.name.chars().count() > 64 || cfg.devices.name.chars().any(char::is_control) {
         return Err("[devices] name is too long or has control characters.".into());
+    }
+    if !(crate::zoom::MIN..=crate::zoom::MAX).contains(&cfg.appearance.zoom) {
+        return Err(format!("[appearance] zoom is {}; it goes from {} to {} (percent).", cfg.appearance.zoom, crate::zoom::MIN, crate::zoom::MAX));
     }
     if cfg.apps.terminal.trim().is_empty() || cfg.apps.editor.trim().is_empty() {
         return Err("The terminal and editor need a profile name.".into());
@@ -1034,6 +1093,9 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(APPEARANCE_COMMENT);
     s.push_str("[appearance]\n");
     s.push_str(&format!("theme = {}\n", q(cfg.appearance.theme.as_str())));
+    if cfg.appearance.zoom != crate::zoom::ACTUAL {
+        s.push_str(&format!("zoom = {}\n", cfg.appearance.zoom));
+    }
     s.push('\n');
     s.push_str(SHORTCUTS_COMMENT);
     s.push_str("[shortcuts]\n");
@@ -1145,7 +1207,7 @@ mod tests {
         let cfg = Config {
             scan: vec!["~/projects".into()],
             apps: AppsCfg::default(),
-            appearance: AppearanceCfg { theme: Theme::Dark },
+            appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: "Ctrl+Option+N".into() },
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
@@ -1272,10 +1334,33 @@ mod tests {
 
     #[test]
     fn a_new_file_has_the_theme() {
-        let cfg = Config { appearance: AppearanceCfg { theme: Theme::Light }, ..Config::default() };
+        let cfg = Config { appearance: AppearanceCfg { theme: Theme::Light, ..AppearanceCfg::default() }, ..Config::default() };
         let text = render(&cfg);
         assert!(text.contains("[appearance]\ntheme = \"light\"\n"));
         assert_eq!(toml::from_str::<Config>(&text).unwrap(), cfg);
+    }
+
+    #[test]
+    fn zooming_steps_the_file_in_place_and_only_a_zoomed_one_says_it() {
+        use crate::zoom::Step;
+        let text = render(&Config::default());
+        assert!(!text.contains("zoom ="), "actual size isn't written");
+        let (bigger, zoom) = with_zoom_step(&text, Step::In).unwrap();
+        assert_eq!(zoom, 110);
+        assert!(bigger.contains("[appearance]\ntheme = \"system\"\nzoom = 110\n"), "{bigger}");
+        assert_eq!(parse(&bigger).unwrap().appearance.zoom, 110);
+        // Back to actual size, a file that says its zoom keeps saying it.
+        let (back, zoom) = with_zoom_step(&bigger, Step::Actual).unwrap();
+        assert_eq!((zoom, back.contains("zoom = 100\n")), (100, true));
+        assert_eq!(with_zoom_step(&text, Step::Actual).unwrap(), (text.clone(), 100));
+        // A zoom written by hand steps to the next one, with its comment kept; a file without
+        // [appearance] gets the table.
+        let (out, zoom) = with_zoom_step("[appearance]\nzoom = 115 # big screen\n", Step::Out).unwrap();
+        assert_eq!((out.as_str(), zoom), ("[appearance]\nzoom = 110 # big screen\n", 110));
+        let (out, _) = with_zoom_step("scan = []\n\n[apps]\nterminal = \"ghostty\"\n", Step::Out).unwrap();
+        assert!(out.contains(&format!("{APPEARANCE_COMMENT}[appearance]\nzoom = 90\n")), "{out}");
+        assert!(with_zoom_step("scan = [", Step::In).is_err());
+        assert!(parse("[appearance]\nzoom = 400\n").unwrap_err().to_string().contains("zoom is 400"));
     }
 
     #[test]
@@ -1303,7 +1388,7 @@ mod tests {
         Config {
             scan: vec!["~/projects".into(), "~/work".into()],
             apps: AppsCfg::default(),
-            appearance: AppearanceCfg { theme: Theme::Dark },
+            appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg::default(),
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },

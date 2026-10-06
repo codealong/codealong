@@ -12,6 +12,7 @@ paths:
   - "src-tauri/src/front.rs"
   - "src-tauri/src/geometry.rs"
   - "src-tauri/src/procs.rs"
+  - "src-tauri/src/zoom.rs"
   - "src-tauri/src/lib.rs"
   - "src-tauri/capabilities/**"
   - "src-tauri/tauri*.json"
@@ -120,11 +121,20 @@ under `src-tauri/src/`.
   `com.apple.symbolichotkeys`, which lists only the ones changed from their defaults.
 - Tauri's `plugin:menu|popup` (2.11.6, the same in 2.12.0) keeps the page's resource table
   locked while a menu is up, which hung the app: `lib.rs` (`popup_menu`).
+- A key equivalent (⌘ and a key) goes to the page before the menu bar, and to the menu only when
+  the page doesn't prevent it; WKWebView's `pageZoom` shrinks the page's CSS pixels and is in
+  its `devicePixelRatio` (2.5 on a Retina screen at 125%). Both checked in a WKWebView whose
+  window was never on screen, on 2026-10-06: `zoom.rs` (module header, `add_menu`).
 - The background computer-use tools click through raw input: the app comes forward for a moment
   and the one before is put back, which takes the keyboard from the quick panel and hides it.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
 
 ## Unchecked
+
+- Not yet checked by hand (2026-10-06): zooming in the real app. View's Actual size, Zoom in and
+  Zoom out and their keys; every board window following a step, and a project window opening at
+  the zoom; a menu dropped from a button (a session header's More) landing under it at 125%. The
+  preview only shows the keys asking for it (`zoom-check.js`).
 
 - Not yet checked by hand (2026-10-06): the waiting window in the real app. Whether ⌥⌘. from
   another app brings only it forward or Codealong's other windows too (`set_focus` is tao's

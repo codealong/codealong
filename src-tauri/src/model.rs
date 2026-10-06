@@ -116,6 +116,9 @@ pub struct Board {
     pub github_login: Option<String>,
     /// Light, dark, or following macOS, from config.toml.
     pub theme: Theme,
+    /// How big the board's windows draw, in percent, from config.toml (zoom.rs).
+    #[serde(default)]
+    pub zoom: u32,
     /// True while `[debug] perf_log` is on, so windows report their timings too.
     pub perf_log: bool,
     /// Every todo, in your order.

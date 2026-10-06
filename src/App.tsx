@@ -12,7 +12,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, liveOrLatest, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -65,6 +65,7 @@ import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
 import { laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
 import { inProject } from './quick';
+import { setPageZoom, type ZoomStep } from './zoom';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
@@ -235,6 +236,18 @@ export function App() {
   // The session being renamed (ui/RenameDialog.tsx), by key.
   const [renaming, setRenaming] = useState<string | null>(null);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
+  // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the
+  // zoom and sets it on them, and the board says what it is (zoom.ts).
+  const zoom = useCallback(
+    (step: ZoomStep) => {
+      zoomWindows(step)
+        .then((percent) => setToast(`Zoomed to ${percent}%.`))
+        .catch((e: unknown) => setToast(errorText(e)));
+    },
+    [setToast],
+  );
+  useEffect(() => onZoomMenu(zoom), [zoom]);
+  useEffect(() => setPageZoom(board?.zoom), [board?.zoom]);
   /** Marks sessions seen, shown at once; the engine turning it down puts them back and says why. */
   const markSeen = useCallback(
     (keys: string[]) => {
@@ -945,6 +958,7 @@ export function App() {
     copy,
     markSeen,
     setSelectedKey,
+    zoom,
   });
 
   const toggleBay = (f: Filter) => {

@@ -318,6 +318,8 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'bar_mode') return Promise.resolve(window.__BAR_MODE__ || { mode: 'floating', notch: null });
     if (cmd === 'link_with_code') return Promise.resolve('Studio');
     if (cmd === 'search_devices') return Promise.resolve([]);
+    // A zoom step answers where the engine would get to from actual size; nothing is zoomed.
+    if (cmd === 'zoom') return Promise.resolve({ in: 110, out: 90, actual: 100 }[(args || {}).step] || 100);
     // Text search: the two latest sessions whose titles don't have the words, as if their
     // conversations did, so the panel's text hits can be seen.
     if (cmd === 'search_text') {

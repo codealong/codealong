@@ -17,6 +17,7 @@ import type { Bay, Lane, ProjectSummary, Session } from './types';
 import { openSwitcher, projectForDigit } from './ui/ProjectSwitcher';
 import type { PrRowItem } from './ui/PrsView';
 import type { SessionItem } from './ui/SessionsView';
+import { zoomStep, type ZoomStep } from './zoom';
 
 /** The chords Sessions' box hands the list: ⌥↑ ⌥↓ (with ⇧, to what waits on you), ⌃⌘ with a
  *  menu's letter or ↑ ↓, ⇧⌘F and ⌃Tab. A text field has no use of its own for any of them but
@@ -93,11 +94,13 @@ export interface MainKeys<V extends string> {
   copy: (text: string | null | undefined, what: string) => void;
   markSeen: (keys: string[]) => void;
   setSelectedKey: (key: string) => void;
+  /** Zooms every board window a step (zoom.ts). */
+  zoom: (step: ZoomStep) => void;
 }
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, selectedLane, startLaneId, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, markSeen, setSelectedKey } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, selectedLane, startLaneId, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   const mod = e.metaKey;
   const key = e.key.toLowerCase();
@@ -109,6 +112,15 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // ⌃⌘, with a menu's letter or ↑ ↓.
   const chord = e.ctrlKey && mod && !e.altKey && !e.shiftKey;
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+  // ⌘= and ⌘- zoom the window and ⌘0 puts it back, as in VS Code, from any field or sheet. The
+  // canvas has them for its own zoom wherever its keys work: not in a field or the panel beside it.
+  const zoomTo = zoomStep(e);
+  const canvasZooms = view === 'canvas' && !inField(document.activeElement, null) && !document.activeElement?.closest('.ca-insp');
+  if (zoomTo && !canvasZooms) {
+    e.preventDefault();
+    zoom(zoomTo);
+    return;
+  }
   // Escape in a session panel's box gives the list its keys back (a click on a row put them
   // there), unless it stopped the session's turn. With the panel expanded there's no list to
   // give them to, so the window has them.

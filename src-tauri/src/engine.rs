@@ -115,6 +115,8 @@ pub enum Msg {
     SetArchived(String, bool, Sender<i64>),
     /// The theme, already saved to config.toml.
     SetTheme(Theme),
+    /// The board windows' zoom, already saved to config.toml.
+    SetZoom(u32),
     /// An account's star, already saved to config.toml.
     SetPreferred(String, bool),
     /// Sent every second while the perf log is on; how late it's read is the engine's lag.
@@ -410,6 +412,14 @@ impl Handle {
         Ok(())
     }
 
+    /// Steps the board windows' zoom in config.toml and publishes it at once, as the theme is;
+    /// answers the zoom it's at.
+    pub fn zoom(&self, step: crate::zoom::Step) -> Result<u32> {
+        let zoom = config::step_zoom(step)?;
+        let _ = self.tx.send(Msg::SetZoom(zoom));
+        Ok(zoom)
+    }
+
     /// Opens a terminal window that signs the account in.
     pub fn sign_in(&self, name: &str) -> Result<()> {
         let cfg = config::current()?;
@@ -529,9 +539,9 @@ fn opens_in(apps: &AppNames, id: &str) -> bool {
 
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
-    // The theme is on the board before the first scan finishes, so windows open in it.
+    // The theme and zoom are on the board before the first scan finishes, so windows open in them.
     let shortcuts = config::shortcuts();
-    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), quick_shortcut: shortcuts.quick_panel, waiting_shortcut: shortcuts.waiting, ..Default::default() }));
+    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), zoom: config::zoom(), quick_shortcut: shortcuts.quick_panel, waiting_shortcut: shortcuts.waiting, ..Default::default() }));
     let handle = Handle { tx: tx.clone(), board: board.clone() };
     let ping = tx.clone();
     std::thread::spawn(move || loop {
@@ -1387,6 +1397,10 @@ impl Engine {
                 Ok(Msg::SetTheme(theme)) => {
                     // Published now, not on the next tick: the app's appearance follows the board.
                     self.cfg.appearance.theme = theme;
+                    self.publish();
+                }
+                Ok(Msg::SetZoom(zoom)) => {
+                    self.cfg.appearance.zoom = zoom;
                     self.publish();
                 }
                 Ok(Msg::SetPreferred(account, preferred)) => {
@@ -2443,6 +2457,7 @@ impl Engine {
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.pinned_prs = self.seen.pinned_prs.clone();
         board.theme = self.cfg.appearance.theme;
+        board.zoom = self.cfg.appearance.zoom;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();
         board.jev = self.cfg.jev.clone();

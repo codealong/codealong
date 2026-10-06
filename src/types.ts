@@ -316,7 +316,8 @@ export interface ProjectCfg {
 export interface Config {
   scan: string[];
   apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean };
-  appearance: { theme: Theme };
+  /** `zoom` is a percent; Settings leaves it as config.toml has it. */
+  appearance: { theme: Theme; zoom?: number };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
   shortcuts: { quick_panel: string; waiting: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
@@ -585,6 +586,9 @@ export interface Board {
   perfLog?: boolean;
   /** From config.toml. */
   theme: Theme;
+  /** How big the board's windows draw, in percent, from config.toml (zoom.ts); actual size when
+   *  it's missing. */
+  zoom?: number;
   /** Every todo, in your order (src-tauri/src/todos.rs). */
   todos: Todo[];
   /** Todo labels, in your order. */
