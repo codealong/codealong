@@ -893,6 +893,10 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.key !== 'Enter') return;
+      // Not from words being written elsewhere (the message box below): that's a message, and
+      // answering would send whatever was left half typed here instead. An answer box of its own
+      // takes ⌘⏎ before it gets here.
+      if (editingText(e.target)) return;
       e.preventDefault();
       answerRef.current(true);
     };
