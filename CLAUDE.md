@@ -24,7 +24,7 @@ npm test                                # vitest
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 (cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
-scripts/relaunch.sh                     # builds Codealong Dev, then quits and reopens it
+scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 ```
 
@@ -38,8 +38,9 @@ just added are the sign). `touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs`
 then; `relaunch.sh` always does.
 
 Hand a change to the user with `scripts/relaunch.sh`: it waits its turn behind other relaunches,
-builds, and only then quits the running app and opens the new one; its last line says which
-commit it launched and how that stands against `origin/main`. What it builds is Codealong Dev
+builds, and only then quits the running app and opens the new one, which it puts in Applications
+so a launcher always opens the latest build; its last line says which commit it launched and how
+that stands against `origin/main`. What it builds is Codealong Dev
 (`src-tauri/tauri.dev.conf.json`, its own id, name and icon), never Codealong, the app
 `scripts/release.sh` builds and people install. The two share their data folder (config.toml,
 todos, the socket), so one runs at a time: a copy opened the usual way asks the running one to

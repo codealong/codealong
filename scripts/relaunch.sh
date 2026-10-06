@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Hands a change to the user: builds Codealong Dev, quits the running one and opens the new one.
+# Hands a change to the user: builds Codealong Dev, quits the running one, puts the new one in
+# Applications and opens it there, so Spotlight or any launcher opens the latest build.
 # Codealong Dev (src-tauri/tauri.dev.conf.json) is this repo's build: an id, name and light icon of
 # its own beside the Codealong installed in Applications, the same settings and todos, and the
 # last of the two opened wins (server::take_over). One bundle build at a time on this Mac; a build
@@ -11,10 +12,14 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 target="$(scripts/target-dir.sh)"
 # From any checkout, cargo and tauri build in the shared directory, which holds the lock below
-# and the app that gets opened.
+# and the app each build makes.
 export CARGO_TARGET_DIR="$target"
 bundles="$target/release/bundle/macos"
 app="$bundles/Codealong Dev.app"
+# Where the app is opened from: /Applications, or ~/Applications on a Mac where you can't write it.
+apps=/Applications
+[ -w "$apps" ] || apps="$HOME/Applications"
+installed="$apps/Codealong Dev.app"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 lock="$target/relaunch.lock"
 mkdir -p "$target"
@@ -48,9 +53,11 @@ fi
 # checkout's. Touched, they compile from here.
 touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs
 npx tauri build --config src-tauri/tauri.dev.conf.json
-# What runs from the shared bundle folder is a build of this repo, and relaunch's own to quit. The
-# Codealong in Applications is left alone: the new build asks it to quit as it opens.
-running="^$(printf '%s' "$bundles" | sed 's/[][\.*^$()+?{}|]/\\&/g')/[^/]+\.app/Contents/MacOS/codeal[o]ng$"
+# Codealong Dev in Applications, or any app in the shared bundle folder (where builds ran from
+# before), is a build of this repo and relaunch's own to quit. Codealong itself is left alone: the
+# new build asks it to quit as it opens.
+re() { printf '%s' "$1" | sed 's/[][\.*^$()+?{}|]/\\&/g'; }
+running="^($(re "$installed")|$(re "$bundles")/[^/]+\.app)/Contents/MacOS/codeal[o]ng$"
 pkill -f "$running" || true
 # macOS won't open an app while its last copy is still quitting (error -600), so wait for it to
 # go, then open, trying once more if the first open is turned away.
@@ -58,18 +65,26 @@ for _ in $(seq 1 50); do
   pgrep -f "$running" >/dev/null || break
   sleep 0.2
 done
-# Builds before Codealong Dev were Codealong.app, here. Gone, it can't be opened from Spotlight or
-# a link as if it were the app in Applications, and the command's link moves to Codealong Dev.
+# The build replaces the copy in Applications. It's moved, not copied, so LaunchServices knows one
+# Codealong Dev to open a link with, the one in Applications.
+mkdir -p "$apps"
+"$lsregister" -u "$app" 2>/dev/null || true
+rm -rf "$installed"
+mv "$app" "$installed"
+# Builds before Codealong Dev were Codealong.app, in the bundle folder. Gone, it can't be opened
+# from Spotlight or a link as if it were the app in Applications.
 old="$bundles/Codealong.app"
 if [ -d "$old" ]; then
-  for link in /usr/local/bin/codealong "$HOME/.local/bin/codealong"; do
-    if [ "$(readlink "$link" 2>/dev/null)" = "$old/Contents/MacOS/codealong" ]; then
-      ln -sfn "$app/Contents/MacOS/codealong" "$link" 2>/dev/null || true
-    fi
-  done
   "$lsregister" -u "$old" 2>/dev/null || true
   rm -rf "$old"
 fi
+# The `codealong` command's link follows the app once it opens (install::follow_command_link); one
+# into the bundle folder is pointed at Applications now, so it never points at nothing meanwhile.
+for link in /usr/local/bin/codealong "$HOME/.local/bin/codealong"; do
+  case "$(readlink "$link" 2>/dev/null)" in
+  "$bundles"/*.app/Contents/MacOS/codealong) ln -sfn "$installed/Contents/MacOS/codealong" "$link" 2>/dev/null || true ;;
+  esac
+done
 # The app gets the environment the Dock gives it, not this shell's: `open` hands its own
 # environment to the app it starts, and an agent's shell holds its session's ID, message socket
 # and token (CLAUDE_CODE_*), its editor's variables (VSCODE_*, ELECTRON_RUN_AS_NODE) and a PATH of
@@ -79,7 +94,7 @@ dock=(HOME="$HOME" USER="$me" LOGNAME="$me" SHELL="${SHELL:-/bin/zsh}" PATH=/usr
 agent="$(launchctl getenv SSH_AUTH_SOCK || true)"
 [ -z "$agent" ] || dock+=(SSH_AUTH_SOCK="$agent")
 [ -z "${__CF_USER_TEXT_ENCODING:-}" ] || dock+=(__CF_USER_TEXT_ENCODING="$__CF_USER_TEXT_ENCODING")
-open_app() { env -i "${dock[@]}" /usr/bin/open "$app"; }
+open_app() { env -i "${dock[@]}" /usr/bin/open "$installed"; }
 open_app || { sleep 2; open_app; }
 
 # Names what was launched, for the agent reporting it: the commit, where it stands against
