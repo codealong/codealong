@@ -549,6 +549,8 @@ pub struct Resumed {
 /// is, and on `prompt` when there's one, else waiting for one. What a box's send to a session
 /// that isn't running comes to (send.rs `Route::Resume`), and Resume in, in its menu.
 pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &str) -> Result<Resumed> {
+    // Before the folder is readied for the harness (`to_fork`), let alone anything started.
+    crate::send::ensure_not_moved(&crate::origins::current(), board, key)?;
     let (s, account, _, cwd) = to_fork(board, cfg, key)?;
     let title = format!("“{}”", s.title);
     if s.live {

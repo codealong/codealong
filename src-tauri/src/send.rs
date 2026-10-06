@@ -239,12 +239,19 @@ pub fn opened(message: String) -> Sent {
 /// opened again, and you sent what it still showed, or another window sent it too) joins that
 /// send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
-    // A message to a session that moved to another account would bring it back to life where it
-    // was, beside the copy that goes on: say where it went, for the sender to send there.
-    if let Some(copy) = crate::origins::current().moved_to(session_key, |k| board.session(k).is_some()) {
-        bail!("{}", moved_words(board, session_key, &copy));
-    }
+    ensure_not_moved(&crate::origins::current(), board, session_key)?;
     join(session_key, text.trim(), || deliver(board, cfg, session_key, text, &sender, now))
+}
+
+/// A session that moved to another account (start.rs `move_to`) is neither sent to nor resumed
+/// (start.rs `resume`): either would bring it back to life where it was, beside the copy that
+/// goes on. Says where it went, for the sender to go there instead. `origins` is where sessions
+/// came from (`origins::current`), and a copy counts while the board has it.
+pub fn ensure_not_moved(origins: &crate::origins::Store, board: &Board, key: &str) -> Result<()> {
+    if let Some(copy) = origins.moved_to(key, |k| board.session(k).is_some()) {
+        bail!("{}", moved_words(board, key, &copy));
+    }
+    Ok(())
 }
 
 /// Where a moved session went, in a sentence that names the session to send to instead.
@@ -714,6 +721,21 @@ mod tests {
         assert_eq!(without_byline(&format!("{}\n\nAnd the docs?", byline(&board, None).intro)), "And the docs?");
         assert_eq!(without_byline("Plain words\n\nstay whole"), "Plain words\n\nstay whole");
         assert_eq!(Message::new(&board, &Config::default(), "hi", &Sender::You, false).text, "hi");
+    }
+
+    /// A session that moved to another account is neither sent to nor resumed: it would come back
+    /// to life beside its copy. The copy goes on as ever, and so does a session whose copy is gone.
+    #[test]
+    fn a_moved_session_is_neither_sent_to_nor_resumed() {
+        let mut origins = crate::origins::Store::default();
+        origins.sessions.insert("claude:claude2:copy".into(), crate::origins::Entry { from: "claude:claude:abc".into(), how: crate::model::OriginHow::Fork, at: 1 });
+        let moved = session(Harness::Claude, Surface::Cli, Status::Stopped, false, None);
+        let copy = Session { key: "claude:claude2:copy".into(), account: "claude2".into(), ..moved.clone() };
+        let board = Board { lanes: vec![crate::fixtures::lane("/w", vec![moved.clone(), copy])], ..Board::default() };
+        let e = ensure_not_moved(&origins, &board, "claude:claude:abc").unwrap_err().to_string();
+        assert_eq!(e, "“Fix the build” moved to claude2 and goes on there as claude:claude2:copy. Send to that session instead.");
+        assert!(ensure_not_moved(&origins, &board, "claude:claude2:copy").is_ok());
+        assert!(ensure_not_moved(&origins, &board_with(moved), "claude:claude:abc").is_ok());
     }
 
     #[test]
