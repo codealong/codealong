@@ -9,7 +9,7 @@ use serde_json::Value;
 use super::ClaudeCode;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{tool_request, typed_text, you_typed};
+use super::transcript::{prompt_words, tool_request, typed_text, you_typed};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
 use crate::util::{one_line, parse_rfc3339_ms, read_range};
 
@@ -67,12 +67,8 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             if let Some(peer) = line_peer(v) {
                 return vec![peer_item(at, &peer)];
             }
-            let t = text_of(v.pointer("/attachment/prompt").unwrap_or(&Value::Null));
-            let t = t.trim();
-            if t.is_empty() || t.starts_with('<') {
-                return Vec::new();
-            }
-            vec![Item { images: images_of(v.pointer("/attachment/prompt"), v.pointer("/attachment/imagePasteIds")), ..item(at, "you", t) }]
+            let Some(t) = prompt_words(&text_of(v.pointer("/attachment/prompt").unwrap_or(&Value::Null))) else { return Vec::new() };
+            vec![Item { images: images_of(v.pointer("/attachment/prompt"), v.pointer("/attachment/imagePasteIds")), ..item(at, "you", &t) }]
         }
         Some("assistant") => {
             let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
@@ -511,5 +507,19 @@ mod tests {
         assert_eq!(result(serde_json::json!({ "read": { "url": "https://claude.ai/artifact/8ZBq", "title": "Class C" }, "artifactRead": { "slug": "3d2e" } })), None);
         assert_eq!(result(serde_json::json!({ "bytes": 10, "code": 200, "url": "https://example.com", "result": "" })), None);
         assert_eq!(result(Value::String("Error: artifact not found".into())), None);
+    }
+
+    /// What Codealong sends a terminal session is pasted, and a long one comes back wrapped in
+    /// Claude Code's paste tags: it's yours, said without them, whether it started a turn or was
+    /// sent while one ran (a long message from Codealong went missing from its panel, 2026-10-05).
+    #[test]
+    fn a_pasted_prompt_shows_as_yours() {
+        let said = |v: Value| conversation_items(&v, 1).into_iter().map(|i| (i.kind, i.text)).collect::<Vec<_>>();
+        let typed = serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": "\n\n<pasted_content id=\"3c58\">\nI ran these mocks by Gordon.\n</pasted_content id=\"3c58\">\n" } });
+        assert_eq!(said(typed), [("you", "I ran these mocks by Gordon.".to_string())]);
+        let queued = serde_json::json!({ "type": "attachment", "attachment": { "type": "queued_command", "prompt": "<pasted_content id=\"9\">\nAlso the docs.\n</pasted_content id=\"9\">" } });
+        assert_eq!(said(queued), [("you", "Also the docs.".to_string())]);
+        let notified = serde_json::json!({ "type": "attachment", "attachment": { "type": "queued_command", "prompt": "<task-notification>\n<task-id>b1</task-id>\n</task-notification>" } });
+        assert!(said(notified).is_empty(), "a background task's notification isn't yours");
     }
 }

@@ -387,11 +387,53 @@ fn user_prompt(v: &Value) -> Option<String> {
             .and_then(|i| str_of(i, "text"))?,
         _ => return None,
     };
-    let t = text.trim();
-    if t.is_empty() || t.starts_with('<') || t.starts_with("Caveat:") || t.starts_with("[Request interrupted") {
+    if text.trim_start().starts_with("Caveat:") {
         return None;
     }
-    Some(one_line(t, 140))
+    prompt_words(&text).map(|t| one_line(&t, 140))
+}
+
+/// How Claude Code wraps text pasted into a prompt (2.1.28x): the tag, the text on lines of its
+/// own, then a closing tag that names the same id. A long message Codealong sends a terminal
+/// session is pasted, so it comes back as one: `\n\n<pasted_content id="3c58">\n…\n</pasted_content
+/// id="3c58">\n`, with nothing typed around it (2026-10-05).
+const PASTE_OPEN: &str = "<pasted_content id=\"";
+const PASTE_CLOSE: &str = "</pasted_content id=\"";
+
+/// What a prompt says, or None for a line of Claude Code's own rather than words of yours: empty,
+/// tagged (a command's output, a notification) or an interruption. A paste is yours, so its tags
+/// come off instead, and what was pasted stays where it was, even when it starts with a tag.
+pub(super) fn prompt_words(text: &str) -> Option<String> {
+    let t = text.trim();
+    if t.is_empty() || (t.starts_with('<') && !t.starts_with(PASTE_OPEN)) || t.starts_with("[Request interrupted") {
+        return None;
+    }
+    let words = unwrap_pastes(t);
+    let words = words.trim();
+    (!words.is_empty()).then(|| words.to_string())
+}
+
+/// A prompt's text with Claude Code's paste tags taken off, with the line break each puts
+/// between itself and what was pasted. A tag that isn't closed on its own line is left alone.
+fn unwrap_pastes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    loop {
+        let next = [PASTE_OPEN, PASTE_CLOSE].into_iter().filter_map(|tag| rest.find(tag).map(|at| (at, tag))).min();
+        let Some((at, tag)) = next else { break };
+        let id_from = at + tag.len();
+        let Some(end) = rest[id_from..].find("\">").map(|i| id_from + i + 2).filter(|&end| !rest[id_from..end].contains('\n')) else { break };
+        let (mut before, mut after) = (&rest[..at], &rest[end..]);
+        if tag == PASTE_OPEN {
+            after = after.strip_prefix('\n').unwrap_or(after);
+        } else {
+            before = before.strip_suffix('\n').unwrap_or(before);
+        }
+        out.push_str(before);
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// A turn you took: a prompt you typed, pasted or ran as a slash command, or sent from
@@ -442,8 +484,7 @@ pub fn typed_text(v: &Value) -> Option<String> {
             .join("\n"),
         _ => return None,
     };
-    let t = text.trim();
-    (!t.is_empty() && !t.starts_with('<') && !t.starts_with("[Request interrupted")).then(|| t.to_string())
+    prompt_words(&text)
 }
 
 /// What an agent said in an assistant line, its text parts joined; tool calls and thinking
@@ -683,6 +724,23 @@ mod tests {
 "#;
         assert_eq!(parse_lines(HEAD, old).last_prompt_at, parse_rfc3339_ms("2026-09-23T16:00:00.000Z"));
         assert_eq!(parse_lines(HEAD, "").last_prompt_at, None);
+    }
+
+    #[test]
+    fn a_pasted_prompt_is_what_was_pasted() {
+        let line = |text: &str| serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": text } });
+        // A long message Codealong sends a terminal session comes back wrapped whole, as this one did.
+        let sent = "\n\n<pasted_content id=\"3c58\">\nI ran these mocks by Gordon.\n\n1) Simplify \"Applies to\".\n</pasted_content id=\"3c58\">\n";
+        assert_eq!(typed_text(&line(sent)).as_deref(), Some("I ran these mocks by Gordon.\n\n1) Simplify \"Applies to\"."));
+        assert_eq!(user_prompt(&line(sent)).as_deref(), Some("I ran these mocks by Gordon."));
+        // Pasted around words typed, each stays where it was, a paste that starts with a tag too.
+        let mixed = "<pasted_content id=\"a\">\nlog\n</pasted_content id=\"a\">\n\nwhy does this fail? <pasted_content id=\"b\">\n<html>\n</pasted_content id=\"b\">";
+        assert_eq!(typed_text(&line(mixed)).as_deref(), Some("log\n\nwhy does this fail? <html>"));
+        // Claude Code's own tagged lines are still not prompts, nor is an empty paste.
+        assert_eq!(typed_text(&line("<command-name>/cost</command-name>")), None);
+        assert_eq!(typed_text(&line("<pasted_content id=\"c\">\n\n</pasted_content id=\"c\">")), None);
+        // A tag that doesn't close on its own line is left as it is.
+        assert_eq!(prompt_words("<pasted_content id=\"d\nnot a tag").as_deref(), Some("<pasted_content id=\"d\nnot a tag"));
     }
 
     #[test]
