@@ -38,9 +38,11 @@ under `src-tauri/src/`.
   on its shape: `bar.rs` (module header, `notch_of`, `watch_pointer`), `panel.rs` (`Top`),
   `src/bar.ts` (`NOTCH`, `notchSizes`). On a 16-inch MacBook Pro (2026-09-28) the safe area is
   32, the notch 185 wide and the menu bar 33 tall (`frame` top less `visibleFrame` top).
-- The docked bar has the keyboard only while it shows a session, and gives it back by being
-  ordered out and in again in one turn of the run loop: `bar.rs` (`set_keys`, `lost_keys`),
-  `panel.rs` (`Keys::WhenAsked`, `drop_keys`).
+- The docked bar has the keyboard only while it shows a session, and gives it back through an
+  unseen panel that takes it and is ordered out: a panel ordered out and in again, even in one
+  turn of the run loop, has WebKit hide its page until it draws again, and the notch blinked
+  out as it closed (2026-10-05). `bar.rs` (`set_keys`, `lost_keys`), `panel.rs`
+  (`Keys::WhenAsked`, `drop_keys`, `relay`).
 - Only a non-activating NSPanel goes onto another app's full-screen Space, so each window's class
   is swapped before it's first shown: `panel.rs` (module header, `builder`, `make`).
 - A panel gets its old class back before its window is destroyed, or WebKit's key-value
@@ -116,9 +118,9 @@ under `src-tauri/src/`.
 
 ## Unchecked
 
-- Not yet checked by hand (2026-10-01): that the app you were in gets its keys back at once when
-  the docked bar drops them, and that the notch doesn't blink as it does. If it blinks, a second,
-  unseen panel can take the keyboard from the bar and be the one ordered out.
+- Not yet checked by hand (2026-10-05): that the app you were in gets its keys back at once when
+  the unseen panel takes them from the docked bar and is ordered out, and that the notch no
+  longer blinks as a session in it closes (it did while the bar itself was ordered out).
 - Not yet checked by hand (2026-09-27): a click in the peek making it key under the
   `isKeyWindow` override.
 - Not yet checked by hand (2026-10-02): dragging the peek by its header in the real app; the

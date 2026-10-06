@@ -14,13 +14,15 @@
 //! All of it is the main thread's. Off it these functions do nothing and answer nothing, and a
 //! debug build stops to say so (`main_thread`).
 
+use std::cell::OnceCell;
 use std::ffi::CString;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
 use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-use objc2_app_kit::{NSApplication, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
+use objc2_app_kit::{NSApplication, NSBackingStoreType, NSColor, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use tauri::{AppHandle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
@@ -456,19 +458,74 @@ pub fn take_keys(w: &WebviewWindow) {
 }
 
 /// Hands the keyboard back to the app you're in, with the panel still up. A key panel gives
-/// the keyboard up when it's ordered out and at no other time AppKit offers, so it's ordered
-/// out and in again in one turn of the run loop, which the screen shows as nothing: AppKit
-/// sends a turn's window changes to the screen together. It comes back saying it's key, as
-/// it does whenever it hasn't the keyboard, so its page still gets the pointer.
+/// the keyboard up when it's ordered out and at no other time AppKit offers, but one ordered
+/// out, even for a single turn of the run loop, has WebKit hide what its page shows until it
+/// draws again: the docked bar vanished as it closed and came back partway through its closing
+/// (2026-10-05). So an unseen panel takes the keyboard from it and is the one ordered out
+/// (`relay`). From then on the panel says it's key, as it does whenever it hasn't the keyboard,
+/// so its page still gets the pointer. Should the unseen panel fail to take the keyboard, the
+/// panel itself is ordered out and in again, as it was before there was one.
 pub fn drop_keys(w: &WebviewWindow) {
     let Some(n) = ns(w) else { return };
-    // Ordered out while it still answers truthfully, so AppKit sees a key panel going.
     if engaged(n as *const NSWindow as *const AnyObject) && n.isKeyWindow() {
-        n.orderOut(None);
+        // Saying it's key before the keyboard goes, so WebKit, asking as it goes, finds the page
+        // still active.
+        engage(n, false);
+        if !hand_over(n) {
+            // Ordered out while it still answers truthfully, so AppKit sees a key panel going.
+            engage(n, true);
+            n.orderOut(None);
+        }
     }
     engage(n, false);
     // WebKit reads whether the window is key as it's ordered on screen.
     n.orderFrontRegardless();
+}
+
+thread_local! {
+    /// The unseen panel that takes the keyboard from a panel giving it up, made the first time
+    /// one does and kept. AppKit's, so the main thread's.
+    static RELAY: OnceCell<Option<Retained<NSPanel>>> = const { OnceCell::new() };
+}
+
+/// The unseen panel: a clear point that lets every click through, at the bottom left of the main
+/// screen, a non-activating panel that can be key, on every Space and over full-screen apps as
+/// the others are, so ordering it in never takes you to another Space, and shown and hidden at
+/// once. None if it couldn't be made a panel that can be key.
+fn relay(mtm: MainThreadMarker) -> Option<Retained<NSPanel>> {
+    RELAY.with(|r| {
+        r.get_or_init(|| {
+            let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
+            let p = NSPanel::initWithContentRect_styleMask_backing_defer(mtm.alloc(), rect, NSWindowStyleMask::Borderless, NSBackingStoreType::Buffered, false);
+            // SAFETY: it's only ever ordered out, never closed, and kept in RELAY; AppKit
+            // releasing it on a close as well would release it twice.
+            unsafe { p.setReleasedWhenClosed(false) };
+            swap(&p, Keys::Always, false)?;
+            p.setOpaque(false);
+            p.setBackgroundColor(Some(&NSColor::clearColor()));
+            p.setHasShadow(false);
+            p.setIgnoresMouseEvents(true);
+            p.setAnimationBehavior(NSWindowAnimationBehavior::None);
+            p.setCollectionBehavior(Spaces::Transient.behavior());
+            p.setExcludedFromWindowsMenu(true);
+            p.setCanHide(false);
+            Some(p)
+        })
+        .clone()
+    })
+}
+
+/// The unseen panel takes the keyboard from `from`, at its level, and is ordered out, which
+/// gives the keyboard back to the app you're in, all in one turn of the run loop. Whether it
+/// took it.
+fn hand_over(from: &NSWindow) -> bool {
+    let Some(relay) = main_thread().and_then(relay) else { return false };
+    relay.setLevel(from.level());
+    relay.orderFrontRegardless();
+    relay.makeKeyWindow();
+    let took = relay.isKeyWindow();
+    relay.orderOut(None);
+    took
 }
 
 /// Another of Codealong's windows has the keyboard: the quick panel, a board window. While
