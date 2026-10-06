@@ -289,6 +289,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `AskUserQuestion` says `input needed`). The call's own transcript line can be missing while
   its prompt is up, written only with its result once it's answered, so the keypress path in
   `claude/mod.rs` may not find it there until then; the hook has it.
+- While a turn runs, Claude Code's writer holds back every line from the first assistant line
+  whose `stop_reason` is still null (2.1.291's code). An `AskUserQuestion`'s message stays so
+  until it's answered: its thinking, the text written before the question and the call all
+  reach the transcript only with the answer, while the terminal already shows them (seen
+  2026-10-06; a Bash call's prompt didn't hold its line back). So Codealong can't show what the
+  agent wrote with a question that waits: the hook's input and the registry have only the call.
+  The one live copy outside Claude Code is a `MessageDisplay` hook, which gets each batch of
+  finished lines as a message streams (up to ten a second, `delta`, `final`), runs
+  synchronously, and paces the display of every message in every session that has it.
 - An image that came with a prompt is an `image` part (`source: {type: "base64", media_type,
   data}`; PNG, JPEG and WebP seen) in the prompt's own `message.content`, numbered by
   `imagePasteIds` and named `[Image #N]` in the text when pasted into the terminal:
