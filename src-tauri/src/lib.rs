@@ -1585,6 +1585,30 @@ mod tests {
     }
 
     #[test]
+    fn the_notes_every_session_reads_stay_short_and_list_the_rest() {
+        // CLAUDE.md is loaded into every session in this repo, and Codex reads only its first
+        // 32 KiB (AGENTS.md is a link to it, cut at `project_doc_max_bytes`). What one area needs
+        // goes beside its code, or in that area's file in .claude/rules/, which loads when a
+        // session reads a file its `paths` name, and which CLAUDE.md lists.
+        let notes = include_str!("../../CLAUDE.md");
+        assert!(notes.len() <= 32 * 1024, "CLAUDE.md is {} bytes, over the 32 KiB Codex reads: move what only one area needs into its .claude/rules/ file", notes.len());
+        let rules = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.claude/rules");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&rules).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            if !name.ends_with(".md") {
+                continue;
+            }
+            seen += 1;
+            assert!(notes.contains(&format!("`{name}`")), "CLAUDE.md's *Where facts live* doesn't list .claude/rules/{name}");
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(text.starts_with("---\npaths:\n"), ".claude/rules/{name} doesn't start with the `paths` it loads for");
+        }
+        assert!(seen > 0, "no rules files in {}", rules.display());
+    }
+
+    #[test]
     fn menu_commands_go_only_to_windows_that_show_the_board() {
         for label in ["main", project_window_label("Spur").as_str(), another_window_label("Spur", |l| l == "project-spur").as_str()] {
             assert!(shows_board(label), "{label}");

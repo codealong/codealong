@@ -10,7 +10,7 @@
 //! whether it has plan limits. The rest of the app asks `adapter(session.harness)` or
 //! `of(account)` and never branches on which harness it is. A new harness is a module with an
 //! `Adapter`, a line in `ADAPTERS`, and a variant of `Harness`; each method a harness can't do
-//! has a default that says so. CLAUDE.md's "Adding a harness" lists the methods by what asks.
+//! has a default that says so. .claude/rules/adding-a-harness.md lists the methods by what asks.
 //!
 //! Reading sessions for the board is a `Reader`, one a harness, which the engine keeps and
 //! never looks inside: it holds what the harness's files said at the last read, says which
