@@ -583,7 +583,8 @@ fn drive(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duratio
     }
 }
 
-fn nonblocking(fd: std::os::fd::RawFd) {
+/// Makes reads and writes on `fd` answer at once, with `WouldBlock` where they'd wait.
+pub fn nonblocking(fd: std::os::fd::RawFd) {
     // SAFETY: fcntl on a descriptor this process owns, changing only its status flags.
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);

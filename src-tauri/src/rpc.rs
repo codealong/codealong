@@ -14,6 +14,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Write};
+use std::os::fd::AsRawFd;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
@@ -29,6 +30,14 @@ const TAIL: usize = 5;
 /// together when the process exits, but they're read on two threads, and something the child
 /// started can hold its stderr open for good.
 const LAST_WORDS: Duration = Duration::from_millis(250);
+
+/// How long a line that takes no answer (`send`, `notify`, `respond`, `refuse`) may wait for the
+/// child to take it. Its input is a pipe that holds 64 KB: a child that leaves that unread this
+/// long has stopped reading.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How often a write the child isn't taking looks again, and looks whether the client is ending.
+const TICK: Duration = Duration::from_millis(50);
 
 /// Who Codealong says it is to a child that asks (`clientInfo`, in Codex's app-server protocol
 /// and the Agent Client Protocol alike).
@@ -81,8 +90,8 @@ pub enum Heard<'a> {
 /// Why a request has no answer.
 #[derive(Debug)]
 pub enum Failure {
-    /// None came in the time given. The client carries on; an answer that comes later goes
-    /// where the other lines go.
+    /// None came in the time given, or the child didn't take the request in it. The client
+    /// carries on; an answer that comes later goes where the other lines go.
     Timeout,
     /// The child's output ended first. With its last stderr lines, as `Heard::Closed` has them.
     Closed(Vec<String>),
@@ -99,7 +108,7 @@ type Answer = std::result::Result<Value, Failure>;
 pub struct Link {
     pid: u32,
     wire: Wire,
-    /// None once the client is ended.
+    /// None once the client is ended, or a line was given up on half written.
     stdin: Mutex<Option<ChildStdin>>,
     child: Mutex<Child>,
     next: AtomicU64,
@@ -147,6 +156,9 @@ impl Client {
             return Err(io::Error::other("the process has no pipes"));
         };
         let stderr = child.stderr.take();
+        // Written without blocking, so a child that stops reading holds a write only as long as
+        // its deadline, and never past the client's end (`Link::write`).
+        crate::procs::nonblocking(stdin.as_raw_fd());
         let tail = Arc::new(Mutex::new(VecDeque::new()));
         let link = Arc::new(Link { pid: child.id(), wire, stdin: Mutex::new(Some(stdin)), child: Mutex::new(child), next: AtomicU64::new(1), waiting: Mutex::new(Some(HashMap::new())), tail: tail.clone(), ending: AtomicBool::new(false) });
         // Ends when stderr does, which the reader below waits for.
@@ -210,18 +222,16 @@ fn finish(link: &Arc<Link>, grace: Duration) {
     if link.ending.swap(true, Ordering::SeqCst) {
         return;
     }
-    // Before its input is taken: a write the child isn't reading holds that lock until the
-    // child is gone.
     if grace.is_zero() {
         let _ = lock(&link.child).kill();
     }
-    lock(&link.stdin).take();
-    let link = link.clone();
+    let until = Instant::now() + grace;
+    let reaper = link.clone();
     // Reaped on a thread of its own: a process stuck in the kernel dies only once the kernel
-    // lets it go, and whoever drops a client may hold a lock.
+    // lets it go, and whoever drops a client may hold a lock. It's set going before the input is
+    // closed, so the kill comes on time whatever a write in progress is doing.
     std::thread::spawn(move || {
-        let mut child = lock(&link.child);
-        let until = Instant::now() + grace;
+        let mut child = lock(&reaper.child);
         while Instant::now() < until {
             if matches!(child.try_wait(), Ok(Some(_))) {
                 return;
@@ -231,6 +241,8 @@ fn finish(link: &Arc<Link>, grace: Duration) {
         let _ = child.kill();
         let _ = child.wait();
     });
+    // A write the child isn't taking holds this lock until it sees the client ending, a tick.
+    lock(&link.stdin).take();
 }
 
 impl Link {
@@ -240,30 +252,65 @@ impl Link {
 
     /// Writes one line as it is.
     pub fn send(&self, line: &Value) -> io::Result<()> {
+        self.write(line, Some(Instant::now() + WRITE_TIMEOUT))
+    }
+
+    /// Writes one line, giving up at `deadline` (with `TimedOut`) or when the client ends. A
+    /// line given up on half written closes the child's input: what it read next would be the
+    /// rest of that line run into another.
+    fn write(&self, line: &Value, deadline: Option<Instant>) -> io::Result<()> {
+        let closed = || io::Error::new(io::ErrorKind::BrokenPipe, "its input is closed");
         let mut text = line.to_string();
         text.push('\n');
+        let mut rest = text.as_bytes();
         let mut stdin = lock(&self.stdin);
-        let Some(stdin) = stdin.as_mut() else { return Err(io::Error::new(io::ErrorKind::BrokenPipe, "its input is closed")) };
-        stdin.write_all(text.as_bytes())?;
-        stdin.flush()
+        while !rest.is_empty() {
+            let Some(pipe) = stdin.as_mut() else { return Err(closed()) };
+            match pipe.write(rest) {
+                Ok(n) => {
+                    rest = &rest[n..];
+                    continue;
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                Err(e) => return Err(e),
+            }
+            let fd = pipe.as_raw_fd();
+            let now = Instant::now();
+            let late = deadline.is_some_and(|d| now >= d);
+            if late || self.ending.load(Ordering::SeqCst) {
+                if rest.len() < text.len() {
+                    stdin.take();
+                }
+                return Err(if late { io::Error::new(io::ErrorKind::TimedOut, "it isn't reading its input") } else { closed() });
+            }
+            let wait = deadline.map_or(TICK, |d| d.saturating_duration_since(now).min(TICK));
+            let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+            // SAFETY: one live pollfd, and a count of one.
+            unsafe {
+                libc::poll(&mut ready, 1, wait.as_millis().max(1) as libc::c_int);
+            }
+        }
+        Ok(())
     }
 
     /// Sends a request, numbered from 1 in the order they're made, and waits for its answer:
-    /// its `result`. None waits as long as the process lives. Any thread but the reader's may
-    /// ask, several at once.
+    /// its `result`. `timeout` covers writing the request as well as the answer; None waits as
+    /// long as the process lives. Any thread but the reader's may ask, several at once.
     pub fn request(&self, method: &str, params: Value, timeout: Option<Duration>) -> Answer {
+        let deadline = timeout.map(|t| Instant::now() + t);
         let id = self.next.fetch_add(1, Ordering::SeqCst);
         let (asker, answer) = channel();
         match lock(&self.waiting).as_mut() {
             Some(waiting) => waiting.insert(id, asker),
             None => return Err(Failure::Closed(self.last_words())),
         };
-        if let Err(e) = self.send(&self.marked(request_line(id, method, params))) {
+        if let Err(e) = self.write(&self.marked(request_line(id, method, params)), deadline) {
             self.forget(id);
-            return Err(Failure::Write(e));
+            return Err(if e.kind() == io::ErrorKind::TimedOut { Failure::Timeout } else { Failure::Write(e) });
         }
-        let got = match timeout {
-            Some(t) => answer.recv_timeout(t).map_err(|e| match e {
+        let got = match deadline {
+            Some(d) => answer.recv_timeout(d.saturating_duration_since(Instant::now())).map_err(|e| match e {
                 RecvTimeoutError::Timeout => Failure::Timeout,
                 RecvTimeoutError::Disconnected => Failure::Closed(self.last_words()),
             }),
@@ -491,6 +538,35 @@ mod tests {
         drop(client);
         assert!(gone(pid), "the child is still there");
         assert_eq!(next(&rx), (None, Vec::new()));
+    }
+
+    /// More than the 64 KB a pipe holds, for a child that reads none of it.
+    fn too_big() -> Value {
+        json!({ "pad": "x".repeat(1 << 20) })
+    }
+
+    #[test]
+    fn a_request_the_child_doesnt_take_times_out() {
+        let (client, _rx) = child("exec sleep 600", Wire::Bare);
+        let started = Instant::now();
+        assert!(matches!(client.request("big", too_big(), Some(Duration::from_millis(200))), Err(Failure::Timeout)));
+        assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+        // Part of it went in, so the input is closed rather than have the next line run into it.
+        assert_eq!(client.notify("next", Value::Null).unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn ending_the_client_doesnt_wait_for_a_write_the_child_isnt_taking() {
+        let (client, _rx) = child("exec sleep 600", Wire::Bare);
+        let pid = client.pid();
+        let link = client.link.clone();
+        let writer = std::thread::spawn(move || link.request("big", too_big(), None));
+        std::thread::sleep(Duration::from_millis(200));
+        let started = Instant::now();
+        client.end(Duration::from_millis(300));
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        assert!(gone(pid), "the child is still there");
+        assert!(writer.join().unwrap().is_err());
     }
 
     #[test]
