@@ -1,8 +1,9 @@
 //! Reads that macOS can hold until someone answers a privacy prompt. On a removable volume, or
 //! in Documents, Desktop or Downloads, opening a file or listing a folder waits in `open()` until
 //! "Codealong would like to access…" is answered, which on a Mac nobody sits at can be hours;
-//! stat, realpath and a file watch there don't wait (macOS 26.6, checked 2026-09-27). Each build
-//! of the app is signed afresh, so macOS asks again after every update. The repo scan reads the
+//! stat, realpath and a file watch there don't wait (macOS 26.6, checked 2026-09-27). macOS keeps
+//! the answer for builds with the same certificate, and asks again after every build signed ad
+//! hoc (relaunch.sh's on a Mac without an Apple Development certificate). The repo scan reads the
 //! files of folders it doesn't own through `Held`: each read runs on a thread of its own, the
 //! scan waits for them a moment and goes on without the ones still out, and each of those lands
 //! when it's back, for the next scan to use.

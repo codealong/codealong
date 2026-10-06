@@ -90,8 +90,8 @@ Decided against:
   `src-tauri/Entitlements.plist` grants the one exception the app needs: sending Apple Events,
   which is how `launch.rs` drives Ghostty through `osascript`. Without it a signed build could no
   longer open or focus a terminal. The signature is stable across releases, so macOS keeps what
-  people allowed (the dev builds' ad-hoc signature changes with every build, which is why they
-  ask again).
+  people allowed (a dev build's ad-hoc signature, on a Mac without an Apple Development
+  certificate, changes with every build, which is why it's asked again).
 - The app notarized and stapled, then put in a disk image whose window shows the app, an arrow
   and the Applications folder, with "Drag Codealong into Applications" below
   (`src-tauri/dmg/settings.py`; `scripts/dmg-background.mjs` draws the background from the

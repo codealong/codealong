@@ -67,8 +67,9 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   ghostty_groups_and_names_tabs -- --ignored` repeats it.
 - Why a script gets a minute (Ghostty slow to answer, macOS asking again after each rebuild,
   Ghostty carrying out an event after `osascript` is killed): `launch.rs` (`OSASCRIPT_TIMEOUT`).
-  It asks again because the bundle is ad-hoc signed with a per-build identifier
-  (`codealong-<hash>`).
+  It asks again when the bundle is ad-hoc signed, with a per-build identifier
+  (`codealong-<hash>`); `relaunch.sh` signs with an Apple Development certificate when the Mac
+  has one, and macOS keeps the answer across those builds.
 
 ## iTerm2
 

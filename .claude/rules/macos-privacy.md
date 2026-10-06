@@ -11,7 +11,7 @@ CLAUDE.md's Harness facts (macOS 26.6, checked 2026-09-27).
 
 - Reads in a folder macOS protects (`~/Documents`, Desktop, Downloads, a removable volume) wait
   in `open()` until the prompt is answered, while stat and a file watch return at once, and
-  macOS asks again after every build: `held.rs` (module header, `Held`). `git worktree list`
+  macOS asks again after every build signed ad hoc: `held.rs` (module header, `Held`). `git worktree list`
   only looks worktree paths up, so it doesn't wait.
 - A process started from a terminal or an agent's shell gets that app's permissions. To see a
   prompt, start it as its own responsible process: `posix_spawn` with

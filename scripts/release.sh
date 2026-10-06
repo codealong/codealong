@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds Codealong's installer for other Macs: the app for Apple silicon and Intel, signed with a
 # Developer ID and notarized by Apple, in a disk image whose window says to drag it into
-# Applications. The app relaunch.sh builds is for this Mac only: ad-hoc signed, one architecture,
-# never notarized, and other Macs refuse to open it.
+# Applications. The app relaunch.sh builds is for this Mac only: signed with an Apple Development
+# certificate or ad hoc, one architecture, never notarized, and other Macs refuse to open it.
 #
 #   scripts/release.sh                  the installer, from a clean checkout
 #   scripts/release.sh --arch arm64     one architecture (arm64, x86_64, or the default universal)

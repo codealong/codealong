@@ -199,7 +199,7 @@ fn unknown_profile(profile: &str) -> anyhow::Error {
 const CLEAR_WAIT: Duration = Duration::from_millis(200);
 
 /// How long Codealong waits for Ghostty. It can be slow to answer while it launches, while it's
-/// busy, or while macOS asks whether Codealong may control it (asked again after each rebuild).
+/// busy, or while macOS asks whether Codealong may control it (asked again after each ad-hoc signed rebuild).
 /// Stopping early doesn't stop Ghostty: it still does what it was asked, so a short wait
 /// reported failures for windows that then opened.
 const OSASCRIPT_TIMEOUT: Duration = Duration::from_secs(60);

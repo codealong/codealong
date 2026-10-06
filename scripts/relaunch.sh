@@ -53,6 +53,27 @@ fi
 # checkout's. Touched, they compile from here.
 touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs
 npx tauri build --config src-tauri/tauri.dev.conf.json
+# macOS remembers what the app was allowed (controlling Ghostty, reading Documents or an external
+# drive) by its signature. The linker's ad-hoc one changes with every build, so macOS takes each
+# build for a new app and asks again; one signed with an Apple Development certificate is the same
+# app as the last. CODEALONG_SIGNING_IDENTITY names the certificate, else it's the keychain's first. No
+# hardened runtime or timestamp: those are for a build other Macs open (release.sh's), and a
+# timestamp needs Apple's server. Over SSH the login keychain is out of reach, so the build stays
+# ad hoc.
+identity="${CODEALONG_SIGNING_IDENTITY:-}"
+[ -n "$identity" ] ||
+  identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: .*\)"$/\1/p' | head -1)"
+if [ -z "$identity" ]; then
+  echo "No Apple Development certificate in the keychain: the build keeps its ad-hoc signature, and macOS asks again for what it had allowed."
+elif signed="$(codesign --force --timestamp=none --sign "$identity" "$app" 2>&1)" &&
+  codesign --verify --strict "$app" 2>/dev/null; then
+  echo "Signed with $identity."
+else
+  printf '%s\n' "$signed"
+  # Whatever a failed signing left behind, an ad-hoc signature is one the app opens with.
+  codesign --force --sign - "$app" 2>/dev/null
+  echo "Couldn't sign with $identity, so the build is signed ad hoc and macOS asks again for what it had allowed."
+fi
 # Codealong Dev in Applications, or any app in the shared bundle folder (where builds ran from
 # before), is a build of this repo and relaunch's own to quit. Codealong itself is left alone: the
 # new build asks it to quit as it opens.
