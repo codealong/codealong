@@ -32,7 +32,8 @@ import { MarkLive } from './MarkLive';
 import { cx, Icon, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
-import { NotchSession, useNotchSession } from './NotchSession';
+import { NotchReview } from './NotchReview';
+import { NotchSession, useNotchStage } from './NotchSession';
 import { LOGO_LABEL, useLogo } from '../logo';
 import { useMarkMoment } from '../mark';
 import { useNow } from './useNow';
@@ -155,11 +156,11 @@ function FoldPill({ group, label, title, onOpen, peeked, measure }: { group: Gro
   );
 }
 
-function ReviewsPill({ prs, onOpen, measure }: { prs: BarReview[]; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeked?: boolean; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
   return (
     <button
       type="button"
-      className="ca-hud-pill is-reviews"
+      className={cx('ca-hud-pill', 'is-reviews', peeked && 'is-peeked')}
       title={measure ? undefined : prs.map(reviewLabel).join('\n')}
       data-reviews={measure ? '' : undefined}
       onClick={onOpen}
@@ -451,7 +452,7 @@ export function Bar() {
   // Docked in the notch, the session shown under the pills (NotchSession.tsx), in place of the
   // peek: which one, what it works through, and its keys.
   const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? [])].map((i) => i.key)), [allItems, feed]);
-  const stage = useNotchSession(items, (key) => onBar.has(key), notch !== null);
+  const stage = useNotchStage(items, reviews, (key) => onBar.has(key) || reviews.some((r) => r.key === key), notch !== null);
   // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
   // session that waits (or puts it away), as a click on the notch does. With nothing on the bar
   // to show, the quick panel opens instead.
@@ -732,13 +733,18 @@ export function Bar() {
     );
   };
 
+  /** The reviews pill: docked in the notch, the one PR opens under the pills, as a session's pill
+   *  opens its session, and several drop a menu to pick from; floating, it shows the PR in
+   *  Codealong, or the quick panel's reply view when that's where you answer. */
   const reviewsMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    const to = (p: BarReview) => (notch ? stage.show(p.key) : void showQuick({ review: p.key, project: p.project || null }));
     if (reviews.length === 1) {
-      void showMain({ kind: 'pr', key: reviews[0].key });
+      if (notch) stage.toggle(reviews[0].key);
+      else to(reviews[0]);
       return;
     }
     void popup(
-      reviews.map((p) => ({ label: reviewLabel(p), run: () => void showMain({ kind: 'pr', key: p.key }) })),
+      reviews.map((p) => ({ label: reviewLabel(p), checked: p.key === shownKey || undefined, run: () => to(p) })),
       below(e),
     );
   };
@@ -846,7 +852,7 @@ export function Bar() {
     const last = [
       ...(snoozed.length ? [failed?.anchor === 'snoozed' ? failedPill() : <SnoozedPill key="snoozed" items={snoozed} now={now} onOpen={snoozedMenu} />] : []),
       ...(recent.length ? [failed?.anchor === 'recent' ? failedPill() : <RecentPill key="recent" items={recent} now={now} onOpen={recentMenu} />] : []),
-      ...(reviews.length ? [<ReviewsPill key="reviews" prs={reviews} onOpen={reviewsMenu} />] : []),
+      ...(reviews.length ? [failed?.anchor === 'reviews' ? failedPill() : <ReviewsPill key="reviews" prs={reviews} peeked={reviews.some((p) => p.key === shownKey)} onOpen={reviewsMenu} />] : []),
       ...(todos.length ? [<TodosPill key="todos" todos={todos} onOpen={openTodos} onMenu={todosMenu} />] : []),
     ];
     if (last.length) sections.push(last);
@@ -882,7 +888,24 @@ export function Bar() {
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
           held={projectMenuOpen || menusUp > 0 || dragging !== null}
           session={
-            stage.key ? (
+            stage.key && stage.kind === 'review' ? (
+              <NotchReview
+                prKey={stage.key}
+                now={now}
+                queue={stage.queue}
+                notice={stage.notice}
+                onBack={stage.back}
+                keys={stage.keys}
+                onKeys={stage.takeKeys}
+                onShow={stage.show}
+                onClose={stage.close}
+                onLeft={stage.left}
+                onGone={(key) => {
+                  stage.close();
+                  setFailed({ anchor: 'reviews', message: `${key} no longer waits on your review.` });
+                }}
+              />
+            ) : stage.key ? (
               <NotchSession
                 sessionKey={stage.key}
                 rename={stage.rename}
@@ -907,8 +930,8 @@ export function Bar() {
           sessionKeys={stage.keys}
           onSessionLeft={stage.close}
           onPress={() => void stage.press()}
-          onCount={(group) => {
-            const first = byGroup[group][0];
+          onCount={(kind) => {
+            const first = kind === 'reviews' ? reviews[0] : byGroup[kind][0];
             if (first) stage.show(first.key);
           }}
           keepOpen={keepOpen}

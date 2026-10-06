@@ -8,7 +8,7 @@
 use serde::Serialize;
 
 use crate::config::Theme;
-use crate::model::{Board, LogoStatus, Status};
+use crate::model::{Board, LogoStatus, PrItem, Status};
 use crate::todos;
 
 /// The bar's groups, most urgent first.
@@ -62,7 +62,8 @@ pub struct BarFeed {
     /// Sessions you snoozed, out of Needs you and Your turn until their time comes (running ones
     /// stay in Working), the soonest back first.
     pub snoozed: Vec<BarItem>,
-    /// Open PRs that ask for your review, newest first.
+    /// Open PRs that ask for your review, the longest wait first, as Needs you is: the notch
+    /// and the quick panel work through them in this order.
     pub reviews: Vec<BarReview>,
     /// Todos ready to start (not started, and waiting on nothing), in your order.
     pub todos: Vec<BarTodo>,
@@ -113,9 +114,17 @@ pub struct BarReview {
     pub number: u64,
     pub title: String,
     pub repo: String,
+    /// `owner/name`, for asking GitHub about it.
+    pub repo_slug: String,
+    pub url: String,
     pub project: String,
     /// Who asked for your review, when GitHub says.
     pub requested_by: Option<String>,
+    /// Since when it waits on you: the latest request to you, else the PR's last update. The
+    /// queue in the notch and the quick panel keeps one you dealt with out until this moves on.
+    pub since: i64,
+    /// The PR's last update, which a card showing it refetches on.
+    pub updated_at: i64,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -193,10 +202,22 @@ pub fn feed(board: &Board) -> BarFeed {
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
 
     let mut prs: Vec<_> = board.prs.iter().filter(|p| p.waits_on_review()).collect();
-    prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let since = |p: &PrItem| p.requested_at.unwrap_or(p.updated_at);
+    prs.sort_by(|a, b| since(a).cmp(&since(b)).then_with(|| a.key.cmp(&b.key)));
     let reviews = prs
         .into_iter()
-        .map(|p| BarReview { key: p.key.clone(), number: p.number, title: p.title.clone(), repo: p.repo.clone(), project: p.project.clone(), requested_by: p.requested_by.clone() })
+        .map(|p| BarReview {
+            key: p.key.clone(),
+            number: p.number,
+            title: p.title.clone(),
+            repo: p.repo.clone(),
+            repo_slug: p.repo_slug.clone(),
+            url: p.url.clone(),
+            project: p.project.clone(),
+            requested_by: p.requested_by.clone(),
+            since: p.requested_at.unwrap_or(p.updated_at),
+            updated_at: p.updated_at,
+        })
         .collect();
 
     let ready = board.todos.iter().filter(|t| todos::is_ready(t, &board.todos)).map(|t| bar_todo(board, t)).collect();
@@ -235,7 +256,7 @@ fn bar_todo(board: &Board, t: &todos::Todo) -> BarTodo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Lane, PrItem, PrState, Session};
+    use crate::model::{Lane, PrState, Session};
 
     const NOW: i64 = 1_790_200_000_000;
 
@@ -408,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_open_prs_that_ask_for_your_review_newest_first_unless_snoozed() {
+    fn keeps_open_prs_that_ask_for_your_review_the_longest_wait_first_unless_snoozed() {
         let pr = |n: u64, requested: bool, state: PrState, updated: i64| -> PrItem {
             serde_json::from_value(serde_json::json!({
                 "key": format!("o/r#{n}"), "repoSlug": "o/r", "repo": "r", "project": "P", "number": n, "title": format!("PR {n}"),
@@ -423,6 +444,24 @@ mod tests {
         let snoozed = PrItem { snoozed_until: Some(NOW + 1_000), ..pr(5, true, PrState::Open, 5) };
         let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2), snoozed]);
         let got: Vec<(u64, String, Option<String>)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.project, r.requested_by)).collect();
-        assert_eq!(got, vec![(4, "P".to_string(), None), (1, "P".to_string(), Some("ana".to_string()))]);
+        assert_eq!(got, vec![(1, "P".to_string(), Some("ana".to_string())), (4, "P".to_string(), None)]);
+    }
+
+    #[test]
+    fn a_review_waits_since_its_request_else_the_prs_last_update() {
+        let pr = |n: u64, requested_at: Option<i64>| -> PrItem {
+            serde_json::from_value(serde_json::json!({
+                "key": format!("o/r#{n}"), "repoSlug": "o/r", "repo": "r", "project": "P", "number": n, "title": format!("PR {n}"),
+                "url": format!("https://github.com/o/r/pull/{n}"), "state": "open", "author": "ana", "mine": false, "reviewRequested": true, "requestedAt": requested_at, "head": "h", "base": null,
+                "checks": { "passed": 0, "failed": 0, "pending": 0, "skipped": 0, "failing": [] }, "merge": "clean",
+                "additions": 0, "deletions": 0, "changedFiles": 0, "createdAt": 0, "updatedAt": 50,
+                "mergedAt": null, "closedAt": null, "lanes": [], "sessions": []
+            }))
+            .expect("a PR")
+        };
+        // The one asked for first waits first, whichever was updated last.
+        let b = board(vec![], vec![pr(2, None), pr(1, Some(20))]);
+        let got: Vec<(u64, i64, i64, String, String)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.since, r.updated_at, r.repo_slug, r.url)).collect();
+        assert_eq!(got, vec![(1, 20, 50, "o/r".into(), "https://github.com/o/r/pull/1".into()), (2, 50, 50, "o/r".into(), "https://github.com/o/r/pull/2".into())]);
     }
 }

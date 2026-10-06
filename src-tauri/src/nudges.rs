@@ -108,6 +108,7 @@ mod tests {
             mine: true,
             review_requested: false,
             requested_by: None,
+            requested_at: None,
             snoozed_until: None,
             head: "photos".into(),
             base: Some("main".into()),

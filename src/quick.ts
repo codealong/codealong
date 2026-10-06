@@ -24,7 +24,7 @@ export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: strin
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'suggested' | 'skills' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready' | 'recent';
+export type RowGroup = 'suggested' | 'skills' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready' | 'recent';
 
 /** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
  *  on you like questions do. */
@@ -45,6 +45,32 @@ export interface SessionRow {
   /** Found by what was said rather than what describes it: a line of that, and where the
    *  words are in it. */
   said?: { text: string; you: boolean; marks: [number, number][] };
+}
+
+/** A PR waiting on your review, in the empty panel's list among the sessions, keyed by the PR's
+ *  key (`owner/name#12`), which no session's key looks like. ⏎ on it reviews it in the panel. */
+export interface ReviewRow {
+  kind: 'review';
+  key: string;
+  group: 'reviews';
+  pr: PrItem;
+  marks: [number, number][];
+}
+
+/** A row the reply view works through: a session, or a review asked of you. */
+export type QueueRow = SessionRow | ReviewRow;
+
+/** When a review began waiting on you, as the queue keeps it for the ones dealt with (queue.ts
+ *  `Handled`): the latest request to you, else the PR's last update. */
+export const reviewSince = (pr: PrItem) => pr.requestedAt ?? pr.updatedAt;
+
+/** The open PRs that wait on your review, your snoozed ones left out, the longest wait first,
+ *  as the floating bar lists them (barfeed.rs). */
+export function reviewRows(board: Board, project: string): ReviewRow[] {
+  return (board.prs ?? [])
+    .filter((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed' && !p.snoozedUntil && (project === ALL_PROJECTS || p.project === project))
+    .sort((a, b) => reviewSince(a) - reviewSince(b) || a.key.localeCompare(b.key))
+    .map((pr) => ({ kind: 'review' as const, key: pr.key, group: 'reviews' as const, pr, marks: [] }));
 }
 
 /** How many rows the panel lists at most: ⌘1 to ⌘9 reach them all. */
@@ -74,31 +100,36 @@ function sessionsIn(board: Board, project: string): { lane: Lane; session: Sessi
  *  (queue.ts `Handled`). */
 export const statusTime = (s: Session) => s.statusSince ?? s.lastActivity;
 
-/** The empty panel's list: sessions that need you, the longest wait first, then those whose
- *  turn ended, the newest first, as on the floating bar; with neither, the ones working, the
- *  longest running first.
+/** The empty panel's list: sessions that need you, the longest wait first, then the PRs waiting
+ *  on your review, the longest wait first, then the sessions whose turn ended, the newest first,
+ *  as on the floating bar and in the notch (bar.ts `NOTCH_ORDER`); with none of those, the ones
+ *  working, the longest running first.
  *  `counts` has every group's full size, for the headings. */
-export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: SessionRow[]; counts: Record<'needs' | 'unread' | 'working', number> } {
-  const all = sessionsIn(board, project)
+export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'needs' | 'reviews' | 'unread' | 'working', number> } {
+  const sessions = sessionsIn(board, project)
     .flatMap(({ lane, session }) => {
       const group = groupOf(session.status);
       return group ? [{ kind: 'session' as const, key: session.key, group, lane, session, marks: [] }] : [];
     })
     .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || byStatusTime(a.session, b.session) || a.key.localeCompare(b.key));
-  const counts = { needs: 0, unread: 0, working: 0 };
-  for (const r of all) counts[r.group as keyof typeof counts] += 1;
-  const waiting = all.filter((r) => r.group !== 'working');
-  return { rows: (waiting.length > 0 ? waiting : all).slice(0, limit), counts };
+  const reviews = reviewRows(board, project);
+  const counts = { needs: 0, reviews: reviews.length, unread: 0, working: 0 };
+  for (const r of sessions) counts[r.group as 'needs' | 'unread' | 'working'] += 1;
+  const needs = sessions.filter((r) => r.group === 'needs');
+  const unread = sessions.filter((r) => r.group === 'unread');
+  const waiting: QueueRow[] = [...needs, ...reviews, ...unread];
+  return { rows: (waiting.length > 0 ? waiting : sessions).slice(0, limit), counts };
 }
 
 const ORDER: RowGroup[] = ['needs', 'unread', 'working'];
 
 /**
- * What the reply view works through when you answer a session from the empty panel's list: every
- * session in the project that needs you, the longest wait first, then those whose turn ended, the
- * newest first, as the list has them. queue.ts has how it goes from one to the next.
+ * What the reply view works through when you answer one from the empty panel's list: every
+ * session in the project that needs you, the longest wait first, then the PRs waiting on your
+ * review, then the sessions whose turn ended, the newest first, as the list has them. queue.ts
+ * has how it goes from one to the next.
  */
-export function queueRows(board: Board, project: string): SessionRow[] {
+export function queueRows(board: Board, project: string): QueueRow[] {
   return attentionRows(board, project, Infinity).rows.filter((r) => r.group !== 'working');
 }
 

@@ -402,6 +402,25 @@ struct SessionAt {
     apps: model::AppNames,
 }
 
+/// A PR the board lists, with the worktrees that hold it and the ones its sessions are listed
+/// under, and the apps: for a window that doesn't get the board (the notch) to show the PR's
+/// card with where it lives on this Mac (PrCard.tsx, `prPlaces`).
+#[derive(serde::Serialize)]
+struct PrAt {
+    pr: model::PrItem,
+    lanes: Vec<model::Lane>,
+    apps: model::AppNames,
+}
+
+#[tauri::command(async)]
+fn pr_at(engine: State<'_, engine::Handle>, key: String) -> Option<PrAt> {
+    engine.read(|b| {
+        let pr = b.prs.iter().find(|p| p.key == key)?.clone();
+        let lanes = b.lanes.iter().filter(|l| pr.lanes.contains(&l.id) || pr.sessions.iter().any(|s| s.lane == l.id)).cloned().collect();
+        Some(PrAt { pr, lanes, apps: b.apps.clone() })
+    })
+}
+
 #[tauri::command(async)]
 fn session_at(engine: State<'_, engine::Handle>, key: String) -> Option<SessionAt> {
     // From the worktree it runs in, not one it only visits.
@@ -816,13 +835,14 @@ async fn pr_comment_asks(title: String, comments: Vec<prasks::CommentIn>) -> Res
     .await?
 }
 
-/// Approves a PR as you. It returns once the board no longer asks for your review, and PRs are
-/// read again for the rest.
+/// Reviews a PR as you: approves it, comments on it or asks for changes, with `body` as the
+/// review's text. Any review settles the request to you, so it returns once the board no longer
+/// asks for your review, and PRs are read again for the rest.
 #[tauri::command]
-async fn approve_pr(engine: State<'_, engine::Handle>, repo: String, number: u64) -> Result<(), String> {
+async fn review_pr(engine: State<'_, engine::Handle>, repo: String, number: u64, verdict: github::Verdict, body: String) -> Result<(), String> {
     let engine = engine.inner().clone();
     blocking(move || {
-        github::approve(&repo, number).map_err(words)?;
+        github::review(&repo, number, verdict, &body).map_err(words)?;
         engine.approved(&repo, number);
         Ok(())
     })
@@ -1511,7 +1531,7 @@ pub fn run() {
             kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, review_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

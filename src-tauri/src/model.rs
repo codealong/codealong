@@ -184,6 +184,9 @@ pub struct PrItem {
     /// Who asked for it, when GitHub says; often not the author.
     #[serde(default)]
     pub requested_by: Option<String>,
+    /// When your review was last asked for, when GitHub says: what the review waits on you since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_at: Option<i64>,
     /// You snoozed your review from Codealong until then (`board::apply_review_snoozes`): it's
     /// out of Review requested, the floating bar's reviews and the mark until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]

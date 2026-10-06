@@ -265,7 +265,7 @@ export function barItem(over: Partial<BarItem> = {}): BarItem {
 
 /** A PR that asks for your review, on the floating bar. */
 export function barReview(over: Partial<BarReview> = {}): BarReview {
-  return { key: 'acme/app#7', number: 7, title: 'Fix it', repo: 'app', project: 'Acme', requestedBy: null, ...over };
+  return { key: 'acme/app#7', number: 7, title: 'Fix it', repo: 'app', repoSlug: 'acme/app', url: 'https://github.com/acme/app/pull/7', project: 'Acme', requestedBy: null, since: NOW, updatedAt: NOW, ...over };
 }
 
 /** What the floating bar shows with nothing on it. */

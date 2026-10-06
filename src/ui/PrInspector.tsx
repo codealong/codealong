@@ -1,11 +1,13 @@
 // A PR in the right sidebar: where it lives on this Mac first (worktrees and the sessions that
 // worked on it, drawn like the sidebar's tree), then where it stands, its comments, its
-// description as GitHub renders it, and its changed files with their diffs.
+// description as GitHub renders it, and its changed files with their diffs. `PrDetails` is that
+// body on its own, which the panel wraps with its buttons, and a PR's card (PrCard.tsx) with the
+// strip that works through what waits on you and the box that reviews it.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
 
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
@@ -124,15 +126,13 @@ function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace;
   return null;
 }
 
-interface PrInspectorProps {
+/** What the details need: the PR with where it lives, and what a click on a worktree or session
+ *  there does. */
+export interface PrDetailsProps {
   item: PrRowItem;
   now: number;
-  approving: boolean;
-  onApprove: () => void;
-  /** Drops Review with… from the button. */
-  onReview: (button: Element) => void;
-  /** Drops Snooze review's times from the button. */
-  onSnooze: (button: Element) => void;
+  /** The panel's buttons, under the header. */
+  actions?: ReactNode;
   /** Shows a session in the panel, in place of the PR until you go back. */
   onShowSession: (lane: Lane, session: Session) => void;
   /** Opens a session where it runs. */
@@ -144,7 +144,48 @@ interface PrInspectorProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function PrInspector({ item, now, approving, onApprove, onReview, onSnooze, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
+interface PrInspectorProps extends Omit<PrDetailsProps, 'actions'> {
+  approving: boolean;
+  onApprove: () => void;
+  /** Drops Review with… from the button. */
+  onReview: (button: Element) => void;
+  /** Drops Snooze review's times from the button. */
+  onSnooze: (button: Element) => void;
+}
+
+export function PrInspector({ approving, onApprove, onReview, onSnooze, ...details }: PrInspectorProps) {
+  const { pr } = details.item;
+  const requested = pr.reviewRequested && prIsOpen(pr);
+  const actions = (
+    <div className="ca-insp-actions">
+      {requested && (
+        <Button variant="primary" icon="check" disabled={approving} onClick={onApprove}>
+          {approving ? 'Approving…' : 'Approve'}
+        </Button>
+      )}
+      {requested && (
+        <Button icon="zzz" title="Out of Review requested and off the floating bar until the time you pick" onClick={(e) => onSnooze(e.currentTarget)}>
+          Snooze…
+        </Button>
+      )}
+      <Button icon="external" onClick={() => void openUrl(pr.url)}>
+        GitHub
+      </Button>
+      <Button icon="eye" onClick={(e) => onReview(e.currentTarget)}>
+        Review with…
+      </Button>
+    </div>
+  );
+  return (
+    <aside className="ca-insp ca-prinsp" aria-label={`#${pr.number} details`}>
+      <PrDetails {...details} actions={actions} />
+    </aside>
+  );
+}
+
+/** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
+ *  comments, its description and its files. */
+export function PrDetails({ item, now, actions, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrDetailsProps) {
   const { pr } = item;
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
@@ -210,7 +251,7 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onSnooz
   };
 
   return (
-    <aside className="ca-insp ca-prinsp" aria-label={`#${pr.number} details`}>
+    <>
       <header>
         <div className="ca-insp-title">
           <PrGlyph pr={pr} />
@@ -245,24 +286,7 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onSnooz
           </span>
         </div>
       </header>
-      <div className="ca-insp-actions">
-        {requested && (
-          <Button variant="primary" icon="check" disabled={approving} onClick={onApprove}>
-            {approving ? 'Approving…' : 'Approve'}
-          </Button>
-        )}
-        {requested && (
-          <Button icon="zzz" title="Out of Review requested and off the floating bar until the time you pick" onClick={(e) => onSnooze(e.currentTarget)}>
-            Snooze…
-          </Button>
-        )}
-        <Button icon="external" onClick={() => void openUrl(pr.url)}>
-          GitHub
-        </Button>
-        <Button icon="eye" onClick={(e) => onReview(e.currentTarget)}>
-          Review with…
-        </Button>
-      </div>
+      {actions}
 
       {item.places.length > 0 && (
         <section className="ca-insp-sec">
@@ -359,6 +383,6 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onSnooz
           </div>
         </section>
       )}
-    </aside>
+    </>
   );
 }

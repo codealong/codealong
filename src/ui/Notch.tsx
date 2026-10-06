@@ -22,7 +22,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
 import { NOTCH, NOTCH_ORDER, notchClip, notchDragged, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
-import type { BarGroup } from '../types';
 import type { Moment } from '../mark';
 import type { LogoStatus, Status } from '../types';
 import { MarkLive } from './MarkLive';
@@ -76,7 +75,8 @@ export interface NotchShellProps {
    *  with the pointer elsewhere: time to put it away. */
   onSessionLeft: () => void;
   /** A click on a group's count, open: its first session shows. */
-  onCount: (group: BarGroup) => void;
+  /** A click on a count beside the camera, open: its group's first session, or the first review. */
+  onCount: (kind: NotchKind) => void;
   /** A click on the notch itself, off its pills and buttons: the current session shows, or the
    *  one showing is put away. Closed, a click anywhere on it is one. */
   onPress: () => void;
@@ -370,23 +370,17 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
 
 /** A group's glyph, or the PR icon for reviews asked of you, and how many there are. The first
  *  beside the camera shows closed too; the others only open. One that needs you pulses when it
- *  comes, and again when the number changes. Open, a group's count is a button: its first session
- *  shows under the pills, the way into working through them. */
-function Count({ kind, n, extra, pulse, open, onPick }: { kind: NotchKind; n: number; extra?: boolean; pulse?: boolean; open: boolean; onPick: (group: BarGroup) => void }) {
+ *  comes, and again when the number changes. Open, a count is a button: its group's first
+ *  session, or the first PR waiting on your review, shows under the pills, the way into working
+ *  through them. */
+function Count({ kind, n, extra, pulse, open, onPick }: { kind: NotchKind; n: number; extra?: boolean; pulse?: boolean; open: boolean; onPick: (kind: NotchKind) => void }) {
   const className = cx('ca-notch-count', `is-${kind}`, extra && 'ca-notch-extra', pulse && 'is-pulse');
-  if (kind === 'reviews') {
-    return (
-      <span className={className} title={n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`}>
-        <Icon name="pr" size={12} stroke={1.75} />
-        <span>{n}</span>
-      </span>
-    );
-  }
+  const words = kind === 'reviews' ? (n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`) : `${n} ${WORD[kind]}`;
   return (
     <button
       type="button"
       className={className}
-      title={`${n} ${WORD[kind]}${open ? '. Click to show the first.' : ''}`}
+      title={`${words}${open ? '. Click to show the first.' : ''}`}
       tabIndex={open ? 0 : -1}
       onClick={(e) => {
         // Closed, the click opens the notch, as anywhere on it.
@@ -395,7 +389,7 @@ function Count({ kind, n, extra, pulse, open, onPick }: { kind: NotchKind; n: nu
         onPick(kind);
       }}
     >
-      <StatusGlyph status={GLYPH[kind]} title="" />
+      {kind === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} /> : <StatusGlyph status={GLYPH[kind]} title="" />}
       <span>{n}</span>
     </button>
   );

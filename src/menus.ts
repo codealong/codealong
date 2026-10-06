@@ -16,7 +16,7 @@ import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from 
 import { MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
-import { QUEUE_CHORDS } from './queue';
+import { chordPressed, QUEUE_CHORDS } from './queue';
 import { snoozeChordIndex, snoozeMenu } from './snooze';
 import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
 import type { AccountInfo, DesktopPinned, Label, Lane, Pr, Session, Todo } from './types';
@@ -101,8 +101,9 @@ function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction |
   return { label: 'New session here…', run: run ?? (() => void showQuick({ laneId: lane.id, project: lane.project })) };
 }
 
-/** How a session left the list of what waits on you. */
-export type Left = 'marked seen' | 'snoozed' | 'closed' | 'archived';
+/** How a session, or a PR waiting on your review, left the list of what waits on you: the strip
+ *  says it on the one gone on to (queue.ts `wentWords`). */
+export type Left = 'marked seen' | 'snoozed' | 'closed' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started';
 
 export interface SessionCan {
   report: Report;
@@ -411,9 +412,10 @@ export function chordLetter(key: string): boolean {
   return Object.values(CHORDS).includes(CTRL_CMD + key.toUpperCase()) || snoozeChordIndex(key) >= 0;
 }
 
-/** The time ⌃⌘ with a digit snoozes a session to (snooze.ts `SNOOZE_CHORDS`), as its Snooze menu
- *  has it now; none for one that can't be snoozed, or a key that isn't one of them. */
-function snoozeChorded(actions: SessionActions | LaneActions, key: string): MenuAction | null {
+/** The time ⌃⌘ with a digit snoozes a session, or your review of a PR, to (snooze.ts
+ *  `SNOOZE_CHORDS`), as its Snooze menu has it now; none for one that can't be snoozed, or a key
+ *  that isn't one of them. */
+function snoozeChorded(actions: SessionActions | LaneActions | PrActions, key: string): MenuAction | null {
   const snooze = 'snooze' in actions ? actions.snooze : undefined;
   const it = snooze?.items[snoozeChordIndex(key)];
   return it && it !== 'separator' && !('items' in it) ? it : null;
@@ -422,7 +424,7 @@ function snoozeChorded(actions: SessionActions | LaneActions, key: string): Menu
 /** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W, and
  *  `Alt+Shift+Down` ⌥⇧↓. */
 export function chordSigns(chord: string): string {
-  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Esc: 'esc' };
+  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Enter: '⏎', Esc: 'esc' };
   return chord
     .split('+')
     .map((k) => signs[k] ?? k)
@@ -453,6 +455,47 @@ export function chorded(actions: SessionActions, e: Pick<KeyboardEvent, 'key' | 
 }
 
 type Item = MenuAction | MenuGroup;
+
+/** What a window that shows a PR waiting on your review as a card (PrCard.tsx) can do to it, by
+ *  name, each once: the strip over its header shows them as buttons that say their keys, the
+ *  chords run them (`PR_CHORDS`, `prChorded`), and its menu lays them out. One is missing when the
+ *  window can't do it or the PR doesn't take it (approving a PR that doesn't ask for your review). */
+export interface PrActions {
+  /** Approves it, with what's in the box as the review's text. */
+  approve?: MenuAction;
+  /** Comments on it with what's in the box, which must say something. */
+  comment?: MenuAction;
+  /** Asks for changes, with what's in the box, which must say something. */
+  changes?: MenuAction;
+  /** Review with…'s choices, the Auto one first where there's a choice (review.ts). */
+  review?: MenuGroup;
+  /** Snooze review's times (snooze.ts `reviewSnoozeMenu`). */
+  snooze?: MenuGroup;
+  github: MenuAction;
+}
+
+/** A PR card's chords, written as `CHORDS` are. ⌘⏎ approves and goes on, as it sends a session's
+ *  message and goes on; ⌥⌘⏎ comments; ⌃⌘R starts a review (Rename on a session, which a PR has
+ *  no name for); ⌃⌘G opens it on GitHub. Asking for changes has no chord: it's not one to press
+ *  by mistake. Snoozing has ⌃⌘1 to ⌃⌘4, as a session's does. */
+export const PR_CHORDS: Partial<Record<keyof PrActions, string>> = { approve: 'Cmd+Enter', comment: 'Alt+Cmd+Enter', review: 'Ctrl+Cmd+R', github: 'Ctrl+Cmd+G' };
+
+/** The action a chord runs among a PR card's (`PR_CHORDS`, and the snooze digits), when it
+ *  applies to the PR now. Review with runs its first choice. */
+export function prChorded(actions: PrActions, e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
+  if (e.metaKey && e.ctrlKey && !e.altKey && !e.shiftKey) {
+    const snooze = snoozeChorded(actions, e.key);
+    if (snooze) return snooze;
+  }
+  const name = (Object.keys(PR_CHORDS) as (keyof PrActions)[]).find((n) => chordPressed(PR_CHORDS[n] ?? '', e));
+  const it = name ? actions[name] : undefined;
+  if (!it) return null;
+  if ('items' in it) {
+    const first = it.items.find((x) => x !== 'separator' && !('items' in x));
+    return first && first !== 'separator' && !('items' in first) ? first : null;
+  }
+  return it;
+}
 
 /** A menu from a layout: each group's actions that are there (or the window's extras in their
  *  places), a line between groups that have any, and with `keys` each action's key beside it. */

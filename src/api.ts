@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, Notice, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -110,10 +110,11 @@ export async function prCommentAsks(title: string, comments: { id: string; autho
   return (await invoke<Record<string, number> | null>('pr_comment_asks', { title, comments })) ?? {};
 }
 
-/** Approves a PR as you. */
-export async function approvePr(repo: string, number: number): Promise<void> {
-  if (!inTauri) throw new Error('Approving needs the app.');
-  await invoke('approve_pr', { repo, number });
+/** Reviews a PR as you: approves it, comments on it or asks for changes, with `body` as the
+ *  review's text (a comment or a request for changes needs some). */
+export async function reviewPr(repo: string, number: number, verdict: Verdict, body: string): Promise<void> {
+  if (!inTauri) throw new Error('Reviewing needs the app.');
+  await invoke('review_pr', { repo, number, verdict, body });
 }
 
 export async function reviewInCodex(url: string): Promise<void> {
@@ -670,6 +671,14 @@ export async function openFromBar(laneId: string, targetId: string): Promise<voi
   await invoke('open_from_bar', { laneId, targetId });
 }
 
+/** A PR the board lists, with the worktrees that hold it or that its sessions are listed under,
+ *  and the apps, for a window without the board to show its card (PrCard.tsx). Null once the
+ *  board no longer lists it. */
+export async function prAt(key: string): Promise<PrAt | null> {
+  if (!inTauri) return null;
+  return (await invoke<PrAt | null>('pr_at', { key })) ?? null;
+}
+
 /** A session with its worktree and the apps, for a window without the board to build the
  *  session's menu (menus.ts). Null once the board no longer has it. */
 export async function sessionAt(key: string): Promise<{ lane: Lane; session: Session; apps: Board['apps'] } | null> {
@@ -1128,6 +1137,9 @@ export interface QuickOpen {
   keep?: boolean;
   /** A session to answer: the panel opens on its conversation and a box for the reply. */
   reply?: string | null;
+  /** A PR waiting on your review, by its key: the panel opens on its card, with the box that
+   *  reviews it. */
+  review?: string | null;
   /** The shortcut that goes through what waits on you: the panel opens on the first session that
    *  does, to answer one after another, as ⇥ on one in its list does. With none, it opens as usual. */
   waiting?: boolean;

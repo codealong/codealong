@@ -90,26 +90,26 @@ function queueWords(queue: Queue | undefined, notice: Notice | null | undefined,
 }
 
 /** A Snooze menu's times with the chord for each, as a tooltip says them: `⌃⌘1 for 15 minutes`. */
-function snoozeKeys(snooze: MenuGroup): string {
+export function snoozeKeys(snooze: MenuGroup): string {
   return snooze.items
     .flatMap((it) => (it !== 'separator' && !('items' in it) && it.accelerator ? [`${chordSigns(it.accelerator)} ${it.label[0].toLowerCase()}${it.label.slice(1)}`] : []))
     .join(', ');
 }
 
 /** The snooze chords as one range, for the button that opens their menu: ⌃⌘1–4. */
-function snoozeRange(): string {
+export function snoozeRange(): string {
   const last = SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1] ?? '';
   return `${chordSigns(SNOOZE_CHORDS[0] ?? '')}–${last.slice(-1)}`;
 }
 
 /** A queue action's keys as signs: the one its button says, and any others, for its tooltip. */
-function queueSigns(action: QueueAction): string[] {
+export function queueSigns(action: QueueAction): string[] {
   return QUEUE_CHORDS[action].map(chordSigns);
 }
 
 /** A button on the strip that says its key. One that doesn't apply to the session shown stays in
  *  its place, dimmed, so the strip holds still from one session to the next. */
-function Hotkey({ label, icon, keys, title, run }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined }) {
+export function Hotkey({ label, icon, keys, title, run }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined }) {
   return (
     <button type="button" className="ca-hotkey" title={title} aria-label={label ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
       {icon && <Icon name={icon} size={12} />}
@@ -127,13 +127,16 @@ interface QueueStripProps {
   session?: Session;
   actions?: SessionActions;
   onSeen?: () => void;
+  /** What's commonly done to the thing shown, as `Hotkey` buttons, where it isn't a session (a
+   *  PR waiting on your review, PrCard.tsx): in place of the session's four. */
+  buttons?: ReactNode;
 }
 
 /** Above a session answered in turn: how the one before went, else how many more wait on you, and
  *  the way on to the next (⌘]). With `hotkeys` it's always there, and has what's commonly done to
  *  the session as buttons that say their keys, the ones the session's menu runs (menus.ts); the
  *  keys for back, next and putting it away are the queue's (queue.ts). */
-export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen }: QueueStripProps) {
+export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own }: QueueStripProps) {
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
   if (!hotkeys) {
@@ -158,17 +161,21 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen }:
   const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
   const gap = <span className="ca-hotkeys-gap" aria-hidden="true" />;
   const buttons: ReactNode = (
-    <div className="ca-hotkeys" role="toolbar" aria-label="What’s commonly done to this session">
-      <Hotkey
-        label="Seen"
-        keys={sign('seen')}
-        title={!seen ? (next && queue?.waiting === false ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next` : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'}
-        run={seen && (() => seen())}
-      />
-      {/* A menu that didn't pop up leaves nothing half done, and the snooze keys beside it still work. */}
-      <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
-      <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close terminal'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
-      <Hotkey label={archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive'} keys={sign('archive')} title={archive?.label ?? 'Archive'} run={archive && (() => archive.run())} />
+    <div className="ca-hotkeys" role="toolbar" aria-label={own ? 'What’s commonly done to this PR' : 'What’s commonly done to this session'}>
+      {own ?? (
+        <>
+          <Hotkey
+            label="Seen"
+            keys={sign('seen')}
+            title={!seen ? (next && queue?.waiting === false ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next` : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'}
+            run={seen && (() => seen())}
+          />
+          {/* A menu that didn't pop up leaves nothing half done, and the snooze keys beside it still work. */}
+          <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
+          <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close terminal'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
+          <Hotkey label={archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive'} keys={sign('archive')} title={archive?.label ?? 'Archive'} run={archive && (() => archive.run())} />
+        </>
+      )}
       {gap}
       {hotkeys.onBack !== undefined && <Hotkey label="Back" keys={queueSigns('historyBack')[0]} title={`Back to the session you looked at before; ${queueSigns('historyForward')[0]} goes forward again`} run={hotkeys.onBack ?? undefined} />}
       <Hotkey label="Next" keys={nextKey} title={next ? `Next that waits on you: ${next.title}. ${nextToo} goes on too, and ${queueSigns('back')[0]} back` : 'Nothing else waits on you'} run={next && queue ? () => queue.onNext() : undefined} />
@@ -201,35 +208,35 @@ export function SessionPanel({ variant = 'panel', queue, notice, hotkeys, autoFo
   const run = useMemo(() => (folder === null ? undefined : { folder, terminal }), [folder, terminal]);
   const body = (
     <>
-      <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
-      <SessionHeader {...header} next={!!goesOn} compact={variant === 'card'} />
-      <SessionThread
-        key={s.key}
-        session={s}
-        now={now}
-        onOpen={openIt}
-        onLoaded={onLoaded}
-        answeredBelow={!device || (device.online && device.remoteControl)}
-        run={run}
-        fallback={
-          s.excerpt ? (
-            <p className="ca-sessinsp-now">
-              <Rich text={s.excerpt} now={now} />
+          <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
+          <SessionHeader {...header} next={!!goesOn} compact={variant === 'card'} />
+          <SessionThread
+            key={s.key}
+            session={s}
+            now={now}
+            onOpen={openIt}
+            onLoaded={onLoaded}
+            answeredBelow={!device || (device.online && device.remoteControl)}
+            run={run}
+            fallback={
+              s.excerpt ? (
+                <p className="ca-sessinsp-now">
+                  <Rich text={s.excerpt} now={now} />
+                </p>
+              ) : null
+            }
+          />
+          {device && !device.online ? (
+            <p className="ca-sessinsp-remote" role="status">
+              {device.name} isn't connected, so nothing can reach this session from here right now.
             </p>
-          ) : null
-        }
-      />
-      {device && !device.online ? (
-        <p className="ca-sessinsp-remote" role="status">
-          {device.name} isn't connected, so nothing can reach this session from here right now.
-        </p>
-      ) : device && !device.remoteControl ? (
-        <p className="ca-sessinsp-remote" role="status">
-          {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
-        </p>
-      ) : (
-        <Reply session={s} terminal={terminal} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} />
-      )}
+          ) : device && !device.remoteControl ? (
+            <p className="ca-sessinsp-remote" role="status">
+              {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
+            </p>
+          ) : (
+            <Reply session={s} terminal={terminal} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} />
+          )}
     </>
   );
   if (variant === 'card') {

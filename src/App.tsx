@@ -12,15 +12,15 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, liveOrLatest, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
 import { archiveAhead, boardView, lanesAhead, observe, seenAhead } from './ahead';
 import { reuse } from './reuse';
 import { usePins } from './pins';
-import { reviewLane, reviewPicks, reviewPrompt } from './review';
-import { remembered, START_OPTIONS_NOTICE, startOptionsFailed } from './start';
+import { reviewItems as reviewItemsFor } from './review';
+import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo } from './types';
 import { shortOf, type DeviceFilter } from './devices';
@@ -585,7 +585,7 @@ export function App() {
   /** Approves a PR as you, in one click. */
   const approve = useCallback((pr: PrItem) => {
     setApproving((a) => new Set(a).add(pr.key));
-    approvePr(pr.repoSlug, pr.number)
+    reviewPr(pr.repoSlug, pr.number, 'approve', '')
       .then(() => setToast(`Approved #${pr.number}.`))
       .catch((e: unknown) => setToast(errorText(e)))
       .finally(() =>
@@ -733,23 +733,7 @@ export function App() {
    *  prompt in a worktree of its repo on this Mac (review.ts). */
   const reviewItems = (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>): MenuAction[] => {
     loadStartOpts();
-    const at = reviewLane(pr, lanes);
-    const picks = reviewPicks(startOpts.current?.accounts ?? [], board?.usage ?? [], Date.now(), !!at, remembered().places);
-    return picks.map((pick) => ({
-      label: pick.label,
-      run: () => {
-        if (pick.kind === 'codex-app' || !at) {
-          reviewInCodex(pr.url).catch((e: unknown) => setToast(String(e)));
-          return;
-        }
-        const spec = { laneId: at.lane.id, account: pick.account, place: pick.place, prompt: reviewPrompt(pr, at.checkedOut), model: null, effort: null, worktree: false, todos: [] };
-        track(`Starting a review of #${pr.number} on ${pick.account}…`, startSession(spec))
-          .then((started) => {
-            if (started?.message) setToast(started.message);
-          })
-          .catch((e: unknown) => setToast(errorText(e)));
-      },
-    }));
+    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track });
   };
   /** A worktree's PR as Review with… needs it: the board's, or what the worktree knows of one
    *  the board doesn't list (on another Mac, say). */

@@ -386,7 +386,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   waits on you from any app: with the bar docked in the notch it opens the notch on the session
   that waits, as a click on the notch does; otherwise it opens this panel on the longest wait,
   as ⇥ on it would, to answer one after another. Pressed again, it puts it away. With nothing typed it lists the sessions that need you, the
-  longest wait first as on the floating bar, then the ones whose turn ended (the working ones when nothing waits on you), and under them the first
+  longest wait first as on the floating bar, then the PRs waiting on your review under Review
+  requested, the longest wait first, then the sessions whose turn ended (the working ones when nothing waits on you), and under them the first
   three todos ready to start, in your order. Typed words find
   sessions by title, account, worktree, branch, repo, project or PR, then by what was said in
   them (your prompts and the agents' replies, for sessions active in the last `[search] days`,
@@ -399,7 +400,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   lives. ⏎ on a todo
   shows its session the same way, or, when it has none, gets a session ready to start for it (its prompt,
   its worktree, linked to it); on a PR it opens the PR on GitHub, and the PR's right-click menu
-  copies its link. The last row starts a new session with what you typed as its
+  copies its link. ⏎ or ⇥ on a PR under Review requested reviews it here: its card takes the
+  panel, with the PR's details and a box at its foot, and the same keys work through it as through
+  the sessions (below, in the notch). The last row starts a new session with what you typed as its
   prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
   shows a todo or PR in Codealong, ⌘1 to ⌘9 do a row, Escape closes. ⇥ on a
   session answers it in the panel: its conversation, and a box that sends it a message where it
@@ -544,7 +547,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   double-click it to go back to the default width. The PR panel keeps a width of its own.
 - **Floating bar**: a small bar on top of every window, on every Space and over full-screen
   apps, with a pill for each agent that needs you, whose turn just ended, or that's running,
-  one for PRs waiting on your review (its menu lists each with its repo and who asked), and
+  one for PRs waiting on your review (its menu lists each with its repo and who asked; a click
+  opens the quick panel on the PR's card, to review it there), and
   one for todos ready to start. The project button
   beside the mark shows one project or all of them; a badge on it counts what needs you in the
   others. Rest the pointer on a session's pill and its peek opens under the bar: the session's
@@ -599,7 +603,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   menu, keeps it open until you unpin it, across launches. There's no peek beside a docked bar:
   click a session's pill and the notch opens further, into that session under the pills, its
   header, its conversation and the box that answers it, dark as the notch is; ⌥⌘. from any
-  app opens it on the session that waits on you. It has the
+  app opens it on the session that waits on you. The reviews pill opens it the same way on a PR
+  waiting on your review (the one PR; a menu picks among several, and the count beside the camera
+  opens the first): the PR's card, with its details and a box at its foot that reviews it. It has the
   keyboard from the click, with the cursor in the box, and works through what waits on you as a
   session's panel in Sessions does, with the same keys: ⌘⏎ sends (or allows what the session
   waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
@@ -609,6 +615,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   commonly done to the session as buttons that say their keys, as its panel in Sessions has:
   Seen (⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close terminal (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘])
   and × (esc).
+  The PRs waiting on your review are in that same list, after the sessions that need you and
+  before the turns that ended, so the keys go from a session to a review and on. On a review the
+  strip has Approve (⌘⏎, with what's in the box as the review's text), Comment (⌥⌘⏎, which needs
+  text), Snooze (⌃⌘1 to ⌃⌘4), Review with (⌃⌘R starts one on the Auto account; the button picks)
+  and GitHub (⌃⌘G); Request changes is a button in the box, with no key, and needs text too. Any
+  of those settles GitHub's request to you, so the PR leaves what waits on you and the next takes
+  its place; what you wrote stays with the PR until it goes, so skipping and coming back loses
+  nothing. ⌘E on a review skips it, as there's nothing to mark seen.
   The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session
   leaves what waits on you and the next takes its place; with none left the notch closes.
   Drag the session's bottom corners or its bottom edge to size it: the notch stays centered, so
@@ -919,7 +933,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/harness.rs` | The interface each harness implements: an `Adapter` for a session (its record and conversation, what it waits on you to allow, opening, sending, starting, searching, renaming with `src/ui/RenameDialog.tsx`) and for an account, and a `Reader` that reads its sessions for the board; CLAUDE.md's "Adding a harness" lists it all |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
 | `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's card (`ui/SessionCard.tsx`), as the quick panel's ⇥ does |
-| `src/ui/Notch.tsx`, `src/ui/NotchSession.tsx` | The bar docked in the notch: its three states (closed, the pills, a session under them) shown through one clip, and the session it shows in place of a peek: which one, the queue it works through and its keys |
+| `src/ui/Notch.tsx`, `src/ui/NotchSession.tsx`, `src/ui/NotchReview.tsx` | The bar docked in the notch: its three states (closed, the pills, a session or a review under them) shown through one clip, and what it shows in place of a peek: which session or PR, the queue of both it works through and its keys |
+| `src/ui/PrCard.tsx`, `src/review.ts` | A PR waiting on your review as a card of its own, in the notch and the quick panel's reply view: the PR panel's details with the strip over them, the box that approves, comments or asks for changes, the PR's menu and its chords; and Review with…, which starts a review session on an account or opens the Codex app's review page |
 | `src/ui/SessionCard.tsx`, `src/ui/cardHost.ts` | A session as a card of its own, for the peek, a session kept on the desktop, the session in the notch and the quick panel's reply view: the session's panel with its menus, what's around it and its shortcuts wired once; and, for the windows that aren't the board's, the session kept up with the board while its card is up |
 | `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek or the notch: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |

@@ -164,6 +164,13 @@ describe('⌘E', () => {
     expect([...step.handled]).toEqual([['A', 10]]);
   });
 
+  it('skips a row that waits with nothing to mark seen or answer, as a review asked of you', () => {
+    const step = keyStep({ ...card(B), shown: { ...shown(B), seenable: false, skipsOnSeen: true } }, none, 'seen', NOW);
+    expect(step).toMatchObject({ taken: true, went: 'on', to: C, words: null });
+    expect(step.markSeen).toBeUndefined();
+    expect([...step.handled]).toEqual([]);
+  });
+
   it('marks seen and stays on a row that didn’t wait on you', () => {
     // A finished turn that's snoozed, say: it isn't in the queue.
     const snoozed: Row = { key: 'S', since: 1, seenable: true };

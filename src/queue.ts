@@ -77,6 +77,7 @@ export function chordPressed(chord: string, e: Key): boolean {
   // - goes by what it types or where it is, as history.ts has it.
   if (key === '-') return historyChord(e);
   if (key === 'Up' || key === 'Down') return e.key === `Arrow${key}`;
+  if (key === 'Enter') return e.key === 'Enter';
   return e.key.toUpperCase() === key;
 }
 
@@ -147,6 +148,10 @@ export interface Shown {
   since?: number;
   /** It's a finished turn, or a reply that asks you something: ⌘E marks it seen. */
   seenable: boolean;
+  /** It waits on you with nothing to mark seen and nothing ⌘E could answer (a PR waiting on
+   *  your review): ⌘E skips it, as it skips one running, rather than staying as it does on a
+   *  call to allow. */
+  skipsOnSeen?: boolean;
 }
 
 /** A window as the rules see it: its lists, the session it shows, and what's its own to do. */
@@ -241,7 +246,7 @@ export function keyStep<T>(view: QueueView<T>, handled: Handled, action: QueueAc
   const hand = (to: T | null): KeyStep<T> => (to ? { taken: true, went: 'on', to, words: null, handled } : { taken: true, went: 'last', handled });
   if (action === 'next' || action === 'back') return hand(stepTo(action, view.waiting, s.key, handled, view.reads));
   if (action === 'seen') {
-    const does = seenStep(s.seenable, waits(view.waiting, s.key, view.reads.keyOf));
+    const does = s.skipsOnSeen ? 'skip' : seenStep(s.seenable, waits(view.waiting, s.key, view.reads.keyOf));
     if (does === 'skip') return hand(stepTo('next', view.waiting, s.key, handled, view.reads));
     if (does === 'stay' || !view.marksSeen) return no;
     return { ...left(view, handled, s.key, 'marked seen', now), taken: true, markSeen: s.key };

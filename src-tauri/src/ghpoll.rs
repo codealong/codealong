@@ -575,6 +575,7 @@ mod tests {
             changed_files: 0,
             review_requested: true,
             requested_by: None,
+            requested_at: None,
         }
     }
 

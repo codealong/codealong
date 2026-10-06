@@ -4,7 +4,8 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import type { BarGroup, BarItem } from './types';
+import type { Reads } from './queue';
+import type { BarGroup, BarItem, BarReview } from './types';
 
 export type Group = BarGroup;
 /** Bar order, most urgent first. */
@@ -211,20 +212,44 @@ export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind
   return kind ? { kind, n: counts[kind] } : null;
 }
 
-// ---- The session in the notch (NotchSession.tsx) ----
+// ---- What the notch works through (NotchSession.tsx, NotchReview.tsx) ----
 
-/** What the session in the notch works through, as a session's panel in Sessions does: the bar's
- *  sessions that wait on you, in the bar's order (Needs you the longest wait first, then Your
- *  turn the newest first). queue.ts has how it goes from one to the next, and ⌥↑ ⌥↓ along all of
- *  the bar's sessions. */
-export function waitingItems(items: BarItem[]): BarItem[] {
-  return items.filter((i) => i.group !== 'working');
+/** A row of what the notch shows under its pills: a session on the bar, or a PR that waits on
+ *  your review. Keyed by the session's key or the PR's (`owner/name#12`), which never collide. */
+export type NotchRow = { kind: 'session'; key: string; item: BarItem } | { kind: 'review'; key: string; review: BarReview };
+
+/** How the queue (queue.ts) reads the notch's rows: a pill carries its session's key and times
+ *  without the session, a review the PR's. */
+export const ROW_READS: Reads<NotchRow> = {
+  keyOf: (r) => r.key,
+  sinceOf: (r) => (r.kind === 'session' ? r.item.since : r.review.since),
+  titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
+};
+
+/** A review as the strip and the queue name it. */
+export function reviewTitle(r: Pick<BarReview, 'number' | 'title'>): string {
+  return `#${r.number} ${r.title}`;
 }
 
-/** The session a click on the notch itself opens it on: the one it showed last while that still
- *  waits on you, else the first that waits, else the one it showed last, else the bar's first.
- *  None with no sessions on the bar. */
-export function currentItem(items: BarItem[], last: string | null): BarItem | null {
-  const waiting = waitingItems(items);
-  return waiting.find((i) => i.key === last) ?? waiting[0] ?? items.find((i) => i.key === last) ?? items[0] ?? null;
+/** Everything the notch can show, in the order the closed notch counts it (`NOTCH_ORDER`): the
+ *  sessions that need you, the PRs waiting on your review, the turns that ended, then the
+ *  running ones, each group in the bar's own order. ⌥↑ ⌥↓ step along all of it. */
+export function notchRows(items: BarItem[], reviews: BarReview[]): NotchRow[] {
+  const session = (i: BarItem): NotchRow => ({ kind: 'session', key: i.key, item: i });
+  const review = (r: BarReview): NotchRow => ({ kind: 'review', key: r.key, review: r });
+  return NOTCH_ORDER.flatMap((k) => (k === 'reviews' ? reviews.map(review) : items.filter((i) => i.group === k).map(session)));
+}
+
+/** What the notch works through, as a session's panel in Sessions does: the rows that wait on
+ *  you, the running sessions left out. queue.ts has how it goes from one to the next. */
+export function waitingRows(rows: NotchRow[]): NotchRow[] {
+  return rows.filter((r) => r.kind !== 'session' || r.item.group !== 'working');
+}
+
+/** The row a click on the notch itself opens it on: the one it showed last while that still
+ *  waits on you, else the first that waits, else the one it showed last, else the first row.
+ *  None with nothing on the bar. */
+export function currentRow(rows: NotchRow[], last: string | null): NotchRow | null {
+  const waiting = waitingRows(rows);
+  return waiting.find((r) => r.key === last) ?? waiting[0] ?? rows.find((r) => r.key === last) ?? rows[0] ?? null;
 }

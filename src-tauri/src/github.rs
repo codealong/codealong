@@ -39,6 +39,9 @@ pub struct PrRaw {
     pub review_requested: bool,
     /// Who asked for it, who needn't be the author; None when the PR's last requests don't say.
     pub requested_by: Option<String>,
+    /// When the latest request to you was made, when the PR's last requests say: what a review
+    /// waits on you since, for the bar's queue (barfeed.rs).
+    pub requested_at: Option<i64>,
 }
 
 /// One repo's PRs, and who `gh` is signed in as.
@@ -82,7 +85,7 @@ query($requested: String!) {
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } } } }
-  timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { actor { login } requestedReviewer { __typename ... on User { login } } } } }
+  timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
 }
 "#;
 
@@ -258,6 +261,7 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
             if let Some(mut pr) = parse_pr(n) {
                 pr.review_requested = pr.state.is_open() && asked_of(n, login, requested.contains(&pr.number));
                 pr.requested_by = pr.review_requested.then(|| asker_of(n, login)).flatten();
+                pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
                 prs.push(pr);
             }
         }
@@ -278,6 +282,7 @@ pub fn parse_requested(json: &str) -> Result<Requested> {
             let mut pr = parse_pr(n)?;
             pr.review_requested = pr.state.is_open() && asked_of(n, login, true);
             pr.requested_by = asker_of(n, login);
+            pr.requested_at = asked_at(n, login);
             pr.review_requested.then(|| (slug.to_string(), pr))
         })
         .collect();
@@ -304,6 +309,18 @@ fn asked_of(n: &Value, login: Option<&str>, found: bool) -> bool {
 /// or to a reviewer you can't see, which is how a request through a team you're on reads. It's
 /// often not the author: a teammate asks for a review of a bot's PR.
 fn asker_of(n: &Value, login: Option<&str>) -> Option<String> {
+    latest_request(n, login)?.pointer("/actor/login").and_then(Value::as_str).map(String::from)
+}
+
+/// When your review was last asked for (the request `asker_of` reads), for how long it has
+/// waited on you.
+fn asked_at(n: &Value, login: Option<&str>) -> Option<i64> {
+    latest_request(n, login)?.get("createdAt").and_then(Value::as_str).and_then(parse_rfc3339_ms)
+}
+
+/// The latest request to you among the PR's last review requests, else the latest to a team or
+/// to a reviewer you can't see, which is how a request through a team you're on reads.
+fn latest_request<'a>(n: &'a Value, login: Option<&str>) -> Option<&'a Value> {
     let events = n.pointer("/timelineItems/nodes").and_then(Value::as_array)?;
     fn reviewer(e: &Value) -> Option<&Value> {
         e.get("requestedReviewer").filter(|w| !w.is_null())
@@ -313,7 +330,7 @@ fn asker_of(n: &Value, login: Option<&str>) -> Option<String> {
         login.is_some_and(|me| asked.is_some_and(|l| l.eq_ignore_ascii_case(me)))
     });
     let team = || events.iter().rev().find(|e| reviewer(e).and_then(|w| w.get("__typename")).and_then(Value::as_str) != Some("User"));
-    you.or_else(team)?.pointer("/actor/login").and_then(Value::as_str).map(String::from)
+    you.or_else(team)
 }
 
 fn parse_pr(n: &Value) -> Option<PrRaw> {
@@ -353,6 +370,7 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         changed_files: n.get("changedFiles").and_then(Value::as_u64).unwrap_or(0),
         review_requested: false,
         requested_by: None,
+        requested_at: None,
     })
 }
 
@@ -962,11 +980,58 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
     })
 }
 
-/// Approves a PR as you, through `gh`.
-pub fn approve(slug: &str, number: u64) -> Result<()> {
-    procs::run("gh", &["pr", "review", &number.to_string(), "--approve", "-R", slug], None, Duration::from_secs(30))
+/// What a review of a PR says: approved, a comment, or changes asked for. A comment or a request
+/// for changes needs something written; an approval's text is optional.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Verdict {
+    Approve,
+    Comment,
+    RequestChanges,
+}
+
+impl Verdict {
+    /// `gh pr review`'s flag for it.
+    fn flag(self) -> &'static str {
+        match self {
+            Verdict::Approve => "--approve",
+            Verdict::Comment => "--comment",
+            Verdict::RequestChanges => "--request-changes",
+        }
+    }
+
+    /// What was done, for a message: "approve" in "Couldn't approve #12".
+    pub fn verb(self) -> &'static str {
+        match self {
+            Verdict::Approve => "approve",
+            Verdict::Comment => "comment on",
+            Verdict::RequestChanges => "request changes on",
+        }
+    }
+}
+
+/// The arguments `gh pr review` is given for a verdict with its text, as `review` runs it.
+pub fn review_args(number: u64, verdict: Verdict, body: &str, slug: &str) -> Result<Vec<String>> {
+    let body = body.trim();
+    if body.is_empty() && verdict != Verdict::Approve {
+        return Err(anyhow!("Write what to say first: a {} needs text.", if verdict == Verdict::Comment { "comment" } else { "request for changes" }));
+    }
+    let mut args: Vec<String> = vec!["pr".into(), "review".into(), number.to_string(), verdict.flag().into(), "-R".into(), slug.into()];
+    if !body.is_empty() {
+        args.push("--body".into());
+        args.push(body.into());
+    }
+    Ok(args)
+}
+
+/// Reviews a PR as you, through `gh`: approves it, comments on it or asks for changes, with what
+/// you wrote as the review's text.
+pub fn review(slug: &str, number: u64, verdict: Verdict, body: &str) -> Result<()> {
+    let args = review_args(number, verdict, body, slug)?;
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    procs::run("gh", &args, None, Duration::from_secs(30))
         .map(|_| ())
-        .map_err(|e| anyhow!("Couldn't approve #{number}: {e}"))
+        .map_err(|e| anyhow!("Couldn't {} #{number}: {e}", verdict.verb()))
 }
 
 /// GitHub's `mergeStateStatus`. `HAS_HOOKS` is clean with server-side hooks to run on merge.
@@ -1340,6 +1405,33 @@ mod tests {
         assert_eq!(asker(&[event("ken", other)]), None);
         assert_eq!(asker(&[]), None);
         assert_eq!(asker_of(&serde_json::json!({}), Some("gwen")), None);
+    }
+
+    #[test]
+    fn reads_when_your_review_was_asked_for() {
+        let event = |at: &str, reviewer: &str| format!(r#"{{"createdAt":"{at}","actor":{{"login":"ken"}},"requestedReviewer":{reviewer}}}"#);
+        let (me, other) = (r#"{"__typename":"User","login":"gwen"}"#, r#"{"__typename":"User","login":"ana"}"#);
+        let at = |events: &[String]| {
+            let n: Value = serde_json::from_str(&format!(r#"{{"timelineItems":{{"nodes":[{}]}}}}"#, events.join(","))).unwrap();
+            asked_at(&n, Some("gwen"))
+        };
+        // The latest request to you, not a later one to someone else.
+        assert_eq!(at(&[event("2026-09-30T20:00:00Z", me), event("2026-10-01T08:00:00Z", me), event("2026-10-02T09:00:00Z", other)]), parse_rfc3339_ms("2026-10-01T08:00:00Z"));
+        assert_eq!(at(&[event("2026-09-30T20:00:00Z", other)]), None);
+        assert_eq!(at(&[]), None);
+    }
+
+    #[test]
+    fn a_review_is_run_through_gh_with_its_text() {
+        let args = |verdict: Verdict, body: &str| review_args(12, verdict, body, "acme/site").map(|a| a.join(" "));
+        assert_eq!(args(Verdict::Approve, "").unwrap(), "pr review 12 --approve -R acme/site");
+        assert_eq!(args(Verdict::Approve, " Nice. ").unwrap(), "pr review 12 --approve -R acme/site --body Nice.");
+        assert_eq!(args(Verdict::Comment, "A thought").unwrap(), "pr review 12 --comment -R acme/site --body A thought");
+        assert_eq!(args(Verdict::RequestChanges, "Fix it").unwrap(), "pr review 12 --request-changes -R acme/site --body Fix it");
+        // A comment or a request for changes says something or isn't sent.
+        assert!(args(Verdict::Comment, "  ").is_err());
+        assert!(args(Verdict::RequestChanges, "").is_err());
+        assert_eq!(serde_json::to_string(&Verdict::RequestChanges).unwrap(), "\"request-changes\"");
     }
 
     #[test]

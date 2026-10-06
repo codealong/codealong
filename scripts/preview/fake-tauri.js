@@ -282,6 +282,20 @@ window.__TAURI_INTERNALS__ = {
         return view;
       });
     }
+    // A PR the board lists, with the worktrees that hold it or its sessions, for its card in the
+    // notch (lib.rs `pr_at`). A review sent is taken as done.
+    if (cmd === 'pr_at') {
+      return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
+        var pr = null;
+        (board.prs || []).forEach(function (p) { if (!pr && p.key === args.key) pr = p; });
+        if (!pr) return null;
+        var lanes = board.lanes.filter(function (l) {
+          return pr.lanes.indexOf(l.id) >= 0 || pr.sessions.some(function (s) { return s.lane === l.id; });
+        });
+        return { pr: pr, lanes: lanes, apps: board.apps };
+      });
+    }
+    if (cmd === 'review_pr') return Promise.resolve(null);
     // A PR the board doesn't list, as GitHub would have it: merged a while ago, no sessions here.
     if (cmd === 'pr_card') {
       var want = args || {};

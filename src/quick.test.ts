@@ -23,6 +23,15 @@ describe('queueRows', () => {
     expect(keys(queue)).toEqual(['n1', 'e', 'n2', 'u1']);
     expect(keys(queueRows(board([lane('app2', [session('w', 'working', NOW)])]), ALL_PROJECTS))).toEqual([]);
   });
+
+  it('puts the PRs waiting on your review after what needs you, the longest wait first, snoozed ones left out', () => {
+    const review = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'open', reviewRequested: true, updatedAt: NOW - number, ...over });
+    const prs = [review(3, { requestedAt: NOW - 30 }), review(1, { requestedAt: NOW - 90 }), review(2, { snoozedUntil: NOW + 1000 }), review(4, { reviewRequested: false }), review(5, { state: 'merged' }), review(6, { project: 'Globex', requestedAt: NOW - 60 })];
+    const b2 = fx.board({ lanes: b.lanes, prs });
+    expect(keys(queueRows(b2, ALL_PROJECTS))).toEqual(['n1', 'e', 'n2', 'acme/app#1', 'acme/app#6', 'acme/app#3', 'u1']);
+    expect(keys(queueRows(b2, 'Acme'))).toEqual(['n1', 'e', 'n2', 'acme/app#1', 'acme/app#3', 'u1']);
+    expect(queueRows(b2, ALL_PROJECTS).map((r) => r.kind)).toEqual(['session', 'session', 'session', 'review', 'review', 'review', 'session']);
+  });
 });
 
 describe('attentionRows', () => {
@@ -38,7 +47,7 @@ describe('attentionRows', () => {
       ['u2', 'unread'],
       ['u1', 'unread'],
     ]);
-    expect(counts).toEqual({ needs: 2, unread: 2, working: 1 });
+    expect(counts).toEqual({ needs: 2, reviews: 0, unread: 2, working: 1 });
   });
 
   it('lists the working sessions when nothing waits on you, the longest running first', () => {

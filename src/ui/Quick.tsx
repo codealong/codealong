@@ -63,9 +63,10 @@ import { usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { useSessionHistory } from '../history';
-import { SESSION_READS, shownSession, useWaitingQueue } from '../useWaitingQueue';
+import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import type { Reads } from '../queue';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, reviewSince, shortcutLabel, startTitle, statusTime, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type QueueRow, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountHeadWords,
   agentChipWords,
@@ -92,11 +93,12 @@ import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
+import { PrCard, type PrWindowCan } from './PrCard';
 import { SessionCard } from './SessionCard';
 import { cx, Icon, Kbd, Mark, Seg, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
-import { PrGlyph } from './PrsView';
+import { PrGlyph, prPlaces, type PrRowItem } from './PrsView';
 import { useTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
@@ -123,6 +125,12 @@ const HISTORY_KEY = 'codealong.quick.history';
 /** Where the sessions answered in the reply view are kept, for ⌃- and ⌃⇧- (history.ts), apart from
  *  the main window's and the notch's. */
 const LOOKED_KEY = 'codealong.sessionHistory:quick';
+/** How the queue reads the panel's rows: a session's row by its session, a review's by its PR. */
+const QUEUE_READS: Reads<QueueRow> = {
+  keyOf: (r) => (r.kind === 'session' ? r.session.key : r.pr.key),
+  sinceOf: (r) => (r.kind === 'session' ? statusTime(r.session) : reviewSince(r.pr)),
+  titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
+};
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
@@ -139,7 +147,7 @@ const REPLY_HEIGHT = 640;
 
 type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
 /** A suggestion from Jev, as a row. */
 interface SuggestRow {
@@ -157,7 +165,7 @@ interface MoreRow {
   count: number;
 }
 
-type Row = SessionRow | TodoRow | PrRow | SuggestRow | MoreRow | SkillRow;
+type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SkillRow;
 
 /** The most sessions a search lists once you ask for all of them. */
 const FOUND_ALL = 40;
@@ -197,7 +205,7 @@ function deskPin(r: Row | undefined): DesktopPinned | null {
   const session = r?.kind === 'session' ? r : r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open') ? r.s : null;
   if (session) return session.lane.device || session.session.archived ? null : { ref: 'session', key: session.session.key };
   if (r?.kind === 'todo') return { ref: 'todo', key: r.item.todo.id };
-  if (r?.kind === 'pr') return { ref: 'pr', key: r.pr.key };
+  if (r?.kind === 'pr' || r?.kind === 'review') return { ref: 'pr', key: r.pr.key };
   return null;
 }
 
@@ -206,7 +214,7 @@ function deskTitle(r: Row | undefined): string {
   if (r?.kind === 'session') return r.session.title;
   if (r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open')) return r.s.session.title;
   if (r?.kind === 'todo') return r.item.todo.title || 'Untitled';
-  if (r?.kind === 'pr') return `#${r.pr.number} ${r.pr.title}`;
+  if (r?.kind === 'pr' || r?.kind === 'review') return `#${r.pr.number} ${r.pr.title}`;
   return '';
 }
 
@@ -274,6 +282,8 @@ export function Quick() {
   // where the queue is set up: a slot the queue fills in below, not a value from above, so it
   // isn't a useLatest.
   const quiet = useRef(() => {});
+  // Starts the way through what waits on you afresh, for a review the bar opened the panel on.
+  const fresh = useRef(() => {});
   // Opens on the first session that waits on you in a project, working through them from there,
   // as ⇥ on it in the list does; the shortcut that goes through them asks for it.
   const answerFirst = useRef<(b: Board, project: string) => void>(() => {});
@@ -348,9 +358,12 @@ export function Quick() {
         setDevice(ctx.laneId ? shortOf(ctx.laneId) : null);
         setNewWorktree(false);
         setActiveKey(null);
-        setReplyKey(ctx.reply ?? null);
-        setQueued(false);
+        setReplyKey(ctx.review ?? ctx.reply ?? null);
+        // A review from the floating bar's pill is one of what waits on you: the view goes on
+        // from it to the rest.
+        setQueued(!!ctx.review);
         quiet.current();
+        if (ctx.review) fresh.current();
       }
       if (b) {
         setBoard(b);
@@ -517,8 +530,10 @@ export function Quick() {
     }
     return null;
   }, [board, replyKey]);
+  // A PR waiting on your review, reviewed in place of the list, while the board lists it.
+  const reviewing = useMemo(() => (board && replyKey && !replying ? (board.prs.find((p) => p.key === replyKey) ?? null) : null), [board, replyKey, replying]);
   // What it works through, and what's left after the one showing. Snoozed ones wait their time.
-  const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => !r.session.snoozedUntil) : []), [board, queued, current]);
+  const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => r.kind !== 'session' || !r.session.snoozedUntil) : []), [board, queued, current]);
   // Read when a send fails, which can be long after the view went on to another session.
   const replyKeyNow = useLatest(replyKey);
   const shownNow = useLatest(shown);
@@ -715,7 +730,7 @@ export function Quick() {
   const duplicate = board ? duplicateOf(route, board) : null;
   const alreadyOn = alreadyOnWords(duplicate);
 
-  const replyingKey = replying?.session.key ?? null;
+  const replyingKey = replying?.session.key ?? reviewing?.key ?? null;
   // The panel's height, as the list may change it while you type and as a reply's conversation
   // grows, told to quick.rs (useQuickSize.ts).
   useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered: !routing && (!textFor || !!textFound), replyingKey, opening, reported });
@@ -736,15 +751,15 @@ export function Quick() {
   // session was answered from it (`queued`); ⌥↑ ⌥↓ step along the sessions the panel lists,
   // whatever it lists now; a session that leaves has left the view, so it always goes on; and
   // marking seen is the card's (SessionCard.tsx), which says so through `left`.
-  const answerable = useMemo(() => new Set(board ? board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)) : []), [board]);
-  // Back and forward through the sessions answered here, apart from the other windows'. One
-  // that's gone or archived is passed over.
-  const looked = useSessionHistory(shown && replying ? replying.session.key : null, (key) => answerable.has(key), LOOKED_KEY);
-  const way = useWaitingQueue<SessionRow>({
+  const answerable = useMemo(() => new Set(board ? [...board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...board.prs.map((p) => p.key)] : []), [board]);
+  // Back and forward through the sessions and reviews answered here, apart from the other
+  // windows'. One that's gone or archived is passed over.
+  const looked = useSessionHistory(shown ? replyingKey : null, (key) => answerable.has(key), LOOKED_KEY);
+  const way = useWaitingQueue<QueueRow>({
     waiting: queue,
-    along: rows.filter((r): r is SessionRow => r.kind === 'session'),
-    reads: SESSION_READS,
-    shown: replying ? shownSession(replying.session) : null,
+    along: rows.filter((r): r is QueueRow => r.kind === 'session' || r.kind === 'review'),
+    reads: QUEUE_READS,
+    shown: replying ? shownSession(replying.session) : reviewing ? { key: reviewing.key, title: `#${reviewing.number} ${reviewing.title}`, since: reviewSince(reviewing), seenable: false, skipsOnSeen: true } : null,
     show: (row) => setReplyKey(row.key),
     travel: (dir) => {
       const to = dir === 'back' ? looked.goBack() : looked.goForward();
@@ -756,8 +771,9 @@ export function Quick() {
     },
   });
   quiet.current = () => way.say(null);
+  fresh.current = () => way.fresh();
   answerFirst.current = (b, inProject) => {
-    const first = queueRows(b, inProject).find((r) => !r.session.snoozedUntil);
+    const first = queueRows(b, inProject).find((r) => r.kind !== 'session' || !r.session.snoozedUntil);
     if (!first) return;
     way.fresh();
     setQueued(true);
@@ -834,6 +850,19 @@ export function Quick() {
     setQueued(fromList);
     way.say(null);
     setReplyKey(session.key);
+    setRenameKey(null);
+    setPicker(null);
+    setError(null);
+  };
+
+  /** Reviews a PR here: its card, and the box that reviews it. From the list, the view goes on
+   *  to the rest that waits on you. */
+  const reviewHere = (pr: PrItem) => {
+    const fromList = !!attention?.rows.some((r) => r.key === pr.key);
+    if (fromList) way.fresh();
+    setQueued(fromList);
+    way.say(null);
+    setReplyKey(pr.key);
     setRenameKey(null);
     setPicker(null);
     setError(null);
@@ -948,6 +977,18 @@ export function Quick() {
       left,
   });
   const sessionMenuSpec = (lane: Lane, s: Session): MenuSpec => menus.sessionMenu(lane, s, quickCan(lane, s));
+  /** A worktree's menu, for the ones a PR reviewed here is checked out in. */
+  const laneMenuSpec = (lane: Lane): MenuSpec =>
+    menus.laneMenu(lane, {
+      report: menuReport,
+      open: openHere,
+      reveal: () => {
+        void hideQuick();
+        void showMain({ kind: 'worktree', laneId: lane.id });
+      },
+      editors: board?.apps ? { apps: board.apps, icons } : undefined,
+      desktop: onDesktop,
+    });
 
   /** A PR's menu, as every window has it. */
   const prMenuSpec = (pr: PrItem): MenuSpec => {
@@ -981,7 +1022,7 @@ export function Quick() {
       show(sessionMenuSpec(r.lane, r.session));
       return;
     }
-    if (r.kind === 'pr') {
+    if (r.kind === 'pr' || r.kind === 'review') {
       show(prMenuSpec(r.pr));
       return;
     }
@@ -1127,6 +1168,7 @@ export function Quick() {
     else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
     else if (row.kind === 'pr') (alt ? revealPr : openPr)(row.pr);
+    else if (row.kind === 'review') (alt ? revealPr : reviewHere)(row.pr);
     else if (row.kind === 'skill') pickSkill(row);
     else if (row.kind === 'more') {
       // The first of those it adds takes its place.
@@ -1154,6 +1196,12 @@ export function Quick() {
       if (session) {
         e.preventDefault();
         replyTo(session);
+        return;
+      }
+      // And on a PR waiting on your review, it reviews it here, as ⏎ does.
+      if (row?.kind === 'review') {
+        e.preventDefault();
+        reviewHere(row.pr);
         return;
       }
     }
@@ -1207,7 +1255,7 @@ export function Quick() {
         if (picker) {
           setPicker(null);
           refocus();
-        } else if (replying) leaveReply();
+        } else if (replying || reviewing) leaveReply();
         else void hideQuick();
         return;
       }
@@ -1215,12 +1263,12 @@ export function Quick() {
       // one session to the next, which are the ones Sessions' panel and the notch have (queue.ts
       // `QUEUE_CHORDS`): the list's keys are for the list, and the session's own (⌘E on one to
       // mark seen, ⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's (SessionCard.tsx). Not while its name is typed.
-      if (replying) {
+      if (replying || reviewing) {
         const k = e.key.toLowerCase();
         if (e.metaKey && !e.ctrlKey && !e.altKey && (k === 'q' || k === 'h')) {
           e.preventDefault();
           void hideQuick();
-        } else if (renameKey !== replying.session.key && way.onKey(e)) {
+        } else if ((!replying || renameKey !== replying.session.key) && way.onKey(e)) {
           e.preventDefault();
         }
         return;
@@ -1423,12 +1471,12 @@ export function Quick() {
     if (last && last.group === r.group) last.rows.push(r);
     else sections.push({ group: r.group, rows: [r] });
   }
-  const nothingWaits = listing && !!attention && attention.counts.needs + attention.counts.unread === 0;
+  const nothingWaits = listing && !!attention && attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
     if (g === 'ready') return readyList?.count ?? shown;
     if (g === 'recent') return recent?.count ?? shown;
-    if (g === 'needs' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
+    if (g === 'needs' || g === 'reviews' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
     if (g === 'found') return foundSessions.length;
     return shown;
   };
@@ -1446,6 +1494,30 @@ export function Quick() {
         else if (way.left(replying.session.key, done) === 'last') replied(null);
       })
     : null;
+
+  /** What the panel can do to a PR reviewed here (PrCard.tsx): what takes it off what waits on
+   *  you goes on to the next, or back to the list it was picked from. */
+  const reviewCan = (pr: PrItem): PrWindowCan => ({
+    report: menuReport,
+    open: openHere,
+    reveal: () => revealPr(pr),
+    openLink,
+    left: (done) => {
+      if (!queued) leaveReply();
+      else if (way.left(pr.key, done) === 'last') replied(null);
+    },
+  });
+  /** A PR as its card shows it: with where it lives on this Mac (PrsView.tsx `prPlaces`). */
+  const reviewItem = (pr: PrItem): PrRowItem => {
+    const lanes = board?.lanes ?? [];
+    const holding = lanes.filter((l) => pr.lanes.includes(l.id));
+    const sessions = pr.sessions.flatMap((x) => {
+      const lane = lanes.find((l) => l.id === x.lane);
+      const session = lane?.sessions.find((s) => s.key === x.key);
+      return lane && session ? [{ lane, session }] : [];
+    });
+    return { kind: 'pr', key: pr.key, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
+  };
 
   const replied = (message: string | null) => {
     setReplyKey(null);
@@ -1529,7 +1601,31 @@ export function Quick() {
           />
         </div>
       )}
-      {!replying && (
+      {reviewing && (
+        <div ref={card} className="ca-quick is-reply" role="dialog" aria-label={`Review #${reviewing.number} ${reviewing.title}`} style={{ maxHeight: Math.min(REPLY_HEIGHT, room ? room - 2 * MARGIN : REPLY_HEIGHT) }}>
+          <PrCard
+            key={reviewing.key}
+            item={reviewItem(reviewing)}
+            now={now}
+            lanes={board?.lanes ?? []}
+            usage={board?.usage ?? []}
+            can={reviewCan(reviewing)}
+            autoFocus
+            back={{ label: 'Back', title: 'Back to the list (Esc)', onBack: leaveReply }}
+            queue={queued ? way.queue : undefined}
+            notice={way.notice}
+            onShowSession={(_l, s) => replyTo(s)}
+            onOpenSession={openSession}
+            onShowLane={(l) => {
+              void hideQuick();
+              void showMain({ kind: 'worktree', laneId: l.id });
+            }}
+            onLaneMenu={(l) => void showContextMenu(laneMenuSpec(l)).catch((e: unknown) => setError(errorText(e)))}
+            onSessionMenu={(l, s) => void showContextMenu(sessionMenuSpec(l, s)).catch((e: unknown) => setError(errorText(e)))}
+          />
+        </div>
+      )}
+      {!replying && !reviewing && (
       <div ref={card} className="ca-quick" role="dialog" aria-label="Codealong" style={room ? { maxHeight: room - 2 * MARGIN } : undefined}>
         <div ref={inputBox} className="ca-quick-head">
         <div className="ca-quick-input">
@@ -1716,7 +1812,7 @@ export function Quick() {
                           </div>
                         );
                       }
-                      if (r.kind === 'pr') {
+                      if (r.kind === 'pr' || r.kind === 'review') {
                         const pr = r.pr;
                         return (
                           <div
@@ -1724,7 +1820,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass)}
-                            title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n⏎ opens it on GitHub · ⌥⏎ shows it in Codealong`}
+                            title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here' : '⏎ opens it on GitHub'} · ⌥⏎ shows it in Codealong`}
                             {...handlers}
                           >
                             <PrGlyph pr={pr} />

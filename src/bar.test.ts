@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentItem, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchSizes, plain, projectWaits, waitingItems, type Metrics } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRows, type Metrics, type NotchRow } from './bar';
 import { ALL_PROJECTS } from './quick';
 import * as fx from './testing/fixtures';
-import type { BarItem } from './types';
+import type { BarItem, BarReview } from './types';
 
 // Which sessions, PRs and todos the bar shows, and their order, are the engine's (barfeed.rs, with
 // tests).
@@ -216,26 +216,44 @@ describe('the bar docked in the notch', () => {
   });
 });
 
-describe('the session in the notch', () => {
+describe('what the notch works through', () => {
   const item = (key: string, group: BarItem['group'], since: number): BarItem => ({ key, group, status: group === 'needs' ? 'needs' : group, title: key, account: 'claude', laneId: 'l', callsign: 'main', project: 'P', hidden: false, detail: null, since, openTarget: `s|${key}|focus`, target: null, snoozedUntil: null });
+  const review = (number: number, since: number): BarReview => ({ key: `o/r#${number}`, number, title: `PR ${number}`, repo: 'r', repoSlug: 'o/r', url: `https://github.com/o/r/pull/${number}`, project: 'P', requestedBy: 'ana', since, updatedAt: since });
   const items = [item('n1', 'needs', 10), item('n2', 'needs', 20), item('u1', 'unread', 30), item('w1', 'working', 5)];
-  const keys = (list: BarItem[]) => list.map((i) => i.key);
+  const reviews = [review(7, 15), review(8, 25)];
+  const rows = notchRows(items, reviews);
+  const keys = (list: NotchRow[]) => list.map((r) => r.key);
+
+  it('lists the sessions that need you, then the reviews asked of you, then the rest, in the bar’s order', () => {
+    expect(keys(rows)).toEqual(['n1', 'n2', 'o/r#7', 'o/r#8', 'u1', 'w1']);
+    expect(rows.map((r) => r.kind)).toEqual(['session', 'session', 'review', 'review', 'session', 'session']);
+    expect(keys(notchRows(items, []))).toEqual(['n1', 'n2', 'u1', 'w1']);
+  });
+
+  it('reads a row by its session or its PR', () => {
+    expect(rows.map(ROW_READS.sinceOf)).toEqual([10, 20, 15, 25, 30, 5]);
+    expect(ROW_READS.titleOf(rows[2])).toBe('#7 PR 7');
+    expect(ROW_READS.titleOf(rows[0])).toBe('n1');
+  });
 
   // How it goes from one to the next, and along the bar, is queue.ts's (queue.test.ts).
-  it('works through what waits on you, in the bar’s order, and not what’s running', () => {
-    expect(keys(waitingItems(items))).toEqual(['n1', 'n2', 'u1']);
+  it('works through what waits on you, reviews included, and not what’s running', () => {
+    expect(keys(waitingRows(rows))).toEqual(['n1', 'n2', 'o/r#7', 'o/r#8', 'u1']);
   });
 
   it('opens on the one shown last while it still waits, else the first that waits', () => {
-    expect(currentItem(items, null)?.key).toBe('n1');
-    expect(currentItem(items, 'u1')?.key).toBe('u1');
+    expect(currentRow(rows, null)?.key).toBe('n1');
+    expect(currentRow(rows, 'u1')?.key).toBe('u1');
+    expect(currentRow(rows, 'o/r#8')?.key).toBe('o/r#8');
     // One that runs now doesn't keep it from what waits.
-    expect(currentItem(items, 'w1')?.key).toBe('n1');
-    expect(currentItem(items, 'gone')?.key).toBe('n1');
+    expect(currentRow(rows, 'w1')?.key).toBe('n1');
+    expect(currentRow(rows, 'gone')?.key).toBe('n1');
+    // Only reviews wait: the first of them.
+    expect(currentRow(notchRows([item('w1', 'working', 5)], reviews), null)?.key).toBe('o/r#7');
     // Nothing waits: the one shown last, else the bar's first.
-    const running = [item('w1', 'working', 5), item('w2', 'working', 6)];
-    expect(currentItem(running, 'w2')?.key).toBe('w2');
-    expect(currentItem(running, null)?.key).toBe('w1');
-    expect(currentItem([], 'w1')).toBeNull();
+    const running = notchRows([item('w1', 'working', 5), item('w2', 'working', 6)], []);
+    expect(currentRow(running, 'w2')?.key).toBe('w2');
+    expect(currentRow(running, null)?.key).toBe('w1');
+    expect(currentRow([], 'w1')).toBeNull();
   });
 });

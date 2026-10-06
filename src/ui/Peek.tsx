@@ -63,7 +63,7 @@ async function previewOpen(): Promise<PeekOpen | null> {
   } catch {
     // No storage: the first session that needs you.
   }
-  key = key || attentionRows(board, ALL_PROJECTS).rows[0]?.session.key || null;
+  key = key || attentionRows(board, ALL_PROJECTS).rows.find((r) => r.kind === 'session')?.key || null;
   const home = homeOf(board.lanes, key);
   if (!home) return null;
   const { lane, session } = home;

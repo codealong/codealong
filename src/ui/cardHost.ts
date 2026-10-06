@@ -3,10 +3,11 @@
 // notch shows under its pills (NotchSession.tsx). Each shows one session as a card
 // (SessionCard.tsx) and is told only which, so both go by these: the session as the board has it
 // now, while the card is up (`useLiveSession`), and what a click on something around it does,
-// which is show it in the main window and put the card away (`useCardHost`).
+// which is show it in the main window and put the card away (`useCardHost`). A PR waiting on
+// your review shown as a card (PrCard.tsx, in the notch) is kept up the same way (`useLivePr`).
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import { barNote, getBoard, onBoard, showMain } from '../api';
+import { barNote, getBoard, onBoard, prAt, showMain } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -16,7 +17,7 @@ import { openWhere, where } from '../open';
 import { prRefOf } from '../prLinks';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
-import type { Board, Lane, PrItem, Session, Theme, Todo } from '../types';
+import type { Board, Lane, PrItem, Session, Theme, Todo, Usage } from '../types';
 import { usePrLinks } from './PrLink';
 import type { CardBoard } from './SessionCard';
 
@@ -77,6 +78,64 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   return { lane, session, theme: now?.theme ?? null, board, needBoard };
 }
 
+export interface LivePr {
+  /** The PR as the board has it now, else as the window was told of it; null until told. */
+  pr: PrItem | null;
+  /** The board's worktrees, once a board came, else the ones the PR was told with: where it's
+   *  checked out and where its sessions are listed, and where a review of it can start. */
+  lanes: Lane[];
+  usage: Usage[];
+  apps: Board['apps'] | null;
+  board: CardBoard | null;
+  /** The board no longer lists it. */
+  gone: boolean;
+  needBoard: () => void;
+}
+
+/** The PR `key`, kept up with the board while it's `shown`: asked for as the card shows (`prAt`),
+ *  then taken from the pushes that come while it's up. */
+export function useLivePr(key: string | null, shown: boolean): LivePr {
+  const [told, setTold] = useState<{ key: string; pr: PrItem | null; lanes: Lane[]; apps: Board['apps'] | null } | null>(null);
+  const [now, setNow] = useState<{ board: CardBoard; lanes: Lane[]; usage: Usage[]; apps: Board['apps'] } | null>(null);
+  const take = useCallback((b: Board) => {
+    setNow((prev) => ({ board: reuse<CardBoard>(prev?.board ?? { prs: [], lanes: [], todos: [] }, { prs: b.prs, lanes: b.lanes, todos: b.todos, pinned: b.pinned }), lanes: b.lanes, usage: b.usage, apps: b.apps }));
+  }, []);
+
+  useEffect(() => {
+    if (key === null) return;
+    let over = false;
+    prAt(key).then(
+      (at) => {
+        if (!over) setTold(at ? { key, pr: at.pr, lanes: at.lanes, apps: at.apps } : { key, pr: null, lanes: [], apps: null });
+      },
+      () => {
+        if (!over) setTold({ key, pr: null, lanes: [], apps: null });
+      },
+    );
+    return () => {
+      over = true;
+    };
+  }, [key]);
+
+  const up = shown && key !== null;
+  useEffect(() => {
+    if (!up) return;
+    void getBoard().then(take, () => {});
+    return onBoard((b) => {
+      observe(boardView(b.generatedAt, [b.lanes]));
+      take(b);
+    });
+  }, [up, take]);
+
+  const needBoard = useCallback(() => void getBoard().then(take, () => {}), [take]);
+  const known = told && told.key === key ? told : null;
+  const onBoardNow = key !== null && now ? (now.board.prs.find((p) => p.key === key) ?? null) : null;
+  const pr = onBoardNow ?? known?.pr ?? null;
+  // Gone once the window was told there's no such PR, or a board that came since doesn't list it.
+  const gone = known !== null && known.pr === null ? true : known !== null && now !== null && onBoardNow === null;
+  return { pr, lanes: now?.lanes ?? known?.lanes ?? [], usage: now?.usage ?? [], apps: now?.apps ?? known?.apps ?? null, board: now?.board ?? null, gone, needBoard };
+}
+
 export interface CardHost {
   /** What comes of an open or a menu's action is said on the bar, by the pill of the session
    *  shown, since the card may be gone by then. */
@@ -94,12 +153,13 @@ export interface CardHost {
  *  itself `away` as you go to the main window or to where a session lives. It also answers for
  *  the PR links in the conversation (PrLink.tsx): a PR's card shows its sessions in the main
  *  window, and their menus are their own. */
-export function useCardHost({ sessionKey, live, apps, terminal, away }: { sessionKey: string | null; live: LiveSession; apps: Board['apps'] | undefined; terminal: string; away: () => void }): CardHost {
+export function useCardHost({ sessionKey, anchor, live, apps, terminal, away }: { sessionKey: string | null; /** The pill the bar says things by, where the card isn't a session's (the reviews pill). */ anchor?: string; live: Pick<LiveSession, 'board' | 'needBoard'>; apps: Board['apps'] | undefined; terminal: string; away: () => void }): CardHost {
   const onDesktop = menus.useDesktopPins();
   const icons = useEditorIcons(apps);
+  const by = anchor ?? sessionKey;
   const report: Report = {
-    error: (message) => void (sessionKey && barNote({ key: sessionKey, message, tone: 'error' })),
-    info: (message) => void (sessionKey && barNote({ key: sessionKey, message, tone: 'info' })),
+    error: (message) => void (by && barNote({ key: by, message, tone: 'error' })),
+    info: (message) => void (by && barNote({ key: by, message, tone: 'info' })),
   };
   const showSession = (l: Lane, s: Session) => {
     away();

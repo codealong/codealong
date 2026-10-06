@@ -2,8 +2,11 @@
 // (`codex://review`); every other account gets a session in a worktree of the PR's repo, on a
 // prompt that asks for a review.
 
-import { AUTO, autoPick, initialPlace, type Choice } from './start';
-import type { Lane, PrItem, StartAccount, StartPlace, Usage } from './types';
+import { reviewInCodex, startSession } from './api';
+import type { MenuAction } from './contextMenu';
+import { errorText, type Report } from './report';
+import { AUTO, autoPick, initialPlace, remembered, type Choice } from './start';
+import type { Lane, PrItem, StartAccount, StartPlace, StartSpec, Started, Usage } from './types';
 
 /** One entry of the Review with menu. */
 export type ReviewPick =
@@ -61,4 +64,36 @@ export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: numbe
   const own = accounts.filter((a) => a.places.length > 0).flatMap((a) => entry(a.name, a.name) ?? []);
   const auto = pick && own.length > 1 ? entry(AUTO, `Auto (${pick.account})`) : null;
   return auto ? [auto, ...own] : own;
+}
+
+/**
+ * Review with…'s items, as every window builds them (`reviewPicks` says which): each starts a
+ * review of the PR on an account, in the worktree `reviewLane` picks, on the review prompt, or
+ * opens the PR's review page in the Codex app. How it went is reported the window's way (a start
+ * under way through `report.busy`, where the window shows one), and `started` hears that the
+ * review is under way, where the window goes on to the next thing that waits on you.
+ */
+export function reviewItems(pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, lanes: Lane[], accounts: StartAccount[], usage: Usage[], report: Report, started?: () => void, now = Date.now()): MenuAction[] {
+  const at = reviewLane(pr, lanes);
+  const picks = reviewPicks(accounts, usage, now, !!at, remembered().places);
+  return picks.map((pick) => ({
+    label: pick.label,
+    run: () => {
+      if (pick.kind === 'codex-app' || !at) {
+        reviewInCodex(pr.url).then(
+          () => started?.(),
+          (e: unknown) => report.error(errorText(e)),
+        );
+        return;
+      }
+      const spec: StartSpec = { laneId: at.lane.id, account: pick.account, place: pick.place, prompt: reviewPrompt(pr, at.checkedOut), model: null, effort: null, worktree: false, todos: [] };
+      const work: Promise<Started | null> = startSession(spec);
+      (report.busy ? report.busy(`Starting a review of #${pr.number} on ${pick.account}…`, work) : work)
+        .then((started_) => {
+          if (started_?.message) report.info(started_.message);
+          started?.();
+        })
+        .catch((e: unknown) => report.error(errorText(e)));
+    },
+  }));
 }

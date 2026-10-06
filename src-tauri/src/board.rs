@@ -671,6 +671,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
             if searched.is_some() {
                 item.review_requested = false;
                 item.requested_by = None;
+                item.requested_at = None;
             }
             out.push(item);
         }
@@ -786,6 +787,7 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         mine: login.is_some() && p.author.as_deref() == login,
         review_requested: p.review_requested,
         requested_by: p.requested_by.clone().filter(|_| p.review_requested),
+        requested_at: p.requested_at.filter(|_| p.review_requested),
         snoozed_until: None,
         head: p.head_ref.clone(),
         base: p.base_ref.clone(),
@@ -1604,6 +1606,7 @@ mod tests {
             changed_files: 6,
             review_requested: false,
             requested_by: None,
+            requested_at: None,
         }
     }
 

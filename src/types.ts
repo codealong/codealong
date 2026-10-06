@@ -772,6 +772,8 @@ export interface PrItem {
   reviewRequested: boolean;
   /** Who asked for your review, when GitHub says; often not the author. */
   requestedBy?: string | null;
+  /** When your review was last asked for, when GitHub says: what the review waits on you since. */
+  requestedAt?: number | null;
   /** You snoozed your review until then: it's out of Review requested, the floating bar's
    *  reviews and the mark until the time comes (board.rs, `apply_review_snoozes`). */
   snoozedUntil?: number | null;
@@ -971,7 +973,7 @@ export interface BarFeed {
   /** Sessions you snoozed, out of Needs you and Your turn until their time comes (running ones
    *  stay in Working), the soonest back first. */
   snoozed: BarSnoozed[];
-  /** Open PRs that ask for your review, newest first. */
+  /** Open PRs that ask for your review, the longest wait first, as Needs you is. */
   reviews: BarReview[];
   /** Todos ready to start (not started, and waiting on nothing), in your order. */
   todos: BarTodo[];
@@ -1014,10 +1016,29 @@ export interface BarReview {
   number: number;
   title: string;
   repo: string;
+  /** `owner/name`, for asking GitHub about it. */
+  repoSlug: string;
+  url: string;
   project: string;
   /** Who asked for your review, when GitHub says. */
   requestedBy: string | null;
+  /** Since when it waits on you: the latest request to you, else the PR's last update. The queue
+   *  keeps one you dealt with out until this moves on (queue.ts `Handled`). */
+  since: number;
+  /** The PR's last update: the card showing it reads it again when this moves. */
+  updatedAt: number;
 }
+
+/** A PR the board lists, with the worktrees that hold it and the ones its sessions are listed
+ *  under, for a window without the board (the notch) to show its card (PrCard.tsx). */
+export interface PrAt {
+  pr: PrItem;
+  lanes: Lane[];
+  apps: Board['apps'];
+}
+
+/** What a review of a PR says (github.rs `Verdict`). */
+export type Verdict = 'approve' | 'comment' | 'request-changes';
 
 export interface BarTodo {
   id: string;

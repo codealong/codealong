@@ -43,6 +43,8 @@
           picked.push(s.key);
         });
       });
+      // No PR waits on your review either: the queue is these four sessions alone.
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
       boardNow = board;
       return board;
     });
