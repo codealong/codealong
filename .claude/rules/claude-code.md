@@ -295,9 +295,16 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   reach the transcript only with the answer, while the terminal already shows them (seen
   2026-10-06; a Bash call's prompt didn't hold its line back). So Codealong can't show what the
   agent wrote with a question that waits: the hook's input and the registry have only the call.
-  The one live copy outside Claude Code is a `MessageDisplay` hook, which gets each batch of
-  finished lines as a message streams (up to ten a second, `delta`, `final`), runs
-  synchronously, and paces the display of every message in every session that has it.
+  The one live copy outside Claude Code is a `MessageDisplay` hook, which gets a message's
+  reply text in batches of finished lines as it streams (at most ten a second), with
+  `session_id`, `transcript_path`, `prompt_id`, `turn_id`, `message_id` (Claude Code's own, not
+  the line's `uuid`), `index`, `final` and `delta`. Hooks are read once when a session starts,
+  and a hook's `if` filters only tool calls, so one can't be turned on for a single running
+  session. Any such hook changes the terminal for every session that has it: Claude Code shows
+  the reply from the hook's batches, so a Markdown paragraph, one line, shows whole once it's
+  finished (checked 2026-10-06 in tmux with an `http` hook from a `--plugin-dir` plugin
+  answering at once: three paragraphs came 1.8 s apart, where without the hook the reply grew a
+  screen line every 0.3 s).
 - An image that came with a prompt is an `image` part (`source: {type: "base64", media_type,
   data}`; PNG, JPEG and WebP seen) in the prompt's own `message.content`, numbered by
   `imagePasteIds` and named `[Image #N]` in the text when pasted into the terminal:
