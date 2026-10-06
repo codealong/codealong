@@ -3,20 +3,7 @@
 // sessions wait on you, and the panel opens on the longest wait, answering it with the rest to
 // go through; ⌘] goes on to the next. With nothing waiting it opens on its list.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/waiting-open-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.quick.project', 'All projects');
   var now = Date.now();
   var plan = [
@@ -50,6 +37,8 @@
           s.title = 'Queue ' + 'CAB'[n];
         });
       });
+      // No PR waits on your review either: the three sessions are all that waits.
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
       return board;
     });
   };
@@ -85,6 +74,6 @@
     .then(function () {
       check('with nothing waiting it opens on its list', !title() && !!document.querySelector('.ca-quick-input textarea'), title());
     })
-    .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done)
+    .catch(function (e) { stopped(e.message + ' at ' + title()); });
 })();

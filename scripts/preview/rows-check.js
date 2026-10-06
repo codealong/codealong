@@ -262,7 +262,9 @@
   }).then(function () {
     // 5. A hidden window holds a push and shows it when it's seen again.
     hidden = true;
-    push(function (b) { laneIn(b, pick.lane).callsign = 'Seen when shown'; });
+    // A main worktree's chip says its repo's name rather than its callsign (primitives.tsx
+    // WorktreeChip), so both change.
+    push(function (b) { var l = laneIn(b, pick.lane); l.callsign = 'Seen when shown'; l.repo = 'Seen when shown'; });
     // The worktree's name shows beside its agents' lines in Worktrees and in a chip on the row in
     // Sessions: either way inside the row's `.ca-lane`.
     var shows = function () { var el = row(); var lane = el && el.closest('.ca-lane'); return !!lane && lane.textContent.indexOf('Seen when shown') >= 0; };

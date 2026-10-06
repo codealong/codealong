@@ -64,6 +64,8 @@
           else picked = { key: s.key, lane: l.id };
         });
       });
+      // No PR waits on your review either: a review would come before A in the quick panel's list.
+      (board.prs || []).forEach(function (pr) { pr.reviewRequested = false; });
       return board;
     });
   };

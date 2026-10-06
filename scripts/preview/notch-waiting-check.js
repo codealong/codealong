@@ -3,20 +3,8 @@
 // with the keyboard, as a click on the notch does; pressed again, it puts it away and gives the
 // keyboard back; and with nothing on the bar to show, the quick panel opens on what waits.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-waiting-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms, what) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout: ' + what)); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL' + (why ? ' (' + why + ')' : ''))); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }).map(function (c) { return c[1]; }); };
+  var calls = sent;
   var notch = function () { return document.querySelector('.ca-notch'); };
   var is = function (state) { return notch() && notch().classList.contains('is-' + state); };
   var title = function () { var t = document.querySelector('.ca-notch-session .ca-sessinsp-title, .ca-notch-session .ca-sessinsp-head h2'); return t ? t.textContent.trim() : ''; };
@@ -69,6 +57,6 @@
       var asked = calls('show_quick');
       check('with nothing on the bar the quick panel opens on what waits', asked.length === 1 && asked[0].context.waiting === true, JSON.stringify(asked));
     })
-    .catch(function (e) { check('ran', false, String(e)); })
-    .then(function () { say('done: ' + out.join(' · ')); });
+    .then(done)
+    .catch(function (e) { stopped(e.message + ' (' + (notch() ? notch().className : 'no notch') + ')'); });
 })();

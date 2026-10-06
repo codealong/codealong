@@ -19,7 +19,8 @@
   var has = function (list, text) { return list.some(function (t) { return t === text || t.indexOf(text + '=') === 0; }); };
   // Mark as seen is there for a session with a turn to see, which the header's check says.
   var whole = function (list, seenable) {
-    return has(list, 'Show in Codealong') && has(list, 'Pin to desktop') && has(list, 'Snooze') && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
+    // Snooze reads as Snoozed until … on a session that's snoozed now, as the real board may have.
+    return has(list, 'Show in Codealong') && has(list, 'Pin to desktop') && list.some(function (t) { return /^Snooze(d until .*)?$/.test(t); }) && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
   };
   var seenable = false;
 
