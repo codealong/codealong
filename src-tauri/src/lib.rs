@@ -1458,7 +1458,7 @@ pub fn run() {
             let publishes = peers.clone();
             let emitter = app.handle().clone();
             let (mover, moves_with) = (std::sync::Mutex::new(limits::Mover::default()), engine_slot.clone());
-            let (nudger, nudges_with) = (std::sync::Mutex::new(nudges::Nudger::default()), engine_slot.clone());
+            let (nudger, nudges_with) = (std::sync::Arc::new(std::sync::Mutex::new(nudges::Nudger::default())), engine_slot.clone());
             let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
@@ -1499,13 +1499,14 @@ pub fn run() {
                         std::thread::spawn(move || limits::move_now(&engine, &key, &to));
                     }
                 }
-                // The same for PRs of yours just approved: one thread for the batch, since two
-                // sends typing into one terminal at once would interleave.
-                if let (Some(engine), Ok(mut nudger)) = (nudges_with.get(), nudger.lock()) {
-                    let due = nudger.due(board);
+                // The same for news on PRs with their nudge on: one thread for the batch, since two
+                // sends typing into one terminal at once would interleave, and it says how each
+                // went, so what wasn't told is tried again.
+                if let Some(engine) = nudges_with.get() {
+                    let due = nudger.lock().map(|mut n| n.due(board, board.generated_at)).unwrap_or_default();
                     if !due.is_empty() {
-                        let engine = engine.clone();
-                        std::thread::spawn(move || nudges::send_now(&engine, due));
+                        let (engine, nudger) = (engine.clone(), nudger.clone());
+                        std::thread::spawn(move || nudges::send_now(&engine, &nudger, due));
                     }
                 }
 
