@@ -483,8 +483,13 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     let key = key_of(harness, &a.name, &id);
     let cwd_s = cwd.to_string_lossy().into_owned();
     remember(Remembered { harness, account: a.name.clone(), id: id.clone(), cwd: cwd_s.clone() });
-    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, options, ..Default::default() });
-    if !prompt.trim().is_empty() {
+    let mut hosted = Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, options, ..Default::default() };
+    let prompted = !prompt.trim().is_empty();
+    if prompted {
+        begin(&mut hosted);
+    }
+    state().sessions.insert(key.clone(), hosted);
+    if prompted {
         run_turn(ag, key.clone(), prompt.to_string());
     }
     notify(Change::Board);
@@ -501,7 +506,14 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
     let ag = agent(a)?;
     let key = key_of(harness, &a.name, id);
     let cwd_s = cwd.to_string_lossy().into_owned();
-    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id: id.to_string(), cwd: cwd_s.clone(), loaded: false, ..Default::default() });
+    let mut hosted = Hosted { account: a.name.clone(), id: id.to_string(), cwd: cwd_s.clone(), loaded: false, ..Default::default() };
+    let was = (hosted.since, hosted.error.clone());
+    // Its turn begins as it's taken on, so a send meanwhile goes after it.
+    let prompted = !prompt.trim().is_empty();
+    if prompted {
+        begin(&mut hosted);
+    }
+    state().sessions.insert(key.clone(), hosted);
     let loaded = match load(&ag, &key, id, &cwd_s) {
         Ok(r) => r,
         Err(e) => {
@@ -510,9 +522,17 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
         }
     };
     remember(Remembered { harness, account: a.name.clone(), id: id.to_string(), cwd: cwd_s });
-    let options = tune(&ag, id, &loaded, model, effort)?;
+    let options = match tune(&ag, id, &loaded, model, effort) {
+        Ok(o) => o,
+        Err(e) => {
+            if prompted {
+                abandon(&key, was, &e);
+            }
+            return Err(e);
+        }
+    };
     set(&key, |h| h.options = options);
-    if !prompt.trim().is_empty() {
+    if prompted {
         run_turn(ag, key.clone(), prompt.to_string());
     }
     notify(Change::Board);
@@ -605,31 +625,34 @@ pub fn hosts(key: &str) -> bool {
 /// Sends a prompt to a session Codealong runs. Says what happened, in a sentence.
 pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
     in_app()?;
-    let (id, cwd, loaded) = {
-        let st = state();
-        let h = st.sessions.get(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
-        (h.id.clone(), h.cwd.clone(), h.loaded && st.agents.contains_key(&a.name))
-    };
-    let ag = agent(a)?;
-    if !loaded {
-        load(&ag, key, &id, &cwd)?;
-    }
-    let queued = {
-        let mut st = state();
-        let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("That session is gone."))?;
+    // Whether a turn is running or this one begins is decided under one lock, before the session
+    // is picked up in the process: two sends at once start one turn, the other queued behind it.
+    let begun = {
+        let mut guard = state();
+        let st = &mut *guard;
+        let alive = st.agents.contains_key(&a.name);
+        let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
         if h.running {
             h.queue.push(text.to_string());
-            true
+            None
         } else {
-            false
+            let was = (h.since, h.error.clone());
+            begin(h);
+            Some((h.id.clone(), h.cwd.clone(), h.loaded && alive, was))
         }
     };
-    if queued {
-        notify(Change::Board);
-        return Ok("Queued: it goes after the current turn.".into());
-    }
-    run_turn(ag, key.to_string(), text.to_string());
     notify(Change::Board);
+    let Some((id, cwd, loaded, was)) = begun else {
+        return Ok("Queued: it goes after the current turn.".into());
+    };
+    let ag = match agent(a).and_then(|ag| if loaded { Ok(ag) } else { load(&ag, key, &id, &cwd).map(|_| ag) }) {
+        Ok(ag) => ag,
+        Err(e) => {
+            abandon(key, was, &e);
+            return Err(e);
+        }
+    };
+    run_turn(ag, key.to_string(), text.to_string());
     Ok("Sent.".into())
 }
 
@@ -661,15 +684,34 @@ fn set(key: &str, f: impl FnOnce(&mut Hosted)) {
     }
 }
 
-/// Runs a turn on a thread of its own, then the next queued prompt, until the queue is empty.
-fn run_turn(ag: Arc<Agent>, key: String, text: String) {
-    set(&key, |h| {
-        h.running = true;
-        h.since = now_ms();
-        h.error = None;
-        h.text.clear();
-        h.tool = None;
+/// Marks the session's turn begun, for whoever runs it (`run_turn`): a send from then on queues
+/// behind it, while the session is still being picked up in the process too.
+fn begin(h: &mut Hosted) {
+    h.running = true;
+    h.since = now_ms();
+    h.error = None;
+    h.text.clear();
+    h.tool = None;
+}
+
+/// A turn `begin` marked that never ran, because the session couldn't be picked up: the session
+/// is as it was (`was`: when its last turn ended, and how), and what was sent meanwhile goes too,
+/// which its error says.
+fn abandon(key: &str, was: (i64, Option<String>), e: &anyhow::Error) {
+    set(key, |h| {
+        h.running = false;
+        (h.since, h.error) = was;
+        if !h.queue.is_empty() {
+            h.queue.clear();
+            h.error = Some(format!("{e:#} What was sent while it was being picked up wasn't sent either."));
+        }
     });
+    notify(Change::Board);
+}
+
+/// Runs a turn `begin` marked on a thread of its own, then the next queued prompt, until the
+/// queue is empty.
+fn run_turn(ag: Arc<Agent>, key: String, text: String) {
     std::thread::spawn(move || {
         let mut text = text;
         loop {
@@ -1145,6 +1187,50 @@ mod tests {
         let h = state().sessions.remove(&key).unwrap();
         assert_eq!((h.loaded, h.running, h.queue.len(), h.permission.is_none(), h.error.as_deref()), (false, false, 0, true, Some("Its agent stopped.")));
         assert!(!state().agents.contains_key(account));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two sends at once to a session Codealong runs start one turn and queue the other, while
+    /// the session is still being picked up in the process too: it's resumed once, then given
+    /// the prompts one after the other.
+    #[test]
+    fn two_sends_at_once_start_one_turn() {
+        init(|_| {});
+        let dir = store::test_dir("acp-two-sends");
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\),.*/\1/p'); case "$line" in"#,
+            // Picking a session up takes a while, as it does a long conversation.
+            r#"*'"method":"session/resume"'*) sleep 1; echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{}}";;"#,
+            r#"*'"method":"session/prompt"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"stopReason\":\"end_turn\"}}";; esac; done"#,
+        ]
+        .join(" ");
+        let account = "test-adapter-two-sends";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "resume": {} } });
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "claude", "home": "/h" })).unwrap();
+        let first = {
+            let (a, key) = (a.clone(), key.clone());
+            std::thread::spawn(move || send(&a, &key, "First"))
+        };
+        wait_until("the session to be picked up", 10, || heard(&dir).iter().any(|l| l.contains(r#""method":"session/resume""#)));
+        let asked = std::time::Instant::now();
+        assert_eq!(send(&a, &key, "Second").unwrap(), "Queued: it goes after the current turn.");
+        assert!(asked.elapsed() < Duration::from_millis(800), "the second send waited on the first's picking up");
+        assert_eq!(first.join().unwrap().unwrap(), "Sent.");
+        wait_until("both turns to end", 10, || !state().sessions[&key].running);
+        let said: Vec<String> = heard(&dir)
+            .iter()
+            .map(|l| {
+                let v: Value = serde_json::from_str(l).unwrap();
+                format!("{} {}", v["method"].as_str().unwrap_or(""), v.pointer("/params/prompt/0/text").and_then(Value::as_str).unwrap_or("")).trim().to_string()
+            })
+            .collect();
+        assert_eq!(said, ["session/resume", "session/prompt First", "session/prompt Second"]);
+        assert_eq!(state().sessions[&key].error, None);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
