@@ -341,6 +341,11 @@ pub struct Pending {
     /// and Deny, and an Allow is refused.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub questions: Vec<Question>,
+    /// What the session wrote with this request isn't in its conversation yet, only where it
+    /// runs: its harness writes it once the request is answered (Claude Code, for the message a
+    /// question comes in). The panel says where to read it meanwhile.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unwritten: bool,
 }
 
 /// A question an agent asks you, with choices to pick from.

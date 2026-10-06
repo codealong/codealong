@@ -308,7 +308,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   the reply from the hook's batches, so a Markdown paragraph, one line, shows whole once it's
   finished (checked 2026-10-06 in tmux with an `http` hook from a `--plugin-dir` plugin
   answering at once: three paragraphs came 1.8 s apart, where without the hook the reply grew a
-  screen line every 0.3 s).
+  screen line every 0.3 s). So Codealong has no such hook, and the panel only says where to read
+  what's missing (`Pending.unwritten`, set by `asks::written_in`); the comment in `pending`
+  (`claude/mod.rs`) says when to look at the hook again (decided 2026-10-06).
 - An image that came with a prompt is an `image` part (`source: {type: "base64", media_type,
   data}`; PNG, JPEG and WebP seen) in the prompt's own `message.content`, numbered by
   `imagePasteIds` and named `[Image #N]` in the text when pasted into the terminal:

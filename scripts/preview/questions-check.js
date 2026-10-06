@@ -1,7 +1,8 @@
 // Checks the panel answering questions a session asks (Claude Code's AskUserQuestion, held
 // through the plugin's hook): each question shows its choices and a box for your own answer,
 // Answer waits for a pick, a question that takes one keeps one, words typed replace its pick,
-// and Answer sends the picks, keyed by question.
+// and Answer sends the picks, keyed by question. What the session wrote with them isn't in its
+// record yet (Claude Code writes it once they're answered), and the box says where it is.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-check.js
 // As PREVIEW_INIT (with PREVIEW_NAME=questions) it leaves the panel open, with picks, for a
 // screenshot.
@@ -17,6 +18,7 @@
       { question: 'Which color do you prefer?', header: 'Color', options: [{ label: 'Red', description: 'The color red' }, { label: 'Blue' }] },
       { question: 'Which days suit you?', options: [{ label: 'Mon' }, { label: 'Tue' }, { label: 'Wed' }], multiSelect: true },
     ],
+    unwritten: true,
   };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
@@ -66,6 +68,10 @@
     })
     .then(function () {
       check('two questions', box().querySelectorAll('.ca-question').length === 2);
+      var said = box().querySelector('.ca-approval-unwritten');
+      var link = box().querySelector('.ca-approval-head .ca-linkbtn');
+      var where = link ? link.textContent.replace(/^Open in /, '').trim() : '';
+      check('says where what it wrote is', !!said && /wrote with this question shows in the conversation once it’s answered; /.test(said.textContent) && !!where && said.textContent.indexOf(where + ' has it now.') > 0, said ? said.textContent : 'no line');
       check('waits for a pick', button('Answer').disabled);
       button('Red').click();
       return tick();

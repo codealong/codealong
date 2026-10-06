@@ -948,7 +948,7 @@ impl crate::harness::Adapter for Antigravity {
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
         let c = tail(&self.record(ctx, s).ok()?, None).open.into_iter().next()?;
         let cannot = format!("Antigravity asks in {}; answer it there.", if s.surface == Surface::Cli { "its terminal" } else { "its own window" });
-        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.label, input: Some(c.input), cannot: Some(cannot), always: false, plan: false, always_rule: None, questions: Vec::new() })
+        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.label, input: Some(c.input), cannot: Some(cannot), always: false, plan: false, always_rule: None, questions: Vec::new(), unwritten: false })
     }
 
     fn open_calls(&self, ctx: &Ctx, s: &Session) -> Vec<String> {

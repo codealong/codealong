@@ -1224,6 +1224,8 @@ export interface Pending {
   alwaysRule?: string;
   /** Questions it asks you: answered with your picks rather than allowed. */
   questions?: Question[];
+  /** What it wrote with this isn't in its conversation until it's answered, only where it runs. */
+  unwritten?: boolean;
 }
 
 /** A question an agent asks you, with choices to pick from. */

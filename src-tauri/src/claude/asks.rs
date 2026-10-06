@@ -31,7 +31,7 @@ use super::conversation::{claude_input, questions_of};
 use super::registry::{registry_of, INPUT_NEEDED, PERMISSION_PROMPT};
 use super::transcript::tool_request;
 use crate::model::{Harness, Session, Status};
-use crate::transcript::clip_input;
+use crate::transcript::{clip_input, Item};
 use crate::util::{code, one_line, read_last};
 
 /// A request as the hook gives it, less what Codealong doesn't use.
@@ -376,7 +376,20 @@ pub(super) fn asked_pending(a: &Asked) -> crate::harness::Pending {
         plan: false,
         always_rule: always_text(&a.suggestions),
         questions,
+        unwritten: false,
     }
+}
+
+/// Whether a held request's call is in its session's conversation yet, among `items` read from
+/// the end of its record. Claude Code holds back the message a question comes in until it's
+/// answered, and with it whatever the agent wrote before the call. A subagent's call goes in its
+/// own record, and nothing of the session's own is held for it.
+pub fn written_in(items: &[Item], a: &Asked) -> bool {
+    if a.agent.is_some() {
+        return true;
+    }
+    let call = tool_request(&a.tool, &a.input);
+    crate::transcript::open_tools(items).iter().any(|i| i.text == call)
 }
 
 /// A held request as a line: the call, or what it asks you.
@@ -510,6 +523,27 @@ mod tests {
         let out: Value = serde_json::from_str(&hook_output(&json!({ "behavior": "allow" })).unwrap()).unwrap();
         assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PermissionRequest");
         assert_eq!(hook_output(&Value::Null), None);
+    }
+
+    #[test]
+    fn a_held_question_is_unwritten_until_its_call_is_in_the_record() {
+        let mut q = hook("AskUserQuestion");
+        q["tool_input"] = json!({ "questions": [{ "question": "Which color?", "options": [{ "label": "Red" }, { "label": "Blue" }] }] });
+        let (a, _) = parse(&q, 0).unwrap();
+        let items = |lines: &[Value]| lines.iter().flat_map(|v| super::super::conversation::conversation_items(v, 0)).collect::<Vec<_>>();
+        let said = json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "Here's what those files are." }] } });
+        let call = |id: &str, input: &Value| json!({ "type": "assistant", "message": { "content": [{ "type": "tool_use", "id": id, "name": QUESTIONS, "input": input }] } });
+        let result = |id: &str| json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": id, "content": "Answered" }] } });
+        let earlier = call("t0", &json!({ "questions": [{ "question": "Which size?", "options": [{ "label": "S" }] }] }));
+        // Claude Code writes the message a question comes in once it's answered: until then the
+        // record ends before it, here at an earlier question's answer.
+        assert!(!written_in(&items(&[earlier.clone(), result("t0")]), &a));
+        assert!(written_in(&items(&[earlier.clone(), result("t0"), said, call("t1", &q["tool_input"])]), &a));
+        // The same question asked before and answered isn't this one.
+        assert!(!written_in(&items(&[call("t1", &q["tool_input"]), result("t1")]), &a));
+        // A subagent's call goes in its own record, and nothing of the session's is held for it.
+        q["agent_id"] = json!("a1b2");
+        assert!(written_in(&[], &parse(&q, 0).unwrap().0));
     }
 
     #[test]

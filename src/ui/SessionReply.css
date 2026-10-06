@@ -152,6 +152,11 @@
   margin-left: auto;
   font-weight: 400;
 }
+.ca-approval-unwritten {
+  margin: 0;
+  color: var(--ink-3);
+  font: 400 11px/14px var(--font-sans);
+}
 .ca-approval-label {
   color: var(--ink);
   font: var(--type-body-strong);

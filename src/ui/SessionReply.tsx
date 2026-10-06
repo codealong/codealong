@@ -788,9 +788,13 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     );
   }
   if (pending.questions?.length) {
+    // What it wrote with them, when its record doesn't have that yet: the conversation above
+    // stops short of it, and where it runs already shows it.
+    const unwritten = pending.unwritten ? `What ${s.account} wrote with this question shows in the conversation once it’s answered${s.hosted ? '' : `; ${where} has it now`}.` : null;
     return (
       <Questions
         questions={pending.questions}
+        unwritten={unwritten}
         where={s.hosted ? null : where}
         onOpen={onOpen}
         keys={keys}
@@ -836,6 +840,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
 
 interface QuestionsProps {
   questions: Question[];
+  /** That what it wrote with them isn't in the conversation yet, and where it is, in a sentence. */
+  unwritten: string | null;
   /** Where the session runs, for its Open link; none for one Codealong runs. */
   where: string | null;
   onOpen: () => void;
@@ -851,7 +857,7 @@ interface QuestionsProps {
 
 /** Questions a session asks you (Claude Code's AskUserQuestion): pick a choice, several where a
  *  question takes more, or type your own answer; your picks go back as its answer. */
-function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDecline }: QuestionsProps) {
+function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAnswer, onDecline }: QuestionsProps) {
   const [picks, setPicks] = useState<Record<string, string[]>>({});
   const [own, setOwn] = useState<Record<string, string>>({});
   const answers: Answers = {};
@@ -904,6 +910,7 @@ function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDec
           </button>
         )}
       </div>
+      {unwritten && <p className="ca-approval-unwritten">{unwritten}</p>}
       {questions.map((q) => (
         <div key={q.question} className="ca-question">
           <div className="ca-approval-label">
