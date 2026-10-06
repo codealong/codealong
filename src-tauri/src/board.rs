@@ -26,6 +26,10 @@ const ANTIGRAVITY_STALE_MS: i64 = 30 * 60 * 1000;
 /// nothing new in its transcript is stuck, not working: typically a command waiting on input
 /// no one will give it, like a browser sign-in inside a background job.
 pub const CLAUDE_STALL_MS: i64 = 30 * 60 * 1000;
+/// How long a Claude session whose process has ended stays Your turn for a turn you haven't
+/// seen: long enough to come back to after a restart or a weekend away, short enough that tabs
+/// you read in the terminal and closed don't pile up (asked 2026-10-06).
+const CLAUDE_UNSEEN_STOPPED_MS: i64 = 3 * DAY_MS;
 
 /// When a busy Claude session last showed signs of life in its transcript or status; None when
 /// it isn't busy.
@@ -217,6 +221,9 @@ pub fn claude_session(
     let background = reg.is_some_and(|r| r.status == "shell");
     let left_running = background && quiet.background_active_at.is_some_and(|t| now - t >= BACKGROUND_QUIET_MS);
     let status = match reg {
+        // Its process ended, closed or with the Mac restarting, but a turn you haven't seen is
+        // still yours to read for a while.
+        None if tr.is_some_and(|t| t.last_ts > seen_at && now - t.last_ts < CLAUDE_UNSEEN_STOPPED_MS) => Status::Unread,
         None => Status::Stopped,
         Some(_) if stalled_since.is_some() => Status::Needs,
         Some(r) => match r.status.as_str() {
@@ -2116,12 +2123,33 @@ mod tests {
         assert_eq!(s("waiting", NOW, 0), Status::Needs);
         assert_eq!(s("idle", NOW - 10, NOW - 100), Status::Unread);
         assert_eq!(s("idle", NOW - 100, NOW - 10), Status::Idle);
-        let stopped = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let stopped = claude_session(&a, None, Some(&tr()), NOW - 10, NOW, &Quiet::default()).unwrap();
         assert_eq!(stopped.status, Status::Stopped);
         assert!(!stopped.live);
         assert_eq!(stopped.resume_command.as_deref(), Some("claude2 --resume abc1234567"));
         assert_eq!(stopped.open_target, "s|claude:claude2:abc1234567|resume");
         assert_eq!(stopped.title, "Portal daily log + photo sync");
+    }
+
+    #[test]
+    fn a_turn_you_havent_seen_outlives_its_process() {
+        // The Mac restarted, or its terminal was closed, after a turn you hadn't seen yet.
+        let a = acct("claude2");
+        let unseen = claude_session(&a, None, Some(&tr()), NOW - 120_000, NOW, &Quiet::default()).unwrap();
+        assert_eq!((unseen.status, unseen.live, unseen.excerpt.as_deref()), (Status::Unread, false, Some("Done.")));
+        assert_eq!(unseen.open_target, "s|claude:claude2:abc1234567|resume");
+        // A reply that asks you something still needs you, and a turn its limit refused is still one.
+        let mut asks = unseen.clone();
+        apply_insight(&mut asks, &insight(|i| i.asks_you = Some(0.9)));
+        assert_eq!(asks.status, Status::Needs);
+        let limited = TranscriptInfo { limit: Some(crate::model::SessionLimit { at: NOW - 60_000, ..Default::default() }), ..tr() };
+        assert_eq!(claude_session(&a, None, Some(&limited), NOW - 120_000, NOW, &Quiet::default()).unwrap().status, Status::Error);
+        // Seen, it's stopped, and so is one you left unseen for three days.
+        assert_eq!(claude_session(&a, None, Some(&tr()), NOW - 60_000, NOW, &Quiet::default()).unwrap().status, Status::Stopped);
+        let old = TranscriptInfo { last_ts: NOW - 3 * DAY_MS, ..tr() };
+        assert_eq!(claude_session(&a, None, Some(&old), 0, NOW, &Quiet::default()).unwrap().status, Status::Stopped);
+        let recent = TranscriptInfo { last_ts: NOW - 3 * DAY_MS + 60_000, ..tr() };
+        assert_eq!(claude_session(&a, None, Some(&recent), 0, NOW, &Quiet::default()).unwrap().status, Status::Unread);
     }
 
     #[test]

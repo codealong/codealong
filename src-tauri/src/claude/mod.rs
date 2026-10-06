@@ -1271,8 +1271,11 @@ mod tests {
         std::fs::write(&transcript, r#"{"type":"user","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:00:00.000Z","message":{"role":"user","content":"Fix the build"}}
 {"type":"assistant","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:01:00.000Z","message":{"content":[{"type":"text","text":"Fixed it."}]}}
 "#).unwrap();
-        let seen = crate::state::SeenState::default();
-        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap(), ps: Default::default() };
+        // You'd seen the conversation's last turn before moving it.
+        let now = parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap();
+        let mut seen = crate::state::SeenState::default();
+        seen.mark("claude:claude:s1", now - 60_000);
+        let look = Look { seen: &seen, since: 0, now, ps: Default::default() };
         let mut reader = Reader::default();
         reader.apply(&from, std::slice::from_ref(&transcript), &look);
         let noted = |key: &str, from: &str, how| (key.to_string(), Entry { from: from.into(), how, at: 0 });
