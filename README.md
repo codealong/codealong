@@ -21,7 +21,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   all. ⌃Tab and ⌃⇧Tab go through the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a
   list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder what's pinned. ⌃- goes back to the session you
   were looking at before and ⌃⇧- forward again, as in VS Code, from any view or text field; the
-  two arrows beside the sidebar's toggle do the same and say where they go. A session counts
+  two arrows beside the sidebar's toggle do the same and say where they go. ⌃` opens a new
+  terminal in the folder of what's shown, as VS Code opens its terminal, from any view or text
+  field and in every window that shows a session: the session's own folder, else the selected
+  worktree's, or the worktree of the todo or PR selected. A session counts
   once its conversation has shown for a second, so the ones passed over on the way down a list
   aren't stops, and each window keeps its own history across launches. A session's or worktree's
   actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work

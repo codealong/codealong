@@ -4,8 +4,8 @@
 // of them done once: what the header says around the session (its PRs, its todos, the sessions it
 // came from and that came of it), the session's menu on ⋯ and on a right-click, the menus of the
 // PRs and sessions the header names, and the Sessions list's shortcuts for the session shown:
-// ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it and ⌃⌘P pins it in Sessions, each shown
-// beside its item in the menu.
+// ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it, ⌃⌘P pins it in Sessions and ⌃` opens a
+// terminal in its folder, each shown beside its item in the menu.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the session has left (the peek goes away, the waiting window goes

@@ -75,6 +75,10 @@ describe('the queue’s keys', () => {
     expect(new Set(all).size).toBe(all.length);
     expect(chordPressed('Cmd+E', key({ key: 'e', metaKey: true }))).toBe(true);
     expect(chordPressed('Cmd+E', key({ key: 'e', metaKey: true, altKey: true }))).toBe(false);
+    // ` by what it types, or where it is where it's a dead key.
+    expect(chordPressed('Ctrl+`', key({ key: '`', code: 'Backquote', ctrlKey: true }))).toBe(true);
+    expect(chordPressed('Ctrl+`', key({ key: 'Dead', code: 'Backquote', ctrlKey: true }))).toBe(true);
+    expect(chordPressed('Ctrl+`', key({ key: '`', code: 'Backquote', ctrlKey: true, shiftKey: true }))).toBe(false);
   });
 });
 

@@ -84,6 +84,8 @@ describe('editors', () => {
     // And in your terminal first, which says the folder: the session's own, inside its worktree.
     const withTerminal = folderTargets(apps, {}, { name: 'Ghostty', key: 'claude:c:1', folder: '~/app/src-tauri' });
     expect(withTerminal.map((x) => x.id)).toEqual(['s|claude:c:1|terminal', 'l|editor|cursor', 'l|editor|vscode', 'l|editor|zed']);
-    expect(withTerminal[0]).toMatchObject({ label: 'Open folder in Ghostty', detail: '~/app/src-tauri', icon: 'terminal', group: 'lane' });
+    expect(withTerminal[0]).toMatchObject({ label: 'Open folder in Ghostty', detail: '~/app/src-tauri', icon: 'terminal', group: 'lane', kbd: null });
+    // With its key where the window has one.
+    expect(folderTargets(apps, {}, { name: 'Ghostty', key: 'claude:c:1', folder: '~/app', kbd: ['⌃', '`'] })[0].kbd).toEqual(['⌃', '`']);
   });
 });

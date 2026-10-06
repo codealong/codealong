@@ -3,6 +3,7 @@
 
 .ca-kbds { display: inline-flex; gap: 2px; flex: none; }
 .ca-kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-3); font: 500 11px/1 var(--font-sans); }
+.ca-kbd.is-mark { font: 700 15px/1 var(--font-mono); }
 
 .ca-btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: var(--type-body-strong); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) ease-out, color var(--dur-fast) ease-out; }
 .ca-btn:hover { background: var(--surface-hover); }

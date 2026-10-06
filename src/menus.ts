@@ -12,7 +12,7 @@ import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
-import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from './editors';
+import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
@@ -154,6 +154,8 @@ export interface SessionActions {
   /** A session on this Mac that isn't running: each place its account's sessions go on in, on
    *  the account's own model (its box picks another). */
   resume?: MenuGroup;
+  /** A new terminal in its folder, on this Mac (⌃`): the menu has it as the first of `folder`. */
+  terminal?: MenuAction;
   folder?: MenuAction | MenuGroup;
   pr?: MenuAction;
   chrome?: MenuAction;
@@ -235,7 +237,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
     resume: resumeTo.length > 1 ? { label: 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
-    folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key })) : undefined,
+    terminal: opensInEditor(lane) ? { label: `Open folder in ${can.terminal}`, run: () => can.open(lane, terminalTarget(s.key)) } : undefined,
+    folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key, accelerator: can.keys ? CHORDS.terminal : undefined })) : undefined,
     pr: prItem(lane, report),
     // Its tab in Chrome, in whichever profile's window has it; Chrome here, so not for a session
     // on another device.
@@ -355,6 +358,8 @@ export interface LaneCan {
 /** A worktree's actions by name, as `SessionActions` are a session's. */
 export interface LaneActions {
   open?: MenuAction;
+  /** A new terminal in it, on this Mac (⌃`). */
+  terminal?: MenuAction;
   editor?: MenuAction;
   openIn?: MenuGroup;
   finder?: MenuAction;
@@ -381,8 +386,11 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
   // The default open first, whatever it is; the others where they aren't it.
   const other = (id: string) => (id === lane.defaultTarget ? undefined : target(id));
   const main = lane.defaultTarget;
+  // A new terminal here, after the default open, or as it where it's the default (no sessions).
+  const terminal = lane.device ? undefined : target('l|terminal');
   return {
-    open: main ? { label: lane.targets.find((t) => t.id === main)?.label ?? 'Open', run: () => can.open(lane, main) } : undefined,
+    open: main && !(terminal && main === 'l|terminal') ? { label: lane.targets.find((t) => t.id === main)?.label ?? 'Open', run: () => can.open(lane, main) } : undefined,
+    terminal,
     // Open in <yours>, then the other editors installed here.
     editor: other('l|editor'),
     openIn: can.editors && opensInEditor(lane) ? (item(openInMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id))) as MenuGroup | undefined) : undefined,
@@ -405,7 +413,7 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
 /** The order of a worktree's menu: opening it, its PR, showing it and starting in it; the
  *  window's todos; whether it's reused; pins; copying its path, branch and links. */
 const LANE_MENU = [
-  ['open', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview'],
+  ['open', 'terminal', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview'],
   ['todos'],
   ['reuse'],
   ['pin', 'desktop'],
@@ -417,13 +425,17 @@ export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
   return laidOut(LANE_MENU, laneActions(lane, can), { todos: can.todos ?? [], canvas: can.canvas ?? [] }, can.keys);
 }
 
-/** The main window's keys for actions, shown beside them in its menus. */
-export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R' };
+/** ⌃` opens a new terminal in the folder of what a window shows, as it opens VS Code's terminal:
+ *  the same chord in every view, from a text field too. */
+const TERMINAL_CHORD = 'Ctrl+`';
+/** The main window's keys for actions, shown beside them in its menus: a letter, or the terminal's
+ *  chord, which is the same everywhere. */
+export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R', terminal: TERMINAL_CHORD };
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
  *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
  *  the queue's key, queue.ts), ⌃⌘ and the letter runs the rest. Closing a session's terminal has
  *  a chord and no letter of its own: it's not one to press by mistake. */
-export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W' };
+export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
 // Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘4 (snooze.ts `SNOOZE_CHORDS`), which its
 // menu shows beside them. The keys for getting from one session to the next are queue.ts
 // `QUEUE_CHORDS`, written the same way.
@@ -446,11 +458,13 @@ function snoozeChorded(actions: SessionActions | LaneActions | PrActions, key: s
 /** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W, and
  *  `Alt+Shift+Down` ⌥⇧↓. */
 export function chordSigns(chord: string): string {
+  return chordKeys(chord).join('');
+}
+
+/** A chord's signs one key at a time, as a list of places to open says its keys (`Target.kbd`). */
+export function chordKeys(chord: string): string[] {
   const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Enter: '⏎', Esc: 'esc' };
-  return chord
-    .split('+')
-    .map((k) => signs[k] ?? k)
-    .join('');
+  return chord.split('+').map((k) => signs[k] ?? k);
 }
 
 /** The action a key runs among a session's or worktree's, by the key as typed, when it applies
@@ -466,12 +480,10 @@ export function keyed(actions: SessionActions | LaneActions, key: string, chord 
 
 /** The action a chord runs among a session's (`CHORDS`), when it applies to the session now:
  *  for the windows that show one session with a box to answer it, where letters are typed. */
-export function chorded(actions: SessionActions, e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
-  if (!e.metaKey || e.altKey || e.shiftKey) return null;
-  const snooze = e.ctrlKey ? snoozeChorded(actions, e.key) : null;
+export function chorded(actions: SessionActions, e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
+  const snooze = e.metaKey && e.ctrlKey && !e.altKey && !e.shiftKey ? snoozeChorded(actions, e.key) : null;
   if (snooze) return snooze;
-  const chord = `${e.ctrlKey ? 'Ctrl+' : ''}Cmd+${e.key.toUpperCase()}`;
-  const id = Object.keys(CHORDS).find((name) => CHORDS[name as keyof typeof CHORDS] === chord);
+  const id = Object.keys(CHORDS).find((name) => chordPressed(CHORDS[name as keyof typeof CHORDS] ?? '', e));
   const it = id ? (actions as unknown as Record<string, Item | undefined>)[id] : undefined;
   return it && !('items' in it) ? it : null;
 }

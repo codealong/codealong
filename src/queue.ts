@@ -76,6 +76,8 @@ export function chordPressed(chord: string, e: Key): boolean {
   if (e.altKey !== has('Alt')) return false;
   // - goes by what it types or where it is, as history.ts has it.
   if (key === '-') return historyChord(e);
+  // ` goes by what it types or where it is too: layouts that make it a dead key type nothing.
+  if (key === '`') return e.key === '`' || e.code === 'Backquote';
   if (key === 'Up' || key === 'Down') return e.key === `Arrow${key}`;
   if (key === 'Enter') return e.key === 'Enter';
   return e.key.toUpperCase() === key;

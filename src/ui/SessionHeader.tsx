@@ -26,7 +26,7 @@ import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '.
 import { HARNESS_WORD, sessionName, sessionPlace } from '../harness';
 import { limitWords, seenable } from '../lanes';
 import { cameWord, originWord, type Kin, type Lineage } from '../lineage';
-import type { SessionActions } from '../menus';
+import { CHORDS, chordKeys, type SessionActions } from '../menus';
 import { untilWords } from '../snooze';
 import type { Board, DeviceView, Lane, Pr, Session, Target, Todo } from '../types';
 import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
@@ -184,11 +184,12 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
 
   const icons = useEditorIcons(apps);
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
-  // Under the ways to open the session, its folder: a new terminal there, and its worktree's in
-  // any editor installed here. A session past the few its worktree lists opens by its own target
-  // alone.
+  // Under the ways to open the session, its folder: a new terminal there (⌃`, in every window that
+  // shows a session), and its worktree's in any editor installed here. A session past the few its
+  // worktree lists opens by its own target alone.
   const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
-  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons, { name: apps.terminal, key: s.key, folder: middleTruncate(tildePath(runFolder(lane, s)), 44) })] : own;
+  const terminal = { name: apps.terminal, key: s.key, folder: middleTruncate(tildePath(runFolder(lane, s)), 44), kbd: chordKeys(CHORDS.terminal ?? '') };
+  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons, terminal)] : own;
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + snoozed;

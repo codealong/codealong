@@ -11,7 +11,7 @@ import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import type { Pins } from './pins';
-import { queueKey, type QueueAction } from './queue';
+import { chordPressed, queueKey, type QueueAction } from './queue';
 import type { TodoItem } from './todos';
 import type { Bay, Lane, ProjectSummary, Session } from './types';
 import { openSwitcher, projectForDigit } from './ui/ProjectSwitcher';
@@ -53,6 +53,9 @@ export interface MainKeys<V extends string> {
   selectedLane: Lane | null;
   /** Where ⌘N starts a session. */
   startLaneId: string | null;
+  /** Where ⌃` opens a terminal: the session whose conversation shows, or whose line is selected,
+   *  else the worktree ⌘N starts in. */
+  terminalAt: { lane: Lane; session: Session | null } | null;
   projects: ProjectSummary[];
   pinnedRows: SessionItem[];
   pinnedLaneRows: WorktreeRow[];
@@ -92,6 +95,8 @@ export interface MainKeys<V extends string> {
   focusBox: () => void;
   open: (lane: Lane | null, targetId: string | null | undefined) => void;
   copy: (text: string | null | undefined, what: string) => void;
+  /** Says why a key did nothing, in the window's toast. */
+  say: (text: string) => void;
   markSeen: (keys: string[]) => void;
   setSelectedKey: (key: string) => void;
   /** Zooms every board window a step (zoom.ts). */
@@ -100,7 +105,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, selectedLane, startLaneId, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   const mod = e.metaKey;
   const key = e.key.toLowerCase();
@@ -112,6 +117,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // ⌃⌘, with a menu's letter or ↑ ↓.
   const chord = e.ctrlKey && mod && !e.altKey && !e.shiftKey;
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+  const toTerminal = chordPressed(menus.CHORDS.terminal ?? '', e);
   // ⌘= and ⌘- zoom the window and ⌘0 puts it back, as in VS Code, from any field or sheet. The
   // canvas has them for its own zoom wherever its keys work: not in a field or the panel beside it.
   const zoomTo = zoomStep(e);
@@ -131,8 +137,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
-  // ones, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+  // ones, ⌃- and ⌃`, and Sessions' box for the list's chords.
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !toTerminal && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -140,6 +146,16 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // Settings has the keyboard while it's open, as the preview URL and rename sheets do.
   if (settings || previewFor || renaming) return;
+  // ⌃` opens a new terminal in the folder of what the window shows, as it opens VS Code's
+  // terminal, from any view and any field: the session's own folder, else the worktree's.
+  if (toTerminal) {
+    e.preventDefault();
+    const at = terminalAt;
+    const act = at?.session ? actionsRef.current.session(at.lane, at.session, 'session').terminal : at ? actionsRef.current.lane(at.lane).terminal : undefined;
+    if (act) act.run();
+    else say(at ? `${at.lane.callsign} is on another device: a terminal opens only on this Mac.` : 'Nothing selected has a folder to open a terminal in.');
+    return;
+  }
   // ⌃- goes back to the session you were looking at before and ⌃⇧- forward again, from any
   // view and any field. From a session's box the cursor goes on to the next one's.
   if (historyChord(e)) {
@@ -335,10 +351,10 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
  *  ⌘.) keeps hearing a key before this one does. */
 export function useMainKeys<V extends string>(keys: MainKeys<V>): void {
   const latest = useLatest(keys);
-  const { visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel } = keys;
+  const { visible, selected, pickedRows, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel } = keys;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => onMainKey(e, latest.current);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [latest, visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
+  }, [latest, visible, selected, pickedRows, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
 }

@@ -136,6 +136,12 @@ under `src-tauri/src/`.
   the zoom; a menu dropped from a button (a session header's More) landing under it at 125%. The
   preview only shows the keys asking for it (`zoom-check.js`).
 
+- Not yet checked by hand (2026-10-06): ⌃` in the real app. That WKWebView hands ⌃` to the page
+  from a session's box as it does ⌃-, in the main window and the floating panels (the peek, the
+  notch, the waiting window), and that a native menu shows `Ctrl+`` beside the folder's terminal
+  (muda 0.19.3 parses it as Backquote). The preview shows the terminal it asks for
+  (`terminal-key-check.js`).
+
 - Not yet checked by hand (2026-10-06): the waiting window in the real app. Whether ⌥⌘. from
   another app brings only it forward or Codealong's other windows too (`set_focus` is tao's
   `makeKeyAndOrderFront` and `activateIgnoringOtherApps`); that ⌥⌘. again gives the keyboard back

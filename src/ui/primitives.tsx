@@ -144,11 +144,14 @@ export function LaneGlyph({ lane }: { lane: Lane }) {
   return <StatusGlyph status={lane.glyph} />;
 }
 
+/** Keys that are a speck at a cap's size (⌃`'s backtick), which a cap sets larger so they read. */
+const MARK_KEY = /^[`'.,]$/;
+
 export function Kbd({ keys }: { keys: string[] }) {
   return (
     <span className="ca-kbds">
       {keys.map((k, i) => (
-        <kbd key={i} className="ca-kbd">
+        <kbd key={i} className={cx('ca-kbd', MARK_KEY.test(k) && 'is-mark')}>
           {k}
         </kbd>
       ))}

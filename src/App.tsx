@@ -686,6 +686,14 @@ export function App() {
         : view === 'canvas' && canvasSel?.ref === 'session'
           ? canvasSel.key
           : null;
+  // Where ⌃` opens a terminal (mainKeys.ts): in the folder of that session, or of the session whose
+  // line is selected on the board, else of the worktree a new session would start in.
+  const terminalAt = useMemo(() => {
+    const home = shownSession ? homes.get(shownSession) : selected?.kind === 'agent' ? selected : undefined;
+    if (home) return { lane: home.lane, session: home.session };
+    const lane = startLaneId ? laneById.get(startLaneId) : undefined;
+    return lane ? { lane, session: null } : null;
+  }, [shownSession, homes, selected, startLaneId, laneById]);
   // One that's gone, archived, older than the sidebar's age filter shows or in a worktree no
   // project lists is passed over: the list wouldn't have it.
   const sessionHistory = useSessionHistory(shownSession, (key) => {
@@ -923,6 +931,7 @@ export function App() {
     pickedRows,
     selectedLane,
     startLaneId,
+    terminalAt,
     projects,
     pinnedRows,
     pinnedLaneRows,
@@ -956,6 +965,7 @@ export function App() {
     focusBox,
     open,
     copy,
+    say: setToast,
     markSeen,
     setSelectedKey,
     zoom,

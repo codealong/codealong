@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MenuSpec } from './contextMenu';
+import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { chordLetter, chordSigns, chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
@@ -373,7 +373,7 @@ describe('actions by name', () => {
   it('runs the same actions for their chords, where a box takes the letters', () => {
     const can: SessionCan = { ...base, keys: 'chords', rename: noop, pin: { label: 'Pin session', run: noop } };
     const acts = sessionActions(lane(), session(), can);
-    const press = (key: string, mods: { ctrl?: boolean; alt?: boolean; shift?: boolean; cmd?: boolean } = {}) => chorded(acts, { key, metaKey: mods.cmd ?? true, ctrlKey: !!mods.ctrl, altKey: !!mods.alt, shiftKey: !!mods.shift });
+    const press = (key: string, mods: { ctrl?: boolean; alt?: boolean; shift?: boolean; cmd?: boolean } = {}) => chorded(acts, { key, code: '', metaKey: mods.cmd ?? true, ctrlKey: !!mods.ctrl, altKey: !!mods.alt, shiftKey: !!mods.shift });
     expect(press('e')).toBe(acts.seen);
     expect(press('a', { ctrl: true })).toBe(acts.archive);
     expect(press('r', { ctrl: true })).toBe(acts.rename);
@@ -385,7 +385,7 @@ describe('actions by name', () => {
     expect(press('e', { shift: true })).toBeNull();
     expect(press('k', { ctrl: true })).toBeNull();
     // A chord for an action that doesn't apply does nothing.
-    expect(chorded(sessionActions(lane(), session(), base), { key: 'r', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+    expect(chorded(sessionActions(lane(), session(), base), { key: 'r', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
   });
 
   it('snoozes on ⌃⌘1 to ⌃⌘4, one for each of the menu’s times, and shows them there', () => {
@@ -394,7 +394,7 @@ describe('actions by name', () => {
     const acts = sessionActions(lane(), session(), can);
     const times = (acts.snooze?.items ?? []).flatMap((i) => (i !== 'separator' && !('items' in i) ? [i] : []));
     expect(times.map((i) => i.accelerator)).toEqual(['Ctrl+Cmd+1', 'Ctrl+Cmd+2', 'Ctrl+Cmd+3', 'Ctrl+Cmd+4']);
-    const press = (key: string, ctrl = true) => chorded(acts, { key, metaKey: true, ctrlKey: ctrl, altKey: false, shiftKey: false });
+    const press = (key: string, ctrl = true) => chorded(acts, { key, code: '', metaKey: true, ctrlKey: ctrl, altKey: false, shiftKey: false });
     expect(press('1')).toBe(times[0]);
     expect(press('4')).toBe(times[3]);
     // ⌘1 opens things, and there's no fifth time.
@@ -409,7 +409,7 @@ describe('actions by name', () => {
     // Where no window takes the chords, the menu doesn't show them; one that can't be snoozed has none.
     const plain = sessionActions(lane(), session(), base).snooze?.items ?? [];
     expect(plain.some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
-    expect(chorded(sessionActions(lane(), { ...session(), archived: true }, can), { key: '1', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+    expect(chorded(sessionActions(lane(), { ...session(), archived: true }, can), { key: '1', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
   });
 
   it('closes a session’s terminal on ⌃⌘W, which no letter alone does, and says it left', () => {
@@ -417,9 +417,9 @@ describe('actions by name', () => {
     const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };
     const acts = sessionActions(lane(), session(), can);
     expect(acts.close?.label).toBe('Close terminal');
-    expect(chorded(acts, { key: 'w', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBe(acts.close);
+    expect(chorded(acts, { key: 'w', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBe(acts.close);
     // ⌘W is the window's, and the letter alone is nothing's.
-    expect(chorded(acts, { key: 'w', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBeNull();
+    expect(chorded(acts, { key: 'w', code: '', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBeNull();
     expect(keyed(acts, 'w')).toBeNull();
     expect(keyed(acts, 'w', true)?.action).toBe(acts.close);
     expect(keyed(acts, 'a', true)?.action).toBe(acts.archive);
@@ -434,6 +434,50 @@ describe('actions by name', () => {
     acts.close?.run();
     expect(left).toEqual(['closed']);
     // One with no terminal of its own has nothing to close.
-    expect(chorded(sessionActions(lane(), { ...session(), live: false }, can), { key: 'w', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+    expect(chorded(sessionActions(lane(), { ...session(), live: false }, can), { key: 'w', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+  });
+
+  it('opens a new terminal in a session’s folder on ⌃`, and shows it beside the menu’s terminal', () => {
+    const opened: string[] = [];
+    const here = lane({ targets: [...lane().targets, fx.target({ id: 'l|editor', label: 'Open in Cursor' })] });
+    const editors = { apps: { editor: 'Cursor', editorId: 'cursor', editors: [{ id: 'cursor', name: 'Cursor' }] }, icons: {} };
+    const can: SessionCan = { ...base, keys: 'chords', editors, open: (_l, target) => opened.push(target) };
+    const acts = sessionActions(here, session(), can);
+    const press = (over: Partial<KeyboardEvent> = {}) => chorded(acts, { key: '`', code: 'Backquote', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false, ...over });
+    expect(press()).toBe(acts.terminal);
+    // A layout where ` is a dead key goes by where the key is.
+    expect(press({ key: 'Dead' })).toBe(acts.terminal);
+    // ` alone is typed, and ⌘` goes through the app's windows.
+    expect(press({ ctrlKey: false })).toBeNull();
+    expect(press({ metaKey: true, ctrlKey: false })).toBeNull();
+    acts.terminal?.run();
+    expect(opened).toEqual(['s|claude:c:1|terminal']);
+    // The menu has it once, as the folder's first, with its key where the window takes it.
+    const folder = sessionMenu(here, session(), can).find((i): i is MenuGroup => i !== 'separator' && 'items' in i && i.label === 'Open folder in');
+    expect(folder?.items[0]).toMatchObject({ label: 'Ghostty', accelerator: 'Ctrl+`' });
+    expect(labels(sessionMenu(here, session(), can)).filter((l) => l.includes('Ghostty'))).toEqual(['Respond in Ghostty']);
+    const plain = sessionActions(here, session(), { ...can, keys: undefined }).folder as MenuGroup;
+    expect((plain.items[0] as MenuAction).accelerator).toBeUndefined();
+    // Another device's folder has no terminal on this Mac.
+    const away = lane({ ...here, device: { name: 'Mini', short: 'mini', color: 'blue', online: true, lastSeen: null } });
+    expect(sessionActions(away, session(), can).terminal).toBeUndefined();
+  });
+
+  it('opens a new terminal in a worktree on ⌃`, next to its default open in the menu', () => {
+    const opened: string[] = [];
+    const open = (_l: Lane, target: string) => opened.push(target);
+    const busy = lane({ defaultTarget: 's|claude:c:1|focus' });
+    const acts = laneActions(busy, { report, open });
+    acts.terminal?.run();
+    expect(opened).toEqual(['l|terminal']);
+    const shown = laneMenu(busy, { report, open, keys: true }).flatMap((i) => (i !== 'separator' && !('items' in i) ? [`${i.label}${i.accelerator ? `=${i.accelerator}` : ''}`] : []));
+    expect(shown.slice(0, 3)).toEqual(['Respond in Ghostty', 'Open in Ghostty=Ctrl+`', 'Reveal in Finder']);
+    // With no session the terminal is the default open, there once, with its key.
+    const idle = laneMenu(lane(), { report, open, keys: true }).flatMap((i) => (i !== 'separator' && !('items' in i) ? [`${i.label}${i.accelerator ? `=${i.accelerator}` : ''}`] : []));
+    expect(idle.slice(0, 2)).toEqual(['Open in Ghostty=Ctrl+`', 'Reveal in Finder']);
+    // Another device's worktree opens its default as before, and has no terminal here.
+    const away = lane({ device: { name: 'Mini', short: 'mini', color: 'blue', online: true, lastSeen: null } });
+    expect(laneActions(away, { report, open }).terminal).toBeUndefined();
+    expect(laneActions(away, { report, open }).open?.label).toBe('Open in Ghostty');
   });
 });
