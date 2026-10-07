@@ -72,6 +72,7 @@ import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, StartPlace, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
+import { Markdown } from './Markdown';
 import { BoxText, Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlaces } from './ResumeBar';
@@ -808,23 +809,34 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       />
     );
   }
+  // A plan reads as prose, and its answers say what they do to it.
+  const plan = !!pending.plan;
+  const says = plan
+    ? 'Allow approves the plan. Deny keeps it planning, or write below what to change.'
+    : pending.noOnce
+      ? `Its agent ${pending.always ? 'allows calls like this only from now on, not just this once' : 'offers no way to allow this'}. Deny tells it no, and it carries on.`
+      : s.hosted
+        ? 'Allows this call once. Deny tells it no, and it carries on.'
+        : 'Allows this call once. Deny stops the turn, or write below what to do instead.';
   return (
     <div className="ca-composer is-approval">
       <div className="ca-approval-head">
         <Icon name="alert" size={14} />
-        <span>Wants to run</span>
+        <span>{plan ? 'Wants you to approve its plan' : 'Wants to run'}</span>
         {!s.hosted && (
           <button type="button" className="ca-linkbtn" onClick={onOpen}>
             Open in {where}
           </button>
         )}
       </div>
-      <div className="ca-approval-label">
-        <Rich text={pending.label} now={0} />
-      </div>
-      {pending.input && pending.input !== pending.label && <CodeBlock text={pending.input} className="ca-approval-input" />}
+      {!plan && (
+        <div className="ca-approval-label">
+          <Rich text={pending.label} now={0} />
+        </div>
+      )}
+      {pending.input && pending.input !== pending.label && (plan ? <Markdown text={pending.input} className="ca-approval-plan" /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
       <div className="ca-composer-foot">
-        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (pending.noOnce ? `Its agent ${pending.always ? 'allows calls like this only from now on, not just this once' : 'offers no way to allow this'}. Deny tells it no, and it carries on.` : s.hosted ? 'Allows this call once. Deny tells it no, and it carries on.' : 'Allows this call once. Deny stops the turn, or write below what to do instead.'))}</span>
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? says)}</span>
         <Button size="sm" kbd={['⌘', '⌫']} disabled={busy} onClick={() => answer('deny')}>
           Deny
         </Button>

@@ -29,6 +29,22 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   is taken on by its ID with `session/resume`, its conversation and all, and its model set after
   (`acp.rs` `adopt`, `acp_takes_on_a_session`; checked 2026-10-06): the transcript gets a
   `/model` line for the settings' model as it's resumed and another for the one asked for.
+- A plan to approve is a `session/request_permission` whose `toolCall.kind` is `switch_mode`,
+  the plan in `rawInput.plan` (`acp.rs` `is_plan`). claude-agent-acp 0.81.2 asks so for
+  `ExitPlanMode` (`toolCall.name` too, title "Approve Plan", `_meta.permission.title` "Ready to
+  code?"), with these options (`dist/permissions/options/tools.js`
+  `buildExitPlanModePermissionOptions`, sorted allow_once, allow_always, reject):
+  `exit-plan-default` "Yes, manually approve edits" (allow_once, the mode then `default`); with
+  a plan, `exit-plan-clear-auto` / `-bypass` / `-accept-edits` "Yes, clear context (12% used)
+  and use auto mode" (allow_always: the call is denied with `interrupt`, and the same ACP turn
+  goes on in a fresh query on "Implement the following plan:" and the plan, the conversation
+  gone); `exit-plan-auto` "Yes, and use auto mode" and `exit-plan-bypass` "Yes, and bypass
+  permissions" for the modes the session offers, bypass first when it bypassed before it
+  planned (`prePlanMode`), else `exit-plan-accept-edits` "Yes, auto-accept edits"; `reject` "No,
+  keep planning" (reject_once: a deny with `interrupt`, the turn ending as cancelled).
+  `dist/permissions/effects.js` says what each does. codex-acp 1.13.1 asks "Implement this
+  plan?" with `implement_plan` (allow_once) and `revise_plan` (reject_once). Which option each
+  of Codealong's answers gives: `acp.rs` (`pick`, `clears_context`).
 - `@agentclientprotocol/codex-acp` 1.13.1 runs its own bundled `codex app-server` (0.156.1)
   with `CODEX_HOME` (`codex/mod.rs`, `acp_command`); the session id is the thread id, and the
   rollout is an ordinary one with `originator: "codealong"`. With `approvals_reviewer =

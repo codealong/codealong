@@ -64,11 +64,26 @@ struct Permission {
     tool_call: String,
     label: String,
     input: Option<String>,
-    /// (optionId, kind) as offered.
-    options: Vec<(String, String)>,
+    /// As offered, in order.
+    options: Vec<Offered>,
+    /// It's a plan to approve (`is_plan`): `input` is the plan.
+    plan: bool,
     /// An answer to it is being written: a second isn't sent with it.
     answering: bool,
 }
+
+/// One of the answers an agent offers to a permission request.
+#[derive(Clone, Debug, PartialEq)]
+struct Offered {
+    id: String,
+    /// ACP's `allow_once`, `allow_always`, `reject_once` or `reject_always`.
+    kind: String,
+    /// Its words, e.g. "Yes, and use auto mode".
+    name: String,
+}
+
+/// How a plan to approve reads, as Claude Code's own does in a terminal (`claude::transcript::PLAN`).
+const PLAN: &str = "Plan";
 
 /// A session Codealong runs, as the process last said.
 #[derive(Clone, Debug, Default)]
@@ -455,19 +470,67 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
         Some(n) if n != title => format!("{n} · `{}`", truncate(&one_line(title), 100)),
         _ => truncate(&one_line(title), 110),
     };
-    let options = params
-        .get("options")
-        .and_then(Value::as_array)
-        .map(|os| os.iter().filter_map(|o| Some((o.get("optionId")?.as_str()?.to_string(), o.get("kind")?.as_str()?.to_string()))).collect())
-        .unwrap_or_default();
+    let options = offered(params);
     let tool_call = call.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_string();
+    // A plan reads as itself, all of it, as a terminal session's does: it's what you approve.
+    let plan = is_plan(call);
+    let (label, input) = match raw.and_then(|v| v.get("plan")).and_then(Value::as_str).filter(|p| plan && !p.trim().is_empty()) {
+        Some(text) => (PLAN.to_string(), Some(text.to_string())),
+        None if plan => (PLAN.to_string(), input.map(|i| truncate(&i, 4000))),
+        None => (label, input.map(|i| truncate(&i, 4000))),
+    };
     {
         let mut st = state();
         let Some(h) = st.sessions.get_mut(&key) else { return };
         // A request still unanswered is overtaken: the agent only asks one at a time.
-        h.permission = Some(Permission { rpc, tool_call, label, input: input.map(|i| truncate(&i, 4000)), options, answering: false });
+        h.permission = Some(Permission { rpc, tool_call, label, input, options, plan, answering: false });
     }
     notify(Change::Board);
+}
+
+/// The answers a permission request offers, in order.
+fn offered(params: &Value) -> Vec<Offered> {
+    let Some(os) = params.get("options").and_then(Value::as_array) else { return Vec::new() };
+    os.iter().filter_map(|o| Some(Offered { id: o.get("optionId")?.as_str()?.to_string(), kind: o.get("kind")?.as_str()?.to_string(), name: o.get("name").and_then(Value::as_str).unwrap_or("").to_string() })).collect()
+}
+
+/// Whether a permission request is a plan to approve: a call that switches the session's mode
+/// (ACP's tool kind `switch_mode`), its plan in `rawInput.plan`. claude-agent-acp asks so for
+/// Claude Code's `ExitPlanMode` (0.81.2: title "Approve Plan"), codex-acp for a plan to implement
+/// (1.13.1: "Implement this plan?").
+fn is_plan(call: &Value) -> bool {
+    call.get("kind").and_then(Value::as_str) == Some("switch_mode")
+}
+
+/// Whether one of a plan's answers starts the session over from the plan alone, its
+/// conversation cleared: claude-agent-acp 0.81.2 offers that first among the answers that allow
+/// from now on, `exit-plan-clear-auto`, `-bypass` or `-accept-edits`, "Yes, clear context (12%
+/// used) and use auto mode", as Claude Code's terminal does with `showClearContextOnPlanAccept`
+/// set. No window says an answer does that, so none of them picks it.
+fn clears_context(o: &Offered) -> bool {
+    o.id.contains("clear") || o.name.to_lowercase().contains("clear context")
+}
+
+/// The answer to give `p` for `answer`, and no other, or why there's none. Allow is the agent's
+/// answer that allows the call once and Deny the one that refuses it once, never those that keep
+/// for calls like it. Always is the first that allows from now on; for a plan, that's the first
+/// that goes on with the session's conversation, in a mode that asks less (claude-agent-acp:
+/// auto, or bypassing permissions when the session did before it planned, else accepting
+/// edits), while Allow goes on asking ("Yes, manually approve edits") and Deny keeps it planning,
+/// ending the turn ("No, keep planning").
+fn pick(p: &Permission, answer: Answer) -> std::result::Result<&Offered, &'static str> {
+    let kind = match answer {
+        Answer::Allow => "allow_once",
+        Answer::Always => "allow_always",
+        Answer::Deny => "reject_once",
+    };
+    let offered = |kind: &str| p.options.iter().find(|o| o.kind == kind && !(p.plan && clears_context(o)));
+    offered(kind).ok_or(match answer {
+        Answer::Allow if offered("allow_always").is_some() => "Its agent offers no way to allow this just once, only from now on: Always does that.",
+        Answer::Allow => "Its agent offers no way to allow this.",
+        Answer::Always => "Its agent offers no way to allow this from now on.",
+        Answer::Deny => "Its agent offers no way to deny this just once.",
+    })
 }
 
 // ---- what the app does ----
@@ -772,22 +835,21 @@ pub fn cancel(key: &str) -> Result<()> {
 /// What a hosted session waits on you to allow.
 pub fn pending(key: &str) -> Option<Pending> {
     let st = state();
-    let p = st.sessions.get(key)?.permission.as_ref()?;
-    let offers = |kind: &str| p.options.iter().any(|(_, k)| k == kind);
-    Some(Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always: offers("allow_always"), no_once: !offers("allow_once"), plan: false, always_rule: None, questions: Vec::new(), unwritten: false })
+    Some(pending_of(st.sessions.get(key)?.permission.as_ref()?))
+}
+
+fn pending_of(p: &Permission) -> Pending {
+    let always = pick(p, Answer::Always).ok();
+    // What a plan's Always does is the agent's to say, in its own words.
+    let always_rule = always.filter(|_| p.plan).map(|o| format!("Approves the plan and keeps the conversation, as its agent's “{}”.", o.name.trim()));
+    Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always: always.is_some(), no_once: pick(p, Answer::Allow).is_err(), plan: p.plan, always_rule, questions: Vec::new(), unwritten: false }
 }
 
 /// Answers the permission request for tool call `id` with the option its agent offered for that
-/// answer, and no other: an Allow is only ever an `allow_once` and a Deny a `reject_once`, never
-/// the option that would allow or refuse calls like it from now on, which the agent keeps. The
-/// request stays waiting until the answer is written, so one that couldn't be is answered again.
+/// answer (`pick`), and no other. The request stays waiting until the answer is written, so one
+/// that couldn't be is answered again.
 pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
-    let kind = match answer {
-        Answer::Allow => "allow_once",
-        Answer::Always => "allow_always",
-        Answer::Deny => "reject_once",
-    };
-    let (ag, rpc, option) = {
+    let (ag, rpc, option, plan) = {
         let mut guard = state();
         let st = &mut *guard;
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
@@ -798,18 +860,11 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
         if p.answering {
             bail!("It's still answering that.");
         }
-        let Some((option, _)) = p.options.iter().find(|(_, k)| k == kind) else {
-            bail!(match answer {
-                Answer::Allow if p.options.iter().any(|(_, k)| k == "allow_always") => "Its agent offers no way to allow this just once, only from now on: Always does that.",
-                Answer::Allow => "Its agent offers no way to allow this.",
-                Answer::Always => "Its agent offers no way to allow this from now on.",
-                Answer::Deny => "Its agent offers no way to deny this just once.",
-            });
-        };
-        let option = option.clone();
+        let picked = pick(p, answer).map_err(|e| anyhow!(e))?;
+        let (option, plan) = (picked.id.clone(), p.plan.then(|| picked.name.trim().to_string()));
         let ag = st.agents.get(&h.account).cloned().ok_or_else(|| anyhow!("That session's agent stopped."))?;
         p.answering = true;
-        (ag, p.rpc.clone(), option)
+        (ag, p.rpc.clone(), option, plan)
     };
     let written = ag.client.respond(&rpc, json!({ "outcome": { "outcome": "selected", "optionId": option } }));
     {
@@ -824,10 +879,13 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
     }
     written?;
     notify(Change::Board);
-    Ok(match answer {
-        Answer::Allow => "Allowed.".into(),
-        Answer::Always => "Allowed, and from now on.".into(),
-        Answer::Deny => "Denied.".into(),
+    // What a plan's answers do is the agent's to say, so it's said in its words.
+    Ok(match (answer, plan) {
+        (Answer::Allow | Answer::Always, Some(name)) => format!("Approved the plan: “{name}”."),
+        (Answer::Deny, Some(name)) => format!("Denied the plan: “{name}”."),
+        (Answer::Allow, None) => "Allowed.".into(),
+        (Answer::Always, None) => "Allowed, and from now on.".into(),
+        (Answer::Deny, None) => "Denied.".into(),
     })
 }
 
@@ -1152,6 +1210,83 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The answers claude-agent-acp 0.81.2 offers for Claude Code's `ExitPlanMode`, as its
+    /// `buildExitPlanModePermissionOptions` makes them and sorts them by kind: here for a session
+    /// that offers auto and bypass modes and wasn't bypassing permissions before it planned.
+    const PLAN_OPTIONS: &str = r#"[{"optionId":"exit-plan-default","name":"Yes, manually approve edits","kind":"allow_once"},{"optionId":"exit-plan-clear-auto","name":"Yes, clear context (12% used) and use auto mode","kind":"allow_always"},{"optionId":"exit-plan-auto","name":"Yes, and use auto mode","kind":"allow_always"},{"optionId":"exit-plan-bypass","name":"Yes, and bypass permissions","kind":"allow_always"},{"optionId":"reject","name":"No, keep planning","kind":"reject_once"}]"#;
+
+    /// A plan's request as claude-agent-acp 0.81.2 sends it, its id `id`.
+    fn plan_request(id: &str) -> String {
+        let plan = r"# Fix the build\n\n1. Pin the toolchain";
+        format!(r#"{{"jsonrpc":"2.0","id":"{id}","method":"session/request_permission","params":{{"toolCall":{{"toolCallId":"toolu_{id}","name":"ExitPlanMode","status":"pending","rawInput":{{"plan":"{plan}"}},"title":"Approve Plan","kind":"switch_mode","content":[{{"type":"content","content":{{"type":"text","text":"{plan}"}}}}],"locations":[]}},"_meta":{{"permission":{{"version":1,"title":"Ready to code?"}}}},"options":{PLAN_OPTIONS},"sessionId":"s1"}}}}"#)
+    }
+
+    /// Each answer to a plan picks the option that does what the windows say it does, from the
+    /// lists claude-agent-acp and codex-acp really send, and never the one that clears the
+    /// conversation: Allow approves it and goes on asking, Always goes on asking less, both with
+    /// the conversation, and Deny keeps it planning.
+    #[test]
+    fn a_plans_answers_keep_its_conversation() {
+        let permission = |plan: bool, options: &str| Permission { rpc: json!(1), tool_call: "t".into(), label: PLAN.into(), input: None, options: offered(&json!({ "options": serde_json::from_str::<Value>(options).unwrap() })), plan, answering: false };
+        let picks = |p: &Permission| [Answer::Allow, Answer::Always, Answer::Deny].map(|a| pick(p, a).map(|o| o.id.clone()).map_err(String::from));
+        let ok = |a: &str, b: &str, c: &str| [Ok(a.to_string()), Ok(b.to_string()), Ok(c.to_string())];
+        assert_eq!(picks(&permission(true, PLAN_OPTIONS)), ok("exit-plan-default", "exit-plan-auto", "reject"));
+        // A session that bypassed permissions before it planned is offered that first.
+        let bypassed = r#"[{"optionId":"exit-plan-default","name":"Yes, manually approve edits","kind":"allow_once"},{"optionId":"exit-plan-clear-bypass","name":"Yes, clear context and bypass permissions","kind":"allow_always"},{"optionId":"exit-plan-bypass","name":"Yes, and bypass permissions","kind":"allow_always"},{"optionId":"exit-plan-auto","name":"Yes, and use auto mode","kind":"allow_always"},{"optionId":"reject","name":"No, keep planning","kind":"reject_once"}]"#;
+        assert_eq!(picks(&permission(true, bypassed)), ok("exit-plan-default", "exit-plan-bypass", "reject"));
+        // One offering neither mode goes on accepting edits.
+        let neither = r#"[{"optionId":"exit-plan-default","name":"Yes, manually approve edits","kind":"allow_once"},{"optionId":"exit-plan-clear-accept-edits","name":"Yes, clear context and auto-accept edits","kind":"allow_always"},{"optionId":"exit-plan-accept-edits","name":"Yes, auto-accept edits","kind":"allow_always"},{"optionId":"reject","name":"No, keep planning","kind":"reject_once"}]"#;
+        assert_eq!(picks(&permission(true, neither)), ok("exit-plan-default", "exit-plan-accept-edits", "reject"));
+        // Only clearing the conversation from now on is no Always at all.
+        let p = permission(true, r#"[{"optionId":"exit-plan-default","name":"Yes, manually approve edits","kind":"allow_once"},{"optionId":"exit-plan-clear-auto","name":"Yes, clear context and use auto mode","kind":"allow_always"}]"#);
+        assert_eq!(picks(&p)[1], Err("Its agent offers no way to allow this from now on.".to_string()));
+        let shown = pending_of(&p);
+        assert_eq!((shown.always, shown.always_rule, shown.no_once), (false, None, false));
+        // codex-acp's plan to implement.
+        let codex = r#"[{"optionId":"implement_plan","name":"Yes, implement this plan","kind":"allow_once"},{"optionId":"revise_plan","name":"No, and tell Codex what to do differently","kind":"reject_once"}]"#;
+        assert_eq!(picks(&permission(true, codex)), [Ok("implement_plan".to_string()), Err("Its agent offers no way to allow this from now on.".to_string()), Ok("revise_plan".to_string())]);
+        // A call that isn't a plan isn't read for what a plan's answers say.
+        let call = r#"[{"optionId":"allow-once","name":"Yes","kind":"allow_once"},{"optionId":"allow-with-updates","name":"Yes, and don't ask again for clear commands","kind":"allow_always"}]"#;
+        assert_eq!(picks(&permission(false, call))[1], Ok("allow-with-updates".to_string()));
+    }
+
+    /// A plan claude-agent-acp asks to approve reads as a plan, as a terminal session's does, and
+    /// each answer writes the option `pick` chose.
+    #[test]
+    fn a_plan_is_asked_and_answered_as_one() {
+        let dir = store::test_dir("acp-plan");
+        for id in ["p1", "p2", "p3"] {
+            std::fs::write(dir.join(format!("{id}.json")), format!("{}\n", plan_request(id))).unwrap();
+        }
+        let d = dir.to_string_lossy();
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in"#.to_string(),
+            format!(r#"*'"method":"initialize"'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}'; cat '{d}/p1.json';;"#),
+            format!(r#"*'"id":"p1"'*) cat '{d}/p2.json';; *'"id":"p2"'*) cat '{d}/p3.json';; esac; done"#),
+        ]
+        .join(" ");
+        let account = "test-adapter-plan";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        ag.initialize().unwrap();
+        wait_until("it to ask", 10, || pending(&key).is_some());
+        let p = pending(&key).unwrap();
+        assert_eq!((p.label.as_str(), p.input.as_deref(), p.plan, p.always, p.no_once), ("Plan", Some("# Fix the build\n\n1. Pin the toolchain"), true, true, false));
+        assert_eq!(p.always_rule.as_deref(), Some("Approves the plan and keeps the conversation, as its agent's “Yes, and use auto mode”."));
+        assert_eq!(answer(&key, "toolu_p1", Answer::Always).unwrap(), "Approved the plan: “Yes, and use auto mode”.");
+        wait_until("it to ask again", 10, || pending(&key).is_some_and(|p| p.id == "toolu_p2"));
+        assert_eq!(answer(&key, "toolu_p2", Answer::Allow).unwrap(), "Approved the plan: “Yes, manually approve edits”.");
+        wait_until("it to ask a third time", 10, || pending(&key).is_some_and(|p| p.id == "toolu_p3"));
+        assert_eq!(answer(&key, "toolu_p3", Answer::Deny).unwrap(), "Denied the plan: “No, keep planning”.");
+        wait_until("the answers to be read", 10, || heard(&dir).len() == 4);
+        let chosen: Vec<String> = heard(&dir)[1..].iter().map(|l| serde_json::from_str::<Value>(l).unwrap()["result"]["outcome"]["optionId"].as_str().unwrap().to_string()).collect();
+        assert_eq!(chosen, ["exit-plan-auto", "exit-plan-default", "reject"]);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Two starts at once each start the account a process, and the one that's second is let go
     /// (`agent`): what it says and asks as it goes, and its end, leave the sessions of the one
     /// that stayed as they are; the end of the account's own process is theirs.
@@ -1164,7 +1299,7 @@ mod tests {
         let keeps = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#;
         let account = "test-adapter-let-go";
         let key = key_of(Harness::Codex, account, "s1");
-        let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![("ok".into(), "allow_once".into())], answering: false };
+        let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![Offered { id: "ok".into(), kind: "allow_once".into(), name: "Yes".into() }], plan: false, answering: false };
         state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, permission: Some(asked), queue: vec!["And then?".into()], text: "Working".into(), ..Default::default() });
         let ag = stand_in(account, keeps, &stayed);
         let mut cmd = Command::new("/bin/sh");

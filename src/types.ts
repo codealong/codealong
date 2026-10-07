@@ -1225,6 +1225,8 @@ export interface Pending {
   noOnce?: boolean;
   /** What allowing it from now on adds, in a sentence, when Codealong can say. */
   alwaysRule?: string;
+  /** It's a plan to approve (plan mode): `input` is the plan, in Markdown. */
+  plan?: boolean;
   /** Questions it asks you: answered with your picks rather than allowed. */
   questions?: Question[];
   /** What it wrote with this isn't in its conversation until it's answered, only where it runs. */
