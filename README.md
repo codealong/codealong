@@ -192,7 +192,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Code's send now in its terminal or background job, which moves a running command to the
     background so the agent reads it straight away, and Codex's and OpenCode's steer. To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
-    you the longest wait first, then Your turn), or, while the session waits on a call that can
+    you, then Your turn, each the longest wait first, so one that comes back after you answered
+    it waits behind the rest), or, while the session waits on a call that can
     be allowed here, allows it and goes on; ⏎ sends and stays. ⌘⏎ on an answer you typed to a
     session's questions answers and goes on too. ⌘E (or the check at the top
     of the panel) marks a finished turn seen and goes on, and the keys stay where they were,
@@ -421,8 +422,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Waiting on you** (⌥⌘. from any app, `[shortcuts] waiting`; Window › Waiting on you; ⇥ on a
   session in the quick panel): a window of its own, sized and placed as you like and kept up
   until you close it, that works through what waits on you one at a time: every session that
-  needs you, the longest wait first, then the PRs waiting on your review, then the sessions whose
-  turn ended, newest first, snoozed ones left out. With the bar docked in the notch, ⌥⌘. opens the
+  needs you, then the PRs waiting on your review, then the sessions whose turn ended, each the
+  longest wait first, snoozed ones left out. With the bar docked in the notch, ⌥⌘. opens the
   notch instead, as a click on the notch does. Pressed while the window is the one you're in, ⌥⌘.
   puts it away and gives the keyboard back to the app you were in. A session shows as the card the
   bar's peek shows: the same header (the ways to open the session, the check, ⋯), the session's
@@ -624,8 +625,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   comes it's back as it is then, and one with nothing new (its turn already seen, or its
   process gone) comes back as Your turn, so a snooze always brings its session back. A running
   session stays in Working while snoozed, and sending a session a prompt ends its snooze.
-  Needs you and Working are queues, the longest first, so a new one joins the end instead of
-  pushing an old one down; Your turn is the newest first. Pills that
+  Needs you, Your turn and Working are queues, the longest first, so a new one joins the end
+  instead of pushing an old one down, and the notch works through them first come, first
+  served. Pills that
   don't fit fold into one per group that lists them, and a session picked from that list, or
   from the recent pill's, shows in Codealong's window. The mark brings Codealong forward; drag
   the bar by it or by its gaps. Its node, the part that carries the status color, moves as things

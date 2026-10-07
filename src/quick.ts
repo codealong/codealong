@@ -7,6 +7,7 @@
 
 import { agoPhrase, middleTruncate } from './format';
 import { branchLabel, byStatusTime, sessionHomes } from './lanes';
+import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Board, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
@@ -101,10 +102,19 @@ function sessionsIn(board: Board, project: string): { lane: Lane; session: Sessi
  *  (queue.ts `Handled`). */
 export const statusTime = (s: Session) => s.statusSince ?? s.lastActivity;
 
-/** The empty panel's list: sessions that need you, the longest wait first, then the PRs waiting
- *  on your review, the longest wait first, then the sessions whose turn ended, the newest first,
- *  as on the floating bar and in the notch (bar.ts `NOTCH_ORDER`); with none of those, the ones
- *  working, the longest running first.
+/** How the queue (queue.ts) reads the waiting window's rows, and the empty panel's: a session's
+ *  row by its session, a review's by its PR. */
+export const QUEUE_READS: Reads<QueueRow> = {
+  keyOf: (r) => (r.kind === 'session' ? r.session.key : r.pr.key),
+  sinceOf: (r) => (r.kind === 'session' ? statusTime(r.session) : reviewSince(r.pr)),
+  waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.session.status) : 'reviews'),
+  titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
+};
+
+/** The empty panel's list: what waits on you in the order the waiting window works through it
+ *  (queue.ts `byPlace`), sessions that need you, then the PRs waiting on your review, then the
+ *  sessions whose turn ended, each the longest wait first, as on the floating bar and in the
+ *  notch (bar.ts `NOTCH_ORDER`); with none of those, the ones working, the longest running first.
  *  `counts` has every group's full size, for the headings. */
 export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'needs' | 'reviews' | 'unread' | 'working', number> } {
   const sessions = sessionsIn(board, project)
@@ -116,9 +126,7 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
   const reviews = reviewRows(board, project);
   const counts = { needs: 0, reviews: reviews.length, unread: 0, working: 0 };
   for (const r of sessions) counts[r.group as 'needs' | 'unread' | 'working'] += 1;
-  const needs = sessions.filter((r) => r.group === 'needs');
-  const unread = sessions.filter((r) => r.group === 'unread');
-  const waiting: QueueRow[] = [...needs, ...reviews, ...unread];
+  const waiting = inQueueOrder<QueueRow>([...sessions.filter((r) => r.group !== 'working'), ...reviews], QUEUE_READS);
   return { rows: (waiting.length > 0 ? waiting : sessions).slice(0, limit), counts };
 }
 
@@ -126,9 +134,8 @@ const ORDER: RowGroup[] = ['needs', 'unread', 'working'];
 
 /**
  * What the waiting window works through (Waiting.tsx): every session in the project that needs
- * you, the longest wait first, then the PRs waiting on your review, then the sessions whose turn
- * ended, the newest first, as the empty panel's list has them. queue.ts has how it goes from one
- * to the next.
+ * you, then the PRs waiting on your review, then the sessions whose turn ended, each the longest
+ * wait first, as the empty panel's list has them. queue.ts has how it goes from one to the next.
  */
 export function queueRows(board: Board, project: string): QueueRow[] {
   return attentionRows(board, project, Infinity).rows.filter((r) => r.group !== 'working');

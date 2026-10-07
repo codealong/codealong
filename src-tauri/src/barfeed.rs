@@ -55,8 +55,8 @@ pub struct BarFeed {
     pub terminal: String,
     /// The projects, in your order, for the bar's project menu.
     pub projects: Vec<String>,
-    /// In bar order: by group, then Needs you and Working the longest first, Your turn the newest
-    /// status first.
+    /// In bar order: by group, then each the longest first. The notch, the quick panel and the
+    /// waiting window work through what waits on you in this order (src/queue.ts `byPlace`).
     pub items: Vec<BarItem>,
     /// The other sessions started in the last day (by their last activity when the start isn't
     /// known), the newest status first, as the quick panel lists them.
@@ -192,13 +192,11 @@ pub fn feed(board: &Board) -> BarFeed {
             }
         }
     }
-    // Needs you and Working are queues, the longest first: a new one joins the end, where the
-    // group folds, and can't push an old one down or out of sight. Your turn reads as a feed,
-    // newest first.
-    items.sort_by(|(a_at, a), (b_at, b)| {
-        let by_time = if a.group == Group::Unread { b_at.cmp(a_at) } else { a_at.cmp(b_at) };
-        a.group.cmp(&b.group).then(by_time).then_with(|| a.key.cmp(&b.key))
-    });
+    // Each group is a queue, the longest first: a new one joins the end, where the group folds,
+    // and can't push an old one down or out of sight. A turn that ended again after you answered
+    // it goes behind the ones that waited longer, so working through them is first come, first
+    // served.
+    items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(a_at.cmp(b_at)).then_with(|| a.key.cmp(&b.key)));
     recent.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.key.cmp(&b.key)));
     recent.truncate(RECENT_MAX);
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
@@ -276,16 +274,17 @@ mod tests {
     }
 
     #[test]
-    fn lists_what_needs_you_longest_wait_first_then_finished_turns_newest_first_then_running_agents_longest_first() {
+    fn lists_what_needs_you_then_finished_turns_then_running_agents_each_the_longest_first() {
         let b = board(
             vec![
                 lane("/a", vec![session("w1", Status::Working, NOW - 50), session("i1", Status::Idle, NOW), session("u1", Status::Unread, NOW - 10)], false),
                 lane("/b", vec![session("n1", Status::Needs, NOW - 90), session("e1", Status::Error, NOW - 5), session("w2", Status::Working, NOW - 20), session("s1", Status::Stopped, NOW)], false),
+                lane("/c", vec![session("u2", Status::Unread, NOW - 40), session("u3", Status::Unread, NOW)], false),
             ],
             vec![],
         );
         let got: Vec<(String, Group)> = feed(&b).items.into_iter().map(|i| (i.key, i.group)).collect();
-        let want = [("n1", Group::Needs), ("e1", Group::Needs), ("u1", Group::Unread), ("w1", Group::Working), ("w2", Group::Working)];
+        let want = [("n1", Group::Needs), ("e1", Group::Needs), ("u2", Group::Unread), ("u1", Group::Unread), ("u3", Group::Unread), ("w1", Group::Working), ("w2", Group::Working)];
         assert_eq!(got, want.map(|(k, g)| (k.to_string(), g)));
     }
 

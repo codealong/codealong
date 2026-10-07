@@ -4,7 +4,7 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import type { Reads } from './queue';
+import { inQueueOrder, statusWaits, WAITS, type Reads } from './queue';
 import type { BarGroup, BarItem, BarReview } from './types';
 
 export type Group = BarGroup;
@@ -208,9 +208,10 @@ export function notchDragged(from: Size, edge: NotchEdge, dx: number, dy: number
 /** What the notch counts beside the camera: the bar's groups, and the PRs that wait on your
  *  review. */
 export type NotchKind = Group | 'reviews';
-/** Most urgent first. A review asked of you ranks as the mark's colors rank it
- *  (board.rs `logo_status`): with what needs you, after the sessions that do. */
-export const NOTCH_ORDER: NotchKind[] = ['needs', 'reviews', 'unread', 'working'];
+/** Most urgent first, as the queue works through what waits (queue.ts `WAITS`), then what runs.
+ *  A review asked of you ranks as the mark's colors rank it (board.rs `logo_status`): with what
+ *  needs you, after the sessions that do. */
+export const NOTCH_ORDER: NotchKind[] = [...WAITS, 'working'];
 
 /** What the closed notch shows beside the camera: the most urgent kind with anything in it and
  *  how many; none when nothing needs you, waits for you or runs. */
@@ -230,6 +231,7 @@ export type NotchRow = { kind: 'session'; key: string; item: BarItem } | { kind:
 export const ROW_READS: Reads<NotchRow> = {
   keyOf: (r) => r.key,
   sinceOf: (r) => (r.kind === 'session' ? r.item.since : r.review.since),
+  waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.item.status) : 'reviews'),
   titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
 };
 
@@ -254,9 +256,9 @@ export function waitingRows(rows: NotchRow[]): NotchRow[] {
 }
 
 /** The row a click on the notch itself opens it on: the one it showed last while that still
- *  waits on you, else the first that waits, else the one it showed last, else the first row.
- *  None with nothing on the bar. */
+ *  waits on you, else the first that waits in the queue's order (the one that has waited
+ *  longest), else the one it showed last, else the first row. None with nothing on the bar. */
 export function currentRow(rows: NotchRow[], last: string | null): NotchRow | null {
-  const waiting = waitingRows(rows);
+  const waiting = inQueueOrder(waitingRows(rows), ROW_READS);
   return waiting.find((r) => r.key === last) ?? waiting[0] ?? rows.find((r) => r.key === last) ?? rows[0] ?? null;
 }

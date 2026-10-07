@@ -985,8 +985,7 @@ export interface BarFeed {
   terminal: string;
   /** The projects, in your order, for the bar's project menu. */
   projects: string[];
-  /** In bar order: by group, then Needs you and Working the longest first, Your turn the newest
-   *  status first. */
+  /** In bar order: by group, then each the longest first. */
   items: BarItem[];
   /** The other sessions started in the last day, the newest status first. */
   recent: BarRecent[];

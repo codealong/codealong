@@ -2,9 +2,9 @@
 // `queueRows`): three sessions that need you and one whose turn ended, the longest wait first,
 // each running in its terminal, so its box types into it (one that isn't running goes on where its
 // box says instead: resume-check.js).
-// It opens on the first; ⌘] skips, ⌘E on one that has started running does too, archiving,
-// sending with ⌘⏎ and marking seen go on to the next, ⏎ sends and stays, a skipped one comes round
-// again, and after the last the window says nothing waits, until one comes to wait on you. The
+// It opens on the first; ⌘] skips, ⌘E on one that has started running does too, on from where it
+// stood, archiving, sending with ⌘⏎ and marking seen go on to the next, ⏎ sends and stays, a
+// skipped one comes round again, and after the last the window says nothing waits, until one comes to wait on you. The
 // other keys for getting about are the ones Sessions and the notch have (queue.ts): ⌥⇧↑ ⌥⇧↓,
 // ⌃- ⌃⇧- and ⌥↑ ⌥↓ along what waits.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/queue-check.js
@@ -96,17 +96,18 @@
     .then(function () {
       check('on one that runs the strip says what waits, not what more', /^3 waiting on you/.test(strip()), strip());
       key(window, { key: 'e', code: 'KeyE', metaKey: true });
-      return on('Queue A');
+      return on('Queue C');
     })
     .then(function () {
-      // From one that doesn't wait on you, the next is the first that does.
-      check('⌘E on one that runs goes on to what waits, and marks nothing seen', title() === 'Queue A' && called('mark_seen') === 0, title());
+      // B waited where it stood when it started running: the next is the one after it, and A,
+      // skipped to get to B, comes after the rest.
+      check('⌘E on one that runs goes on from where it stood, and marks nothing seen', title() === 'Queue C' && called('mark_seen') === 0, title());
       // It waits on you again.
       push(picked[1], 'needs');
       return wait(300);
     })
     .then(function () {
-      key(window, { key: ']', code: 'BracketRight', metaKey: true });
+      key(window, { key: 'ArrowUp', altKey: true, shiftKey: true });
       return on('Queue B');
     })
     .then(function () {

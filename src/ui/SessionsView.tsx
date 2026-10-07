@@ -52,8 +52,8 @@ const byGroupTime = (a: SessionItem, b: SessionItem) => byStatusTime(a.session, 
 
 /**
  * What a session's panel works through with ⌘⏎, `e` and ⌘]: the sessions listed that wait on you,
- * pinned ones too, Needs you the longest wait first, then Your turn the newest first, as sorting
- * by status lists them. Snoozed ones wait their time.
+ * pinned ones too, Needs you then Your turn, each the longest wait first, as sorting by status
+ * lists them and the queue goes through them (queue.ts `byPlace`). Snoozed ones wait their time.
  */
 export function waitingQueue(rows: SessionItem[]): SessionItem[] {
   return ATTENTION.filter((g) => g.queue).flatMap(({ statuses }) => rows.filter(inGroup(statuses)).sort(byGroupTime));
@@ -61,8 +61,7 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
 
 /**
  * The sessions in `sort`'s order. By status: Needs you, Your turn and Working first, in the
- * floating bar's order (Needs you and Working the longest first, Your turn the newest status
- * first), then Snoozed, the soonest back first, then the rest by the local day they were last
+ * floating bar's order (each the longest first), then Snoozed, the soonest back first, then the rest by the local day they were last
  * active, each day the one you last sent a prompt first. By start: the newest first.
  */
 export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number): SessionItem[] {

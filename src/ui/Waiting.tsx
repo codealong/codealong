@@ -2,9 +2,9 @@
 // window of its own that you size and keep where you like. It shows the first session that needs
 // you, with its conversation and the box that answers it (SessionCard.tsx), or a PR waiting on
 // your review with the box that reviews it (PrCard.tsx), and goes on to the next as each is dealt
-// with: every session in every project that needs you, the longest wait first, then the PRs
-// waiting on your review, then the sessions whose turn ended, the newest first (quick.ts
-// `queueRows`), snoozed ones left out. With nothing waiting it says so, and the first that comes
+// with: every session in every project that needs you, then the PRs waiting on your review, then
+// the sessions whose turn ended, each the longest wait first (quick.ts `queueRows`, queue.ts
+// `byPlace`), snoozed ones left out. With nothing waiting it says so, and the first that comes
 // to wait on you shows by itself.
 //
 // It works through them as a session's panel in Sessions and the notch do, with the same keys,
@@ -30,8 +30,7 @@ import * as menus from '../menus';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { openWhere, where } from '../open';
 import { prRefOf } from '../prLinks';
-import type { Reads } from '../queue';
-import { ALL_PROJECTS, queueRows, reviewSince, statusTime, type QueueRow } from '../quick';
+import { ALL_PROJECTS, QUEUE_READS, queueRows, reviewSince, type QueueRow } from '../quick';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
 import type { Board, Lane, PrItem, Session } from '../types';
@@ -46,12 +45,6 @@ import { useNow } from './useNow';
 /** Where the sessions looked at here are kept, for ⌃- and ⌃⇧- (history.ts), apart from the other
  *  windows'. */
 const LOOKED_KEY = 'codealong.sessionHistory:waiting';
-/** How the queue reads the window's rows: a session's row by its session, a review's by its PR. */
-const QUEUE_READS: Reads<QueueRow> = {
-  keyOf: (r) => (r.kind === 'session' ? r.session.key : r.pr.key),
-  sinceOf: (r) => (r.kind === 'session' ? statusTime(r.session) : reviewSince(r.pr)),
-  titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
-};
 const BOARD_NOTICE = 'waiting-board';
 
 export function Waiting() {

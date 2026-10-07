@@ -1,14 +1,15 @@
 // A window's way through what waits on you (queue.ts has the rules): the sessions dealt with,
 // how the last one went, and the steps a key, a button or an answer takes. Sessions' panel in
 // the main window, the session in the notch and the waiting window all work through
-// their lists with it, so a key for getting about means one thing in all three. A window passes
-// only what differs: its rows, how it shows a session, and what's its own to do.
+// their lists with it, so a key for getting about means one thing in all three, and they go
+// through what waits in one order (queue.ts `byPlace`), whatever order their lists show it in. A
+// window passes only what differs: its rows, how it shows a session, and what's its own to do.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { seenable } from './lanes';
 import type { Left } from './menus';
 import * as rules from './queue';
-import type { Handled, QueueAction, QueueView, Reads, Shown, Step, Went } from './queue';
+import type { Handled, Place, QueueAction, QueueView, Reads, Shown, Step, Went } from './queue';
 import { statusTime } from './quick';
 import type { Session } from './types';
 import type { Notice, Queue } from './ui/SessionPanel';
@@ -26,12 +27,13 @@ export function shownSession(s: Session): Shown {
 export const SESSION_READS: Reads<{ session: Session }> = {
   keyOf: (r) => r.session.key,
   sinceOf: (r) => statusTime(r.session),
+  waitsOf: (r) => rules.statusWaits(r.session.status),
   titleOf: (r) => r.session.title,
 };
 
 /** What a window says of itself: its lists and the session shown (queue.ts `QueueView`), and how
  *  it does what the rules ask of it. What it leaves out stays its own. */
-export interface WaitingQueueOptions<T, H = undefined> extends Omit<QueueView<T>, 'travels' | 'marksSeen'> {
+export interface WaitingQueueOptions<T, H = undefined> extends Omit<QueueView<T>, 'travels' | 'marksSeen' | 'was'> {
   /** Shows a row's session in place of the one shown. `how` is whatever the window's own caller
    *  said about the step (the main window: whether the next one's box takes the cursor). */
   show: (row: T, how?: H) => void;
@@ -78,8 +80,13 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   // What the strip says, and the session it says it on: how one went is for the one gone on to,
   // not for whichever shows after a click elsewhere.
   const [note, setNote] = useState<(Notice & { on: string }) | null>(null);
+  // Where the session shown stood the last time the list had it waiting (queue.ts
+  // `QueueView.was`): an answer can take it off the list before it's in.
+  const was = useRef<Place | null>(null);
+  const listed = options.shown && options.waiting.find((r) => options.reads.keyOf(r) === options.shown?.key);
+  if (listed) was.current = rules.placeOf(listed, options.reads);
   // The window as of its last render, for a key pressed or an answer that comes in later.
-  const view: QueueView<T> = { ...options, travels: !!options.travel, marksSeen: !!options.markSeen };
+  const view: QueueView<T> = { ...options, was: was.current, travels: !!options.travel, marksSeen: !!options.markSeen };
   const now = useRef({ options, view });
   now.current = { options, view };
 

@@ -1,23 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { answered, chordPressed, firstLeft, keyStep, left, leftAfter, leftGoesOn, QUEUE_CHORDS, queueKey, seenStep, standing, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown } from './queue';
+import { answered, chordPressed, firstLeft, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, placeOf, QUEUE_CHORDS, queueKey, seenStep, standing, statusWaits, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
 
-// A window's rows, as the bar's pills are: a session's key, when its status began, its title.
+// A window's rows, as the bar's pills are: a session's key, when its status began, what it waits
+// on you as, its title.
 interface Row {
   key: string;
   since: number;
+  /** Left out for one that runs, which the queue never lists. */
+  waits?: Waits;
   /** A finished turn, or a reply that asks you something. */
   seenable?: boolean;
 }
-const READS: Reads<Row> = { keyOf: (r) => r.key, sinceOf: (r) => r.since, titleOf: (r) => `Queue ${r.key}` };
+const READS: Reads<Row> = { keyOf: (r) => r.key, sinceOf: (r) => r.since, waitsOf: (r) => r.waits ?? 'unread', titleOf: (r) => `Queue ${r.key}` };
 const NOW = 1_000;
 const keys = (rows: Row[]) => rows.map((r) => r.key);
 
 // What the preview checks walk: A and B need you (B on a call to allow, which ⌘E doesn't answer),
 // C and D are finished turns, and W runs.
-const A: Row = { key: 'A', since: 10, seenable: true };
-const B: Row = { key: 'B', since: 20 };
-const C: Row = { key: 'C', since: 30, seenable: true };
-const D: Row = { key: 'D', since: 40, seenable: true };
+const A: Row = { key: 'A', since: 10, waits: 'needs', seenable: true };
+const B: Row = { key: 'B', since: 20, waits: 'needs' };
+const C: Row = { key: 'C', since: 30, waits: 'unread', seenable: true };
+const D: Row = { key: 'D', since: 40, waits: 'unread', seenable: true };
 const W: Row = { key: 'W', since: 5 };
 const WAITING = [A, B, C, D];
 const shown = (r: Row): Shown => ({ key: r.key, title: READS.titleOf(r), since: r.since, seenable: !!r.seenable });
@@ -88,20 +91,60 @@ describe('the queue’s keys', () => {
   });
 });
 
+describe('the queue’s order', () => {
+  it('is the most urgent kind first, each first come, first served, whatever order a window lists them in', () => {
+    const review: Row = { key: 'R', since: 5, waits: 'reviews' };
+    expect(keys(inQueueOrder([D, review, C, B, A], READS))).toEqual(['A', 'B', 'R', 'C', 'D']);
+    // A key settles a tie.
+    const twin: Row = { ...C, key: 'C2' };
+    expect(keys(inQueueOrder([twin, C], READS))).toEqual(['C', 'C2']);
+  });
+
+  it('puts one that waits again after you answered it behind the ones that waited longer', () => {
+    // C's turn ended again after you answered it: D has waited longer now.
+    const again = WAITING.map((r) => (r.key === 'C' ? { ...r, since: 50 } : r));
+    expect(keys(inQueueOrder(again, READS))).toEqual(['A', 'B', 'D', 'C']);
+    expect(keys(leftAfter(again, 'B', new Map([['C', 30]]), READS))).toEqual(['D', 'C', 'A']);
+  });
+
+  it('names what a session waits as by its status', () => {
+    expect(statusWaits('needs')).toBe('needs');
+    expect(statusWaits('error')).toBe('needs');
+    expect(statusWaits('unread')).toBe('unread');
+  });
+});
+
 describe('what’s left after a session', () => {
   it('goes on from the session answered, then back to the ones skipped', () => {
-    expect(keys(leftAfter(WAITING, 'A', none, READS.keyOf, READS.sinceOf))).toEqual(['B', 'C', 'D']);
-    expect(keys(leftAfter(WAITING, 'C', none, READS.keyOf, READS.sinceOf))).toEqual(['D', 'A', 'B']);
-    // Not in the queue (it runs, or the board shows it working already): from the top.
-    expect(keys(leftAfter(WAITING, 'W', none, READS.keyOf, READS.sinceOf))).toEqual(['A', 'B', 'C', 'D']);
-    expect(keys(leftAfter(WAITING, 'gone', none, READS.keyOf, READS.sinceOf))).toEqual(['A', 'B', 'C', 'D']);
+    expect(keys(leftAfter(WAITING, 'A', none, READS))).toEqual(['B', 'C', 'D']);
+    expect(keys(leftAfter(WAITING, 'C', none, READS))).toEqual(['D', 'A', 'B']);
+    // Not in the queue, and never was while shown (it runs): from the top.
+    expect(keys(leftAfter(WAITING, 'W', none, READS))).toEqual(['A', 'B', 'C', 'D']);
+    expect(keys(leftAfter(WAITING, 'gone', none, READS))).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('goes on from where an answered one stood once the list no longer has it', () => {
+    // B's call was allowed and the board shows it working before the answer's in: on to C, and
+    // A, which you skipped to get to B, still comes after the rest.
+    const rest = [A, C, D];
+    expect(keys(leftAfter(rest, 'B', none, READS, placeOf(B, READS)))).toEqual(['C', 'D', 'A']);
+    expect(answered({ ...card(B, rest), was: placeOf(B, READS) }, none, 'B', 'Allowed it.', NOW)).toMatchObject({ went: 'on', to: C });
+    expect(standing({ ...card(B, rest), was: placeOf(B, READS) }, none)?.left.map((r) => r.key)).toEqual(['C', 'D', 'A']);
+    // Where another session stood says nothing of this one's.
+    expect(keys(leftAfter(rest, 'W', none, READS, placeOf(B, READS)))).toEqual(['A', 'C', 'D']);
+  });
+
+  it('takes one that comes to wait ahead of where you are round after the rest, as one you skipped', () => {
+    // On C, your turn: N comes to need you. It's done after D, before going round to A and B.
+    const n: Row = { key: 'N', since: 50, waits: 'needs' };
+    expect(keys(leftAfter([...WAITING, n], 'C', none, READS))).toEqual(['D', 'A', 'B', 'N']);
   });
 
   it('leaves out what you dealt with until it waits on you anew', () => {
     const handled: Handled = new Map([['B', 20]]);
-    expect(keys(leftAfter(WAITING, 'A', handled, READS.keyOf, READS.sinceOf))).toEqual(['C', 'D']);
+    expect(keys(leftAfter(WAITING, 'A', handled, READS))).toEqual(['C', 'D']);
     const again = WAITING.map((r) => (r.key === 'B' ? { ...r, since: 50 } : r));
-    expect(keys(leftAfter(again, 'A', handled, READS.keyOf, READS.sinceOf))).toEqual(['B', 'C', 'D']);
+    expect(keys(leftAfter(again, 'A', handled, READS))).toEqual(['B', 'C', 'D']);
   });
 
   it('says whether a session waits itself, dealt with or not', () => {
@@ -126,7 +169,7 @@ describe('what’s left after a session', () => {
     const all: Handled = new Map(WAITING.map((r) => [r.key, r.since]));
     expect(firstLeft(card(null), all)).toBeUndefined();
     // One that waits on you anew, or for the first time, is.
-    const fresh: Row = { key: 'E', since: 60 };
+    const fresh: Row = { key: 'E', since: 60, waits: 'unread' };
     expect(firstLeft(card(null, [...WAITING, fresh]), all)).toBe(fresh);
     expect(firstLeft(card(null, WAITING.map((r) => (r.key === 'C' ? { ...r, since: 70 } : r))), all)?.key).toBe('C');
     expect(firstLeft(card(null, []), none)).toBeUndefined();
@@ -135,13 +178,14 @@ describe('what’s left after a session', () => {
 
 describe('⌘] ⌥⇧↓ and ⌘[ ⌥⇧↑', () => {
   it('skip to the next that waits, and back to the one before', () => {
-    expect(stepTo('next', WAITING, 'A', none, READS)?.key).toBe('B');
-    expect(stepTo('back', WAITING, 'B', none, READS)?.key).toBe('A');
+    const q = { waiting: WAITING, reads: READS };
+    expect(stepTo('next', q, 'A', none)?.key).toBe('B');
+    expect(stepTo('back', q, 'B', none)?.key).toBe('A');
     // From the first, back is round to the last; from the last, on is round to the first.
-    expect(stepTo('back', WAITING, 'A', none, READS)?.key).toBe('D');
-    expect(stepTo('next', WAITING, 'D', none, READS)?.key).toBe('A');
+    expect(stepTo('back', q, 'A', none)?.key).toBe('D');
+    expect(stepTo('next', q, 'D', none)?.key).toBe('A');
     // From one that runs, the first that waits.
-    expect(stepTo('next', WAITING, 'W', none, READS)?.key).toBe('A');
+    expect(stepTo('next', q, 'W', none)?.key).toBe('A');
   });
 
   it('deal with nothing, and take back what the strip said', () => {
@@ -195,7 +239,7 @@ describe('⌘E', () => {
 
   it('marks seen and stays on a row that didn’t wait on you', () => {
     // A finished turn that's snoozed, say: it isn't in the queue.
-    const snoozed: Row = { key: 'S', since: 1, seenable: true };
+    const snoozed: Row = { key: 'S', since: 1, waits: 'unread', seenable: true };
     const step = keyStep(sessions(snoozed), none, 'seen', NOW);
     expect(step).toMatchObject({ taken: true, markSeen: 'S', went: 'stay' });
     expect(step.to).toBeUndefined();

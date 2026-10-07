@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRows, type Metrics, type NotchRow } from './bar';
-import { ALL_PROJECTS } from './quick';
+import { inQueueOrder, placeOf } from './queue';
+import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
+import { SESSION_READS } from './useWaitingQueue';
 import type { BarItem, BarReview } from './types';
 
 // Which sessions, PRs and todos the bar shows, and their order, are the engine's (barfeed.rs, with
@@ -259,6 +261,23 @@ describe('what the notch works through', () => {
     expect(keys(waitingRows(rows))).toEqual(['n1', 'n2', 'o/r#7', 'o/r#8', 'u1']);
   });
 
+  it('works through it in the order the bar lists it, which is the queue’s', () => {
+    const waiting = waitingRows(notchRows([item('n1', 'needs', 10), item('u1', 'unread', 30), item('u2', 'unread', 40)], reviews));
+    expect(keys(inQueueOrder(waiting, ROW_READS))).toEqual(keys(waiting));
+  });
+
+  it('places what waits in the queue as the waiting window and Sessions do', () => {
+    const session = fx.session({ key: 'claude:claude:u', status: 'unread', statusSince: 30 });
+    const row = queueRows(fx.board({ lanes: [fx.lane({ sessions: [session] })] }), ALL_PROJECTS)[0];
+    const pill = notchRows([fx.barItem({ key: session.key, group: 'unread', status: 'unread', since: 30 })], [])[0];
+    expect(placeOf(pill, ROW_READS)).toEqual({ key: session.key, waits: 'unread', since: 30 });
+    expect(placeOf(row, QUEUE_READS)).toEqual(placeOf(pill, ROW_READS));
+    expect(placeOf({ session }, SESSION_READS)).toEqual(placeOf(pill, ROW_READS));
+    const pr = fx.prItem({ key: 'acme/app#7', reviewRequested: true, state: 'open', requestedAt: 15, project: 'Acme' });
+    const reviewRow = queueRows(fx.board({ prs: [pr] }), ALL_PROJECTS)[0];
+    expect(placeOf(reviewRow, QUEUE_READS)).toEqual(placeOf(notchRows([], [fx.barReview({ key: pr.key, since: 15 })])[0], ROW_READS));
+  });
+
   it('opens on the one shown last while it still waits, else the first that waits', () => {
     expect(currentRow(rows, null)?.key).toBe('n1');
     expect(currentRow(rows, 'u1')?.key).toBe('u1');
@@ -268,6 +287,8 @@ describe('what the notch works through', () => {
     expect(currentRow(rows, 'gone')?.key).toBe('n1');
     // Only reviews wait: the first of them.
     expect(currentRow(notchRows([item('w1', 'working', 5)], reviews), null)?.key).toBe('o/r#7');
+    // Only finished turns: the one that has waited longest, whatever order they come in.
+    expect(currentRow(notchRows([item('u2', 'unread', 40), item('u1', 'unread', 30)], []), null)?.key).toBe('u1');
     // Nothing waits: the one shown last, else the bar's first.
     const running = notchRows([item('w1', 'working', 5), item('w2', 'working', 6)], []);
     expect(currentRow(running, 'w2')?.key).toBe('w2');

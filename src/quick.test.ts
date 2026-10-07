@@ -35,7 +35,7 @@ describe('queueRows', () => {
 });
 
 describe('attentionRows', () => {
-  it('lists what needs you, the longest wait first, then finished turns, the newest first', () => {
+  it('lists what needs you, then finished turns, each the longest wait first', () => {
     const b = board([
       lane('app2', [session('w', 'working', NOW), session('u1', 'unread', NOW - 10), session('i', 'idle', NOW)]),
       lane('app3', [session('n', 'needs', NOW - 90), session('e', 'error', NOW - 5), session('u2', 'unread', NOW - 1)]),
@@ -44,8 +44,8 @@ describe('attentionRows', () => {
     expect(rows.map((r) => [r.key, r.group])).toEqual([
       ['n', 'needs'],
       ['e', 'needs'],
-      ['u2', 'unread'],
       ['u1', 'unread'],
+      ['u2', 'unread'],
     ]);
     expect(counts).toEqual({ needs: 2, reviews: 0, unread: 2, working: 1 });
   });

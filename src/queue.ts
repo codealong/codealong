@@ -1,31 +1,30 @@
 // Working through what waits on you, one session after another: the rules the three windows that
 // show a session with a box to answer it go by (Sessions' panel in the main window, the session in
-// the notch, the waiting window). Which key asks for what (`QUEUE_CHORDS`, `queueKey`),
-// and what a key, an answer or a session leaving comes to given the window's list, the session
-// shown and what's been dealt with (`keyStep`, `answered`, `left`). `useWaitingQueue`
-// (useWaitingQueue.ts) runs them for a window; they're kept apart from it so the rules have tests.
+// the notch, the waiting window). The order they work through it in (`byPlace`), which key asks
+// for what (`QUEUE_CHORDS`, `queueKey`), and what a key, an answer or a session leaving comes to
+// given the window's list, the session shown and what's been dealt with (`keyStep`, `answered`,
+// `left`). `useWaitingQueue` (useWaitingQueue.ts) runs them for a window; they're kept apart from
+// it so the rules have tests.
 
 import { historyChord } from './history';
 import type { Left } from './menus';
+import type { Status } from './types';
 
 /** Sessions you answered, marked seen, closed or archived from the queue, with the time of the
  *  status each had then: one is left out until it waits on you anew. The board can take seconds
  *  to show an answer, and an allowed tool call isn't shown ahead of it. */
 export type Handled = Map<string, number>;
 
-/**
- * What's left to answer after the session `key`: those after it in the queue, then those before
- * it (the ones you skipped), without it and the ones you've dealt with. The first is the one a
- * window shows next. `keyOf` and `sinceOf` say each row's session key and when its status began:
- * Sessions' rows and the waiting window's carry their session, the bar's pills only those.
- */
-export function leftAfter<T>(queue: T[], key: string, handled: Handled, keyOf: (row: T) => string, sinceOf: (row: T) => number): T[] {
-  const i = queue.findIndex((r) => keyOf(r) === key);
-  const order = i < 0 ? queue : [...queue.slice(i + 1), ...queue.slice(0, i)];
-  return order.filter((r) => {
-    const at = handled.get(keyOf(r));
-    return keyOf(r) !== key && (at === undefined || sinceOf(r) > at);
-  });
+/** What a row waits on you as, the most urgent first: a session that needs you, a PR waiting on
+ *  your review, a turn that ended. The notch counts and lists them in this order too (bar.ts
+ *  `NOTCH_ORDER`). */
+export const WAITS = ['needs', 'reviews', 'unread'] as const;
+export type Waits = (typeof WAITS)[number];
+
+/** What a session waits on you as, by its status: a finished turn is Your turn, and the rest that
+ *  wait (a call to allow, a question, an error) need you. */
+export function statusWaits(status: Status): Waits {
+  return status === 'unread' ? 'unread' : 'needs';
 }
 
 /** How the queue reads a window's rows. */
@@ -33,7 +32,57 @@ export interface Reads<T> {
   keyOf: (row: T) => string;
   /** When its status began. */
   sinceOf: (row: T) => number;
+  waitsOf: (row: T) => Waits;
   titleOf: (row: T) => string;
+}
+
+/** Where a row stands in the queue: what it waits as, since when, and its key, for a tie. */
+export interface Place {
+  key: string;
+  waits: Waits;
+  since: number;
+}
+
+export function placeOf<T>(row: T, reads: Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf'>): Place {
+  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row) };
+}
+
+/**
+ * The order every window works through what waits on you in: the most urgent kind first
+ * (`WAITS`), each first come, first served, the longest wait first. One that comes to wait, or
+ * comes back after you answered it, joins the end of its kind and never goes ahead of the ones
+ * that have waited longer.
+ */
+export function byPlace(a: Place, b: Place): number {
+  return WAITS.indexOf(a.waits) - WAITS.indexOf(b.waits) || a.since - b.since || a.key.localeCompare(b.key);
+}
+
+/** A window's rows in the queue's order (`byPlace`), whatever order it lists them in. */
+export function inQueueOrder<T>(rows: T[], reads: Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf'>): T[] {
+  return rows
+    .map((row) => ({ row, at: placeOf(row, reads) }))
+    .sort((a, b) => byPlace(a.at, b.at))
+    .map((r) => r.row);
+}
+
+/**
+ * What's left to answer after the session `key`: those after it in the queue's order, then those
+ * before it (the ones you skipped, and any that came to wait ahead of where you are), without it
+ * and the ones you've dealt with. The first is the one a window shows next. One the queue no
+ * longer lists goes on from where it stood (`was`, while that's its own: answered, the board can
+ * show it working before the answer's in); one that never waited goes from the top.
+ */
+export function leftAfter<T>(queue: T[], key: string, handled: Handled, reads: Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf'>, was?: Place | null): T[] {
+  const rows = inQueueOrder(queue, reads).map((row) => ({ row, at: placeOf(row, reads) }));
+  const from = rows.find((r) => r.at.key === key)?.at ?? (was?.key === key ? was : null);
+  const i = from ? rows.findIndex((r) => byPlace(r.at, from) > 0) : 0;
+  const order = i < 0 ? rows : [...rows.slice(i), ...rows.slice(0, i)];
+  return order
+    .filter(({ at }) => {
+      const dealt = handled.get(at.key);
+      return at.key !== key && (dealt === undefined || at.since > dealt);
+    })
+    .map((r) => r.row);
 }
 
 /**
@@ -98,8 +147,8 @@ export function waits<T>(waiting: T[], key: string, keyOf: (row: T) => string): 
 /** Where `next` and `back` go from the session `key`: the first of what's left after it, or the
  *  last, which is the one before it. None with nothing else waiting. From a session that doesn't
  *  wait itself, `next` is the first that does. */
-export function stepTo<T>(action: 'next' | 'back', waiting: T[], key: string, handled: Handled, reads: Pick<Reads<T>, 'keyOf' | 'sinceOf'>): T | null {
-  const left = leftAfter(waiting, key, handled, reads.keyOf, reads.sinceOf);
+export function stepTo<T>(action: 'next' | 'back', view: Pick<QueueView<T>, 'waiting' | 'reads' | 'was'>, key: string, handled: Handled): T | null {
+  const left = leftAfter(view.waiting, key, handled, view.reads, view.was);
   return (action === 'next' ? left[0] : left[left.length - 1]) ?? null;
 }
 
@@ -159,11 +208,15 @@ export interface Shown {
 
 /** A window as the rules see it: its lists, the session it shows, and what's its own to do. */
 export interface QueueView<T> {
-  /** Its sessions that wait on you, in its order, snoozed ones left out. */
+  /** Its sessions that wait on you, snoozed ones left out, in any order: the rules go through
+   *  them in the queue's (`byPlace`). */
   waiting: T[];
   reads: Reads<T>;
   /** The session shown, or null with none. */
   shown: Shown | null;
+  /** Where the session shown stood the last time `waiting` listed it. Answered, it can leave the
+   *  list before the answer's in, and the window goes on from there rather than from the top. */
+  was?: Place | null;
   /** Everything ⌥↑ ⌥↓ step along, the running ones too. Without it those keys are the window's
    *  own: the main window's arrows move along its list in every view, not only in Sessions. */
   along?: T[];
@@ -210,7 +263,7 @@ export interface KeyStep<T> extends Step<T> {
 /** The session shown is dealt with: the next that waits takes its place, saying what was done. */
 function dealt<T>(view: QueueView<T>, handled: Handled, s: Shown, done: string, now: number): Step<T> {
   const after = new Map(handled).set(s.key, s.since ?? now);
-  const to = stepTo('next', view.waiting, s.key, after, view.reads);
+  const to = stepTo('next', view, s.key, after);
   return to ? { went: 'on', to, words: wentWords(s.title, done), handled: after } : { went: 'last', handled: after };
 }
 
@@ -247,10 +300,10 @@ export function keyStep<T>(view: QueueView<T>, handled: Handled, action: QueueAc
   if (!s) return no;
   /** A step by hand: nothing is dealt with, and the strip takes back what it said. */
   const hand = (to: T | null): KeyStep<T> => (to ? { taken: true, went: 'on', to, words: null, handled } : { taken: true, went: 'last', handled });
-  if (action === 'next' || action === 'back') return hand(stepTo(action, view.waiting, s.key, handled, view.reads));
+  if (action === 'next' || action === 'back') return hand(stepTo(action, view, s.key, handled));
   if (action === 'seen') {
     const does = s.skipsOnSeen ? 'skip' : seenStep(s.seenable, waits(view.waiting, s.key, view.reads.keyOf));
-    if (does === 'skip') return hand(stepTo('next', view.waiting, s.key, handled, view.reads));
+    if (does === 'skip') return hand(stepTo('next', view, s.key, handled));
     if (does === 'stay' || !view.marksSeen) return no;
     return { ...left(view, handled, s.key, 'marked seen', now), taken: true, markSeen: s.key };
   }
@@ -266,12 +319,12 @@ export function keyStep<T>(view: QueueView<T>, handled: Handled, action: QueueAc
  *  window, after the last one, goes to the next that comes to wait on you, and not to one you
  *  just answered that the board still shows waiting. */
 export function firstLeft<T>(view: Pick<QueueView<T>, 'waiting' | 'reads'>, handled: Handled): T | undefined {
-  return leftAfter(view.waiting, '', handled, view.reads.keyOf, view.reads.sinceOf)[0];
+  return leftAfter(view.waiting, '', handled, view.reads)[0];
 }
 
 /** What the strip over the header goes by: what's left after the session shown, the next first,
  *  and whether it's one of those waiting itself. */
 export function standing<T>(view: QueueView<T>, handled: Handled): { left: T[]; waiting: boolean } | null {
   const s = view.shown;
-  return s ? { left: leftAfter(view.waiting, s.key, handled, view.reads.keyOf, view.reads.sinceOf), waiting: waits(view.waiting, s.key, view.reads.keyOf) } : null;
+  return s ? { left: leftAfter(view.waiting, s.key, handled, view.reads, view.was), waiting: waits(view.waiting, s.key, view.reads.keyOf) } : null;
 }

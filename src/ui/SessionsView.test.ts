@@ -39,7 +39,7 @@ describe('sortSessions by status', () => {
       item('failed', at(23, 8), 'error', at(23, 8), at(23, 8)),
       item('stopped', at(23, 9), 'stopped'),
     ];
-    // Needs you and Working the longest first; Your turn the newest status first.
+    // Each the longest first.
     expect(keys(sortSessions(rows, 'status', now))).toEqual(['failed', 'blocked', 'turn', 'busy-old', 'busy-new', 'idle', 'stopped']);
   });
 
@@ -94,6 +94,6 @@ describe('waitingQueue', () => {
     ];
     const later = item('later', at(24, 12), 'needs', at(24, 11), at(24, 10));
     rows.push({ ...later, session: { ...later.session, snoozedUntil: at(24, 18) } });
-    expect(waitingQueue(rows).map((r) => r.session.key)).toEqual(['failed', 'blocked', 'turn-new', 'turn-old']);
+    expect(waitingQueue(rows).map((r) => r.session.key)).toEqual(['failed', 'blocked', 'turn-old', 'turn-new']);
   });
 });

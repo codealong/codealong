@@ -15,8 +15,8 @@
   var plan = [
     { status: 'needs', since: now - 3 * 3600e3, asks: true },
     { status: 'needs', since: now - 3600e3, asks: false },
-    { status: 'unread', since: now - 5 * 60e3, asks: false },
     { status: 'unread', since: now - 10 * 60e3, asks: false },
+    { status: 'unread', since: now - 5 * 60e3, asks: false },
   ];
   var picked = [];
   var terminal = null;
