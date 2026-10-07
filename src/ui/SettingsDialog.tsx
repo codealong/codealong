@@ -661,7 +661,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes }: PaneProp
         <label className="ca-field">
           <span>Chrome profile</span>
           <ChromeProfileSelect value={draft.chromeProfile} profiles={chromeProfiles} none="None: the default browser" onChange={(chromeProfile) => setDraft({ ...draft, chromeProfile })} />
-          <small>Its worktrees’ previews open in this profile, with its sign-in and cookies. A worktree can pick its own in its Preview URL sheet.</small>
+          <small>Its worktrees’ previews, and links to them in conversations, open in this profile, with its sign-in and cookies. A worktree can pick its own in its Preview URL sheet.</small>
         </label>
       )}
       <div className="ca-acct-actions">

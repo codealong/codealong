@@ -374,7 +374,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   `chrome_profile` (Settings › Projects) covers its worktrees, and a worktree can pick its own
   in its Preview URL sheet or with `codealong preview set --chrome-profile <name>`. Profiles
   are named as Chrome's profile picker shows them, by the account signed in to them, or by
-  folder, and are read from Chrome's `Local State`. Servers are found from
+  folder, and are read from Chrome's `Local State`. A link into a worktree's app, in a
+  conversation or a PR's description, opens in that profile too: one at its URL's host and
+  port, or at the port of the server that serves it; any other link opens in the default
+  browser. Servers are found from
   the kernel's list of your processes' listening ports every 10 seconds (a few milliseconds for
   every worktree at once), each new one is asked for its front page once, and the kernel says
   the moment one exits, so nothing is polled over HTTP. Only worktrees in projects are looked
@@ -887,7 +890,7 @@ home = "~/.gemini/antigravity" # the app's data folder; its command line's, ~/.g
 name = "Northwind"
 repos = ["github.com/northwindai/*"]
 folders = []
-chrome_profile = "Work"        # its worktrees' previews open in this Chrome profile; without it, the default browser
+chrome_profile = "Work"        # its worktrees' previews, and links into them, open in this Chrome profile; without it, the default browser
 ```
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are

@@ -98,7 +98,9 @@ done` say on stderr that no session was linked; give a session key when you want
   (`chromeProfiles`), and a name Chrome doesn't have is refused with the ones it does. The
   worktree's profile is kept when its URL changes, `--chrome-profile` alone changes only it,
   and `--no-chrome-profile` goes back to the project's; `preview show` says which it opens in.
-  With neither, it opens in the default browser. Set one when the user asks, or when the
+  With neither, it opens in the default browser. A link you write into the app, at the
+  preview's host or its server's port, opens in that profile too when the user clicks it in
+  Codealong. Set one when the user asks, or when the
   repo's instructions say which account the app signs in with; for a whole project, edit its
   table in config.toml and run `codealong config check`.
 - `codealong worktrees` lists worktrees with branch, PR state, bay (`needs`, `working`,

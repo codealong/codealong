@@ -443,6 +443,20 @@ impl Handle {
         editors::open(&editor, &config::config_path())
     }
 
+    /// Opens a web link: one into a worktree's app where its preview opens, so the app has that
+    /// Chrome profile's sign-in (`board::app_of_link`), any other in the default browser. A
+    /// profile Chrome no longer has opens the link in the default browser rather than not at
+    /// all: a link's click has nowhere to say why, and the preview's own Open says it.
+    pub fn open_link(&self, url: &str) -> Result<()> {
+        match self.read(|b| link_opens_as(b, url)) {
+            Some(lane) => open_as_preview(url, &lane).or_else(|e| {
+                eprintln!("Opening {url} in the default browser: {e:#}");
+                launch::open_url(url)
+            }),
+            None => launch::open_url(url),
+        }
+    }
+
     /// Opens a lane's target where it lives. See *Surfaces*, Open where it lives.
     pub fn open(&self, lane_id: &str, target_id: &str) -> Result<()> {
         let board = self.board.read().map(|b| b.clone()).map_err(|_| anyhow!("board unavailable"))?;
@@ -517,14 +531,7 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
             if !preview.url.starts_with("http://") && !preview.url.starts_with("https://") {
                 bail!("{} isn't a web address.", preview.url);
             }
-            match &preview.chrome_profile {
-                Some(name) => {
-                    let whose = if preview.chrome_profile_set { "this worktree".to_string() } else { format!("{} in config.toml", lane.project) };
-                    let profile = chrome::resolve(name).map_err(|e| anyhow!("{e} It's set for {whose}."))?;
-                    chrome::open(&preview.url, &profile)?
-                }
-                None => launch::open_url(&preview.url)?,
-            }
+            open_as_preview(&preview.url, &lane)?
         }
         ["p", which] => {
             let pr = lane.pr.as_ref().ok_or_else(|| anyhow!("This lane has no PR."))?;
@@ -543,6 +550,23 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
 /// any app a target could name.
 fn opens_in(apps: &AppNames, id: &str) -> bool {
     id == apps.editor_id || apps.editors.iter().any(|e| e.id == id)
+}
+
+/// Opens `url` where `lane`'s preview opens: in its Chrome profile, or with none, the default
+/// browser.
+fn open_as_preview(url: &str, lane: &Lane) -> Result<()> {
+    let Some((preview, name)) = lane.preview.as_ref().and_then(|p| Some((p, p.chrome_profile.as_ref()?))) else {
+        return launch::open_url(url);
+    };
+    let whose = if preview.chrome_profile_set { "this worktree".to_string() } else { format!("{} in config.toml", lane.project) };
+    let profile = chrome::resolve(name).map_err(|e| anyhow!("{e} It's set for {whose}."))?;
+    chrome::open(url, &profile)
+}
+
+/// The worktree whose preview a web link opens as (`Handle::open_link`), or None when it opens
+/// in the default browser.
+pub fn link_opens_as(board: &Board, url: &str) -> Option<Lane> {
+    board::app_of_link(&board.lanes, url).cloned()
 }
 
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {

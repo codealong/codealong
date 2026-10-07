@@ -1199,6 +1199,15 @@ pub fn lane_preview(set: Option<&crate::previews::Entry>, servers: &[&crate::pre
     }
 }
 
+/// The worktree on this Mac whose app a web link is to, when its preview opens in a Chrome
+/// profile: the link opens there too, where the app has its sign-in, and any other link opens
+/// in the default browser. Another device's previews open on that device, in its own profiles.
+pub fn app_of_link<'a>(lanes: &'a [Lane], url: &str) -> Option<&'a Lane> {
+    lanes.iter().filter(|l| l.device.is_none()).find(|l| {
+        l.preview.as_ref().is_some_and(|p| p.chrome_profile.is_some() && crate::previews::is_app_link(url, &p.url, p.server.as_ref().map(|s| s.port).or(p.port)))
+    })
+}
+
 /// What a session's Chrome item says: Show in Chrome while one of its tabs is open, else Reopen
 /// with the site of its last page, and the profile when Chrome has more than one. `chromeLabel`
 /// in `src/open.ts` says the same.
@@ -2916,6 +2925,19 @@ mod tests {
         assert_eq!(lane_preview(None, &servers, &[], None).unwrap().chrome_profile, None);
         let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[], None, Some(&mine), &apps);
         assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("portal.app.test · node on port 5210 · Chrome's Dev profile"));
+
+        // A link into its app opens in its profile, from any worktree's conversation; a link
+        // elsewhere, or into an app that opens in the default browser, doesn't.
+        let at = |id: &str, preview: Option<Preview>| Lane { preview, ..crate::fixtures::lane(id, vec![]) };
+        let lanes = vec![at("/r/spark", None), at("/r/spark-plain", lane_preview(None, &[&api, &storybook], &[], None)), at("/r/spark-portal", Some(mine.clone()))];
+        let app = |url: &str| app_of_link(&lanes, url).map(|l| l.id.as_str());
+        assert_eq!(app("https://portal.app.test/orgs/a/projects/b"), Some("/r/spark-portal"));
+        assert_eq!(app("http://127.0.0.1:5210/"), Some("/r/spark-portal"));
+        assert_eq!(app("http://localhost:6006"), None);
+        assert_eq!(app("https://github.com/o/r/pull/1"), None);
+        let elsewhere = DeviceTag { name: "Mini".into(), short: "abc".into(), color: "blue".into(), online: true, last_seen: None };
+        let theirs = vec![Lane { device: Some(elsewhere), ..lanes[2].clone() }];
+        assert!(app_of_link(&theirs, "https://portal.app.test/x").is_none());
     }
 
     #[test]

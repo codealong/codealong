@@ -73,7 +73,9 @@ it.
 - `--snapshot [--table] [--no-github] [--usage]`: the board; `--snapshot --bar`: the floating bar's feed.
 - `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
   accounts on this Mac config.toml doesn't list; the settings as Settings gets them.
-- `--snapshot --open <lane id> <target id>`: runs a click's open action.
+- `--snapshot --open <lane id> <target id>`: runs a click's open action; `--snapshot --link
+  <url>`: where a click on a web link would open it (a worktree's app opens in its preview's
+  Chrome profile).
 - `--snapshot --pr <owner/name> <number>`: a PR's detail; `--snapshot --pr-card …`: a PR the
   board doesn't list, as a link to it gets it on hover.
 - `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel.

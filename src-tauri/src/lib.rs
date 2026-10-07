@@ -939,14 +939,16 @@ async fn review_in_codex(url: String) -> Result<(), String> {
     blocking(move || launch::open_codex(&launch::codex_review_url(&url)).map_err(words)).await?
 }
 
-/// Opens a web link (from a PR description) in the browser.
+/// Opens a web link (in a conversation, a PR's description) in the browser: one into a
+/// worktree's app in the Chrome profile its preview opens in (`engine::Handle::open_link`).
 #[tauri::command]
-async fn open_url(url: String) -> Result<(), String> {
+async fn open_url(engine: State<'_, engine::Handle>, url: String) -> Result<(), String> {
+    let engine = engine.inner().clone();
     blocking(move || {
         if !(url.starts_with("https://") || url.starts_with("http://")) {
             return Err("Only web links open from here.".into());
         }
-        launch::open_url(&url).map_err(words)
+        engine.open_link(&url).map_err(words)
     })
     .await?
 }

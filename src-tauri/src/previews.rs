@@ -252,6 +252,23 @@ pub fn short_url(url: &str) -> &str {
     rest.strip_suffix('/').unwrap_or(rest)
 }
 
+/// Where a web URL is served: its host, with every name for this Mac taken as one, and its port.
+fn served_at(url: &str) -> Option<(String, u16)> {
+    let (scheme, rest) = url.split_once("://")?;
+    let (host, port) = host_port(rest);
+    let port = port.or(if scheme.eq_ignore_ascii_case("https") { Some(443) } else if scheme.eq_ignore_ascii_case("http") { Some(80) } else { None })?;
+    let host = if is_local(host) { "localhost".to_string() } else { host.to_ascii_lowercase() };
+    Some((host, port))
+}
+
+/// A link is to a worktree's app when it's served where the app's URL is, or names this Mac at
+/// the port of the server that serves the app. Its path doesn't matter: an agent links to a
+/// page in the app, not to its front page.
+pub fn is_app_link(link: &str, app_url: &str, app_port: Option<u16>) -> bool {
+    let Some(at) = served_at(link) else { return false };
+    served_at(app_url).as_ref() == Some(&at) || (at.0 == "localhost" && app_port == Some(at.1))
+}
+
 /// A process listening on a TCP port whose folder is in a worktree.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Server {
@@ -590,6 +607,24 @@ mod tests {
         assert_eq!(local_port("https://feature.app.test:8443"), None);
         assert_eq!(short_url("https://feature.app.test/"), "feature.app.test");
         assert_eq!(short_url("http://localhost:5173/admin"), "localhost:5173/admin");
+    }
+
+    #[test]
+    fn a_link_into_the_app_is_the_apps() {
+        let app = "https://portal.app.test";
+        assert!(is_app_link("https://portal.app.test/orgs/a/projects/b/schedule", app, None));
+        assert!(is_app_link("https://Portal.App.Test:443/", app, None));
+        // Another host, even a sibling the same proxy serves, is another app.
+        assert!(!is_app_link("https://other.app.test/x", app, None));
+        assert!(!is_app_link("https://github.com/o/r/pull/1", app, None));
+        assert!(!is_app_link("http://portal.app.test/x", app, None));
+        assert!(!is_app_link("portal.app.test/x", app, None));
+        // This Mac at the port of the server that serves it, by any of its names.
+        assert!(is_app_link("http://127.0.0.1:5210/x", app, Some(5210)));
+        assert!(is_app_link("http://localhost:5210", app, Some(5210)));
+        assert!(!is_app_link("http://localhost:5211", app, Some(5210)));
+        assert!(is_app_link("http://127.0.0.1:5173/admin", "http://localhost:5173", None));
+        assert!(!is_app_link("http://localhost:6006", "http://localhost:5173", None));
     }
 
     #[test]

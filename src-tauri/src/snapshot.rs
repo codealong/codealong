@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::actions::{self, params, From};
-use crate::{api, barfeed, config, detect, editors, engine, github, harness, model, route, send, side, start, usage, util};
+use crate::{api, barfeed, chrome, config, detect, editors, engine, github, harness, model, route, send, side, start, usage, util};
 
 /// The command line, read one way for every mode.
 struct Args<'a>(&'a [String]);
@@ -82,6 +82,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
+    Mode { flag: "--link", takes: "<url>", run: link },
 ];
 
 /// `codealong --snapshot [--table] [--no-github] [--usage]`: one pass over everything, printed as
@@ -96,6 +97,8 @@ const MODES: &[Mode] = &[
 /// `codealong --snapshot --skills [folder…]`: the skills a session in each folder could be asked
 /// to run by name, and each account's own, as the `/` lists get them.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
+/// `codealong --snapshot --link <url>`: where a click on a web link in a conversation opens it,
+/// without opening it.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --pr-card <owner/name> <number>`: a PR the board doesn't list, as a link
 /// to it in a conversation gets it.
@@ -379,6 +382,19 @@ fn open(_: &Args, rest: &[String]) -> Done {
     let [lane, target, ..] = rest else { return Err(Stop::Usage) };
     engine::open_on(&engine::snapshot(false, false), lane, target).map_err(failed)?;
     Ok(String::new())
+}
+
+/// Where a click on a web link opens it, said without opening it.
+fn link(_: &Args, rest: &[String]) -> Done {
+    let [url, ..] = rest else { return Err(Stop::Usage) };
+    let Some(lane) = engine::link_opens_as(&engine::snapshot(false, false), url) else {
+        return Ok("In the default browser: it isn't a link into a worktree's app that opens in a Chrome profile.".into());
+    };
+    let name = lane.preview.as_ref().and_then(|p| p.chrome_profile.clone()).unwrap_or_default();
+    Ok(match chrome::resolve(&name) {
+        Ok(p) => format!("In Chrome's {} profile ({}), as {}'s preview opens.", p.name, p.dir, lane.path),
+        Err(e) => format!("In the default browser, though it's {}'s app: {}", lane.path, util::words(e)),
+    })
 }
 
 #[cfg(test)]
