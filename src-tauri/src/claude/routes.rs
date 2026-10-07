@@ -106,6 +106,24 @@ mod tests {
     }
 
     #[test]
+    fn runs_a_shell_command_only_where_its_typed_into_the_box() {
+        use crate::send::{shell_command, typed_routes};
+        assert!(shell_command("! make test") && shell_command("  !ls") && !shell_command("Run `! ls` for me"));
+        // A terminal session's terminal; never its socket, where the agent would get the words.
+        let s = session(Surface::Cli, Status::Idle, true, Some(42));
+        assert_eq!(typed_routes(claude_routes(&s, Some(&registry(json!({}))), Path::new("/h"), None, None)), vec![Route::Type { pid: 42 }]);
+        // A background job's daemon pastes it into the job's box.
+        let reg = registry(json!({ "kind": "bg", "jobId": "6e07c149" }));
+        let job = Background { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() };
+        assert_eq!(typed_routes(claude_routes(&s, Some(&reg), Path::new("/h"), Some(Path::new("/tmp/d/control.sock")), None)), vec![job.into()]);
+        // A Claude app session, or one that isn't running, has no box to type it into.
+        let app = session(Surface::App, Status::Idle, true, Some(42));
+        assert!(typed_routes(claude_routes(&app, Some(&registry(json!({ "entrypoint": "claude-desktop" }))), Path::new("/h"), None, None)).is_empty());
+        let stopped = session(Surface::Cli, Status::Stopped, false, None);
+        assert!(typed_routes(claude_routes(&stopped, None, Path::new("/h"), None, None)).is_empty());
+    }
+
+    #[test]
     fn skips_a_socket_of_a_protocol_it_doesnt_know() {
         let s = session(Surface::App, Status::Idle, true, Some(42));
         let routes = route_for(&s, Some(&registry(json!({ "peerProtocol": 2 }))), Path::new("/h"), None).unwrap();

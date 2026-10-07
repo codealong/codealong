@@ -51,6 +51,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   Code put back), and `launch::terminal_type_session` presses Ctrl+C.
 - A prompt pasted into a box that would end in an `@` word gets a space, or Return picks from
   the file list instead of sending (2.1.287): `send.rs` (`boxed`, `ends_in_mention`).
+- `!` at the start of the box is bash mode: the rest runs in the session's shell, and the agent
+  takes a turn on what it printed. A paste led by `!` into an empty box switches to it as a typed
+  `!` does (by its code, not tried: with text already in the box, or the cursor past its start,
+  the box keeps its mode), long and multi-line
+  pastes too: one line of 644 characters and 12 lines of 1,300 ran (2.1.293 in tmux, bracketed
+  as `launch/tmux.rs` pastes, 2026-10-07); a daemon `reply` led by `!` runs the same way (its
+  code takes the reply's mode from its text). What it records, and Run on a `!` block:
+  `claude/conversation.rs` (`shell_items`), `send.rs` (`shell_command`, `typed_routes`). Agents
+  are told to write `! <command>` for a command you should run yourself.
 - Another session's message (`origin: {kind: "peer", name, body}`, on an `isMeta` `user` line
   or a `queued_command` attachment), what you send a Claude app session from Codealong, and a
   subagent's report back (`handback: true`): `claude/conversation.rs` (`Peer`, `line_peer`,

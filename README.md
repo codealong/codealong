@@ -169,7 +169,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     click brings it up. Code blocks have Copy on hover, and a shell block in a
     reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
     terminal where the session works, or where the command ran, and types the commands there
-    without their comments. The box at the bottom sends it a message where it runs,
+    without their comments. A block led by `!`, which an agent writes for you to run in the
+    session itself, runs there instead: Run sends it to a Claude Code session in its terminal or
+    in the background as a reply, where Claude Code runs it in its shell and its agent reads what
+    it printed, and anywhere else opens a terminal for it without the `!`. A command run that
+    way, from Codealong or with `!` in the terminal, shows as yours with its output. The box at
+    the bottom sends it a message where it runs,
     as the waiting window does; paste a screenshot or a file into it and the agent gets its path,
     and what you'd written to a session and not sent stays with that session until you send
     it, in every window (the panel, the floating bar's peek, the waiting window) and across

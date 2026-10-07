@@ -26,4 +26,12 @@ describe('rowsOf', () => {
     // Its result can come in a later page than the call: until then it folds like any other.
     expect(shape(items.filter((it) => it.kind !== 'result'))).toEqual([8]);
   });
+
+  it('joins what a command you ran with ! printed to it, between the calls around it', () => {
+    const ran = step('you', { id: 'b1', text: '! ls', input: 'ls', shell: true });
+    const items = [call('a'), call('b'), call('c'), ran, step('result', { id: 'b1', output: 'a.txt' }), step('agent')];
+    expect(shape(items)).toEqual([3, 'b1', 'agent']);
+    const row = rowsOf(items)[1];
+    expect(row.kind === 'item' && row.result?.output).toBe('a.txt');
+  });
 });

@@ -61,7 +61,8 @@ type Row =
 
 const keyOf = (it: TranscriptItem) => `${it.cursor}:${it.n}`;
 
-/** The items as rows: results joined to their calls, runs of calls folded. */
+/** The items as rows: results joined to their calls, and to commands you ran in the session's
+ *  shell, runs of calls folded. */
 export function rowsOf(items: TranscriptItem[]): Row[] {
   const results = new Map<string, TranscriptItem>();
   for (const it of items) if (it.kind === 'result' && it.id) results.set(it.id, it);
@@ -84,7 +85,7 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
       continue;
     }
     flush();
-    rows.push({ kind: 'item', item: it });
+    rows.push({ kind: 'item', item: it, result: it.kind === 'you' && it.id ? results.get(it.id) : undefined });
   }
   flush();
   return rows;
@@ -195,7 +196,10 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
   );
 }
 
-function Said({ item, now, label, onPutBack }: { item: TranscriptItem; now: number; label: ReactNode; onPutBack?: () => void }) {
+/** Something said: yours or the agent's. A command you ran in the session's shell with `!`
+ *  shows as the command, which can run again, and what it printed (`result`). */
+function Said({ item, result, now, label, onPutBack }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; onPutBack?: () => void }) {
+  const ran = item.kind === 'you' && item.input != null;
   return (
     <div className={cx('ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined}>
       <div className="ca-thread-meta">
@@ -204,9 +208,24 @@ function Said({ item, now, label, onPutBack }: { item: TranscriptItem; now: numb
           {item.withdrawn ? `Taken back · ${agoPhrase(item.at, now)}` : agoPhrase(item.at, now)}
         </span>
       </div>
-      {item.kind === 'you' ? <YourText text={item.text} /> : <Markdown text={item.text} className="ca-thread-agent" />}
-      {/* The message as it was written, markdown and all, for pasting elsewhere without selecting it. */}
-      {item.text.trim() && (
+      {ran ? (
+        <div className="ca-thread-ran">
+          {/* As typed in the session's box, led by its `!`. */}
+          <CodeBlock text={`! ${item.input ?? ''}`} className="ca-thread-in" run={item.shell ? { folder: item.cwd, session: true } : undefined} />
+          {result?.output && (
+            <CodeBlock text={result.output} className="ca-thread-out">
+              {linked(result.output)}
+            </CodeBlock>
+          )}
+        </div>
+      ) : item.kind === 'you' ? (
+        <YourText text={item.text} />
+      ) : (
+        <Markdown text={item.text} className="ca-thread-agent" />
+      )}
+      {/* The message as it was written, markdown and all, for pasting elsewhere without selecting
+          it. A command has its own Copy. */}
+      {item.text.trim() && !ran && (
         <div className="ca-thread-acts">
           <CopyButton text={item.text} title="Copy message" className="ca-thread-copy" />
         </div>
@@ -673,7 +692,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
             );
           }
           const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-          return <Said key={keyOf(it)} item={it} now={now} label={it.kind === 'you' ? 'You' : s.account} onPutBack={again} />;
+          return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={it.kind === 'you' ? 'You' : s.account} onPutBack={again} />;
         })}
         {showing.map((a) => (
           <Unsaid key={a.id} ahead={a} onOpen={onOpen} />

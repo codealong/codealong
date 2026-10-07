@@ -4,7 +4,7 @@
 
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { cx, Icon } from './primitives';
-import { RunButton, RunContext } from './RunButton';
+import { RunButton, RunContext, sessionCommand, terminalCommand, type RunTarget } from './RunButton';
 
 export function CopyButton({ text, title = 'Copy', className }: { text: string; title?: string; className?: string }) {
   const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
@@ -34,18 +34,21 @@ export function CopyButton({ text, title = 'Copy', className }: { text: string; 
 }
 
 /** Preformatted text you can select, with a Copy button on hover. `run` marks shell commands,
- *  which get a Run button too in a session on this Mac, run where `run.folder` says they ran or
- *  else where the session works. `children` is the text as it's drawn, when that's more than
- *  the text: a tool's output with its links. */
-export function CodeBlock({ text, className, run, children }: { text: string; className?: string; run?: { folder?: string }; children?: ReactNode }) {
+ *  which get a Run button too in a session on this Mac, run in a new terminal where `run.folder`
+ *  says they ran or else where the session works. `run.session` marks a command for the
+ *  session's own shell (led by `!`), which goes into the session instead where it can, and
+ *  otherwise into the terminal without its `!`. `children` is the text as it's drawn, when
+ *  that's more than the text: a tool's output with its links. */
+export function CodeBlock({ text, className, run, children }: { text: string; className?: string; run?: { folder?: string; session?: boolean }; children?: ReactNode }) {
   const place = useContext(RunContext);
-  const folder = run && place ? (run.folder ?? place.folder) : null;
+  const target: RunTarget | null = !run || !place ? null : run.session && place.session ? { session: place.session } : { folder: run.folder ?? place.folder, terminal: place.terminal };
+  const command = !run?.session ? text : target && 'session' in target ? sessionCommand(text) : terminalCommand(text);
   const [failed, setFailed] = useState<string | null>(null);
   return (
     <div className="ca-codeblock">
       <pre className={className}>{children ?? text}</pre>
       <div className="ca-codeblock-tools">
-        {folder && place && <RunButton text={text} folder={folder} terminal={place.terminal} onFailed={setFailed} />}
+        {target && <RunButton text={command} target={target} onFailed={setFailed} />}
         <CopyButton text={text} title="Copy" />
       </div>
       {failed && (

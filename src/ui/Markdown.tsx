@@ -71,8 +71,10 @@ type Block =
   /** `start`: an ordered list's first number, which goes on after a code block in the list. */
   | { kind: 'list'; ordered: boolean; items: string[]; start?: number }
   | { kind: 'quote'; text: string }
-  /** `shell`: a finished block of shell commands, which can run in a new terminal. */
-  | { kind: 'code'; text: string; shell: boolean }
+  /** `shell`: a finished block of shell commands, which can run in a new terminal. `session`:
+   *  one written for the session's own shell, led by `!` as Claude Code's box takes one (bash
+   *  mode), which runs in the session where it can (CopyButton.tsx). */
+  | { kind: 'code'; text: string; shell: boolean; session: boolean }
   | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] }
   | { kind: 'rule' };
 
@@ -80,7 +82,9 @@ type Align = 'left' | 'center' | 'right' | null;
 
 const ITEM = /^\s*(?:[-*+]|(\d+)[.)])\s+(.*)$/;
 /** A fence's languages for shell commands. A console session isn't one: it holds prompts and
- *  output, and a block with no language is as often output or a path as a command. */
+ *  output, and a block with no language is as often output or a path as a command, unless it
+ *  starts with `!`: that's a command for the session's own shell, as agents write one for you to
+ *  run there. */
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'fish', 'ksh', 'shell']);
 /** A table's delimiter row, under its header: `| --- | :-: |`. */
 const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
@@ -132,7 +136,9 @@ export function blocks(src: string): Block[] {
       // A block still being written (a reply as it streams) has no closing fence yet.
       const closed = i < lines.length;
       i++;
-      out.push({ kind: 'code', text: body.join('\n'), shell: closed && SHELLS.has(lang) });
+      const text = body.join('\n');
+      const session = closed && (lang === '' || SHELLS.has(lang)) && text.trimStart().startsWith('!');
+      out.push({ kind: 'code', text, shell: (closed && SHELLS.has(lang)) || session, session });
       continue;
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
@@ -244,7 +250,7 @@ export const Markdown = memo(function Markdown({ text, className }: { text: stri
           case 'quote':
             return <blockquote key={i}>{inline(b.text)}</blockquote>;
           case 'code':
-            return <CodeBlock key={i} text={b.text} run={b.shell ? {} : undefined} />;
+            return <CodeBlock key={i} text={b.text} run={b.shell ? { session: b.session } : undefined} />;
           case 'table':
             return (
               <div key={i} className="ca-md-table">

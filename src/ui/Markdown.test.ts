@@ -62,7 +62,7 @@ describe('blocks', () => {
     expect(b.map((x) => x.kind)).toEqual(['para', 'heading', 'list', 'list', 'code', 'quote', 'rule', 'para']);
     expect(b[2]).toEqual({ kind: 'list', ordered: false, items: ['**One** thing wraps on', '`two`'] });
     expect(b[3]).toMatchObject({ ordered: true, items: ['first', 'second'] });
-    expect(b[4]).toEqual({ kind: 'code', text: 'cargo test', shell: false });
+    expect(b[4]).toEqual({ kind: 'code', text: 'cargo test', shell: false, session: false });
   });
 
   it('reads a code block in a list as code, and the list going on after it', () => {
@@ -70,7 +70,7 @@ describe('blocks', () => {
     expect(b).toEqual([
       { kind: 'para', text: 'Then:' },
       { kind: 'list', ordered: true, items: ['Run this:'], start: 1 },
-      { kind: 'code', text: 'cd app &&\n  npm test', shell: true },
+      { kind: 'code', text: 'cd app &&\n  npm test', shell: true, session: false },
       { kind: 'list', ordered: true, items: ['Check the output.'], start: 2 },
     ]);
   });
@@ -81,7 +81,17 @@ describe('blocks', () => {
     expect(shell('  ```sh title="build"\n  make\n  ```')).toEqual([true]);
     expect(shell('```\nnpm test\n```\n\n```ts\nconst a = 1;\n```\n\n```console\n$ ls\na.txt\n```')).toEqual([false, false, false]);
     // Still being written: the reply streams in.
-    expect(blocks('Run:\n```bash\nnpm te')).toEqual([{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'npm te', shell: false }]);
+    expect(blocks('Run:\n```bash\nnpm te')).toEqual([{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'npm te', shell: false, session: false }]);
+  });
+
+  it('marks a block led by ! as a command for the shell of the session', () => {
+    const marks = (src: string) => blocks(src).map((b) => b.kind === 'code' && [b.shell, b.session]);
+    // As an agent writes one for you to run in the session (2026-10-07), with no language or a shell's.
+    expect(marks('To send it, run:\n\n```\n! cd /w && node scripts/notify.mjs send\n```')).toEqual([false, [true, true]]);
+    expect(marks('```bash\n!npm test\n```')).toEqual([[true, true]]);
+    // Not in another language, nor while it's still being written.
+    expect(marks('```js\n!done && go()\n```')).toEqual([[false, false]]);
+    expect(marks('```\n! npm te')).toEqual([[false, false]]);
   });
 
   it('reads tables, with alignment, ragged rows and pipes in code', () => {

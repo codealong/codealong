@@ -146,6 +146,12 @@ impl Own for Background {
         false
     }
 
+    /// Pasted into the job's box: a reply that starts with `!` runs in its shell, as typed
+    /// there (2.1.293's code: the reply's mode is the text's, so `!` is bash mode).
+    fn as_typed(&self) -> bool {
+        true
+    }
+
     fn deliver(&self, d: &Delivery) -> Result<Sent> {
         let title = d.title();
         let expanded = attachments::expand(d.text, Style::Mention);

@@ -162,6 +162,28 @@ type Note = { text: string; error: boolean };
  *  says it at once. */
 const ways = new Map<string, Way | null>();
 
+/** How what's typed gets to the session, asked again as the session starts or stops running
+ *  somewhere: for its box to say, and for Run to know whether a `!` command goes in
+ *  (RunButton.tsx `runsInSession`). Null until the engine says, and for one Codealong runs. */
+export function useWay(s: Pick<Session, 'key' | 'live' | 'pid' | 'surface' | 'attachCommand'>): Way | null {
+  const [way, setWay] = useState<Way | null>(() => ways.get(s.key) ?? null);
+  useEffect(() => {
+    let live = true;
+    sessionWay(s.key).then(
+      (w) => {
+        ways.set(s.key, w);
+        if (live) setWay(w);
+      },
+      // Said nothing: the box says it as it would before asking.
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [s.key, s.live, s.pid, s.surface, s.attachCommand]);
+  return way;
+}
+
 /** How a send went, by session, for the box showing on it now or, with none, the next. */
 const landed = new Map<string, Note>();
 /** The boxes showing, by session, each hearing how its session's sends go. */
@@ -200,22 +222,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   const latest = useRef(text);
   latest.current = text;
   const attached = attachmentsIn(text);
-  // How what's typed gets to the session, asked again as the session starts or stops running
-  // somewhere.
-  const [way, setWay] = useState<Way | null>(() => ways.get(s.key) ?? null);
-  useEffect(() => {
-    let live = true;
-    sessionWay(s.key).then(
-      (w) => {
-        ways.set(s.key, w);
-        if (live) setWay(w);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, [s.key, s.live, s.pid, s.surface, s.attachCommand]);
+  const way = useWay(s);
 
   // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
   // its account offers a choice; without one, a send resumes it in a terminal. The places are a

@@ -19,6 +19,12 @@
 //! prompt, so what's typed is its answer. Busy sessions are fine; each harness queues the prompt
 //! until the agent can take it.
 //!
+//! A prompt of yours that starts with `!` is a command for the session's own shell, as Claude
+//! Code's box takes one (bash mode: it runs in the session, and the agent reads what it prints).
+//! It goes only the ways that put it in that box as typed, its terminal or a background job's,
+//! never one that would hand the agent the words, or resume the session on them
+//! (`typed_routes`). Run on a `!` block in a conversation sends one (ui/CopyButton.tsx).
+//!
 //! An agent's message (`codealong session send`) is never yours. It starts with who sent it, that
 //! it isn't from the session's user, and how to answer, and it goes only the ways that don't read
 //! as the user's own words or need someone at this Mac: a harness's own way in for other
@@ -163,6 +169,13 @@ pub trait Own: std::fmt::Debug + Send + Sync {
     /// message is, or posts it with nobody needed at this Mac. Not one where it would read as
     /// the session's user's own words, or that leaves the prompt for someone to send.
     fn takes_agents(&self) -> bool;
+
+    /// What goes this way lands in the session's own box as if typed there (a background job's
+    /// terminal), so a prompt that starts with `!` runs in the session's shell (`shell_command`).
+    /// Not a way that hands the agent the words, or opens an app with them.
+    fn as_typed(&self) -> bool {
+        false
+    }
 
     /// Nothing takes the prompt this way: the harness takes none from outside, and it's only
     /// left on the clipboard for someone at this Mac to paste. An agent is told as much.
@@ -388,6 +401,16 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     let mut routes = crate::harness::adapter(session.harness).routes(account, session);
     if msg.from_agent() {
         routes = agent_routes(session, routes)?;
+    } else if shell_command(&msg.text) {
+        routes = typed_routes(routes);
+        if routes.is_empty() {
+            let title = quoted(&session.title);
+            bail!(if session.live {
+                format!("{title} runs a command that starts with ! only when it's typed into its own box, and Codealong can't type there, so nothing was sent. Open it and run the command there.")
+            } else {
+                format!("{title} isn't running, so there's no shell for the command to run in; nothing was sent.")
+            });
+        }
     }
     let mut last_err = None;
     // Why typing into its terminal didn't work, for the note on the way it went instead.
@@ -436,6 +459,27 @@ pub(crate) fn ensure_may_resume(sender: &Sender, title: &str) -> Result<()> {
         bail!("{} {NOT_STARTED_AGAIN}", quoted(title));
     }
     Ok(())
+}
+
+/// Whether a prompt is a command for the session's own shell: it starts with `!`, which Claude
+/// Code's box takes as one (bash mode), running it in the session and handing the agent what it
+/// prints.
+pub fn shell_command(text: &str) -> bool {
+    text.trim_start().starts_with('!')
+}
+
+/// The ways in a command for the session's shell may take (`shell_command`): those that put it
+/// in the session's box as typed, where the `!` runs it. Any other would hand the agent the words
+/// to act on as it saw fit, or resume the session on them.
+pub(crate) fn typed_routes(routes: Vec<Route>) -> Vec<Route> {
+    routes
+        .into_iter()
+        .filter(|r| match r {
+            Route::Type { .. } => true,
+            Route::Resume => false,
+            Route::Own(own) => own.as_typed(),
+        })
+        .collect()
 }
 
 /// The ways in an agent's message may take, of the session's own. A harness with a way in for

@@ -195,7 +195,20 @@
   gap: var(--space-1);
   margin: 2px 0 6px 25px;
 }
-.ca-thread-tooldetail pre {
+/* A command you ran in the session's shell with `!`: the command in your message's colours, and
+   what it printed under it as a call's output is. */
+.ca-thread-ran {
+  display: grid;
+  gap: var(--space-1);
+}
+.ca-thread-ran .ca-thread-in {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--neutral-tint);
+  color: var(--ink);
+}
+.ca-thread-tooldetail pre,
+.ca-thread-ran pre {
   margin: 0;
   max-height: 260px;
   overflow: auto;

@@ -20,18 +20,20 @@
 // or a row's menu shows it with its name ready to change.
 
 import { useMemo, type ReactNode } from 'react';
+import { sendAhead } from '../ahead';
 import { below, showContextMenu, type MenuGroup } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
+import { useLatest } from '../latest';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { cardZoom } from '../zoom';
 import { Button, cx, Icon, Rich } from './primitives';
-import { runFolder } from './RunButton';
+import { runFolder, runsInSession } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
-import { Reply } from './SessionReply';
+import { Reply, useWay } from './SessionReply';
 import { SessionThread } from './SessionThread';
 
 /** Working through what waits on you: how many are left after this one, and the next. */
@@ -218,9 +220,15 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const openIt = () => onOpen(s.openTarget);
   // Sending and marking seen go on to the next only from a session that waits on you itself.
   const goesOn = queue?.waiting !== false && queue?.next;
-  // Its shell blocks run in a terminal here, so not for a session on another device.
+  // Its shell blocks run in a terminal here, so not for a session on another device; a block led
+  // by `!` goes into the session itself, as a reply does, where it can.
   const folder = shortOf(s.key) ? null : runFolder(lane, s);
-  const run = useMemo(() => (folder === null ? undefined : { folder, terminal }), [folder, terminal]);
+  const inSession = runsInSession(s, useWay(s));
+  const sessionNow = useLatest(s);
+  const run = useMemo(
+    () => (folder === null ? undefined : { folder, terminal, session: inSession ? (command: string) => sendAhead(sessionNow.current, command, { toDraft: false }) : undefined }),
+    [folder, terminal, inSession, sessionNow],
+  );
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />

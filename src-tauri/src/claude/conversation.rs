@@ -29,6 +29,9 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             if let Some(peer) = line_peer(v) {
                 return vec![peer_item(at, &peer)];
             }
+            if let Some(said) = shell_items(v, at) {
+                return vec![said];
+            }
             let images = images_of(v.pointer("/message/content"), v.get("imagePasteIds"));
             if let Some(t) = typed_text(v) {
                 return vec![Item { images, ..item(at, "you", t) }];
@@ -129,6 +132,39 @@ fn images_of(content: Option<&Value>, paste_ids: Option<&Value>) -> Vec<Image> {
     // The numbers are the images' only when there's one for each.
     let numbered = numbers.len() == data.len();
     data.iter().enumerate().map(|(i, d)| Image { number: numbered.then(|| numbers[i]), base64: d.to_string() }).collect()
+}
+
+/// A command you ran in the session's shell, typed after `!` in its box (bash mode), and what it
+/// printed, as Claude Code 2.1.293 records them: a `user` line `<bash-input> <command></bash-input>`
+/// (the space after the `!` kept), then one whose parent is that line,
+/// `<bash-stdout>…</bash-stdout><bash-stderr>…</bash-stderr>`; the agent takes a turn on them.
+/// The command is yours, with the line's `uuid` for its id, and its output is its result, as a
+/// call's is. A failure's words come in `bash-stderr` ("Command failed: …"), with nothing else to
+/// tell it from a command that writes there as it works.
+fn shell_items(v: &Value, at: i64) -> Option<Item> {
+    let content = v.pointer("/message/content")?.as_str()?;
+    let between = |tag: &str| {
+        let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
+        let from = content.find(&open)? + open.len();
+        content[from..].find(&close).map(|len| &content[from..from + len])
+    };
+    let line_id = |k: &str| v.get(k).and_then(Value::as_str).map(String::from);
+    if content.starts_with("<bash-input>") {
+        let command = between("bash-input")?.trim();
+        let whole = kept_whole(command);
+        return Some(Item {
+            id: line_id("uuid"),
+            input: Some(clip_input(command)),
+            shell: whole,
+            cwd: whole.then(|| line_id("cwd")).flatten(),
+            ..item(at, "you", format!("! {command}"))
+        });
+    }
+    if content.starts_with("<bash-stdout>") || content.starts_with("<bash-stderr>") {
+        let printed = [between("bash-stdout"), between("bash-stderr")].into_iter().flatten().map(str::trim_end).filter(|t| !t.trim().is_empty()).collect::<Vec<_>>().join("\n");
+        return Some(Item { id: line_id("parentUuid"), output: Some(clip_output(&printed)), ..item(at, "result", "") });
+    }
+    None
 }
 
 /// A message from another session, as Claude Code records it: `origin: {kind: "peer", name,
@@ -548,5 +584,23 @@ mod tests {
         assert_eq!(said(queued), [("you", "Also the docs.".to_string())]);
         let notified = serde_json::json!({ "type": "attachment", "attachment": { "type": "queued_command", "prompt": "<task-notification>\n<task-id>b1</task-id>\n</task-notification>" } });
         assert!(said(notified).is_empty(), "a background task's notification isn't yours");
+    }
+
+    #[test]
+    fn a_command_run_with_bang_is_yours_with_its_output() {
+        // As 2.1.293 wrote them in tmux on 2026-10-07.
+        let ran = chained("user", "b1", Some("a1"), "2026-10-07T19:19:00.000Z", serde_json::json!({ "cwd": "/w", "message": { "role": "user", "content": "<bash-input> echo one && \\\n  echo two</bash-input>" } }));
+        let v: Value = serde_json::from_str(&ran).unwrap();
+        let items = conversation_items(&v, 0);
+        assert_eq!(items.len(), 1);
+        let it = &items[0];
+        assert_eq!((it.kind, it.text.as_str(), it.id.as_deref()), ("you", "! echo one && \\\n  echo two", Some("b1")));
+        assert_eq!((it.input.as_deref(), it.shell, it.cwd.as_deref()), (Some("echo one && \\\n  echo two"), true, Some("/w")));
+        let out = chained("user", "b2", Some("b1"), "2026-10-07T19:19:01.000Z", serde_json::json!({ "message": { "role": "user", "content": "<bash-stdout>one\ntwo</bash-stdout><bash-stderr></bash-stderr>" } }));
+        let items = conversation_items(&serde_json::from_str(&out).unwrap(), 0);
+        assert_eq!(items.iter().map(|i| (i.kind, i.id.as_deref(), i.output.as_deref())).collect::<Vec<_>>(), [("result", Some("b1"), Some("one\ntwo"))]);
+        // What it wrote to stderr follows what it printed.
+        let failed = chained("user", "b3", Some("b1"), "2026-10-07T19:19:01.000Z", serde_json::json!({ "message": { "role": "user", "content": "<bash-stdout>half</bash-stdout><bash-stderr>Command failed: exit 1</bash-stderr>" } }));
+        assert_eq!(conversation_items(&serde_json::from_str(&failed).unwrap(), 0)[0].output.as_deref(), Some("half\nCommand failed: exit 1"));
     }
 }
