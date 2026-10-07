@@ -116,9 +116,10 @@
     .then(function () {
       check('a plain ⏎ sends and stays', title() === 'Queue C' && calls('send_to_session').length === 2, title());
       check('once it no longer waits on you the strip counts only what else does', !/more waiting on you/.test(strip()), strip());
-      // The strip is always there in Sessions, with what's commonly done to a session and its keys.
+      // The strip is always there in Sessions, with what's commonly done to a session and its keys:
+      // Close, or End job where the session is a background job, as the board has it today.
       var keys = Array.prototype.map.call(document.querySelectorAll('.ca-sessinsp .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
-      check('the strip has the common actions with their keys', keys.join('|') === 'Seen⌘E|Done⇧⌘E|Snooze⌃⌘1–4|Close⌃⌘W|Archive⌃⌘A|Next⌘]', keys.join('|'));
+      check('the strip has the common actions with their keys', /^Seen⌘E\|Done⇧⌘E\|Snooze⌃⌘1–4\|(Close|End job)⌃⌘W\|Archive⌃⌘A\|Next⌘\]$/.test(keys.join('|')), keys.join('|'));
       key(box(), { key: 'Escape' });
       check('Escape in the box gives the list its keys back', document.activeElement === document.querySelector('[role="listbox"]'), document.activeElement && document.activeElement.className);
     })
