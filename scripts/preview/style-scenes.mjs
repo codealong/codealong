@@ -39,15 +39,36 @@ const sampled = `(() => {
     });
   };
 })();`;
-// The board with its latest session waiting on you, so its panel asks to allow a call.
+// The board with one session waiting on you, so its panel asks to allow a call (`allow`) or
+// answer questions (`questions`), whatever the data folder's sessions are doing: as the checks
+// for the approval box do (questions-check.js, once-check.js), every session that needs you or
+// failed is made idle, and the latest in the project the scene shows (a Mac's own, not one on a
+// linked device) waits on a call. Otherwise the panel or the peek could open on one that waits on
+// your reply, which shows the reply box, or on none. Only that session has a call to answer, and
+// the peek opens on it.
 const needy = (what) => `window.__PENDING__ = ${JSON.stringify(what)}; (() => {
   const real = window.__TAURI_INTERNALS__.invoke;
+  let picked = null;
   window.__TAURI_INTERNALS__.invoke = (cmd, args, options) => {
+    if (cmd === 'session_pending' && picked && (args || {}).key !== picked) return Promise.resolve(null);
     const p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then((board) => {
-      const s = board.lanes.filter((l) => !l.hidden).flatMap((l) => l.sessions.filter((x) => !x.visitor && !x.archived)).sort((a, b) => b.lastActivity - a.lastActivity)[0];
-      if (s) Object.assign(s, { status: 'needs', statusSince: Date.now() - 60e3, asks: false, hosted: false, snoozedUntil: undefined });
+      let project = null;
+      try { project = localStorage.getItem('codealong.project'); } catch {}
+      const ours = (l) => !l.hidden && !l.device;
+      const candidates = (inProject) => board.lanes.filter((l) => ours(l) && (!inProject || !project || project === 'All projects' || l.project === project)).flatMap((l) => l.sessions.filter((x) => !x.visitor && !x.archived).map((s) => [l, s])).sort((a, b) => b[1].lastActivity - a[1].lastActivity || a[1].key.localeCompare(b[1].key));
+      for (const l of board.lanes) for (const s of l.sessions) {
+        if (s.status === 'needs' || s.status === 'error') s.status = 'idle';
+        s.snoozedUntil = undefined;
+      }
+      // The latest in the project shown; on a Mac whose project has none, the latest anywhere, moved into it.
+      const [lane, s] = candidates(true)[0] || candidates(false)[0] || [];
+      if (!s) return board;
+      if (project && project !== 'All projects' && lane.project !== project) lane.project = project;
+      picked = s.key;
+      Object.assign(s, { status: 'needs', statusSince: Date.now() - 60e3, asks: false, hosted: false, snoozedUntil: undefined, excerpt: ${JSON.stringify(what === 'questions' ? 'Asks you · Which route first?' : 'Bash · `git push origin HEAD:main`')} });
+      try { localStorage.setItem('codealong.preview.peek', s.key); } catch {}
       return board;
     });
   };
