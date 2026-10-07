@@ -10,10 +10,11 @@
 // chosen as new work's is, on an account whose agent reads that skill. The prompt goes with the
 // skill's name written as that agent takes it.
 //
-// ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session shows it in Codealong, with its
-// conversation, and ⌥⏎ opens it where it lives; ⌥⏎ on a todo or PR shows that in Codealong. ⌘1 to ⌘9
-// do a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch to one (⌥⌘0 to all of them), ⌘D picks
-// the Mac (with others linked), ⌘T the worktree and ⌘L the agent, whose menu has the effort
+// ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session or a PR shows it in Codealong,
+// with its conversation or its details, and ⌥⏎ opens it where it lives (a PR on GitHub); ⌥⏎ on a
+// todo shows it in Codealong. ⌘1 to ⌘9 do a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch
+// to one (⌥⌘0 to all of them), ⌘D picks the Mac (with others linked), ⌘T the worktree and ⌘L
+// the agent, whose menu has the effort
 // under its models (← → there), ↑ in the empty input brings back the last draft and earlier
 // prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
 // the page sees it.)
@@ -800,7 +801,7 @@ export function Quick() {
     void showMain({ kind: 'todo', id: r.item.todo.id });
   };
 
-  /** A PR opens on GitHub, as it does in the PRs view. */
+  /** A PR opens where it lives: on GitHub. */
   const openPr = (pr: PrItem) => openLink(pr.url);
 
   /** A web link opens in the browser, with the panel out of the way. */
@@ -812,6 +813,15 @@ export function Quick() {
   const revealPr = (pr: PrItem) => {
     void hideQuick();
     void showMain({ kind: 'pr', key: pr.key });
+  };
+
+  /** What picking a PR does: Codealong shows it, as a session is shown, rather than GitHub. The
+   *  search that found it is done with. */
+  const showPr = (pr: PrItem) => {
+    setText('');
+    setActiveKey(null);
+    setError(null);
+    revealPr(pr);
   };
 
   /** The latest session that worked on a PR, where it's listed. */
@@ -1026,7 +1036,7 @@ export function Quick() {
     if (!row) start();
     else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
-    else if (row.kind === 'pr') (alt ? revealPr : openPr)(row.pr);
+    else if (row.kind === 'pr') (alt ? openPr : showPr)(row.pr);
     else if (row.kind === 'review') (alt ? revealPr(row.pr) : answerIn(row.pr.key));
     else if (row.kind === 'skill') pickSkill(row);
     else if (row.kind === 'more') {
@@ -1520,7 +1530,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass)}
-                            title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here' : '⏎ opens it on GitHub'} · ⌥⏎ shows it in Codealong`}
+                            title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here · ⌥⏎ shows it in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it on GitHub'}`}
                             {...handlers}
                           >
                             <PrGlyph pr={pr} />

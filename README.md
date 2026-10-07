@@ -409,11 +409,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   shows it in Codealong, with its conversation and a box to answer it, and ⌥⏎ opens it where it
   lives. ⏎ on a todo
   shows its session the same way, or, when it has none, gets a session ready to start for it (its prompt,
-  its worktree, linked to it); on a PR it opens the PR on GitHub, and the PR's right-click menu
-  copies its link. ⏎ or ⇥ on a PR under Review requested reviews it in the waiting window, and
-  ⇥ on a session answers it there; the panel puts itself away. The last row starts a new session
-  with what you typed as its prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
-  shows a todo or PR in Codealong, ⌘1 to ⌘9 do a row, Escape closes. Each open starts empty,
+  its worktree, linked to it); on a PR it shows the PR in Codealong, and ⌥⏎ opens it on GitHub;
+  the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Review requested reviews it in
+  the waiting window, and ⇥ on a session answers it there; the panel puts itself away. The last
+  row starts a new session with what you typed as its prompt. ⏎ does the selected row, ⌘⏎
+  always starts, ⌥⏎ shows a todo or a PR under Review requested in Codealong, ⌘1 to ⌘9 do a
+  row, Escape closes. Each open starts empty,
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list doesn't shrink until you pause and the answers are in, so the panel holds still. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
