@@ -214,6 +214,12 @@ impl Client {
     pub fn end(self, grace: Duration) {
         finish(&self.link, grace);
     }
+
+    /// The way to the child, for writing to it from a thread of its own: the process still ends
+    /// with the client, and writes after that fail.
+    pub fn link(&self) -> Arc<Link> {
+        self.link.clone()
+    }
 }
 
 /// Closes the child's input and, `grace` later if it hasn't left by itself, kills it. Only the

@@ -15,11 +15,16 @@
 //! process and a `Dialect` for its lines). This module runs the processes, keeps what was asked
 //! and answered, and tells the windows as an answer is written. A session has one side
 //! conversation at a time; what's asked while the copy answers waits its turn.
+//!
+//! Every side conversation is behind one lock, which the windows take to ask about theirs, so
+//! nothing is written to a copy under it: a copy's lines are put in order for a thread of its own
+//! to write (`Proc::out`), however long the copy takes to read them.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -144,6 +149,9 @@ struct Proc {
     /// Its process, which ends with this.
     client: rpc::Client,
     dialect: Box<dyn Dialect>,
+    /// The lines to write to it, a batch at a time, in the order they're made: its writer
+    /// (`writer`) writes them, and ends once this goes.
+    out: Sender<Vec<Value>>,
 }
 
 struct Open {
@@ -380,19 +388,36 @@ fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
         rpc::Heard::Closed(said) => stopped(&of, id, said.last().map(String::as_str).unwrap_or("")),
     })
     .with_context(|| format!("Couldn't start {} for a side conversation.", recipe.program.display()))?;
-    let mut proc = Proc { id, pid: client.pid(), client, dialect: recipe.dialect };
+    let out = writer(client.link());
+    let mut proc = Proc { id, pid: client.pid(), client, dialect: recipe.dialect, out };
     let lines = proc.dialect.open();
     write(&mut proc, &lines);
     Ok(proc)
 }
 
-/// Writes lines to the copy. One it can't take means its process is going: the reader's end
-/// says so.
-fn write(p: &mut Proc, lines: &[Value]) {
-    for l in lines {
-        if p.client.send(l).is_err() {
-            return;
+/// The thread that writes a copy's lines, as `write` hands them over, until the copy's `Proc`
+/// goes. A line it can't take (in the 10 seconds a write may wait) leaves the rest of its batch
+/// unwritten: its process is going, or has stopped reading, and the reader's end says so.
+fn writer(link: std::sync::Arc<rpc::Link>) -> Sender<Vec<Value>> {
+    let (out, lines) = channel::<Vec<Value>>();
+    std::thread::spawn(move || {
+        for batch in lines {
+            for l in &batch {
+                if link.send(l).is_err() {
+                    break;
+                }
+            }
         }
+    });
+    out
+}
+
+/// Hands lines to the copy's writer, in order after those before them. Done under the lock, it
+/// waits on nothing.
+fn write(p: &mut Proc, lines: &[Value]) {
+    if !lines.is_empty() {
+        // A writer that's gone went with its process.
+        let _ = p.out.send(lines.to_vec());
     }
 }
 
@@ -590,6 +615,25 @@ mod tests {
         assert!(runs(pid));
         close(key);
         assert!(get(key).is_none() && !runs(pid));
+    }
+
+    /// A copy that doesn't read what it's asked holds up no other side conversation, nor the
+    /// windows asking about them: what's written to it is written outside the lock they share.
+    #[test]
+    fn a_stuck_copy_holds_up_no_other() {
+        let (stuck, other) = ("test:side:stuck", "test:side:other");
+        open_with(stuck, "/bin/sleep", &["600"]);
+        open_with(other, "/bin/cat", &[]);
+        let started = Instant::now();
+        // More than the 64 KB its input holds.
+        put(stuck, &"x".repeat(1 << 20));
+        put(other, "one");
+        let side = wait_for(other, |s| !s.running);
+        assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+        assert_eq!(side.turns[0].answer, "You asked: one");
+        assert!(get(stuck).is_some_and(|s| s.running));
+        close(stuck);
+        close(other);
     }
 
     #[test]
