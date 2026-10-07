@@ -26,7 +26,7 @@ use crate::attachments;
 use crate::config::Config;
 use crate::harness::{adapter, find, Ctx};
 use crate::model::Board;
-use crate::util::{parse_rfc3339_ms, read_tail, truncate, whole_end};
+use crate::util::{parse_rfc3339_ms, truncate, whole_end};
 
 /// What a tool's input and output keep: enough to read, not a build log.
 const INPUT_MAX: usize = 4000;
@@ -169,68 +169,130 @@ pub fn file_page(path: &Path, parse: Parse, before: Option<u64>, limit: usize) -
     // A line still being written waits for the next read.
     let end = whole_end(&mut f, 0, len)?;
     let after = end;
-    // `hi` is always a line start; `buf` holds the bytes from `lo` up to it, so when it isn't
-    // empty it ends with the newline of the line before `hi`.
+    // Always a line start: the lines from here on are read.
     let mut hi = before.unwrap_or(end).min(end);
-    let mut lo = hi;
-    let mut buf: Vec<u8> = Vec::new();
+    let mut back = Backward { f: &mut f, lo: 0, chunk: Vec::new() };
     let mut newest_first: Vec<Vec<Item>> = Vec::new();
     let mut count = 0;
-    let take = |line: &[u8], start: u64, out: &mut Vec<Vec<Item>>| {
-        let items = if line.len() > LINE_MAX { Vec::new() } else { items_of(line, parse, start) };
-        let n = items.len();
-        out.push(items);
-        n
-    };
-    loop {
-        if let Some((_, body)) = buf.split_last() {
-            if let Some(i) = body.iter().rposition(|&b| b == b'\n') {
-                let start = lo + i as u64 + 1;
-                count += take(&body[i + 1..], start, &mut newest_first);
-                buf.truncate(i + 1);
-                hi = start;
-                if count >= limit {
-                    break;
-                }
-                continue;
-            }
-            if lo == 0 {
-                take(body, 0, &mut newest_first);
-                hi = 0;
-                break;
-            }
-        } else if lo == 0 {
-            hi = 0;
-            break;
-        }
-        // The line before `hi` starts further back: read another chunk.
-        let next = lo.saturating_sub(CHUNK);
-        let mut chunk = vec![0; (lo - next) as usize];
-        f.seek(SeekFrom::Start(next))?;
-        f.read_exact(&mut chunk)?;
-        chunk.extend_from_slice(&buf);
-        buf = chunk;
-        lo = next;
+    while hi > 0 && count < limit {
+        let start = back.line_start(hi)?;
+        // The line without its newline.
+        let items = if hi - 1 - start > LINE_MAX as u64 { Vec::new() } else { items_of(&back.bytes(start, hi - 1)?, parse, start) };
+        count += items.len();
+        newest_first.push(items);
+        hi = start;
     }
     let items = newest_first.into_iter().rev().flatten().collect();
     Ok(Page { items, before: (hi > 0).then_some(hi), after })
 }
 
-/// The whole lines of a JSON-lines record after `after`.
-pub fn file_newer(path: &Path, parse: Parse, after: u64) -> Result<Page> {
-    let tail = read_tail(path, after)?;
-    if tail.end <= after {
-        return Ok(Page { items: Vec::new(), before: None, after: tail.end.max(after) });
-    }
-    let mut items = Vec::new();
-    let mut at = tail.start;
-    for line in tail.bytes.split(|&b| b == b'\n') {
-        if !line.is_empty() && line.len() <= LINE_MAX {
-            items.extend(items_of(line, parse, at));
+/// A record read from the end back a chunk at a time, for where its lines start. Only the last
+/// chunk is kept, and a line is read whole only once both its ends are found, and only when
+/// it's short enough to parse (`LINE_MAX`): a line of any length costs a chunk of memory to
+/// pass over.
+struct Backward<'a> {
+    f: &'a mut std::fs::File,
+    /// The last chunk read, and where it starts in the file.
+    lo: u64,
+    chunk: Vec<u8>,
+}
+
+impl Backward<'_> {
+    /// Where the line that ends at `hi` starts (`hi`, above 0, starts the line after it): just
+    /// after the newline before that line's own, or the file's start.
+    fn line_start(&mut self, hi: u64) -> std::io::Result<u64> {
+        // What's before this has yet to be looked through.
+        let mut end = hi - 1;
+        loop {
+            if end > self.lo && end <= self.lo + self.chunk.len() as u64 {
+                if let Some(i) = self.chunk[..(end - self.lo) as usize].iter().rposition(|&b| b == b'\n') {
+                    return Ok(self.lo + i as u64 + 1);
+                }
+                end = self.lo;
+            }
+            if end == 0 {
+                return Ok(0);
+            }
+            let lo = end.saturating_sub(CHUNK);
+            self.chunk.resize((end - lo) as usize, 0);
+            self.f.seek(SeekFrom::Start(lo))?;
+            self.f.read_exact(&mut self.chunk)?;
+            self.lo = lo;
         }
-        at += line.len() as u64 + 1;
     }
-    Ok(Page { items, before: None, after: tail.end })
+
+    /// The bytes from `start` to `end`: from the chunk when they're in it, else read.
+    fn bytes(&mut self, start: u64, end: u64) -> std::io::Result<std::borrow::Cow<'_, [u8]>> {
+        if start >= self.lo && end <= self.lo + self.chunk.len() as u64 {
+            return Ok(std::borrow::Cow::Borrowed(&self.chunk[(start - self.lo) as usize..(end - self.lo) as usize]));
+        }
+        let mut line = vec![0; (end - start) as usize];
+        self.f.seek(SeekFrom::Start(start))?;
+        self.f.read_exact(&mut line)?;
+        Ok(std::borrow::Cow::Owned(line))
+    }
+}
+
+/// The whole lines of a JSON-lines record after `after`, read a chunk at a time: a line is kept
+/// only while it's short enough to parse (`LINE_MAX`), so what's unread, however long, costs no
+/// more than that to read on through. A read that starts inside a line drops that line, which
+/// belongs to whoever read up to there, and a last line with no newline yet is left for the
+/// next read.
+pub fn file_newer(path: &Path, parse: Parse, after: u64) -> Result<Page> {
+    let mut f = std::fs::File::open(path)?;
+    let len = f.metadata()?.len();
+    let from = after.min(len);
+    let end = whole_end(&mut f, from, len)?;
+    if end <= from {
+        return Ok(Page { items: Vec::new(), before: None, after: end.max(after) });
+    }
+    // Inside a line, or too long a line: its bytes aren't kept.
+    let mut dropping = from > 0 && {
+        let mut before = [0u8; 1];
+        f.seek(SeekFrom::Start(from - 1))?;
+        f.read_exact(&mut before)?;
+        before[0] != b'\n'
+    };
+    f.seek(SeekFrom::Start(from))?;
+    let mut rest = f.take(end - from);
+    let mut chunk = vec![0; CHUNK as usize];
+    let mut line: Vec<u8> = Vec::new();
+    let mut items = Vec::new();
+    // Where the line being read starts.
+    let mut at = from;
+    let mut pos = from;
+    loop {
+        let n = match rest.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.into()),
+        };
+        let mut part = &chunk[..n];
+        while let Some(i) = part.iter().position(|&b| b == b'\n') {
+            if !dropping {
+                line.extend_from_slice(&part[..i]);
+                if !line.is_empty() && line.len() <= LINE_MAX {
+                    items.extend(items_of(&line, parse, at));
+                }
+            }
+            line.clear();
+            dropping = false;
+            pos += i as u64 + 1;
+            at = pos;
+            part = &part[i + 1..];
+        }
+        pos += part.len() as u64;
+        if !dropping {
+            if line.len() + part.len() > LINE_MAX {
+                dropping = true;
+                line = Vec::new();
+            } else {
+                line.extend_from_slice(part);
+            }
+        }
+    }
+    Ok(Page { items, before: None, after: end })
 }
 
 fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
@@ -533,6 +595,34 @@ mod tests {
         let next = file_newer(&p, crate::claude::conversation_items, first.after).unwrap();
         assert_eq!(next.items.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(), ["All pass."]);
         assert_eq!(file_newer(&p, crate::claude::conversation_items, next.after).unwrap().items, Vec::<Item>::new());
+    }
+
+    /// A line longer than a chunk is read whole; one past `LINE_MAX` (a prompt that would read,
+    /// were it parsed) is passed over both ways, and its neighbours keep their places.
+    #[test]
+    fn a_line_past_the_limit_is_passed_over_and_the_lines_around_it_read() {
+        let long = RESULT.replace("test result: ok", &format!("{}the end", "y\\n".repeat(250_000)));
+        let huge = PROMPT.replace("Run the tests", &"z".repeat(LINE_MAX));
+        let p = write(&[PROMPT, &long, &huge, REPLY]);
+        let at_long = PROMPT.len() as u64 + 1;
+        let at_huge = at_long + long.len() as u64 + 1;
+        let at_reply = at_huge + huge.len() as u64 + 1;
+        let places = |page: &Page| page.items.iter().map(|i| (i.kind, i.cursor)).collect::<Vec<_>>();
+        let all = [("you", 0), ("result", at_long), ("agent", at_reply)];
+
+        let page = file_page(&p, crate::claude::conversation_items, None, 100).unwrap();
+        assert_eq!(places(&page), all);
+        assert!(page.items[1].output.as_deref().is_some_and(|o| o.ends_with("the end")));
+        // A page at a time: the long line's page passes over the one past the limit.
+        let last = file_page(&p, crate::claude::conversation_items, None, 1).unwrap();
+        assert_eq!((places(&last), last.before), (vec![("agent", at_reply)], Some(at_reply)));
+        let mid = file_page(&p, crate::claude::conversation_items, Some(at_reply), 1).unwrap();
+        assert_eq!((places(&mid), mid.before), (vec![("result", at_long)], Some(at_long)));
+
+        // Read on from the start, and from inside the line past the limit, which is someone else's.
+        let on = file_newer(&p, crate::claude::conversation_items, 0).unwrap();
+        assert_eq!((places(&on), on.after), (all.to_vec(), page.after));
+        assert_eq!(places(&file_newer(&p, crate::claude::conversation_items, at_huge + 10).unwrap()), [("agent", at_reply)]);
     }
 
     #[test]
