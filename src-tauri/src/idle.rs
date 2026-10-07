@@ -346,6 +346,9 @@ pub fn close_one(board: &Board, cfg: &crate::config::Config, key: &str) -> anyho
 pub enum Ending {
     /// Its terminal tab closes, and its agent's process with it.
     Terminal(u32),
+    /// Its harness's exit command is typed into its terminal (`exit`), so the harness cleans up
+    /// the worktree it made for it, and the tab closes once the process has ended.
+    Exit(u32),
     /// Its background job stops.
     Job,
     /// Its turn stops: a session Codealong runs, whose process runs other sessions too.
@@ -359,7 +362,8 @@ pub enum Ending {
 /// running in the background) ends only with `stop`: until then it's `Err` with what's under
 /// way, and nothing is done. A terminal that shows other running sessions too stays open (one
 /// OpenCode terminal can show several), and an app's session stays open in the app, which has
-/// no way for another program to close it.
+/// no way for another program to close it. One that holds a worktree its harness made for it
+/// exits its own way when it can (`exits_its_own_way`), so that worktree doesn't outlive it.
 pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> {
     if !s.live {
         return Ok(Ending::Nothing(None));
@@ -385,11 +389,87 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
             let other = board.lanes.iter().flat_map(|l| &l.sessions).find(|o| o.key != s.key && o.live && o.pid == Some(pid));
             Ok(match other {
                 Some(o) => Ending::Nothing(Some(format!("Its terminal stays open: it shows “{}” too.", o.title))),
+                None if exits_its_own_way(s) => Ending::Exit(pid),
                 None => Ending::Terminal(pid),
             })
         }
         _ => Ok(Ending::Nothing(Some("It has no terminal Codealong can close.".into()))),
     }
+}
+
+/// Whether being done with `s` types its harness's exit command rather than hanging it up: it
+/// holds a worktree its harness made for it (`Session::own_worktree`), which the harness cleans
+/// up only as it exits its own way, and nothing under way would take the command for something
+/// else. A running turn would take it as a prompt once it ends, a command left running in the
+/// background has Claude Code ask about it first, and a prompt waiting on you would take it as
+/// the answer; those hang up as before, and the worktree stays.
+fn exits_its_own_way(s: &Session) -> bool {
+    s.own_worktree.is_some()
+        && crate::harness::adapter(s.harness).exit_command().is_some()
+        && s.status != Status::Working
+        && s.background.is_none()
+        && !crate::send::waits_on_you(s)
+}
+
+/// How long a session typed its exit command is given to end before Codealong takes it that
+/// its harness is asking you something first. From `/exit` to the end of the process, Claude
+/// Code 2.1.292 took 1.7 s to check, remove and shut down in a small repo (2026-10-07).
+const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long it's given once its harness has started removing the worktree, which takes as long
+/// as deleting its files does: a worktree with its dependencies installed has many. Under the
+/// minute a window shows it archived ahead of the answer (`src/ahead.ts` `LONGEST_MS`), so it
+/// doesn't come back meanwhile.
+const REMOVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// What came of typing a session's exit command (`exit`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Exited {
+    /// Its process ended. Whether its worktree is gone, and how closing its tab went.
+    Ended { removed: bool, closed: Result<(), String> },
+    /// It's still running: its harness asks in its terminal whether to keep the worktree, its
+    /// tab left open for the answer.
+    Asks,
+    /// It's still removing the worktree, its tab left open.
+    Removing,
+}
+
+/// Types the harness's exit command into `s`'s terminal (`Ending::Exit`), clearing its input box
+/// first so a draft there doesn't go with it, and waits for the process to end, then closes the
+/// tab. `Err` when nothing could be typed: then nothing was done to it.
+///
+/// Claude Code holds a git lock on its worktree while it runs ("claude session <name> (pid …)")
+/// and takes it off just before deleting the worktree; while it asks, the lock stays. So a lock
+/// that goes while the process still runs says the worktree is being removed, which is waited
+/// for longer than a question is.
+pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Result<Exited, String> {
+    let adapter = crate::harness::adapter(s.harness);
+    let Some(command) = adapter.exit_command() else { return Err(format!("{} has no command to exit a session.", adapter.harness().word())) };
+    let lock = s.own_worktree.as_deref().and_then(|w| crate::repos::linked_gitdir(Path::new(w))).map(|d| d.join("locked")).filter(|l| l.exists());
+    let typed = adapter
+        .routes(account, s)
+        .into_iter()
+        .find_map(|route| match route {
+            crate::send::Route::Type { pid } => Some(crate::launch::terminal_type_session(pid, Path::new(&s.cwd), command, true, crate::launch::Submit::Return)),
+            _ => None,
+        })
+        .unwrap_or_else(|| Ok(crate::launch::Typed::Nowhere("it isn't in a terminal Codealong can type into".into())));
+    match typed {
+        Ok(crate::launch::Typed::Into(_)) => {}
+        Ok(crate::launch::Typed::Nowhere(why)) => return Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
+        Err(e) => return Err(format!("Codealong couldn't type `{command}` into its terminal: {}", crate::util::words(e))),
+    }
+    let started = std::time::Instant::now();
+    while crate::procs::pid_alive(pid) {
+        let removing = lock.as_ref().is_some_and(|l| !l.exists());
+        if started.elapsed() > if removing { REMOVAL_WAIT } else { EXIT_WAIT } {
+            return Ok(if removing { Exited::Removing } else { Exited::Asks });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let removed = s.own_worktree.as_deref().is_some_and(|w| !Path::new(w).exists());
+    let closed = crate::launch::close_session_terminals(&[(pid, Path::new(&s.cwd))]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed.")));
+    Ok(Exited::Ended { removed, closed: closed.map_err(crate::util::words) })
 }
 
 /// A stretch of time in words: 26 hours, 3 days.
@@ -593,6 +673,28 @@ mod tests {
         assert_eq!(ending(&b, &hosted, true), Ok(Ending::Turn));
         hosted.status = Status::Idle;
         assert_eq!(ending(&b, &hosted, false), Ok(Ending::Nothing(None)));
+    }
+
+    #[test]
+    fn done_exits_a_session_that_holds_its_own_worktree_its_harness_way() {
+        let mut own = session("own", 1, Status::Unread, 0);
+        own.own_worktree = Some("/work/.claude/worktrees/brave-otter".into());
+        let b = board(vec![own.clone()]);
+        assert_eq!(crate::fixtures::session("x").harness, Harness::Claude, "Claude Code has an exit command");
+        assert_eq!(ending(&b, &own, false), Ok(Ending::Exit(1)));
+        // One that only asks you something in its reply takes the command like a prompt.
+        let asks = Session { status: Status::Needs, asks: true, ..own.clone() };
+        assert_eq!(ending(&b, &asks, false), Ok(Ending::Exit(1)));
+        // Where the command would be taken for something else, it hangs up as before.
+        let prompt = Session { status: Status::Needs, ..own.clone() };
+        assert_eq!(ending(&b, &prompt, false), Ok(Ending::Terminal(1)));
+        let busy = Session { status: Status::Working, ..own.clone() };
+        assert_eq!(ending(&b, &busy, true), Ok(Ending::Terminal(1)));
+        let left = Session { background: Some("npm run dev".into()), ..own.clone() };
+        assert_eq!(ending(&b, &left, true), Ok(Ending::Terminal(1)));
+        // A harness with no exit command of its own hangs up.
+        let codex = Session { harness: Harness::Codex, ..own.clone() };
+        assert_eq!(ending(&board(vec![codex.clone()]), &codex, false), Ok(Ending::Terminal(1)));
     }
 
     /// What would close or be archived on this Mac now, doing nothing:

@@ -74,6 +74,9 @@ pub struct TranscriptInfo {
     pub held: Option<super::held::Held>,
     /// When the tool call in `pending_tool` was made.
     pub pending_tool_at: Option<i64>,
+    /// The worktree Claude Code made for the session and holds, from the latest `worktree-state`
+    /// line (`own_worktree`).
+    pub own_worktree: Option<String>,
 }
 
 /// Transcript files modified since `since_ms`, one level below `<home>/projects`.
@@ -283,6 +286,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             Some("last-prompt") => {
                 info.last_prompt = str_of(&v, "lastPrompt").map(|p| one_line(&p, 140));
             }
+            Some("worktree-state") => {
+                info.own_worktree = own_worktree(&v);
+            }
             Some("assistant") => {
                 // A limit's refusal is written as a reply; any other reply means it went on.
                 info.limit = limit_of(&v).map(|l| SessionLimit { model: info.model.clone(), ..l });
@@ -396,6 +402,24 @@ pub(super) fn limit_of(v: &Value) -> Option<SessionLimit> {
         move_to: None,
         model: None,
     })
+}
+
+/// The worktree a `worktree-state` line says the session made and holds. Claude Code writes one
+/// as it makes the worktree (`--worktree`, `EnterWorktree`) or resumes in it, again with its
+/// metadata as the transcript grows ("last-wins"), and `worktreeSession: null` once it has left
+/// the worktree (2.1.292's code). The line is what `/exit` goes by: a worktree it made goes
+/// as the session exits, at once when nothing in it changed and no commit was added since it
+/// was made and the session has no name of yours, else after asking "Exiting worktree session"
+/// whether to keep it; a `WorktreeCreate` hook's worktree goes through the `WorktreeRemove`
+/// hook. A worktree it only went into (`enteredExisting`, `EnterWorktree` with a path) is left
+/// in place, so it isn't the session's own. A hangup, as a tab closing gives, removes nothing
+/// and runs no hook: only `SessionEnd`.
+fn own_worktree(v: &Value) -> Option<String> {
+    let w = v.get("worktreeSession")?;
+    if w.get("enteredExisting").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    str_of(w, "worktreePath").filter(|p| !p.is_empty())
 }
 
 fn str_of(v: &Value, key: &str) -> Option<String> {
@@ -662,6 +686,20 @@ mod tests {
         assert_eq!(info.last_text.as_deref(), Some("Running the migration now."));
         assert_eq!(info.last_text_tail.as_deref(), Some("Running the migration now."));
         assert_eq!(info.last_ts, parse_rfc3339_ms("2026-09-23T15:00:00.000Z").unwrap());
+    }
+
+    #[test]
+    fn reads_the_worktree_it_made() {
+        // As 2.1.292 writes them: the latest says, and null once it has left.
+        let made = r#"{"type":"worktree-state","worktreeSession":{"originalCwd":"/r/app","worktreePath":"/r/app/.claude/worktrees/brave-otter","worktreeName":"brave-otter","worktreeBranch":"worktree-brave-otter","originalBranch":"main","originalHeadCommit":"1ec9744","sessionId":"s"},"sessionId":"s"}"#;
+        let left = r#"{"type":"worktree-state","worktreeSession":null,"sessionId":"s"}"#;
+        let entered = r#"{"type":"worktree-state","worktreeSession":{"originalCwd":"/r/app","worktreePath":"/r/app-fix","enteredExisting":true,"sessionId":"s"},"sessionId":"s"}"#;
+        assert_eq!(parse_lines(HEAD, made).own_worktree.as_deref(), Some("/r/app/.claude/worktrees/brave-otter"));
+        assert_eq!(parse_lines(HEAD, &[made, left].join("\n")).own_worktree, None);
+        assert_eq!(parse_lines(HEAD, &[left, made].join("\n")).own_worktree.as_deref(), Some("/r/app/.claude/worktrees/brave-otter"));
+        // One it only went into stays where it is when the session exits.
+        assert_eq!(parse_lines(HEAD, &[made, entered].join("\n")).own_worktree, None);
+        assert_eq!(parse_lines(HEAD, "").own_worktree, None);
     }
 
     #[test]

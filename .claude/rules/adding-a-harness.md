@@ -41,7 +41,9 @@ a change to what's sent shows there. What each harness records and accepts is in
    - acting on it: `fork`, `fork_background`, `moves_accounts` with `move_to` and
      `move_to_background` (to another of its accounts), `move_folder` and
      `move_folder_background` (to another folder, as itself), `side` and `fresh_side` (a
-     throwaway conversation of a session's, or one of its own about a PR), `stop`, `rename`,
+     throwaway conversation of a session's, or one of its own about a PR), `stop`,
+     `exit_command` (an exit that cleans up the worktree it made, with
+     `Session::own_worktree`), `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
    - starting (start.rs): `places`, `start_in_terminal`, `runs_in_background` with
      `background_command` and `start_in_background`, `app_link` and `start_in_app`, `models`,

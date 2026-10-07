@@ -762,12 +762,13 @@ fn close(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// Done with it, from its menu, its key or the strip: it ends as far as Codealong can end it
-/// without ending more than it (`idle::ending`), and is marked seen and archived, so it leaves
+/// without ending more than it (`idle::ending`), one that holds a worktree its harness made for
+/// it by its harness's own exit, which cleans that up, and is marked seen and archived, so it leaves
 /// every list but Archived. Work under way holds it unless `stop` ends that too: then nothing is
 /// done, and the answer's `done` is false, with what's under way. Says what happened, with the
 /// time of the board that shows it, as `archive` does.
 fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
-    use crate::idle::{ending, Ending};
+    use crate::idle::{ending, Ending, Exited};
     let p: params::Done = c.read()?;
     let key = c.session()?;
     let cfg = cfg()?;
@@ -780,18 +781,33 @@ fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
     // What ended, and what's worth saying besides: why nothing did, or what didn't go.
-    let (ended, note) = match ends {
+    let (ended, note): (Option<String>, Option<String>) = match ends {
         Ending::Terminal(pid) => match crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop() {
-            Some(Ok(())) => (Some("its terminal is closed"), None),
+            Some(Ok(())) => (Some("its terminal is closed".into()), None),
             Some(Err(e)) => (None, Some(format!("Its terminal didn't close: {}", words(e)))),
             None => (None, Some("Its terminal didn't close.".to_string())),
         },
+        Ending::Exit(pid) => {
+            let word = adapter.harness().word();
+            let worktree = s.own_worktree.as_deref().map(|w| crate::util::file_name(std::path::Path::new(w))).unwrap_or_default();
+            match crate::idle::exit(s, account, pid) {
+                Ok(Exited::Ended { removed: true, closed: Ok(()) }) => (Some(format!("{word} removed its worktree, its terminal is closed")), None),
+                Ok(Exited::Ended { removed: true, closed: Err(e) }) => (Some(format!("{word} removed its worktree")), Some(format!("Its terminal didn't close: {e}"))),
+                Ok(Exited::Ended { removed: false, closed }) => (
+                    closed.is_ok().then(|| "it exited and its terminal is closed".to_string()),
+                    Some(format!("{word} kept its worktree, {worktree}.{}", closed.err().map(|e| format!(" Its terminal didn't close: {e}")).unwrap_or_default())),
+                ),
+                Ok(Exited::Asks) => (None, Some(format!("{word} asks in its terminal whether to keep its worktree, {worktree}: answer it there."))),
+                Ok(Exited::Removing) => (None, Some(format!("{word} is still removing its worktree, {worktree}, so its terminal stays open."))),
+                Err(e) => (None, Some(format!("{e} It's still open, its worktree with it."))),
+            }
+        }
         Ending::Job => match adapter.stop(&ctx, s) {
-            Ok(_) => (Some("its background job is stopped"), None),
+            Ok(_) => (Some("its background job is stopped".into()), None),
             Err(e) => (None, Some(format!("Its background job didn't stop: {}", words(e)))),
         },
         Ending::Turn => match adapter.interrupt(&ctx, s) {
-            Ok(_) => (Some("its turn is stopped"), None),
+            Ok(_) => (Some("its turn is stopped".into()), None),
             Err(e) => (None, Some(format!("Its turn didn't stop: {}", words(e)))),
         },
         Ending::Nothing(why) => (None, why),

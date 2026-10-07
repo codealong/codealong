@@ -63,6 +63,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--pending", takes: "<session key>", run: pending },
     Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
     Mode { flag: "--stop", takes: "<session key>", run: stop },
+    Mode { flag: "--done", takes: "<session key> [--stop]", run: done },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
     Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
     Mode { flag: "--switch-model", takes: "<session key> <model>", run: switch_model },
@@ -116,6 +117,9 @@ const MODES: &[Mode] = &[
 /// `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
 /// names, as Rename… in its menu does.
 /// `codealong --snapshot --stop <session key>`: stops the turn it's taking, as its Stop does.
+/// `codealong --snapshot --done <session key> [--stop]`: ends it as Mark as done does, `--stop`
+/// ending work under way too, as Mark as done pressed again does. Marking it seen and archiving
+/// it are the app engine's, so nothing here keeps them.
 /// `codealong --snapshot --fork <session key> [prompt]`: forks it into the background, as `/fork`
 /// in its box does.
 /// `codealong --snapshot --resume <session key> <place> [prompt] [--model <model>] [--effort
@@ -238,6 +242,12 @@ fn answer(_: &Args, rest: &[String]) -> Done {
 fn stop(_: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
     said(act(api::SESSION_CANCEL, key, params::Session::default())?)
+}
+
+fn done(args: &Args, rest: &[String]) -> Done {
+    let [key, ..] = rest else { return Err(Stop::Usage) };
+    let v = act(actions::DONE, key, params::Done { stop: args.has("--stop") })?;
+    Ok(v.get("message").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
 fn send_text(args: &Args, rest: &[String]) -> Done {

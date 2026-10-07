@@ -23,7 +23,7 @@ import { useMemo, type ReactNode } from 'react';
 import { below, showContextMenu, type MenuGroup } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
-import { CHORDS, chordSigns, type SessionActions } from '../menus';
+import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
@@ -181,7 +181,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
           <Hotkey
             label="Done"
             keys={sign('done')}
-            title={done ? 'Mark as done: it closes where Codealong can close it, and is marked seen and archived' : session && shortOf(session.key) ? 'Mark it done on the Mac it runs on' : 'It’s archived already'}
+            title={done && session ? doneTitle(session) : session && shortOf(session.key) ? 'Mark it done on the Mac it runs on' : 'It’s archived already'}
             run={done && (() => done.run())}
           />
           {/* A menu that didn't pop up leaves nothing half done, and the snooze keys beside it still work. */}

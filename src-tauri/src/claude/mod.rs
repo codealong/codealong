@@ -644,6 +644,12 @@ impl crate::harness::Adapter for ClaudeCode {
         Some("/model")
     }
 
+    /// `/exit` asks what to do with the worktree the session made, or removes it when nothing in
+    /// it would be lost, before the process ends (`transcript::own_worktree`).
+    fn exit_command(&self) -> Option<&'static str> {
+        Some("/exit")
+    }
+
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it
     /// makes for it.
     fn chats(&self) -> Option<(PathBuf, &'static str)> {

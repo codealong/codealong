@@ -83,6 +83,7 @@ it.
   conversation; `--snapshot --pending <session key>`: what it waits on you to allow.
 - Real: `--snapshot --answer <key> <id> <allow|deny|always> [answers]`, `--snapshot --send <key>
   <text> [--now]`, `--snapshot --rename <key> <name>`, `--snapshot --stop <key>`,
+  `--snapshot --done <key> [--stop]` (ends it as Mark as done does, without archiving),
   `--snapshot --fork <key> [prompt]` (a copy to remove after), `--snapshot --move <key>
   <account | worktree folder>`, `--snapshot --resume <key> <place> [prompt] [--model <model>]`
   (one that isn't running), `--snapshot --switch-model <key> <model>` (one that is),

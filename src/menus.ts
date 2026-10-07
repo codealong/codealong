@@ -13,9 +13,9 @@ import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
-import { MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
+import { HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
-import { closable, seenable, stoppable } from './lanes';
+import { closable, exitsItsOwnWay, seenable, stoppable } from './lanes';
 import { chordPressed, QUEUE_CHORDS } from './queue';
 import { SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount } from './start';
@@ -305,6 +305,20 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
   };
+}
+
+/** What Mark as done does to `s`, for the tooltip of a button that runs it (idle.rs `ending`). A
+ *  session holding a worktree its harness made for it exits its harness's way, which removes the
+ *  worktree or asks you about it; while that can't be, its tab closes and the worktree stays. */
+export function doneTitle(s: Session): string {
+  const plain = 'Mark as done: it closes where Codealong can close it, and is marked seen and archived';
+  if (!s.ownWorktree) return plain;
+  const harness = HARNESS_WORD[s.harness];
+  const worktree = s.ownWorktree.split('/').filter(Boolean).pop() ?? s.ownWorktree;
+  if (exitsItsOwnWay(s)) {
+    return `Mark as done: ${harness} exits it, removing the worktree it made for it (${worktree}), or asking in its terminal whether to keep it if anything there would be lost. It’s marked seen and archived`;
+  }
+  return `${plain}. While it’s busy or waiting on you, its terminal just closes and the worktree ${harness} made for it (${worktree}) stays`;
 }
 
 /** How long after Mark as done was held by work under way another ends that too. */

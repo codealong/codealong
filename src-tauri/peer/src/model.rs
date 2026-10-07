@@ -248,6 +248,13 @@ pub struct Session {
     /// say, and from Macs before 2026-10-06.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The worktree its harness made for it and holds (Claude Code's `--worktree` or
+    /// `EnterWorktree`), which the harness removes as the session exits its own way, or asks
+    /// whether to keep when anything in it would be lost. Mark as done ends it that way
+    /// (`idle::ending`), so the harness cleans up after it. None where it has none, where its
+    /// harness doesn't say, and from Macs before 2026-10-07.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_worktree: Option<String>,
 }
 
 /// A session's id as lists show it: its first seven characters.
@@ -319,6 +326,7 @@ impl Session {
             chrome: None,
             limit: None,
             model: None,
+            own_worktree: None,
         }
     }
 }

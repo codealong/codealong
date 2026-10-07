@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, filterByAge, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, exitsItsOwnWay, filterByAge, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -388,6 +388,30 @@ describe('branchLabel', () => {
 
   it('is nothing until git has said', () => {
     expect(branchLabel({ branch: null, detached: null })).toBeNull();
+  });
+});
+
+describe('exitsItsOwnWay', () => {
+  // A Claude Code session started with --worktree, idle at its prompt in a terminal here.
+  const own = fx.session({ live: true, pid: 42, ownWorktree: '/r/app/.claude/worktrees/brave-otter' });
+
+  it('is a running terminal session holding its own worktree, with nothing under way', () => {
+    expect(exitsItsOwnWay(own)).toBe(true);
+    expect(exitsItsOwnWay({ ...own, status: 'needs', asks: true })).toBe(true);
+    expect(exitsItsOwnWay({ ...own, ownWorktree: undefined })).toBe(false);
+  });
+
+  it('is not while what it types would be taken for something else, as idle.rs has it', () => {
+    expect(exitsItsOwnWay({ ...own, status: 'working' })).toBe(false);
+    expect(exitsItsOwnWay({ ...own, background: 'npm run dev' })).toBe(false);
+    expect(exitsItsOwnWay({ ...own, status: 'needs' })).toBe(false);
+  });
+
+  it('is not for one without a terminal of its own here', () => {
+    expect(exitsItsOwnWay({ ...own, attachCommand: 'claude attach 5' })).toBe(false);
+    expect(exitsItsOwnWay({ ...own, surface: 'app' })).toBe(false);
+    expect(exitsItsOwnWay({ ...own, live: false })).toBe(false);
+    expect(exitsItsOwnWay({ ...own, key: '@mini:claude:claude:s1' })).toBe(false);
   });
 });
 

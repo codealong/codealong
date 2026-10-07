@@ -4,7 +4,9 @@
 // went and the toast offers Undo, which unarchives it. The next, which the engine holds (a
 // command left running in the background), comes back, says why, and ⇧⌘E again ends that too.
 // One that's working is held here without asking the engine, and Done on the strip, which says
-// its key, then ⇧⌘E again ends it too.
+// its key, then ⇧⌘E again ends it too. The first and the working one hold worktrees their harness
+// made for them: Done's tooltip says the first exits its harness's way, removing the worktree or
+// asking about it, and that the working one's terminal only closes, leaving it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/done-check.js
 (function () {
   // This runs before the app's script: the board it gets has three sessions waiting on you and
@@ -52,6 +54,9 @@
           s.surface = 'cli';
           s.pid = 4242 + picked.length;
           s.title = 'Done ' + 'ABCW'[picked.length];
+          s.ownWorktree = picked.length === 0 || picked.length === 3 ? '/r/app/.claude/worktrees/brave-otter' : undefined;
+          s.background = undefined;
+          s.attachCommand = null;
           picked.push({ key: s.key, lane: l.id });
         });
       });
@@ -84,6 +89,9 @@
     })
     .then(function () {
       check('the cursor is in the box', document.activeElement === box());
+      var b = hotkey('Done');
+      var tip = b ? b.title : '';
+      check('Done’s tooltip says its harness exits it and removes its worktree, or asks', /exits it, removing the worktree it made for it \(brave-otter\), or asking in its terminal whether to keep it/.test(tip), tip);
       doneKey();
       return until(function () { return title() !== 'Done A'; }, 3000, 'the next').then(function () { return wait(100); });
     })
@@ -133,6 +141,7 @@
       var n = asked().length;
       var b = hotkey('Done');
       check('the strip has Done, with its key', !!b && !b.disabled && /⇧⌘E/.test(b.textContent), b ? b.textContent : 'no button');
+      check('working, its tooltip says the terminal only closes and the worktree stays', !!b && /its terminal just closes and the worktree .* made for it \(brave-otter\) stays/.test(b.title), b ? b.title : '');
       b.click();
       return wait(200).then(function () { return n; });
     })

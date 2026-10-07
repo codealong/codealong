@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead } from './ahead';
 import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type TodoEdit } from './menus';
+import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
@@ -173,6 +173,26 @@ describe('sessionMenu', () => {
     expect(openLabel(lane({ targets: [] }), session(), 'Ghostty')).toBe('Show in Ghostty');
     expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|resume' }), 'Ghostty')).toBe('Resume in Ghostty');
     expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|claude-app' }), 'Ghostty')).toBe('Open in Claude app');
+  });
+});
+
+describe('doneTitle', () => {
+  const own = fx.session({ live: true, pid: 42, ownWorktree: '/r/app/.claude/worktrees/brave-otter' });
+
+  it('says a session holding its own worktree exits its harness’s way, which cleans that up', () => {
+    expect(doneTitle(own)).toBe(
+      'Mark as done: Claude Code exits it, removing the worktree it made for it (brave-otter), or asking in its terminal whether to keep it if anything there would be lost. It’s marked seen and archived',
+    );
+  });
+
+  it('says the worktree stays while its terminal can only close', () => {
+    expect(doneTitle({ ...own, status: 'working' })).toBe(
+      'Mark as done: it closes where Codealong can close it, and is marked seen and archived. While it’s busy or waiting on you, its terminal just closes and the worktree Claude Code made for it (brave-otter) stays',
+    );
+  });
+
+  it('says what it always did for any other', () => {
+    expect(doneTitle(fx.session({ live: true, pid: 42 }))).toBe('Mark as done: it closes where Codealong can close it, and is marked seen and archived');
   });
 });
 

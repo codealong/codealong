@@ -189,6 +189,16 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   replaces all of that, even in a git repo, and prints the path. It refuses folders that haven't
   been trusted yet. Its name is optional, so it goes before the prompt: `claude/mod.rs`
   (`start_in_terminal`), `claude/start.rs` (`background_args`).
+- The worktree a session made and holds, from its transcript's `worktree-state` lines, and what
+  happens to it as the session ends (2.1.292's code, checked in tmux 2026-10-07):
+  `claude/transcript.rs` (`own_worktree`), `idle.rs` (`exit`, `EXIT_WAIT`). `/exit` removes it
+  when nothing is uncommitted, no commit was added and the session has no name of yours
+  ("Worktree removed (no changes)"), else asks "Exiting worktree session" (Keep worktree /
+  Remove worktree, Keep first); a hangup, as closing its tab gives, removes nothing, runs no
+  `WorktreeRemove` hook and leaves the git lock (`claude session <name> (pid … start …)`) behind.
+  The lock comes off just before the files are deleted. A session sent no prompt yet has no
+  `worktree-state` line, and the exit writes none: it writes a `relocated` line with the
+  checkout's folder.
 - `--bg` (2.1.283): the job ID it prints, the session ID the roster has as soon as it returns,
   `--session-id` ignored, its arguments quoted in the command since the service keeps the
   environment of whichever shell started it, and an untrusted folder refused:

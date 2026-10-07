@@ -332,6 +332,8 @@ pub fn claude_session(
         app_account: account.home_path() == crate::util::home().join(".claude"),
         limit,
         model: tr.and_then(|t| t.model.clone()),
+        // Held only while it runs: the lock and the cleanup at exit are its process's.
+        own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
         ..known
     })
 }

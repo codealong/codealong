@@ -92,6 +92,10 @@ export interface Session {
   /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
    *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
   model?: string;
+  /** The worktree its harness made for it and holds while it runs (Claude Code's `--worktree`),
+   *  which the harness removes as the session exits its own way: Mark as done exits it so
+   *  (idle.rs `ending`). Missing where it has none, and from older Macs. */
+  ownWorktree?: string;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;

@@ -33,7 +33,8 @@ export const SLACK_MS = 1_000;
 /** A seen, archive or rename the engine gave no board for (a session on another device) goes
  *  when the board shows it, or after this. */
 const UNANSWERED_MS = 20_000;
-/** A seen, archive or rename goes after this, whatever the board says. */
+/** A seen, archive or rename goes after this, whatever the board says. Mark as done waits less
+ *  than this for a session's harness to remove its worktree (idle.rs `REMOVAL_WAIT`). */
 const LONGEST_MS = 60_000;
 /** A message goes after this, whatever the board says: its thread has said what it knows. */
 const SEND_LONGEST_MS = 10 * 60_000;

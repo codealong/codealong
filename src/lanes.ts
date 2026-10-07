@@ -99,6 +99,14 @@ export function closable(s: Session): boolean {
   return s.live && s.surface === 'cli' && !s.hosted && !shortOf(s.key) && (s.pid != null || s.attachCommand != null);
 }
 
+/** Whether Mark as done ends it by its harness's own exit, typed into its terminal, which cleans
+ *  up the worktree the harness made for it, rather than closing its tab: idle.rs
+ *  `exits_its_own_way` says the same. Not while that exit would be taken for something else: a
+ *  turn running, a command left in the background, or a prompt waiting on you. */
+export function exitsItsOwnWay(s: Session): boolean {
+  return s.ownWorktree != null && closable(s) && s.attachCommand == null && s.status !== 'working' && s.background == null && !(s.status === 'needs' && !s.asks);
+}
+
 /** A session and the worktree it's listed under as its own, not one it only visits. */
 export interface Placed {
   lane: Lane;

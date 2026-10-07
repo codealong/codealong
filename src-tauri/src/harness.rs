@@ -158,6 +158,14 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// The command that, typed into a running session's terminal, ends it the harness's own way,
+    /// cleaning up the worktree it made for it (`Session::own_worktree`), where a hangup would
+    /// leave that behind. Mark as done types it for a session with such a worktree
+    /// (`idle::ending`). None where there's no such command.
+    fn exit_command(&self) -> Option<&'static str> {
+        None
+    }
+
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.
     fn pending(&self, _ctx: &Ctx, _session: &Session) -> Option<Pending> {
         None
