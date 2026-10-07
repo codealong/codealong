@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -94,6 +95,8 @@ struct Hosted {
     /// Loaded in the account's current process.
     loaded: bool,
     running: bool,
+    /// The running turn's claim on the prompt it's sending: none between turns.
+    turn: Option<Claim>,
     /// When the running turn started, or the last one ended.
     since: i64,
     permission: Option<Permission>,
@@ -107,6 +110,42 @@ struct Hosted {
     error: Option<String>,
     /// Its config options as the agent last listed them (`configOptions`), for switching its model.
     options: Value,
+}
+
+/// A turn's claim on its prompt, from when the turn begins (`begin`), or takes the next prompt
+/// queued, to when that prompt is written. A Stop before then ends the turn with nothing sent,
+/// however long the session takes to be picked up in the process; a Stop after goes to the
+/// agent, after the prompt (`rpc::Link::request_if`).
+#[derive(Clone, Debug, Default)]
+struct Claim(Arc<AtomicU8>);
+
+impl Claim {
+    const WAITING: u8 = 0;
+    const SENT: u8 = 1;
+    const STOPPED: u8 = 2;
+
+    fn from_waiting(&self, to: u8) -> bool {
+        self.0.compare_exchange(Self::WAITING, to, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+    }
+
+    /// Takes the claim to write the prompt: false when the turn was stopped first.
+    fn send(&self) -> bool {
+        self.from_waiting(Self::SENT)
+    }
+
+    /// Stops the turn before its prompt is written: false when it has been, or the turn was
+    /// stopped already.
+    fn stop(&self) -> bool {
+        self.from_waiting(Self::STOPPED)
+    }
+
+    fn stopped(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == Self::STOPPED
+    }
+
+    fn is(&self, other: &Claim) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// One adapter process.
@@ -277,12 +316,17 @@ fn run_npm(npm: &str, args: &[&str], dir: &Path, timeout: Duration) -> Result<cr
 impl Agent {
     /// Sends a request and waits for its answer; None waits as long as the process lives.
     fn request(&self, method: &str, params: Value, timeout: Option<Duration>) -> Result<Value> {
-        self.client.request(method, params, timeout).map_err(|e| match e {
+        self.request_if(method, params, timeout, || true).unwrap_or_else(|| unreachable!("a request that's always wanted is always made"))
+    }
+
+    /// As `request`, if `wanted()` says so as it's written (`rpc::Link::request_if`).
+    fn request_if(&self, method: &str, params: Value, timeout: Option<Duration>, wanted: impl FnOnce() -> bool) -> Option<Result<Value>> {
+        Some(self.client.request_if(method, params, timeout, wanted)?.map_err(|e| match e {
             Failure::Timeout => anyhow!("{} didn't answer {method} in time.", self.account),
             Failure::Closed(_) => anyhow!("{}'s agent stopped.", self.account),
             Failure::Refused(e) => anyhow!("{}", e.get("message").and_then(Value::as_str).unwrap_or("error")),
             Failure::Write(e) => e.into(),
-        })
+        }))
     }
 
     /// The protocol's handshake: who's asking and what Codealong lends the agent. It answers
@@ -446,6 +490,9 @@ fn let_go(st: &mut State, account: &str) {
             h.running = false;
             h.since = now_ms();
             h.error = Some("Its agent stopped.".into());
+            if let Some(turn) = h.turn.take() {
+                turn.stop();
+            }
         }
         h.permission = None;
         h.queue.clear();
@@ -595,13 +642,10 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     let cwd_s = cwd.to_string_lossy().into_owned();
     remember(Remembered { harness, account: a.name.clone(), id: id.clone(), cwd: cwd_s.clone() });
     let mut hosted = Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, options, ..Default::default() };
-    let prompted = !prompt.trim().is_empty();
-    if prompted {
-        begin(&mut hosted);
-    }
+    let turn = (!prompt.trim().is_empty()).then(|| begin(&mut hosted));
     state().sessions.insert(key.clone(), hosted);
-    if prompted {
-        run_turn(ag, key.clone(), prompt.to_string());
+    if let Some(turn) = turn {
+        run_turn(ag, key.clone(), prompt.to_string(), turn);
     }
     notify(Change::Board);
     Ok(key)
@@ -620,10 +664,7 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
     let mut hosted = Hosted { account: a.name.clone(), id: id.to_string(), cwd: cwd_s.clone(), loaded: false, ..Default::default() };
     let was = (hosted.since, hosted.error.clone());
     // Its turn begins as it's taken on, so a send meanwhile goes after it.
-    let prompted = !prompt.trim().is_empty();
-    if prompted {
-        begin(&mut hosted);
-    }
+    let turn = (!prompt.trim().is_empty()).then(|| begin(&mut hosted));
     state().sessions.insert(key.clone(), hosted);
     let loaded = match load(&ag, &key, id, &cwd_s) {
         Ok(r) => r,
@@ -636,15 +677,15 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
     let options = match tune(&ag, id, &loaded, model, effort) {
         Ok(o) => o,
         Err(e) => {
-            if prompted {
-                abandon(&key, was, &e);
+            if let Some(turn) = &turn {
+                abandon(&key, turn, was, &e);
             }
             return Err(e);
         }
     };
     set(&key, |h| h.options = options);
-    if prompted {
-        run_turn(ag, key.clone(), prompt.to_string());
+    if let Some(turn) = turn {
+        run_turn(ag, key.clone(), prompt.to_string(), turn);
     }
     notify(Change::Board);
     Ok(key)
@@ -748,22 +789,26 @@ pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
             None
         } else {
             let was = (h.since, h.error.clone());
-            begin(h);
-            Some((h.id.clone(), h.cwd.clone(), h.loaded && alive, was))
+            let turn = begin(h);
+            Some((h.id.clone(), h.cwd.clone(), h.loaded && alive, was, turn))
         }
     };
     notify(Change::Board);
-    let Some((id, cwd, loaded, was)) = begun else {
+    let Some((id, cwd, loaded, was, turn)) = begun else {
         return Ok("Queued: it goes after the current turn.".into());
     };
     let ag = match agent(a).and_then(|ag| if loaded { Ok(ag) } else { load(&ag, key, &id, &cwd).map(|_| ag) }) {
         Ok(ag) => ag,
         Err(e) => {
-            abandon(key, was, &e);
+            abandon(key, &turn, was, &e);
             return Err(e);
         }
     };
-    run_turn(ag, key.to_string(), text.to_string());
+    // Stopped while it was being picked up: the turn has ended, and this never goes.
+    if turn.stopped() {
+        bail!("Stopped before it was sent.");
+    }
+    run_turn(ag, key.to_string(), text.to_string(), turn);
     Ok("Sent.".into())
 }
 
@@ -796,21 +841,29 @@ fn set(key: &str, f: impl FnOnce(&mut Hosted)) {
 }
 
 /// Marks the session's turn begun, for whoever runs it (`run_turn`): a send from then on queues
-/// behind it, while the session is still being picked up in the process too.
-fn begin(h: &mut Hosted) {
+/// behind it, while the session is still being picked up in the process too. Returns the turn's
+/// claim on its prompt.
+fn begin(h: &mut Hosted) -> Claim {
+    let turn = Claim::default();
     h.running = true;
+    h.turn = Some(turn.clone());
     h.since = now_ms();
     h.error = None;
     h.text.clear();
     h.tool = None;
+    turn
 }
 
 /// A turn `begin` marked that never ran, because the session couldn't be picked up: the session
 /// is as it was (`was`: when its last turn ended, and how), and what was sent meanwhile goes too,
-/// which its error says.
-fn abandon(key: &str, was: (i64, Option<String>), e: &anyhow::Error) {
+/// which its error says. A turn stopped meanwhile has ended already, and is left as Stop left it.
+fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>), e: &anyhow::Error) {
+    if !turn.stop() {
+        return;
+    }
     set(key, |h| {
         h.running = false;
+        h.turn = None;
         (h.since, h.error) = was;
         if !h.queue.is_empty() {
             h.queue.clear();
@@ -821,17 +874,19 @@ fn abandon(key: &str, was: (i64, Option<String>), e: &anyhow::Error) {
 }
 
 /// Runs a turn `begin` marked on a thread of its own, then the next queued prompt, until the
-/// queue is empty.
-fn run_turn(ag: Arc<Agent>, key: String, text: String) {
+/// queue is empty. Each prompt goes only while its turn's claim holds: a turn stopped first was
+/// ended by whoever stopped it, and one ended without it (its process stopped) may have been
+/// followed by another, so neither is touched here.
+fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
     std::thread::spawn(move || {
-        let mut text = text;
+        let (mut text, mut turn) = (text, turn);
         loop {
             let id = state().sessions.get(&key).map(|h| h.id.clone()).unwrap_or_default();
             let prompt = json!([{ "type": "text", "text": text }]);
-            let r = ag.request("session/prompt", json!({ "sessionId": id, "prompt": prompt }), None);
+            let Some(r) = ag.request_if("session/prompt", json!({ "sessionId": id, "prompt": prompt }), None, || turn.send()) else { return };
             let next = {
                 let mut st = state();
-                let Some(h) = st.sessions.get_mut(&key) else { return };
+                let Some(h) = st.sessions.get_mut(&key).filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))) else { return };
                 h.permission = None;
                 h.text.clear();
                 h.tool = None;
@@ -845,17 +900,20 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String) {
                 };
                 if h.queue.is_empty() || r.is_err() {
                     h.running = false;
+                    h.turn = None;
                     h.since = now_ms();
                     None
                 } else {
                     h.since = now_ms();
-                    Some(h.queue.remove(0))
+                    let next = Claim::default();
+                    h.turn = Some(next.clone());
+                    Some((h.queue.remove(0), next))
                 }
             };
             notify(Change::Stream(Stream { key: key.clone(), text: String::new(), tool: None }));
             notify(Change::Board);
             match next {
-                Some(t) => text = t,
+                Some(n) => (text, turn) = n,
                 None => return,
             }
         }
@@ -863,13 +921,25 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String) {
 }
 
 /// Stops the running turn. The agent ends it as cancelled; a permission request waiting is
-/// answered as cancelled first, as the protocol asks.
+/// answered as cancelled first, as the protocol asks. A turn whose prompt hasn't been written
+/// yet, its session still being picked up in the process, ends here, and its prompt never goes.
 pub fn cancel(key: &str) -> Result<()> {
-    let (account, id, permission) = {
+    let asked = {
         let mut st = state();
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
         h.queue.clear();
-        (h.account.clone(), h.id.clone(), h.permission.take())
+        if h.turn.as_ref().is_some_and(Claim::stop) {
+            h.running = false;
+            h.turn = None;
+            h.since = now_ms();
+            None
+        } else {
+            Some((h.account.clone(), h.id.clone(), h.permission.take()))
+        }
+    };
+    let Some((account, id, permission)) = asked else {
+        notify(Change::Board);
+        return Ok(());
     };
     let ag = state().agents.get(&account).cloned().ok_or_else(|| anyhow!("That session isn't running."))?;
     if let Some(p) = permission {
@@ -1451,6 +1521,47 @@ mod tests {
             .collect();
         assert_eq!(said, ["session/resume", "session/prompt First", "session/prompt Second"]);
         assert_eq!(state().sessions[&key].error, None);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Stop while a session is still being picked up in the process ends the turn there, and
+    /// its prompt never goes, nor anything sent meanwhile; the next send goes as usual.
+    #[test]
+    fn a_stop_while_picking_up_sends_nothing() {
+        init(|_| {});
+        let dir = store::test_dir("acp-stop-picking-up");
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\),.*/\1/p'); case "$line" in"#,
+            r#"*'"method":"session/resume"'*) sleep 1; echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{}}";;"#,
+            r#"*'"method":"session/prompt"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"stopReason\":\"end_turn\"}}";; esac; done"#,
+        ]
+        .join(" ");
+        let account = "test-adapter-stop-picking-up";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "resume": {} } });
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "claude", "home": "/h" })).unwrap();
+        let first = {
+            let (a, key) = (a.clone(), key.clone());
+            std::thread::spawn(move || send(&a, &key, "First"))
+        };
+        wait_until("the session to be picked up", 10, || heard(&dir).iter().any(|l| l.contains(r#""method":"session/resume""#)));
+        assert_eq!(send(&a, &key, "Second").unwrap(), "Queued: it goes after the current turn.");
+        cancel(&key).unwrap();
+        assert!(!state().sessions[&key].running);
+        assert_eq!(first.join().unwrap().unwrap_err().to_string(), "Stopped before it was sent.");
+        // Long enough for a prompt to be written, had one gone.
+        std::thread::sleep(Duration::from_millis(500));
+        let said = |dir: &Path| heard(dir).iter().map(|l| serde_json::from_str::<Value>(l).unwrap()).map(|v| format!("{} {}", v["method"].as_str().unwrap_or(""), v.pointer("/params/prompt/0/text").and_then(Value::as_str).unwrap_or("")).trim().to_string()).collect::<Vec<_>>();
+        assert_eq!(said(&dir), ["session/resume"]);
+        let h = state().sessions[&key].clone();
+        assert_eq!((h.loaded, h.running, h.queue.len(), h.error), (true, false, 0, None));
+        assert_eq!(send(&a, &key, "Again").unwrap(), "Sent.");
+        wait_until("its turn to end", 10, || !state().sessions[&key].running);
+        assert_eq!(said(&dir), ["session/resume", "session/prompt Again"]);
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);

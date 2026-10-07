@@ -262,15 +262,26 @@ impl Link {
         self.write(line, Some(Instant::now() + WRITE_TIMEOUT))
     }
 
-    /// Writes one line, giving up at `deadline` (with `TimedOut`) or when the client ends. A
-    /// line given up on half written closes the child's input: what it read next would be the
-    /// rest of that line run into another.
     fn write(&self, line: &Value, deadline: Option<Instant>) -> io::Result<()> {
+        self.write_if(line, deadline, || true).map(|_| ())
+    }
+
+    /// Writes one line if `wanted()` says so, asked once no other line can go before it: false
+    /// leaves it unwritten. It gives up at `deadline` (with `TimedOut`) or when the client ends.
+    /// A line given up on half written closes the child's input: what it read next would be the
+    /// rest of that line run into another.
+    fn write_if(&self, line: &Value, deadline: Option<Instant>, wanted: impl FnOnce() -> bool) -> io::Result<bool> {
         let closed = || io::Error::new(io::ErrorKind::BrokenPipe, "its input is closed");
         let mut text = line.to_string();
         text.push('\n');
         let mut rest = text.as_bytes();
         let mut stdin = lock(&self.stdin);
+        if stdin.is_none() {
+            return Err(closed());
+        }
+        if !wanted() {
+            return Ok(false);
+        }
         while !rest.is_empty() {
             let Some(pipe) = stdin.as_mut() else { return Err(closed()) };
             match pipe.write(rest) {
@@ -298,23 +309,37 @@ impl Link {
                 libc::poll(&mut ready, 1, wait.as_millis().max(1) as libc::c_int);
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Sends a request, numbered from 1 in the order they're made, and waits for its answer:
     /// its `result`. `timeout` covers writing the request as well as the answer; None waits as
     /// long as the process lives. Any thread but the reader's may ask, several at once.
     pub fn request(&self, method: &str, params: Value, timeout: Option<Duration>) -> Answer {
+        self.request_if(method, params, timeout, || true).unwrap_or_else(|| unreachable!("a request that's always wanted is always made"))
+    }
+
+    /// As `request`, if `wanted()` still says so as the request is written: it's asked once no
+    /// other line can go before it, so a line written once it has said yes goes after the
+    /// request. None, with nothing written, when it says no.
+    pub fn request_if(&self, method: &str, params: Value, timeout: Option<Duration>, wanted: impl FnOnce() -> bool) -> Option<Answer> {
         let deadline = timeout.map(|t| Instant::now() + t);
         let id = self.next.fetch_add(1, Ordering::SeqCst);
         let (asker, answer) = channel();
         match lock(&self.waiting).as_mut() {
             Some(waiting) => waiting.insert(id, asker),
-            None => return Err(Failure::Closed(self.last_words())),
+            None => return Some(Err(Failure::Closed(self.last_words()))),
         };
-        if let Err(e) = self.write(&self.marked(request_line(id, method, params)), deadline) {
-            self.forget(id);
-            return Err(if e.kind() == io::ErrorKind::TimedOut { Failure::Timeout } else { Failure::Write(e) });
+        match self.write_if(&self.marked(request_line(id, method, params)), deadline, wanted) {
+            Ok(true) => {}
+            Ok(false) => {
+                self.forget(id);
+                return None;
+            }
+            Err(e) => {
+                self.forget(id);
+                return Some(Err(if e.kind() == io::ErrorKind::TimedOut { Failure::Timeout } else { Failure::Write(e) }));
+            }
         }
         let got = match deadline {
             Some(d) => answer.recv_timeout(d.saturating_duration_since(Instant::now())).map_err(|e| match e {
@@ -326,7 +351,7 @@ impl Link {
         if got.is_err() {
             self.forget(id);
         }
-        got?
+        Some(got.and_then(|a| a))
     }
 
     /// Tells the child something that takes no answer.
@@ -471,6 +496,34 @@ mod tests {
         assert!(client.is_closed());
         // And what's asked after that fails at once, the same way.
         assert!(matches!(client.request("again", json!({}), None), Err(Failure::Closed(last)) if last == said));
+    }
+
+    /// A request that's no longer wanted as it's about to be written isn't, and what's written
+    /// once it has said it is goes after it, even from another thread.
+    #[test]
+    fn a_request_goes_only_if_still_wanted_and_before_what_follows() {
+        let mut cmd = Command::new("/bin/cat");
+        cmd.arg("-u");
+        let (tx, rx) = channel();
+        let client = Client::spawn(cmd, Stderr::Tail, Wire::Bare, move |_, heard| {
+            if let Heard::Line(v) = heard {
+                let _ = tx.send(v["method"].as_str().unwrap_or("").to_string());
+            }
+        })
+        .unwrap();
+        assert!(client.request_if("unwanted", json!({}), SOON, || false).is_none());
+        let link = client.link.clone();
+        let wanted = || {
+            // Another thread writes as soon as it can, which is once the request has gone.
+            let link = link.clone();
+            std::thread::spawn(move || link.notify("after", Value::Null).unwrap());
+            std::thread::sleep(Duration::from_millis(200));
+            true
+        };
+        assert!(matches!(client.request_if("wanted", json!({}), Some(Duration::from_millis(300)), wanted), Some(Err(Failure::Timeout))));
+        let got: Vec<String> = (0..2).map(|_| rx.recv_timeout(Duration::from_secs(10)).unwrap()).collect();
+        assert_eq!(got, ["wanted", "after"]);
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
     }
 
     #[test]
