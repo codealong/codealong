@@ -815,7 +815,7 @@ query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      bodyHTML mergeable
+      body bodyHTML mergeable
       commits { totalCount }
       reviews(last: 50) { nodes { id author { login } state submittedAt body url } }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
@@ -869,6 +869,10 @@ pub struct PrFile {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrDetail {
+    /// The description as written, in Markdown: for a conversation about the PR to read
+    /// (`for_reading`), not the windows, which show `body_html`.
+    #[serde(skip)]
+    pub body: String,
     /// The description as GitHub renders it, sanitized by GitHub.
     pub body_html: String,
     pub mergeable: Option<String>,
@@ -969,6 +973,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
         })
         .collect();
     Ok(PrDetail {
+        body: pr.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
         body_html: pr.get("bodyHTML").and_then(Value::as_str).unwrap_or_default().to_string(),
         mergeable: pr.get("mergeable").and_then(Value::as_str).map(String::from),
         commits: pr.pointer("/commits/totalCount").and_then(Value::as_u64).unwrap_or(0),
@@ -978,6 +983,59 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
         more_files: files.len() >= 100,
         files,
     })
+}
+
+/// What a conversation about a PR reads of it (side.rs `ask_pr`), which has no `gh` of its own
+/// to ask with: what it is, its description, reviews and comments as Markdown (`reading_md`),
+/// and its whole diff as `gh pr diff` gives it. `detail`'s requests and the diff go in parallel.
+/// A diff GitHub won't give whole (it refuses very large ones) is made of the files' own diffs,
+/// which leave out the largest files, and the Markdown says so.
+pub fn for_reading(pr: &crate::model::PrItem) -> Result<(String, String)> {
+    let (detail, diff) = std::thread::scope(|scope| {
+        let diff = scope.spawn(|| procs::run("gh", &["pr", "diff", &pr.number.to_string(), "-R", &pr.repo_slug], None, Duration::from_secs(60)));
+        (detail(&pr.repo_slug, pr.number), diff.join())
+    });
+    let d = detail?;
+    let (diff, whole) = match diff {
+        Ok(Ok(diff)) => (diff, true),
+        _ => (d.files.iter().filter_map(|f| f.patch.as_ref().map(|p| format!("diff --git a/{0} b/{0}\n{p}\n", f.path))).collect::<String>(), false),
+    };
+    Ok((reading_md(pr, &d, whole), diff))
+}
+
+/// A PR as Markdown, for a conversation about it to read (`for_reading`). `whole`: its diff is
+/// all there, not only the files GitHub showed a diff for.
+pub fn reading_md(pr: &crate::model::PrItem, d: &PrDetail, whole: bool) -> String {
+    let mut md = format!("# #{} {}\n\n{} · by {} · {} into {} · {}\n", pr.number, pr.title, pr.repo_slug, pr.author.as_deref().unwrap_or("someone"), pr.head, pr.base.as_deref().unwrap_or("its base"), pr.url);
+    md += &format!("\n## Description\n\n{}\n", if d.body.trim().is_empty() { "None." } else { d.body.trim() });
+    if !d.reviews.is_empty() || !d.requested.is_empty() {
+        md += "\n## Reviews\n\n";
+        for r in &d.reviews {
+            md += &format!("- {}: {}\n", r.author, r.state.to_lowercase().replace('_', " "));
+        }
+        for who in &d.requested {
+            md += &format!("- {who}: review requested\n");
+        }
+    }
+    if !d.comments.is_empty() {
+        md += "\n## Comments, newest first\n";
+        for c in &d.comments {
+            let on = c.path.as_ref().map(|p| format!(" on `{p}`")).unwrap_or_default();
+            let resolved = if c.resolved { " (resolved)" } else { "" };
+            md += &format!("\n### {}{on}{resolved}\n\n{}\n", c.author, c.body.trim());
+        }
+    }
+    md += &format!("\n## Files changed ({})\n\n", pr.changed_files);
+    for f in &d.files {
+        md += &format!("- {} `{}` +{} −{}\n", f.status, f.path, f.additions, f.deletions);
+    }
+    if d.more_files {
+        md += "- …and more, which GitHub lists past the first hundred.\n";
+    }
+    if !whole {
+        md += "\nGitHub wouldn't give the whole diff, so pr.diff has only the files above that GitHub showed a diff for.\n";
+    }
+    md
 }
 
 /// What a review of a PR says: approved, a comment, or changes asked for. A comment or a request
@@ -1495,5 +1553,32 @@ mod tests {
         let got: Vec<(&str, bool, bool, Option<&str>)> = d.comments.iter().map(|c| (c.id.as_str(), c.mine, c.resolved, c.path.as_deref())).collect();
         // The approval with nothing written is left out.
         assert_eq!(got, vec![("C1", true, false, None), ("R1", false, false, None), ("T1", false, true, Some("src/a.ts"))]);
+    }
+
+    /// What a conversation about a PR reads of it: the description as written, where reviews
+    /// stand, the comments with the files they're on, and the files.
+    #[test]
+    fn a_pr_is_written_out_for_a_conversation_to_read() {
+        let graph = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"body":"Adds **teams**.","bodyHTML":"<p>Adds <b>teams</b>.</p>","mergeable":null,"commits":{"totalCount":1},
+          "reviews":{"nodes":[{"id":"R1","author":{"login":"ana"},"state":"CHANGES_REQUESTED","submittedAt":"2026-09-23T13:00:00Z","body":"Please add a test.","url":"u1"}]},
+          "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"gwen"}}]},
+          "comments":{"nodes":[]},
+          "reviewThreads":{"nodes":[{"isResolved":true,"path":"src/a.ts","comments":{"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4"}]}}]}}}}}"#;
+        let files = r#"[{"filename":"src/a.ts","status":"modified","additions":3,"deletions":1,"patch":"@@ -1 +1 @@"}]"#;
+        let d = parse_detail(graph, files).unwrap();
+        assert_eq!(d.body, "Adds **teams**.");
+        let pr: crate::model::PrItem = serde_json::from_value(serde_json::json!({
+            "key": "o/r#7", "repoSlug": "o/r", "repo": "r", "project": "P", "number": 7, "title": "Add teams", "url": "https://github.com/o/r/pull/7",
+            "state": "open", "author": "ken", "mine": false, "reviewRequested": true, "head": "feat", "base": "main",
+            "checks": {"passed": 0, "failed": 0, "pending": 0, "skipped": 0, "failing": []}, "merge": "unknown",
+            "additions": 3, "deletions": 1, "changedFiles": 1, "createdAt": 0, "updatedAt": 0, "mergedAt": null, "closedAt": null, "lanes": [], "sessions": []
+        }))
+        .unwrap();
+        let md = reading_md(&pr, &d, true);
+        assert_eq!(
+            md,
+            "# #7 Add teams\n\no/r · by ken · feat into main · https://github.com/o/r/pull/7\n\n## Description\n\nAdds **teams**.\n\n## Reviews\n\n- ana: changes requested\n- gwen: review requested\n\n## Comments, newest first\n\n### ana\n\nPlease add a test.\n\n### ana on `src/a.ts` (resolved)\n\nWhy this?\n\n## Files changed (1)\n\n- modified `src/a.ts` +3 −1\n"
+        );
+        assert!(reading_md(&pr, &d, false).ends_with("pr.diff has only the files above that GitHub showed a diff for.\n"));
     }
 }

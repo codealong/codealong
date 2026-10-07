@@ -162,6 +162,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   system prompt is sent by `--system-prompt-snapshot`, on by default. While it runs the copy has
   a messaging socket and a derived name in the registry, and its `SessionStart` (matcher `fork`)
   hooks run too.
+- A conversation of its own about a PR (`claude/mod.rs` `fresh_side`, `side.rs` `ask_pr`): the
+  same headless run without `--resume`, which works and writes no transcript. In `default` mode
+  with nobody to ask, `gh pr diff` and `gh pr view` were refused as needing approval while
+  `grep`, `sed -n` and `head` on files went ahead, and a `touch` was refused as a sensitive edit
+  (2.1.292, 2026-10-07), so Codealong fetches the PR itself and the run reads it from a folder
+  `--add-dir` names. The Codealong plugin's `SessionStart` (`startup`) hook runs for it too.
 - `--model`'s aliases (2.1.282) and the account's `settings.json` `model` a start goes on without
   it: `claude/start.rs` (`MODELS`, `default_model`); it takes a full name too (`claude/mod.rs`
   `offers_model`). Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches

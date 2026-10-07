@@ -1326,11 +1326,12 @@ export interface SideTurn {
 }
 
 /** A session's side conversation (side.rs): questions about it, answered by a throwaway copy of
- *  its conversation while the session carries on, unaware. With no turns there is none. */
+ *  its conversation while the session carries on, unaware. A PR's questions are one too, answered
+ *  by an agent of their own. With no turns there is none. */
 export interface Side {
   /** Which of the session's side conversations: its record's id (`SideKept`). */
   id: string;
-  /** The session it's about. */
+  /** The session it's about, or the PR (`owner/name#number`). */
   key: string;
   turns: SideTurn[];
   /** The copy is answering. */
@@ -1338,6 +1339,8 @@ export interface Side {
   /** The copy is gone: what was said can still be read, and the next question goes to a new copy,
    *  which knows none of it. */
   ended: boolean;
+  /** The account whose agent answers, where that was chosen: a PR's conversation's. */
+  account?: string;
 }
 
 /** A side conversation as Codealong keeps it (`sides.json`), to read once its copy is gone: the

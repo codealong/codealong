@@ -188,6 +188,18 @@ impl crate::harness::Adapter for Codex {
         })
     }
 
+    /// An ephemeral thread of its own on the same app-server, read-only, which reads anywhere,
+    /// so what it's handed needs no more than its path.
+    fn fresh_side(&self, ctx: &crate::harness::Ctx, cwd: &Path, rules: &str, _reads: &Path) -> anyhow::Result<crate::side::Recipe> {
+        Ok(crate::side::Recipe {
+            program: appserver::codex_binary(),
+            args: ["app-server", "--listen", "stdio://"].iter().map(|a| a.to_string()).collect(),
+            env: vec![("CODEX_HOME".into(), ctx.account.home_path().to_string_lossy().into_owned())],
+            unset: Vec::new(),
+            dialect: Box::new(SideThread::fresh(cwd, rules)),
+        })
+    }
+
     /// Names the thread through Codex's app-server, as the Codex app does (`appserver::set_name`).
     /// The board reads names from the thread index; the app shows the name the next time it
     /// reads its threads.

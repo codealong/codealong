@@ -38,7 +38,10 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   nothing written too, and `thread/delete {threadId}` removes a thread and its rollout; a
   `turn_context` line also names the turn's `effort`, and its `sandbox_policy` its roots. Codex's
   own `/side` injects a "Side conversation boundary" user message, gives its copy the thread's
-  permissions too, and tells it to change nothing unless asked.
+  permissions too, and tells it to change nothing unless asked. A conversation of its own about a
+  PR is `thread/start {ephemeral: true, cwd, sandbox: "read-only", approvalPolicy: "never",
+  developerInstructions}` on the same app-server (`SideThread::fresh`); read-only, it read and
+  `rg`'d files under Codealong's support folder outside its `cwd` (0.160, 2026-10-07).
 - A prompt's images, which are in the rollout twice: `codex/conversation.rs` (the comment above
   `prompt_images`, and `sent_images`). A pasted one's `local_image` path is
   `$TMPDIR/codex-clipboard-<uuid>.png`.

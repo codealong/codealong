@@ -1,5 +1,5 @@
-/* The PR panel (PrInspector.tsx): status, reviews, comments, files with their patches, and the
-   description as GitHub renders it (.ca-prbody). */
+/* The PR panel (PrInspector.tsx): status, reviews, comments, and the description as GitHub
+   renders it (.ca-prbody). Its files are PrFiles.css's. */
 
 .ca-prinsp .ca-insp-actions {
   flex-wrap: wrap;
@@ -53,6 +53,17 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+/* The file count goes to the files. */
+.ca-prinsp-files {
+  font: inherit;
+  color: inherit;
+  text-decoration: underline dotted var(--line-strong);
+  text-underline-offset: 3px;
+}
+.ca-prinsp-files:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
 }
 .ca-prinsp-reviews {
   display: grid;
@@ -202,80 +213,4 @@
 }
 .ca-prbody input[type='checkbox'] {
   margin: 0 6px 0 0;
-}
-
-/* Changed files and their diffs. */
-.ca-prfiles {
-  display: grid;
-  gap: 2px;
-}
-.ca-prfile-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-width: 0;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--ink);
-  font: var(--type-code);
-  text-align: left;
-  cursor: pointer;
-}
-.ca-prfile-head:hover {
-  background: var(--surface-hover);
-}
-.ca-prfile-head > .ca-icon {
-  flex: none;
-  color: var(--ink-3);
-  transition: transform var(--dur-fast) ease-out;
-}
-.ca-prfile.is-open .ca-prfile-head > .ca-icon {
-  transform: rotate(90deg);
-}
-.ca-prfile-status {
-  flex: none;
-  width: 12px;
-  font-weight: 600;
-  color: var(--ink-3);
-}
-.ca-prfile-status.is-added {
-  color: var(--pr-open);
-}
-.ca-prfile-status.is-removed {
-  color: var(--alert);
-}
-.ca-prfile-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ca-patch {
-  margin: 2px 0 8px;
-  overflow-x: auto;
-  padding: 6px 0;
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
-  font: 400 11px/16px var(--font-mono);
-  color: var(--ink-2);
-}
-.ca-patch > span {
-  display: block;
-  padding: 0 8px;
-  white-space: pre;
-}
-.ca-patch > .is-add {
-  background: var(--pr-open-tint);
-  color: var(--ink);
-}
-.ca-patch > .is-del {
-  background: var(--alert-tint);
-  color: var(--ink);
-}
-.ca-patch > .is-hunk {
-  color: var(--ink-3);
 }

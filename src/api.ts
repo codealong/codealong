@@ -546,6 +546,20 @@ export async function sideClose(key: string): Promise<void> {
   await invoke('side_close', { key });
 }
 
+/** Asks about a PR (its key, `owner/name#number`) in a conversation of its own on `account`
+ *  (side.rs `ask_pr`): an agent that reads the PR and its code and changes nothing. Returns the
+ *  conversation with the question in it; the answer comes through `onSide`. */
+export async function prSideAsk(key: string, account: string, text: string): Promise<Side> {
+  if (!inTauri) throw new Error('Asking about a PR needs the app.');
+  return invoke<Side>('pr_side_ask', { key, account, text });
+}
+
+/** Ends a PR's conversation: what was said is kept to read. */
+export async function prSideClose(key: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('pr_side_close', { key });
+}
+
 /** Calls `cb` as a side conversation changes: a question, more of its answer, its end (one with
  *  no turns). */
 export function onSide(cb: (side: Side) => void): () => void {

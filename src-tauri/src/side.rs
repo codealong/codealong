@@ -11,6 +11,11 @@
 //! can be read after it's closed (`past`), with what the copy did to answer. A new question
 //! after that goes to a new copy, which knows none of it.
 //!
+//! A PR's questions are a side conversation too, by the PR's key (`ask_pr`): nobody's copy, but a
+//! conversation of its own on an account you pick (`Adapter::fresh_side`), in a checkout of the
+//! PR's repo here, handed the PR's description, discussion and whole diff to read, since it has
+//! no `gh` it may run. It only looks, and is kept, closed and read as a session's is.
+//!
 //! Each harness says how its copy runs and how to talk to it (`Adapter::side`: a `Recipe`, the
 //! process and a `Dialect` for its lines). This module runs the processes, keeps what was asked
 //! and answered, and tells the windows as an answer is written. A session has one side
@@ -33,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::model::Board;
+use crate::model::{Board, Lane, Origin, PrItem};
 use crate::rpc;
 use crate::store;
 use crate::util::{now_ms, truncate};
@@ -89,6 +94,10 @@ pub struct Side {
     /// The copy is gone (it sat idle, or stopped): what was said can still be read, and the
     /// next question goes to a new copy, which knows none of it.
     pub ended: bool,
+    /// The account whose agent answers, where that's chosen: a PR's conversation's (`ask_pr`).
+    /// A session's copy answers on the session's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 /// A side conversation as Codealong keeps it, to read once its copy is gone: the turns that
@@ -220,12 +229,31 @@ pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str) -> Result<Side> {
     if text.is_empty() {
         bail!("Ask it something: /side, then your question.");
     }
+    ask_with(key, text, None, || recipe(board, cfg, key))
+}
+
+/// Asks about a PR in a conversation of its own (`key` is the PR's, `owner/name#number`): an
+/// agent on `account` that reads the PR and the code around it and changes nothing
+/// (`Adapter::fresh_side`), made when there's none, as a session's copy is. From there it's a
+/// side conversation like a session's, asked, closed, kept and read the same way by the PR's
+/// key, and nobody's copy: the PR and GitHub hear nothing of it.
+pub fn ask_pr(board: &Board, cfg: &Config, key: &str, account: &str, text: &str) -> Result<Side> {
+    let text = text.trim();
+    if text.is_empty() {
+        bail!("Ask it something about the PR.");
+    }
+    ask_with(key, text, Some(account), || pr_recipe(board, cfg, key, account))
+}
+
+/// Asks `key`'s side conversation `text`, making its process with `made` when there's none, on
+/// `account` where the asker chose one.
+fn ask_with(key: &str, text: &str, account: Option<&str>, made: impl FnOnce() -> Result<(Recipe, PathBuf, String)>) -> Result<Side> {
     // Pasted files and screenshots go as their paths, which the copy reads, as they do to a session
     // (send.rs); the question shows as it was typed.
     let sent = crate::attachments::expand(text, crate::attachments::Style::Path);
     let has_copy = state().open.get(key).is_some_and(|o| o.proc.is_some());
-    // Looked up outside the lock: it reads the session's record.
-    let made = if has_copy { None } else { Some(recipe(board, cfg, key)?) };
+    // Made outside the lock: it reads the session's record, or asks GitHub about the PR.
+    let made = if has_copy { None } else { Some(made()?) };
     let now = now_ms();
     let side = {
         let mut st = state();
@@ -241,7 +269,7 @@ pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str) -> Result<Side> {
         if let Some((copy, title)) = copy {
             // A new copy knows nothing of what the last one was asked: it's a new side
             // conversation, and the last one is among the kept ones.
-            o.side = Side { id: format!("{now}-{id}"), key: key.to_string(), ..Default::default() };
+            o.side = Side { id: format!("{now}-{id}"), key: key.to_string(), account: account.map(String::from), ..Default::default() };
             o.title = title;
             o.started_at = now;
             o.queue.clear();
@@ -368,6 +396,75 @@ fn recipe(board: &Board, cfg: &Config, key: &str) -> Result<(Recipe, PathBuf, St
     };
     let recipe = crate::harness::adapter(s.harness).side(&crate::harness::Ctx { account }, s, &cwd)?;
     Ok((recipe, cwd, s.title.clone()))
+}
+
+// ---- a PR's conversation ----
+
+/// How a PR's conversation runs: on `account`, in a checkout of the PR's repo here
+/// (`pr_folder`), told what the PR is (`pr_rules`) and handed its description, discussion and
+/// whole diff to read (github.rs `for_reading`), fetched afresh for each new conversation, since
+/// the PR may have moved on. Its title, for the record, is the PR's.
+fn pr_recipe(board: &Board, cfg: &Config, key: &str, account: &str) -> Result<(Recipe, PathBuf, String)> {
+    let Some(pr) = board.prs.iter().find(|p| p.key == key) else { bail!("Codealong doesn't list {key} any more.") };
+    let Some(a) = cfg.accounts.iter().find(|a| a.name == account) else { bail!("There's no account named {account} in config.toml.") };
+    let Some(adapter) = crate::harness::of(a) else { bail!("Codealong doesn't know {account}'s harness, {}.", a.harness) };
+    let (md, diff) = crate::github::for_reading(pr)?;
+    let reads = reading_dir(pr);
+    std::fs::create_dir_all(&reads).and_then(|_| std::fs::write(reads.join("pr.md"), md)).and_then(|_| std::fs::write(reads.join("pr.diff"), diff)).with_context(|| format!("Couldn't write #{}'s diff for it to read.", pr.number))?;
+    tidy_readings(&reads, Duration::from_secs(7 * 24 * 3600));
+    let (folder, holds) = pr_folder(board, pr);
+    let rules = pr_rules(pr, folder.as_deref(), holds, &reads);
+    let cwd = folder.unwrap_or_else(|| reads.clone());
+    let recipe = adapter.fresh_side(&crate::harness::Ctx { account: a }, &cwd, &rules, &reads)?;
+    Ok((recipe, cwd, format!("#{} {}", pr.number, pr.title)))
+}
+
+/// Where what a PR's conversation reads is written: a folder of its own under Codealong's, by
+/// the PR's repo and number (`+` is in no owner's or repo's name).
+fn reading_dir(pr: &PrItem) -> PathBuf {
+    crate::config::support_dir().join("pr-reading").join(format!("{}+{}", pr.repo_slug.replace('/', "+"), pr.number))
+}
+
+/// Lets the PRs' readings that nothing has written to for `age` go, but `keep`: each is a PR's
+/// whole diff, which a new conversation fetches again anyway. Best done: one left is only space.
+fn tidy_readings(keep: &Path, age: Duration) {
+    let Some(all) = keep.parent().and_then(|p| std::fs::read_dir(p).ok()) else { return };
+    for e in all.flatten() {
+        let old = e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|d| d > age));
+        if old && e.path() != keep {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
+/// Where a PR's conversation runs, and whether that folder has the PR's branch checked out: a
+/// worktree on this Mac that holds it, else the repo's main checkout, else any worktree of the
+/// repo, as a review started from the PR's card picks one (src/review.ts `reviewLane`). None
+/// where this Mac has no checkout of the repo.
+fn pr_folder(board: &Board, pr: &PrItem) -> (Option<PathBuf>, bool) {
+    let here: Vec<&Lane> = board.lanes.iter().filter(|l| l.device.is_none() && Path::new(&l.path).is_dir()).collect();
+    if let Some(l) = here.iter().find(|l| pr.lanes.contains(&l.id) && l.branch.as_deref() == Some(pr.head.as_str())) {
+        return (Some(PathBuf::from(&l.path)), true);
+    }
+    let of_repo: Vec<&&Lane> = here.iter().filter(|l| [&l.repo_slug, &l.repo_slug_now].iter().any(|s| s.as_deref() == Some(pr.repo_slug.as_str()))).collect();
+    let lane = of_repo.iter().find(|l| l.origin == Origin::Main).or(of_repo.first());
+    (lane.map(|l| PathBuf::from(&l.path)), false)
+}
+
+/// What a PR's conversation is told before its first question: what the PR is, where to read
+/// it, what the folder it's in holds, and that it only looks. It's for someone reviewing the PR,
+/// so it answers briefly and says where in the code.
+fn pr_rules(pr: &PrItem, folder: Option<&Path>, holds: bool, reads: &Path) -> String {
+    let reads = reads.display();
+    let base = pr.base.as_deref().unwrap_or("its base branch");
+    let what = format!("You're answering questions about pull request #{} in {}, “{}” ({}), which merges {} into {base}, from someone reviewing it.", pr.number, pr.repo_slug, pr.title, pr.url, pr.head);
+    let read = format!("Its description, reviews, comments and files are in {reads}/pr.md, and its whole diff is in {reads}/pr.diff: read what you need of them before answering.");
+    let here = match folder {
+        Some(_) if holds => "The folder you're in has its branch checked out, so the code here is the PR's.".to_string(),
+        Some(_) => format!("The folder you're in is a checkout of {} without its branch: the code here is what the PR changes, and its changes are only in the diff.", pr.repo_slug),
+        None => format!("There's no checkout of {} on this Mac, so the diff is all of its code you have.", pr.repo_slug),
+    };
+    format!("{what} {read} {here} Read files and run commands that only look, to answer well. Don't change files, git state or anything else, don't push, and don't comment on GitHub: if you're asked to change something, say what you'd change instead. Don't start subagents. Answer briefly, and say where in the code (path and line) when it helps.")
 }
 
 fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
@@ -733,6 +830,52 @@ mod tests {
             assert!(past_in(&path, "claude:c:1").is_empty());
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// PR #7 of `o/r`, on the branch `feat`, held by the worktree `/held`.
+    fn pr() -> PrItem {
+        use crate::model::{Checks, Merge, PrState};
+        PrItem { key: "o/r#7".into(), repo_slug: "o/r".into(), repo: "r".into(), project: "P".into(), number: 7, title: "Add teams".into(), url: "https://github.com/o/r/pull/7".into(), state: PrState::Open, author: Some("ana".into()), mine: false, review_requested: true, requested_by: None, requested_at: None, snoozed_until: None, nudge: false, head: "feat".into(), base: Some("main".into()), checks: Checks::default(), merge: Merge::Unknown, additions: 1, deletions: 0, changed_files: 1, created_at: 0, updated_at: 0, merged_at: None, closed_at: None, lanes: vec!["held".into()], sessions: Vec::new() }
+    }
+
+    #[test]
+    fn a_prs_conversation_runs_where_its_branch_is_else_in_a_checkout_of_its_repo() {
+        use crate::fixtures::{lane, scratch};
+        let dir = scratch("pr-folder");
+        let at = |name: &str| {
+            let p = dir.join(name);
+            std::fs::create_dir_all(&p).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        let of = |id: &str, path: String, slug: &str, branch: &str, origin: Origin| Lane { path, repo_slug: Some(slug.into()), branch: Some(branch.into()), origin, ..lane(id, Vec::new()) };
+        let (main, other, held) = (of("main", at("main"), "o/r", "main", Origin::Main), of("other", at("other"), "o/r", "x", Origin::Script), of("held", at("held"), "o/r", "feat", Origin::Script));
+        let elsewhere = of("else", at("else"), "o/else", "main", Origin::Main);
+        let board = |lanes: Vec<Lane>| Board { lanes, ..Default::default() };
+        let pr = pr();
+        assert_eq!(pr_folder(&board(vec![main.clone(), held.clone()]), &pr), (Some(PathBuf::from(&held.path)), true));
+        // A worktree that held it and has moved on to another branch doesn't hold it now.
+        let moved = Lane { branch: Some("next".into()), ..held.clone() };
+        assert_eq!(pr_folder(&board(vec![other.clone(), moved, main.clone()]), &pr), (Some(PathBuf::from(&main.path)), false));
+        // Without the main checkout, any of the repo's; one under the repo's old name too.
+        let renamed = Lane { repo_slug: Some("o/old".into()), repo_slug_now: Some("o/r".into()), ..other.clone() };
+        assert_eq!(pr_folder(&board(vec![elsewhere.clone(), renamed]), &pr), (Some(PathBuf::from(&other.path)), false));
+        // Another device's worktree, or a folder that's gone, is no place to run.
+        let theirs = Lane { device: Some(crate::model::DeviceTag { name: "Mini".into(), short: "M".into(), color: "blue".into(), online: true, last_seen: None }), ..held.clone() };
+        let gone = Lane { path: dir.join("gone").to_string_lossy().into_owned(), ..main.clone() };
+        assert_eq!(pr_folder(&board(vec![theirs, gone, elsewhere]), &pr), (None, false));
+    }
+
+    #[test]
+    fn a_prs_conversation_is_told_what_it_is_where_to_read_it_and_to_only_look() {
+        let pr = pr();
+        let reads = Path::new("/support/pr-reading/o+r+7");
+        let rules = pr_rules(&pr, Some(Path::new("/held")), true, reads);
+        assert!(rules.starts_with("You're answering questions about pull request #7 in o/r, “Add teams” (https://github.com/o/r/pull/7), which merges feat into main, from someone reviewing it."), "{rules}");
+        assert!(rules.contains("/support/pr-reading/o+r+7/pr.md") && rules.contains("/support/pr-reading/o+r+7/pr.diff"));
+        assert!(rules.contains("has its branch checked out") && rules.contains("don't comment on GitHub"));
+        assert!(pr_rules(&pr, Some(Path::new("/main")), false, reads).contains("a checkout of o/r without its branch"));
+        assert!(pr_rules(&pr, None, false, reads).contains("no checkout of o/r on this Mac"));
+        assert_eq!(reading_dir(&pr).file_name().unwrap(), "o+r+7");
     }
 
     #[test]

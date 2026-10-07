@@ -432,18 +432,21 @@ impl crate::harness::Adapter for ClaudeCode {
         let home = ctx.account.home_path();
         let registry = session_entry(&home, s);
         let mode = side_mode(permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref());
-        // `~/.claude` is where Claude Code looks with no folder named, whatever the app was
-        // started with (install.rs runs `claude plugin` the same way).
-        let usual = home == crate::util::home().join(".claude");
         let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", &id, "--fork-session", "--no-session-persistence", "--permission-mode", mode];
-        Ok(crate::side::Recipe {
-            program: "claude".into(),
-            args: args.iter().map(|a| a.to_string()).collect(),
-            env: if usual { Vec::new() } else { vec![("CLAUDE_CONFIG_DIR".into(), home.to_string_lossy().into_owned())] },
-            // And it's no child of whatever session the app may have been started from.
-            unset: [usual.then_some("CLAUDE_CONFIG_DIR"), Some("CLAUDE_CODE_SESSION_ID"), Some("CLAUDE_CODE_CHILD_SESSION"), Some("CODEALONG_SESSION")].into_iter().flatten().collect(),
-            dialect: Box::new(SideCopy::default()),
-        })
+        Ok(headless(&home, &args, SideCopy::default()))
+    }
+
+    /// The same headless Claude Code with nothing to resume: a conversation of its own that
+    /// keeps no record, in the usual mode, where with nobody to ask whatever would ask is
+    /// refused: edits and commands that change things, and commands it doesn't know only look
+    /// (a fresh run asked to `gh pr diff` was refused, 2.1.292). So Codealong hands it what it
+    /// reads in `reads`, which `--add-dir` lets it read without asking (`=`, since the flag takes
+    /// several folders). It runs on the account's usual model, and has its rules with its first
+    /// question as a copy does.
+    fn fresh_side(&self, ctx: &crate::harness::Ctx, _cwd: &Path, rules: &str, reads: &Path) -> anyhow::Result<crate::side::Recipe> {
+        let reads = format!("--add-dir={}", reads.display());
+        let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--no-session-persistence", "--permission-mode", "default", &reads];
+        Ok(headless(&ctx.account.home_path(), &args, SideCopy::told(rules)))
     }
 
     /// A background job stops under its account's service, which keeps the conversation
@@ -1153,6 +1156,22 @@ fn transcripts_named(home: &Path, id: &str) -> Vec<PathBuf> {
 /// An account's folder by its name, as config.toml has it.
 fn home_of_account(name: &str) -> Option<PathBuf> {
     crate::config::current().ok()?.accounts.into_iter().find(|a| a.name == name).map(|a| a.home_path())
+}
+
+/// A headless Claude Code on the account in `home`, run with `args` and talked to in `dialect`
+/// (a side conversation's copy, or a PR's conversation).
+fn headless(home: &Path, args: &[&str], dialect: SideCopy) -> crate::side::Recipe {
+    // `~/.claude` is where Claude Code looks with no folder named, whatever the app was started
+    // with (install.rs runs `claude plugin` the same way).
+    let usual = home == crate::util::home().join(".claude");
+    crate::side::Recipe {
+        program: "claude".into(),
+        args: args.iter().map(|a| a.to_string()).collect(),
+        env: if usual { Vec::new() } else { vec![("CLAUDE_CONFIG_DIR".into(), home.to_string_lossy().into_owned())] },
+        // And it's no child of whatever session the app may have been started from.
+        unset: [usual.then_some("CLAUDE_CONFIG_DIR"), Some("CLAUDE_CODE_SESSION_ID"), Some("CLAUDE_CODE_CHILD_SESSION"), Some("CODEALONG_SESSION")].into_iter().flatten().collect(),
+        dialect: Box::new(dialect),
+    }
 }
 
 /// What `--resume` goes on from for a session under `account`: its ID, or, while it has no

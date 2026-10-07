@@ -40,7 +40,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      (the keys typed in place of Return);
    - acting on it: `fork`, `fork_background`, `moves_accounts` with `move_to` and
      `move_to_background` (to another of its accounts), `move_folder` and
-     `move_folder_background` (to another folder, as itself), `side`, `stop`, `rename`,
+     `move_folder_background` (to another folder, as itself), `side` and `fresh_side` (a
+     throwaway conversation of a session's, or one of its own about a PR), `stop`, `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
    - starting (start.rs): `places`, `start_in_terminal`, `runs_in_background` with
      `background_command` and `start_in_background`, `app_link` and `start_in_app`, `models`,
@@ -77,6 +78,6 @@ a change to what's sent shows there. What each harness records and accepts is in
    is known by its path in repos.rs (`callsign`, `origin`, with an `Origin` of its own in
    codealong-peer); `board::session_headline`'s words for an approval, mirrored in
    `src/lanes.ts`; and the UI's own lists, which the engine doesn't send: names and apps in
-   `src/harness.ts`, which sessions take `/fork` and `/side` in `src/slash.ts`, a new account's
-   defaults and help in `src/ui/AccountsSection.tsx`, the reply box's words in
-   `src/ui/SessionReply.tsx`.
+   `src/harness.ts` (and there which can answer questions about a PR, `FRESH_SIDES`), which
+   sessions take `/fork` and `/side` in `src/slash.ts`, a new account's defaults and help in
+   `src/ui/AccountsSection.tsx`, the reply box's words in `src/ui/SessionReply.tsx`.

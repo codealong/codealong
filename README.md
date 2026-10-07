@@ -289,7 +289,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     checks, green for your PRs that are ready to merge. Selecting a PR shows its
     description, reviews, checks, comments (with `[jev] pull_requests`, the ones asking the
     author for a change or an answer are marked and listed first) and changed files with their
-    diffs, and under On this Mac
+    diffs (each file's name, then its folder; a filter beside Files changed, which the file count
+    goes to and which stays at the top as the list scrolls, narrows them to the paths holding
+    every word typed, `-word` leaving some out, then lists the files whose changes mention the
+    words, which are marked in the paths and diffs; ↑ ↓ and ⏎ open one, Escape clears it, ⌘F
+    comes back to it on a PR's card), and under On this Mac
     the worktrees and sessions behind it, drawn as a small tree: whether the worktree
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
     the worktree from another folder. Clicking one of those sessions, here or in a todo's
@@ -454,8 +458,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   it runs (⏎ sends and stays, to watch the reply; ⌘⏎ sends and goes on to the next), or what it
   waits on you to allow, with Allow and Deny (⌘⏎ allows, ⌘⌫ denies). A PR shows with its details
   and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts a review session on
-  an account). It has no title bar: a strip along the top, with the window's buttons at its start
-  and that drags the window, has what's commonly done, with its keys (⌘E marks a finished
+  an account). The box's other side, Ask (or `/side` and a question on Review), puts questions
+  about the PR to an agent on a Claude Code or Codex account (Auto's, or the one picked beside
+  Ask): Codealong hands it the PR's description, discussion and whole diff, it runs in a checkout
+  of the repo here (the PR's own worktree when there is one), and it reads and runs only what
+  looks. The answers show above the box as a session's side conversation's do, and are kept to
+  read again (N earlier); neither GitHub nor anyone on the PR sees them, and Review keeps its
+  text meanwhile. It has no title bar: a strip along the top, with the window's buttons at its
+  start and that drags the window, has what's commonly done, with its keys (⌘E marks a finished
   turn seen, ⌃⌘1 to ⌃⌘4 snooze, ⌃⌘A archives, ⌃⌘R renames, ⌃⌘P pins it in Sessions), and says how
   the last one went and how many are left. Once one is sent a message, allowed, reviewed, marked
   seen, snoozed or archived, the next that waits on you takes its place. ⌘] or ⌥⇧↓ skips to the

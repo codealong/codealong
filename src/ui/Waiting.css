@@ -6,6 +6,7 @@ html.is-waiting body {
   background: var(--surface-raised);
 }
 .ca-waiting {
+  --prfiles-ground: var(--surface-raised);
   display: flex;
   flex-direction: column;
   height: 100%;

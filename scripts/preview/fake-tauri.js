@@ -445,18 +445,20 @@ window.__TAURI_INTERNALS__ = {
     // writes it with `window.__emit('side', {id, key, turns, running, ended})`, or sets
     // `window.__sides[key]` for a window that opens on one. Closing one keeps its turns in
     // `window.__past`, where a check can put the ones from before.
-    if (cmd === 'side_ask') {
+    // A PR's questions (`pr_side_ask`, `pr_side_close`) are kept with them, by the PR's key, with
+    // the account that answers.
+    if (cmd === 'side_ask' || cmd === 'pr_side_ask') {
       window.__sides = window.__sides || {};
       window.__sideIds = (window.__sideIds || 0) + 1;
-      var side = window.__sides[args.key] || { id: 'side-' + window.__sideIds, key: args.key, turns: [], running: false, ended: false };
-      side = { id: side.id, key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false, at: Date.now() }]), running: true, ended: false };
+      var side = window.__sides[args.key] || { id: 'side-' + window.__sideIds, key: args.key, turns: [], running: false, ended: false, account: args.account };
+      side = { id: side.id, key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false, at: Date.now() }]), running: true, ended: false, account: side.account };
       window.__sides[args.key] = side;
       // The engine tells every window of the question, the one that asked included.
       setTimeout(function () { window.__emit('side', side); }, 0);
       return Promise.resolve(side);
     }
     if (cmd === 'side_get') return Promise.resolve((window.__sides || {})[(args || {}).key] || null);
-    if (cmd === 'side_close') {
+    if (cmd === 'side_close' || cmd === 'pr_side_close') {
       var open = (window.__sides || {})[(args || {}).key];
       if (open) {
         window.__past = (window.__past || []).filter(function (k) { return k.id !== open.id; });

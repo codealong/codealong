@@ -34,6 +34,10 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `github.rs` (`current_slug`), `ghpoll.rs` (`Names`), and the lane's `repo_slug_now`
   (`src-tauri/peer/src/model.rs`), which other devices line a checkout with an old remote up
   by (`peers.rs`).
+- What a conversation about a PR is handed to read (it can't ask `gh` itself): `github.rs`
+  (`for_reading`, `reading_md`), `side.rs` (`pr_recipe`, `reading_dir`). `gh pr diff` is REST and
+  costs no GraphQL points; it gave a 985 KB diff for 87 files whose `pulls/<n>/files` patches came
+  to 290 KB, GitHub leaving out the patches of its largest files there (2026-10-07).
 - What `mergeStateStatus` says: `src-tauri/peer/src/model.rs` (`Merge`) and `github.rs`
   (`merge_of`). It needs no preview header, and a PR approved with passing checks can still be
   `DIRTY`.

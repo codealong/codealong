@@ -1,0 +1,211 @@
+/* A PR's changed files (PrFiles.tsx): the heading with its filter, which stays at the top of the
+   details while the list scrolls under it, a row a file, its name before its folder, and the
+   diffs. What the filter found is marked. The ground the heading stands on is the window's:
+   --prfiles-ground, where it isn't the panel's surface. */
+
+/* The section is a grid, as the panel's are; its column is never wider than the panel, whatever
+   a path's whole length. */
+.ca-prfiles-sec,
+.ca-prfiles {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ca-prfiles-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-bottom: 6px;
+}
+.ca-prfiles-top > .ca-label {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-prfiles-top > .ca-linkbtn {
+  flex: none;
+}
+.ca-prfiles-top.is-filterable {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 0;
+  margin-bottom: 0;
+  background: var(--prfiles-ground, var(--surface));
+}
+
+/* The filter: a field as the title bar's search is, smaller. */
+.ca-prfiles-filter {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 190px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-3);
+  transition: width var(--dur-fast) ease-out;
+}
+.ca-prfiles-filter:focus-within {
+  width: 240px;
+  box-shadow: var(--shadow-focus);
+}
+.ca-prfiles-filter input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-meta);
+}
+.ca-prfiles-filter input::placeholder {
+  color: var(--ink-3);
+}
+.ca-prfiles-filter .ca-kbds {
+  flex: none;
+}
+.ca-prfiles-clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-prfiles-clear:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+/* The files whose changes mention what's typed, after the ones whose paths hold it. */
+.ca-prfiles-sub {
+  margin: var(--space-3) 0 4px;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+
+/* Changed files and their diffs. */
+.ca-prfiles {
+  display: grid;
+  gap: 2px;
+}
+.ca-prfile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-code);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-prfile-head:hover,
+.ca-prfile.is-active > .ca-prfile-head {
+  background: var(--surface-hover);
+}
+.ca-prfile.is-active > .ca-prfile-head {
+  box-shadow: inset 2px 0 0 var(--ink-3);
+}
+.ca-prfile-head > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+  transition: transform var(--dur-fast) ease-out;
+}
+.ca-prfile.is-open .ca-prfile-head > .ca-icon {
+  transform: rotate(90deg);
+}
+.ca-prfile-status {
+  flex: none;
+  width: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.ca-prfile-status.is-added {
+  color: var(--pr-open);
+}
+.ca-prfile-status.is-removed {
+  color: var(--alert);
+}
+/* The name, whole while there's room, then its folder, quieter, cut from its start so the
+   folders nearest the file stay. */
+.ca-prfile-path {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-prfile-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-prfile-dir {
+  flex: 0 10000 auto;
+  min-width: 3ch;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.ca-prfile-mentions {
+  flex: none;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-prfile-path mark,
+.ca-patch mark {
+  border-radius: 2px;
+  background: var(--attn-tint);
+  box-shadow: 0 0 0 1px var(--attn-tint);
+  color: inherit;
+  font-weight: 600;
+}
+.ca-patch {
+  margin: 2px 0 8px;
+  overflow-x: auto;
+  padding: 6px 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font: 400 11px/16px var(--font-mono);
+  color: var(--ink-2);
+}
+.ca-patch > span {
+  display: block;
+  padding: 0 8px;
+  white-space: pre;
+}
+.ca-patch > .is-add {
+  background: var(--pr-open-tint);
+  color: var(--ink);
+}
+.ca-patch > .is-del {
+  background: var(--alert-tint);
+  color: var(--ink);
+}
+.ca-patch > .is-hunk {
+  color: var(--ink-3);
+}

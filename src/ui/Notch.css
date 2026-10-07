@@ -223,6 +223,7 @@ html.is-notch body {
   transition: opacity 0.22s ease-out 0.14s;
 }
 .ca-notch-card {
+  --prfiles-ground: var(--notch);
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;

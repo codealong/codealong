@@ -397,7 +397,7 @@ mod tests {
     }
 
     fn detail(reviews: Vec<PrReview>, comments: Vec<PrComment>) -> PrDetail {
-        PrDetail { body_html: String::new(), mergeable: None, commits: 1, reviews, requested: vec![], comments, files: vec![], more_files: false }
+        PrDetail { body: String::new(), body_html: String::new(), mergeable: None, commits: 1, reviews, requested: vec![], comments, files: vec![], more_files: false }
     }
 
     /// The jobs due on `b` at `NOW`, each told as sent.

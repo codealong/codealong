@@ -79,6 +79,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
     Mode { flag: "--found", takes: "", run: |_, _| Ok(pretty(&detect::unlisted().map_err(|e| Stop::Failed(format!("{e:#}")))?)) },
     Mode { flag: "--accounts", takes: "", run: accounts },
+    Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
@@ -126,6 +127,9 @@ const MODES: &[Mode] = &[
 /// own), as Move to in its menu does.
 /// `codealong --snapshot --side <session key> <question> [a follow-up…]`: asks a throwaway copy
 /// of it, as `/side` in its box does, and prints the questions with their answers.
+/// `codealong --snapshot --pr-side <owner/name> <number> <account> <question> [a follow-up…]`:
+/// asks about a PR the board lists on an account, as Ask in its card's box does, and prints the
+/// questions with their answers.
 /// `codealong --snapshot --start-options`: where each account can start a session.
 /// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
 /// [--effort <level>] [--worktree]`: what starting one would do, without doing it.
@@ -281,6 +285,11 @@ fn side_ask(_: &Args, rest: &[String]) -> Done {
             return Err(Stop::Failed(e));
         }
     }
+    answered(key)
+}
+
+/// Waits for `key`'s side conversation to answer what it was asked, prints it and closes it.
+fn answered(key: &str) -> Done {
     // Answers take as long as they take; a copy that stops says so.
     let until = std::time::Instant::now() + std::time::Duration::from_secs(600);
     while side::get(key).is_some_and(|s| s.running) && std::time::Instant::now() < until {
@@ -291,6 +300,23 @@ fn side_ask(_: &Args, rest: &[String]) -> Done {
     // The copy's process gets a moment to leave by itself.
     std::thread::sleep(std::time::Duration::from_millis(1700));
     Ok(asked)
+}
+
+fn pr_side(_: &Args, rest: &[String]) -> Done {
+    let [repo, number, account, questions @ ..] = rest else { return Err(Stop::Usage) };
+    if questions.is_empty() || number.parse::<u64>().is_err() {
+        return Err(Stop::Usage);
+    }
+    let key = format!("{repo}#{number}");
+    let board = engine::snapshot(true, false);
+    let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
+    for q in questions {
+        if let Err(e) = side::ask_pr(&board, &cfg, &key, account, q) {
+            side::close(&key);
+            return Err(Stop::Failed(format!("{e:#}")));
+        }
+    }
+    answered(&key)
 }
 
 fn rename(_: &Args, rest: &[String]) -> Done {

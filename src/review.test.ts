@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reviewLane, reviewPicks, reviewPrompt } from './review';
+import { askAccount, askAccounts, reviewLane, reviewPicks, reviewPrompt } from './review';
 import * as fx from './testing/fixtures';
 import type { Lane, StartAccount } from './types';
 
@@ -56,5 +56,22 @@ describe('reviewPrompt', () => {
     expect(text).toContain('gh pr diff 12 -R acme/app');
     expect(text).toContain('has its branch checked out');
     expect(text).toContain('Don’t change files');
+  });
+});
+
+describe('askAccount', () => {
+  const opencode = fx.startAccount({ name: 'oc', harness: 'opencode', places: [ghostty] });
+  const all = [opencode, ...ACCOUNTS];
+
+  it('offers the accounts whose harness holds a conversation of its own and that can start here', () => {
+    expect(askAccounts(all).map((a) => a.name)).toEqual(['claude', 'codex']);
+  });
+
+  it('asks the account picked while it can answer, else the one Auto would start', () => {
+    expect(askAccount(all, [], 0, 'codex')).toBe('codex');
+    // One that can't answer, or can't start here, gives way.
+    expect(askAccount(all, [], 0, 'oc')).toBe('claude');
+    expect(askAccount(all, [], 0, 'claude2')).toBe('claude');
+    expect(askAccount([opencode], [], 0, null)).toBeNull();
   });
 });

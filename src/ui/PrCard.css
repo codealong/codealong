@@ -33,3 +33,18 @@
 .ca-prreview-buttons {
   margin: 0 6px 6px;
 }
+/* Review or Ask, at the foot of the box, where a session's box has its resume's places. */
+.ca-prreview-sides .ca-segctl button {
+  height: 22px;
+  padding: 0 9px;
+}
+/* The account an open conversation is on, beside Ask, where the picker is before one opens. */
+.ca-prreview-who {
+  max-width: 160px;
+  padding: 0 6px;
+  overflow: hidden;
+  color: var(--ink-3);
+  font: 500 12px/16px var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

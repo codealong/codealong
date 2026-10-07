@@ -80,7 +80,7 @@ import { BoxText, Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlaces } from './ResumeBar';
 import { SessionModel } from './SessionModel';
-import { SideStrip } from './SideStrip';
+import { SESSION_SIDES, SideStrip } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
@@ -1048,7 +1048,7 @@ export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, o
   return (
     <>
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
-      <SideStrip key={`side:${session.key}`} session={session} />
+      <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
       <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} />
     </>

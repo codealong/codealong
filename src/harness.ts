@@ -36,6 +36,10 @@ export function renames(s: { key: string; archived?: boolean }): boolean {
  *  `moves_accounts`): Claude Code, which resumes another account's transcript by its path. */
 export const MOVES_ACCOUNTS: readonly Harness[] = ['claude'];
 
+/** The harnesses that hold a conversation of their own, which answers questions about a PR in its
+ *  card's box (harness.rs `fresh_side`): Claude Code, headless, and Codex, on an app-server. */
+export const FRESH_SIDES: readonly Harness[] = ['claude', 'codex'];
+
 /** The harnesses whose sessions move to another folder as themselves (harness.rs
  *  `move_folder`): Claude Code, which goes on with a session wherever `--resume` runs. */
 export const MOVES_FOLDERS: readonly Harness[] = ['claude'];

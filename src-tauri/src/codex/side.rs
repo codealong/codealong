@@ -1,5 +1,6 @@
 //! Side conversations: an ephemeral fork of the thread on an app-server of Codealong's own
-//! (`Adapter::side`), and the lines that make it and ask it.
+//! (`Adapter::side`), or an ephemeral thread of its own about a PR (`Adapter::fresh_side`), and the
+//! lines that make it and ask it.
 
 use std::path::Path;
 
@@ -53,11 +54,18 @@ pub(super) fn last_turn(rollout: &Path) -> TurnRan {
 /// the thread may; an approval that comes to Codealong, with nobody to ask, is declined. A
 /// thread that says nothing of how it ran is copied read-only, asking nothing.
 ///
+/// A conversation about a PR is made the same way from nothing: `thread/start` with `ephemeral`
+/// (its params also take `developerInstructions`, 0.160's schema), read-only and asking nothing,
+/// its rules injected as a copy's are.
+///
 /// It numbers its own requests and reads their answers itself, rather than asking through the
 /// client that carries its lines (rpc.rs): a `Dialect` only turns lines into lines, which is
 /// what lets the test below run it without a process. The handshake is appserver.rs's.
 pub struct SideThread {
-    thread: String,
+    /// The thread it copies; none for a thread of its own.
+    thread: Option<String>,
+    /// What it's told before its first question.
+    rules: String,
     cwd: String,
     ran: TurnRan,
     /// The copy's thread, once Codex has made it.
@@ -78,7 +86,14 @@ impl SideThread {
     const INJECT: i64 = 3;
 
     pub fn new(thread: &str, cwd: &Path, ran: TurnRan) -> SideThread {
-        SideThread { thread: thread.to_string(), cwd: cwd.to_string_lossy().into_owned(), ran, copy: None, ready: false, waiting: None, next: Self::INJECT, said: false }
+        SideThread { thread: Some(thread.to_string()), rules: crate::side::RULES.to_string(), cwd: cwd.to_string_lossy().into_owned(), ran, copy: None, ready: false, waiting: None, next: Self::INJECT, said: false }
+    }
+
+    /// A thread of its own in `cwd`, told `rules`, that may only look (`Adapter::fresh_side`): on the
+    /// account's usual model, read-only, asking nothing.
+    pub fn fresh(cwd: &Path, rules: &str) -> SideThread {
+        let ran = TurnRan { model: None, sandbox: Some("read-only".into()), approval: Some("never".into()) };
+        SideThread { thread: None, rules: rules.to_string(), ..SideThread::new("", cwd, ran) }
     }
 
     fn turn(&mut self, text: &str) -> Value {
@@ -123,15 +138,23 @@ impl crate::side::Dialect for SideThread {
                     Some(Self::INITIALIZE) => {
                         let sandbox = self.ran.sandbox.as_deref().unwrap_or("read-only");
                         let approval = self.ran.approval.as_deref().filter(|_| self.ran.sandbox.is_some()).unwrap_or("never");
-                        let mut params = json!({ "threadId": self.thread, "ephemeral": true, "excludeTurns": true, "cwd": self.cwd, "approvalPolicy": approval, "sandbox": sandbox, "developerInstructions": crate::side::RULES });
+                        let mut params = json!({ "ephemeral": true, "cwd": self.cwd, "approvalPolicy": approval, "sandbox": sandbox, "developerInstructions": self.rules });
                         if let Some(m) = &self.ran.model {
                             params["model"] = json!(m);
                         }
-                        (Vec::new(), vec![crate::rpc::note_line(super::appserver::INITIALIZED, Value::Null), json!({ "id": Self::FORK, "method": "thread/fork", "params": params })])
+                        let method = match &self.thread {
+                            Some(thread) => {
+                                params["threadId"] = json!(thread);
+                                params["excludeTurns"] = json!(true);
+                                "thread/fork"
+                            }
+                            None => "thread/start",
+                        };
+                        (Vec::new(), vec![crate::rpc::note_line(super::appserver::INITIALIZED, Value::Null), json!({ "id": Self::FORK, "method": method, "params": params })])
                     }
                     Some(Self::FORK) => {
                         self.copy = line.pointer("/result/thread/id").and_then(Value::as_str).map(String::from);
-                        let rules = json!({ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": crate::side::RULES }] });
+                        let rules = json!({ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": self.rules }] });
                         (Vec::new(), vec![json!({ "id": Self::INJECT, "method": "thread/inject_items", "params": { "threadId": self.copy, "items": [rules] } })])
                     }
                     Some(Self::INJECT) => {
@@ -241,6 +264,23 @@ mod tests {
         assert!(p.get("model").is_none());
         assert_eq!((&p["sandbox"], &p["approvalPolicy"]), (&json!("read-only"), &json!("never")));
         assert_eq!(t.hear(&json!({"id": 2, "error": {"code": -32600, "message": "no rollout found for thread id gone"}})).0, [Event::Done(Some("Codex: no rollout found for thread id gone".into()))]);
+    }
+
+    /// A thread about a PR is started, not copied: ephemeral, read-only, asking nothing, told its
+    /// own rules, and asked as a copy is.
+    #[test]
+    fn a_thread_of_its_own_is_started_then_asked() {
+        use crate::side::Dialect;
+        use serde_json::json;
+        let mut t = SideThread::fresh(Path::new("/w"), "About PR #7.");
+        assert!(t.ask("Why?").is_empty());
+        let out = t.hear(&json!({"id": 1, "result": {}})).1;
+        assert_eq!(out[1]["method"], "thread/start");
+        assert_eq!(out[1]["params"], json!({ "ephemeral": true, "cwd": "/w", "approvalPolicy": "never", "sandbox": "read-only", "developerInstructions": "About PR #7." }));
+        let out = t.hear(&json!({"id": 2, "result": {"thread": {"id": "mine", "ephemeral": true}}})).1;
+        assert_eq!((&out[0]["method"], &out[0]["params"]["threadId"], &out[0]["params"]["items"][0]["content"][0]["text"]), (&json!("thread/inject_items"), &json!("mine"), &json!("About PR #7.")));
+        let out = t.hear(&json!({"id": 3, "result": {}})).1;
+        assert_eq!(out, [json!({"id": 4, "method": "turn/start", "params": {"threadId": "mine", "input": [{"type": "text", "text": "Why?"}]}})]);
     }
 
     #[test]

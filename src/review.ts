@@ -1,9 +1,11 @@
 // Review with…: a PR's review started on any account. Codex's app has a review page of its own
 // (`codex://review`); every other account gets a session in a worktree of the PR's repo, on a
-// prompt that asks for a review.
+// prompt that asks for a review. And the account that answers questions about a PR in its card's
+// box (Ask, PrCard.tsx): the one picked there, else Auto's.
 
 import { reviewInCodex, startSession } from './api';
 import type { MenuAction } from './contextMenu';
+import { FRESH_SIDES } from './harness';
 import { errorText, type Report } from './report';
 import { AUTO, autoPick, initialPlace, remembered, type Choice } from './start';
 import type { Lane, PrItem, StartAccount, StartPlace, StartSpec, Started, Usage } from './types';
@@ -96,4 +98,18 @@ export function reviewItems(pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoS
         .catch((e: unknown) => report.error(errorText(e)));
     },
   }));
+}
+
+/** The accounts that can answer questions about a PR: those whose harness holds a conversation
+ *  of its own (harness.ts `FRESH_SIDES`) and that can start here. */
+export function askAccounts(accounts: StartAccount[]): StartAccount[] {
+  return accounts.filter((a) => FRESH_SIDES.includes(a.harness) && a.places.length > 0);
+}
+
+/** The account a question about a PR goes to: `chosen` while it can answer, else the one Auto
+ *  would start among those that can (start.ts `autoPick`), else the first. Null when none can. */
+export function askAccount(accounts: StartAccount[], usage: Usage[], now: number, chosen: string | null): string | null {
+  const can = askAccounts(accounts);
+  if (chosen && can.some((a) => a.name === chosen)) return chosen;
+  return autoPick(can, usage, now)?.account ?? can[0]?.name ?? null;
 }

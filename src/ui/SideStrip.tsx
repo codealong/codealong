@@ -4,14 +4,68 @@
 // what the copy did to answer, so `/side` alone (or Earlier, beside an open one) lists the ones
 // from before, and picking one shows it to read, or to delete. None of it reaches the session.
 // The session's header says how many it has (`SidesChip`), which is the way to them that shows.
+//
+// A PR's questions (PrCard.tsx, its box's Ask) are the same strip over the same store, by the
+// PR's key: what differs is what it says of them (`SideWords`) and how one is closed.
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { sideClose } from '../api';
+import { prSideClose, sideClose } from '../api';
 import { agoPhrase } from '../format';
 import { forgetSide, keptLine, keptSummary, noteSide, showSides, takesBox, turnState, useKept, useSide, useSideView } from '../side';
-import type { Session, SideTurn } from '../types';
+import type { PrItem, Session, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Icon, Rich } from './primitives';
+
+/** What a strip says of its conversations, which are about a session or a PR, and how it ends
+ *  the open one. */
+export interface SideWords {
+  /** Over an open one, or one kept to read. */
+  title: string;
+  /** Beside the title of an open one, and of one whose process has ended. */
+  open: string;
+  ended: string;
+  /** While the process that answers the first question starts. */
+  starting: string;
+  /** Over the list of the kept ones, and beside it. */
+  listTitle: string;
+  listAbout: string;
+  /** In the list, with none kept and none open. */
+  none: string;
+  /** Beside the title of a kept one, after when it was. */
+  closed: string;
+  /** Close's tooltip, on an open one. */
+  closeTitle: string;
+  close: (key: string) => Promise<void>;
+}
+
+export const SESSION_SIDES: SideWords = {
+  title: 'On the side',
+  open: 'A throwaway copy answers. The session never sees this.',
+  ended: 'Its copy has ended. Another question starts a new one.',
+  starting: 'Starting a copy of the conversation…',
+  listTitle: 'Side conversations',
+  listAbout: 'Kept by Codealong. The session never saw them.',
+  none: 'None with this session yet. /side, then a question, starts one.',
+  closed: 'closed. A new question starts a new copy, which knows none of this.',
+  closeTitle: 'Ends its copy. What was said is kept: /side shows the earlier ones.',
+  close: sideClose,
+};
+
+/** What a PR's strip says, its conversations answered by `account`'s agent. */
+export function prSides(pr: Pick<PrItem, 'number'>, account: string | null): SideWords {
+  return {
+    title: `About #${pr.number}`,
+    open: `${account ?? 'An agent'} reads the PR and its code to answer, and changes nothing. GitHub never sees this.`,
+    ended: 'It has ended. Another question starts a new conversation.',
+    starting: 'Reading the PR…',
+    listTitle: `Questions about #${pr.number}`,
+    listAbout: 'Kept by Codealong. GitHub never saw them.',
+    none: 'None about this PR yet. Ask, and an agent reads it to answer.',
+    closed: 'closed. A new question starts a new conversation, which knows none of this.',
+    closeTitle: 'Ends it. What was said is kept: Earlier lists it.',
+    close: prSideClose,
+  };
+}
 
 /** The strip's top line: what this is, a few words about it, and what can be done with it. */
 function Head({ title, about, children }: { title: string; about: string; children: ReactNode }) {
@@ -65,8 +119,8 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
   );
 }
 
-export function SideStrip({ session }: { session: Session }) {
-  const key = session.key;
+/** The side conversations of `sideKey`: a session's, or a PR's. */
+export function SideStrip({ sideKey: key, words }: { sideKey: string; words: SideWords }) {
   const side = useSide(key);
   const shown = useSideView(key);
   // A question starting a copy shows the open one, as nothing else does, once there is one.
@@ -93,7 +147,7 @@ export function SideStrip({ session }: { session: Session }) {
   if (reading) {
     return (
       <section className="ca-sidestrip" aria-label="Side conversation">
-        <Head title="On the side" about={`${agoPhrase(reading.lastAt, now)} · closed. A new question starts a new copy, which knows none of this.`}>
+        <Head title={words.title} about={`${agoPhrase(reading.lastAt, now)} · ${words.closed}`}>
           <button type="button" className="ca-linkbtn" onClick={() => showSides(key, { kind: 'list' })}>
             Earlier
           </button>
@@ -121,11 +175,11 @@ export function SideStrip({ session }: { session: Session }) {
   if (view) {
     return (
       <section className="ca-sidestrip" aria-label="Side conversations">
-        <Head title="Side conversations" about="Kept by Codealong. The session never saw them.">
+        <Head title={words.listTitle} about={words.listAbout}>
           {hide}
         </Head>
         <div className="ca-sidestrip-turns">
-          {earlier.length === 0 && <div className="ca-sidestrip-doing">{side ? 'None before the one that’s open.' : 'None with this session yet. /side, then a question, starts one.'}</div>}
+          {earlier.length === 0 && <div className="ca-sidestrip-doing">{side ? 'None before the one that’s open.' : words.none}</div>}
           {earlier.map((k) => (
             <button key={k.id} type="button" className="ca-sidestrip-kept" onClick={() => showSides(key, { kind: 'past', id: k.id })}>
               <span className="ca-sidestrip-kept-q">{keptLine(k)}</span>
@@ -144,12 +198,12 @@ export function SideStrip({ session }: { session: Session }) {
     // Asked, and the engine is still starting its copy.
     return (
       <section className="ca-sidestrip" aria-label="Side conversation">
-        <Head title="On the side" about="A throwaway copy answers. The session never sees this.">
+        <Head title={words.title} about={words.open}>
           {hide}
         </Head>
         <div className="ca-sidestrip-turns">
           <div className="ca-sidestrip-doing" role="status">
-            Starting a copy of the conversation…
+            {words.starting}
           </div>
         </div>
       </section>
@@ -159,17 +213,17 @@ export function SideStrip({ session }: { session: Session }) {
     noteSide({ id: side.id, key, turns: [], running: false, ended: true });
     // The strip lets it go either way. Closing one here can't fail (side.rs); only another device
     // that doesn't answer can, and its copy goes on there whatever this window says.
-    void sideClose(key).catch(() => {});
+    void words.close(key).catch(() => {});
   };
   return (
     <section className="ca-sidestrip" aria-label="Side conversation">
-      <Head title="On the side" about={side.ended ? 'Its copy has ended. Another question starts a new one.' : 'A throwaway copy answers. The session never sees this.'}>
+      <Head title={words.title} about={side.ended ? words.ended : words.open}>
         {earlier.length > 0 && (
           <button type="button" className="ca-linkbtn" title={`${many(earlier.length, 'side conversation')} from before`} onClick={() => showSides(key, { kind: 'list' })}>
             Earlier
           </button>
         )}
-        <button type="button" className="ca-linkbtn" title="Ends its copy. What was said is kept: /side shows the earlier ones." onClick={close}>
+        <button type="button" className="ca-linkbtn" title={words.closeTitle} onClick={close}>
           Close
         </button>
       </Head>

@@ -1,20 +1,22 @@
 // A PR in the right sidebar: where it lives on this Mac first (worktrees and the sessions that
 // worked on it, drawn like the sidebar's tree), then where it stands, its comments, its
-// description as GitHub renders it, and its changed files with their diffs. `PrDetails` is that
-// body on its own, which the panel wraps with its buttons, and a PR's card (PrCard.tsx) with the
-// strip that works through what waits on you and the box that reviews it.
+// description as GitHub renders it, and its changed files with their diffs (PrFiles.tsx), which
+// the file count under Checks and reviews goes to. `PrDetails` is that body on its own, which the
+// panel wraps with its buttons, and a PR's card (PrCard.tsx) with the strip that works through
+// what waits on you and the box that reviews it.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
 
-import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
-import type { Lane, PrComment, PrDetail, PrFile, Session } from '../types';
+import type { Lane, PrComment, PrDetail, Session } from '../types';
 import { PanelPlace } from './PanelSession';
+import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
-import { Button, cx, Icon } from './primitives';
+import { Button, Icon } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
@@ -22,50 +24,6 @@ import { clearNotice, failedNotice, reportNotice } from '../notices';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
 const cache = new Map<string, PrDetail>();
-
-const PATCH_LINES = 400;
-
-function Patch({ text }: { text: string }) {
-  const [all, setAll] = useState(false);
-  const lines = text.split('\n');
-  const shown = all ? lines : lines.slice(0, PATCH_LINES);
-  return (
-    <>
-      <pre className="ca-patch">
-        {shown.map((l, i) => (
-          <span key={i} className={l.startsWith('@@') ? 'is-hunk' : l.startsWith('+') ? 'is-add' : l.startsWith('-') ? 'is-del' : undefined}>
-            {l || ' '}
-            {'\n'}
-          </span>
-        ))}
-      </pre>
-      {!all && lines.length > PATCH_LINES && (
-        <button type="button" className="ca-more-btn" onClick={() => setAll(true)}>
-          Show all {lines.length.toLocaleString('en-US')} lines
-        </button>
-      )}
-    </>
-  );
-}
-
-const STATUS_LETTER: Record<string, string> = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M' };
-
-function FileRow({ file }: { file: PrFile }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className={cx('ca-prfile', open && 'is-open')}>
-      <button type="button" className="ca-prfile-head" aria-expanded={open} onClick={() => setOpen(!open)} title={file.path}>
-        <Icon name="chevron-right" size={12} stroke={2} />
-        <span className={`ca-prfile-status is-${file.status}`}>{STATUS_LETTER[file.status] ?? '·'}</span>
-        <span className="ca-prfile-path">{middleTruncate(file.path, 60)}</span>
-        <span className="ca-diff">
-          +{file.additions} −{file.deletions}
-        </span>
-      </button>
-      {open && (file.patch ? <Patch text={file.patch} /> : <p className="ca-empty">GitHub doesn't show a diff for this file here. Open it on GitHub.</p>)}
-    </div>
-  );
-}
 
 /** Comments listed before "Show all". */
 const COMMENTS_SHOWN = 6;
@@ -142,6 +100,8 @@ export interface PrDetailsProps {
   onLaneMenu: (lane: Lane) => void;
   /** Right-click on a session. */
   onSessionMenu: (lane: Lane, session: Session) => void;
+  /** ⌘F goes to the files' filter (PrFiles.tsx). */
+  keys?: boolean;
 }
 
 interface PrInspectorProps extends Omit<PrDetailsProps, 'actions'> {
@@ -185,8 +145,9 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, ...detai
 
 /** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
  *  comments, its description and its files. */
-export function PrDetails({ item, now, actions, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrDetailsProps) {
+export function PrDetails({ item, now, actions, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys }: PrDetailsProps) {
   const { pr } = item;
+  const files = useRef<FilesFinder>(null);
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
 
@@ -316,7 +277,14 @@ export function PrDetails({ item, now, actions, onShowSession, onOpenSession, on
           <ChecksSummary checks={pr.checks} />
           {pr.checks.pending > 0 && pr.checks.failed > 0 && <span className="ca-meta">{pr.checks.pending} running</span>}
           <span className="ca-meta">
-            +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in {pr.changedFiles} {pr.changedFiles === 1 ? 'file' : 'files'}
+            +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in{' '}
+            {detail ? (
+              <button type="button" className="ca-linkbtn ca-prinsp-files" title="Go to the files" onClick={() => files.current?.find()}>
+                {pr.changedFiles} {pr.changedFiles === 1 ? 'file' : 'files'}
+              </button>
+            ) : (
+              `${pr.changedFiles} ${pr.changedFiles === 1 ? 'file' : 'files'}`
+            )}
             {detail ? ` · ${detail.commits} ${detail.commits === 1 ? 'commit' : 'commits'}` : ''}
           </span>
         </div>
@@ -370,19 +338,7 @@ export function PrDetails({ item, now, actions, onShowSession, onOpenSession, on
           ))}
       </section>
 
-      {detail && (
-        <section className="ca-insp-sec">
-          <h4 className="ca-label">
-            Files changed · {pr.changedFiles}
-            {detail.moreFiles ? ` (first ${detail.files.length} shown)` : ''}
-          </h4>
-          <div className="ca-prfiles">
-            {detail.files.map((f) => (
-              <FileRow key={f.path} file={f} />
-            ))}
-          </div>
-        </section>
-      )}
+      {detail && <PrFiles key={pr.key} ref={files} prKey={pr.key} files={detail.files} total={pr.changedFiles} more={detail.moreFiles} keys={keys} />}
     </>
   );
 }

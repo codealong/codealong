@@ -26,13 +26,28 @@ pub(super) fn side_mode(session: Option<&str>) -> &'static str {
 /// stream-json, a line a message each way. A question is a `user` line; the answer comes as
 /// `stream_event` lines (the API's own events: `content_block_delta` with a `text_delta`), each
 /// tool call whole in an `assistant` line, and a `result` line when the turn ends (one that
-/// isn't for a task notification).
-#[derive(Default)]
+/// isn't for a task notification). A conversation of its own about a PR (`Adapter::fresh_side`) talks
+/// the same way, told other rules.
 pub struct SideCopy {
+    /// What it's told with its first question: a copy's rules (`side::RULES`), or a PR's.
+    rules: String,
     /// It has been told what it is, with its first question.
     told: bool,
     /// Some of this answer is written: what comes after a tool call starts a new paragraph.
     said: bool,
+}
+
+impl Default for SideCopy {
+    fn default() -> SideCopy {
+        SideCopy::told(crate::side::RULES)
+    }
+}
+
+impl SideCopy {
+    /// One told `rules` with its first question.
+    pub fn told(rules: &str) -> SideCopy {
+        SideCopy { rules: rules.to_string(), told: false, said: false }
+    }
 }
 
 impl crate::side::Dialect for SideCopy {
@@ -42,9 +57,10 @@ impl crate::side::Dialect for SideCopy {
 
     /// The rules go in the first question, not the system prompt: a resumed conversation sends
     /// the system prompt it recorded whatever a later launch passes, and the session's prompt
-    /// cache holds only while that and the tools stay as they were.
+    /// cache holds only while that and the tools stay as they were. A PR's conversation has
+    /// them in the same place, so the two are told alike.
     fn ask(&mut self, text: &str) -> Vec<Value> {
-        let text = if self.told { text.to_string() } else { format!("<system-reminder>\n{}\n</system-reminder>\n\n{text}", crate::side::RULES) };
+        let text = if self.told { text.to_string() } else { format!("<system-reminder>\n{}\n</system-reminder>\n\n{text}", self.rules) };
         self.told = true;
         self.said = false;
         vec![serde_json::json!({ "type": "user", "message": { "role": "user", "content": text } })]
@@ -161,5 +177,18 @@ mod tests {
         assert_eq!(r.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/me/.claude2".to_string())]);
         assert!(!r.unset.contains(&"CLAUDE_CONFIG_DIR") && r.unset.contains(&"CODEALONG_SESSION"));
         assert!(r.args.join(" ").contains("--resume before --fork-session"));
+    }
+
+    /// A PR's conversation resumes nothing and keeps no record, in the usual mode, able to read
+    /// what it's handed, and is told its own rules with its first question.
+    #[test]
+    fn a_conversation_of_its_own_resumes_nothing() {
+        use crate::harness::Adapter;
+        let other = crate::config::AccountCfg { name: "c2".into(), harness: "claude".into(), home: "/Users/me/.claude2".into(), command: None, start: None, preferred: false, acp: None };
+        let mut r = ClaudeCode.fresh_side(&crate::harness::Ctx { account: &other }, Path::new("/w"), "About PR #7.", Path::new("/support/pr/7")).unwrap();
+        assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --no-session-persistence --permission-mode default --add-dir=/support/pr/7");
+        assert_eq!(r.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/me/.claude2".to_string())]);
+        let first = r.dialect.ask("Why?");
+        assert_eq!(first[0].pointer("/message/content").and_then(Value::as_str), Some("<system-reminder>\nAbout PR #7.\n</system-reminder>\n\nWhy?"));
     }
 }
