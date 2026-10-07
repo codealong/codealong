@@ -83,7 +83,7 @@
 /* When a todo is due, on its row: red once the day has passed, amber on the day, muted before. */
 .ca-chip.ca-duechip {
   gap: 3px;
-  font-family: var(--font-sans);
+  font: var(--type-caption-strong);
   color: var(--ink-3);
 }
 .ca-chip.ca-duechip.is-soon {

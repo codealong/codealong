@@ -349,7 +349,6 @@
   border: 1px dashed var(--line-strong);
   background: transparent;
   color: var(--ink-2);
-  font-family: var(--font-sans);
   cursor: pointer;
 }
 .ca-suggestchip:hover {

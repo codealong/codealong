@@ -1,9 +1,9 @@
 /* The Rename sheet (RenameDialog.tsx). */
 
-/* Rename session: a name, not code, so not the fields' monospace. */
+/* Rename session: a name, not code, so meta, the fields' size without their monospace. */
 .ca-dialog.ca-renamedlg {
   width: min(480px, 100%);
 }
 .ca-renamedlg .ca-field input {
-  font-family: var(--font-sans);
+  font: var(--type-meta);
 }

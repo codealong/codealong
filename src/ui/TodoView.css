@@ -20,7 +20,7 @@
   color: var(--ink-3);
 }
 .ca-chip.ca-todorow-waiting {
-  font-family: var(--font-sans);
+  font: var(--type-caption-strong);
   color: var(--ink-3);
 }
 /* What a todo waits on, other todos that aren't done or what it's marked as waiting for:
@@ -30,7 +30,7 @@
   gap: 3px;
   min-width: 0;
   max-width: 220px;
-  font-family: var(--font-sans);
+  font: var(--type-caption-strong);
   color: var(--ink-3);
 }
 .ca-todorow-blocked-text {
@@ -75,7 +75,7 @@
 }
 .ca-todonew-ctx {
   max-width: 45%;
-  font-family: var(--font-sans);
+  font: var(--type-caption-strong);
 }
 .ca-todonew-ctx > span {
   overflow: hidden;
@@ -100,13 +100,13 @@
 
 .ca-chip.ca-todorow-attached {
   gap: 3px;
-  font-family: var(--font-sans);
+  font: var(--type-caption-strong);
   color: var(--ink-3);
 }
 
 .ca-chip.ca-todorow-done {
   gap: 3px;
-  font-family: var(--font-sans);
+  font: var(--type-caption-strong);
   color: var(--pr-open);
   background: var(--pr-open-tint);
 }

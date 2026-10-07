@@ -73,9 +73,10 @@
   border-radius: var(--radius-md);
 }
 
-/* Macs have people's names, not identifiers: the card's own font, not the account cards' mono. */
+/* Macs have people's names, not identifiers: a heading in the card's own font, not the account
+   cards' mono. */
 .ca-ucard-name.ca-device-name {
-  font-family: var(--font-sans);
+  font: var(--type-heading);
 }
 
 /* Worktrees grouped by device: a heading over each device's bays. */

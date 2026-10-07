@@ -205,7 +205,7 @@
   align-items: center;
   gap: var(--space-1);
   color: var(--ink-3);
-  font-family: var(--font-sans);
+  font: var(--type-caption-strong);
 }
 .ca-wtchip-device .ca-labeldot {
   width: 6px;
