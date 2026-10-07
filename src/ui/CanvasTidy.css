@@ -35,8 +35,7 @@
 }
 .ca-cv-tidy-hint {
   color: var(--ink-3);
-  font-size: 12px;
-  line-height: 16px;
+  font: var(--type-meta);
 }
 .ca-cv-tidy-actions {
   display: flex;
@@ -54,8 +53,7 @@
 .ca-cv-tidy-note,
 .ca-cv-tidy-rowlabel {
   color: var(--ink-3);
-  font-size: 12px;
-  line-height: 16px;
+  font: var(--type-meta);
 }
 .ca-cv-tidy-rowlabel {
   padding-left: 22px;

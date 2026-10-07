@@ -135,7 +135,7 @@
 .ca-prfile-status {
   flex: none;
   width: 12px;
-  font-weight: 600;
+  font: var(--type-code-heading);
   color: var(--ink-3);
 }
 .ca-prfile-status.is-added {
@@ -165,7 +165,7 @@
   min-width: 3ch;
   overflow: hidden;
   color: var(--ink-3);
-  font-size: 11px;
+  font: var(--type-code-block);
   text-overflow: ellipsis;
   white-space: nowrap;
   direction: rtl;

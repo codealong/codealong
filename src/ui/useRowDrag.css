@@ -45,7 +45,7 @@
   align-items: center;
   gap: 3px;
   color: var(--focus);
-  font-weight: 600;
+  font: var(--type-heading-xs);
 }
 .ca-dragghost-title {
   min-width: 0;

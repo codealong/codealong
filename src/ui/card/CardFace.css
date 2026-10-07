@@ -86,7 +86,7 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-size: 11px;
+  font: var(--type-code-block);
 }
 .ca-cv-l2 .ca-branch-name {
   overflow: hidden;
@@ -153,7 +153,7 @@
   color: var(--ink-3);
 }
 .ca-cv-card.is-gone .ca-cv-title {
-  font-weight: 400;
+  font: var(--type-body);
 }
 .ca-cv-card.is-related {
   outline: 1.5px solid color-mix(in srgb, var(--unread-solid) 45%, transparent);

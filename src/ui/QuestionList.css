@@ -38,7 +38,7 @@
   align-items: center;
   gap: var(--space-1);
   color: var(--ink);
-  font-weight: 500;
+  font: var(--type-meta-strong);
 }
 .ca-question-desc {
   display: block;
@@ -48,7 +48,7 @@
   opacity: 0.55;
 }
 .ca-question-list li.is-picked .ca-question-opt {
-  font-weight: 600;
+  font: var(--type-heading-xs);
 }
 .ca-question-yours {
   color: var(--ink);

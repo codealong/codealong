@@ -168,7 +168,7 @@
 }
 .ca-approval-head .ca-linkbtn {
   margin-left: auto;
-  font-weight: 400;
+  font: var(--type-meta);
 }
 .ca-approval-unwritten {
   margin: 0;

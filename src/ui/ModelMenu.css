@@ -23,7 +23,7 @@
   text-overflow: ellipsis;
 }
 .ca-modelmenu-detail {
-  font-weight: 400;
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 .ca-modelmenu-chip > .ca-icon {

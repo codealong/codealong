@@ -147,7 +147,7 @@
   color: var(--pr-open);
 }
 .ca-pill.is-ready {
-  font-weight: 600;
+  font: var(--type-caption-heading);
 }
 .ca-pill.is-attn {
   background: var(--attn-tint);

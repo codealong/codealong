@@ -184,7 +184,7 @@ html.is-quick body {
 .ca-quick-row-title mark {
   background: transparent;
   color: inherit;
-  font-weight: 600;
+  font: var(--type-heading-sm);
   text-decoration: underline;
   text-decoration-color: var(--line-strong);
   text-underline-offset: 3px;
@@ -205,7 +205,7 @@ html.is-quick body {
 .ca-quick-row-why.is-said mark {
   background: transparent;
   color: var(--ink-2);
-  font-weight: 500;
+  font: var(--type-meta-strong);
   text-decoration: underline;
   text-decoration-color: var(--line-strong);
   text-underline-offset: 2px;
@@ -329,7 +329,7 @@ html.is-quick body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  font: var(--type-meta-strong);
   color: var(--ink);
 }
 .ca-quick-todo-wait {
@@ -396,7 +396,7 @@ html.is-quick body {
   color: var(--ink-3);
 }
 .ca-quick-chip-detail {
-  font-weight: 400;
+  font: var(--type-meta);
   color: var(--ink-3);
 }
 .ca-quick-chip:hover,
@@ -451,5 +451,5 @@ html.is-quick body {
 /* What may follow a skill's name, after it in its row. */
 .ca-quick-row-hint {
   color: var(--ink-3);
-  font-weight: 400;
+  font: var(--type-body);
 }

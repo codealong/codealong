@@ -77,7 +77,7 @@
   border-top: 1px solid var(--line);
 }
 .ca-notice-title {
-  font-weight: 600;
+  font: var(--type-heading-xs);
 }
 .ca-notice-text {
   color: var(--ink-2);

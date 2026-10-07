@@ -384,6 +384,6 @@
   color: var(--ink-2);
 }
 .ca-todohint-text b {
-  font-weight: 600;
+  font: var(--type-heading-xs);
   color: var(--pr-open);
 }

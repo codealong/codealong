@@ -3,8 +3,7 @@
 /* Jev's read of a session or worktree (InsightBits.tsx). */
 .ca-chip.ca-insight {
   padding: 0 7px;
-  font-family: var(--font-sans);
-  font-weight: 600;
+  font: var(--type-caption-heading);
 }
 .ca-chip.ca-insight.is-good {
   background: var(--pr-open-tint);

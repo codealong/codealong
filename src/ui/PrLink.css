@@ -42,7 +42,7 @@
 }
 .ca-prhover-ref {
   color: var(--ink-2);
-  font-weight: 500;
+  font: var(--type-meta-strong);
   font-variant-numeric: tabular-nums;
 }
 .ca-prhover-title {
@@ -55,7 +55,7 @@
 }
 .ca-prhover-lanes {
   color: var(--ink-2);
-  font-weight: 500;
+  font: var(--type-meta-strong);
 }
 .ca-prhover-error {
   color: var(--alert);
@@ -90,8 +90,7 @@
   border: 0;
   background: none;
   color: var(--ink);
-  font: inherit;
-  font-weight: 500;
+  font: var(--type-meta-strong);
   text-align: left;
   cursor: default;
 }

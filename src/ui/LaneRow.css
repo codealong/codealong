@@ -92,10 +92,10 @@
   white-space: nowrap;
 }
 /* Titles stand out in the lists, so a row reads by what the session is about before the rest of
-   the line. Sessions, PRs and todos (.ca-todorow-title) share one weight. */
+   the line. Sessions, PRs and todos (.ca-todorow-title) share one style. */
 .ca-agentline-title {
   flex: 0 1 auto;
-  font-weight: 500;
+  font: var(--type-body-strong);
 }
 .ca-agentline-detail {
   flex: 1 1 0;
@@ -134,8 +134,7 @@
 
 .ca-chip.ca-snoozechip {
   padding: 0 7px 0 6px;
-  font-family: var(--font-sans);
-  font-weight: 600;
+  font: var(--type-caption-heading);
   color: var(--ink-3);
 }
 .ca-agentrow-line1 {
@@ -173,8 +172,7 @@
 /* Free: a reusable worktree that holds no work, where new work can start. */
 .ca-chip.ca-reusechip {
   padding: 0 7px;
-  font-family: var(--font-sans);
-  font-weight: 600;
+  font: var(--type-caption-heading);
   background: var(--pr-open-tint);
   color: var(--pr-open);
 }

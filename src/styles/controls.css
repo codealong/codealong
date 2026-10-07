@@ -9,7 +9,7 @@
 .ca-btn:hover { background: var(--surface-hover); }
 .ca-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 .ca-btn:disabled { color: var(--ink-3); cursor: default; }
-.ca-btn--sm { height: 24px; padding: 0 8px; font-size: 12px; line-height: 16px; gap: 5px; }
+.ca-btn--sm { height: 24px; padding: 0 8px; font: var(--type-meta-strong); gap: 5px; }
 .ca-btn.is-icon { width: 28px; padding: 0; }
 .ca-btn--sm.is-icon { width: 24px; }
 .ca-btn--primary { background: var(--fill-strong); border-color: var(--fill-strong); color: var(--on-fill-strong); box-shadow: var(--shadow-lift); }
@@ -83,11 +83,6 @@
   margin: 0;
   font: var(--type-meta-strong);
   color: var(--alert);
-}
-
-.ca-settings-select select {
-  font-family: var(--font-mono);
-  font-weight: 400;
 }
 
 .ca-switch {

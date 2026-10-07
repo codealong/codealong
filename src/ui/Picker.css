@@ -70,7 +70,7 @@
   background: var(--surface-selected);
 }
 .ca-picker-opt.is-chosen .ca-picker-title {
-  font-weight: 600;
+  font: var(--type-heading-sm);
 }
 .ca-picker-opt:disabled {
   color: var(--ink-3);

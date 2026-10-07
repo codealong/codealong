@@ -14,7 +14,7 @@
 }
 .ca-todorow-title {
   color: var(--ink);
-  font-weight: 500;
+  font: var(--type-body-strong);
 }
 .ca-todorow.is-done .ca-todorow-title {
   color: var(--ink-3);

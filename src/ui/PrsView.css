@@ -7,7 +7,7 @@
   border-left: 0;
 }
 .ca-prrow .ca-lane-headline {
-  font-weight: 500;
+  font: var(--type-body-strong);
 }
 /* A row that's your move (see prFlag) gets a colored edge: amber for a review asked of you or
    something to fix, red for failing checks, green for your PRs that GitHub would merge. */

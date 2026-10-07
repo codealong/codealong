@@ -34,7 +34,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink-3);
-  font-weight: 400;
+  font: var(--type-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -277,7 +277,7 @@
   color: var(--ink-3);
 }
 .ca-jev-feature-sends b {
-  font-weight: 600;
+  font: var(--type-heading-xs);
 }
 .ca-jev-model {
   justify-self: start;

@@ -37,7 +37,7 @@
 }
 .ca-tree-node.is-active .ca-tree-label {
   color: var(--ink);
-  font-weight: 500;
+  font: var(--type-code-strong);
 }
 .ca-tree-node.is-parked .ca-tree-label {
   color: var(--ink-3);
