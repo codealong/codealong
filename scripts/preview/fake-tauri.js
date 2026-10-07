@@ -295,7 +295,8 @@ window.__TAURI_INTERNALS__ = {
         return { pr: pr, lanes: lanes, apps: board.apps };
       });
     }
-    if (cmd === 'review_pr') return Promise.resolve(null);
+    // A review whose text is "fail" is refused, as GitHub might, for the checks.
+    if (cmd === 'review_pr') return args.body === 'fail' ? Promise.reject(new Error('GitHub said no')) : Promise.resolve(null);
     // A PR the board doesn't list, as GitHub would have it: merged a while ago, no sessions here.
     if (cmd === 'pr_card') {
       var want = args || {};

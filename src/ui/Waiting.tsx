@@ -229,7 +229,21 @@ export function Waiting() {
     });
     return { kind: 'pr', key: pr.key, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
   };
-  const reviewCan = (pr: PrItem): PrWindowCan => ({ report, open: openHere, reveal: () => revealPr(pr), left: (done) => went(way.left(pr.key, done)) });
+  const reviewCan = (pr: PrItem): PrWindowCan => ({
+    report,
+    open: openHere,
+    reveal: () => revealPr(pr),
+    left: (done) => went(way.left(pr.key, done)),
+    // The review didn't go, after the window went on from it: it's back in what's left, and the
+    // strip says why; with nothing shown since, the window is back on it.
+    failed: (why) => {
+      way.again(pr.key);
+      if (shownNow.current === null) {
+        setKey(pr.key);
+        way.say({ text: why, error: true }, pr.key);
+      } else way.say({ text: why, error: true });
+    },
+  });
 
   // PR links in a conversation shown here (PrLink.tsx): a session on a PR's card shows here too,
   // and the PR in the main window.

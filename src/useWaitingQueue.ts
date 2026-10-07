@@ -66,9 +66,9 @@ export interface WaitingQueue<H = undefined, T = unknown> {
   left: (from: string, done: Left, how?: H) => Went;
   /** Not dealt with after all (its message didn't go): it comes round again. */
   again: (key: string) => void;
-  /** Says something on the strip of the session shown, in place of how the last one went; null
-   *  takes back what it says. */
-  say: (notice: Notice | null) => void;
+  /** Says something on the strip of the session shown, or of the one `on` that the window is
+   *  about to show, in place of how the last one went; null takes back what it says. */
+  say: (notice: Notice | null, on?: string) => void;
   /** Starts afresh, as a window opening on a session does: nothing dealt with, nothing said. */
   fresh: () => void;
 }
@@ -126,8 +126,8 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   );
 
   const again = useCallback((key: string) => void handled.current.delete(key), []);
-  const say = useCallback((notice: Notice | null) => {
-    const on = now.current.view.shown?.key;
+  const say = useCallback((notice: Notice | null, onKey?: string) => {
+    const on = onKey ?? now.current.view.shown?.key;
     setNote(notice && on ? { ...notice, on } : null);
   }, []);
   const fresh = useCallback(() => {

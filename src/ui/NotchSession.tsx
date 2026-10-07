@@ -81,6 +81,9 @@ export interface NotchStageState {
   /** The session or review left the bar (marked seen, snoozed, archived; approved, reviewed): on
    *  to the next, or closed when none waits. */
   left: (key: string, done: Left) => void;
+  /** The review `key` left on didn't go: it's back among what waits, the notch opens on it again
+   *  when it had closed, and the strip says why. */
+  failed: (key: string, why: string) => void;
 }
 
 /** What the docked bar shows under its pills: which session or review, what it works through,
@@ -127,7 +130,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
       return to !== null;
     },
   });
-  const { fresh, onKey: onQueueKey, run, answered, left: leftQueue, say } = queue;
+  const { fresh, onKey: onQueueKey, run, answered, left: leftQueue, say, again } = queue;
 
   const show = useCallback(
     (key: string, rename = false) => {
@@ -187,6 +190,19 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     [close, leftQueue],
   );
 
+  /** A review sent from the notch didn't go: the PR comes round again, and where the notch closed
+   *  on it as the last one, it opens on it again, saying why. */
+  const failed = useCallback(
+    (key: string, why: string) => {
+      again(key);
+      if (shownNow.current === null) {
+        show(key);
+        say({ text: why, error: true }, key);
+      } else say({ text: why, error: true });
+    },
+    [again, say, show],
+  );
+
   // The bar left the notch: there's nowhere to show one.
   useEffect(() => {
     if (!docked) close();
@@ -234,7 +250,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
 
   const back = history.back ? () => void run('historyBack') : null;
 
-  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, show, toggle, press, close, takeKeys, next, left };
+  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, show, toggle, press, close, takeKeys, next, left, failed };
 }
 
 interface NotchSessionProps {

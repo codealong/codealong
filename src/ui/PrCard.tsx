@@ -11,8 +11,11 @@
 // zoom it, as a session's card (SessionCard.tsx).
 //
 // Any review settles GitHub's request to you, so each of those is how the PR left what waits on
-// you (`can.left`), and the window goes on to the next. What you wrote stays with the PR until it
-// goes, so skipping to the next and coming back loses nothing.
+// you (`can.left`), and the window goes on to the next at once, as it does from a session's
+// message on its way: the review goes to GitHub behind it. One GitHub refuses comes back round
+// (`can.failed`): the PR is back in what waits on you with what you wrote, and the strip says
+// why. What you wrote stays with the PR until it goes, so skipping to the next and coming back
+// loses nothing.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the PR has left, and what it adds (a queue).
@@ -43,6 +46,9 @@ export interface PrWindowCan {
   reveal?: () => void;
   /** It left what waits on you, and how: the window goes on to the next. */
   left?: (done: menus.Left) => void;
+  /** The review it left on didn't go (GitHub refused it): it's back in what waits on you, and
+   *  the window says why, on whatever it shows now. */
+  failed?: (why: string) => void;
 }
 
 interface PrCardProps {
@@ -84,7 +90,8 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   const { pr } = item;
   const { report } = can;
   const [text, setText] = useState(() => drafts.get(pr.key) ?? '');
-  const [busy, setBusy] = useState<Verdict | null>(null);
+  // A review was sent from here: the card is on its way out, and a second ⌘⏎ sends nothing.
+  const sent = useRef(false);
   const [note, setNote] = useState<Notice | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const accounts = useStartAccounts();
@@ -102,26 +109,29 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
-  /** Sends a review with what's in the box. The PR has then left what waits on you. */
+  /** Sends a review with what's in the box. The PR has left what waits on you at once; the
+   *  review goes behind it, and one that doesn't go brings the PR back with what was written. */
   const review = (verdict: Verdict) => {
-    if (busy) return;
+    if (sent.current) return;
     const body = text.trim();
     if (!body && verdict !== 'approve') {
       setNote({ text: verdict === 'comment' ? 'Write the comment first.' : 'Say what to change first.', error: true });
       box.current?.focus();
       return;
     }
-    setBusy(verdict);
+    sent.current = true;
     setNote(null);
-    reviewPr(pr.repoSlug, pr.number, verdict, body)
-      .then(() => {
-        drafts.delete(pr.key);
-        setText('');
-        report.info(`${DONE[verdict].past} #${pr.number}.`);
-        can.left?.(DONE[verdict].left);
-      })
-      .catch((e: unknown) => setNote({ text: errorText(e), error: true }))
-      .finally(() => setBusy(null));
+    drafts.delete(pr.key);
+    can.left?.(DONE[verdict].left);
+    reviewPr(pr.repoSlug, pr.number, verdict, body).then(
+      () => report.info(`${DONE[verdict].past} #${pr.number}.`),
+      (e: unknown) => {
+        drafts.set(pr.key, text);
+        const why = `Didn’t ${verdict === 'approve' ? 'approve' : verdict === 'comment' ? 'comment on' : 'request changes on'} #${pr.number}: ${errorText(e)}`;
+        if (can.failed) can.failed(why);
+        else report.error(why);
+      },
+    );
   };
 
   const reviewWith = reviewItems(pr, lanes, accounts, usage, report, () => can.left?.('review started'), now);
@@ -191,7 +201,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     </>
   );
 
-  const said = note?.text ?? (busy ? `${DONE[busy].past.replace(/d( on)?$/, 'ing$1')}…` : requested ? `${sign('approve')} approves and goes on · ${sign('comment')} comments` : 'Your review isn’t asked for; a comment still goes to the PR');
+  const said = note?.text ?? (requested ? `${sign('approve')} approves and goes on · ${sign('comment')} comments` : 'Your review isn’t asked for; a comment still goes to the PR');
   return (
     <div
       className={cx('ca-reply', 'ca-prreview')}
@@ -223,7 +233,6 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
             value={text}
             rows={Math.min(6, Math.max(2, text.split('\n').length))}
             hint={requested ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
-            disabled={busy !== null}
             onChange={(e) => {
               setText(e.target.value);
               if (note?.error) setNote(null);
@@ -232,15 +241,15 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
           />
           <div className="ca-composer-buttons ca-prreview-buttons">
             {actions.changes && (
-              <Button size="sm" disabled={!written || busy !== null} title="Ask for changes, with what’s written" onClick={() => actions.changes?.run()}>
+              <Button size="sm" disabled={!written} title="Ask for changes, with what’s written" onClick={() => actions.changes?.run()}>
                 Request changes
               </Button>
             )}
-            <Button size="sm" disabled={!written || busy !== null} title={actions.comment ? `Comment with what’s written (${sign('comment')})` : 'Comment on the PR'} onClick={() => review('comment')}>
+            <Button size="sm" disabled={!written} title={actions.comment ? `Comment with what’s written (${sign('comment')})` : 'Comment on the PR'} onClick={() => review('comment')}>
               Comment
             </Button>
             {actions.approve && (
-              <Button variant="primary" size="sm" icon="check" disabled={busy !== null} title={`Approve (${sign('approve')})`} onClick={() => actions.approve?.run()}>
+              <Button variant="primary" size="sm" icon="check" title={`Approve (${sign('approve')})`} onClick={() => actions.approve?.run()}>
                 Approve
               </Button>
             )}

@@ -156,8 +156,33 @@
       check('and the notch goes on to the next review', true);
       var strip = document.querySelector('.ca-notch-session .ca-reply-queue-note');
       check('the strip says the last one was snoozed', !!strip && /snoozed\.$/.test(strip.textContent), strip ? strip.textContent : 'no strip');
-      // ⌘⏎ approves it with what's in the box, and goes on.
+      // A review GitHub refuses (the stub refuses "fail"): the notch goes on at once, then the
+      // strip says why, and the PR is back in what's left with its text.
       var box = document.querySelector('.ca-notch-session .ca-prreview-box textarea');
+      box.focus();
+      type(box, 'fail');
+      key({ key: 'Enter', metaKey: true });
+      return until(showsSession(items[1]), 3000, 'on at once');
+    })
+    .then(function () {
+      check('⌘⏎ goes on before GitHub answers', true);
+      return until(function () { var s = document.querySelector('.ca-notch-session .ca-reply-queue-note'); return !!s && /Didn’t approve #\d+: GitHub said no/.test(s.textContent); }, 3000, 'why it didn’t go');
+    })
+    .then(function () {
+      check('a refused review says why on the strip', true);
+      // ⌘] round what's left (the skipped session and the snoozed review first) until it's back.
+      var n = 0;
+      return (function step() {
+        if (showsReview(prs[1])()) return Promise.resolve();
+        if (n++ > 4) return Promise.reject(new Error('timeout: the PR back round'));
+        key({ key: ']', code: 'BracketRight', metaKey: true });
+        return wait(300).then(step);
+      })();
+    })
+    .then(function () { return wait(300); })
+    .then(function () {
+      var box = document.querySelector('.ca-notch-session .ca-prreview-box textarea');
+      check('and the PR comes back round with what was written', !!box && box.value === 'fail', box ? box.value : 'no box');
       box.focus();
       type(box, 'Looks right to me.');
       var before = calls('review_pr').length;

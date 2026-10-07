@@ -38,13 +38,15 @@ interface NotchReviewProps {
   onClose: () => void;
   /** The PR left what waits on you, and how: on to the next. */
   onLeft: (key: string, done: menus.Left) => void;
+  /** The review it left on didn't go: back among what waits, with why. */
+  onFailed: (key: string, why: string) => void;
   /** The board no longer lists it. */
   onGone: (key: string) => void;
   /** The zoom the card draws at, in percent, from the bar's feed (zoom.ts). */
   zoom?: number;
 }
 
-export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onLeft, onGone, zoom }: NotchReviewProps) {
+export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onLeft, onFailed, onGone, zoom }: NotchReviewProps) {
   const live = useLivePr(prKey, true);
   const gone = useRef(onGone);
   gone.current = onGone;
@@ -73,7 +75,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
 
   /** What the notch does for the PR's actions: what takes it off the bar goes on to the next that
    *  waits on you. */
-  const can: PrWindowCan = { report, open: host.open, reveal: () => host.showPr(pr), left: (done) => onLeft(pr.key, done) };
+  const can: PrWindowCan = { report, open: host.open, reveal: () => host.showPr(pr), left: (done) => onLeft(pr.key, done), failed: (why) => onFailed(pr.key, why) };
   const sessionCan = (l: Lane, s: Session): menus.SessionCan => ({ report, open: host.open, terminal, reveal: () => host.showSession(l, s), editors: apps ? { apps, icons } : undefined, desktop: onDesktop });
   const show = (spec: Parameters<typeof showContextMenu>[0]) => void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
 

@@ -902,6 +902,7 @@ export function Bar() {
                 onShow={stage.show}
                 onClose={stage.close}
                 onLeft={stage.left}
+                onFailed={stage.failed}
                 onGone={(key) => {
                   stage.close();
                   setFailed({ anchor: 'reviews', message: `${key} no longer waits on your review.` });

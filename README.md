@@ -660,8 +660,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   text), Snooze (⌃⌘1 to ⌃⌘4), Review with (⌃⌘R starts one on the Auto account; the button picks)
   and GitHub (⌃⌘G); Request changes is a button in the box, with no key, and needs text too. Any
   of those settles GitHub's request to you, so the PR leaves what waits on you and the next takes
-  its place; what you wrote stays with the PR until it goes, so skipping and coming back loses
-  nothing. ⌘E on a review skips it, as there's nothing to mark seen.
+  its place at once, the review going to GitHub behind it; one GitHub refuses comes back round
+  with what you wrote, and the strip says why. What you wrote stays with the PR until it goes,
+  so skipping and coming back loses nothing. ⌘E on a review skips it, as there's nothing to mark seen.
   The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session
   leaves what waits on you and the next takes its place; with none left the notch closes.
   Drag the session's bottom corners or its bottom edge to size it: the notch stays centered, so

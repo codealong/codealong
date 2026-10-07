@@ -1,7 +1,8 @@
 // Checks a PR waiting on your review in the waiting window (Waiting.tsx, PrCard.tsx): it comes
 // after the sessions that need you and before the finished turns; ⌘] reaches its card, with the
 // box's cursor and the strip saying what's left; ⌘] goes on to the session after the reviews and
-// ⌥⇧↑ back; ⌃⌘1 snoozes the review and goes on; ⌘⏎ approves it with what's in the box and goes on.
+// ⌥⇧↑ back; ⌃⌘1 snoozes the review and goes on; ⌘⏎ approves it with what's in the box and goes
+// on at once, and a review GitHub refuses brings the PR back round with its text and why on the strip.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-review-check.js
 (function () {
   var now = Date.now();
@@ -93,7 +94,32 @@
       return onReview('Review X');
     })
     .then(function () {
+      // A review GitHub refuses (the stub refuses "fail"): the window goes on at once, then the
+      // strip says why, and the PR is back in what's left with its text.
       var box = q('.ca-prreview-box textarea');
+      box.focus();
+      type(box, 'fail');
+      key(box, { key: 'Enter', metaKey: true });
+      return onSession('Queue B');
+    })
+    .then(function () {
+      check('⌘⏎ goes on before GitHub answers', sessionTitle() === 'Queue B', sessionTitle());
+      return until(function () { return /Didn’t approve #\d+: GitHub said no/.test(strip()); }, 3000, 'why it didn’t go');
+    })
+    .then(function () {
+      check('a refused review says why on the strip', true);
+      // ⌘] round what's left (the skipped session first) until the PR comes back.
+      var n = 0;
+      return (function step() {
+        if (prTitle() === 'Review X') return Promise.resolve();
+        if (n++ > 4) return Promise.reject(new Error('timeout: Review X back round'));
+        key(window, { key: ']', code: 'BracketRight', metaKey: true });
+        return wait(300).then(step);
+      })();
+    })
+    .then(function () {
+      var box = q('.ca-prreview-box textarea');
+      check('and the PR comes back round with what was written', box.value === 'fail', box.value);
       box.focus();
       type(box, 'Ship it.');
       var before = calls('review_pr').length;
