@@ -198,7 +198,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     of the panel) marks a finished turn seen and goes on, and the keys stay where they were,
     so ⌘E works down the list or from box to box; from a session that doesn't wait on you (one
     that runs, say) it goes on as ⌘] does. Snoozing, closing or archiving a session that waits
-    on you goes on to the next as well, by its key, the strip's button or its menu. ⌘] or ⌥⇧↓ skips to the next, ⌥⇧↑ goes back
+    on you goes on to the next as well, by its key, the strip's button or its menu. ⌘] or ⌥⇧↓ skips to the next, ⌘[ or ⌥⇧↑ goes back
     to the one before, and a skipped one comes round again after the rest. ⇧⌘F (or the button
     beside the check) expands
     the panel to the whole window, the list and sidebar out of the way while you work through
@@ -434,7 +434,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   turn seen, ⌃⌘1 to ⌃⌘4 snooze, ⌃⌘A archives, ⌃⌘R renames, ⌃⌘P pins it in Sessions), and says how
   the last one went and how many are left. Once one is sent a message, allowed, reviewed, marked
   seen, snoozed or archived, the next that waits on you takes its place. ⌘] or ⌥⇧↓ skips to the
-  next (a skipped one comes round again after the rest) and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along what
+  next (a skipped one comes round again after the rest) and ⌘[ or ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along what
   waits, and ⌃- ⌃⇧- go back and forward through the ones you looked at. A message that doesn't go
   is back in its session's box, and that session comes round again. With nothing left it says
   nothing waits on you, and the next that comes to wait on you shows by itself. Brought up again
@@ -648,7 +648,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   keyboard from the click, with the cursor in the box, and works through what waits on you as a
   session's panel in Sessions does, with the same keys: ⌘⏎ sends (or allows what the session
   waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
-  on (from one that runs it goes on all the same), ⌘] or ⌥⇧↓ skips to the next and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the
+  on (from one that runs it goes on all the same), ⌘] or ⌥⇧↓ skips to the next and ⌘[ or ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the
   running ones too, and ⌃- and ⌃⇧- go back and forward through the ones you looked at there. A
   strip over the header says how many more wait and how the last one went, and has what's
   commonly done to the session as buttons that say their keys, as its panel in Sessions has:

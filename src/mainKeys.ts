@@ -138,7 +138,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
   // ones, ⌃- and ⌃`, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !toTerminal && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !toTerminal && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -164,7 +164,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   // The queue's keys in Sessions (queue.ts `QUEUE_CHORDS`), from the panel's box too: ⌘] or
-  // ⌥⇧↓ skips to the next session that waits on you and ⌥⇧↑ goes back, with the cursor in
+  // ⌥⇧↓ skips to the next session that waits on you and ⌘[ or ⌥⇧↑ goes back, with the cursor in
   // its box; ⌘E marks a finished turn seen and goes on, the keyboard staying where it was,
   // and from a session that doesn't wait on you goes on as ⌘] does. Elsewhere ⌘E marks seen
   // as `e` does (below). In the search field the arrows stay the field's own, whatever is

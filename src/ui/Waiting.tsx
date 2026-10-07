@@ -10,9 +10,9 @@
 // It works through them as a session's panel in Sessions and the notch do, with the same keys,
 // from the same code (queue.ts, useWaitingQueue.ts): ⏎ sends and stays to watch the reply, ⌘⏎
 // sends (or allows the call the session waits on) and goes on to the next, ⌘E marks a finished
-// turn seen and goes on, ⌘] or ⌥⇧↓ skips to the next and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along what
-// waits, and ⌃- ⌃⇧- go back and forward through the ones looked at here (history.ts). The
-// session's own shortcuts (⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's.
+// turn seen and goes on, ⌘] or ⌥⇧↓ skips to the next and ⌘[ or ⌥⇧↑ goes back, ⌥↑ ⌥↓ step
+// along what waits, and ⌃- ⌃⇧- go back and forward through the ones looked at here
+// (history.ts). The session's own shortcuts (⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's.
 //
 // What's around a session (its worktree, todos and PRs) shows in the main window, which comes
 // forward beside this one; a session it came from, or that came of it, shows here in its place.

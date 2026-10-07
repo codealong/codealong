@@ -35,6 +35,7 @@ describe('the queue’s keys', () => {
   it('knows each action by its chords', () => {
     expect(queueKey(key({ key: ']', code: 'BracketRight', metaKey: true }))).toBe('next');
     expect(queueKey(key({ key: 'ArrowDown', altKey: true, shiftKey: true }))).toBe('next');
+    expect(queueKey(key({ key: '[', code: 'BracketLeft', metaKey: true }))).toBe('back');
     expect(queueKey(key({ key: 'ArrowUp', altKey: true, shiftKey: true }))).toBe('back');
     expect(queueKey(key({ key: 'e', metaKey: true }))).toBe('seen');
     expect(queueKey(key({ key: 'E', code: 'KeyE', metaKey: true }))).toBe('seen');
@@ -44,11 +45,16 @@ describe('the queue’s keys', () => {
     expect(queueKey(key({ key: '_', code: 'Minus', ctrlKey: true, shiftKey: true }))).toBe('historyForward');
   });
 
-  it('takes ] by where the key is, with ⌥ held or not, and - by what it types or where it is', () => {
-    // A layout that types ] with ⌥ has another character on the key.
+  it('takes ] and [ by where the keys are, with ⌥ held or not, and - by what it types or where it is', () => {
+    // A layout that types ] or [ with ⌥ has another character on the key.
     expect(queueKey(key({ key: '+', code: 'BracketRight', metaKey: true }))).toBe('next');
     expect(queueKey(key({ key: '‘', code: 'BracketRight', metaKey: true, altKey: true }))).toBe('next');
     expect(queueKey(key({ key: ']', code: 'Digit6', metaKey: true, altKey: true }))).toBeNull();
+    expect(queueKey(key({ key: 'ü', code: 'BracketLeft', metaKey: true }))).toBe('back');
+    expect(queueKey(key({ key: '“', code: 'BracketLeft', metaKey: true, altKey: true }))).toBe('back');
+    expect(queueKey(key({ key: '[', code: 'Digit5', metaKey: true, altKey: true }))).toBeNull();
+    // ⌘⇧[ is a different chord.
+    expect(queueKey(key({ key: '{', code: 'BracketLeft', metaKey: true, shiftKey: true }))).toBeNull();
     expect(queueKey(key({ key: 'ß', code: 'Minus', ctrlKey: true }))).toBe('historyBack');
     expect(queueKey(key({ key: '-', code: 'Slash', ctrlKey: true }))).toBe('historyBack');
   });
@@ -127,7 +133,7 @@ describe('what’s left after a session', () => {
   });
 });
 
-describe('⌘] ⌥⇧↓ and ⌥⇧↑', () => {
+describe('⌘] ⌥⇧↓ and ⌘[ ⌥⇧↑', () => {
   it('skip to the next that waits, and back to the one before', () => {
     expect(stepTo('next', WAITING, 'A', none, READS)?.key).toBe('B');
     expect(stepTo('back', WAITING, 'B', none, READS)?.key).toBe('A');

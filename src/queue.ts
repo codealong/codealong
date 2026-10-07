@@ -50,7 +50,7 @@ export type QueueAction = 'next' | 'back' | 'seen' | 'down' | 'up' | 'historyBac
  *  a session's header both read them here, so a key changed here changes in every window. */
 export const QUEUE_CHORDS: Record<QueueAction, readonly string[]> = {
   next: ['Cmd+]', 'Alt+Shift+Down'],
-  back: ['Alt+Shift+Up'],
+  back: ['Cmd+[', 'Alt+Shift+Up'],
   seen: ['Cmd+E'],
   down: ['Alt+Down'],
   up: ['Alt+Up'],
@@ -70,9 +70,10 @@ export function chordPressed(chord: string, e: Key): boolean {
   const key = parts.pop() ?? '';
   const has = (mod: string) => parts.includes(mod);
   if (e.metaKey !== has('Cmd') || e.ctrlKey !== has('Ctrl') || e.shiftKey !== has('Shift')) return false;
-  // ] goes by its key's code, which layouts that type it with ⌥ keep, and with ⌥ held or not, as
-  // the main window and the quick panel have always taken it.
+  // ] and [ go by their keys' codes, which layouts that type them with ⌥ keep, and with ⌥ held or
+  // not, as the main window and the quick panel have always taken ].
   if (key === ']') return e.code === 'BracketRight';
+  if (key === '[') return e.code === 'BracketLeft';
   if (e.altKey !== has('Alt')) return false;
   // - goes by what it types or where it is, as history.ts has it.
   if (key === '-') return historyChord(e);

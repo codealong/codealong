@@ -1,9 +1,9 @@
 // Checks the Sessions view's panel working through what waits on you (App.tsx `goOn`,
 // SessionsView.tsx `waitingQueue`): three sessions that need you, one of them on a call to allow,
 // and one whose turn ended. ⌘⏎ in the box sends and goes on, ⌘⏎ on the call allows it and goes
-// on, ⌘] skips, a skipped one comes round again, and a plain ⏎ sends and stays. Clicking a row
-// puts the cursor in the box, and Escape there gives the list its keys back. (A synthetic press
-// doesn't focus the list first as a real one does.)
+// on, ⌘] skips and ⌘[ goes back, a skipped one comes round again, and a plain ⏎ sends and
+// stays. Clicking a row puts the cursor in the box, and Escape there gives the list its keys
+// back. (A synthetic press doesn't focus the list first as a real one does.)
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
 (function () {
   // This runs before the app's script: the board it gets has four sessions waiting on you, made
@@ -41,6 +41,10 @@
           s.hosted = false;
           // No turn of theirs runs, or Escape in the box would stop it rather than give back the keys.
           s.stoppable = false;
+          // But they run, so the box sends to them once it knows how (fake-tauri.js `session_way`)
+          // rather than resuming them as it would the real ones, which may have ended.
+          s.live = true;
+          (window.__madeSessions = window.__madeSessions || {})[s.key] = s;
           s.title = 'Queue ' + 'ABCD'[picked.length];
           picked.push({ key: s.key, lane: l.id });
         });
@@ -96,6 +100,15 @@
     })
     .then(function () {
       check('a skipped one comes round again, the ones dealt with don’t', title() === 'Queue C', title());
+      key(box(), { key: '[', code: 'BracketLeft', metaKey: true });
+      return on('Queue D');
+    })
+    .then(function () {
+      check('⌘[ goes back, from the box', title() === 'Queue D', title());
+      key(box(), { key: ']', code: 'BracketRight', metaKey: true });
+      return on('Queue C');
+    })
+    .then(function () {
       type(box(), 'Thanks.');
       key(box(), { key: 'Enter' });
       return wait(500);

@@ -637,7 +637,7 @@ export function App() {
   // Working through what waits on you from a session's panel in Sessions (useWaitingQueue.ts,
   // which the notch and the quick panel go by too): ⌘⏎ in its box sends (or allows the call it
   // waits on) and goes on to the next listed that waits on you, ⌘E marks a finished turn seen and
-  // goes on, and ⌘] (or ⌥⇧↓) skips to it, ⌥⇧↑ back; a skipped one comes round again after the
+  // goes on, and ⌘] (or ⌥⇧↓) skips to it, ⌘[ (or ⌥⇧↑) back; a skipped one comes round again after the
   // rest. The ones dealt with stay out until they wait on you anew, since an allowed call isn't
   // shown ahead of the board.
   // The row gone on to, whose box takes the cursor.

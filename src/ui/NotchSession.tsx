@@ -9,8 +9,8 @@
 // It has the keyboard from the click, and works through what waits on you as a session's panel
 // in Sessions does, with the same keys, from the same code (queue.ts, useWaitingQueue.ts): ⌘⏎ in
 // the box sends (or allows the call the session waits on) and goes on to the next that waits on
-// you, ⌘E marks a finished turn seen and goes on, ⌘] or ⌥⇧↓ skips to it and ⌥⇧↑ goes back, ⌥↑ ⌥↓
-// step along the bar's sessions, the running ones too, and ⌃- and ⌃⇧- go back and forward
+// you, ⌘E marks a finished turn seen and goes on, ⌘] or ⌥⇧↓ skips to it and ⌘[ or ⌥⇧↑ goes back,
+// ⌥↑ ⌥↓ step along the bar's sessions, the running ones too, and ⌃- and ⌃⇧- go back and forward
 // through the ones you looked at here (history.ts). The pill
 // of the one shown is marked, and a strip over its header has what's commonly done to it as
 // buttons that say their keys (SessionPanel.tsx `Hotkeys`) and says how many more wait
