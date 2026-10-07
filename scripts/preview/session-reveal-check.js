@@ -3,13 +3,14 @@
 // session selected and its conversation in the panel. The session is made five days old, with
 // the age filter at 24 hours, so the filter has to widen as little as lists it
 // (boardLists.ts `ageListingSession`), or Sessions selects another session in its place; one
-// that's active today shows with no change to the filter.
+// that's active today shows with no change to the filter. An archived one, which no list but the
+// Archived fold has, shows there, with the fold opened.
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/session-reveal-check.js
 (function () {
   var DAY = 86400e3;
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.age', '1d');
-  var plan = [{ title: 'Revealed today', ago: 60e3 }, { title: 'Revealed after days', ago: 5 * DAY }];
+  var plan = [{ title: 'Revealed today', ago: 60e3 }, { title: 'Revealed after days', ago: 5 * DAY }, { title: 'Revealed from the archive', ago: 2 * DAY, archived: true }];
   var picked = [];
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
@@ -22,10 +23,11 @@
           var at = picked.filter(function (x) { return x.key === s.key; })[0];
           if (!at && (picked.length >= plan.length || s.visitor || s.archived || l.hidden || l.device)) return;
           if (!at) {
-            at = { key: s.key, lane: l.id, title: plan[picked.length].title, ago: plan[picked.length].ago };
+            at = { key: s.key, lane: l.id, title: plan[picked.length].title, ago: plan[picked.length].ago, archived: !!plan[picked.length].archived };
             picked.push(at);
           }
           s.title = at.title;
+          if (at.archived) s.archived = true;
           s.lastActivity = now - at.ago;
           s.lastPromptAt = Math.min(s.lastPromptAt || s.lastActivity, s.lastActivity);
         });
@@ -41,6 +43,7 @@
   var list = function () { var l = document.querySelector('[role="listbox"]'); return l ? l.getAttribute('aria-label') : null; };
   var row = function (x) { return document.getElementById('row-' + x.lane + '::' + x.key); };
   var age = function () { return localStorage.getItem('codealong.age'); };
+  var fold = function () { return document.querySelector('.ca-archived [aria-expanded]'); };
   var reveal = function (x) {
     window.__emit('reveal', { kind: 'session', laneId: x.lane, key: x.key });
     return until(function () { return title() === x.title; }, 3000).catch(function () {});
@@ -61,6 +64,14 @@
       check('widening the filter as little as lists it', age() === '7d', age());
       var r = row(picked[1]);
       check('its row is listed and selected', !!r && r.getAttribute('aria-selected') === 'true', r ? r.outerHTML.slice(0, 160) : 'no row');
+      check('the Archived fold starts closed', !!fold() && fold().getAttribute('aria-expanded') === 'false', fold() ? fold().getAttribute('aria-expanded') : 'no fold');
+      return reveal(picked[2]);
+    })
+    .then(function () {
+      check('an archived session shows in Sessions', list() === 'Sessions' && title() === picked[2].title, list() + ' / ' + title());
+      check('with the Archived fold opened', !!fold() && fold().getAttribute('aria-expanded') === 'true', fold() ? fold().getAttribute('aria-expanded') : 'no fold');
+      var r = row(picked[2]);
+      check('its row there is selected', !!r && r.getAttribute('aria-selected') === 'true' && !!r.closest('.ca-archived'), r ? r.outerHTML.slice(0, 160) : 'no row');
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);

@@ -541,13 +541,24 @@ export function App() {
     }
     const lane = r.kind === 'session' || r.kind === 'worktree' ? lanes.find((l) => l.id === r.laneId) : undefined;
     const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
+    // An archived session isn't in the lists the views show (`unarchived`): it's in Sessions'
+    // Archived fold, so it's looked for on the board as the engine sent it.
+    const archivedLane = r.kind === 'session' && !session ? [...(board?.lanes ?? []), ...deviceLanes].find((l) => l.id === r.laneId) : undefined;
+    const archived = archivedLane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : '') && s.archived);
     const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
-    const home = lane?.project ?? pr?.project;
+    const home = lane?.project ?? archivedLane?.project ?? pr?.project;
     if (!home) return;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
     setQuery('');
     if (lane && r.kind === 'worktree') {
       focusLane(lane);
+    } else if (archivedLane && archived) {
+      // Its row in the Archived fold, opened, with its conversation in the panel; the age
+      // filter doesn't apply there.
+      setView('sessions');
+      setBayFilter([]);
+      setShowArchived(true);
+      setSelectedKey(`${archivedLane.id}::${archived.key}`);
     } else if (lane && session) {
       // Its own row in Sessions, with its conversation in the panel, whichever view was showing:
       // the board would only show its line on its worktree's row.
