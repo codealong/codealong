@@ -583,6 +583,35 @@ export function onSide(cb: (side: Side) => void): () => void {
   };
 }
 
+/** Pops a session's side conversation out into a window of its own beside this one (kept.rs
+ *  `pop_side`), or brings the one it has forward; with `keys` it takes the keyboard. */
+export async function sideWindow(key: string, keys: boolean): Promise<void> {
+  if (!inTauri) throw new Error('A side conversation’s window needs the app.');
+  await invoke('side_window', { key, keys });
+}
+
+/** The sessions whose side conversations have windows of their own. */
+export async function sideWindows(): Promise<string[]> {
+  if (!inTauri) return [];
+  return invoke<string[]>('side_windows');
+}
+
+/** Calls `cb` with the sessions whose side conversations have windows of their own, as a window
+ *  pops out or closes. */
+export function onSideWindows(cb: (keys: string[]) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<string[]>('side-windows', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
 /** A change to a todo or the labels. Resolves with the time of the first board that shows it. */
 /** Where what's typed in the quick panel should go, from Jev. */
 export async function routeQuick(project: string, text: string): Promise<Route> {

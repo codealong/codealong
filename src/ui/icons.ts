@@ -405,5 +405,21 @@ export const ICONS: Record<string, string[]> = {
  "zzz": [
   "M4 12h6l-6 8h6",
   "M14 4h6l-6 8h6"
+ ],
+ "history": [
+  "M12 8l0 4l2 2",
+  "M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"
+ ],
+ "picture-in-picture-on": [
+  "M11 19h-6a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v4",
+  "M14 15a1 1 0 0 1 1 -1h5a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-5a1 1 0 0 1 -1 -1l0 -3",
+  "M7 9l4 4",
+  "M8 13h3v-3"
+ ],
+ "picture-in-picture-off": [
+  "M11 19h-6a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v4",
+  "M14 15a1 1 0 0 1 1 -1h5a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-5a1 1 0 0 1 -1 -1l0 -3",
+  "M7 9l4 4",
+  "M7 12v-3h3"
  ]
 };

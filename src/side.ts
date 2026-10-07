@@ -9,9 +9,13 @@
 // storage, which they share), and so is whether the box is the side conversation's: a box in
 // one window that sent to the session while another window's asked the copy once sent the
 // session a question meant for the side (2026-10-06).
+//
+// A side conversation can pop out into a window of its own (kept.rs `pop_side`), which shows
+// what would show above the box and has a box that only ever asks it. While it's out, nothing
+// shows above the session's boxes, which are the session's again (`usePopped`).
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { onSide, sideForget, sideGet, sidePast } from './api';
+import { onSide, onSideWindows, sideForget, sideGet, sidePast, sideWindows } from './api';
 import { readStored, writeStored, type Codec } from './stored';
 import type { Side, SideKept, SideTurn } from './types';
 
@@ -28,6 +32,40 @@ function listen(): void {
   if (listening) return;
   listening = true;
   onSide(noteSide);
+}
+
+/** The sessions whose side conversations have windows of their own, as the engine last said. */
+let popped: ReadonlySet<string> = new Set();
+let hearingPopped = false;
+
+/** Hears which side conversations are in windows of their own, once a window shows a session:
+ *  what the engine says as one pops out or closes, and what it says now, unless it's said more
+ *  since. */
+function hearPopped(): void {
+  if (hearingPopped) return;
+  hearingPopped = true;
+  let heard = 0;
+  const take = (keys: string[]) => {
+    popped = new Set(keys);
+    tell();
+  };
+  onSideWindows((keys) => {
+    heard += 1;
+    take(keys);
+  });
+  const before = heard;
+  sideWindows().then(
+    (keys) => {
+      if (heard === before) take(keys);
+    },
+    // None read: none out, until one pops out and the engine says so.
+    () => {},
+  );
+}
+
+/** Whether a session's side conversation is in a window of its own. */
+export function usePopped(key: string): boolean {
+  return useSyncExternalStore(subscribe, () => popped.has(key));
 }
 
 /** How many of its turns have ended: each is kept as it does. */
@@ -129,9 +167,10 @@ export function takesBox(view: SideView, now: number): boolean {
 /** Whether anything of a session's side conversations shows above its box, in this window and
  *  every other: the open one (answering or ended), the list, one being read, or a question
  *  starting one. While it does, what's typed in the box is for the side conversation, as Codex's
- *  `/side` takes its box until you go back. */
+ *  `/side` takes its box until you go back. Not while it's in a window of its own, whose box
+ *  asks it. */
 export function useAside(key: string): boolean {
-  return useSyncExternalStore(subscribe, () => sides.has(key) || takesBox(viewOf(key), Date.now()));
+  return useSyncExternalStore(subscribe, () => !popped.has(key) && (sides.has(key) || takesBox(viewOf(key), Date.now())));
 }
 
 /** The side conversations kept for each session this window has shown, the latest first. */
@@ -164,6 +203,17 @@ export function useKept(key: string): SideKept[] {
   return useSyncExternalStore(subscribe, () => kept.get(key) ?? NONE);
 }
 
+/** Ends a side conversation: it's gone from every box at once, and its copy is told to stop
+ *  (`close`, a session's or a PR's). What was said is kept. */
+export function endSide(key: string, close: (key: string) => Promise<void>): void {
+  const side = sides.get(key);
+  if (!side) return;
+  noteSide({ id: side.id, key, turns: [], running: false, ended: true });
+  // It's let go either way. Closing one here can't fail (side.rs); only another device that
+  // doesn't answer can, and its copy goes on there whatever this window says.
+  void close(key).catch(() => {});
+}
+
 /** Forgets a kept side conversation: it's off the list at once. */
 export function forgetSide(key: string, id: string): void {
   kept.set(
@@ -191,6 +241,7 @@ export function keptLine(kept: SideKept): string {
 
 function subscribe(hear: () => void): () => void {
   watchViews();
+  hearPopped();
   hearers.add(hear);
   return () => {
     hearers.delete(hear);

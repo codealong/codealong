@@ -145,7 +145,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     conversations from before, and each opens to read, or to delete; while they show, a
     question in the box starts a new one. A session with any says how many in its header,
     beside its PRs and todo; a click there shows them above the box (the only one, or the
-    list), and another puts them away.
+    list), and another puts them away. What can be done with one is a row of icons at the
+    strip's top right (Earlier, Delete, Pop out, Close), each named on hover. Pop out moves it
+    into a window of its own beside the one it was in, which floats as a session kept on the
+    desktop does: the conversation fills it, its box asks only the side conversation, and the
+    session's boxes go back to the session, so you can talk to both at once (`/side` in the
+    session's box still asks the side conversation, and brings its window forward). Its top
+    line drags it and its edges size it; Put back closes the window and shows the conversation
+    above the box again, and its × or ⌘W end it and close the window. It comes back at launch
+    where it was left, empty until you ask it something.
     Other `/…` commands go to the session as typed. The selected session's panel keeps its top
     to three lines so the conversation has the room: the title with the ways to open it, mark it
     seen, expand the panel, its details (ⓘ: account, ID, folder, times) and its menu (⋯, New
@@ -1012,7 +1020,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/codex/` | Codex, in its app and its terminal UI: the adapter and reader (`mod.rs`), rollouts and the thread index, the conversation a rollout holds, its app-server (archiving, renaming, new threads), the socket the app's windows talk on (starting, steering and stopping a turn), its terminal UIs, side conversations and plan usage |
 | `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service; Antigravity's app and command line (`agy`), their conversation summaries, transcripts and processes |
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
-| `src-tauri/src/side.rs`, `src/side.ts`, `src/ui/SideStrip.tsx` | Side conversations: a throwaway copy of a session's conversation, run by its harness (`Adapter::side`), asked from the reply box with `/side` and shown above it; what was asked and answered, kept to read later (`sides.json`) |
+| `src-tauri/src/side.rs`, `src/side.ts`, `src/ui/SideStrip.tsx` | Side conversations: a throwaway copy of a session's conversation, run by its harness (`Adapter::side`), asked from the reply box with `/side` and shown above it, or popped out into a window of its own (kept.rs); what was asked and answered, kept to read later (`sides.json`) |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs`, `ghpoll.rs` | Repo discovery, callsigns, worktrees, git status, PRs, and when GitHub is asked for them |
 | `src-tauri/src/held.rs` | The repo scan's reads of folders it doesn't own, each on a thread of its own, so one macOS holds for a privacy prompt holds up only that folder |
 | `src-tauri/src/launch.rs`, `launch/iterm.rs`, `launch/terminal_app.rs` | Terminal profiles: Ghostty, iTerm2 and Terminal through AppleScript (a session's tab found exactly, typing, closing), deep links |
@@ -1031,7 +1039,7 @@ light scan (no git, PRs or visitors).
 | `src/ui/Notch.tsx`, `src/ui/NotchSession.tsx`, `src/ui/NotchReview.tsx` | The bar docked in the notch: its three states (closed, the pills, a session or a review under them) shown through one clip, and what it shows in place of a peek: which session or PR, the queue of both it works through and its keys |
 | `src/ui/PrCard.tsx`, `src/review.ts` | A PR waiting on your review as a card of its own, in the notch and the waiting window: the PR panel's details with the strip over them, the box that approves, comments or asks for changes, the PR's menu and its chords; and Review with…, which starts a review session on an account or opens the Codex app's review page |
 | `src/ui/SessionCard.tsx`, `src/ui/cardHost.ts` | A session as a card of its own, for the peek, a session kept on the desktop, the session in the notch and the waiting window: the session's panel with its menus, what's around it and its shortcuts wired once; and, for the windows that aren't the board's, the session kept up with the board while its card is up |
-| `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek or the notch: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
+| `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek or the notch, and side conversations popped out: a window each, made as the peek's is, `kept.json`, where a popped-out one opens, sizing and closing. `Peek.tsx` draws them too |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/skills.rs`, `src/skills.ts`, `src/useSkills.ts`, `src/ui/SlashList.tsx` | Skills by name: the folders each harness reads them from (`Adapter::worktree_skills`, `account_skills`) listed once by name with how each harness is told to run one, the `/` lists of the quick panel and the reply box, the repo a skill picks and the accounts it leaves out |
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |

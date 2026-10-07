@@ -23,6 +23,8 @@ declare global {
     __CODEALONG_PEEK__?: boolean;
     /** Set on the window of a session kept on the desktop before the page loads. */
     __CODEALONG_KEPT__?: boolean;
+    /** Set with that on the window a session's side conversation popped out into. */
+    __CODEALONG_SIDE__?: boolean;
     /** Set on the windows of cards pinned to the desktop before the page loads. */
     __CODEALONG_DESKTOP__?: boolean;
     /** Set on the window of lines between cards pinned to the desktop before the page loads. */
@@ -31,13 +33,15 @@ declare global {
 }
 
 // Every window loads this page; the floating bar's shows the bar, its peek's the peek, a session
-// kept on the desktop's that session as the peek shows it, the quick panel's the panel, the
+// kept on the desktop's that session as the peek shows it (or its side conversation, popped out
+// into a window of its own), the quick panel's the panel, the
 // waiting window what waits on you, a card pinned to the desktop's the card, and the window under
 // the cards the lines between them, instead of the board.
 const isBar = window.__CODEALONG_BAR__ === true;
 const isQuick = window.__CODEALONG_QUICK__ === true;
 const isWaiting = window.__CODEALONG_WAITING__ === true;
 const isKept = window.__CODEALONG_KEPT__ === true;
+const isSide = isKept && window.__CODEALONG_SIDE__ === true;
 const isPeek = window.__CODEALONG_PEEK__ === true || isKept;
 const isDesktop = window.__CODEALONG_DESKTOP__ === true;
 const isLineage = window.__CODEALONG_LINEAGE__ === true;
@@ -51,7 +55,7 @@ if (isLineage) document.documentElement.classList.add('is-lineage');
 // other windows hand on.
 if (!isBar && !isQuick && !isWaiting && !isPeek && !isDesktop && !isLineage) drawNoticesHere();
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isPeek ? <Peek kept={isKept} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
+createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isPeek ? <Peek kept={isKept} side={isSide} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
 
 watchCaret();
 

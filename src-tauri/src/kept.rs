@@ -9,6 +9,12 @@
 //! Each is a non-activating panel that takes the keyboard on a click, like the peek's, so a click
 //! in one leaves the app you're in active. What's kept and where each window was left are in
 //! `kept.json` next to the config, and they come back at launch.
+//!
+//! A session's side conversation (side.rs) pops out into a window of the same kind (`pop_side`):
+//! the conversation and the box that asks it, while the session's own box, wherever it shows,
+//! goes back to the session. Every window hears which sessions' side conversations have one
+//! (`side-windows`), and leaves those out of the place above the box. Closing the window says
+//! nothing to the copy: its page ends the copy first when that's what you asked for.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -31,6 +37,14 @@ const PANEL: panel::Config = panel::Config { keys: panel::Keys::OnClick, level: 
 /// than the peek's, which is there already, takes to read a conversation.
 const READY_WAIT: Duration = Duration::from_millis(2500);
 
+/// The size a side conversation's window opens at, its room for the shadow included.
+const SIDE_SIZE: (f64, f64) = (480.0, 600.0);
+/// How far a side conversation's window opens from the window it popped out of.
+const SIDE_GAP: f64 = 8.0;
+/// How far down a side conversation's window opens over the window it popped out of, when
+/// there's no room beside it: clear of its title bar.
+const SIDE_DROP: f64 = 48.0;
+
 /// A session kept on the desktop, as `kept.json` has it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct Kept {
@@ -38,6 +52,9 @@ struct Kept {
     key: String,
     /// Its window, where it was left.
     frame: Rect,
+    /// The window shows the session's side conversation, not the session.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    side: bool,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq)]
@@ -87,8 +104,14 @@ impl Inner {
         self.dirty = false;
     }
 
-    fn label_of(&self, key: &str) -> Option<String> {
-        self.windows.iter().find(|(_, k)| k.key == key).map(|(l, _)| l.clone())
+    /// The window a session is kept in, or with `side` the one its side conversation is.
+    fn label_of(&self, key: &str, side: bool) -> Option<String> {
+        self.windows.iter().find(|(_, k)| k.key == key && k.side == side).map(|(l, _)| l.clone())
+    }
+
+    /// The sessions whose side conversations have windows of their own.
+    fn sides(&self) -> Vec<String> {
+        self.windows.iter().filter(|(_, k)| k.side).map(|(_, k)| k.key.clone()).collect()
     }
 }
 
@@ -96,8 +119,9 @@ impl Inner {
 pub fn setup(app: &AppHandle) -> Result<()> {
     app.manage(State::default());
     for kept in Saved::load().sessions {
+        let side = kept.side;
         let label = add(app, kept, false);
-        if let Err(e) = make_window(app, &label) {
+        if let Err(e) = make_window(app, &label, side) {
             eprintln!("Couldn't put a kept session back on the desktop: {e:#}");
         }
     }
@@ -125,11 +149,12 @@ fn add(app: &AppHandle, kept: Kept, keys: bool) -> String {
     label
 }
 
-/// Makes a session's window, hidden, then on the main thread turns it into a panel where it was
-/// left. It shows once its page has laid the session out (`ready`), or after a moment without.
-/// Off the main thread, which making a window waits on.
-fn make_window(app: &AppHandle, label: &str) -> Result<()> {
-    let page = panel::Page { title: "Codealong", script: "window.__CODEALONG_KEPT__ = true;", size: crate::peek::MIN_SIZE, focusable: true, first_mouse: true };
+/// Makes a session's window, or its side conversation's, hidden, then on the main thread turns it
+/// into a panel where it was left. It shows once its page has laid the session out (`ready`), or
+/// after a moment without. Off the main thread, which making a window waits on.
+fn make_window(app: &AppHandle, label: &str, side: bool) -> Result<()> {
+    let script = if side { "window.__CODEALONG_KEPT__ = true; window.__CODEALONG_SIDE__ = true;" } else { "window.__CODEALONG_KEPT__ = true;" };
+    let page = panel::Page { title: "Codealong", script, size: crate::peek::MIN_SIZE, focusable: true, first_mouse: true };
     panel::builder(app, label, page).build()?;
     let (handle, placed) = (app.clone(), label.to_string());
     app.run_on_main_thread(move || place(&handle, &placed))?;
@@ -171,7 +196,7 @@ fn place(app: &AppHandle, label: &str) {
 }
 
 /// The window's page has laid its session out: the window shows, and the peek it was kept from
-/// goes. On the main thread.
+/// goes. A side conversation's window leaves the peek be. On the main thread.
 pub fn ready(app: &AppHandle, label: &str) {
     let (Some(state), Some(window)) = (app.try_state::<State>(), app.get_webview_window(label)) else { return };
     let (key, keys) = {
@@ -181,7 +206,7 @@ pub fn ready(app: &AppHandle, label: &str) {
             return;
         }
         let keys = inner.keys.remove(label);
-        (inner.windows.iter().find(|(l, _)| l == label).map(|(_, k)| k.key.clone()), keys)
+        (inner.windows.iter().find(|(l, k)| l == label && !k.side).map(|(_, k)| k.key.clone()), keys)
     };
     panel::present(&window, keys);
     if crate::peek::showing(app).map(|(k, _)| k) == key {
@@ -205,14 +230,64 @@ pub fn keep_peeked(app: &AppHandle) -> Result<()> {
 /// the main thread.
 pub fn keep(app: &AppHandle, key: String, card: Rect, keys: bool) -> Result<bool> {
     let state = app.try_state::<State>().ok_or_else(|| anyhow!("Kept sessions aren't ready yet."))?;
-    let already = state.inner.lock().map_err(|_| anyhow!("Kept sessions are unavailable."))?.label_of(&key);
+    let already = state.inner.lock().map_err(|_| anyhow!("Kept sessions are unavailable."))?.label_of(&key, false);
     if let Some(label) = already {
         raise(app, &label, keys);
         return Ok(true);
     }
-    let label = add(app, Kept { key, frame: crate::peek::window_for(card) }, keys);
-    open(app, label);
+    let label = add(app, Kept { key, frame: crate::peek::window_for(card), side: false }, keys);
+    open(app, label, false);
     Ok(false)
+}
+
+/// Pops a session's side conversation out into a window of its own, beside `from`, the window it
+/// was in: its conversation, and the box that asks it. One up already comes forward where it is.
+/// With `keys` it takes the keyboard as it shows. On the main thread.
+pub fn pop_side(app: &AppHandle, key: String, from: Option<Rect>, keys: bool) -> Result<()> {
+    let state = app.try_state::<State>().ok_or_else(|| anyhow!("Kept sessions aren't ready yet."))?;
+    let already = state.inner.lock().map_err(|_| anyhow!("Kept sessions are unavailable."))?.label_of(&key, true);
+    if let Some(label) = already {
+        raise(app, &label, keys);
+        return Ok(());
+    }
+    let screens = panel::screens();
+    let visible = from.and_then(|f| screen_for(f, &screens)).or_else(|| screens.first().map(|s| s.visible)).ok_or_else(|| anyhow!("There's no screen to show it on."))?;
+    let frame = side_frame(from, visible);
+    let label = add(app, Kept { key, frame, side: true }, keys);
+    open(app, label, true);
+    tell_sides(app);
+    Ok(())
+}
+
+/// Where a side conversation's window opens: beside the window it popped out of, its top level
+/// with that window's, on the right where there's room, else on the left; with room on neither,
+/// over the window's right side and clear of its title bar, where a session's panel is in the
+/// main window. From no window, in the middle of the screen. Whole on the screen (`visible`, the
+/// part the menu bar and Dock leave).
+pub fn side_frame(from: Option<Rect>, visible: Rect) -> Rect {
+    let (w, h) = (SIDE_SIZE.0.min(visible.w), SIDE_SIZE.1.min(visible.h));
+    let Some(from) = from else {
+        let (cx, cy) = visible.center();
+        return Rect { x: cx - w / 2.0, y: cy - h / 2.0, w, h };
+    };
+    let (x, top) = if from.right() + SIDE_GAP + w <= visible.right() {
+        (from.right() + SIDE_GAP, from.top())
+    } else if from.x - SIDE_GAP - w >= visible.x {
+        (from.x - SIDE_GAP - w, from.top())
+    } else {
+        (from.right() - SIDE_GAP - w, from.top() - SIDE_DROP)
+    };
+    on_a_screen(Rect::from_top_left(x, top, w, h), &[Screen { frame: visible, visible }])
+}
+
+/// The sessions whose side conversations have windows of their own.
+pub fn sides(app: &AppHandle) -> Vec<String> {
+    app.try_state::<State>().and_then(|s| s.inner.lock().ok().map(|i| i.sides())).unwrap_or_default()
+}
+
+/// Tells every window which sessions' side conversations have windows of their own.
+fn tell_sides(app: &AppHandle) {
+    let _ = app.emit("side-windows", sides(app));
 }
 
 /// Keeps `to` where session `from` is kept: a session moved to another account goes on as a new
@@ -223,24 +298,27 @@ pub fn follow(app: &AppHandle, from: &str, to: &str) {
     let Some(state) = app.try_state::<State>() else { return };
     let (old, frame) = {
         let Ok(inner) = state.inner.lock() else { return };
-        let Some((label, kept)) = inner.windows.iter().find(|(_, k)| k.key == from).filter(|_| inner.label_of(to).is_none()) else { return };
+        let Some((label, kept)) = inner.windows.iter().find(|(_, k)| k.key == from && !k.side).filter(|_| inner.label_of(to, false).is_none()) else { return };
         (label.clone(), kept.frame)
     };
-    let label = add(app, Kept { key: to.to_string(), frame }, false);
-    open(app, label);
+    let label = add(app, Kept { key: to.to_string(), frame, side: false }, false);
+    open(app, label, false);
     close(app, &old);
 }
 
 /// Makes a new kept window, off the main thread, which making a window waits on.
-fn open(app: &AppHandle, label: String) {
+fn open(app: &AppHandle, label: String, side: bool) {
     let handle = app.clone();
     std::thread::spawn(move || {
-        if let Err(e) = make_window(&handle, &label) {
+        if let Err(e) = make_window(&handle, &label, side) {
             eprintln!("Couldn't keep the session on the desktop: {e:#}");
             if let Some(state) = handle.try_state::<State>() {
                 if let Ok(mut inner) = state.inner.lock() {
                     inner.windows.retain(|(l, _)| l != &label);
                 }
+            }
+            if side {
+                tell_sides(&handle);
             }
         }
     });
@@ -262,7 +340,7 @@ fn raise(app: &AppHandle, label: &str, keys: bool) {
 /// Brings up the window a session is kept in, if it's kept: the peek isn't shown for a session
 /// that's up already. On the main thread.
 pub fn raise_session(app: &AppHandle, key: &str, keys: bool) -> bool {
-    let Some(label) = app.try_state::<State>().and_then(|s| s.inner.lock().ok().and_then(|i| i.label_of(key))) else { return false };
+    let Some(label) = app.try_state::<State>().and_then(|s| s.inner.lock().ok().and_then(|i| i.label_of(key, false))) else { return false };
     raise(app, &label, keys);
     true
 }
@@ -311,21 +389,23 @@ pub fn take_keys(app: &AppHandle, label: &str) {
     }
 }
 
-/// Takes a session off the desktop: its window goes back to being a window, then away.
+/// Takes a session off the desktop: its window goes back to being a window, then away. A side
+/// conversation goes back above its session's box.
 pub fn close(app: &AppHandle, label: &str) {
     let Some(state) = app.try_state::<State>() else { return };
-    let original = {
+    let (original, side) = {
         let Ok(mut inner) = state.inner.lock() else { return };
-        if !inner.windows.iter().any(|(l, _)| l == label) {
-            return;
-        }
+        let Some(side) = inner.windows.iter().find(|(l, _)| l == label).map(|(_, k)| k.side) else { return };
         inner.windows.retain(|(l, _)| l != label);
         inner.shown.remove(label);
         inner.keys.remove(label);
         let original = inner.panels.remove(label).flatten();
         inner.save();
-        original
+        (original, side)
     };
+    if side {
+        tell_sides(app);
+    }
     let (handle, label) = (app.clone(), label.to_string());
     let _ = app.run_on_main_thread(move || {
         let Some(w) = handle.get_webview_window(&label) else { return };
@@ -463,6 +543,48 @@ mod tests {
         let s: Saved = serde_json::from_str("{}").unwrap();
         assert_eq!(s, Saved::default());
         let s: Saved = serde_json::from_str(r#"{"sessions":[{"key":"claude:claude:1","frame":{"x":1,"y":2,"w":3,"h":4}}]}"#).unwrap();
-        assert_eq!(s.sessions, [Kept { key: "claude:claude:1".into(), frame: r(1.0, 2.0, 3.0, 4.0) }]);
+        assert_eq!(s.sessions, [Kept { key: "claude:claude:1".into(), frame: r(1.0, 2.0, 3.0, 4.0), side: false }]);
+        // A side conversation's window says so; a session's is written as it always was, so a
+        // build from before side windows reads it.
+        let s: Saved = serde_json::from_str(r#"{"sessions":[{"key":"k","frame":{"x":1,"y":2,"w":3,"h":4},"side":true}]}"#).unwrap();
+        assert!(s.sessions[0].side);
+        let written = serde_json::to_string(&Saved { sessions: vec![Kept { key: "k".into(), frame: r(1.0, 2.0, 3.0, 4.0), side: false }] }).unwrap();
+        assert!(!written.contains("side"), "{written}");
+    }
+
+    #[test]
+    fn a_side_conversation_opens_beside_the_window_it_popped_out_of() {
+        let (w, h) = SIDE_SIZE;
+        let v = SCREEN.visible;
+        // A peek on the left: to its right, level with its top.
+        let peek = r(100.0, 300.0, 520.0, 500.0);
+        let f = side_frame(Some(peek), v);
+        assert_eq!((f.x, f.top(), f.w, f.h), (peek.right() + SIDE_GAP, peek.top(), w, h));
+        // One on the right: to its left.
+        let right = r(900.0, 300.0, 520.0, 500.0);
+        let f = side_frame(Some(right), v);
+        assert_eq!((f.right(), f.top()), (right.x - SIDE_GAP, right.top()));
+        // A main window as wide as the screen: over its right side, under its title bar.
+        let main = r(0.0, 60.0, 1500.0, 815.0);
+        let f = side_frame(Some(main), v);
+        assert_eq!((f.right(), f.top()), (main.right() - SIDE_GAP, main.top() - SIDE_DROP));
+        // A window low on the screen: its side conversation's is still whole on it.
+        let low = r(100.0, 70.0, 520.0, 200.0);
+        let f = side_frame(Some(low), v);
+        assert!(f.y >= v.y && f.top() <= v.top(), "{f:?}");
+        // From no window: the middle of the screen.
+        let f = side_frame(None, v);
+        assert_eq!(f.center(), v.center());
+    }
+
+    #[test]
+    fn a_session_and_its_side_conversation_are_kept_apart() {
+        let frame = r(1.0, 2.0, 3.0, 4.0);
+        let kept = |key: &str, side: bool| Kept { key: key.into(), frame, side };
+        let inner = Inner { windows: vec![("kept-1".into(), kept("a", false)), ("kept-2".into(), kept("a", true)), ("kept-3".into(), kept("b", true))], ..Inner::default() };
+        assert_eq!(inner.label_of("a", false).as_deref(), Some("kept-1"));
+        assert_eq!(inner.label_of("a", true).as_deref(), Some("kept-2"));
+        assert_eq!(inner.label_of("b", false), None);
+        assert_eq!(inner.sides(), ["a", "b"]);
     }
 }

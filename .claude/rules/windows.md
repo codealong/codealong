@@ -180,3 +180,8 @@ under `src-tauri/src/`.
   preview only shows that the page asks for it (`peek-drag-check.js`).
 - Not yet checked by hand (2026-10-01): keeping, sizing, dragging and closing a kept session in
   the real app; the preview only shows the page and the commands it sends.
+- Not yet checked by hand (2026-10-07): a side conversation popped out (kept.rs `pop_side`) in
+  the real app: where its window opens beside the main window, the peek, the notch and the
+  waiting window (`side_frame`), that it takes the keyboard as it shows, that its strip's top
+  line drags it, and that it comes back at launch. The preview shows the window's page and the
+  commands it and the box it left send (`side-window-check.js`).

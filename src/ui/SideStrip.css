@@ -1,4 +1,5 @@
-/* A side conversation beside a session (SideStrip.tsx): its turns, what's kept from before. */
+/* A side conversation beside a session (SideStrip.tsx): its turns, what's kept from before, and
+   the icons that act on it. */
 
 /* A session's side conversation (SideStrip.tsx), above the box that asks it: set apart from the
    thread, which it's no part of, and never taller than a share of the window, scrolling inside. */
@@ -37,6 +38,15 @@
   font: var(--type-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Its actions, icons at the top right: as tall as the line they're on, and their glyphs level
+   with the strip's right edge, as the session header's are. */
+.ca-sidestrip-acts {
+  flex: none;
+  display: flex;
+  align-self: center;
+  gap: 2px;
+  margin: -4px -6px -4px 0;
 }
 .ca-sidestrip-turns {
   display: grid;
@@ -133,4 +143,19 @@
   flex: none;
   color: var(--ink-3);
   font-size: 12px;
+}
+
+/* Popped out into a window of its own (kept.rs `pop_side`, Peek.tsx): the strip is the window,
+   as tall as it lets it be, over the box that asks it. Its top line drags the window. */
+.ca-sidestrip.is-window {
+  flex: 1 1 auto;
+  max-height: none;
+  padding-top: var(--space-3);
+  border-top: 0;
+  background: transparent;
+}
+.ca-sidestrip.is-window .ca-sidestrip-head {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
 }

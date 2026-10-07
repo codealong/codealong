@@ -45,6 +45,9 @@
 // shows gives the box back to the session. What shows is the same in every window showing the
 // session (side.ts), and the box holds a draft of its own while it's the side conversation's
 // (drafts.ts `sideDraft`), so what's typed for the copy never reaches the session from any of them.
+// Popped out into a window of its own (`SideReply`), the side conversation has a box there that
+// only ever asks it, and the session's boxes are the session's again; `/side` in one of them
+// still asks it, and brings its window forward.
 //
 // While its turn runs, Escape in the box stops it where Codealong can reach the session (the
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
@@ -61,12 +64,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk, switchSessionModel } from '../api';
+import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
-import { notAsked, showSides, startingSide, useAside } from '../side';
+import { notAsked, showSides, startingSide, useAside, usePopped } from '../side';
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
@@ -81,7 +84,7 @@ import { BoxText, Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlaces } from './ResumeBar';
 import { SessionModel } from './SessionModel';
-import { SESSION_SIDES, SideStrip } from './SideStrip';
+import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
@@ -136,6 +139,9 @@ interface ComposerProps {
   terminal: string;
   /** Puts the cursor in the box as it shows. */
   autoFocus?: boolean;
+  /** The box is the side conversation's whatever shows: it's in the side conversation's own
+   *  window (`SideReply`). */
+  onlyAside?: boolean;
   /** The session waits on you (Approval above says for what): what you write waits too. */
   waiting?: boolean;
   /** As a message goes on its way: the box is clear and the thread shows it. */
@@ -203,9 +209,11 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent, onFailed, onNext, onAllow, onDeny, onDenySaying }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, onAllow, onDeny, onDenySaying }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
-  const aside = useAside(s.key);
+  const aside = useAside(s.key) || onlyAside;
+  // Out in a window of its own, where what's asked of it here shows.
+  const popped = usePopped(s.key) && !onlyAside;
   // The box holds the draft for where it sends: the session's, or its side conversation's, kept
   // apart so what's typed for one never goes to the other.
   const draft = aside ? sideDraft(s.key) : s.key;
@@ -432,6 +440,10 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     const key = s.key;
     setNote(null);
     setText('');
+    // Out in a window of its own, that comes forward to show it, leaving the keyboard here. It's
+    // up already: only a window gone meanwhile fails, and the next `side-windows` puts it back
+    // above this box.
+    if (popped) void sideWindow(key, false).catch(() => {});
     if (!question) {
       showSides(key, { kind: 'list' });
       return;
@@ -542,7 +554,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
           : skill
           ? `/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`
-          : (note?.text ?? (stopping ? 'Stopping…' : aside ? `To the side conversation, not ${s.account}. Close it above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying, !empty)));
+          : (note?.text ?? (stopping ? 'Stopping…' : onlyAside ? SESSION_SIDES.open : aside ? `To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying, !empty)));
   return (
     <div className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
@@ -1051,6 +1063,18 @@ export interface ReplyProps {
   /** Going on to the next session that waits on you: ⌘⏎ in the box sends, or allows the call this
    *  one waits on, then goes on, saying what was done. */
   onNext?: (done: string) => void;
+}
+
+/** A session's side conversation in a window of its own (kept.rs `pop_side`, Peek.tsx): the
+ *  conversation, filling the window, and the box that asks it, which is the side conversation's
+ *  whatever shows. */
+export function SideReply({ session, terminal, inWindow }: { session: Session; terminal: string; inWindow: SideWindowCan }) {
+  return (
+    <>
+      <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} inWindow={inWindow} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus onlyAside />
+    </>
+  );
 }
 
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation

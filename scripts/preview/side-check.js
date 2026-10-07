@@ -121,7 +121,7 @@
       tell({ turns: [{ question: 'why a queue?', answer: 'Because.', done: true }, { question: 'and without one?', answer: '', done: true, error: 'The copy stopped: usage limit reached' }, { question: 'and with a queue of one?', answer: 'The same.', done: true }], running: false, ended: false });
       await wait(50);
 
-      var headButton = function (label) { return Array.prototype.filter.call(strip().querySelectorAll('.ca-sidestrip-head button'), function (b) { return b.textContent.trim() === label; })[0]; };
+      var headButton = function (label) { return Array.prototype.filter.call(strip().querySelectorAll('.ca-sidestrip-head button'), function (b) { return b.getAttribute('aria-label') === label; })[0]; };
       check('with none from before, no way to them shows', !headButton('Earlier'));
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);

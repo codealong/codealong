@@ -6,8 +6,9 @@
 #
 #   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, notch for the
 #            bar docked in the notch, peek for the bar's peek, kept for a session kept on the
-#            desktop (the peek's session, in a window of its size), quick for the quick panel,
-#            waiting for the window that works through what waits on you, desktop for a card
+#            desktop (the peek's session, in a window of its size), side for the peek's
+#            session's side conversation popped out into a window of its own, quick for the
+#            quick panel, waiting for the window that works through what waits on you, desktop for a card
 #            pinned to the desktop, or lineage for the lines between desktop cards over
 #            stand-ins for them (default worktrees)
 #   project  the project to show (default: the first one)
@@ -41,8 +42,8 @@
 # PREVIEW_SIZE sets the window size (default 1440,900). The bar renders on a stand-in desktop
 # of that size (default 1100,64, which is also the screen width it fits itself to), and so does
 # the quick panel (default 760,640: its window's width). The panel opens as the shortcut opens
-# it, with nothing typed; PREVIEW_INIT can type or click from there. The peek (default 520,640)
-# and the waiting window (default 820,760, an ordinary window, so on no desktop) open on
+# it, with nothing typed; PREVIEW_INIT can type or click from there. The peek (default 520,640),
+# a side conversation's window (520,640) and the waiting window (default 820,760, an ordinary window, so on no desktop) open on
 # PREVIEW_TRANSCRIPT's session when there is one, else on the first that needs you.
 # A desktop card (default 360,300) shows PREVIEW_PIN: `session`, `worktree`, `todo` or `pr` for the
 # latest session, the latest worktree with sessions, the first todo or a PR with sessions, or `<ref>:<key>` for one.
@@ -228,6 +229,11 @@ fi
 if [ "$view" = kept ]; then
   size="${PREVIEW_SIZE:-640,720}"
   setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_KEPT__=true;"
+  on_desktop is-peek
+fi
+if [ "$view" = side ]; then
+  size="${PREVIEW_SIZE:-520,640}"
+  setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_KEPT__=true; window.__CODEALONG_SIDE__=true;"
   on_desktop is-peek
 fi
 tail=""

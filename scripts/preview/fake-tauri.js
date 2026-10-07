@@ -476,6 +476,18 @@ window.__TAURI_INTERNALS__ = {
       window.__past = (window.__past || []).filter(function (k) { return k.id !== (args || {}).id; });
       return Promise.resolve(null);
     }
+    // A side conversation popped out into a window of its own: no window opens in the preview,
+    // but every window hears it's out, as the engine tells them (`side-windows`). A check can set
+    // `window.__sideWindows` for a window that opens with one out.
+    if (cmd === 'side_windows') return Promise.resolve((window.__sideWindows || []).slice());
+    if (cmd === 'side_window') {
+      var outs = window.__sideWindows || [];
+      if (outs.indexOf(args.key) < 0) {
+        window.__sideWindows = outs.concat([args.key]);
+        setTimeout(function () { window.__emit('side-windows', window.__sideWindows.slice()); }, 0);
+      }
+      return Promise.resolve(null);
+    }
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     if (cmd === 'resume_session') return Promise.resolve({ message: 'Resumed (in the preview nothing starts anywhere).', opened: false });
     if (cmd === 'switch_session_model') return Promise.resolve('Switched its model (in the preview nothing is typed anywhere).');

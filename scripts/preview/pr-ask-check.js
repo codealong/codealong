@@ -100,7 +100,7 @@
       return until(function () { return on() === 'Ask' && !!strip(); }, 3000, 'Ask');
     })
     .then(function () {
-      var close = all('.ca-sidestrip-head .ca-linkbtn').filter(function (b) { return b.textContent === 'Close'; })[0];
+      var close = all('.ca-sidestrip-head button').filter(function (b) { return b.getAttribute('aria-label') === 'Close'; })[0];
       close.click();
       return until(function () { return sent('pr_side_close').length === 1 && !strip() && !!chip(); }, 3000, 'closed');
     })

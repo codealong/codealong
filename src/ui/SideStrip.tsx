@@ -4,17 +4,26 @@
 // what the copy did to answer, so `/side` alone (or Earlier, beside an open one) lists the ones
 // from before, and picking one shows it to read, or to delete. None of it reaches the session.
 // The session's header says how many it has (`SidesChip`), which is the way to them that shows.
+// What can be done with them is a row of icons at the strip's top right, each saying what it does
+// on hover.
+//
+// A session's pops out (`SideWords.window`) into a window of its own (kept.rs `pop_side`, drawn
+// by Peek.tsx), where the strip is the window: the same views, filling it, over a box that only
+// ever asks the side conversation. Meanwhile it's left out above the session's boxes, which go
+// back to the session. Put back closes the window and it shows above the box again; Close ends
+// it there, as here, and closes the window too.
 //
 // A PR's questions (PrCard.tsx, its box's Ask) are the same strip over the same store, by the
 // PR's key: what differs is what it says of them (`SideWords`) and how one is closed.
 
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { prSideClose, sideClose } from '../api';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { prSideClose, sideClose, sideWindow } from '../api';
 import { agoPhrase } from '../format';
-import { forgetSide, keptLine, keptSummary, noteSide, showSides, takesBox, turnState, useKept, useSide, useSideView } from '../side';
+import { errorText } from '../report';
+import { endSide, forgetSide, keptLine, keptSummary, showSides, takesBox, turnState, useKept, usePopped, useSide, useSideView } from '../side';
 import type { PrItem, Session, SideTurn } from '../types';
 import { Markdown } from './Markdown';
-import { Icon, Rich } from './primitives';
+import { Button, cx, Icon, Rich } from './primitives';
 
 /** What a strip says of its conversations, which are about a session or a PR, and how it ends
  *  the open one. */
@@ -36,6 +45,9 @@ export interface SideWords {
   /** Close's tooltip, on an open one. */
   closeTitle: string;
   close: (key: string) => Promise<void>;
+  /** Where they pop out into a window of their own: how, and what the window says with nothing
+   *  open. */
+  window?: { pop: (key: string) => Promise<void>; empty: string };
 }
 
 export const SESSION_SIDES: SideWords = {
@@ -47,8 +59,9 @@ export const SESSION_SIDES: SideWords = {
   listAbout: 'Kept by Codealong. The session never saw them.',
   none: 'None with this session yet. /side, then a question, starts one.',
   closed: 'closed. A new question starts a new copy, which knows none of this.',
-  closeTitle: 'Ends its copy. What was said is kept: /side shows the earlier ones.',
+  closeTitle: 'Close: ends its copy. What was said is kept: /side shows the earlier ones.',
   close: sideClose,
+  window: { pop: (key) => sideWindow(key, true), empty: 'Nothing open on the side. Ask below, and a throwaway copy of the conversation answers. The session never sees it.' },
 };
 
 /** What a PR's strip says, its conversations answered by `account`'s agent. */
@@ -62,21 +75,39 @@ export function prSides(pr: Pick<PrItem, 'number'>, account: string | null): Sid
     listAbout: 'Kept by Codealong. GitHub never saw them.',
     none: 'None about this PR yet. Ask, and an agent reads it to answer.',
     closed: 'closed. A new question starts a new conversation, which knows none of this.',
-    closeTitle: 'Ends it. What was said is kept: Earlier lists it.',
+    closeTitle: 'Close: ends it. What was said is kept: Earlier lists it.',
     close: prSideClose,
   };
 }
 
+/** The strip as a side conversation's own window (kept.rs `pop_side`): what it's about, there
+ *  being no session beside it, and what its window does. */
+export interface SideWindowCan {
+  /** The session's title. */
+  about: string;
+  /** Closes the window: the side conversation shows above the session's box again. */
+  putBack: () => void;
+  /** Closes the window and ends the open side conversation, as Close does above a box. */
+  close: () => void;
+}
+
 /** The strip's top line: what this is, a few words about it, and what can be done with it. */
-function Head({ title, about, children }: { title: string; about: string; children: ReactNode }) {
+function Head({ title, about, aboutTitle, children }: { title: string; about: string; aboutTitle?: string; children: ReactNode }) {
   return (
     <header className="ca-sidestrip-head">
       <Icon name="help" size={14} />
       <span className="ca-sidestrip-title">{title}</span>
-      <span className="ca-sidestrip-about">{about}</span>
-      {children}
+      <span className="ca-sidestrip-about" title={aboutTitle ?? about}>
+        {about}
+      </span>
+      <span className="ca-sidestrip-acts">{children}</span>
     </header>
   );
+}
+
+/** One of the strip's actions: an icon, its words on hover. */
+function Act({ icon, label, title, onClick }: { icon: string; label: string; title?: string; onClick: () => void }) {
+  return <Button variant="ghost" size="sm" icon={icon} aria-label={label} title={title ?? label} onClick={onClick} />;
 }
 
 /** Questions and their answers. `current` is the turn the copy is on, in an open one. */
@@ -119,10 +150,15 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
   );
 }
 
-/** The side conversations of `sideKey`: a session's, or a PR's. */
-export function SideStrip({ sideKey: key, words }: { sideKey: string; words: SideWords }) {
+/** The side conversations of `sideKey`: a session's, or a PR's. Above a box, or with `inWindow`
+ *  the whole of a window of their own. */
+export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; words: SideWords; inWindow?: SideWindowCan }) {
   const side = useSide(key);
   const shown = useSideView(key);
+  // Out in a window of its own, it isn't above the box as well.
+  const popped = usePopped(key);
+  // Why it didn't pop out.
+  const [failed, setFailed] = useState<string | null>(null);
   // A question starting a copy shows the open one, as nothing else does, once there is one.
   const starting = shown?.kind === 'starting';
   const view = starting ? null : shown;
@@ -136,128 +172,155 @@ export function SideStrip({ sideKey: key, words }: { sideKey: string; words: Sid
     const el = scroller.current;
     if (el && atEnd.current && !view) el.scrollTop = el.scrollHeight;
   }, [side, view]);
+  if (popped && !inWindow) return null;
+
   const now = Date.now();
   const many = (n: number, one: string) => (n === 1 ? `1 ${one}` : `${n} ${one}s`);
-  const hide = (
-    <button type="button" className="ca-linkbtn" onClick={() => showSides(key, null)}>
-      Close
-    </button>
+  const pop = words.window;
+  /** Out into a window of its own, or back above the box from one. */
+  const place = inWindow ? (
+    <Act icon="picture-in-picture-off" label="Put back" title="Put back above the session’s box: this window closes, and the conversation goes on there" onClick={inWindow.putBack} />
+  ) : pop ? (
+    <Act
+      icon="picture-in-picture-on"
+      label="Pop out"
+      title="Pop out into a window of its own. The box here goes back to the session."
+      onClick={() => {
+        setFailed(null);
+        pop.pop(key).catch((e: unknown) => setFailed(errorText(e)));
+      }}
+    />
+  ) : null;
+  /** A window's ×, where nothing's open to end. */
+  const closeWindow = inWindow && <Act icon="x" label="Close" title="Close this window" onClick={inWindow.close} />;
+  /** Away from the list or one being read: back to the open one, if there is one. Above a box
+   *  that's out of sight; in a window it's back to what the window shows, and × closes it. */
+  const hide = inWindow ? (
+    <>
+      <Act icon="chevron-left" label="Back" title={side ? 'Back to the open one' : 'Back'} onClick={() => showSides(key, null)} />
+      {place}
+      {closeWindow}
+    </>
+  ) : (
+    <>
+      {place}
+      <Act icon="x" label="Close" onClick={() => showSides(key, null)} />
+    </>
+  );
+  const about = (said: string) => (inWindow ? { about: inWindow.about, aboutTitle: `${inWindow.about}: ${said}` } : { about: said });
+  const section = (label: string, head: ReactNode, body: ReactNode, scrolls?: boolean) => (
+    <section className={cx('ca-sidestrip', inWindow && 'is-window')} aria-label={label}>
+      {head}
+      {failed && <div className="ca-sidestrip-error">{failed}</div>}
+      <div
+        className="ca-sidestrip-turns"
+        ref={scrolls ? scroller : undefined}
+        onScroll={
+          scrolls
+            ? (e) => {
+                const el = e.currentTarget;
+                atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+              }
+            : undefined
+        }
+      >
+        {body}
+      </div>
+    </section>
   );
 
   if (reading) {
-    return (
-      <section className="ca-sidestrip" aria-label="Side conversation">
-        <Head title={words.title} about={`${agoPhrase(reading.lastAt, now)} · ${words.closed}`}>
-          <button type="button" className="ca-linkbtn" onClick={() => showSides(key, { kind: 'list' })}>
-            Earlier
-          </button>
-          <button
-            type="button"
-            className="ca-linkbtn"
-            title="Forget this side conversation"
-            onClick={() => {
-              // Back to the others, or away with none left.
-              showSides(key, earlier.length > 1 ? { kind: 'list' } : null);
-              forgetSide(key, reading.id);
-            }}
-          >
-            Delete
-          </button>
-          {hide}
-        </Head>
-        <div className="ca-sidestrip-turns">
-          <Turns turns={reading.turns} current={-1} />
-        </div>
-      </section>
+    return section(
+      'Side conversation',
+      <Head title={words.title} {...about(`${agoPhrase(reading.lastAt, now)} · ${words.closed}`)}>
+        <Act icon="history" label="Earlier" title="The others from before" onClick={() => showSides(key, { kind: 'list' })} />
+        <Act
+          icon="trash"
+          label="Delete"
+          title="Forget this side conversation"
+          onClick={() => {
+            // Back to the others, or away with none left.
+            showSides(key, earlier.length > 1 ? { kind: 'list' } : null);
+            forgetSide(key, reading.id);
+          }}
+        />
+        {hide}
+      </Head>,
+      <Turns turns={reading.turns} current={-1} />,
     );
   }
 
   if (view) {
-    return (
-      <section className="ca-sidestrip" aria-label="Side conversations">
-        <Head title={words.listTitle} about={words.listAbout}>
-          {hide}
-        </Head>
-        <div className="ca-sidestrip-turns">
-          {earlier.length === 0 && <div className="ca-sidestrip-doing">{side ? 'None before the one that’s open.' : words.none}</div>}
-          {earlier.map((k) => (
-            <button key={k.id} type="button" className="ca-sidestrip-kept" onClick={() => showSides(key, { kind: 'past', id: k.id })}>
-              <span className="ca-sidestrip-kept-q">{keptLine(k)}</span>
-              <span className="ca-sidestrip-kept-when">
-                {agoPhrase(k.lastAt, now)} · {many(k.turns.length, 'question')}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
+    return section(
+      'Side conversations',
+      <Head title={words.listTitle} {...about(words.listAbout)}>
+        {hide}
+      </Head>,
+      <>
+        {earlier.length === 0 && <div className="ca-sidestrip-doing">{side ? 'None before the one that’s open.' : words.none}</div>}
+        {earlier.map((k) => (
+          <button key={k.id} type="button" className="ca-sidestrip-kept" onClick={() => showSides(key, { kind: 'past', id: k.id })}>
+            <span className="ca-sidestrip-kept-q">{keptLine(k)}</span>
+            <span className="ca-sidestrip-kept-when">
+              {agoPhrase(k.lastAt, now)} · {many(k.turns.length, 'question')}
+            </span>
+          </button>
+        ))}
+      </>,
     );
   }
 
+  const earlierAct = earlier.length > 0 && <Act icon="history" label="Earlier" title={`${many(earlier.length, 'side conversation')} from before`} onClick={() => showSides(key, { kind: 'list' })} />;
+
   if (!side) {
-    if (!starting || !takesBox(shown, now)) return null;
-    // Asked, and the engine is still starting its copy.
-    return (
-      <section className="ca-sidestrip" aria-label="Side conversation">
-        <Head title={words.title} about={words.open}>
-          {hide}
-        </Head>
-        <div className="ca-sidestrip-turns">
-          <div className="ca-sidestrip-doing" role="status">
-            {words.starting}
-          </div>
-        </div>
-      </section>
+    const asked = starting && takesBox(shown, now);
+    // Above a box there's nothing to show until a question's asked; a window of its own says
+    // so, over the box that asks one.
+    if (!asked && !inWindow) return null;
+    return section(
+      'Side conversation',
+      <Head title={words.title} {...about(words.open)}>
+        {asked ? (inWindow ? <>{place}{closeWindow}</> : hide) : <>{earlierAct}{closeWindow}</>}
+      </Head>,
+      <div className="ca-sidestrip-doing" role="status">
+        {asked ? words.starting : (pop?.empty ?? words.none)}
+      </div>,
     );
   }
-  const close = () => {
-    noteSide({ id: side.id, key, turns: [], running: false, ended: true });
-    // The strip lets it go either way. Closing one here can't fail (side.rs); only another device
-    // that doesn't answer can, and its copy goes on there whatever this window says.
-    void words.close(key).catch(() => {});
-  };
-  return (
-    <section className="ca-sidestrip" aria-label="Side conversation">
-      <Head title={words.title} about={side.ended ? words.ended : words.open}>
-        {earlier.length > 0 && (
-          <button type="button" className="ca-linkbtn" title={`${many(earlier.length, 'side conversation')} from before`} onClick={() => showSides(key, { kind: 'list' })}>
-            Earlier
-          </button>
-        )}
-        <button type="button" className="ca-linkbtn" title={words.closeTitle} onClick={close}>
-          Close
-        </button>
-      </Head>
-      <div
-        className="ca-sidestrip-turns"
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-        }}
-      >
-        <Turns turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />
-      </div>
-    </section>
+  return section(
+    'Side conversation',
+    <Head title={words.title} {...about(side.ended ? words.ended : words.open)}>
+      {earlierAct}
+      {place}
+      <Act icon="x" label="Close" title={inWindow ? `${words.closeTitle} The window closes too.` : words.closeTitle} onClick={inWindow ? inWindow.close : () => endSide(key, words.close)} />
+    </Head>,
+    <Turns turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />,
+    true,
   );
 }
 
 /** In a session's header: how many side conversations it has, kept or open. A click shows them
- *  above its box (the list, or the only one), and another puts them away. */
+ *  above its box (the list, or the only one), and another puts them away; with them out in a
+ *  window of their own, it brings that forward. */
 export function SidesChip({ session }: { session: Session }) {
   const key = session.key;
   const side = useSide(key);
   const view = useSideView(key);
+  const popped = usePopped(key);
   const summary = keptSummary(useKept(key), side);
   if (!summary) return null;
   const { words, show } = summary;
-  const showing = !!view && view.kind !== 'starting' && !!show;
+  const showing = popped || (!!view && view.kind !== 'starting' && !!show);
+  // Up already, so it can't fail but for a window that's gone meanwhile, which the next
+  // `side-windows` takes out of `popped`.
+  const raise = () => void sideWindow(key, true).catch(() => {});
   return (
     <button
       type="button"
       className="ca-sessinsp-sides"
       aria-pressed={showing}
-      title={show ? (showing ? 'Put them away' : `${words} with this session, kept by Codealong. Show ${show.kind === 'past' ? 'it' : 'them'} above the box.`) : `${words} with this session: the one that’s open above the box.`}
-      onClick={() => showSides(key, showing ? null : show)}
+      title={popped ? `${words} with this session, in a window of their own. Bring it forward.` : show ? (showing ? 'Put them away' : `${words} with this session, kept by Codealong. Show ${show.kind === 'past' ? 'it' : 'them'} above the box.`) : `${words} with this session: the one that’s open above the box.`}
+      onClick={() => (popped ? raise() : showSides(key, showing ? null : show))}
     >
       <Icon name="help" size={12} />
       <span>{words}</span>

@@ -18,23 +18,31 @@
 // the peek is let go (kept.rs), which this page draws too (`kept`). There it stays up whatever
 // you do: sending leaves it open, its header drags it, its edges size it, and its × (or ⌘W)
 // takes it off the desktop. It comes back at launch where it was left.
+//
+// A session's side conversation popped out (kept.rs `pop_side`) is a kept window too, which this
+// page draws (`side`) as the side conversation and the box that asks it (`SideReply`), dragged by
+// the strip's top line and sized by its edges as a kept session is. Its × and ⌘W end the side
+// conversation and close the window; Put back closes the window alone.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize } from '../api';
+import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sideClose } from '../api';
 import { renameAhead } from '../ahead';
 import { readDraft } from '../drafts';
 import { followBoard } from '../followBoard';
+import { useLatest } from '../latest';
+import { endSide } from '../side';
 import { homeOf } from '../lanes';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Board, Lane, PeekOpen, Session } from '../types';
 import { useKeyPerf } from '../perf';
 import { useCardHost, useLiveSession } from './cardHost';
 import { SessionCard, type WindowCan } from './SessionCard';
+import { SideReply } from './SessionReply';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText } from '../report';
-import { zoomFactor } from '../zoom';
+import { cardZoom, zoomFactor } from '../zoom';
 import { cx } from './primitives';
 
 /** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
@@ -72,7 +80,9 @@ async function previewOpen(): Promise<PeekOpen | null> {
   return { id: 1, lane, session, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, zoom: board.zoom, room: Math.round(580 * zoomFactor(board.zoom)) + FAR + NEAR, below: true, focus: false, rename: false };
 }
 
-export function Peek({ kept = false }: { kept?: boolean }) {
+/** The peek, or with `kept` a session kept on the desktop, or with `side` too a session's side
+ *  conversation in a window of its own. */
+export function Peek({ kept = false, side = false }: { kept?: boolean; side?: boolean }) {
   const [open, setOpen] = useState<PeekOpen | null>(null);
   // A kept session the board no longer has: there's only its window to close.
   const [gone, setGone] = useState(false);
@@ -225,9 +235,16 @@ export function Peek({ kept = false }: { kept?: boolean }) {
     return () => window.removeEventListener('keydown', keyed, true);
   }, [keyed]);
 
+  /** Ends a popped-out side conversation and closes its window, for its × and ⌘W. */
+  const closeSide = useLatest(() => {
+    if (key) endSide(key, sideClose);
+    void keptClose();
+  });
+
   // Escape closes it, and ⌘Q, ⌘H and ⌘W close it rather than going to Codealong: the menu bar is
   // the other app's. A kept session stays up for all of them but ⌘W, which takes it off the
-  // desktop. Typing with nothing focused goes to the box.
+  // desktop, and a side conversation's window for ⌘W, which ends it too. Typing with nothing
+  // focused goes to the box.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
@@ -239,7 +256,10 @@ export function Peek({ kept = false }: { kept?: boolean }) {
       if (e.metaKey && !e.ctrlKey && !e.altKey && ['q', 'h', 'w'].includes(e.key.toLowerCase())) {
         e.preventDefault();
         if (!kept) void peekHide();
-        else if (e.key.toLowerCase() === 'w') void keptClose();
+        else if (e.key.toLowerCase() === 'w') {
+          if (side) closeSide.current();
+          else void keptClose();
+        }
         return;
       }
       const el = document.activeElement;
@@ -249,7 +269,7 @@ export function Peek({ kept = false }: { kept?: boolean }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [kept]);
+  }, [kept, side, closeSide]);
 
   /** Puts the peek away. A session kept on the desktop stays where it is. */
   const away = () => {
@@ -299,7 +319,7 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   const moving = useRef<{ x: number; y: number } | null>(null);
   const startMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const on = e.target instanceof Element ? e.target : null;
-    moving.current = e.button === 0 && on?.closest('.ca-sessinsp-head') && !on.closest('button, a, input, [role="button"]') ? { x: e.screenX, y: e.screenY } : null;
+    moving.current = e.button === 0 && on?.closest('.ca-sessinsp-head, .ca-sidestrip-head') && !on.closest('button, a, input, [role="button"]') ? { x: e.screenX, y: e.screenY } : null;
   };
   const moveWindow = (e: ReactPointerEvent<HTMLDivElement>) => {
     const d = moving.current;
@@ -366,6 +386,28 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   // The card fills its window once the window has a size of its own: kept, or dragged to one.
   const filled = kept || sized;
   const grip = (edge: Edge) => <div className={`ca-peek-grip is-${edge}`} onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} />;
+  if (side) {
+    return (
+      <div className="ca-peek-root is-kept is-filled" style={{ padding: `${NEAR}px ${MARGIN}px ${FAR}px` }}>
+        <div
+          ref={card}
+          className="ca-peek"
+          onPointerDown={(e) => {
+            if (!engaged) void keptFocus();
+            startMove(e);
+          }}
+          onPointerMove={moveWindow}
+        >
+          <div className="ca-reply" style={cardZoom(zoom)}>
+            <SideReply session={session} terminal={open.terminal} inWindow={{ about: session.title, putBack: () => void keptClose(), close: () => closeSide.current() }} />
+          </div>
+        </div>
+        {grip('side')}
+        {grip('far')}
+        {grip('corner')}
+      </div>
+    );
+  }
   return (
     <div
       className={cx('ca-peek-root', !open.below && 'is-over', kept && 'is-kept', filled && 'is-filled')}
