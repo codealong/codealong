@@ -130,7 +130,15 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
             </div>
           ))}
           {view.devices.map((dev) => (
-            <DeviceCard key={dev.key} dev={dev} now={now} busy={busy !== null} onUnlink={() => void run('unlink', () => unlinkDevice(dev.key).then(() => `Unlinked ${dev.name}.`))} />
+            <DeviceCard
+              key={dev.key}
+              dev={dev}
+              now={now}
+              busy={busy !== null}
+              // The engine refuses a color it can't save, and says why here.
+              onColor={(color) => void run('color', () => setDeviceColor(dev.key, color).then(() => null))}
+              onUnlink={() => void run('unlink', () => unlinkDevice(dev.key).then(() => `Unlinked ${dev.name}.`))}
+            />
           ))}
           {view.phones.map((p) => (
             <PhoneCard key={p.key} dev={p} now={now} busy={busy !== null} remoteControl={me?.remoteControl ?? false} onUnlink={() => void run('unlink', () => unlinkDevice(p.key).then(() => `Unlinked ${p.name}.`))} />
@@ -213,7 +221,7 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
   );
 }
 
-function DeviceCard({ dev, now, busy, onUnlink }: { dev: DeviceView; now: number; busy: boolean; onUnlink: () => void }) {
+function DeviceCard({ dev, now, busy, onColor, onUnlink }: { dev: DeviceView; now: number; busy: boolean; onColor: (color: LabelColor) => void; onUnlink: () => void }) {
   const where = dev.online ? (dev.via === 'iroh' ? 'Connected through iroh' : 'Connected on your tailnet') : dev.lastSeen ? `Last seen ${agoPhrase(dev.lastSeen, now)}` : 'Not connected';
   return (
     <div className="ca-ucard ca-acct">
@@ -224,7 +232,7 @@ function DeviceCard({ dev, now, busy, onUnlink }: { dev: DeviceView; now: number
           className="ca-devcolor"
           title={`${COLOR_WORD[dev.color]}: the color of ${dev.name}'s badge. Click to change it.`}
           aria-label={`${dev.name}'s color, ${COLOR_WORD[dev.color]}`}
-          onClick={(e) => void showContextMenu(LABEL_COLORS.map((c: LabelColor) => ({ label: COLOR_WORD[c], checked: dev.color === c, run: () => void setDeviceColor(dev.key, c) })), below(e.currentTarget))}
+          onClick={(e) => void showContextMenu(LABEL_COLORS.map((c: LabelColor) => ({ label: COLOR_WORD[c], checked: dev.color === c, run: () => onColor(c) })), below(e.currentTarget))}
         >
           <i className={`ca-labeldot is-${dev.color}`} aria-hidden="true" />
         </button>
