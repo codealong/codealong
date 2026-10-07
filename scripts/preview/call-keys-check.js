@@ -1,9 +1,9 @@
 // Checks the keys for a call a session waits on, in the Sessions view's panel (SessionReply.tsx
 // `Approval`): one session waits on a call and nothing else waits. Allow and Deny say their keys;
-// ⌘⌫ in the box with words in it is the box's, and in an empty box denies and stays; ⌘⏎ allows,
-// and with nothing after it to go on to, stays; ⏎ with words in the box denies the call with them
-// as what to do instead, typing nothing at the prompt, and has them back in the box when that
-// doesn't go.
+// ⌘⌫ in the box with words in it is the box's, and in an empty box denies and stays; ⌘⏎ in an
+// empty box allows, and with nothing after it to go on to, stays; ⏎ with words in the box denies
+// the call with them as what to do instead, typing nothing at the prompt, as ⌘⏎ does then, and has
+// them back in the box when that doesn't go.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/call-keys-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -114,7 +114,7 @@
       return askAgain(2);
     })
     .then(function () {
-      check('the box says ⏎ denies it with what you wrote', /⏎ denies it and sends this instead/.test(note()), note());
+      check('the box says ⏎ denies it with what you write', /⏎ denies it and sends what you write instead/.test(note()), note());
       check('and its placeholder says so', /deny it, and tell .* what to do instead/.test(box().getAttribute('aria-placeholder')), box().getAttribute('aria-placeholder'));
       type(box(), 'Explain the change first');
       return wait(50);
@@ -132,9 +132,25 @@
       return askAgain(3);
     })
     .then(function () {
+      type(box(), 'Push to a branch instead');
+      return wait(50);
+    })
+    .then(function () {
+      check('with words in the box, it says ⏎ denies with them', /^⏎ denies it and sends this instead$/.test(note()), note());
+      key(box(), { key: 'Enter', metaKey: true });
+      return until(function () { return answers().length === 4; }, 3000).then(function () { return wait(200); });
+    })
+    .then(function () {
+      var a = answers()[3];
+      check('⌘⏎ with words denies it with them, not allows', a.key === picked.key && a.answer === 'deny' && a.message === 'Push to a branch instead', JSON.stringify(a));
+      check('and stays, with nothing else waiting', title() === 'Queue A', title());
+      check('nothing is typed at the prompt then either', sends().length === 0, JSON.stringify(sends()));
+      return askAgain(4);
+    })
+    .then(function () {
       type(box(), 'This one fails');
       key(box(), { key: 'Enter' });
-      return until(function () { return answers().length === 4 && box().value === 'This one fails'; }, 3000).then(function () { return wait(100); });
+      return until(function () { return answers().length === 5 && box().value === 'This one fails'; }, 3000).then(function () { return wait(100); });
     })
     .then(function () {
       check('what didn’t go is back in the box, with why', box().value === 'This one fails' && /stopped waiting/.test(note()), box().value + ' / ' + note());

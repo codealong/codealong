@@ -20,7 +20,8 @@
 // what you type is the answer.
 //
 // Where there's a next session waiting on you (the Sessions view's panel), ⌘⏎ sends and goes on to
-// it, or, while the session waits on a call that can be allowed here, allows it and goes on.
+// it. While the session waits on a call that can be answered here, ⌘⏎ answers it and goes on: with
+// words in the box it denies the call and sends them instead, as ⏎ does, and with none it allows it.
 //
 // The box is laid out as chat apps' are: the send button sits inside it, at its corner, and the
 // placeholder says how a message gets there (typed into its Ghostty tab, a message from
@@ -146,14 +147,14 @@ interface ComposerProps {
   onFailed?: (why: string) => void;
   /** ⌘⏎ sends, then goes on to the next session that waits on you, saying what was done. */
   onNext?: (done: string) => void;
-  /** ⌘⏎ allows the call the session waits on, then goes on where there's a next: with nothing
-   *  to send, or while what you write has to wait. */
+  /** ⌘⏎ with nothing written allows the call the session waits on, then goes on where there's a
+   *  next. */
   onAllow?: () => void;
   /** ⌘⌫ in an empty box denies it, and stays: what to do instead goes in the box. */
   onDeny?: () => void;
-  /** Sending while it waits denies the call and tells it what you wrote instead. Resolves with
-   *  why it didn't go, or null once it did. */
-  onDenySaying?: (words: string) => Promise<string | null>;
+  /** Sending while it waits denies the call and tells it what you wrote instead, then with `next`
+   *  goes on as ⌘⏎ does. Resolves with why it didn't go, or null once it did. */
+  onDenySaying?: (words: string, next: boolean) => Promise<string | null>;
 }
 
 type Note = { text: string; error: boolean };
@@ -355,12 +356,12 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   const skills = sessionSkills(useSkills(skillFolders, skillAccounts, slash), s.harness);
 
   /** Sends what's in the box, into the turn it's taking at once with `now`; says whether there was
-   *  anything to send. */
-  const send = (now = false): boolean => {
+   *  anything to send. A deny it sends goes on to the next with `next` once it's in. */
+  const send = (now = false, next = false): boolean => {
     // A skill's name goes as the session's harness takes it.
     const t = writtenFor(text.trim(), skills, s.harness);
     if (!t) return false;
-    if (waiting) return denySaying(t);
+    if (waiting) return denySaying(t, next);
     setNote(null);
     setText('');
     // What happens next is told to whichever box is showing then: this one may be gone by then
@@ -383,13 +384,13 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
 
   /** While it waits on a call that can be answered here: denies it with `t` as what to do
    *  instead. The box clears at once, and has what you wrote back, with why, if it doesn't go. */
-  const denySaying = (t: string): boolean => {
+  const denySaying = (t: string, next: boolean): boolean => {
     if (!onDenySaying) return false;
     const key = s.key;
     const typed = text;
     setNote(null);
     setText('');
-    void onDenySaying(t).then((why) => {
+    void onDenySaying(t, next).then((why) => {
       if (why == null) return;
       writeDraft(key, [typed, readDraft(key)].filter((x) => x.trim()).join('\n\n'));
       if (!land(key, { text: why, error: true })) onFailed?.(why);
@@ -541,7 +542,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
           : skill
           ? `/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`
-          : (note?.text ?? (stopping ? 'Stopping…' : aside ? `To the side conversation, not ${s.account}. Close it above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying)));
+          : (note?.text ?? (stopping ? 'Stopping…' : aside ? `To the side conversation, not ${s.account}. Close it above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying, !empty)));
   return (
     <div className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
@@ -619,7 +620,14 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
               send(true);
               return;
             }
-            if (e.metaKey && onAllow && (waiting || !text.trim())) {
+            // While it waits on a call answered here, ⌘⏎ answers it and goes on: what you wrote
+            // denies it and is sent instead, as with ⏎, and an empty box allows it.
+            if (e.metaKey && waiting && onDenySaying && text.trim()) {
+              e.preventDefault();
+              send(false, true);
+              return;
+            }
+            if (e.metaKey && onAllow && !text.trim()) {
               e.preventDefault();
               onAllow();
               return;
@@ -672,8 +680,9 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
  *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape stops a
  *  turn while it can. */
-function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denySaying = false): string {
-  if (waiting && denySaying) return `⌘⏎ allow${next ? ' + next' : ''} · ⏎ denies it and sends this instead`;
+function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denySaying = false, written = false): string {
+  if (waiting && denySaying && written) return `⏎ denies it and sends this instead${next ? ' · ⌘⏎ + next' : ''}`;
+  if (waiting && denySaying) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · ⏎ denies it and sends what you write instead` : '⏎ denies it and sends what you write instead';
   if (waiting) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · send this once it isn’t waiting on you` : 'Send this once it isn’t waiting on you';
   return [next && '⌘⏎ send + next', sendNow && '⌃⏎ send now, into the turn it’s taking'].filter(Boolean).join(' · ');
 }
@@ -698,8 +707,9 @@ interface CallKeys {
   /** None for a call that can't be allowed just this once (`Pending.noOnce`). */
   allow?: () => void;
   deny: () => void;
-  /** Denies it, telling it `words` instead: why that didn't go, or null once it did. */
-  denySaying: (words: string) => Promise<string | null>;
+  /** Denies it, telling it `words` instead, then with `next` goes on as an allow does: why that
+   *  didn't go, or null once it did. */
+  denySaying: (words: string, next: boolean) => Promise<string | null>;
 }
 
 /** Whether a key press is someone editing words, which ⌘⌫ deletes there. */
@@ -776,7 +786,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   }, [keys, answerable, allowable]);
   useEffect(() => {
     if (!onKeys) return;
-    onKeys(answerable ? { allow: allowable ? () => void allowRef.current('allow', andNext) : undefined, deny: () => void allowRef.current('deny'), denySaying: (words) => allowRef.current('deny', undefined, undefined, words) } : null);
+    onKeys(answerable ? { allow: allowable ? () => void allowRef.current('allow', andNext) : undefined, deny: () => void allowRef.current('deny'), denySaying: (words, next) => allowRef.current('deny', next ? andNext : undefined, undefined, words) } : null);
     return () => onKeys(null);
   }, [onKeys, answerable, allowable]);
 
