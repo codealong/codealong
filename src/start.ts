@@ -17,6 +17,13 @@ export function startOptionsFailed(e: unknown): Notice {
   return failedNotice(START_OPTIONS_NOTICE, 'Can’t read where sessions start', 'Couldn’t read where each account can start a session, so the last answer read stands', e);
 }
 
+/** The notice while where a start opened can't be saved as its accounts' `start`
+ *  (`keepPlaceFor`), which ends once one is saved. */
+export const KEEP_PLACE_NOTICE = 'keep-start-place';
+export function keepPlaceFailed(e: unknown): Notice {
+  return failedNotice(KEEP_PLACE_NOTICE, 'Can’t save where sessions start', 'Couldn’t save where the quick panel started a session as its account’s start in config.toml', e);
+}
+
 /** An account's name, or `auto` for Auto. */
 export type Choice = string;
 
@@ -267,6 +274,21 @@ export function autoModel(defaultModel: string | null, u: Usage | undefined): { 
 export function settledPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null): StartPlace | null {
   const name = accountFor(choice, pick);
   return accounts.find((a) => a.name === name)?.chosen ?? null;
+}
+
+/** The accounts a start in `place` keeps it for as their `start` (start.rs `keep_place`): the
+ *  account chosen, or for Auto every account it picks among that can start there, so whichever
+ *  it picks next, and `codealong start` on auto, opens there too. */
+export function keepPlaceFor(choice: Choice | null, accounts: StartAccount[], place: StartPlace): string[] {
+  if (!choice) return [];
+  const names = isAuto(choice) ? preferredNames(accounts) : [choice];
+  return names.filter((n) => accounts.find((a) => a.name === n)?.places.some((p) => p.place === place));
+}
+
+/** `o` with `place` as the `start` of the accounts named, as reading them again would have it
+ *  once `keepPlaceFor`'s are saved. */
+export function withChosen(o: StartOptions, names: string[], place: StartPlace): StartOptions {
+  return { ...o, accounts: o.accounts.map((a) => (names.includes(a.name) ? { ...a, chosen: place } : a)) };
 }
 
 /** Where a choice opens at first: where its account's settings say, else where it last opened,

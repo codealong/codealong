@@ -36,12 +36,14 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   const chosen = startChoice(accounts, models, efforts, usage, pick, agents, first, { agent, effort, place, newWorktree }, (c) => remembered().places?.[c]);
   const { choice, chosenModel } = chosen;
 
-  /** Picks a line of the agent menu. A model is asked for on the command line; an app picks its own. */
+  /** Picks a line of the agent menu. A model is asked for on the command line or of Codealong's
+   *  adapter, so a place picked that takes one stays; else it opens where the account's settings
+   *  say, among the places that take one (`startChoice`), Background too. */
   const pickAgent = (id: string) => {
     const { choice: c, model } = parseAgent(id);
     setAgent(id);
-    if (model) setPlace('terminal');
-    else setPlace(c ? (settledPlace(c, accounts, pick) ?? remembered().places?.[c] ?? null) : null);
+    const settled = c ? (settledPlace(c, accounts, pick) ?? remembered().places?.[c] ?? null) : null;
+    setPlace((p) => (model && p && placeTakesModel(p) ? p : settled));
   };
 
   /** Picks where it opens. The apps choose their model: an account on a model becomes the account

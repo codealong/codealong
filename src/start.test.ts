@@ -16,6 +16,7 @@ import {
   effortNote,
   initialChoice,
   initialPlace,
+  keepPlaceFor,
   modelFamily,
   modelMeter,
   modelName,
@@ -41,6 +42,7 @@ import {
   startWhereWords,
   takesModel,
   withLists,
+  withChosen,
   type AutoPick,
   type StartPicks,
   type StartPlan,
@@ -194,6 +196,20 @@ describe('the sheet opens with', () => {
     // Auto goes where the account it picks names.
     expect(settledPlace(AUTO, set, p)).toBeNull();
     expect(settledPlace(AUTO, set, { ...p, account: 'claude' })).toBe('terminal');
+  });
+
+  it('the place a start there last opened in, kept as the start of its accounts that can go there', () => {
+    expect(keepPlaceFor('claude', ACCOUNTS, 'claude-app')).toEqual(['claude']);
+    expect(keepPlaceFor('claude2', ACCOUNTS, 'claude-app')).toEqual([]);
+    // Auto's for every account it picks among, so whichever it picks next opens there too.
+    expect(keepPlaceFor(AUTO, ACCOUNTS, 'terminal')).toEqual(['claude', 'claude2']);
+    expect(keepPlaceFor(AUTO, ACCOUNTS, 'claude-app')).toEqual(['claude']);
+    expect(keepPlaceFor(AUTO, star('codex'), 'codex-app')).toEqual(['codex']);
+    expect(keepPlaceFor(null, ACCOUNTS, 'terminal')).toEqual([]);
+    // And in the panel's copy, so the next open goes there before it reads them again.
+    const kept = withChosen({ accounts: ACCOUNTS, codexProjects: [], claudeModels: [] }, ['claude', 'claude2'], 'terminal');
+    expect(kept.accounts.map((a) => a.chosen)).toEqual(['terminal', 'terminal', null]);
+    expect(settledPlace(AUTO, kept.accounts, p)).toBe('terminal');
   });
 });
 

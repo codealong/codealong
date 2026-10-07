@@ -545,7 +545,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's
   main checkout; pinned ones first), the account and model in one menu (⌘L, every account on
   every model it can start on, with its limits, and the effort under them: Default, Low,
-  Medium, High, Extra or Max, ← → to change it), and where it runs. With other Macs linked,
+  Medium, High, Extra or Max, ← → to change it), and where it runs. Where a start on this Mac
+  runs becomes the account's `start` in config.toml (with Auto, of every account Auto picks
+  among), so the next start opens there, and so does `codealong start` without `--in`; the
+  places keep their order whichever it is. With other Macs linked,
   ⌘D picks the Mac too: its worktrees and accounts are listed, and the session starts there
   (it needs remote control on over there). Your terminal (Ghostty, iTerm2 or Terminal) starts Claude Code
   on your prompt, on the account's default model or the one you picked (Fable, Opus, Sonnet,
@@ -902,7 +905,7 @@ name = "claude2"               # what the board shows
 harness = "claude"             # claude, codex, opencode or antigravity
 home = "~/.claude2"
 command = "claude2"            # used for `claude2 --resume <id>`
-start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong
+start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong; a start from the quick panel sets it
 # acp = "my-adapter --stdio"   # the Agent Client Protocol adapter Codealong runs its sessions through, in place of the installed one
 preferred = true               # Auto starts it over accounts without this while it has room
 

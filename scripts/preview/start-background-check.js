@@ -2,7 +2,8 @@
 // starts in the terminal offers it; for an agent with no background service of its own (Codex,
 // OpenCode, Antigravity) the start row says its terminal opens behind your windows, and for
 // Claude Code that it runs in the background, a terminal attached later; either way ⌘⏎ asks for
-// the background place.
+// the background place and keeps it as the account's start (`keep_start_place`), and picking a
+// model then leaves Background picked.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-background-check.js
 // It needs a Claude Code account and one of another agent in config.toml; a missing one is
 // noted and its steps are skipped.
@@ -49,9 +50,30 @@
       .then(function () {
         var spec = calls('start_from_quick').pop()[1].spec;
         check(account.name + ': ⌘⏎ starts it in the background', spec.account === account.name && spec.place === 'background', JSON.stringify({ account: spec.account, place: spec.place }));
+        return until(function () { return calls('keep_start_place').length > 0; }, 2000).catch(function () {});
+      })
+      .then(function () {
+        var kept = calls('keep_start_place').pop();
+        var asked = kept && kept[1];
+        check(account.name + ': the start keeps Background as its start in config.toml', !!asked && asked.place === 'background' && asked.accounts.join() === account.name, JSON.stringify(asked));
         // A start puts the panel away; the stub keeps the page, so open it afresh for the next.
         return wait(300);
       });
+  };
+
+  // Picks one of an account's models in the agent menu: a place that takes a model stays picked.
+  var modelKeepsBackground = function (account) {
+    key(window, { key: 'l', metaKey: true });
+    return until(function () { return all('.ca-picker-section').length > 0; }, 3000).then(function () {
+      var section = all('.ca-picker-section').find(function (s) { var n = q('.ca-quick-acct-name', s); return !!n && n.textContent === account.name; });
+      var model = section && all('.ca-picker-opt', section)[1];
+      if (!model) return note(account.name + ' lists no models: the model step skipped');
+      model.click();
+      return wait(300).then(function () {
+        var b = placeButton('Background');
+        check(account.name + ': picking a model keeps Background', !!b && b.classList.contains('is-on'), all('.ca-quick-places button.is-on').map(function (x) { return x.textContent; }).join(', '));
+      });
+    });
   };
 
   localStorage.setItem('codealong.quick.project', 'All projects');
@@ -76,7 +98,7 @@
     .then(function () {
       var claude = listed.find(function (a) { return a.harness === 'claude' && a.places.some(function (p) { return p.place === 'background'; }); });
       if (!claude) return note('no Claude Code account here: its steps skipped');
-      return tryAccount(claude, 'in the background. Attach a terminal any time.');
+      return tryAccount(claude, 'in the background. Attach a terminal any time.').then(function () { return modelKeepsBackground(claude); });
     })
     .then(done)
     .catch(stopped);

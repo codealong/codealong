@@ -583,6 +583,23 @@ pub fn save_accounts(accounts: &[AccountCfg]) -> Result<()> {
     update(|text| Ok((with_accounts(text, accounts)?, ())))
 }
 
+/// Sets `start` on the named accounts in config.toml and keeps everything else as written: a
+/// start from the quick panel keeps its place there (`start::keep_place`).
+pub fn save_start(names: &[String], place: &str) -> Result<()> {
+    update(|text| Ok((with_start(text, names, place)?, ())))
+}
+
+/// `text` with `start` set on the named `[[accounts]]` tables; a comment after the value stays.
+pub fn with_start(text: &str, names: &[String], place: &str) -> Result<String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before saving where sessions start")?;
+    if let Some(tables) = doc.get_mut("accounts").and_then(toml_edit::Item::as_array_of_tables_mut) {
+        for t in tables.iter_mut().filter(|t| t.get("name").and_then(toml_edit::Item::as_str).is_some_and(|n| names.iter().any(|x| x == n))) {
+            set_value(&mut t["start"], toml_edit::Value::from(place));
+        }
+    }
+    Ok(doc.to_string())
+}
+
 /// `text` with its `[[accounts]]` tables replaced. The comment above the first one stays.
 pub fn with_accounts(text: &str, accounts: &[AccountCfg]) -> Result<String> {
     let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before saving accounts")?;
@@ -1118,7 +1135,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[limits]\n");
         s.push_str(&format!("when_hit = {}\n", q(cfg.limits.when_hit.as_str())));
     }
-    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\".\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
+    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
         s.push_str(&format!("name = {}\n", q(&a.name)));
@@ -1298,6 +1315,17 @@ mod tests {
         assert!(out.contains(&format!("{APPS_COMMENT}[apps]\neditor = \"zed\"\n")), "{out}");
         assert_eq!(toml::from_str::<Config>(&out).unwrap().apps.editor, "zed");
         assert!(with_editor("scan = [", "zed").is_err());
+    }
+
+    #[test]
+    fn a_start_from_the_quick_panel_sets_only_its_accounts_start() {
+        let text = "scan = [\"~/code\"]\n\n# Harness accounts.\n[[accounts]]\nname = \"claude\"\nharness = \"claude\"\nhome = \"~/.claude\"\nstart = \"terminal\" # for now\n\n[[accounts]]\nname = \"claude2\"\nharness = \"claude\"\nhome = \"~/.claude2\"\npreferred = true\n\n[[accounts]]\nname = \"codex\"\nharness = \"codex\"\nhome = \"~/.codex\"\n";
+        let out = with_start(text, &["claude".into(), "claude2".into()], "background").unwrap();
+        let want = text.replace("\"terminal\" # for now", "\"background\" # for now").replace("preferred = true\n", "preferred = true\nstart = \"background\"\n");
+        assert_eq!(out, want);
+        let starts: Vec<Option<String>> = toml::from_str::<Config>(&out).unwrap().accounts.into_iter().map(|a| a.start).collect();
+        assert_eq!(starts, vec![Some("background".into()), Some("background".into()), None]);
+        assert!(with_start("scan = [", &["claude".into()], "terminal").is_err());
     }
 
     #[test]

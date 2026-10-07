@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -343,6 +343,13 @@ export async function getAccounts(): Promise<AccountInfo[]> {
 export async function setPreferred(account: string, preferred: boolean): Promise<void> {
   if (!inTauri) throw new Error('Starring an account needs the app.');
   await invoke('set_preferred', { account, preferred });
+}
+
+/** Keeps where a start from the quick panel opened as `start` for its accounts in config.toml,
+ *  which `codealong start` goes by too (start.rs `keep_place`). */
+export async function keepStartPlace(accounts: string[], place: StartPlace): Promise<void> {
+  if (!inTauri) return;
+  await invoke('keep_start_place', { accounts, place });
 }
 
 export async function saveAccounts(accounts: AccountCfg[]): Promise<void> {

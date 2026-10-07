@@ -573,7 +573,7 @@ struct StartArgs {
     /// Start it in no project: in a new folder of its own among Codealong's chats, for a question that belongs to none of your repos. The board lists it under Chats.
     #[arg(long, conflicts_with_all = ["worktree", "new_worktree"])]
     chat: bool,
-    /// Where it runs. Without it, where the account's `start` setting says, else the terminal (the Codex app for Codex).
+    /// Where it runs. Without it, where the account's `start` setting says (a start from the quick panel sets it to where that one ran), else the terminal (the Codex app for Codex).
     #[arg(long = "in", value_enum)]
     place: Option<PlaceArg>,
     /// A model for a terminal or background start: fable, opus, sonnet, haiku, or a full name.

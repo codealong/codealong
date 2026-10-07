@@ -32,6 +32,7 @@ import {
   getDevices,
   hideQuick,
   inPreview,
+  keepStartPlace,
   onBoard,
   onDevices,
   onQuickHidden,
@@ -66,6 +67,9 @@ import {
   agentChipWords,
   autoOptionWords,
   isAuto,
+  keepPlaceFailed,
+  keepPlaceFor,
+  KEEP_PLACE_NOTICE,
   newWorktreeTitle,
   onModelWords,
   remember,
@@ -75,6 +79,7 @@ import {
   startOptionsFailed,
   startTitleWords,
   startWhereWords,
+  withChosen,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, leftOutWords, mentionAt, mentionsIn, namedBy, repoLanes, skillRows, skillStart, takes, writtenFor, type Mention, type SkillRow } from '../skills';
@@ -83,7 +88,7 @@ import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, su
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartSpec, TextFound } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { agentLine, EffortFoot, PlaceToggle } from './StartControls';
@@ -941,12 +946,29 @@ export function Quick() {
   // shows under the app's Recents.
   const newToCodex = placeNow === 'codex-app' && !prompted && !!lane && !!startOptionsNow && !startOptionsNow.codexProjects.includes(lane.path);
 
+  /** Keeps where a start on this Mac opened as its accounts' `start` in config.toml
+   *  (`keepPlaceFor`), so the next start opens there, from here or from `codealong start`; and in
+   *  the copy of where accounts can start, so the next open goes by it without reading again. */
+  const keepPlace = (names: string[], p: StartPlace) => {
+    if (names.length === 0) return;
+    keepStartPlace(names, p)
+      .then(() => {
+        clearNotice(KEEP_PLACE_NOTICE);
+        const cached = cachedOptions.current;
+        if (cached) cachedOptions.current = { ...cached, options: withChosen(cached.options, names, p) };
+        setOptions((o) => o && withChosen(o, names, p));
+      })
+      // The start went ahead; only where the next one opens wasn't saved, which the notice says.
+      .catch((e: unknown) => reportNotice(keepPlaceFailed(e)));
+  };
+
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean }) => {
     const where = over?.lane ?? lane;
     const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
+    if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
     // Each skill's name goes as the account's agent takes it: the repo's skills, wherever they are
     // in the prompt.
     const prompt = skillNow && harness && !over ? writtenFor(text, listedSkills?.folders.find((f) => f.folder === skillNow.lane.path)?.skills ?? [skillNow.skill], harness) : text;

@@ -95,14 +95,36 @@ pub fn resume_places(a: &AccountCfg, home: &Path) -> Vec<Place> {
     ordered_places(a, home).unwrap_or_default().into_iter().filter(|&p| adapter.resumes_in(p)).collect()
 }
 
+/// Where a start from the quick panel opened becomes `start` for `names`: the account it ran on,
+/// or for Auto the accounts Auto picks among. So the panel opens there next time, and
+/// `codealong start` without `--in` starts there too. An account that can't start there, or
+/// already does, is left as it is, and config.toml isn't written when none changes.
+pub fn keep_place(names: &[String], place: Place) -> Result<()> {
+    let changed = place_changes(&config::current()?.accounts, names, place, &home());
+    if changed.is_empty() {
+        return Ok(());
+    }
+    config::save_start(&changed, place.word())
+}
+
+/// The accounts among `names` whose `start` would become `place` (`keep_place`).
+pub fn place_changes(accounts: &[AccountCfg], names: &[String], place: Place, home: &Path) -> Vec<String> {
+    accounts
+        .iter()
+        .filter(|a| names.contains(&a.name) && a.start.as_deref().and_then(Place::from_word) != Some(place) && check_start(a, place.word(), home).is_ok())
+        .map(|a| a.name.clone())
+        .collect()
+}
+
 /// Where each account can start a session, as the sheet offers it. `default_model` reads an
-/// account's default model.
+/// account's default model. The places keep their order whatever the account's `start` says
+/// (`chosen` says that), so the quick panel's places hold still as a start there changes it.
 pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
     let accounts = accounts_in
         .iter()
         .map(|a| {
             let harness = harness_of(a);
-            let (places, unavailable) = match ordered_places(a, home) {
+            let (places, unavailable) = match places_of(a, home) {
                 Ok(ps) => (ps, None),
                 Err(why) => (Vec::new(), Some(why)),
             };
@@ -1204,12 +1226,24 @@ mod tests {
         let home = Path::new("/Users/me");
         let with = |name: &str, h: &str, dir: &str, start: &str| AccountCfg { start: Some(start.into()), ..account(name, h, dir, None) };
         let accounts = vec![with("claude", "claude", "/Users/me/.claude", "claude-app"), with("claude2", "claude", "/Users/me/.claude2", "background"), account("claude3", "claude", "/Users/me/.claude3", None)];
+        // The command and a resume go by the order; the quick panel lists the places as they
+        // come and goes by `chosen`, so they hold still as a start there changes `start`.
+        assert_eq!(ordered_places(&accounts[0], home).unwrap(), vec![Place::ClaudeApp, Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(ordered_places(&accounts[1], home).unwrap(), vec![Place::Background, Place::Terminal, Place::Codealong]);
         let o = options(&accounts, "Ghostty", vec![], home, |_| None);
-        assert_eq!(places(&o, "claude"), vec![Place::ClaudeApp, Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]);
         assert_eq!(o.accounts[0].chosen, Some(Place::ClaudeApp));
-        assert_eq!(places(&o, "claude2"), vec![Place::Background, Place::Terminal, Place::Codealong]);
+        assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(o.accounts[1].chosen, Some(Place::Background));
         assert_eq!(places(&o, "claude3"), vec![Place::Terminal, Place::Background, Place::Codealong]);
         assert_eq!(o.accounts[2].chosen, None);
+
+        // A start from the quick panel keeps its place for the accounts named that can start
+        // there and don't already.
+        let names = |ns: &[&str]| ns.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert_eq!(place_changes(&accounts, &names(&["claude", "claude2", "claude3"]), Place::Background, home), names(&["claude", "claude3"]));
+        assert_eq!(place_changes(&accounts, &names(&["claude2"]), Place::ClaudeApp, home), Vec::<String>::new());
+        assert_eq!(place_changes(&accounts, &names(&["claude3"]), Place::Terminal, home), names(&["claude3"]));
 
         assert!(check_start(&accounts[0], "claude-app", home).is_ok());
         let err = check_start(&accounts[1], "claude-app", home).unwrap_err();

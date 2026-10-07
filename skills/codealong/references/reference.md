@@ -1741,8 +1741,9 @@ Options:
           Chats
 
       --in <PLACE>
-          Where it runs. Without it, where the account's `start` setting says, else the
-          terminal (the Codex app for Codex)
+          Where it runs. Without it, where the account's `start` setting says (a start
+          from the quick panel sets it to where that one ran), else the terminal (the
+          Codex app for Codex)
 
           Possible values:
           - terminal
