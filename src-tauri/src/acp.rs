@@ -874,7 +874,7 @@ fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>), e: &anyhow::Erro
 }
 
 /// Runs a turn `begin` marked on a thread of its own, then the next queued prompt, until the
-/// queue is empty. Each prompt goes only while its turn's claim holds: a turn stopped first was
+/// queue is empty or a turn fails. Each prompt goes only while its turn's claim holds: a turn stopped first was
 /// ended by whoever stopped it, and one ended without it (its process stopped) may have been
 /// followed by another, so neither is touched here.
 fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
@@ -898,7 +898,16 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                     },
                     Err(e) => Some(format!("{e:#}")),
                 };
-                if h.queue.is_empty() || r.is_err() {
+                // What was sent while a turn that failed ran goes with it, and its error says so:
+                // it was written to follow that turn, and the windows showed it sent, so it isn't
+                // sent now as though nothing had happened, nor left to follow the next send.
+                if r.is_err() && !h.queue.is_empty() {
+                    h.queue.clear();
+                    if let Some(e) = h.error.as_mut() {
+                        e.push_str(" What was sent while it ran wasn't sent: send it again if it's still wanted.");
+                    }
+                }
+                if h.queue.is_empty() {
                     h.running = false;
                     h.turn = None;
                     h.since = now_ms();
@@ -1562,6 +1571,40 @@ mod tests {
         assert_eq!(send(&a, &key, "Again").unwrap(), "Sent.");
         wait_until("its turn to end", 10, || !state().sessions[&key].running);
         assert_eq!(said(&dir), ["session/resume", "session/prompt Again"]);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A turn that fails takes what was sent while it ran with it, and its error says so: none of
+    /// it goes, then or behind the next send.
+    #[test]
+    fn a_failed_turn_drops_its_queue_and_says_so() {
+        init(|_| {});
+        let dir = store::test_dir("acp-failed-turn");
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\),.*/\1/p'); case "$line" in"#,
+            // The first prompt fails a moment later, as an agent's overloaded API might.
+            r#"*'"text":"First"'*) sleep 1; echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"code\":-32603,\"message\":\"Overloaded.\"}}";;"#,
+            r#"*'"method":"session/prompt"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"stopReason\":\"end_turn\"}}";; esac; done"#,
+        ]
+        .join(" ");
+        let account = "test-adapter-failed-turn";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, ..Default::default() });
+        stand_in(account, &script, &dir);
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "claude", "home": "/h" })).unwrap();
+        assert_eq!(send(&a, &key, "First").unwrap(), "Sent.");
+        assert_eq!(send(&a, &key, "Second").unwrap(), "Queued: it goes after the current turn.");
+        wait_until("the turn to fail", 10, || !state().sessions[&key].running);
+        let h = state().sessions[&key].clone();
+        assert_eq!(h.error.as_deref(), Some("Overloaded. What was sent while it ran wasn't sent: send it again if it's still wanted."));
+        assert!(h.queue.is_empty());
+        assert_eq!(send(&a, &key, "Third").unwrap(), "Sent.");
+        wait_until("the next turn to end", 10, || !state().sessions[&key].running);
+        let prompts: Vec<String> = heard(&dir).iter().filter_map(|l| serde_json::from_str::<Value>(l).unwrap().pointer("/params/prompt/0/text").and_then(Value::as_str).map(String::from)).collect();
+        assert_eq!(prompts, ["First", "Third"]);
+        assert_eq!(state().sessions[&key].error, None);
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
