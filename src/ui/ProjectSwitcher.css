@@ -56,7 +56,7 @@
   border-radius: var(--radius-pill);
   background: var(--brand);
   color: var(--on-brand);
-  font: 600 11px/16px var(--font-mono);
+  font: 600 10px/16px var(--font-mono);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }

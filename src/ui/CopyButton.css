@@ -51,7 +51,7 @@
 /* Why a Run didn't: the terminal wasn't allowed, the folder is gone… */
 .ca-codeblock-note {
   margin: 4px 0 0;
-  font: 400 11px/15px var(--font-sans);
+  font: var(--type-caption);
   color: var(--alert);
   -webkit-user-select: text;
   user-select: text;

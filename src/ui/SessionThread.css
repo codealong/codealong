@@ -76,7 +76,7 @@
   background: var(--neutral-tint);
   box-shadow: var(--shadow-hud);
   color: var(--ink);
-  font: 400 12px/17px var(--font-sans);
+  font: var(--type-meta);
   text-align: left;
   cursor: pointer;
 }

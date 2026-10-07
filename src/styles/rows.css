@@ -28,7 +28,7 @@
 .ca-lane-line2 { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ca-lane-right { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex: none; }
 .ca-diff { font: var(--type-code-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 84px; text-align: right; }
-.ca-seg-age { justify-content: flex-start; align-items: flex-end; padding-top: 7px; font: 400 12px/18px var(--font-sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ca-seg-age { justify-content: flex-start; align-items: flex-end; padding-top: 7px; font: var(--type-meta); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 .ca-bayblock { margin-top: var(--space-2); }
 .ca-bay-lanes { border-top: 1px solid var(--line); }

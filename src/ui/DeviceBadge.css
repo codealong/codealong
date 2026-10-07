@@ -14,7 +14,7 @@
   border-radius: var(--chip-radius);
   background: var(--neutral-tint);
   color: var(--ink-2);
-  font: 500 10.5px/14px var(--font-sans);
+  font: var(--type-caption-strong);
   white-space: nowrap;
   vertical-align: 1px;
 }

@@ -28,7 +28,7 @@
 }
 .ca-dialog-head h2 {
   margin: 0;
-  font: 600 16px/22px var(--font-sans);
+  font: var(--type-heading-lg);
   color: var(--ink);
 }
 .ca-dialog-lede {

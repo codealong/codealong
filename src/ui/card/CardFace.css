@@ -63,7 +63,7 @@
   letter-spacing: 0.01em;
 }
 .ca-cv-num {
-  font: 500 12px/18px var(--font-mono);
+  font: var(--type-code-strong);
   color: var(--ink-3);
 }
 .ca-cv-headline {

@@ -344,7 +344,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-3);
-  font: 400 11px/16px var(--font-sans);
+  font: var(--type-caption);
   white-space: nowrap;
   cursor: default;
 }

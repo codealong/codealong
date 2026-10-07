@@ -82,7 +82,7 @@ html.is-quick body {
 .ca-quick-hotkey {
   flex: none;
   margin-top: 7px;
-  font: 500 11px/16px var(--font-sans);
+  font: var(--type-caption-strong);
   letter-spacing: 0.04em;
   color: var(--ink-3);
 }
@@ -134,7 +134,7 @@ html.is-quick body {
 .ca-quick-glabel .ca-quick-archived {
   gap: 5px;
   margin-left: auto;
-  font: 500 11px/16px var(--font-sans);
+  font: var(--type-caption-strong);
   letter-spacing: 0;
   text-transform: none;
   color: var(--ink-3);

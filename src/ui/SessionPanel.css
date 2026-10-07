@@ -58,7 +58,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink-3);
-  font: 400 11px/16px var(--font-sans);
+  font: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -101,7 +101,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-2);
-  font: 500 11px/16px var(--font-sans);
+  font: var(--type-caption-strong);
   white-space: nowrap;
   cursor: default;
 }
@@ -200,5 +200,5 @@
   padding: var(--space-3);
   border-top: 1px solid var(--line);
   color: var(--ink-3);
-  font: 400 12px/17px var(--font-sans);
+  font: var(--type-meta);
 }

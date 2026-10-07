@@ -50,7 +50,7 @@
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--neutral-tint);
-  font: 400 12px/17px var(--font-mono);
+  font: var(--type-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
