@@ -246,6 +246,7 @@
           item('(Pin|Unpin) session', chords.session.pin) + ', ' +
           '(' + snoozes + ')?' +
           '(' + item('(Close terminal|End background job)', chords.session.close) + ', )?' +
+          item('Mark as done', chords.session.done) + ', ' +
           item('Archive', chords.session.archive) +
           '$',
       );

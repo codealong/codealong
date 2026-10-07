@@ -13,7 +13,7 @@
 // goes on, ⌘] skips to it, and a strip above the header says how many more there are and how the
 // last one went. Where a session is worked from the keyboard (its panel in Sessions, the notch)
 // the strip is always there and has what's commonly done to a session as buttons that say their
-// keys: mark seen, snooze, close its terminal, archive, back and next (`Hotkeys`). The keys it
+// keys: mark seen, mark done, snooze, close its terminal, archive, back and next (`Hotkeys`). The keys it
 // says are read from where they're kept: a session's own from menus.ts `CHORDS` and snooze.ts
 // `SNOOZE_CHORDS`, the ones for getting about from queue.ts `QUEUE_CHORDS`. In Sessions, ⇧⌘F
 // expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
@@ -132,7 +132,7 @@ interface QueueStripProps {
   actions?: SessionActions;
   onSeen?: () => void;
   /** What's commonly done to the thing shown, as `Hotkey` buttons, where it isn't a session (a
-   *  PR waiting on your review, PrCard.tsx): in place of the session's four. */
+   *  PR waiting on your review, PrCard.tsx): in place of the session's five. */
   buttons?: ReactNode;
 }
 
@@ -161,6 +161,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const seen = session && seenable(session) ? (onSeen ?? actions?.seen?.run) : undefined;
   const snooze = actions?.snooze;
   const close = actions?.close;
+  const done = actions?.done;
   const archive = actions?.archive;
   const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
   const gap = <span className="ca-hotkeys-gap" aria-hidden="true" />;
@@ -174,9 +175,16 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
             title={!seen ? (next && queue?.waiting === false ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next` : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'}
             run={seen && (() => seen())}
           />
+          <Hotkey
+            label="Done"
+            keys={sign('done')}
+            title={done ? 'Mark as done: it closes where Codealong can close it, and is marked seen and archived' : session && shortOf(session.key) ? 'Mark it done on the Mac it runs on' : 'It’s archived already'}
+            run={done && (() => done.run())}
+          />
           {/* A menu that didn't pop up leaves nothing half done, and the snooze keys beside it still work. */}
           <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
-          <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close terminal'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
+          {/* Short, as Done beside it is: the notch's strip keeps to one line at its narrowest. */}
+          <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
           <Hotkey label={archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive'} keys={sign('archive')} title={archive?.label ?? 'Archive'} run={archive && (() => archive.run())} />
         </>
       )}

@@ -87,13 +87,20 @@ export const FOUND_SESSIONS = 6;
 export const FOUND_TODOS = 5;
 export const FOUND_PRS = 4;
 
+/** Which sessions a search looks through: those that aren't archived, archived ones too, or
+ *  only archived ones. */
+export type Archived = 'without' | 'with' | 'only';
+
 /** Every session once, listed under the worktree it runs in (not as a visitor elsewhere), with
- *  archived ones left out. */
-function sessionsIn(board: Board, project: string): { lane: Lane; session: Session }[] {
+ *  archived ones left out unless `archived` says otherwise. */
+function sessionsIn(board: Board, project: string, archived: Archived = 'without'): { lane: Lane; session: Session }[] {
   const out: { lane: Lane; session: Session }[] = [];
   for (const lane of board.lanes) {
     if (!inProject(lane, project)) continue;
-    for (const session of lane.sessions) if (!session.visitor && !session.archived) out.push({ lane, session });
+    for (const session of lane.sessions) {
+      if (session.visitor || (archived === 'without' && session.archived) || (archived === 'only' && !session.archived)) continue;
+      out.push({ lane, session });
+    }
   }
   return out;
 }
@@ -206,12 +213,13 @@ export const TEXT_SEARCH_MIN = 3;
  * (`said`, the text search's hits by session key), best first: those whose title has them all,
  * then the rest of what describes them, then what was said, the best match first there (the
  * words as typed beat them apart); within each by status (needs you, your turn, working, the
- * rest), then the most recently active. Archived sessions are left out.
+ * rest), then the most recently active. Archived sessions are left out, unless `archived` asks
+ * for them: then they come after all the others, in the same order among themselves.
  */
-export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: Map<string, TextHit> = new Map()): SessionRow[] {
+export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: Map<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
-  const found = sessionsIn(board, project).flatMap(({ lane, session: s }) => {
+  const found = sessionsIn(board, project, archived).flatMap(({ lane, session: s }) => {
     const pr = lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '';
     const hay = [s.title, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
     const title = s.title.toLowerCase();
@@ -225,6 +233,7 @@ export function findSessions(board: Board, project: string, query: string, limit
   return found
     .sort(
       (a, b) =>
+        Number(a.row.session.archived) - Number(b.row.session.archived) ||
         a.tier - b.tier ||
         b.score - a.score ||
         STATUS_RANK[a.row.session.status] - STATUS_RANK[b.row.session.status] ||

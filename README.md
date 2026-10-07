@@ -28,9 +28,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   once its conversation has shown for a second, so the ones passed over on the way down a list
   aren't stops, and each window keeps its own history across launches. A session's or worktree's
   actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work
-  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E, and two with no letter of their own: ⌃⌘W closes a
-  session's terminal, and ⌃⌘1 to ⌃⌘4 snooze it for one of the Snooze menu's times); the
-  right-click menu shows them. A click on a row's
+  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E, and three with no letter of their own: ⌃⌘W closes a
+  session's terminal, ⇧⌘E marks it done, and ⌃⌘1 to ⌃⌘4 snooze it for one of the Snooze
+  menu's times); the right-click menu shows them. A click on a row's
   chips selects the row, as a click anywhere on it does, and a double-click does the chip's own
   thing (its PR on GitHub, the session where it runs, its todo, its app) in place of opening
   the row; in a panel, a click does. A right-click (or ⌃-click) opens a row's menu and leaves
@@ -57,7 +57,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Close
     terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or Terminal
     tab, closes that tab whatever the session is doing, and End background job stops a Claude
-    Code background job; either way its conversation is kept and resumes. Rename a session
+    Code background job; either way its conversation is kept and resumes. Mark as done (⇧⌘E,
+    or Done on the strip) is for a session you're finished with: it closes the session's
+    terminal or ends its background job, as Close does, and marks it seen and archives it, so
+    it leaves every list but Archived. It closes nothing that would take more than the session
+    with it: a terminal that shows other sessions too stays open, and a session in the Claude or
+    Codex app is only archived, since the app has no way for another program to close it. A
+    session still working, or one that left a command running in the background, isn't ended
+    by surprise: Mark as done says so, and pressed again within 15 seconds ends that too. The
+    toast's Undo takes it out of the archive. With a search typed, Sessions' Archived fold lists
+    the archived sessions it finds, so its count says how many match. Rename a session
     with ⌃⌘R (`r` elsewhere) or its right-click menu, here or wherever a session has one
     (the floating bar's pills and cards on the desktop change the name in place, and the quick
     panel's rows in the waiting window). The name
@@ -206,10 +215,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     them, and stays so until you press it again; Escape in the box then leaves the keys with the
     window. A strip at the top of the panel says how many
     more wait on you and how the last one went, and has what's commonly done to a session as
-    buttons that say their keys: Seen (⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its menu's
-    times: 15 minutes, 1 hour, 3 hours, the next morning), Close terminal (⌃⌘W, which ends a background
-    job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
-    and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Clicking a session puts the cursor in its box;
+    buttons that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its
+    menu's times: 15 minutes, 1 hour, 3 hours, the next morning), Close (⌃⌘W, which closes its
+    terminal, or ends a background job where the session is one; the conversation stays, to go
+    on with later), Archive (⌃⌘A) and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Clicking a session puts the cursor in its box;
     ⌥↑ ⌥↓ from there move along with the cursor in the next one's box, the arrows on the list
     leave the keys with the list, and Escape in the box gives them back.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
@@ -406,7 +415,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   rest a row away, and under them todos by
   title, description, label, project, or the worktrees and sessions linked to them, then PRs by
   number, title, repo, branch or author. A word of one or two letters among others counts only
-  as a whole word, so "class c" doesn't find everything with a c in it. ⏎ on a session
+  as a whole word, so "class c" doesn't find everything with a c in it. Archived sessions are
+  left out until you ask for them: when some match, a row under the sessions says how many, and
+  picking it lists them after the others, each with an Archived chip, in this and later searches
+  until you pick Leave out archived sessions there. ⏎ on a session
   shows it in Codealong, with its conversation and a box to answer it, and ⌥⏎ opens it where it
   lives. ⏎ on a todo
   shows its session the same way, or, when it has none, gets a session ready to start for it (its prompt,
@@ -654,7 +666,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   running ones too, and ⌃- and ⌃⇧- go back and forward through the ones you looked at there. A
   strip over the header says how many more wait and how the last one went, and has what's
   commonly done to the session as buttons that say their keys, as its panel in Sessions has:
-  Seen (⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close terminal (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘])
+  Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘])
   and × (esc).
   The PRs waiting on your review are in that same list, after the sessions that need you and
   before the turns that ended, so the keys go from a session to a review and on. On a review the

@@ -121,11 +121,13 @@ export function unarchived(lanes: Lane[]): Lane[] {
   return lanes.map((l) => (l.sessions.some((s) => s.archived) ? keptCopy(l, UNARCHIVED, '', () => ({ ...l, sessions: l.sessions.filter((s) => !s.archived) })) : l));
 }
 
-/** The project's archived sessions, the latest first, for the Archived list. */
-export function archivedIn(lanes: Lane[], project: string): SessionItem[] {
+/** The project's archived sessions, the latest first, for the Archived list: with a search, the
+ *  ones it finds, so the list says how many archived sessions match and shows them. */
+export function archivedIn(lanes: Lane[], project: string, query = ''): SessionItem[] {
   return lanes
     .filter((l) => inProject(l, project))
     .flatMap((lane) => lane.sessions.filter((s) => !s.visitor && s.archived).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s })))
+    .filter((r) => sessionInQuery(r, query))
     .sort((a, b) => b.session.lastActivity - a.session.lastActivity);
 }
 
@@ -293,7 +295,7 @@ export function useBoardLists(input: ListsInput) {
   const deviceWorking = useMemo(() => deviceCountsOf(withDevices(board?.lanes ?? [], deviceLanes, []), devices?.devices ?? [], workingOn), [board?.lanes, deviceLanes, devices?.devices]);
   const lanes = useMemo(() => unarchived(rawLanes), [rawLanes]);
   const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
-  const archivedItems = useMemo(() => archivedIn(rawLanes, current), [rawLanes, current]);
+  const archivedItems = useMemo(() => archivedIn(rawLanes, current, query), [rawLanes, current, query]);
   // Worktrees active since the cutoff and pinned ones, each showing only its sessions active
   // since then.
   const recentLanes = useMemo(() => filterByAge(projectLanes, cutoff, lanePins.set, since), [projectLanes, cutoff, lanePins.set, since]);

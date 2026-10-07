@@ -27,6 +27,7 @@ use crate::{acp, config, harness, peerfeed, send, transcript};
 pub const FORK_TERMINAL: &str = "session-fork-terminal";
 pub const MOVE: &str = "session-move";
 pub const CLOSE: &str = "session-close";
+pub const DONE: &str = "session-done";
 pub const SIDE_ASK: &str = "session-side-ask";
 pub const SIDE_CLOSE: &str = "session-side-close";
 pub const OPEN: &str = "open-target";
@@ -49,6 +50,13 @@ pub mod params {
         pub account: String,
         #[serde(skip_serializing_if = "String::is_empty")]
         pub lane: String,
+    }
+
+    /// `session-done`: whether to end work under way too (`idle::ending`).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Done {
+        pub stop: bool,
     }
 
     /// `session-side-ask`: the question for its side conversation.
@@ -197,6 +205,8 @@ const REQUESTS: &[Request] = &[
     // goes on under, and whose usage it spends, is its user's to choose.
     Request { name: MOVE, only_here: Some("Move it on the Mac it runs on."), here: move_session, command: move_in_windows, ..ANY },
     Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close, ..ANY },
+    // Done closes it too, and it's you who's done with a session, not an agent.
+    Request { name: DONE, only_here: Some("Be done with it on the Mac it runs on."), here: done, command: done_in_windows, ..ANY },
     // A side conversation's copy runs on the session's Mac, and its answer goes to the windows
     // there. The copy may do what its session may without asking, which isn't the command's to
     // borrow.
@@ -244,6 +254,10 @@ fn side_in_windows(_: &Value) -> Result<(), String> {
 
 fn move_in_windows(_: &Value) -> Result<(), String> {
     Err("A session is moved to another account or folder in Codealong's windows.".into())
+}
+
+fn done_in_windows(_: &Value) -> Result<(), String> {
+    Err("A session is marked done in Codealong's windows.".into())
 }
 
 /// Does `name` for the session or worktree `key` from a window here: on this device, or, for
@@ -747,6 +761,54 @@ fn close(engine: &Handle, c: &Call) -> Result<Value, String> {
     crate::idle::close_one(&engine.board(), &cfg()?, c.session()?).map(Value::String).map_err(words)
 }
 
+/// Done with it, from its menu, its key or the strip: it ends as far as Codealong can end it
+/// without ending more than it (`idle::ending`), and is marked seen and archived, so it leaves
+/// every list but Archived. Work under way holds it unless `stop` ends that too: then nothing is
+/// done, and the answer's `done` is false, with what's under way. Says what happened, with the
+/// time of the board that shows it, as `archive` does.
+fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
+    use crate::idle::{ending, Ending};
+    let p: params::Done = c.read()?;
+    let key = c.session()?;
+    let cfg = cfg()?;
+    let board = engine.board();
+    let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
+    let ends = match ending(&board, s, p.stop) {
+        Ok(ends) => ends,
+        Err(busy) => return Ok(json!({ "done": false, "message": busy })),
+    };
+    let ctx = harness::Ctx { account };
+    let adapter = harness::adapter(s.harness);
+    // What ended, and what's worth saying besides: why nothing did, or what didn't go.
+    let (ended, note) = match ends {
+        Ending::Terminal(pid) => match crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop() {
+            Some(Ok(())) => (Some("its terminal is closed"), None),
+            Some(Err(e)) => (None, Some(format!("Its terminal didn't close: {}", words(e)))),
+            None => (None, Some("Its terminal didn't close.".to_string())),
+        },
+        Ending::Job => match adapter.stop(&ctx, s) {
+            Ok(_) => (Some("its background job is stopped"), None),
+            Err(e) => (None, Some(format!("Its background job didn't stop: {}", words(e)))),
+        },
+        Ending::Turn => match adapter.interrupt(&ctx, s) {
+            Ok(_) => (Some("its turn is stopped"), None),
+            Err(e) => (None, Some(format!("Its turn didn't stop: {}", words(e)))),
+        },
+        Ending::Nothing(why) => (None, why),
+    };
+    let title = s.title.clone();
+    engine.mark_seen(vec![key.to_string()]);
+    let at = engine.archive(key, true).map_err(words)?;
+    let mut message = match ended {
+        Some(what) => format!("Done with “{title}”: {what} and it's archived."),
+        None => format!("Done with “{title}”: it's archived."),
+    };
+    if let Some(note) = note {
+        message = format!("{message} {note}");
+    }
+    Ok(json!({ "done": true, "message": message, "at": shown_at(c, at) }))
+}
+
 /// Asks a throwaway copy of it `text`, on the side (side.rs): the session carries on, unaware.
 /// Returns the side conversation with the question in it; the answer goes to the windows.
 fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
@@ -900,8 +962,8 @@ mod tests {
         let err = ask(api::SESSION_ANSWER, json!({ "id": "t1", "answer": "deny", "answers": null })).unwrap_err();
         assert!(err.contains("isn't on the board"), "{err}");
         // A side conversation's copy acts with its session's permissions, and a move chooses
-        // whose usage the conversation spends.
-        for name in [SIDE_ASK, SIDE_CLOSE, MOVE] {
+        // whose usage the conversation spends; being done with a session is its user's to say.
+        for name in [SIDE_ASK, SIDE_CLOSE, MOVE, DONE] {
             assert!(ask(name, json!({ "text": "what changed?", "account": "claude2" })).unwrap_err().contains("in Codealong's windows"), "{name}");
         }
         // The rest is the command's as it is a window's: these get as far as the session.

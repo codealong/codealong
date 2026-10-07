@@ -87,7 +87,7 @@ import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { agentLine, EffortFoot, PlaceToggle } from './StartControls';
-import { cx, Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
+import { Chip, cx, Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -97,7 +97,7 @@ import { UsageMeter } from './UsageBar';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
-import { asText, readStored, strings, useStored, writeStored } from '../stored';
+import { asText, flag, readStored, strings, useStored, writeStored } from '../stored';
 import { useLatest } from '../latest';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { MARGIN, useQuickSize } from './useQuickSize';
@@ -114,6 +114,8 @@ declare global {
 
 const PROJECT_KEY = 'codealong.quick.project';
 const HISTORY_KEY = 'codealong.quick.history';
+/** Whether a search lists archived sessions too, under the others. */
+const ARCHIVED_KEY = 'codealong.quick.archived';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
@@ -146,7 +148,19 @@ interface MoreRow {
   count: number;
 }
 
-type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SkillRow;
+/** Under a search's sessions, where archived ones match: whether the search lists them too. A
+ *  click turns that on or off, and the panel remembers it. */
+interface ArchivedRow {
+  kind: 'archived';
+  key: string;
+  group: 'found';
+  /** How many archived sessions match. */
+  count: number;
+  /** They're in the list. */
+  on: boolean;
+}
+
+type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | ArchivedRow | SkillRow;
 
 /** The most sessions a search lists once you ask for all of them. */
 const FOUND_ALL = 40;
@@ -270,6 +284,7 @@ export function Quick() {
   // the draft and then these; `recall` is where it is, and holds while the text is what it
   // brought back.
   const [history, setHistory] = useStored<string[]>(HISTORY_KEY, strings, []);
+  const [withArchived, setWithArchived] = useStored(ARCHIVED_KEY, flag, false);
   const [recall, setRecall] = useState<number | null>(null);
   const keepPrompt = (prompt: string) => setHistory((h) => historyWith(h, prompt));
   const todoIdsNow = useLatest(todoIds);
@@ -636,7 +651,9 @@ export function Quick() {
   // Until it answers, the last search's hits whose lines still have every word stay in the list.
   const hits = useMemo(() => (textFound ? textFound.hits : textFor && textSearch ? stillSaid(textSearch.found.hits, queryWords(textFor)) : []), [textFound, textFor, textSearch]);
   const said = useMemo(() => new Map(hits.map((h) => [h.key, h] as const)), [hits]);
-  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said) : []), [board, current, query, said]);
+  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, withArchived ? 'with' : 'without') : []), [board, current, query, said, withArchived]);
+  // How many archived sessions match, for the row that lists them or leaves them out.
+  const archivedFound = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, 'only').length : 0), [board, current, query, said]);
   // A search lists its first few sessions, so todos and PRs fit below; a row under them lists
   // the rest, until what's typed changes.
   const [allFor, setAllFor] = useState<string | null>(null);
@@ -691,7 +708,8 @@ export function Quick() {
 
   const ranked = rankedBy(foundSessions, route);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
-  const rows: Row[] = slash ? skillsListed : query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
+  const archivedRow: ArchivedRow[] = archivedFound > 0 ? [{ kind: 'archived', key: 'archived:found', group: 'found', count: archivedFound, on: withArchived }] : [];
+  const rows: Row[] = slash ? skillsListed : query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...archivedRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
   // A result dragged out of the panel is pinned to the desktop: a session, a todo, a PR, or the
   // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
@@ -870,7 +888,7 @@ export function Quick() {
 
   /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
-    if (r.kind === 'more' || r.kind === 'skill') return;
+    if (r.kind === 'more' || r.kind === 'archived' || r.kind === 'skill') return;
     const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
     if (r.kind === 'suggest') {
       const sg = r.s;
@@ -1048,6 +1066,11 @@ export function Quick() {
       // The first of those it adds takes its place.
       setAllFor(query);
       setActiveKey(ranked[FOUND_SESSIONS]?.key ?? null);
+    } else if (row.kind === 'archived') {
+      // The row stays where it was, saying the other way now. Archived sessions come after all
+      // the others, so the search lists all of them, and the ones just asked for show above it.
+      if (!row.on) setAllFor(query);
+      setWithArchived(!row.on);
     } else (alt ? openSession : showSession)(row.lane, row.session);
   };
 
@@ -1506,6 +1529,30 @@ export function Quick() {
                           </div>
                         );
                       }
+                      if (r.kind === 'archived') {
+                        const many = r.count === 1 ? 'archived session matches' : 'archived sessions match';
+                        return (
+                          <div
+                            key={r.key}
+                            role="option"
+                            aria-selected={active === r.key}
+                            className={cx('ca-quick-row', 'is-more', active === r.key && 'is-active')}
+                            title={r.on ? 'Searches list archived sessions under the others. ⏎ leaves them out from now on' : 'Searches leave archived sessions out. ⏎ lists them under the others from now on'}
+                            onMouseMove={handlers.onMouseMove}
+                            onMouseDown={handlers.onMouseDown}
+                            onClick={handlers.onClick}
+                          >
+                            <span className="ca-quick-plus">
+                              <Icon name="archive" size={13} stroke={2} />
+                            </span>
+                            <span className="ca-quick-row-main">
+                              <span className="ca-quick-row-title">{r.on ? 'Leave out archived sessions' : `Show ${r.count} archived ${r.count === 1 ? 'session' : 'sessions'}`}</span>
+                              <span className="ca-quick-row-why">{r.on ? `${r.count} ${many} · searches list them until you leave them out` : 'Searches leave them out until you show them'}</span>
+                            </span>
+                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                          </div>
+                        );
+                      }
                       if (r.kind === 'more') {
                         return (
                           <div
@@ -1575,6 +1622,12 @@ export function Quick() {
                               <span className="ca-quick-row-why">{sessionWhy(s2.detail, s2.headline, now)}</span>
                             )}
                           </span>
+                          {s2.archived && (
+                            <Chip title="Archived: listed because searches list archived sessions too">
+                              <Icon name="archive" size={11} />
+                              Archived
+                            </Chip>
+                          )}
                           <span className="ca-quick-row-where">
                             {s2.account} · {r.lane.callsign}
                           </span>

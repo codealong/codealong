@@ -20,6 +20,8 @@ export interface UndoToast {
 export interface Archived {
   key: string;
   title: string;
+  /** What was done besides, when it was marked done: its terminal closed, say. */
+  message?: string;
 }
 
 export interface ToastState {
@@ -114,7 +116,7 @@ export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive:
       {undo && !toast && busy.length === 0 && (
         <div className="ca-toast" role="status">
           <Icon name="archive" size={16} />
-          <span>Archived “{undo.title}”.</span>
+          <span>{undo.message || `Archived “${undo.title}”.`}</span>
           <button
             type="button"
             className="ca-toast-action"

@@ -198,6 +198,57 @@ pub fn close_one(board: &Board, cfg: &crate::config::Config, key: &str) -> anyho
     result.map(|()| format!("Closed the terminal of “{}”. Its conversation is kept and resumes like any other.", s.title))
 }
 
+/// What being done with a session ends of it (`actions::done`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Ending {
+    /// Its terminal tab closes, and its agent's process with it.
+    Terminal(u32),
+    /// Its background job stops.
+    Job,
+    /// Its turn stops: a session Codealong runs, whose process runs other sessions too.
+    Turn,
+    /// Nothing; why, when that's worth saying.
+    Nothing(Option<String>),
+}
+
+/// What being done with `s` ends, as Close does from its menu, less what would end more than it
+/// or end work you may not have meant to. Work under way (a turn, or a command its turn left
+/// running in the background) ends only with `stop`: until then it's `Err` with what's under
+/// way, and nothing is done. A terminal that shows other running sessions too stays open (one
+/// OpenCode terminal can show several), and an app's session stays open in the app, which has
+/// no way for another program to close it.
+pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> {
+    if !s.live {
+        return Ok(Ending::Nothing(None));
+    }
+    if !stop {
+        if s.status == Status::Working {
+            return Err(format!("“{}” is still working.", s.title));
+        }
+        if let Some(command) = &s.background {
+            let what = if command.trim().is_empty() { "a command".to_string() } else { format!("`{}`", crate::util::truncate(command.trim(), 60)) };
+            return Err(format!("“{}” left {what} running in the background.", s.title));
+        }
+    }
+    if s.hosted {
+        return Ok(if s.status == Status::Working { Ending::Turn } else { Ending::Nothing(None) });
+    }
+    if s.attach_command.is_some() {
+        return Ok(Ending::Job);
+    }
+    match (s.surface, s.pid) {
+        (Surface::App, _) => Ok(Ending::Nothing(Some(format!("It's still open in {}.", crate::harness::adapter(s.harness).app())))),
+        (Surface::Cli, Some(pid)) => {
+            let other = board.lanes.iter().flat_map(|l| &l.sessions).find(|o| o.key != s.key && o.live && o.pid == Some(pid));
+            Ok(match other {
+                Some(o) => Ending::Nothing(Some(format!("Its terminal stays open: it shows “{}” too.", o.title))),
+                None => Ending::Terminal(pid),
+            })
+        }
+        _ => Ok(Ending::Nothing(Some("It has no terminal Codealong can close.".into()))),
+    }
+}
+
 /// A stretch of time in words: 26 hours, 3 days.
 fn span(ms: i64) -> String {
     let mins = ms.max(0) / 60_000;
@@ -288,6 +339,45 @@ mod tests {
         assert_eq!(p.close.iter().map(|c| c.key.as_str()).collect::<Vec<_>>(), ["old"]);
         let kept: Vec<(&str, &str)> = p.kept.iter().map(|k| (k.key.as_str(), k.why.as_str())).collect();
         assert_eq!(kept, [("shared-old", "working"), ("shared-busy", "working"), ("tmux", "not in a Ghostty, iTerm2 or Terminal tab")]);
+    }
+
+    #[test]
+    fn done_ends_only_what_is_its_own_and_not_work_under_way() {
+        let lone = session("lone", 1, Status::Unread, 0);
+        let shared = session("shared", 2, Status::Idle, 0);
+        let mut busy = session("busy", 3, Status::Working, 0);
+        busy.title = "Fix login".into();
+        let mut left = session("left", 4, Status::Idle, 0);
+        left.background = Some("npm run dev".into());
+        let mut job = session("job", 5, Status::Idle, 0);
+        job.attach_command = Some("claude attach 5".into());
+        let mut app = session("app", 6, Status::Idle, 0);
+        app.surface = Surface::App;
+        let mut gone = session("gone", 7, Status::Idle, 0);
+        gone.live = false;
+        gone.background = Some("npm run dev".into());
+        let mut hosted = session("hosted", 8, Status::Working, 0);
+        hosted.hosted = true;
+        let mut no_pid = session("no-pid", 9, Status::Idle, 0);
+        no_pid.pid = None;
+        let b = board(vec![lone.clone(), shared.clone(), session("shared-too", 2, Status::Idle, 0), busy.clone(), left.clone(), job.clone(), app.clone(), gone.clone(), hosted.clone(), no_pid.clone()]);
+
+        assert_eq!(ending(&b, &lone, false), Ok(Ending::Terminal(1)));
+        assert_eq!(ending(&b, &shared, false), Ok(Ending::Nothing(Some("Its terminal stays open: it shows “Session shared-too” too.".into()))));
+        assert_eq!(ending(&b, &job, false), Ok(Ending::Job));
+        assert_eq!(ending(&b, &app, false), Ok(Ending::Nothing(Some("It's still open in the Claude app.".into()))));
+        assert_eq!(ending(&b, &gone, false), Ok(Ending::Nothing(None)));
+        assert_eq!(ending(&b, &no_pid, false), Ok(Ending::Nothing(Some("It has no terminal Codealong can close.".into()))));
+        // Work under way ends only when asked to.
+        assert_eq!(ending(&b, &busy, false), Err("“Fix login” is still working.".into()));
+        assert_eq!(ending(&b, &busy, true), Ok(Ending::Terminal(3)));
+        assert_eq!(ending(&b, &left, false), Err("“Session left” left `npm run dev` running in the background.".into()));
+        assert_eq!(ending(&b, &left, true), Ok(Ending::Terminal(4)));
+        // A session Codealong runs shares its process: only its turn stops.
+        assert!(ending(&b, &hosted, false).is_err());
+        assert_eq!(ending(&b, &hosted, true), Ok(Ending::Turn));
+        hosted.status = Status::Idle;
+        assert_eq!(ending(&b, &hosted, false), Ok(Ending::Nothing(None)));
     }
 
     /// What would close on this Mac now, closing nothing:

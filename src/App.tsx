@@ -856,6 +856,8 @@ export function App() {
         if (archived) leftAndOn(s, 'archived');
         setArchived(s.key, archived, s.title);
       },
+      // Undo takes it out of the archive; a terminal it closed stays closed, and it resumes as any other.
+      undoDone: (message) => setArchivedUndo({ key: s.key, title: s.title, message }),
       left: (done) => leftAndOn(s, done),
       canvas: canvasItem('session', s.key),
   });

@@ -128,6 +128,20 @@ describe('findSessions', () => {
     ]);
   });
 
+  it('looks through archived sessions only when asked, listing them after all the others', () => {
+    const withGone = board([
+      lane('app2', [
+        session('s1', 'idle', NOW - 100, { title: 'Fix the login flake' }),
+        session('gone', 'needs', NOW, { title: 'Login copy', archived: true }),
+        session('gone2', 'idle', NOW - 5, { title: 'Old login work', archived: true }),
+      ]),
+    ]);
+    expect(findSessions(withGone, ALL_PROJECTS, 'login').map((r) => r.key)).toEqual(['s1']);
+    // An archived one comes after the idle one, though it needs you and is the latest.
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, new Map(), 'with').map((r) => r.key)).toEqual(['s1', 'gone', 'gone2']);
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, new Map(), 'only').map((r) => r.key)).toEqual(['gone', 'gone2']);
+  });
+
   it('marks where the words are in the title', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login flake')[0].marks).toEqual([
       [8, 13],

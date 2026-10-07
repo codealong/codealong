@@ -156,7 +156,7 @@
       var note = document.querySelector('.ca-notch-session .ca-reply-queue-note');
       check('on one that doesn’t wait the strip says what does, not what more', !!note && /^3 waiting on you/.test(note.textContent), note ? note.textContent : 'no strip');
       var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
-      check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Snooze⌃⌘1–4|' + labels[2] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[2]), labels.join('|'));
+      check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Done⇧⌘E|Snooze⌃⌘1–4|' + labels[3] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[3]), labels.join('|'));
       // Nothing to mark seen on one that runs: ⌘E goes on as ⌘] does.
       key({ key: 'e', metaKey: true });
       return until(shows(items[0]), 3000, '⌘E from one running');
@@ -410,8 +410,8 @@
     })
     .then(function () {
       check('the strip’s Back goes to the one looked at before', true);
-      var close = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /Close terminal/.test(b.textContent); })[0];
-      check('the strip’s Close terminal is there to press', !!close && !close.disabled, close ? 'disabled' : 'no button');
+      var close = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /^Close⌃⌘W/.test(b.textContent); })[0];
+      check('the strip’s Close is there to press', !!close && !close.disabled, close ? 'disabled' : 'no button');
       var closes = calls('close_session').length;
       key({ key: 'w', metaKey: true, ctrlKey: true });
       return until(function () { return calls('close_session').length === closes + 1; }, 2000, '⌃⌘W').then(function () {

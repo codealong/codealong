@@ -16,7 +16,7 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, onAhead, renameSession, resumeSession, sendToSession, snoozeReviews, snoozeSessions, windowLabel } from './api';
+import { archiveSession, emitAhead, markSeen, onAhead, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { relaned, sessionHeadline } from './lanes';
@@ -579,6 +579,33 @@ export function archiveAhead(key: string, archived: boolean): Promise<void> {
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+/** Done with a session: marked seen and archived in every window at once, as the engine ends
+ *  it (actions.rs `done`). One the engine held for work under way comes back, and so does one it
+ *  couldn't do, which rejects with why. */
+export function doneAhead(key: string, stop: boolean): Promise<Done> {
+  const seen = made({ kind: 'seen', keys: [key] });
+  const archived = made({ kind: 'archive', key, archived: true });
+  put(seen, true);
+  put(archived, true);
+  const back = () => {
+    drop(seen.id, true);
+    drop(archived.id, true);
+  };
+  return sessionDone(key, stop).then(
+    (r) => {
+      if (r.done) {
+        answered(seen.id, r.at ?? null);
+        answered(archived.id, r.at ?? null);
+      } else back();
+      return r;
+    },
+    (e: unknown) => {
+      back();
       throw e;
     },
   );

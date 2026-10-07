@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { doneAhead } from './ahead';
+import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { chordLetter, chordSigns, chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type TodoEdit } from './menus';
+import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
 import type { TodoOp } from './todos';
 import type { Label, Lane, Session, Todo } from './types';
+
+// What the engine says to Mark as done: done, unless a test says otherwise.
+vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn() }));
 
 const report: Report = { error: () => {}, info: () => {} };
 const noop = () => {};
@@ -59,6 +64,7 @@ describe('sessionMenu', () => {
       'Mark as seen',
       'Snooze ›',
       'Close terminal',
+      'Mark as done',
       'Archive',
       '-',
       'Copy session ID',
@@ -102,13 +108,17 @@ describe('sessionMenu', () => {
     // Archived: only unarchiving, no pins or snoozes.
     const archived = session({ archived: true });
     expect(has(archived, 'Unarchive')).toBe(true);
-    for (const label of ['Pin session', 'Pin to desktop', 'Snooze ›']) expect(has(archived, label, { pin: { label: 'Pin session', run: noop }, desktop: new Set() })).toBe(false);
+    for (const label of ['Pin session', 'Pin to desktop', 'Snooze ›', 'Mark as done']) expect(has(archived, label, { pin: { label: 'Pin session', run: noop }, desktop: new Set() })).toBe(false);
+    // Done with whatever it is on this Mac: an app's session, or one that isn't running, is
+    // marked seen and archived, with nothing to close.
+    for (const s of [session({ surface: 'app' }), session({ live: false }), session({ hosted: true })]) expect(has(s, 'Mark as done')).toBe(true);
     // On another device: no snooze, no closing, and new sessions only where a window starts them there.
     const remote = session({ key: '@ab12:claude:c:1' });
     const remoteLane = lane({ id: '@ab12:/r/api' });
     const there = labels(sessionMenu(remoteLane, remote, base));
     expect(there).not.toContain('Snooze ›');
     expect(there).not.toContain('Close terminal');
+    expect(there).not.toContain('Mark as done');
     expect(there).not.toContain('New session here…');
     expect(labels(sessionMenu(remoteLane, remote, { ...base, newSession: noop }))).toContain('New session here…');
   });
@@ -371,7 +381,7 @@ describe('actions by name', () => {
     expect(keys).toEqual(['Rename…=R', 'Mark as seen=E', 'Pin session=P', 'Archive=A']);
     // Sessions takes chords.
     const chords = sessionMenu(lane(), session(), { ...can, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
-    expect(chords).toEqual(['Ctrl+Cmd+R', 'Cmd+E', 'Ctrl+Cmd+P', 'Ctrl+Cmd+W', 'Ctrl+Cmd+A']);
+    expect(chords).toEqual(['Ctrl+Cmd+R', 'Cmd+E', 'Ctrl+Cmd+P', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
     // Elsewhere no window takes those keys, so none show.
     expect(sessionMenu(lane(), session(), { ...can, keys: false }).some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
     const acts = sessionActions(lane(), session(), can);
@@ -393,7 +403,9 @@ describe('actions by name', () => {
     expect(press('a', { cmd: false })).toBeNull();
     expect(press('a')).toBeNull();
     expect(press('e', { ctrl: true })).toBeNull();
-    expect(press('e', { shift: true })).toBeNull();
+    // ⇧⌘E, beside ⌘E, marks it done.
+    expect(press('E', { shift: true })).toBe(acts.done);
+    expect(press('e', { shift: true, ctrl: true })).toBeNull();
     expect(press('k', { ctrl: true })).toBeNull();
     // A chord for an action that doesn't apply does nothing.
     expect(chorded(sessionActions(lane(), session(), base), { key: 'r', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
@@ -446,6 +458,76 @@ describe('actions by name', () => {
     expect(left).toEqual(['closed']);
     // One with no terminal of its own has nothing to close.
     expect(chorded(sessionActions(lane(), { ...session(), live: false }, can), { key: 'w', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+  });
+
+  it('marks done on ⇧⌘E, held by work under way until it’s asked again', async () => {
+    const ask = vi.mocked(doneAhead);
+    ask.mockReset();
+    const said: string[] = [];
+    const left: string[] = [];
+    const undone: string[] = [];
+    const can: SessionCan = { ...base, keys: 'chords', report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (d) => left.push(d) };
+    const settled = () => new Promise((r) => setTimeout(r, 0));
+    const answer = (r: Done) => ask.mockResolvedValueOnce(r);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    try {
+      // Done: it goes on to the next, and the window says what happened, or the main window
+      // offers its Undo.
+      answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 5 });
+      sessionActions(lane(), session(), can).done?.run();
+      await settled();
+      expect(ask).toHaveBeenLastCalledWith('claude:c:1', false);
+      expect(left).toEqual(['done']);
+      expect(said).toEqual(['Done with “Fix login”: its terminal is closed and it’s archived.']);
+      answer({ done: true, message: 'Done with “Fix login”: it’s archived.', at: 6 });
+      sessionActions(lane(), session(), { ...can, undoDone: (m) => undone.push(m) }).done?.run();
+      await settled();
+      expect(undone).toEqual(['Done with “Fix login”: it’s archived.']);
+
+      // Working: held here, asking nothing of the engine; again soon after, it stops.
+      said.length = 0;
+      left.length = 0;
+      ask.mockClear();
+      const busy = session({ key: 'claude:c:2', status: 'working' });
+      sessionActions(lane(), busy, can).done?.run();
+      expect(ask).not.toHaveBeenCalled();
+      expect(left).toEqual([]);
+      expect(said).toEqual(['“Fix login” is still working. Mark it done again to end that too.']);
+      answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 7 });
+      sessionActions(lane(), busy, can).done?.run();
+      await settled();
+      expect(ask).toHaveBeenLastCalledWith('claude:c:2', true);
+      expect(left).toEqual(['done']);
+
+      // Held by the engine (a command left running in the background), then asked too late: held
+      // again, and only the next one soon after ends it.
+      said.length = 0;
+      ask.mockClear();
+      const bg = session({ key: 'claude:c:3' });
+      answer({ done: false, message: '“Fix login” left `npm run dev` running in the background.' });
+      sessionActions(lane(), bg, can).done?.run();
+      await settled();
+      expect(said).toEqual(['“Fix login” left `npm run dev` running in the background. Mark it done again to end that too.']);
+      vi.setSystemTime(1_000_000 + DONE_HOLD_MS + 1);
+      answer({ done: false, message: '“Fix login” left `npm run dev` running in the background.' });
+      sessionActions(lane(), bg, can).done?.run();
+      await settled();
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', false);
+      answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 8 });
+      sessionActions(lane(), bg, can).done?.run();
+      await settled();
+      expect(ask).toHaveBeenLastCalledWith('claude:c:3', true);
+
+      // What the engine turns down is said as an error.
+      said.length = 0;
+      ask.mockRejectedValueOnce('That session isn’t on the board any more.');
+      sessionActions(lane(), session({ key: 'claude:c:4' }), can).done?.run();
+      await settled();
+      expect(said).toEqual(['error: That session isn’t on the board any more.']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('opens a new terminal in a session’s folder on ⌃`, and shows it beside the menu’s terminal', () => {

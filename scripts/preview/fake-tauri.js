@@ -512,6 +512,9 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
+    // Mark as done does what it would to a session in a terminal of its own; the board never shows
+    // it archived, so it comes back once its change has waited long enough (ahead.ts).
+    if (cmd === 'session_done') return Promise.resolve({ done: true, message: 'Done with it: its terminal is closed and it’s archived.', at: null });
     // The waiting window (preview.sh waiting) opens on PREVIEW_TRANSCRIPT's session when there is
     // one, else on the first that waits on you; asking for it again only brings it up.
     if (cmd === 'waiting_asked') return Promise.resolve(window.__WAITING_ASKED__ || null);

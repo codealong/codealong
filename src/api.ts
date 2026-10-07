@@ -218,6 +218,22 @@ export async function closeSession(key: string): Promise<string> {
   return invoke<string>('close_session', { key });
 }
 
+/** What being done with a session came to (actions.rs `done`): whether it was done, or held by
+ *  work under way that `stop` would end too, what happened in a sentence, and the time of the
+ *  board that shows it. */
+export interface Done {
+  done: boolean;
+  message: string;
+  at?: number | null;
+}
+
+/** Done with a session: it ends as far as Codealong can end it (its terminal tab closes, its
+ *  background job stops), and is marked seen and archived. `stop` ends work under way too. */
+export async function sessionDone(key: string, stop: boolean): Promise<Done> {
+  if (!inTauri) return { done: true, message: '', at: null };
+  return invoke<Done>('session_done', { key, stop });
+}
+
 /** Archives or unarchives a session; Codex threads are archived in Codex itself. Returns the
  *  time of the board that shows it, as `markSeen` does. */
 export async function archiveSession(key: string, archived: boolean): Promise<number | null> {

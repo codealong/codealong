@@ -163,6 +163,16 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     travel.current(e.shiftKey ? 'forward' : 'back', !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
     return;
   }
+  // ⇧⌘E marks the selected session done (menus.ts `CHORDS`), in any view, and from Sessions' box
+  // as ⌘E beside it marks seen there. Done goes on to the next that waits, as ⌘E does.
+  if (chordPressed(menus.CHORDS.done ?? '', e)) {
+    e.preventDefault();
+    if (selected?.kind !== 'agent') return;
+    const act = actionsRef.current.session(selected.lane, selected.session, 'session').done;
+    if (act) act.run();
+    else say(selected.session.archived ? 'It’s archived already.' : 'Mark it done on the Mac it runs on.');
+    return;
+  }
   // The queue's keys in Sessions (queue.ts `QUEUE_CHORDS`), from the panel's box too: ⌘] or
   // ⌥⇧↓ skips to the next session that waits on you and ⌘[ or ⌥⇧↑ goes back, with the cursor in
   // its box; ⌘E marks a finished turn seen and goes on, the keyboard staying where it was,

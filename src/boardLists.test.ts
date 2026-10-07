@@ -188,6 +188,14 @@ describe('the Sessions view’s lists', () => {
     expect(archivedIn([a, b], ALL_PROJECTS).map((r) => r.key)).toEqual(['/r/b::claude:claude:gone2', '/r/a::claude:claude:gone']);
   });
 
+  it('lists the archived sessions a search finds, as Sessions searches the rest', () => {
+    const named = { ...gone, title: 'Fix the login flake' };
+    const lanes = [lane('/r/a', [old, named]), b];
+    expect(archivedIn(lanes, ALL_PROJECTS, 'LOGIN').map((r) => r.key)).toEqual(['/r/a::claude:claude:gone']);
+    expect(archivedIn(lanes, ALL_PROJECTS, 'checkout')).toEqual([]);
+    expect(archivedIn(lanes, ALL_PROJECTS, '').map((r) => r.key)).toEqual(['/r/b::claude:claude:gone2', '/r/a::claude:claude:gone']);
+  });
+
   it('has each session once in the worktree it runs in, keyed by both', () => {
     expect(sessionItemsOf([lane('/r/a', [old, visiting])]).map((r) => r.key)).toEqual(['/r/a::claude:claude:old']);
   });

@@ -3,12 +3,12 @@
 // floating bar's pills, the peek, the quick panel's rows, cards on the desktop. A window says
 // what it can do (`SessionCan` and the others), and an item shows when the window can do it and
 // the thing allows it, always in the same order. What works the same from every window (mark
-// seen, snooze, close, archive, fork, move, pin to the desktop, copy) is done here, and says how
-// it went through the window's `Report`: a toast in the main window, a note on the bar.
+// seen, snooze, close, mark done, archive, fork, move, pin to the desktop, copy) is done here, and
+// says how it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
-import { archiveAhead, seenAhead } from './ahead';
+import { archiveAhead, doneAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -105,7 +105,7 @@ function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction |
 
 /** How a session, or a PR waiting on your review, left the list of what waits on you: the strip
  *  says it on the one gone on to (queue.ts `wentWords`). */
-export type Left = 'marked seen' | 'snoozed' | 'closed' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started';
+export type Left = 'marked seen' | 'snoozed' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started';
 
 export interface SessionCan {
   report: Report;
@@ -135,6 +135,9 @@ export interface SessionCan {
   desktop?: ReadonlySet<string>;
   /** Archives or unarchives it, where that does more (an undo in the main window). */
   archive?: (archived: boolean) => void;
+  /** Says what Mark as done did with a way back, where the window has one (the main window's
+   *  Undo, which unarchives it); elsewhere `report` says it. */
+  undoDone?: (message: string) => void;
   /** It left the list it was picked from, and how: the peek goes away, the waiting window's queue
    *  and the notch's go on to the next. */
   left?: (done: Left) => void;
@@ -175,6 +178,8 @@ export interface SessionActions {
   desktop?: MenuAction;
   snooze?: MenuGroup;
   close?: MenuAction;
+  /** Done with it: it ends as far as Codealong can end it, and is marked seen and archived. */
+  done?: MenuAction;
   archive: MenuAction;
   copyId: MenuAction;
   copyResume?: MenuAction;
@@ -234,6 +239,24 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   const goesOn = s.limit && s.status !== 'working' ? ' and go on' : '';
   const suggested = s.limit?.moveTo && moveTo.includes(s.limit.moveTo) && goesOn ? s.limit.moveTo : null;
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
+  // Work under way holds it, and Mark as done again soon after ends that too. A session that's
+  // working is held here; one that left a command running in the background, by the engine.
+  const holds = (why: string) => {
+    holding.set(s.key, Date.now());
+    report.info(`${why} ${DONE_AGAIN}`);
+  };
+  const done = () => {
+    const stop = held(s.key, Date.now());
+    if (!stop && s.status === 'working') return holds(`“${s.title}” is still working.`);
+    can.left?.('done');
+    busy(`Wrapping up ${s.title}…`, doneAhead(s.key, stop))
+      .then((r) => {
+        if (!r.done) holds(r.message);
+        else if (can.undoDone) can.undoDone(r.message);
+        else if (r.message) report.info(r.message);
+      })
+      .catch((e: unknown) => report.error(errorText(e)));
+  };
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
     resume: resumeTo.length > 1 ? { label: 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
@@ -275,10 +298,26 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
           },
         }
       : undefined,
+    // On this Mac, where it closes; an archived one is done with already.
+    done: here && !s.archived ? { label: 'Mark as done', run: done } : undefined,
     archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
   };
+}
+
+/** How long after Mark as done was held by work under way another ends that too. */
+export const DONE_HOLD_MS = 15_000;
+const DONE_AGAIN = 'Mark it done again to end that too.';
+/** Sessions Mark as done was held on, by key, with when: each window's own. */
+const holding = new Map<string, number>();
+
+/** Whether Mark as done on `key` now ends work under way too: it was held on it a moment ago.
+ *  Asking uses the hold up. */
+function held(key: string, now: number): boolean {
+  const at = holding.get(key);
+  holding.delete(key);
+  return at !== undefined && now - at <= DONE_HOLD_MS;
 }
 
 /** Where a session of this Mac's that isn't running can go on: its account's places for that. */
@@ -318,7 +357,7 @@ const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos'],
-  ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'archive'],
+  ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'done', 'archive'],
   ['copyId', 'copyResume', 'canvas'],
 ] as const;
 
@@ -433,9 +472,10 @@ const TERMINAL_CHORD = 'Ctrl+`';
 export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R', terminal: TERMINAL_CHORD };
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
  *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
- *  the queue's key, queue.ts), ⌃⌘ and the letter runs the rest. Closing a session's terminal has
- *  a chord and no letter of its own: it's not one to press by mistake. */
-export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
+ *  the queue's key, queue.ts), ⇧⌘E marks done, beside it, and ⌃⌘ and the letter runs the rest.
+ *  Closing a session's terminal and marking it done, which closes it too, have a chord and no
+ *  letter of their own: they're not ones to press by mistake. */
+export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
 // Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘4 (snooze.ts `SNOOZE_CHORDS`), which its
 // menu shows beside them. The keys for getting from one session to the next are queue.ts
 // `QUEUE_CHORDS`, written the same way.

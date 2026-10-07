@@ -142,6 +142,9 @@
 .ca-notch-card .ca-reply-queue.has-keys .ca-reply-queue-note {
   flex: 1 1 0;
 }
+.ca-notch-card .ca-hotkey {
+  padding: 0 4px;
+}
 /* In a session's panel (Sessions), lined up with the panel's header. */
 .ca-sessinsp .ca-reply-queue {
   padding: 4px 12px 4px var(--space-4);
