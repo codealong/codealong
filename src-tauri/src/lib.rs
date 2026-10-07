@@ -148,6 +148,19 @@ async fn blocking<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) 
     tauri::async_runtime::spawn_blocking(body).await.map_err(|e| format!("That stopped partway: {e}"))
 }
 
+/// Hands `body` to `run` (`run_on_main_thread`, say) and awaits what it gives back, holding no
+/// worker of the async runtime meanwhile, however long that takes: a menu runs on the main
+/// thread until it closes.
+async fn answer_from<T: Send + 'static>(run: impl FnOnce(Box<dyn FnOnce() + Send>) -> Result<(), String>, body: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    run(Box::new(move || {
+        // The one message on a channel that holds one: it always goes, unless the command has
+        // stopped waiting, when there's nobody to tell.
+        let _ = tx.try_send(body());
+    }))?;
+    rx.recv().await.ok_or_else(|| "It was dropped before it could run.".to_string())
+}
+
 /// Off the main thread, as the floating bar's feed and the devices view are: the board is big to
 /// copy and send.
 #[tauri::command(async)]
@@ -206,10 +219,12 @@ async fn idle_terminals(engine: State<'_, engine::Handle>, after_ms: i64) -> Res
     Ok(idle::plan_now(&engine.board(), after_ms))
 }
 
-/// Closes the terminals of these sessions, each checked again first.
+/// Closes the terminals of these sessions, each checked again first. On the blocking pool: each
+/// terminal is told by a script, which is waited on.
 #[tauri::command]
 async fn close_idle_terminals(engine: State<'_, engine::Handle>, keys: Vec<String>, after_ms: i64) -> Result<Vec<idle::Outcome>, String> {
-    Ok(idle::close(&engine.board(), &keys, after_ms))
+    let engine = engine.inner().clone();
+    blocking(move || idle::close(&engine.board(), &keys, after_ms)).await
 }
 
 /// Closes one session from its menu: its terminal tab, or a background job stopped (idle.rs).
@@ -328,9 +343,11 @@ static MENU_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// the main thread, and the page's other menu commands (`Menu.new`, closing one) run there too
 /// and take that lock: one that came in while a menu was opening, from a second right-click,
 /// hung the app for good. A menu asked for while another is opening or open (a burst of
-/// right-clicks) is dropped; once that one has closed, the next is shown.
-#[tauri::command(async)]
-fn popup_menu(app: tauri::AppHandle, webview: tauri::Webview, window: tauri::Window, rid: tauri::ResourceId, at: Option<tauri::Position>) -> Result<(), String> {
+/// right-clicks) is dropped; once that one has closed, the next is shown. The menu's closing is
+/// awaited rather than waited on: it stays up as long as you leave it, and a thread of the async
+/// runtime's few held that long would hold up every other async command.
+#[tauri::command]
+async fn popup_menu(app: tauri::AppHandle, webview: tauri::Webview, window: tauri::Window, rid: tauri::ResourceId, at: Option<tauri::Position>) -> Result<(), String> {
     use std::sync::atomic::Ordering;
     use tauri::menu::ContextMenu;
     // The table is unlocked again at the end of this statement.
@@ -346,19 +363,20 @@ fn popup_menu(app: tauri::AppHandle, webview: tauri::Webview, window: tauri::Win
         }
     }
     let up = Up;
-    let (tx, rx) = std::sync::mpsc::channel();
-    app.run_on_main_thread(move || {
-        // On the main thread Tauri shows the menu at once and returns when it has closed, so
-        // the flag is down before the click that closed it reaches the page.
-        let shown = match at {
-            Some(at) => menu.popup_at(window, at),
-            None => menu.popup(window),
-        };
-        drop(up);
-        let _ = tx.send(shown);
-    })
-    .map_err(|e| e.to_string())?;
-    rx.recv().map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+    let shown = answer_from(
+        |show| app.run_on_main_thread(show).map_err(|e| e.to_string()),
+        move || {
+            // On the main thread Tauri shows the menu at once and returns when it has closed, so
+            // the flag is down before the click that closed it reaches the page.
+            let shown = match at {
+                Some(at) => menu.popup_at(window, at),
+                None => menu.popup(window),
+            };
+            drop(up);
+            shown
+        },
+    );
+    shown.await?.map_err(|e| e.to_string())
 }
 
 /// The floating bar's page measured itself.
@@ -1645,6 +1663,28 @@ mod tests {
         assert_ne!(ran_on, worker, "the body ran off the caller's thread");
         let err = tauri::async_runtime::block_on(blocking(|| -> u8 { panic!("gone") })).unwrap_err();
         assert!(err.starts_with("That stopped partway"), "{err}");
+    }
+
+    /// More menus up at once than the async runtime has workers, each left open a while: other
+    /// commands still run meanwhile.
+    #[test]
+    fn a_menu_left_open_holds_no_worker() {
+        use std::time::{Duration, Instant};
+        let open = std::thread::available_parallelism().map_or(8, |n| n.get()) * 2;
+        let left_open = |show: Box<dyn FnOnce() + Send>| {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(2));
+                show();
+            });
+            Ok(())
+        };
+        let menus: Vec<_> = (0..open).map(|n| tauri::async_runtime::spawn(answer_from(left_open, move || n))).collect();
+        let started = Instant::now();
+        assert_eq!(tauri::async_runtime::block_on(tauri::async_runtime::spawn(async { 7 })).unwrap(), 7);
+        assert!(started.elapsed() < Duration::from_secs(1), "waited {:?} for a worker", started.elapsed());
+        for (n, menu) in menus.into_iter().enumerate() {
+            assert_eq!(tauri::async_runtime::block_on(menu).unwrap(), Ok(n));
+        }
     }
 
     #[test]
