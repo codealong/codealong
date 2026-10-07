@@ -1,31 +1,57 @@
-/* A worktree's preview URL (PreviewBits.tsx): its chip on the row, its link in the inspector, and
-   the dialog that sets it. */
+/* A worktree's preview URL (PreviewBits.tsx): its chip, wherever the worktree shows, its section
+   in the worktree's panel, and the dialog that sets it. */
 
-/* A worktree's app: green while a server in its folder runs it. It sits with the PR and diff on
-   the right, and on a crowded row its name gives way before the agents' chips do, down to the
-   globe. */
-.ca-previewchip {
-  flex: 0 100 auto;
-  min-width: 26px;
-  max-width: 200px;
-  margin-left: auto;
+/* A worktree's app: one chip whose color says whether it runs. Green, as an open PR is, while a
+   server in its folder serves it; outlined, as a place is, when nothing does. Its address
+   shortens with an ellipsis, down to the globe. */
+.ca-chip.ca-previewchip {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
-.ca-previewchip + .ca-lane-right {
-  margin-left: 0;
+.ca-previewchip > .ca-icon {
+  flex: none;
 }
 .ca-previewchip-host {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ca-chip.ca-previewchip.is-up {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
 .ca-previewchip.is-up .ca-icon {
   color: var(--pr-open);
 }
-.ca-previewchip.is-down {
+.ca-chip.ca-previewchip.is-down {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--line);
   color: var(--ink-3);
+}
+/* One that opens on a click (off a list's rows) keeps its colors under the pointer and rings
+   itself in them, as a PR's chip does. */
+.ca-chip.ca-previewchip.ca-chip--button:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+.ca-chip.ca-previewchip.ca-chip--button:focus-visible {
+  box-shadow: var(--shadow-focus);
+}
+/* On a row it sits with the PR and diff on the right, and on a crowded row its address gives way
+   before the agents' chips do. */
+.ca-lane-lead ~ .ca-previewchip {
+  flex: 0 100 auto;
+  min-width: 26px;
+  max-width: 200px;
+  margin-left: auto;
+}
+.ca-previewchip + .ca-lane-right {
+  margin-left: 0;
+}
+/* In a worktree's panel, under its folder. */
+.ca-insp-preview {
+  display: flex;
+  margin-top: 6px;
 }
 .ca-preview-url {
   padding: 0;
@@ -57,23 +83,6 @@
   display: flex;
   gap: var(--space-1);
   margin: var(--space-2) -8px -4px;
-}
-/* In a panel's header, under the folder: the same line, green while it runs. */
-.ca-insp-path.ca-previewlink {
-  margin-top: 2px;
-}
-.ca-previewlink.is-up .ca-icon {
-  color: var(--pr-open);
-}
-.ca-previewlink-state {
-  flex: none;
-  color: var(--ink-3);
-}
-.ca-previewlink-state::before {
-  content: '· ';
-}
-.ca-insp-path:hover .ca-previewlink-state {
-  text-decoration: none;
 }
 .ca-dialog.ca-previewdlg {
   width: min(480px, 100%);

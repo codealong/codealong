@@ -265,7 +265,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
 function LaneLinks({ lane, now, onOpenTarget, onPrMenu, onPrOpen }: { lane: Lane; now: number; onOpenTarget: (lane: Lane, targetId: string) => void; onPrMenu?: () => void; onPrOpen?: () => void }) {
   return (
     <>
-      <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} />
+      <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} inRow />
       {lane.pr && (
         <span className="ca-lane-right">
           <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />

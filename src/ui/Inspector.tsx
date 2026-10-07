@@ -10,7 +10,7 @@ import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
 import { BranchLabel, Button, cx, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { useDismiss } from './useDismiss';
-import { PreviewLink, PreviewSection } from './PreviewBits';
+import { PreviewChip, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
 
@@ -194,7 +194,11 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
           <Icon name="folder" size={12} />
           <span>{middleTruncate(tildePath(lane.path), 48)}</span>
         </button>
-        <PreviewLink preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
+        {lane.preview && (
+          <div className="ca-insp-preview">
+            <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
+          </div>
+        )}
         {branch && (
           <div className="ca-insp-branch">
             <BranchLabel branch={branch} ahead={g?.ahead} behind={g?.behind} dirty={g?.dirty} />

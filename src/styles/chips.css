@@ -2,11 +2,12 @@
    A chip is one shape and size wherever it shows: 20 high with round ends, 11px text, a 12px
    icon, 6px from the next. Its fill says what it is: neutral for something you can open (an
    agent, a todo, a label), an outline for a place (a worktree, an app that isn't running), a
-   color for where something stands (a PR, its review and checks, Jev's read). Names a machine
-   gave are mono (accounts, worktrees, PR numbers); words are sans. The design system drew
-   agents round and everything else square; the lists mix them on one line, so they're all
-   round here, and `--chip-radius` is the one place that says so. The PR chip (.ca-pr, colored
-   by state), its checks, the branch chip, a worktree's chip, label dots and drift are here too. */
+   color for where something stands (a PR, its review and checks, Jev's read, an app that runs).
+   Names a machine gave are mono (accounts, worktrees, PR numbers); words are sans. The design
+   system drew agents round and everything else square; the lists mix them on one line, so
+   they're all round here, and `--chip-radius` is the one place that says so. The PR chip
+   (.ca-pr, colored by state), its checks, the branch chip, a worktree's chip, label dots and
+   drift are here too. */
 
 .ca-pill { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 7px 0 6px; border-radius: var(--radius-xs); background: var(--neutral-tint); color: var(--ink-2); font: 500 12px/16px var(--font-sans); white-space: nowrap; }
 

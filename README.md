@@ -362,13 +362,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   is. Picking another editor there makes it yours, as Codex's Open button remembers its last.
   A session's tab that comes forward on another screen than the pointer's is outlined for a
   moment, and `move_pointer` moves the pointer to it.
-- **Previews**: a worktree's app opens in the browser (⌘5, a double-click on the chip on its row, the link under
-  its folder in its panel and in its sessions' panels, or its right-click menu). Its URL is set there (Set preview URL…) or with `codealong preview set
+- **Previews**: a worktree's app opens in the browser (⌘5, its chip: a double-click on its row,
+  a click in its panel, under its folder, and in its sessions' panels; or its right-click menu). Its URL is set there (Set preview URL…) or with `codealong preview set
   <url>`, which a repo's own dev scripts or instructions can run, since only they know where a
   dev proxy serves each worktree's app (`https://feature.app.test`). A server listening in the
   worktree's folder is linked to it: the one on the port given with the URL, the port a
   localhost URL names, or else the one whose front page is a page, not an API or a debugger.
-  The chip is green while that server runs and outlined when it doesn't; the panel says which
+  The chip, the same everywhere, is green while that server runs and outlined when it doesn't,
+  with the full sentence in its tooltip; the panel says which
   process serves it, for how long, its page's title, and the session whose command started it.
   A worktree with no URL set that serves a page shows it at `localhost`.
   A preview can open in a Chrome profile, with that profile's sign-in and cookies: a project's

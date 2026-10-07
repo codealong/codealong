@@ -161,9 +161,6 @@
 .ca-sessinsp-links > * {
   flex: none;
 }
-.ca-sessinsp-links .ca-insp-path {
-  margin-top: 0;
-}
 
 .ca-sessinsp-more {
   font-size: 12px;

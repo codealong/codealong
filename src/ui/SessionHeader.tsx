@@ -34,7 +34,7 @@ import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
-import { PreviewLink } from './PreviewBits';
+import { PreviewChip } from './PreviewBits';
 import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, StatusGlyph } from './primitives';
 import { runFolder } from './RunButton';
@@ -342,7 +342,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             +{prs.length - PRS_SHOWN}
           </button>
         )}
-        <PreviewLink preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
+        <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         <InsightChips session={s} />
         {!allTodos && current && (
           <button type="button" className="ca-sessinsp-todo" title={`${current.title || 'Untitled'} · ${TODO_WORD[current.status]}.${onShowTodo ? ' Show the todo.' : ''}`} onClick={() => onShowTodo?.(current)}>

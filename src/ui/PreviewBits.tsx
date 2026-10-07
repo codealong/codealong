@@ -55,28 +55,17 @@ export function ChromeProfileSelect({ value, profiles, none, onChange }: { value
   );
 }
 
-/** A worktree's app on its row: where it opens, green while it runs. A double-click opens it: a
- *  click selects the row. */
-export function PreviewChip({ preview: p, now, onOpen }: { preview: Preview | undefined; now: number; onOpen: () => void }) {
+/** A worktree's app, wherever it shows (its row, a session's header, its panel): one chip that
+ *  says where it opens and, by its color, whether it runs: green while a server in the worktree
+ *  serves it, outlined when nothing does. On a list's row a double-click opens it, as a click
+ *  selects the row; elsewhere a click does. */
+export function PreviewChip({ preview: p, now, onOpen, inRow = false }: { preview: Preview | undefined; now: number; onOpen: () => void; inRow?: boolean }) {
   if (!p) return null;
   return (
-    <Chip className={cx('ca-previewchip', p.server ? 'is-up' : 'is-down')} title={`${p.url}. ${previewState(p, now)}${profileNote(p)} Double-click to open it.`} act={onOpen} inRow>
+    <Chip className={cx('ca-previewchip', p.server ? 'is-up' : 'is-down')} title={`${p.url}. ${previewState(p, now)}${profileNote(p)} ${inRow ? 'Double-click' : 'Click'} to open it.`} act={onOpen} inRow={inRow}>
       <Icon name="world" size={12} />
       <span className="ca-previewchip-host">{previewHost(p.url)}</span>
     </Chip>
-  );
-}
-
-/** A worktree's app in a panel's header, under its folder: where it opens, green while it runs.
- *  A click opens it. */
-export function PreviewLink({ preview: p, now, onOpen }: { preview: Preview | undefined; now: number; onOpen: () => void }) {
-  if (!p) return null;
-  return (
-    <button type="button" className={['ca-insp-path', 'ca-previewlink', p.server ? 'is-up' : 'is-down'].join(' ')} title={`Open ${p.url}. ${previewState(p, now)}${profileNote(p)}`} onClick={onOpen}>
-      <Icon name="world" size={12} />
-      <span>{previewHost(p.url)}</span>
-      {!p.server && <span className="ca-previewlink-state">not running</span>}
-    </button>
   );
 }
 
