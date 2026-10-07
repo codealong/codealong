@@ -232,9 +232,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           {device ? (
             <DeviceBadge device={device} now={now} full />
           ) : targets.length > 0 ? (
-            <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} size="sm" />
+            <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} size="sm" variant="secondary" />
           ) : (
-            <Button variant="primary" size="sm" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
+            <Button size="sm" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
               Open in {sessionPlace(s, apps.terminal)}
             </Button>
           )}

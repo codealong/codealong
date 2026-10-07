@@ -32,7 +32,23 @@ function TargetIcon({ target }: { target: Target }) {
   return target.image ? <img className="ca-appicon" src={target.image} alt="" width={16} height={16} /> : <Icon name={target.icon} size={16} />;
 }
 
-export function OpenInMenu({ targets, defaultId, onOpen, size = 'md' }: { targets: Target[]; defaultId: string | null; onOpen: (id: string) => void; size?: 'sm' | 'md' }) {
+/** A split button that opens `defaultId` and lists the other targets under its caret. It's filled
+ *  (`primary`) where opening is the view's one main action, as in the worktree inspector. A
+ *  session's header asks for `secondary`: a near-white fill there was the loudest thing in the
+ *  window in dark mode, and the reply box is that panel's main action. */
+export function OpenInMenu({
+  targets,
+  defaultId,
+  onOpen,
+  size = 'md',
+  variant = 'primary',
+}: {
+  targets: Target[];
+  defaultId: string | null;
+  onOpen: (id: string) => void;
+  size?: 'sm' | 'md';
+  variant?: 'primary' | 'secondary';
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, () => setOpen(false), { when: open });
@@ -42,13 +58,13 @@ export function OpenInMenu({ targets, defaultId, onOpen, size = 'md' }: { target
   return (
     <div className="ca-openin" ref={ref}>
       <div className="ca-split">
-        <button type="button" className={`ca-btn ca-btn--primary ca-btn--${size} ca-split-main`} onClick={() => onOpen(def.id)} title={def.detail ?? undefined}>
+        <button type="button" className={`ca-btn ca-btn--${variant} ca-btn--${size} ca-split-main`} onClick={() => onOpen(def.id)} title={def.detail ?? undefined}>
           <TargetIcon target={def} />
           <span>{def.label}</span>
         </button>
         <button
           type="button"
-          className={`ca-btn ca-btn--primary ca-btn--${size} ca-split-caret`}
+          className={`ca-btn ca-btn--${variant} ca-btn--${size} ca-split-caret`}
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Other ways to open"

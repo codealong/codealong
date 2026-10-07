@@ -5,6 +5,9 @@
 .ca-split { display: inline-flex; }
 .ca-split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .ca-split-caret { width: 28px; padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: var(--ink-3); }
+/* Bordered halves share one line between them, the caret's, rather than drawing two. */
+.ca-split-main.ca-btn--secondary { border-right-width: 0; }
+.ca-split-caret.ca-btn--secondary { border-left-color: var(--line-strong); }
 
 .ca-srow { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 0 10px; align-items: start; padding: var(--space-3) 0; border-top: 1px solid var(--line); }
 .ca-srow > .ca-glyph { margin-top: 3px; }
