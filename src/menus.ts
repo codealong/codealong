@@ -7,7 +7,7 @@
 // it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -17,7 +17,7 @@ import { MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { chordPressed, QUEUE_CHORDS } from './queue';
-import { snoozeChordIndex, snoozeMenu } from './snooze';
+import { SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
@@ -440,6 +440,15 @@ export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], pin: 'Ctrl+Cmd+
 // menu shows beside them. The keys for getting from one session to the next are queue.ts
 // `QUEUE_CHORDS`, written the same way.
 const CTRL_CMD = 'Ctrl+Cmd+';
+
+declare global {
+  interface Window {
+    /** The chords, in a preview (scripts/preview.sh), whose checks hold the menus to them. */
+    __CODEALONG_CHORDS__?: { session: typeof CHORDS; snooze: readonly string[] };
+  }
+}
+// A browser check reads them here rather than keeping a copy, which goes stale as a key is added.
+if (inPreview) window.__CODEALONG_CHORDS__ = { session: CHORDS, snooze: SNOOZE_CHORDS };
 
 /** Whether ⌃⌘ with this key is one of the chords: an action's letter, or a snooze's digit. */
 export function chordLetter(key: string): boolean {

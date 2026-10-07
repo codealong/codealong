@@ -5,7 +5,8 @@
 // that work from there too, so a word typed on the list does nothing. ⌥⇧↓ ⌥⇧↑ go through what
 // waits on you, ⌘E marks seen and goes on (the keys staying where they were), ⌘] skips, ⌃⌘P ⌃⌘R
 // ⌃⌘A pin, rename and archive, ⇧⌘F expands, ⌥↑ ⌥↓ move along, ⌃Tab goes through the views, and
-// the right-click menu shows the chords.
+// the right-click menu shows the chords, as menus.ts `CHORDS` and snooze.ts `SNOOZE_CHORDS` have
+// them.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/seen-next-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -18,6 +19,7 @@
     { status: 'unread', since: now - 10 * 60e3, asks: false },
   ];
   var picked = [];
+  var terminal = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'session_pending' && picked[1] && (args || {}).key === picked[1].key) {
@@ -28,6 +30,7 @@
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
       var seen = {};
+      terminal = board.apps.terminal;
       // None pinned, whatever is today: ⌃⌘P pins the one it's pressed on.
       board.pinned = [];
       board.lanes.forEach(function (l) {
@@ -45,7 +48,8 @@
           // No turn of theirs runs, or Escape in the box would stop it rather than give back the keys.
           s.stoppable = false;
           s.title = 'Queue ' + 'ABCD'[picked.length];
-          picked.push({ key: s.key, lane: l.id });
+          // A worktree's session opens its folder in a new terminal (editors.ts `opensInEditor`).
+          picked.push({ key: s.key, lane: l.id, folder: !l.device && l.targets.some(function (t) { return t.id === 'l|editor'; }) });
         });
       });
       return board;
@@ -226,9 +230,26 @@
       var made = calls('plugin:menu|new');
       var flat = function (items) { return (items || []).flatMap(function (i) { return i.items ? flat(i.items) : i.accelerator ? [i.text + '=' + i.accelerator] : []; }); };
       var keys = made.length ? flat(made[made.length - 1][1].options.items) : [];
-      // The first was marked seen, so its menu has no Mark as seen.
-      // Whether it's pinned, and whether it has a terminal to close, are the board's today.
-      check('the menu shows the chords', /^Rename…=Ctrl\+Cmd\+R, (Pin|Unpin) session=Ctrl\+Cmd\+P, (For 15 minutes=Ctrl\+Cmd\+1, For 1 hour=Ctrl\+Cmd\+2, For 3 hours=Ctrl\+Cmd\+3, Until [^=]+=Ctrl\+Cmd\+4, )?((Close terminal|End background job)=Ctrl\+Cmd\+W, )?Archive=Ctrl\+Cmd\+A$/.test(keys.join(', ')), keys.join(', '));
+      // The chords as the app has them, not a copy kept here.
+      var chords = window.__CODEALONG_CHORDS__;
+      var esc = function (text) { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
+      var item = function (label, chord) { return label + '=' + esc(chord); };
+      var snoozes = ['For 15 minutes', 'For 1 hour', 'For 3 hours', 'Until [^=]+'].map(function (label, i) { return item(label, chords.snooze[i]) + ', '; }).join('');
+      // Its folder's new terminal first, where it has a folder, by the terminal's name in the
+      // Open folder in submenu, or in an item of its own when there's no editor. The first was
+      // marked seen, so its menu has no Mark as seen. Whether it's pinned, and whether it has a
+      // terminal to close, are the board's today.
+      var want = new RegExp(
+        '^' +
+          (picked[0].folder ? item('(Open folder in )?' + esc(terminal), chords.session.terminal) + ', ' : '') +
+          item('Rename…', chords.session.rename) + ', ' +
+          item('(Pin|Unpin) session', chords.session.pin) + ', ' +
+          '(' + snoozes + ')?' +
+          '(' + item('(Close terminal|End background job)', chords.session.close) + ', )?' +
+          item('Archive', chords.session.archive) +
+          '$',
+      );
+      check('the menu shows the chords', want.test(keys.join(', ')), keys.join(', ') + ' / ' + want);
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);

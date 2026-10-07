@@ -417,12 +417,14 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     // How a message would reach a session, as the engine would guess it from the session alone
-    // (send.rs `way_in` also looks at its process and registry).
+    // (send.rs `way_in` also looks at its process and registry): board.json's, or the one a check
+    // gave the window in its place (made running, say), which it puts in
+    // `window.__madeSessions[key]`, so the box sends the way the session it shows would.
     if (cmd === 'session_way') {
       return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
         var key = (args || {}).key;
-        var s = null;
-        board.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === key) s = x; }); });
+        var s = (window.__madeSessions || {})[key] || null;
+        if (!s) board.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === key) s = x; }); });
         if (!s || s.hosted) return null;
         var terminal = board.apps.terminal;
         if (s.harness === 'antigravity') return { kind: 'antigravity' };

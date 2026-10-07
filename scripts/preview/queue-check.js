@@ -1,5 +1,7 @@
 // Checks the waiting window working through what waits on you (Waiting.tsx, quick.ts
-// `queueRows`): three sessions that need you and one whose turn ended, the longest wait first.
+// `queueRows`): three sessions that need you and one whose turn ended, the longest wait first,
+// each running in its terminal, so its box types into it (one that isn't running goes on where its
+// box says instead: resume-check.js).
 // It opens on the first; ⌘] skips, ⌘E on one that has started running does too, archiving,
 // sending with ⌘⏎ and marking seen go on to the next, ⏎ sends and stays, a skipped one comes round
 // again, and after the last the window says nothing waits, until one comes to wait on you. The
@@ -17,6 +19,8 @@
     { status: 'unread', since: now - 10 * 60e3 },
   ];
   var picked = [];
+  // The sessions as the window got them, for the stub's guess at how a send reaches each.
+  var made = (window.__madeSessions = {});
   // The board as the window got it, to push again with a session's status changed.
   var boardNow;
   var push = function (key, status, since) {
@@ -54,6 +58,8 @@
           s.statusSince = p.since;
           s.asks = p.status === 'needs';
           s.title = 'Queue ' + 'ABCD'[picked.length];
+          s.live = true;
+          made[s.key] = s;
           picked.push(s.key);
         });
       });

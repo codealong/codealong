@@ -17,6 +17,9 @@
   var key = picked.key;
   var running = function (s) { return Object.assign({}, s, { status: 'working', live: true, stoppable: true, steerable: true }); };
   picked = running(picked);
+  // The stub's guess at how a send reaches it goes by this one, not board.json's.
+  window.__madeSessions = {};
+  window.__madeSessions[key] = picked;
   localStorage.setItem('codealong.preview.peek', key);
   localStorage.removeItem('codealong.draft.' + key);
 

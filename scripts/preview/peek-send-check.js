@@ -2,10 +2,13 @@
 // the peek closes as you send, without waiting for the send; the peek that shows again has the
 // message in its thread as sending, and a second message waits for the first; a send that went as
 // a message from Codealong rather than typed puts a note on the bar; and one that fails while no
-// box shows says so on the bar and in the next box, with the text back to send.
+// box shows says so on the bar and in the next box, with the text back to send. The session runs
+// in its terminal, so a send types into it (one that isn't running goes on where its box says
+// instead: resume-check.js).
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/peek-send-check.js
 (function () {
-  // This runs before the app's script: pick a session that doesn't wait on you, with no draft.
+  // This runs before the app's script: pick a session that doesn't wait on you, with no draft,
+  // and make it one that runs.
   var xhr = new XMLHttpRequest();
   xhr.open('GET', './board.json', false);
   xhr.send();
@@ -15,14 +18,25 @@
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!picked && s.status !== 'needs' && !s.archived && !l.hidden) { picked = s; pickedLane = l; } }); });
   if (!picked) { stopped('no session to peek at'); return; }
   var key = picked.key;
+  var running = function (s) { return Object.assign({}, s, { live: true }); };
+  picked = running(picked);
+  window.__madeSessions = {};
+  window.__madeSessions[key] = picked;
   var item = 'codealong.draft.' + key;
   localStorage.setItem('codealong.preview.peek', key);
   localStorage.removeItem(item);
 
-  // Sends wait until the check lets them land, as a slow one on a busy Mac does.
+  // The board has it running, and sends wait until the check lets them land, as a slow one on a
+  // busy Mac does.
   var real = window.__TAURI_INTERNALS__.invoke;
   var flying = [];
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'get_board') {
+      return real.apply(this, arguments).then(function (b) {
+        b.lanes.forEach(function (l) { l.sessions = l.sessions.map(function (s) { return s.key === key ? running(s) : s; }); });
+        return b;
+      });
+    }
     if (cmd !== 'send_to_session') return real.apply(this, arguments);
     window.__calls.push([cmd, args, options]);
     return new Promise(function (res, rej) { flying.push({ res: res, rej: rej }); });
