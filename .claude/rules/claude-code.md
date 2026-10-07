@@ -266,7 +266,8 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   "Yes, and use auto mode" (auto offered) or "Yes, auto-accept edits", then "Yes, manually
   approve edits" and "No, keep planning", so its 1 switches mode and keeps the conversation;
   with `showClearContextOnPlanAccept` in settings (default false) "Yes, clear context and …"
-  comes first. Read-only commands (`git status`, `ls`) aren't
+  comes first, so Codealong presses no key for a plan then and says to answer it in the
+  terminal (`claude::clears_context_first`). Read-only commands (`git status`, `ls`) aren't
   asked about. Only typed keys answer it: a bracketed paste goes to Claude Code's paste handler,
   never to its keys, so a pasted `1` does nothing. Where the terminal has the kitty keyboard
   protocol Claude Code pushes flags 5 (1 in its legacy mode), never "report all keys", so a

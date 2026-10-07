@@ -296,6 +296,11 @@ impl crate::harness::Adapter for ClaudeCode {
             anyhow::bail!("It's waiting on a different call now: {}. Look again before answering.", call.text);
         }
         // 1 is "Yes" in every prompt; Escape cancels it, which denies the call and ends the turn.
+        // But with `showClearContextOnPlanAccept` on, a plan's 1 is "Yes, clear context…", which
+        // would wipe the conversation: that one is answered in its terminal, never here.
+        if call.text == PLAN && answer == crate::harness::Answer::Allow && clears_context_first(&ctx.account.home_path(), Path::new(&s.cwd)) {
+            anyhow::bail!("Its plan prompt puts \"clear context\" first (showClearContextOnPlanAccept is on in its settings), so Codealong doesn't press a key for it. Answer it in its terminal.");
+        }
         let key = match answer {
             crate::harness::Answer::Allow => crate::launch::Key::Digit1,
             crate::harness::Answer::Deny => crate::launch::Key::Escape,
@@ -1198,9 +1203,35 @@ fn waiting_on(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sessi
     Some((call.clone(), pid))
 }
 
+/// Whether Claude Code's plan prompt puts "Yes, clear context…" first, as 1, for a session in
+/// `cwd` on the account at `home`: `showClearContextOnPlanAccept` in its settings (2.1.292; off by
+/// default), the account's settings.json, then the repo's `.claude/settings.json` and
+/// `.claude/settings.local.json`, the later winning, as Claude Code reads them.
+fn clears_context_first(home: &Path, cwd: &Path) -> bool {
+    let files = [home.join("settings.json"), cwd.join(".claude/settings.json"), cwd.join(".claude/settings.local.json")];
+    clears_context_in(files.iter().filter_map(|f| std::fs::read_to_string(f).ok()))
+}
+
+/// What settings files' texts, in order, say of `showClearContextOnPlanAccept`: the last that says.
+fn clears_context_in(texts: impl Iterator<Item = String>) -> bool {
+    texts.filter_map(|t| serde_json::from_str::<Value>(&t).ok()?.get("showClearContextOnPlanAccept")?.as_bool()).last().unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A plan's 1 clears the conversation when `showClearContextOnPlanAccept` is on, so Allow
+    /// is refused then; the later settings file wins, and it's off when none says.
+    #[test]
+    fn a_plan_whose_first_answer_clears_context_isnt_pressed() {
+        let t = |s: &[&str]| clears_context_in(s.iter().map(|x| x.to_string()));
+        assert!(!t(&[]));
+        assert!(!t(&[r#"{"model":"opus"}"#]));
+        assert!(t(&[r#"{"showClearContextOnPlanAccept":true}"#]));
+        assert!(!t(&[r#"{"showClearContextOnPlanAccept":true}"#, r#"{"showClearContextOnPlanAccept":false}"#]));
+        assert!(t(&[r#"{"showClearContextOnPlanAccept":false}"#, "not json", r#"{"showClearContextOnPlanAccept":true}"#]));
+    }
 
     #[test]
     fn questions_show_in_the_conversation_and_wait_where_the_session_runs() {
