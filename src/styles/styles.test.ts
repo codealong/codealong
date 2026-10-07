@@ -1,7 +1,7 @@
 // The stylesheets stay in order: each class has one home, nothing is styled that nothing renders,
 // every file is in the index once, tokens.css is what its generator writes, a value a token
 // holds is written as the token, and every font is a type token or a special listed below, with
-// no size, line height or weight written around it but the ones listed.
+// no family, size, line height or weight written around it but the ones listed.
 //
 // Ownership, which the first test holds. Only `ca-` names are things; other class names (is-*,
 // has-*) are states of a thing. A rule defines a class when it names no state and the class is
@@ -307,19 +307,20 @@ describe('the stylesheets', () => {
     expect(problems, problems.join('\n\n')).toEqual([]);
   });
 
-  // A font size, line height or weight written on its own changes the type style its element
-  // has, the one its rule gives (font: var(--type-meta); font-weight: 600) or the one it inherits,
-  // into another: a style written by hand. Where that's another style of the scale, the test
-  // names it, to write in their place. Where it's a style no token has, it's a new style, to add
-  // to design/tokens.json when places share it, or to list here when its numbers do a job only
-  // that place has: a line that sits it level with something, a size relative to the text around
-  // it, a size on the line of the row it's in where a style's own line would move the row. A rule
+  // A font family, size, line height or weight written on its own changes the type style its
+  // element has, the one its rule gives (font: var(--type-meta); font-weight: 600) or the one it
+  // inherits, into another: a style written by hand. Where that's another style of the scale, the
+  // test names it, to write in their place (a mono chip's words in sans are caption-strong).
+  // Where it's a style no token has, it's a new style, to add to design/tokens.json when places
+  // share it, or to list here when its numbers do a job only that place has: a line that sits it
+  // level with something, a size relative to the text around it, a size on the line of the row
+  // it's in where a style's own line would move the row, code's family in a line of text. A rule
   // is listed by its selector as written, with its longhands as written, in order.
   const SPECIAL_LONGHANDS: Record<string, { set: string; why: string }> = {
-    '.ca-ic': { set: 'font-size: 0.9em', why: 'inline code in running text: nine tenths of the text it sits in, whatever its style, on that text’s line' },
-    '.ca-code': { set: 'font-size: 11px', why: 'code in a line of text (a session’s id, a path in a key-value list): mono at 11px on the line of the text around it, meta’s or body’s' },
+    '.ca-ic': { set: 'font-family: var(--font-mono); font-size: 0.9em', why: 'inline code in running text: mono at nine tenths of the text it sits in, whatever its style, on that text’s line and in its weight' },
+    '.ca-code': { set: 'font-family: var(--font-mono); font-size: 11px', why: 'code in a line of text (a session’s id, a path in a key-value list): mono at 11px on the line of the text around it, meta’s or body’s, in its weight' },
     '.ca-found-home': { set: 'font-size: 12px', why: 'a found account’s home folder: code’s size in place of .ca-code’s 11px (it’s both), on its row’s 18px line' },
-    '.ca-nav.is-child': { set: 'font-size: 12px', why: 'a child row in the sidebar (NavItem `child`, which no view passes today): mono at code’s size on the row’s 18px line' },
+    '.ca-nav.is-child': { set: 'font-family: var(--font-mono); font-size: 12px', why: 'a child row in the sidebar (NavItem `child`, which no view passes today): mono at code’s size on the row’s 18px line, in the row’s weight (medium for the one shown)' },
     '.ca-tree-age': { set: 'font-size: 11px', why: 'a session’s age at the end of its tree row: caption’s size on the row’s 18px line, level with the name before it' },
     '.ca-projswitch-key': { set: 'font-size: 12px', why: 'a project’s ⌥⌘ digit, like a native menu’s shortcut column: meta’s size on the menu row’s 18px line' },
     '.ca-prcard-failing': { set: 'font-size: 12px', why: 'a PR’s failing checks in its card: meta’s size, wrapping on the card’s 18px line' },
@@ -338,7 +339,7 @@ describe('the stylesheets', () => {
     '.ca-prbody table': { set: 'font-size: 12px', why: 'a table in a PR’s description: a size under the description’s, on its 19px line' },
     '.ca-prfile-path mark, .ca-patch mark': { set: 'font-weight: 600', why: 'what the Files changed filter matched, in a path or a diff: semibold at the size of the code it marks' },
   };
-  it('write no font size, line height or weight by hand around a type style, but the specials listed here', () => {
+  it('write no font family, size, line height or weight by hand around a type style, but the specials listed here', () => {
     const tokens = JSON.parse(read(join(root, 'design/tokens.json'))) as {
       type: { groups: { family: string; styles: { name: string; fontSize: string; lineHeight: string; fontWeight: number }[] }[] };
     };
@@ -363,8 +364,7 @@ describe('the stylesheets', () => {
       const m = /^(\d+) ([\d.]+)px\/([\d.]+)px var\(--font-(\w+)\)$/.exec(value);
       return m ? { weight: Number(m[1]), size: parseFloat(m[2]), line: parseFloat(m[3]), family: m[4] } : null;
     };
-    const FONT = new Set(['font-family', 'font-size', 'line-height', 'font-weight']);
-    const HAND = new Set(['font-size', 'line-height', 'font-weight']);
+    const HAND = new Set(['font-family', 'font-size', 'line-height', 'font-weight']);
     // Every rule, in the cascade's order, with its declarations.
     const all = parsed
       .filter(({ file }) => file !== join(src, 'styles/tokens.css'))
@@ -388,24 +388,39 @@ describe('the stylesheets', () => {
       const m = /^([a-z][\w-]*)?((?:\.[\w-]+)*)$/.exec(bare);
       return m && bare ? { tag: m[1] ?? '', classes: m[2].split('.').filter(Boolean) } : null;
     };
-    // The rules that give a lone compound a font, each with that font's style.
+    type Compound = { tag: string; classes: string[] } | null;
+    // A selector split at its combinators: its compounds, and the combinators between them.
+    const combined = (sel: string) => sel.split(/\s*([>+~ ])\s*/);
+    const fits = (f: Compound, c: Compound) => !!f && !!c && (f.tag === '' || f.tag === c.tag) && f.classes.every((k) => c.classes.includes(k));
+    // The rules that give an element a font, each with that font's style and its selector's
+    // compounds from the outermost in, where it's only compounds joined by descendant and child
+    // combinators (`.ca-field input` is two).
     const fonts = all.flatMap((r, order) => {
       const font = r.decls.filter(([p]) => p === 'font').pop();
       const style = font && shorthand(font[1]);
       if (!style) return [];
       return splitTop(r.selector).flatMap((sel) => {
-        const p = parts(sel, false);
-        return p ? [{ rule: r, order, sel, ...p, style }] : [];
+        const chain = combined(sel);
+        const path = chain.filter((_, i) => i % 2 === 0).map((x) => parts(x, false));
+        return chain.every((x, i) => i % 2 === 0 || /^[> ]$/.test(x)) && path.every(Boolean) ? [{ rule: r, order, sel, path, style }] : [];
       });
     });
-    // The font a rule gives an element the compound matches, other than `self`: the most specific
-    // whose classes are all the compound's, the last of those.
-    const given = (compound: string, self: unknown) => {
-      const c = parts(compound, true);
-      if (!c) return null;
-      const fits = fonts.filter((f) => f.rule !== self && (f.tag === '' || f.tag === c.tag) && f.classes.every((k) => c.classes.includes(k)));
-      const weight = (f: (typeof fonts)[number]) => f.classes.length * 10 + (f.tag ? 1 : 0);
-      return fits.reduce<(typeof fonts)[number] | null>((a, b) => (!a || weight(b) > weight(a) || (weight(b) === weight(a) && b.order > a.order) ? b : a), null);
+    // The font a rule other than `self` gives an element, `at` being its compound and the ones
+    // it's inside, outermost first: of the rules whose last compound's classes are all the
+    // element's and whose others' are those of compounds it's inside, in order, the most
+    // specific, the last of those.
+    const given = (at: Compound[], self: unknown) => {
+      const matches = (f: (typeof fonts)[number]) => {
+        if (!fits(f.path[f.path.length - 1], at[at.length - 1])) return false;
+        let j = at.length - 2;
+        for (let k = f.path.length - 2; k >= 0; k--, j--) {
+          while (j >= 0 && !fits(f.path[k], at[j])) j--;
+          if (j < 0) return false;
+        }
+        return true;
+      };
+      const weight = (f: (typeof fonts)[number]) => f.path.reduce((n, c) => n + c!.classes.length * 10 + (c!.tag ? 1 : 0), 0);
+      return fonts.filter((f) => f.rule !== self && matches(f)).reduce<(typeof fonts)[number] | null>((a, b) => (!a || weight(b) > weight(a) || (weight(b) === weight(a) && b.order > a.order) ? b : a), null);
     };
     const problems: string[] = [];
     const used = new Set<string>();
@@ -418,19 +433,23 @@ describe('the stylesheets', () => {
         continue;
       }
       const own = r.decls.filter(([p]) => p === 'font').pop();
-      const after = r.decls.slice(own ? r.decls.lastIndexOf(own) + 1 : 0).filter(([p]) => FONT.has(p));
+      const after = r.decls.slice(own ? r.decls.lastIndexOf(own) + 1 : 0).filter(([p]) => HAND.has(p));
       for (const sel of splitTop(r.selector)) {
         const where = `${short(r.file)}:${r.line} ${sel} { ${set} }`;
-        // The style it starts from: the rule's own font, else one its element's classes are
-        // given, else one given a class it's inside.
+        // The style it starts from: the rule's own font, else one a rule gives its element (by
+        // its classes, and the ones it's inside), else one given an element it's inside.
         let base: (Style & { token?: string }) | null = own ? shorthand(own[1]) : null;
         let how = 'its own font';
         if (!base) {
-          const chain = sel.split(/\s*([>+~ ])\s*/);
-          const self = own ? null : given(chain[chain.length - 1], r);
+          // The element's compound and the ones it's inside, back to a sibling combinator.
+          const chain = combined(sel);
+          let from = chain.length - 1;
+          while (from >= 2 && /^[> ]$/.test(chain[from - 1])) from -= 2;
+          const at = chain.slice(from).filter((_, i) => i % 2 === 0).map((x) => parts(x, true));
+          const self = own ? null : given(at, r);
           if (self) [base, how] = [self.style, `as ${self.sel} gives it`];
-          for (let i = chain.length - 3; !base && i >= 0 && /^[> ]$/.test(chain[i + 1]); i -= 2) {
-            const up = given(chain[i], r);
+          for (let i = at.length - 1; !base && i > 0; i--) {
+            const up = given(at.slice(0, i), r);
             if (up) [base, how] = [up.style, `inherited from ${up.sel}`];
           }
         }
