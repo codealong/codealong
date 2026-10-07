@@ -373,12 +373,7 @@ pub fn type_text(tty: &str, text: &str, submit: Submit) -> Result<bool> {
 /// Presses one key in the session on `tty`, as if typed: `write text` sends it as it is, so a
 /// digit arrives as the plain character, which Claude Code's prompt takes.
 pub fn press(tty: &str, key: Key) -> Result<()> {
-    let chars = match key {
-        Key::Digit1 => "1",
-        Key::Escape => "\x1b",
-        Key::CtrlC => "\x03",
-    };
-    osascript(&with_session_on(PRESS), &[tty, chars]).map(|_| ())
+    osascript(&with_session_on(PRESS), &[tty, key.typed()]).map(|_| ())
 }
 
 pub fn ttys() -> Result<Vec<String>> {

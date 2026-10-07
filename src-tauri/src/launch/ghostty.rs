@@ -119,6 +119,9 @@ impl Terminal for Ghostty {
             Key::Digit1 => osascript(GHOSTTY_ACTION, &[at, "text:1"])?,
             Key::Escape => osascript(GHOSTTY_KEY, &[at, "escape"])?,
             Key::CtrlC => osascript(GHOSTTY_ACTION, &[at, GHOSTTY_CTRL_C])?,
+            // End as the terminal sequence, which needs no key name of Ghostty's.
+            Key::End => osascript(GHOSTTY_ACTION, &[at, &text_action(key.typed())])?,
+            Key::Return => osascript(GHOSTTY_KEY, &[at, "enter"])?,
         };
         Ok(())
     }

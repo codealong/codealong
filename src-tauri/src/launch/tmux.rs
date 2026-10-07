@@ -64,6 +64,8 @@ impl Terminal for Tmux {
             Key::Digit1 => "1",
             Key::Escape => "Escape",
             Key::CtrlC => "C-c",
+            Key::End => "End",
+            Key::Return => "Enter",
         };
         let bin = bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
         procs::run(&bin.to_string_lossy(), &["send-keys", "-t", at, name], None, Duration::from_secs(5))?;

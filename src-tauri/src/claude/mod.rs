@@ -14,6 +14,7 @@ pub mod app;
 pub mod asks;
 mod conversation;
 pub mod daemon;
+pub mod held;
 mod mode;
 mod names;
 pub mod peer;
@@ -42,7 +43,8 @@ use crate::transcript::{Item, Page};
 use crate::util::{file_name, mtime_ms, one_line, parallel_map, parse_rfc3339_ms};
 
 use conversation::{idle_since, last_prompt_taken_back, mark_taken_back, open_prompt_before, questions_of};
-use daemon::{daemon_press_escape, daemon_socket};
+use daemon::{daemon_press_escape, daemon_socket, daemon_type};
+use held::held_in;
 use mode::permission_mode;
 use names::name_transcript;
 use registry::{read_registry, registry_of, session_entry, Forks, INPUT_NEEDED, PERMISSION_PROMPT};
@@ -53,6 +55,7 @@ use transcript::{parse_transcript, reply_text, tool_request, transcript_cwd, tra
 use trust::{state_file, trust_folder};
 
 pub use conversation::conversation_items;
+pub use held::Held;
 pub use registry::RegistryEntry;
 pub use transcript::TranscriptInfo;
 
@@ -254,10 +257,16 @@ impl crate::harness::Adapter for ClaudeCode {
                 always: false,
                 no_once: false,
                 plan: false,
+                message: false,
                 always_rule: None,
                 questions: call.questions,
                 unwritten: false,
             });
+        }
+        // Another session's message it holds for you: its dialog comes before any call made
+        // before it, and a turn goes on underneath it.
+        if let Some((held, reg)) = waiting_hold(self, ctx, s) {
+            return Some(held_pending(ctx, s, &held, &reg));
         }
         let (call, _) = waiting_call(self, ctx, s)?;
         let cannot = match crate::launch::terminal_kind(s.pid?) {
@@ -268,10 +277,13 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, always_rule: None, questions: Vec::new(), unwritten: false })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, always_rule: None, questions: Vec::new(), unwritten: false })
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        if let Some(held) = id.strip_prefix(HELD_ID) {
+            return answer_held(self, ctx, s, held, answer);
+        }
         let decision = match answer {
             crate::harness::Answer::Allow => asks::Decision::Allow,
             crate::harness::Answer::Always => asks::Decision::Always,
@@ -1201,6 +1213,105 @@ fn waiting_on(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sessi
     let page = crate::transcript::file_page(&record(a, ctx, s).ok()?, conversation_items, None, 40).ok()?;
     let call = crate::transcript::open_tools(&page.items).last().copied()?;
     Some((call.clone(), pid))
+}
+
+/// How the id of a held message's request starts: the held line's uuid follows.
+const HELD_ID: &str = "held:";
+
+/// The message a live session holds for you, while Claude Code's own record of it says it waits
+/// on a prompt, with that record. A call made since, in a session that asks about calls, may be
+/// what the prompt is for, so then it's none.
+fn waiting_hold(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<(Held, RegistryEntry)> {
+    let reg = registry_of(&ctx.account.home_path(), s.pid?).filter(|r| r.session_id == s.id && r.waits_on(PERMISSION_PROMPT))?;
+    let path = record(a, ctx, s).ok()?;
+    let held = held_in(&path)?;
+    let page = crate::transcript::file_page(&path, conversation_items, None, 40).ok()?;
+    let call_since = crate::transcript::open_tools(&page.items).last().is_some_and(|c| c.at > held.at);
+    if call_since && permission_mode(Some(&reg), std::slice::from_ref(&path)).as_deref() != Some("bypassPermissions") {
+        return None;
+    }
+    Some((held, reg))
+}
+
+/// A held message as the panel shows it: all of it when Codealong sent it, else the first line
+/// Claude Code kept.
+fn held_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, held: &Held, reg: &RegistryEntry) -> crate::harness::Pending {
+    let kept = || match &held.more {
+        Some(more) => format!("{}…\n\n({more} in all; its first line is all that's on record here.)", held.preview),
+        None => held.preview.clone(),
+    };
+    let input = held::sent_text(&s.key, held).or_else(|| (!held.preview.is_empty()).then(kept));
+    let cannot = if held.count > 1 { Some(format!("It holds {} messages, and only where it runs shows which comes first.", held.count)) } else { cannot_press(ctx, reg) };
+    crate::harness::Pending {
+        id: format!("{HELD_ID}{}", held.id),
+        // Several: the line names the latest, and the terminal shows the oldest first.
+        label: if held.count > 1 { format!("{} messages, the latest from {}", held.count, held.from) } else { format!("From {}", held.from) },
+        input,
+        cannot,
+        always: false,
+        no_once: false,
+        plan: false,
+        message: true,
+        always_rule: None,
+        questions: Vec::new(),
+        unwritten: false,
+    }
+}
+
+/// Why Codealong can't press keys where a session runs, when it can't: its terminal, or a
+/// background job through its account's service.
+fn cannot_press(ctx: &crate::harness::Ctx, reg: &RegistryEntry) -> Option<String> {
+    if reg.kind.as_deref() == Some("bg") {
+        return daemon_socket(&ctx.account.home_path()).is_none().then(|| "Its account's background service isn't running.".to_string());
+    }
+    match crate::launch::terminal_kind(reg.pid) {
+        Some(k) if k.presses_keys() => None,
+        Some(k) => Some(format!("{} can't press a single key for Codealong. Open it to answer.", k.name())),
+        None => Some(format!("It isn't in a terminal Codealong can press keys in ({}).", crate::launch::presses_keys_in())),
+    }
+}
+
+/// Delivers or denies the message a session holds, by its dialog's keys: End then Return picks
+/// Deliver wherever the focus is (its choices wrap), and Escape denies. Only while it's the only
+/// one held, since denying one leaves nothing on record to say which comes next.
+fn answer_held(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+    use crate::launch::Key;
+    let Some((held, reg)) = waiting_hold(a, ctx, s) else {
+        anyhow::bail!("It isn't holding a message for you any more.");
+    };
+    if held.id != id {
+        anyhow::bail!("It holds another message now, from {}. Look again before answering.", held.from);
+    }
+    if held.count > 1 {
+        anyhow::bail!("It holds {} messages, and only where it runs shows which comes first. Answer them there.", held.count);
+    }
+    // A call the plugin's hook handed over has its prompt up in front of this one.
+    if asks::of_session(&s.id).is_some() {
+        anyhow::bail!("It's asking you about something else first. Answer that, then this.");
+    }
+    let keys: &[Key] = match answer {
+        crate::harness::Answer::Allow => &[Key::End, Key::Return],
+        crate::harness::Answer::Deny => &[Key::Escape],
+        crate::harness::Answer::Always => anyhow::bail!("A held message is delivered or denied one at a time."),
+    };
+    if reg.kind.as_deref() == Some("bg") {
+        let home = ctx.account.home_path();
+        let job = reg.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+        let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+        let writes: Vec<&[u8]> = keys.iter().map(|k| k.typed().as_bytes()).collect();
+        daemon_type(&socket, &home.join("daemon/control.key"), job, &writes)?;
+    } else {
+        let Some(host) = crate::launch::terminal_host(reg.pid, Path::new(&s.cwd))? else {
+            anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
+        };
+        for key in keys {
+            crate::launch::press_key(&host, *key)?;
+        }
+    }
+    Ok(match answer {
+        crate::harness::Answer::Deny => format!("Denied the message from {}; Claude Code tells its sender it was declined.", held.from),
+        _ => format!("Delivered the message from {}.", held.from),
+    })
 }
 
 /// Whether Claude Code's plan prompt puts "Yes, clear context…" first, as 1, for a session in

@@ -36,13 +36,19 @@ pub const FROM_YOU: &str = "Your user sent this to this session from Codealong:"
 /// attributes go in the order Claude Code writes them, since it reads the envelope only when
 /// writing it again gives the same text.
 pub fn peer_content(text: &str, claim: Option<&str>, from: Option<&str>) -> String {
-    let (name, body) = match from {
-        Some(name) => (envelope_name(name), text.trim().to_string()),
-        None => (FROM_CODEALONG.to_string(), format!("{FROM_YOU}\n\n{}", text.trim())),
-    };
-    let body = body.replace("</cross-session-message", "<\\/cross-session-message");
+    let name = from.map(envelope_name).unwrap_or_else(|| FROM_CODEALONG.to_string());
+    let body = peer_body(text, from).replace("</cross-session-message", "<\\/cross-session-message");
     let mode = claim.map(|m| format!(" from-mode=\"{m}\"")).unwrap_or_default();
     format!("<cross-session-message from-name=\"{name}\"{mode}>\n{body}\n</cross-session-message>")
+}
+
+/// The text inside the envelope: an agent's as it is (it carries its own byline), yours after
+/// the line that says it's yours.
+fn peer_body(text: &str, from: Option<&str>) -> String {
+    match from {
+        Some(_) => text.trim().to_string(),
+        None => format!("{FROM_YOU}\n\n{}", text.trim()),
+    }
 }
 
 /// A sender's name as Claude Code writes `from-name` (2.1.284): without quotes, angle brackets,
@@ -144,8 +150,13 @@ impl Own for Message {
             }
             bail!("{title} skips permission prompts, so Claude Code would hold a message from here for you to allow, and the Claude app can't show that. Send it from Codealong on the Mac it runs on, or in the Claude app.");
         }
-        peer_send(&self.socket, &self.session_id, &attachments::expand(d.text, Style::Path), claim, d.agent)?;
+        let text = attachments::expand(d.text, Style::Path);
+        peer_send(&self.socket, &self.session_id, &text, claim, d.agent)?;
         let held = skips && claim.is_none();
+        // Claude Code keeps only its first line where Codealong can read it.
+        if held {
+            super::held::note(&d.session.key, &peer_body(&text, d.agent));
+        }
         Ok(Sent { message: peer_note(&title, d.untyped, d.busy(), held, d.from_agent()), opened: false, fell_back: d.untyped.is_some() })
     }
 }

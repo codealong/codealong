@@ -1233,6 +1233,9 @@ export interface Pending {
   alwaysRule?: string;
   /** It's a plan to approve (plan mode): `input` is the plan, in Markdown. */
   plan?: boolean;
+  /** It's another session's message it holds for you (Claude Code): `input` is the message, as
+   *  prose. Allow delivers it; Deny drops it, and its sender is told it was declined. */
+  message?: boolean;
   /** Questions it asks you: answered with your picks rather than allowed. */
   questions?: Question[];
   /** What it wrote with this isn't in its conversation until it's answered, only where it runs. */

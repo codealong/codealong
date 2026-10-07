@@ -375,6 +375,7 @@ pub(super) fn asked_pending(a: &Asked) -> crate::harness::Pending {
         always: questions.is_empty() && !a.suggestions.is_empty(),
         no_once: false,
         plan: false,
+        message: false,
         always_rule: always_text(&a.suggestions),
         questions,
         unwritten: false,

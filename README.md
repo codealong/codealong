@@ -45,7 +45,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     rest by the day they were last active, the one you last sent a prompt first. Started puts the
     newest session first, and each row's age then says when it started. A row leads with the session's title, then what it's doing or said last; one that
     needs you has a label beside its title for what it waits on (Asks you, Needs approval,
-    Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
+    Message, Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
     then its account, with the worktree's PR and diff at the right. The sidebar's Rows puts
     each session on one line instead (its title, then its worktree and PR at the line's end);
     there its status says its account when you point at it. A snoozed session's row says how
@@ -187,7 +187,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     prompt is up for that call. Questions a Claude Code session asks you (its `AskUserQuestion`)
     show the same way through the plugin, with their choices and a box for your own answer, and
     Answer sends your picks. Claude Code's own prompt stays up all the while, and whichever
-    answer comes first counts. Others open where they run to be answered. The box stays meanwhile,
+    answer comes first counts. Another session's message that a Claude Code session holds for
+    you to allow (it skips permission prompts and the sender didn't say it does too) shows the
+    same way, all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty,
+    iTerm2 or tmux tab or typed into its background job; with several held, it opens where it
+    runs, which shows them one at a time. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written. Where the call can be answered here, sending what you wrote (⏎)
     denies it and tells the agent that instead, as Claude Code's own "No, and tell Claude what to
     do differently" does, and the panel shows your words as a message of yours; nothing is typed

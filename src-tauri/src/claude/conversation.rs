@@ -108,6 +108,12 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             }
             out
         }
+        // Another session's message it held for you to allow (held.rs), shown where it came;
+        // delivered, it follows as that session's.
+        Some("system") => match super::held::hold_of(v) {
+            Some(super::held::Hold::Held(h)) => vec![item(at, "note", format!("Held a message from {} for you to allow", h.from))],
+            _ => Vec::new(),
+        },
         _ => Vec::new(),
     }
 }

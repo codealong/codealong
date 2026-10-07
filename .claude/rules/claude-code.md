@@ -225,7 +225,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - A message is held when the session bypasses permissions and the sender claims another class
   or none (`cause: "no-mode-asserted"`): it shows "Held message from another session", Deny
   first, unless the session's settings say `"crossSessionInbound": "accept"`; typing into its
-  terminal isn't held. Under the Claude app (stream-json) a hold is only a `{"type":
+  terminal isn't held. What a hold writes and doesn't (a line as it's held, one as it's
+  delivered, nothing as it's denied or expires), the registry's `waiting` / `permission prompt`
+  while it's up (a turn goes on under it), and the dialog's keys (no numbers, choices that wrap,
+  End then Return delivers, Escape denies; checked in tmux and through a job's `attach` on
+  2.1.292, 2026-10-07): `claude/held.rs` (module header). It expires after settings.json's
+  `dialogExpiry` (`60s`, `5m`, `10m`, `never`; `CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS` wins), five
+  minutes by default, except in a background job nobody is attached to, and the sender is
+  told it expired as it's told of a denial. Under the Claude app (stream-json) a hold is only a `{"type":
   "system","subtype":"peer_message_hold","state":"held"}` line to the app, which (2.9939.2) has
   no code for it: the message is never shown or delivered, and the sender never hears.
 - A Claude app session's permission mode is in the app's record of it, a terminal session's on

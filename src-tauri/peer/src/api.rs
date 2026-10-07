@@ -337,6 +337,11 @@ pub struct Pending {
     /// as prose rather than as a command.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub plan: bool,
+    /// It's another session's message the session holds for you (Claude Code): `input` is the
+    /// message, to read as prose; Allow delivers it and Deny drops it, which its sender is told.
+    /// Devices that don't know it show it as a call to allow, which comes to the same.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub message: bool,
     /// What `Answer::Always` adds, in a sentence, when Codealong can say: "Allows
     /// `Bash(npm test:*)` in this project, for you."
     #[serde(default, skip_serializing_if = "Option::is_none")]

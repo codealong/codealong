@@ -798,6 +798,24 @@ pub enum Key {
     Digit1,
     Escape,
     CtrlC,
+    /// The last of a list's choices, in Claude Code's dialogs.
+    End,
+    Return,
+}
+
+impl Key {
+    /// What a terminal writes to the program for the key, without the keyboard protocols that
+    /// tell more keys apart: programs that use them still take these (Claude Code, checked
+    /// 2026-10-07 for End as `ESC [ F`, `ESC O F` and `ESC [ 4 ~`).
+    pub fn typed(self) -> &'static str {
+        match self {
+            Key::Digit1 => "1",
+            Key::Escape => "\x1b",
+            Key::CtrlC => "\x03",
+            Key::End => "\x1b[F",
+            Key::Return => "\r",
+        }
+    }
 }
 
 /// Presses one key in a terminal, as if typed: no paste, no Return.

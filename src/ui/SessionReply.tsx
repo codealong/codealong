@@ -794,6 +794,29 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       </div>
     );
   }
+  // A held message that can only be answered where it runs still shows here, to read first.
+  if (pending?.cannot && pending.message) {
+    return (
+      <div className="ca-composer is-approval is-elsewhere">
+        <div className="ca-approval-head">
+          <Icon name="message-circle" size={14} />
+          <span>Holds a message for you</span>
+        </div>
+        <div className="ca-approval-label">
+          <Rich text={pending.label} now={0} />
+        </div>
+        {pending.input && <Markdown text={pending.input} className="ca-approval-plan" />}
+        <div className="ca-composer-foot">
+          <span className="ca-composer-note" title={pending.cannot}>
+            {note?.text ?? `${pending.cannot} Answer it in ${where}.`}
+          </span>
+          <Button variant="primary" size="sm" icon="arrow-up-right" onClick={onOpen}>
+            Open in {where}
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (!pending || pending.cannot) {
     const why = s.stalledSince ? `It looks stuck. Open it in ${where} to see what it’s waiting for.` : `It’s waiting on you. Answer it in ${where}.`;
     return (
@@ -826,9 +849,12 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       />
     );
   }
-  // A plan reads as prose, and its answers say what they do to it.
+  // A plan or a held message reads as prose, and its answers say what they do to it.
   const plan = !!pending.plan;
-  const says = plan
+  const message = !!pending.message;
+  const says = message
+    ? 'Deliver gives it to the session as that session’s message. Deny drops it, and its sender is told it was declined.'
+    : plan
     ? 'Allow approves the plan. Deny keeps it planning, or write below what to change.'
     : pending.noOnce
       ? `Its agent ${pending.always ? 'allows calls like this only from now on, not just this once' : 'offers no way to allow this'}. Deny tells it no, and it carries on.`
@@ -838,8 +864,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   return (
     <div className="ca-composer is-approval">
       <div className="ca-approval-head">
-        <Icon name="alert" size={14} />
-        <span>{plan ? 'Wants you to approve its plan' : 'Wants to run'}</span>
+        <Icon name={message ? 'message-circle' : 'alert'} size={14} />
+        <span>{message ? 'Holds a message for you' : plan ? 'Wants you to approve its plan' : 'Wants to run'}</span>
         {!s.hosted && (
           <button type="button" className="ca-linkbtn" onClick={onOpen}>
             Open in {where}
@@ -851,7 +877,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           <Rich text={pending.label} now={0} />
         </div>
       )}
-      {pending.input && pending.input !== pending.label && (plan ? <Markdown text={pending.input} className="ca-approval-plan" /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
+      {pending.input && pending.input !== pending.label && (plan || message ? <Markdown text={pending.input} className="ca-approval-plan" /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
       <div className="ca-composer-foot">
         <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? says)}</span>
         <Button size="sm" kbd={['⌘', '⌫']} disabled={busy} onClick={() => answer('deny')}>
@@ -864,7 +890,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         )}
         {!pending.noOnce && (
           <Button variant="primary" size="sm" icon="check" kbd={['⌘', '⏎']} disabled={busy} onClick={() => answer('allow')}>
-            Allow
+            {message ? 'Deliver' : 'Allow'}
           </Button>
         )}
       </div>

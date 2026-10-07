@@ -28,8 +28,8 @@ pub struct HeadInfo {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TailState {
     pub offset: u64,
-    /// Tool calls still waiting on a result: (id, request).
-    pub open_tools: Vec<(String, String)>,
+    /// Tool calls still waiting on a result: (id, request, when it was made).
+    pub open_tools: Vec<(String, String, i64)>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -69,6 +69,11 @@ pub struct TranscriptInfo {
     pub limit: Option<SessionLimit>,
     /// The model the latest reply came from.
     pub model: Option<String>,
+    /// A message from another session it holds for you to allow (held.rs), until a line says
+    /// it went.
+    pub held: Option<super::held::Held>,
+    /// When the tool call in `pending_tool` was made.
+    pub pending_tool_at: Option<i64>,
 }
 
 /// Transcript files modified since `since_ms`, one level below `<home>/projects`.
@@ -253,6 +258,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         if matches!(kind, Some("user") | Some("assistant")) {
             info.continued_in = None;
         }
+        if let Some(hold) = super::held::hold_of(&v) {
+            super::held::apply(&mut info.held, hold);
+        }
         match kind {
             Some("continued-in") => {
                 info.continued_in = str_of(&v, "continuedInSessionId").filter(|id| !id.is_empty());
@@ -292,7 +300,8 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                             let id = str_of(item, "id").unwrap_or_default();
                             let input = item.get("input").cloned().unwrap_or(Value::Null);
                             info.last_tool = Some(tool_activity(&name, &input));
-                            open_tools.push((id, tool_request(&name, &input)));
+                            let at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0);
+                            open_tools.push((id, tool_request(&name, &input), at));
                             if let Some(p) = work_path(&name, &input, &cwd) {
                                 note_work(&mut info.work, p);
                             }
@@ -312,7 +321,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     for item in items {
                         if item.get("type").and_then(Value::as_str) == Some("tool_result") {
                             if let Some(id) = str_of(item, "tool_use_id") {
-                                open_tools.retain(|(open, _)| open != &id);
+                                open_tools.retain(|(open, _, _)| open != &id);
                             }
                         }
                     }
@@ -339,7 +348,8 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             _ => {}
         }
     }
-    info.pending_tool = open_tools.last().map(|(_, req)| req.clone());
+    info.pending_tool = open_tools.last().map(|(_, req, _)| req.clone());
+    info.pending_tool_at = open_tools.last().map(|(_, _, at)| *at);
 }
 
 /// The model `/model` switched to, from what it wrote: "Set model to `haiku

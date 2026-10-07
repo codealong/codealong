@@ -195,6 +195,10 @@ pub fn moved_registry(r: &RegistryEntry, from: &TranscriptInfo) -> RegistryEntry
     r
 }
 
+/// How a session's excerpt starts while it holds another session's message for you to allow
+/// (`claude::held`): the sender follows.
+pub const HELD_MESSAGE: &str = "Held message from ";
+
 /// A Claude Code session from its registry entry (when live) and transcript.
 pub fn claude_session(
     account: &AccountCfg,
@@ -269,7 +273,12 @@ pub fn claude_session(
                 None => format!("No activity for {{for:{t}}}"),
             })
         }
-        Status::Needs => tr.and_then(|t| t.pending_tool.clone()),
+        // A message held since its last call was made is what it waits on: a turn goes on under
+        // its dialog, so the call may be one still running.
+        Status::Needs => tr.and_then(|t| match &t.held {
+            Some(h) if t.pending_tool_at.map_or(true, |at| at <= h.at) => Some(format!("{HELD_MESSAGE}{}", h.from)),
+            _ => t.pending_tool.clone(),
+        }),
         _ if left_running => Some(match quiet.running {
             Some(cmd) => format!("Left running · {}", code(&truncate(&one_line(cmd, 200), 80))),
             None => "Left a command running".to_string(),
@@ -1056,6 +1065,9 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
         // up front and leaves the question itself below.
         Status::Needs if s.asks || s.excerpt.as_deref().is_some_and(|e| e.starts_with("Asks you")) => {
             (format!("{acct} asks you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Asks you · ")).map(str::to_string))
+        }
+        Status::Needs if s.excerpt.as_deref().is_some_and(|e| e.starts_with(HELD_MESSAGE)) => {
+            (format!("{acct} holds a message for you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Held message ")).map(str::to_string))
         }
         Status::Needs => match (&s.excerpt, s.harness) {
             (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval · {title}"), Some(ex.clone())),
@@ -2167,6 +2179,23 @@ mod tests {
         assert_eq!(claude_session(&a, None, Some(&old), 0, NOW, &Quiet::default()).unwrap().status, Status::Stopped);
         let recent = TranscriptInfo { last_ts: NOW - 3 * DAY_MS + 60_000, ..tr() };
         assert_eq!(claude_session(&a, None, Some(&recent), 0, NOW, &Quiet::default()).unwrap().status, Status::Unread);
+    }
+
+    #[test]
+    fn a_held_message_is_what_it_waits_on() {
+        let a = acct("claude2");
+        let held = crate::claude::Held { id: "h1".into(), from: "“Review 1021”".into(), count: 1, at: NOW - 30_000, ..Default::default() };
+        let s = |t: &TranscriptInfo| claude_session(&a, Some(&reg("waiting", NOW - 30_000)), Some(t), 0, NOW, &Quiet::default()).unwrap();
+        // Idle when it came: nothing else open.
+        let idle = s(&TranscriptInfo { held: Some(held.clone()), pending_tool: None, ..tr() });
+        assert_eq!((idle.status, idle.excerpt.as_deref()), (Status::Needs, Some("Held message from “Review 1021”")));
+        assert_eq!(session_headline(&idle), ("`claude2` holds a message for you · Portal daily log + photo sync".to_string(), Some("from “Review 1021”".to_string())));
+        // Busy when it came: the command it was running isn't what it asks about.
+        let busy = s(&TranscriptInfo { held: Some(held.clone()), pending_tool_at: Some(NOW - 40_000), ..tr() });
+        assert_eq!(busy.excerpt.as_deref(), Some("Held message from “Review 1021”"));
+        // A call made since may be.
+        let since = s(&TranscriptInfo { held: Some(held), pending_tool_at: Some(NOW - 10_000), ..tr() });
+        assert_eq!(since.excerpt.as_deref(), Some("Bash · `yarn mikro-orm migration:up`"));
     }
 
     #[test]

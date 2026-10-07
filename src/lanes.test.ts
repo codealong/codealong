@@ -265,6 +265,10 @@ describe('sessionHeadline', () => {
     // A question held through the plugin, which what you type doesn't answer.
     expect(sessionHeadline(s({ asks: false, excerpt: 'Asks you · Which color?' }))).toEqual(['`claude2` asks you · Fix the test', 'Which color?']);
   });
+
+  it('says a session holding another session’s message holds it, and whose', () => {
+    expect(sessionHeadline(s({ excerpt: 'Held message from “Review 1021”' }))).toEqual(['`claude2` holds a message for you · Fix the test', 'from “Review 1021”']);
+  });
 });
 
 describe('sessionFlag', () => {
@@ -280,6 +284,7 @@ describe('sessionFlag', () => {
     expect(flag({ asks: true, excerpt: 'Asks you · Want the PR?' })).toBe('Asks you');
     // A question held through the plugin, which what you type doesn't answer.
     expect(flag({ excerpt: 'Asks you · Which color?' })).toBe('Asks you');
+    expect(flag({ excerpt: 'Held message from “Review 1021”' })).toBe('Message');
     expect(flag({ stalledSince: NOW - 3_600_000, excerpt: 'No activity for {for:1}' })).toBe('Stuck');
     expect(sessionFlag(s({ status: 'error', excerpt: 'API error' }))).toMatchObject({ label: 'Error', tone: 'bad' });
   });

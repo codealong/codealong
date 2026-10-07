@@ -219,6 +219,10 @@ function truncate(s: string, max: number): string {
   return [...s].length <= max ? s : `${[...s].slice(0, max - 1).join('').trimEnd()}…`;
 }
 
+/** How a session's excerpt starts while it holds another session's message for you to allow,
+ *  as the engine writes it (board.rs `HELD_MESSAGE`). */
+const HELD_MESSAGE = 'Held message from ';
+
 /** A session's own sentence, as the engine words it (board.rs, `session_headline`). */
 export function sessionHeadline(s: Session): [string, string | null] {
   const acct = code(s.account);
@@ -229,6 +233,8 @@ export function sessionHeadline(s: Session): [string, string | null] {
       // A question, from its reply or held through the plugin, leaves the question itself below.
       if (s.asks || s.excerpt?.startsWith('Asks you')) return [`${acct} asks you · ${s.title}`, s.excerpt?.startsWith('Asks you · ') ? s.excerpt.slice('Asks you · '.length) : null];
       if (s.excerpt == null) return [`${acct} needs you · ${s.title}`, null];
+      // Another session's message it holds for you to allow (claude/held.rs): who it's from below.
+      if (s.excerpt.startsWith(HELD_MESSAGE)) return [`${acct} holds a message for you · ${s.title}`, s.excerpt.slice('Held message '.length)];
       if (s.harness === 'claude') return [`${acct} is waiting for approval · ${s.title}`, s.excerpt];
       return [`${acct} asks for approval · ${s.title}`, s.excerpt];
     case 'error':
@@ -280,6 +286,7 @@ export function sessionFlag(s: Session): InsightLabel | null {
   if (s.status !== 'needs') return null;
   if (s.asks) return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };
   if (s.excerpt?.startsWith('Asks you')) return { label: 'Asks you', tone: 'warn', title: 'It’s waiting for your answer to its question.' };
+  if (s.excerpt?.startsWith(HELD_MESSAGE)) return { label: 'Message', tone: 'warn', title: 'Another session sent it a message, which it holds until you deliver or deny it.' };
   if (s.excerpt != null) return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
   return null;
 }
