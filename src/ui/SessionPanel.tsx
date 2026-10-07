@@ -28,7 +28,7 @@ import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { cardZoom } from '../zoom';
-import { Button, Icon, Rich } from './primitives';
+import { Button, cx, Icon, Rich } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply } from './SessionReply';
@@ -53,6 +53,9 @@ export interface Hotkeys {
   onBack?: (() => void) | null;
   /** Puts the session away (esc), where it can be. */
   onClose?: () => void;
+  /** The strip is its window's title bar (the waiting window has no other): it drags the window,
+   *  and leaves room at its start for the window's buttons. */
+  titleBar?: boolean;
 }
 /** How the one before went: sent, or why it didn't go. */
 export type Notice = { text: string; error: boolean };
@@ -200,7 +203,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
     </div>
   );
   return (
-    <div className="ca-reply-queue has-keys">
+    <div className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
       <span className={`ca-reply-queue-note${notice?.error ? ' is-error' : ''}`} role="status">
         {queueWords(queue, notice, true)}
       </span>

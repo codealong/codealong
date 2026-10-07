@@ -16,6 +16,9 @@
 //
 // What's around a session (its worktree, todos and PRs) shows in the main window, which comes
 // forward beside this one; a session it came from, or that came of it, shows here in its place.
+//
+// The window has no title bar (waiting.rs): the card's strip is one, and with nothing shown the
+// whole window drags.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
@@ -281,7 +284,7 @@ export function Waiting() {
   const apps = board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' };
 
   return (
-    <div className="ca-waiting">
+    <div className="ca-waiting" data-tauri-drag-region={replying || reviewing ? undefined : 'deep'}>
       {replying ? (
         <SessionCard
           lane={replying.lane}
@@ -305,7 +308,7 @@ export function Waiting() {
           keys
           queue={way.queue}
           notice={way.notice}
-          hotkeys={{ onBack: back }}
+          hotkeys={{ onBack: back, titleBar: true }}
           renaming={renameKey === replying.session.key}
           onRename={(name) => {
             const s = replying.session;
@@ -338,7 +341,7 @@ export function Waiting() {
           autoFocus
           queue={way.queue}
           notice={way.notice}
-          hotkeys={{ onBack: back }}
+          hotkeys={{ onBack: back, titleBar: true }}
           onShowSession={(_l, s) => show(s.key)}
           onOpenSession={openSession}
           onShowLane={revealLane}

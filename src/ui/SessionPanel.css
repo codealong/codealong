@@ -79,10 +79,13 @@
 .ca-reply-queue.has-keys .ca-reply-queue-note {
   flex: 1 1 96px;
 }
+/* On a line of their own that's still too short (the waiting window at its narrowest, a PR's
+   five), they wrap rather than run past the strip's end, the last line to the right. */
 .ca-hotkeys {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
   flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 1px;
   margin-left: auto;
@@ -145,6 +148,23 @@
 .ca-notch-card .ca-hotkey {
   gap: 3px;
   padding: 0 3px;
+}
+/* As its window's title bar (the waiting window's, `Hotkeys.titleBar`): room on its first line for
+   the window's buttons, which macOS 26 puts 9 to 69 points in, centered 16 down, and that line
+   centered on them. The room is a spacer beside the note rather than padding, so buttons that go
+   on a line of their own have the strip's whole width. The window's buttons don't zoom with the
+   card, so these lengths are divided by its zoom (zoom.ts `cardZoom`), which multiplies them
+   back: the note starts 80 points in, after the strip's padding and gap (20px), and 11px is half
+   a hotkey's height, which the spacer has so the first line does too. */
+.ca-reply-queue.is-titlebar {
+  padding-top: max(0px, calc(16px / var(--card-zoom, 1) - 11px));
+  padding-bottom: max(3px, calc(16px / var(--card-zoom, 1) - 11px));
+}
+.ca-reply-queue.is-titlebar::before {
+  content: '';
+  flex: none;
+  width: calc(80px / var(--card-zoom, 1) - 20px);
+  height: 22px;
 }
 /* In a session's panel (Sessions), lined up with the panel's header. */
 .ca-sessinsp .ca-reply-queue {

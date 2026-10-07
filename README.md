@@ -450,7 +450,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   it runs (⏎ sends and stays, to watch the reply; ⌘⏎ sends and goes on to the next), or what it
   waits on you to allow, with Allow and Deny (⌘⏎ allows, ⌘⌫ denies). A PR shows with its details
   and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts a review session on
-  an account). A strip at the top has what's commonly done, with its keys (⌘E marks a finished
+  an account). It has no title bar: a strip along the top, with the window's buttons at its start
+  and that drags the window, has what's commonly done, with its keys (⌘E marks a finished
   turn seen, ⌃⌘1 to ⌃⌘4 snooze, ⌃⌘A archives, ⌃⌘R renames, ⌃⌘P pins it in Sessions), and says how
   the last one went and how many are left. Once one is sent a message, allowed, reviewed, marked
   seen, snoozed or archived, the next that waits on you takes its place. ⌘] or ⌥⇧↓ skips to the

@@ -6,6 +6,11 @@
 //! (`quick::work_through`); so do Window › Waiting on you, ⇥ on a session in the quick panel, and
 //! the floating bar's reviews pill.
 //!
+//! It has no title bar of its own: the strip along the top of what it shows is its title bar
+//! (SessionPanel.tsx `Hotkeys.titleBar`), with the window's buttons where macOS puts them, at its
+//! start, and it drags the window. Its title is still there, unseen, for the Window menu and
+//! Mission Control.
+//!
 //! It's made the first time it's asked for, and closing it only hides it, so the page is up for
 //! the next open. Where it was is kept in `waiting.json` next to the config, for the next launch.
 
@@ -102,6 +107,8 @@ pub fn open(app: &AppHandle, context: Value) {
 fn make(app: &AppHandle, state: &Waiting) -> Result<()> {
     let w = tauri::WebviewWindowBuilder::new(app, LABEL, tauri::WebviewUrl::App("index.html".into()))
         .title("Waiting on you")
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
         .inner_size(START_SIZE.0, START_SIZE.1)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
         .visible(false)

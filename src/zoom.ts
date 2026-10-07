@@ -33,10 +33,12 @@ export function zoomFactor(percent: number | undefined): number {
   return percent && percent > 0 ? percent / 100 : 1;
 }
 
-/** The style that draws a card at the zoom, for the windows that float; none at actual size. */
+/** The style that draws a card at the zoom, for the windows that float; none at actual size. The
+ *  zoom is `--card-zoom` too, for a length that has to stay the same on the screen (a title bar's
+ *  room for the window's buttons, SessionPanel.css). */
 export function cardZoom(percent: number | undefined): CSSProperties | undefined {
   const z = zoomFactor(percent);
-  return z === 1 ? undefined : { zoom: z };
+  return z === 1 ? undefined : ({ zoom: z, '--card-zoom': z } as CSSProperties);
 }
 
 /** How much bigger than its own CSS pixels an element draws: its card's zoom, 1 elsewhere. A

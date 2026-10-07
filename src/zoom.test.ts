@@ -24,7 +24,7 @@ describe('zoomStep', () => {
 
 describe('cardZoom', () => {
   it('draws a card at the zoom, and leaves one at actual size alone', () => {
-    expect(cardZoom(125)).toEqual({ zoom: 1.25 });
+    expect(cardZoom(125)).toEqual({ zoom: 1.25, '--card-zoom': 1.25 });
     expect(cardZoom(100)).toBeUndefined();
     expect(cardZoom(undefined)).toBeUndefined();
   });

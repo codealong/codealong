@@ -106,7 +106,16 @@ under `src-tauri/src/`.
   and hidden on close; its page reads what the latest open asked for as it comes up, and hears
   later opens as `waiting-open`. The shortcut that puts it away gives the keyboard back to the
   app that had it, by bundle ID (`front::frontmost_other`; NSRunningApplication's
-  `processIdentifier` needs objc2-app-kit's `libc` feature, which isn't on): `waiting.rs`.
+  `processIdentifier` needs objc2-app-kit's `libc` feature, which isn't on): `waiting.rs`. It
+  has no title bar (an Overlay one with its title hidden): the card's strip is one
+  (`src/ui/SessionPanel.tsx` `Hotkeys.titleBar`).
+- In a window with an Overlay title bar, macOS 26 leaves the window's buttons where it puts
+  them: 14-point buttons 23 apart, 9 to 69 points in, centered 16 down in a 32-point title bar.
+  tao's `traffic_light_position(x, y)` moves the close button to x and their middle to y − 2, and
+  does it again on every redraw (`inset_traffic_lights`; measured in a plain AppKit window on
+  2026-10-07). The page draws under them and gets the clicks there but on the buttons, so it
+  drags the window itself (`data-tauri-drag-region`): `waiting.rs`, `src/ui/SessionPanel.css`
+  (`.is-titlebar`), `src/App.tsx` (`ca-win-bar`).
 - The peek: hover shows it without the keyboard, a click gives it the keyboard, it watches the
   pointer to close, keeps a thin margin on the bar's side, and is dragged from the engine:
   `peek.rs` (module header, `watch_pointer`, `NEAR`, `drag`), `panel.rs` (`Keys::OnClick`).
@@ -155,6 +164,12 @@ under `src-tauri/src/`.
   `makeKeyAndOrderFront` and `activateIgnoringOtherApps`); that ⌥⌘. again gives the keyboard back
   to that app; that Window › Waiting on you opens it; that where it was is kept across a relaunch.
   The preview only shows its page.
+
+- Not yet checked by hand (2026-10-07): the waiting window without a title bar. That its buttons
+  sit on the strip, clear of the note and centered on its first line; that the strip drags the
+  window (and a double-click zooms it) while its buttons still click; that with nothing shown
+  the window drags from anywhere. The preview shows where the strip's first line falls and that
+  it asks to drag (`waiting-titlebar-check.js`).
 
 - Not yet checked by hand (2026-10-05): that the app you were in gets its keys back at once when
   the unseen panel takes them from the docked bar and is ordered out, and that the notch no
