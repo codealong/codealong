@@ -38,7 +38,7 @@ import { putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
 import type { HostedStream, Question, Session, Status, TranscriptItem, TranscriptPage } from '../types';
-import { CodeBlock } from './CopyButton';
+import { CodeBlock, CopyButton } from './CopyButton';
 import { DescriptionView } from './DescriptionEditor';
 import { Link, linked, Markdown } from './Markdown';
 import { cx, Icon, Rich, StatusGlyph } from './primitives';
@@ -205,6 +205,12 @@ function Said({ item, now, label, onPutBack }: { item: TranscriptItem; now: numb
         </span>
       </div>
       {item.kind === 'you' ? <YourText text={item.text} /> : <Markdown text={item.text} className="ca-thread-agent" />}
+      {/* The message as it was written, markdown and all, for pasting elsewhere without selecting it. */}
+      {item.text.trim() && (
+        <div className="ca-thread-acts">
+          <CopyButton text={item.text} title="Copy message" className="ca-thread-copy" />
+        </div>
+      )}
       {item.withdrawn && (
         <div className="ca-thread-askrow">
           <span>The turn was stopped before a reply, so the agent never saw this.</span>
