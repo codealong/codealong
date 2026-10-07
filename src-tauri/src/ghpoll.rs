@@ -5,7 +5,7 @@
 //! back as an `Event` for the engine to hand to `on_event`. So its rules are tested with
 //! made-up clocks and without `gh`.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -26,6 +26,9 @@ const ASKED_LATELY: Duration = Duration::from_secs(20);
 const HOLD: Duration = Duration::from_secs(10 * 60);
 /// How long before a repo GitHub didn't give the name of is asked about again.
 const NAME_RETRY: Duration = Duration::from_secs(60 * 60);
+/// What a glance's failure is kept under, beside each repo's slug and the search's
+/// `github::REQUESTED`.
+const GLANCE: &str = "glance";
 
 /// The time, both ways it's told here: for waits, and as GitHub's answers tell it, in
 /// milliseconds. Every rule takes it rather than reading a clock, so tests make it up.
@@ -219,8 +222,13 @@ pub struct GhPoll {
     /// The open PRs GitHub's search says wait on your review, by the slug a project's repo has
     /// here: the board lists them for the repos `prs` doesn't read (`board::pr_items`).
     requested: HashMap<String, Vec<PrRaw>>,
-    /// What last went wrong, until GitHub answers again.
-    warning: Option<Failure>,
+    /// What went wrong, by what was asked (`GLANCE`, a repo's slug, `github::REQUESTED`): the
+    /// repos and the search are read at once, so each failure stays until what failed answers
+    /// again, whatever else answers meanwhile.
+    failures: BTreeMap<String, Failure>,
+    /// What the poll on its way has answered for, and whether its glance was answered: at its
+    /// end, what a poll answered at a glance didn't read stands as it was, with nothing wrong.
+    heard: (bool, HashSet<String>),
     /// PRs you approved here (slug, number) and when, until GitHub is asked after it.
     approved_here: HashMap<(String, u64), Instant>,
     /// When GitHub last answered.
@@ -236,7 +244,8 @@ impl GhPoll {
             back,
             prs: HashMap::new(),
             requested: HashMap::new(),
-            warning: None,
+            failures: BTreeMap::new(),
+            heard: (false, HashSet::new()),
             approved_here: HashMap::new(),
             at: None,
             login: None,
@@ -275,11 +284,36 @@ impl GhPoll {
         self.names.now.get(&slug.to_lowercase()).filter(|now| !now.eq_ignore_ascii_case(slug))
     }
 
-    /// What isn't working, as the windows say it. A rate limit says when its hour ends.
+    /// What isn't working, as the windows say it: every failure still outstanding, titled by
+    /// the one that says most (`gh` missing or signed out explains the rest). A rate limit says
+    /// when its hour ends.
     pub fn notice(&self) -> Option<Notice> {
-        let warning = self.warning.as_ref()?;
-        let until = if warning.rate_limited() { self.schedule.resets } else { None };
-        Some(Notice { key: "github".into(), title: warning.title().into(), text: warning.to_string(), until })
+        let rank = |f: &Failure| match f {
+            Failure::NotInstalled => 0,
+            Failure::SignedOut => 1,
+            Failure::RateLimited { .. } => 2,
+            Failure::Other(_) => 3,
+        };
+        let mut failures: Vec<&Failure> = self.failures.values().collect();
+        failures.sort_by_key(|f| rank(f));
+        let first = *failures.first()?;
+        let until = if first.rate_limited() { self.schedule.resets } else { None };
+        let mut said: Vec<String> = Vec::new();
+        for text in failures.iter().map(|f| f.to_string()) {
+            if !said.contains(&text) {
+                said.push(text);
+            }
+        }
+        Some(Notice { key: "github".into(), title: first.title().into(), text: said.join(" "), until })
+    }
+
+    /// What `key` asked brought: a failure is kept until it answers again.
+    fn answered(&mut self, key: &str, failure: Option<Failure>) {
+        self.heard.1.insert(key.to_string());
+        match failure {
+            Some(e) => self.failures.insert(key.to_string(), e),
+            None => self.failures.remove(key),
+        };
     }
 
     /// Polls GitHub in the background when it may be (`ask`). Each answer comes back as an
@@ -298,6 +332,7 @@ impl GhPoll {
             return None;
         }
         let busy = self.prs.iter().filter(|(_, prs)| github::busy(prs, now.ms)).map(|(slug, _)| slug.clone()).collect();
+        self.heard = (false, HashSet::new());
         Some(self.schedule.start(board::polled_slugs(seeds).into_iter().collect(), busy, now))
     }
 
@@ -350,10 +385,18 @@ impl GhPoll {
                 self.on_requested(result, seeds, now)
             }
             Event::PollEnded => {
+                // A glance was answered, and what it didn't have read stands: nothing is wrong
+                // with that now, and a repo that's no longer polled isn't either.
+                let (glanced, heard) = std::mem::take(&mut self.heard);
+                let cleared = glanced && {
+                    let before = self.failures.len();
+                    self.failures.retain(|key, _| heard.contains(key));
+                    self.failures.len() != before
+                };
                 if self.schedule.ended() {
                     self.poll(seeds, true, now);
                 }
-                false
+                cleared
             }
             Event::RepoNames(names) => self.names.answered(names),
         }
@@ -367,13 +410,14 @@ impl GhPoll {
                 self.on_glance(seen, now);
             }
             github::Answer::Repo(slug, Ok(repo), _) => {
+                self.answered(&slug, None);
                 self.prs.insert(slug, repo.prs);
                 if repo.login.is_some() {
                     self.login = repo.login;
                 }
                 self.at = Some(now.ms);
             }
-            github::Answer::Repo(_, Err(e), _) => self.warning = Some(e),
+            github::Answer::Repo(slug, Err(e), _) => self.answered(&slug, Some(e)),
             github::Answer::Requested(result, _) => {
                 self.on_requested(result, seeds, now);
             }
@@ -389,17 +433,18 @@ impl GhPoll {
                     self.login = seen.login;
                 }
                 self.schedule.answered(seen.points, now.ms);
-                // A repo GitHub doesn't show you says so next, at every poll.
-                if seen.repos.values().all(Option::is_some) {
-                    self.warning = None;
-                }
+                // GitHub answered, so a refusal for want of points is over, whatever refused. A
+                // repo GitHub doesn't show you says so next, at every poll.
+                self.failures.remove(GLANCE);
+                self.failures.retain(|_, f| !f.rate_limited());
+                self.heard.0 = true;
                 self.at = Some(now.ms);
             }
             Err(e) => {
                 if let Failure::RateLimited { resets } = e {
                     self.schedule.refused(resets, now);
                 }
-                self.warning = Some(e);
+                self.failures.insert(GLANCE.to_string(), e);
             }
         }
         true
@@ -456,14 +501,14 @@ impl GhPoll {
                     }
                     true
                 });
+                self.answered(&slug, None);
                 self.prs.insert(slug, repo.prs);
                 if repo.login.is_some() {
                     self.login = repo.login;
                 }
-                self.warning = None;
                 self.at = Some(now.ms);
             }
-            Err(e) => self.warning = Some(e),
+            Err(e) => self.answered(&slug, Some(e)),
         }
         true
     }
@@ -475,7 +520,7 @@ impl GhPoll {
         let found = match result {
             Ok(found) => found,
             Err(e) => {
-                self.warning = Some(e);
+                self.answered(github::REQUESTED, Some(e));
                 return true;
             }
         };
@@ -506,7 +551,7 @@ impl GhPoll {
         if found.login.is_some() {
             self.login = found.login;
         }
-        self.warning = None;
+        self.answered(github::REQUESTED, None);
         self.at = Some(now.ms);
         true
     }
@@ -649,11 +694,13 @@ mod tests {
         let unloaded = || Failure::Other("GitHub: couldn't load PRs for a/b".into());
         let glance = |gh: &mut GhPoll, seen: Result<Glance, Failure>, now: Now| assert!(gh.on_event(Event::Glance(seen), &[], now), "a glance changes the board");
 
-        // A glance: GitHub answered, whatever is read after it.
-        gh.warning = Some(unloaded());
+        // A glance: GitHub answered, whatever is read after it. A repo's failure is the repo's
+        // to clear.
+        gh.failures.insert(GLANCE.into(), Failure::Other("GitHub didn't answer".into()));
+        gh.failures.insert("a/b".into(), unloaded());
         let points = |left: u64, resets: i64| Some(Points { left, resets: now.ms + resets });
         glance(&mut gh, Ok(Glance { login: Some("gwen".into()), points: points(120, 60_000), ..Glance::default() }), now);
-        assert_eq!((gh.warning.clone(), gh.login()), (None, Some("gwen")));
+        assert_eq!((gh.failures.keys().map(String::as_str).collect::<Vec<_>>(), gh.login()), (vec!["a/b"], Some("gwen")));
         assert_eq!(gh.at(), Some(now.ms));
         // GitHub's other counter answers, with plenty left; then the first again, with fewer.
         // What's left is the fewest, until that hour ends.
@@ -666,9 +713,11 @@ mod tests {
         glance(&mut gh, Ok(Glance { points: points(4790, 1_800_000), ..Glance::default() }), after(now, 61));
         assert_eq!(gh.schedule.points.iter().map(|p| p.left).collect::<Vec<_>>(), vec![4790]);
         // A repo GitHub doesn't show you: its failure, which comes next, isn't cleared first.
-        gh.warning = Some(unloaded());
         glance(&mut gh, Ok(Glance { repos: HashMap::from([("a/b".to_string(), None)]), ..Glance::default() }), now);
-        assert!(gh.warning.is_some());
+        assert!(gh.failures.contains_key("a/b"));
+        // Until it answers.
+        gh.on_event(Event::Repo("a/b".into(), Ok(RepoPrs { login: None, prs: vec![] }), None), &[], now);
+        assert!(gh.failures.is_empty());
 
         // What an answer was read at is noted; a failure keeps the one before.
         gh.on_read("a/b", None, Some(stamp.clone()), now);
@@ -684,7 +733,7 @@ mod tests {
         let refusal = |resets: Option<i64>| Err(Failure::RateLimited { resets });
         glance(&mut gh, refusal(None), now);
         assert_eq!(gh.schedule.hold, Some(now.at + HOLD), "nothing said when the hour ends");
-        assert_eq!(gh.warning, Some(refused.clone()));
+        assert_eq!(gh.failures.get(GLANCE), Some(&refused));
         let said = gh.notice().unwrap();
         assert_eq!((said.key.as_str(), said.title.as_str(), said.until), ("github", "GitHub rate limit reached", None));
         assert_eq!(said.text, "GitHub: your account's rate limit is used up, so PRs wait until it resets. `gh` and your agents draw on the same limit.");
@@ -704,14 +753,57 @@ mod tests {
         assert!(gh.ask(&seeds, true, after(now, 184)).is_none());
         assert!(!gh.schedule.inflight);
         // Another failure of GitHub's has no hour to wait out.
-        gh.warning = Some(unloaded());
+        let refusal_was = gh.failures.remove(GLANCE).unwrap();
+        gh.failures.insert("a/b".into(), unloaded());
         let said = gh.notice().unwrap();
         assert_eq!((said.title.as_str(), said.text.as_str(), said.until), ("GitHub didn't answer", "GitHub: couldn't load PRs for a/b", None));
-        gh.warning = Some(refused.clone());
-        // And the next glance that's answered ends that.
+        gh.failures.clear();
+        gh.failures.insert(GLANCE.into(), refusal_was);
+        // A read refused the same way: the next glance that's answered ends both.
+        gh.on_event(Event::Repo("a/b".into(), Err(refused.clone()), None), &[], now);
         glance(&mut gh, Ok(Glance::default()), now);
-        assert!(gh.schedule.hold.is_none() && gh.warning.is_none() && gh.notice().is_none());
+        assert!(gh.schedule.hold.is_none() && gh.failures.is_empty() && gh.notice().is_none());
         assert!(gh.ask(&seeds, true, now).is_some());
+    }
+
+    /// The repos and the search are read at once, each answer applied as it lands: which lands
+    /// last mustn't decide whether a failure is said.
+    #[test]
+    fn a_failure_stays_until_what_failed_answers_again() {
+        let mut gh = quiet();
+        let t = clock();
+        let seeds = [seed("/x/a-dev", "o/a", "dev"), seed("/x/b-dev", "o/b", "dev")];
+        let ok = |slug: &str| Event::Repo(slug.into(), Ok(RepoPrs { login: None, prs: vec![] }), None);
+        let failed = |slug: &str| Event::Repo(slug.into(), Err(Failure::Other(format!("GitHub: couldn't load PRs for {slug}"))), None);
+        let text = |gh: &GhPoll| gh.notice().map(|n| n.text);
+        gh.ask(&seeds, true, t).unwrap();
+        gh.on_event(Event::Glance(Ok(Glance::default())), &seeds, t);
+        gh.on_event(failed("o/a"), &seeds, t);
+        gh.on_event(ok("o/b"), &seeds, t);
+        gh.on_event(Event::Requested(Ok(Requested::default()), None), &seeds, t);
+        assert_eq!(text(&gh).as_deref(), Some("GitHub: couldn't load PRs for o/a"), "o/b and the search answering don't clear o/a's");
+        // The search fails too: both are said, and o/a answering leaves the search's.
+        let search = Failure::Other("GitHub: couldn't load your review requests".into());
+        gh.on_event(Event::Requested(Err(search.clone()), None), &seeds, t);
+        assert!(!gh.on_event(Event::PollEnded, &seeds, t), "what failed in this poll still stands");
+        assert_eq!(text(&gh).as_deref(), Some("GitHub: couldn't load PRs for o/a GitHub: couldn't load your review requests"));
+        gh.ask(&seeds, true, after(t, 60)).unwrap();
+        gh.on_event(Event::Glance(Ok(Glance::default())), &seeds, after(t, 60));
+        gh.on_event(ok("o/a"), &seeds, after(t, 60));
+        assert_eq!(text(&gh), Some(search.to_string()));
+        // A poll whose glance was answered and which had no need to read the search again: its
+        // answer stands as it is, so nothing is wrong with it now.
+        assert!(gh.on_event(Event::PollEnded, &seeds, after(t, 60)), "the notice goes");
+        assert_eq!(gh.notice(), None);
+        // Without a glance answered nothing is known to stand: a failure not read again stays.
+        gh.on_event(failed("o/b"), &seeds, after(t, 120));
+        gh.ask(&seeds, true, after(t, 120)).unwrap();
+        gh.on_event(Event::Glance(Err(Failure::Other("GitHub didn't answer".into()))), &seeds, after(t, 120));
+        gh.on_event(Event::PollEnded, &seeds, after(t, 120));
+        assert_eq!(gh.failures.keys().collect::<Vec<_>>(), [GLANCE, "o/b"]);
+        // `gh` signed out explains the rest, so it titles the notice.
+        gh.on_event(Event::Requested(Err(Failure::SignedOut), None), &seeds, after(t, 120));
+        assert_eq!(gh.notice().unwrap().title, "Signed out of GitHub");
     }
 
     #[test]
