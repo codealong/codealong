@@ -29,11 +29,7 @@
   padding: 10px 12px 12px;
   overflow: auto;
 }
-/* The box: the text reaches its foot, and the verdicts sit in a row at its corner, Approve last. */
-.ca-prreview-box .ca-composer-field {
-  grid-template-columns: minmax(0, 1fr);
-}
+/* The box: the verdicts sit at its foot where a reply's Send does, Approve last. */
 .ca-prreview-buttons {
-  justify-content: flex-end;
   margin: 0 6px 6px;
 }

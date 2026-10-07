@@ -39,7 +39,7 @@
   until(function () { return !!chip(); }, 20000, 'no model chip beside Send')
     .then(function () {
       check('the chip says the model it’s on', chip().textContent.trim().length > 0 && chip().textContent.indexOf('Model') < 0, chip().textContent);
-      check('the box has no row of its own for it', !field().classList.contains('has-tools'), field().className);
+      check('the box has no places beside it', !q('.ca-composer-tools', field()), 'a row of places');
       check('the chip sits beside Send', !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')), 'apart');
       chip().click();
       return until(function () { return !!q('.ca-peek .ca-modelmenu .ca-picker'); }, 3000, 'no model menu');

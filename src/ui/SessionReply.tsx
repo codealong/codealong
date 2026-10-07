@@ -539,7 +539,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     <div className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
       <div
-        className={cx('ca-composer-field', resuming && account && !aside && resuming.places.length > 1 && 'has-tools')}
+        className="ca-composer-field"
         onMouseDown={(e) => {
           // A press anywhere in the box but its buttons and the row under the text puts the
           // cursor in it.
@@ -552,7 +552,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         <BoxText
           ref={box}
           value={text}
-          rows={Math.min(LINES, Math.max(2, text.split('\n').length))}
+          lines={LINES}
           hint={aside ? 'Ask on the side' : waiting && onDenySaying ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? ' · esc stops its turn' : '')}
           onChange={(e) => {
             setText(e.target.value);

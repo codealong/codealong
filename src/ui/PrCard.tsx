@@ -231,7 +231,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
           <BoxText
             ref={box}
             value={text}
-            rows={Math.min(6, Math.max(2, text.split('\n').length))}
+            lines={6}
             hint={requested ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
             onChange={(e) => {
               setText(e.target.value);

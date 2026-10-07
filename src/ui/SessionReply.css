@@ -10,9 +10,10 @@
   border-top: 1px solid var(--line);
   background: var(--surface);
 }
-/* The box itself, as chat apps draw theirs: what's attached, then the text, which reaches the
-   box's foot, with the send button in a column of its own at the right, so the text and its
-   scrollbar never run under it. What the box has to say goes below it. */
+/* The box itself, as chat apps draw theirs: what's attached, then the text across the box's whole
+   width, its scrollbar at the box's edge once it has one, then a row at its foot with the model
+   and Send at the right (and where a session that isn't running goes on at the left,
+   ResumeBar.css). What the box has to say goes below it. */
 .ca-composer-field {
   /* What opens over the conversation from inside it (ModelMenu.tsx) is placed against it. */
   position: relative;
@@ -28,43 +29,60 @@
 .ca-composer-field:focus-within {
   border-color: var(--line-strong);
 }
-.ca-composer-field > .ca-imgstrip {
+.ca-composer-field > .ca-imgstrip,
+.ca-composer-field > .ca-composer-text {
   grid-column: 1 / -1;
+}
+.ca-composer-field > .ca-imgstrip {
   padding: 8px 10px 0;
 }
-/* The text and the hint drawn over it while it's empty (primitives.tsx `BoxText`), in its place
-   and its type. */
+/* The text, and the copy of what it shows that gives it its height (primitives.tsx `BoxText`):
+   one on the other, in the same type, padding and wrapping, the copy no taller than `lines`.
+   Both keep the lane a scrollbar takes where macOS always shows them, so the text wraps the same
+   with a scrollbar and without: it doesn't move as the box starts to scroll, and a scrollbar
+   that came and went in a pass at another height can't keep it a line longer than its copy
+   (Chrome did, without the lane). */
 .ca-composer-text {
-  position: relative;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
 }
-.ca-composer textarea,
-.ca-composer-hint {
-  padding: 8px 10px;
-  font: 400 13px/19px var(--font-sans);
-}
-.ca-composer textarea {
-  width: 100%;
+.ca-composer-text > textarea,
+.ca-composer-copy {
+  grid-area: 1 / 1;
   box-sizing: border-box;
+  max-height: calc(var(--ca-box-lines) * 19px + 12px);
+  padding: 8px 10px 4px;
+  font: 400 13px/19px var(--font-sans);
+  scrollbar-gutter: stable;
+}
+.ca-composer-text > textarea {
+  align-self: stretch;
+  width: 100%;
   border: 0;
+  /* Its scrollbar, at the box's top corner, keeps to the box's rounding. */
+  border-radius: calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px) 0 0;
   background: transparent;
   color: var(--ink);
   resize: none;
   outline: none;
 }
-.ca-composer-hint {
-  position: absolute;
-  inset: 0;
+.ca-composer-copy {
   overflow: hidden;
-  color: var(--ink-3);
   white-space: pre-wrap;
   overflow-wrap: break-word;
+  visibility: hidden;
   pointer-events: none;
 }
-/* Send, or Stop while a turn runs and the box is empty: round, in the box's corner. Send now goes
-   before Send while the turn can take a message at once, quieter, as the second way to send. */
+.ca-composer-hint {
+  visibility: visible;
+  color: var(--ink-3);
+}
+/* Send, or Stop while a turn runs and the box is empty: round, at the right of the box's foot.
+   Send now goes before Send while the turn can take a message at once, quieter, as the second way
+   to send. */
 .ca-composer-buttons {
+  grid-column: 2;
   display: flex;
   align-items: center;
   gap: var(--space-1);

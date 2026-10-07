@@ -1,6 +1,6 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
-import type { ButtonHTMLAttributes, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
 import { forwardRef, Fragment, useId, useRef } from 'react';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
@@ -177,27 +177,31 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
   );
 }
 
-interface BoxTextProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'placeholder' | 'value'> {
+interface BoxTextProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'placeholder' | 'value' | 'rows'> {
   value: string;
   /** What the empty box says. */
   hint: string;
+  /** The most lines it grows to before it scrolls. */
+  lines: number;
 }
 
-/** The text of a box to write in (a session's reply, a PR's review), with its hint drawn over it
- *  while it's empty, in place of the textarea's own placeholder. WebKit lays a placeholder out as
+/** The text of a box to write in (a session's reply, a PR's review). It grows with what's
+ *  written, wrapped lines as well as new ones, up to `lines`, and then scrolls: a copy of what it
+ *  shows, laid out in its place as the textarea lays out its text, gives it its height, with
+ *  nothing measured. The copy is the hint while the box is empty, drawn over it in place of the
+ *  textarea's own placeholder, and what's written after, unseen. WebKit lays a placeholder out as
  *  wide as its box times a card's CSS zoom (zoom.ts), so in a card drawn at a zoom the empty box
  *  scrolled sideways and a long hint was cut off, and no CSS on `::placeholder` takes it out of
  *  the layout (checked in a WKWebView on 2026-10-06). The hint is the textarea's
  *  `aria-placeholder`, for a screen reader. */
-export const BoxText = forwardRef<HTMLTextAreaElement, BoxTextProps>(function BoxText({ value, hint, ...rest }, ref) {
+export const BoxText = forwardRef<HTMLTextAreaElement, BoxTextProps>(function BoxText({ value, hint, lines, ...rest }, ref) {
   return (
-    <div className="ca-composer-text">
-      <textarea ref={ref} value={value} aria-placeholder={hint} {...rest} />
-      {value === '' && (
-        <span className="ca-composer-hint" aria-hidden="true">
-          {hint}
-        </span>
-      )}
+    <div className="ca-composer-text" style={{ '--ca-box-lines': lines } as CSSProperties}>
+      <textarea ref={ref} value={value} rows={1} aria-placeholder={hint} {...rest} />
+      {/* The space after the text gives a last line that's empty its height. */}
+      <span className={cx('ca-composer-copy', value === '' && 'ca-composer-hint')} aria-hidden="true">
+        {value === '' ? hint : `${value} `}
+      </span>
     </div>
   );
 });
