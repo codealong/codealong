@@ -22,8 +22,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, Write};
 use std::net::{IpAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{channel, sync_channel, RecvTimeoutError, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -62,6 +62,12 @@ const LINK_CODE_FOR_MS: i64 = 10 * 60 * 1000;
 /// A reply streams out at most this often: acp.rs reports every chunk, and each report is the
 /// reply so far.
 const STREAM_EVERY: Duration = Duration::from_millis(150);
+/// How many messages may wait to go out on a connection. A device that keeps asking and stops
+/// reading the answers is cut off once this many wait, rather than having them kept for it.
+const QUEUE_MAX: usize = 512;
+/// How many of a linked device's requests may run here at once, each on a thread of its own:
+/// more than any device's windows ask for together. One that asks for more is cut off.
+const REQUESTS_MAX: usize = 32;
 
 /// A connection to another device as the rest of this module sees it, whatever carries it.
 pub use codealong_peer::wire::Wire;
@@ -228,6 +234,37 @@ struct Me {
     short: String,
 }
 
+/// What goes out on one connection, waiting for its writer: at most `QUEUE_MAX` messages. A
+/// message that finds it full closes the connection, which is how a device that doesn't read
+/// is let go.
+#[derive(Clone)]
+struct Out {
+    tx: SyncSender<Msg>,
+    close: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl Out {
+    fn send(&self, msg: Msg) -> std::result::Result<(), &'static str> {
+        match self.tx.try_send(msg) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                (self.close)();
+                Err("the connection was too far behind, and is closed")
+            }
+            Err(TrySendError::Disconnected(_)) => Err("the connection is closed"),
+        }
+    }
+}
+
+/// A request running for a device: it frees its place when it's done, however it ends.
+struct Running(Arc<AtomicUsize>);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 struct Conn {
     serial: u64,
     dialed: bool,
@@ -235,7 +272,7 @@ struct Conn {
     /// The tailnet user whose machine it's on, from `tailscale whois`.
     peer_user: Option<String>,
     addr: Option<IpAddr>,
-    tx: Sender<Msg>,
+    tx: Out,
     /// Ends the connection: its reader stops, so nothing more is taken from it.
     close: Arc<dyn Fn() + Send + Sync>,
     name: String,
@@ -309,6 +346,9 @@ struct Inner {
     gen: AtomicU64,
     ids: AtomicU64,
     iroh: Mutex<Option<Arc<Iroh>>>,
+    /// Request threads started, for tests.
+    #[cfg(test)]
+    requests: AtomicU64,
 }
 
 #[derive(Clone)]
@@ -319,7 +359,19 @@ impl Peers {
     /// `[devices]` is turned on (`configure`).
     pub fn new(dir: PathBuf, hooks: Hooks) -> Peers {
         let st = State { linked: load_linked(&dir), replicas: load_cache(&dir), iroh: "off".into(), ..Default::default() };
-        let inner = Arc::new(Inner { me: OnceLock::new(), computer: OnceLock::new(), dir, hooks, st: Mutex::new(st), wake: Condvar::new(), gen: AtomicU64::new(0), ids: AtomicU64::new(1), iroh: Mutex::new(None) });
+        let inner = Arc::new(Inner {
+            me: OnceLock::new(),
+            computer: OnceLock::new(),
+            dir,
+            hooks,
+            st: Mutex::new(st),
+            wake: Condvar::new(),
+            gen: AtomicU64::new(0),
+            ids: AtomicU64::new(1),
+            iroh: Mutex::new(None),
+            #[cfg(test)]
+            requests: AtomicU64::new(0),
+        });
         let feeder = inner.clone();
         std::thread::Builder::new().name("peers-feeder".into()).spawn(move || feed_loop(feeder)).expect("the feeder thread");
         Peers(inner)
@@ -932,7 +984,10 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         close();
         return;
     };
-    let (tx, rx) = channel::<Msg>();
+    let (queue, rx) = sync_channel::<Msg>(QUEUE_MAX);
+    let tx = Out { tx: queue, close: close.clone() };
+    // This connection's requests running now (`REQUESTS_MAX`).
+    let running = Arc::new(AtomicUsize::new(0));
     {
         let close = close.clone();
         std::thread::Builder::new()
@@ -1030,7 +1085,7 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
     inner.wake.notify_all();
 
     while let Ok(Some(msg)) = peerproto::read_msg(&mut reader) {
-        handle(&inner, &hex, serial, &tx, msg);
+        handle(&inner, &hex, serial, &tx, &running, msg);
     }
 
     let mut st = inner.lock();
@@ -1057,7 +1112,7 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
     close();
 }
 
-fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg) {
+fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<AtomicUsize>, msg: Msg) {
     // A connection that was replaced or closed is on its way out: it's owed nothing.
     if !inner.lock().conns.get(key).is_some_and(|c| c.serial == serial) {
         return;
@@ -1089,14 +1144,37 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             return;
         }
         Msg::Req { id, method, params } => {
-            let (inner, key, tx) = (inner.clone(), key.to_string(), tx.clone());
-            std::thread::spawn(move || {
+            // Proving its key opens a connection for any device, so a device that isn't linked
+            // is answered here, before anything is started for it (`answer` checks again, for
+            // one unlinked while its request waited).
+            let stranger = {
+                let st = inner.lock();
+                (!Inner::is_linked(&st, key)).then(|| inner.my_name(&st))
+            };
+            if let Some(me) = stranger {
+                let _ = tx.send(Msg::Res { id, ok: false, result: None, error: Some(format!("{me} isn't linked with this device.")) });
+                return;
+            }
+            if running.fetch_add(1, Ordering::SeqCst) >= REQUESTS_MAX {
+                running.fetch_sub(1, Ordering::SeqCst);
+                (tx.close)();
+                return;
+            }
+            let place = Running(running.clone());
+            let (inner, key, out) = (inner.clone(), key.to_string(), tx.clone());
+            #[cfg(test)]
+            inner.requests.fetch_add(1, Ordering::SeqCst);
+            let started = std::thread::Builder::new().name("peer-request".into()).spawn(move || {
                 let reply = match inner.answer(&key, &method, params) {
                     Ok(v) => Msg::Res { id, ok: true, result: Some(v), error: None },
                     Err(e) => Msg::Res { id, ok: false, result: None, error: Some(e) },
                 };
-                let _ = tx.send(reply);
+                drop(place);
+                let _ = out.send(reply);
             });
+            if started.is_err() {
+                let _ = tx.send(Msg::Res { id, ok: false, result: None, error: Some("This device is too busy to answer; try again in a moment.".into()) });
+            }
             return;
         }
         Msg::Res { id, ok, result, error } => {
@@ -1505,6 +1583,11 @@ mod tests {
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
                     "session-send" => Ok(json!({ "message": "Sent.", "opened": false })),
                     "session-stream" => Ok(Value::Null),
+                    // A request that takes a while, as a side question does.
+                    "slow" => {
+                        std::thread::sleep(Duration::from_millis(800));
+                        Ok(Value::Null)
+                    }
                     "start-options" => Ok(json!({ "accounts": [{ "name": "claude", "harness": "claude", "places": [{ "place": "background", "label": "Background" }], "chosen": null, "unavailable": null, "defaultModel": "opus", "preferred": true }], "codexProjects": [], "claudeModels": [{ "id": "opus", "label": "Opus" }] })),
                     _ => Err(format!("no {method}")),
                 }
@@ -1787,6 +1870,84 @@ mod tests {
         until("b to stop asking", || !b.peers.view().found[0].asking);
         assert!(a.peers.view().devices.is_empty() && b.peers.view().devices.is_empty());
         assert_eq!(std::fs::read_to_string(linked_path(&a.dir)).unwrap(), newer);
+        for m in [&a, &b] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    /// Sends a request over `from`'s connection to `to` as `ask` would, without `ask`'s check that
+    /// they're linked, and gives back where its answer arrives.
+    fn ask_anyway(from: &Device, to: &Device, id: u64, method: &str) -> std::sync::mpsc::Receiver<std::result::Result<Value, String>> {
+        let to_key = key_of(to);
+        let (s, r) = channel();
+        let mut st = from.peers.0.lock();
+        st.pending.insert(id, (to_key.clone(), s));
+        st.conns.get(&to_key).unwrap().tx.send(Msg::Req { id, method: method.into(), params: json!({ "key": "claude:claude:s1" }) }).unwrap();
+        r
+    }
+
+    #[test]
+    fn a_device_that_isnt_linked_is_refused_without_anything_started_for_it() {
+        let a = device("Book", vec![]);
+        let c = device("Alex", vec![]);
+        join(&c, &a);
+        until("connected", || a.peers.0.lock().conns.len() == 1 && c.peers.0.lock().conns.len() == 1);
+        // Its key proved, but not linked: every request is answered no, and no thread is started.
+        let answers: Vec<_> = (0..200).map(|i| ask_anyway(&c, &a, 1_000_000 + i, "session-page")).collect();
+        for r in answers {
+            assert_eq!(r.recv_timeout(Duration::from_secs(5)).unwrap().unwrap_err(), "Book isn't linked with this device.");
+        }
+        assert_eq!(a.peers.0.requests.load(Ordering::SeqCst), 0);
+        assert!(a.asked.lock().unwrap().is_empty());
+        // Linked, its requests run.
+        link(&c, &a);
+        let page = c.peers.ask(short_of(&key_of(&a)), "session-page", json!({ "key": "claude:claude:s1" }), Duration::from_secs(5)).unwrap();
+        assert_eq!(page["key"], "claude:claude:s1");
+        assert_eq!(a.peers.0.requests.load(Ordering::SeqCst), 1);
+        for m in [&a, &c] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    #[test]
+    fn a_device_that_asks_and_never_reads_is_cut_off() {
+        let a = device("Book", vec![]);
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = TcpStream::connect(("127.0.0.1", l.local_addr().unwrap().port())).unwrap();
+        let (accepted, _) = l.accept().unwrap();
+        a.peers.attach(Wire::tcp(accepted).unwrap(), Via::Test, false, None, None, None);
+        // Its side of the hello and the proofs, by hand.
+        let secret = SecretKey::generate();
+        let hex = peerproto::key_hex(&secret.public());
+        let (mut w, mut r) = (stream.try_clone().unwrap(), BufReader::new(stream));
+        let hello = Msg::Hello { v: VERSION, key: hex.clone(), name: "Stranger".into(), app: "0".into(), nonce: peerproto::nonce(), kind: Some(peerproto::MAC.into()), knows: vec![] };
+        w.write_all(hello.line().as_bytes()).unwrap();
+        let Ok(Some(Msg::Hello { key: mac, nonce, .. })) = peerproto::read_msg(&mut r) else { panic!("no hello") };
+        let sig = peerproto::prove(&secret, &nonce, &peerproto::parse_key(&mac).unwrap()).unwrap();
+        w.write_all(Msg::Proof { sig }.line().as_bytes()).unwrap();
+        assert!(matches!(peerproto::read_msg(&mut r), Ok(Some(Msg::Proof { .. }))));
+        until("connected", || a.peers.0.lock().conns.contains_key(&hex));
+        // It asks and asks, and reads none of the answers.
+        let flood = std::thread::spawn(move || {
+            let line = Msg::Req { id: 1, method: "session-page".into(), params: json!({}) }.line();
+            (0..2_000_000).any(|_| w.write_all(line.as_bytes()).is_err())
+        });
+        until("the Mac to let it go", || !a.peers.0.lock().conns.contains_key(&hex));
+        assert!(flood.join().unwrap(), "its connection is closed");
+        assert_eq!(a.peers.0.requests.load(Ordering::SeqCst), 0);
+        let _ = std::fs::remove_dir_all(&a.dir);
+    }
+
+    #[test]
+    fn a_linked_device_asking_for_too_much_at_once_is_cut_off() {
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![]);
+        join(&a, &b);
+        link(&a, &b);
+        let answers: Vec<_> = (0..REQUESTS_MAX as u64 + 8).map(|i| ask_anyway(&a, &b, 1_000_000 + i, "slow")).collect();
+        until("the Mini to let it go", || b.peers.0.lock().conns.is_empty());
+        assert_eq!(b.peers.0.requests.load(Ordering::SeqCst), REQUESTS_MAX as u64, "no more than that ran");
+        assert!(answers.iter().any(|r| r.recv_timeout(Duration::from_secs(5)).unwrap().is_err_and(|e| e.ends_with("went away."))));
         for m in [&a, &b] {
             let _ = std::fs::remove_dir_all(&m.dir);
         }
