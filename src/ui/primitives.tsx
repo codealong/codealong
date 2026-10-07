@@ -5,7 +5,7 @@ import { forwardRef, Fragment, useId, useRef } from 'react';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import { branchLabel } from '../lanes';
+import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
 import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
@@ -108,7 +108,17 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
   );
 }
 
-export function StatusGlyph({ status, size = 12, title }: { status: Status; size?: number; title?: string }) {
+/** A status's glyph. `waiting` draws a working one as a clock that stands still: its turn is
+ *  over and it waits on a command it left running in the background (`waitsInBackground`). */
+export function StatusGlyph({ status, size = 12, title, waiting = false }: { status: Status; size?: number; title?: string; waiting?: boolean }) {
+  if (waiting && status === 'working') {
+    return (
+      <svg className="ca-glyph ca-glyph--waiting" width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title ?? 'Waiting on a command in the background'}>
+        <circle className="ca-g-clock" cx="6" cy="6" r="4.25" />
+        <path className="ca-g-hands" d="M6 3.6V6l1.7 1.1" />
+      </svg>
+    );
+  }
   return (
     <svg className={cx('ca-glyph', `ca-glyph--${status}`)} width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title ?? STATUS_WORD[status]}>
       {status === 'needs' && <rect className="ca-g-attn" x="2.45" y="2.45" width="7.1" height="7.1" rx="1.1" transform="rotate(45 6 6)" />}
@@ -132,6 +142,11 @@ export function StatusGlyph({ status, size = 12, title }: { status: Status; size
   );
 }
 
+/** A session's status glyph, a clock while it waits on a command left running in the background. */
+export function SessionGlyph({ s, size, title }: { s: Pick<Session, 'status' | 'background'>; size?: number; title?: string }) {
+  return <StatusGlyph status={s.status} size={size} title={title} waiting={waitsInBackground(s)} />;
+}
+
 /** A lane's status box: its status glyph, or its PR icon in review and merged bays. */
 export function LaneGlyph({ lane }: { lane: Lane }) {
   if ((lane.bay === 'review' || lane.bay === 'merged') && lane.pr) {
@@ -141,7 +156,7 @@ export function LaneGlyph({ lane }: { lane: Lane }) {
       </span>
     );
   }
-  return <StatusGlyph status={lane.glyph} />;
+  return <StatusGlyph status={lane.glyph} waiting={laneWaits(lane)} />;
 }
 
 /** Keys that are a speck at a cap's size (⌃`'s backtick), which a cap sets larger so they read. */

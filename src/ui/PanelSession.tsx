@@ -7,7 +7,7 @@ import { absolute, ago } from '../format';
 import { sessionWhy } from '../lanes';
 import type { Lane, Session } from '../types';
 import type { ReactNode } from 'react';
-import { cx, Icon, LaneGlyph, StatusGlyph } from './primitives';
+import { cx, Icon, LaneGlyph, SessionGlyph } from './primitives';
 
 interface PanelSessionProps {
   lane: Lane;
@@ -29,7 +29,7 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu }: 
       }}
     >
       <button type="button" className="ca-psess-main" title={`${s.title}\nClick to show it here · double-click to open it where it runs`} onClick={() => onShow(lane, s)} onDoubleClick={() => onOpen(lane, s)}>
-        <StatusGlyph status={s.status} size={10} />
+        <SessionGlyph s={s} size={10} />
         <span className="ca-psess-text">
           <span className="ca-psess-line1">
             <span className="ca-psess-title">{s.title}</span>

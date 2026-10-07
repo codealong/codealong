@@ -274,9 +274,11 @@ pub fn claude_session(
             Some(cmd) => format!("Left running · {}", code(&truncate(&one_line(cmd, 200), 80))),
             None => "Left a command running".to_string(),
         }),
+        // Its turn is over: it waits on the command (a CI watch, a build) to wake it, which
+        // "working" alone hid behind a spinner (asked 2026-10-07).
         Status::Working if background => Some(match quiet.running {
-            Some(cmd) => format!("Working in the background · {}", code(&truncate(&one_line(cmd, 200), 80))),
-            None => "Working in the background".to_string(),
+            Some(cmd) => format!("Waiting on {}", code(&truncate(&one_line(cmd, 200), 80))),
+            None => "Waiting on a command in the background".to_string(),
         }),
         Status::Working => tr.and_then(|t| t.last_tool.clone()),
         _ => tr.and_then(|t| t.last_text.clone().or_else(|| t.last_prompt.clone())),
@@ -2427,10 +2429,13 @@ mod tests {
         let poll = "while true; do sleep 60; gh pr view 1054 --json reviewDecision; done";
         let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some(poll), ..Default::default() }).unwrap();
         assert_eq!((s.status, s.stalled_since), (Status::Working, None));
-        assert!(s.excerpt.as_deref().unwrap().starts_with("Working in the background · `while true; do sleep 60;"), "{:?}", s.excerpt);
+        assert!(s.excerpt.as_deref().unwrap().starts_with("Waiting on `while true; do sleep 60;"), "{:?}", s.excerpt);
         assert_eq!(s.background.as_deref(), Some(poll));
+        // The windows draw it waiting, by the command it was left running.
+        assert_eq!(serde_json::to_value(&s).unwrap()["background"], poll);
         let unknown = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
-        assert_eq!((unknown.status, unknown.excerpt.as_deref()), (Status::Working, Some("Working in the background")));
+        assert_eq!((unknown.status, unknown.excerpt.as_deref()), (Status::Working, Some("Waiting on a command in the background")));
+        assert_eq!(serde_json::to_value(&unknown).unwrap()["background"], "", "a command it couldn't read still waits");
         assert_eq!(claude_busy_since(Some(&r), Some(&t)), None);
     }
 

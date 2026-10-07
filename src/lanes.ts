@@ -469,3 +469,16 @@ export function sessionWhy(detail: string | null, headline: string, now: number)
   const text = detail ? detail.replace(/^\{for:-?\d+\}( · )?/, '') : withoutAccount(headline);
   return withTimes(text.replace(/`/g, ''), now);
 }
+
+/** Working only in that it waits on a command its turn left running in the background (a CI
+ *  watch, a build), which wakes it when it ends: counted as working, drawn with a clock rather
+ *  than a spinner. The engine's `Session::waits_in_background` says the same. */
+export function waitsInBackground(s: Pick<Session, 'status' | 'background'>): boolean {
+  return s.status === 'working' && s.background != null;
+}
+
+/** A worktree that's working only through sessions that wait on their background commands. */
+export function laneWaits(lane: Pick<Lane, 'glyph' | 'sessions'>): boolean {
+  const working = lane.sessions.filter((s) => s.status === 'working');
+  return lane.glyph === 'working' && working.length > 0 && working.every(waitsInBackground);
+}

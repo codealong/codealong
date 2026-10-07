@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, filterByAge, homeOf, inboxCounts, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, filterByAge, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -383,5 +383,24 @@ describe('branchLabel', () => {
 
   it('is nothing until git has said', () => {
     expect(branchLabel({ branch: null, detached: null })).toBeNull();
+  });
+});
+
+describe('waitsInBackground', () => {
+  // A turn that ended with `gh pr checks --watch` left running waits on it, and is drawn so.
+  const waiting = fx.session({ status: 'working', background: 'gh pr checks 1151 --watch' });
+  const busy = fx.session({ key: 'b', status: 'working' });
+
+  it('is a working session with a command left running in the background', () => {
+    expect(waitsInBackground(waiting)).toBe(true);
+    expect(waitsInBackground({ ...waiting, background: '' })).toBe(true);
+    expect(waitsInBackground(busy)).toBe(false);
+    expect(waitsInBackground({ ...waiting, status: 'idle' })).toBe(false);
+  });
+
+  it('is a worktree whose working sessions all wait', () => {
+    expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting] }))).toBe(true);
+    expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting, busy] }))).toBe(false);
+    expect(laneWaits(fx.lane({ glyph: 'needs', sessions: [waiting] }))).toBe(false);
   });
 });

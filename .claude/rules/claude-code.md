@@ -23,7 +23,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `board.rs` (`CLAUDE_STALL_MS`, `claude_busy_since`, `BACKGROUND_QUIET_MS`),
   `claude/shells.rs`. `statusUpdatedAt` isn't refreshed while busy. A `shell` session is never
   stuck by the 30-minute rule, but Jev can still call its background command stuck (`board.rs`
-  `BACKGROUND_STALLED`).
+  `BACKGROUND_STALLED`). While its command is active it's counted as working but drawn waiting,
+  a clock and "Waiting on `<command>`" (`Session::waits_in_background`, `lanes.ts`
+  `waitsInBackground`): a CI watch looked like a stuck turn behind the spinner (2026-10-07).
 - Transcripts, `<home>/projects/<encoded cwd>/<session>.jsonl`, subagents' logs,
   `<session>/subagents/agent-*.jsonl` (the same format), the `ai-title` lines and `gitBranch`
   fields that repeat through them, and their deletion after about 30 days:

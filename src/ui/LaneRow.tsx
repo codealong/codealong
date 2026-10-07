@@ -10,7 +10,7 @@ import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../
 import { branchLabel, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
-import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, Row, selects, STATUS_WORD, StatusGlyph, WorktreeChip } from './primitives';
+import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { PreviewChip } from './PreviewBits';
@@ -391,7 +391,7 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
   return (
     <Row id={domId} selected={selected} className={cx('ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`)} onSelect={onSelect} onOpen={onOpen} onMenu={onContextMenu}>
       <span className="ca-agentline-main">
-        <StatusGlyph status={s.status} size={10} />
+        <SessionGlyph s={s} size={10} />
         <SessionText s={s} now={now} />
         <span className="ca-chips ca-agentline-tags">
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
@@ -467,7 +467,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
     >
       {/* One line leaves the account out: the status says it when pointed at. */}
       <div className="ca-seg ca-seg-glyph" title={slim ? `${STATUS_WORD[s.status]} · ${s.account}` : undefined}>
-        <StatusGlyph status={s.status} />
+        <SessionGlyph s={s} />
       </div>
       {slim ? (
         <div className="ca-seg ca-seg-main">

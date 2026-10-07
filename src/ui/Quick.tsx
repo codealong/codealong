@@ -81,13 +81,13 @@ import { completed, leftOutWords, mentionAt, mentionsIn, namedBy, repoLanes, ski
 import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
-import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
+import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { agentLine, EffortFoot, PlaceToggle } from './StartControls';
-import { Chip, cx, Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
+import { Chip, cx, Icon, Kbd, Mark, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -1219,7 +1219,7 @@ export function Quick() {
           text: [l.callsign, l.branch ?? '', l.repo, l.project, l.origin === 'main' ? 'main checkout' : ''].join(' '),
           label: l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign,
           detail: branch,
-          lead: <StatusGlyph status={l.glyph} size={10} title="" />,
+          lead: <StatusGlyph status={l.glyph} size={10} title="" waiting={laneWaits(l)} />,
         };
       }),
     })),
@@ -1610,7 +1610,7 @@ export function Quick() {
                           title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`}
                           {...handlers}
                         >
-                          <StatusGlyph status={s2.status} />
+                          <SessionGlyph s={s2} />
                           <span className="ca-quick-row-main">
                             <span className="ca-quick-row-title">
                               <Marked text={s2.title} marks={r.marks} />

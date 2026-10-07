@@ -78,6 +78,9 @@ pub struct BarItem {
     pub key: String,
     pub group: Group,
     pub status: Status,
+    /// Working only in that it waits on a command left running in the background
+    /// (`Session::waits_in_background`): its pill draws a clock, not a spinner.
+    pub waiting: bool,
     /// Needs you only because its last reply asks you something: marking it seen settles it.
     pub asks: bool,
     pub title: String,
@@ -171,6 +174,7 @@ pub fn feed(board: &Board) -> BarFeed {
                 key: s.key.clone(),
                 group,
                 status: s.status,
+                waiting: s.waits_in_background(),
                 asks: s.asks,
                 title: s.title.clone(),
                 account: s.account.clone(),

@@ -202,8 +202,10 @@ pub struct Session {
     /// mid-turn, usually on a command waiting for input. When it went quiet.
     pub stalled_since: Option<i64>,
     /// Set on a Claude session whose turn ended with a command left running in the background
-    /// (registry status `shell`): the command, or empty when it couldn't be read.
-    #[serde(skip)]
+    /// (registry status `shell`): the command, or empty when it couldn't be read. A working one
+    /// is waiting on it (a CI watch, a build), and the windows draw it with a clock instead of the
+    /// spinner of a turn that's running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
     /// Jev's read of how its turn ended (insights.rs), when `[jev] sessions` is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -258,6 +260,13 @@ impl Session {
     /// key's form is written, so whatever makes a key from the three asks here.
     pub fn key_for(harness: Harness, account: &str, id: &str) -> String {
         format!("{}:{account}:{id}", harness.config())
+    }
+
+    /// Working only in that it waits on a command its turn left running in the background, which
+    /// wakes it when it ends: counted as working, drawn waiting. `src/lanes.ts` `waitsInBackground`
+    /// says the same for the windows.
+    pub fn waits_in_background(&self) -> bool {
+        self.status == Status::Working && self.background.is_some()
     }
 
     /// A session of which only whose it is is known: in a terminal, idle, not running, with no

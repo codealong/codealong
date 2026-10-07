@@ -126,7 +126,7 @@ function SessionPill({ item, now, peeked, told, onOpen, onMenu, onHover, onLeave
           : undefined
       }
     >
-      <StatusGlyph status={item.status} title="" />
+      <StatusGlyph status={item.status} waiting={item.waiting} title="" />
       <span>{item.title}</span>
     </button>
   );

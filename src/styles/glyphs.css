@@ -18,6 +18,10 @@
 .ca-g-unread { fill: var(--unread-solid); }
 .ca-g-idle { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
 .ca-g-stopped { fill: none; stroke: var(--ink-3); stroke-width: 1.5; stroke-dasharray: 2.1 2.1; }
+/* Working but waiting on a command left running in the background: the working glyph's ink, a
+   clock that stands still. */
+.ca-g-clock { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+.ca-g-hands { fill: none; stroke: var(--ink-2); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .ca-g-alert { fill: var(--alert-solid); }
 .ca-g-x { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; }
 @keyframes ca-sweep { to { transform: rotate(360deg); } }

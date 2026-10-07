@@ -60,6 +60,10 @@ export interface Session {
   origin?: SessionOrigin;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
+  /** A Claude session whose turn left a command running in the background: the command, or ""
+   *  when it couldn't be read. Working, it waits on it (`waitsInBackground`). Missing from a
+   *  board an older app sent. */
+  background?: string;
   /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
   insight?: SessionInsight;
   /** Needs you only because its last reply asks you something: it sits at its prompt, so a
@@ -1002,6 +1006,9 @@ export interface BarItem {
   key: string;
   group: BarGroup;
   status: Status;
+  /** Working only in that it waits on a command left running in the background: drawn with a
+   *  clock. Missing from a feed an older app sent. */
+  waiting?: boolean;
   /** Needs you only because its last reply asks you something: marking it seen settles it.
    *  Missing from a feed an older app sent. */
   asks?: boolean;

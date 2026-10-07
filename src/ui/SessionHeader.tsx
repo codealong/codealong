@@ -36,7 +36,7 @@ import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
 import { PrChipCard } from './PrLink';
-import { AccountLabel, BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, StatusGlyph } from './primitives';
+import { AccountLabel, BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, SessionGlyph } from './primitives';
 import { runFolder } from './RunButton';
 import { SidesChip } from './SideStrip';
 import { TodoGlyph } from './TodoBits';
@@ -163,7 +163,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
       }
     >
       {parent ? <span className="ca-sessinsp-kin-phrase">{phrase}</span> : <span className="ca-sessinsp-elbow" aria-hidden="true" />}
-      <StatusGlyph status={t.status} size={11} />
+      <SessionGlyph s={t} size={11} />
       <span className="ca-sessinsp-kin-title">{t.title}</span>
       {kin.how !== 'started' && !parent && <Icon name={kin.how === 'fork' ? 'git-fork' : 'user'} size={11} />}
       <span className="ca-sessinsp-kin-age">{t.status === 'working' && t.statusSince ? duration(t.statusSince, now) : ago(t.lastActivity, now)}</span>
@@ -220,7 +220,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       )}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       <div className="ca-sessinsp-top">
-        <StatusGlyph status={s.status} size={14} />
+        <SessionGlyph s={s} size={14} />
         {naming ? (
           <NameField title={s.title} onDone={onRename} />
         ) : (

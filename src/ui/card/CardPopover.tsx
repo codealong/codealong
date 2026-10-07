@@ -11,7 +11,7 @@ import { cameWord, lineageOf, originWord, type KinHow } from '../../lineage';
 import { blockedBy, sectionOf, SECTION_WORD, snippet } from '../../todos';
 import type { RefItem } from '../../canvas/model';
 import type { Lane, Pr, Session, Todo } from '../../types';
-import { BranchLabel, cx, HarnessChip, Icon, LaneGlyph, PR_ICON, PrChip, Rich, STATUS_WORD, StatusGlyph } from '../primitives';
+import { BranchLabel, cx, HarnessChip, Icon, LaneGlyph, PR_ICON, PrChip, Rich, STATUS_WORD, SessionGlyph } from '../primitives';
 import { LabelChip, TodoGlyph } from '../TodoBits';
 import type { CardData } from './data';
 
@@ -27,7 +27,7 @@ function Row({ icon, children }: { icon: string; children: ReactNode }) {
 export function SessionLine({ s, now }: { s: Session; now: number }) {
   return (
     <div className="ca-cvp-session">
-      <StatusGlyph status={s.status} size={10} />
+      <SessionGlyph s={s} size={10} />
       <span className="ca-cvp-session-title">{s.title}</span>
       <span className="ca-cvp-dim">{ago(s.lastActivity, now)}</span>
     </div>
@@ -131,7 +131,7 @@ export function CardDetail({ item, data, now, terminal, todos, homes, onOpenPr, 
       return (
         <>
           <div className="ca-cvp-head">
-            <StatusGlyph status={s.status} />
+            <SessionGlyph s={s} />
             <span className="ca-cvp-title">{s.title}</span>
           </div>
           <div className="ca-cvp-status">
