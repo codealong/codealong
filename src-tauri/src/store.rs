@@ -148,9 +148,10 @@ static UNREAD: Mutex<BTreeMap<PathBuf, String>> = Mutex::new(BTreeMap::new());
 
 /// Reads a file of yours that a part of the app reads once, keeps in memory and saves whole as
 /// it changes (`save_whole`): the cards pinned to the desktop, the sessions kept there, the
-/// devices linked with this one. The default when there's no file. One that's there and doesn't
-/// read is the default too, so that part starts empty, but the file is remembered and left as
-/// it is (`save_whole` won't write over it), and a notice says why (`problems`).
+/// devices linked with this one, Jev's answers about todos. The default when there's no file.
+/// One that's there and doesn't read is the default too, so that part starts empty, but the
+/// file is remembered and left as it is (`save_whole` won't write over it), and a notice says
+/// why (`problems`).
 pub fn load_whole<T: DeserializeOwned + Default>(path: &Path, what: &str) -> T {
     let mut unread = UNREAD.lock().unwrap_or_else(|e| e.into_inner());
     match read(path, what) {

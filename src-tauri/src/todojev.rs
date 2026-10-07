@@ -7,7 +7,7 @@
 //! has moved on (a turn ended, a PR merged): what was asked is kept in `jev-todos.json`.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -59,12 +59,24 @@ impl Memory {
         crate::config::support_dir().join("jev-todos.json")
     }
 
+    /// The todos' "looks done" you dismissed are yours: a jev-todos.json that doesn't read is
+    /// left as it is, and a notice says so, rather than read as nothing asked and saved over at
+    /// Jev's next answer (`store::load_whole`).
     pub fn load() -> Memory {
-        crate::store::read_or_default(&Self::path())
+        Self::load_from(&Self::path())
     }
 
+    /// A failure is a notice (`store::save_whole`); what's in memory is used either way.
     pub fn save(&self) {
-        let _ = crate::store::save(&Self::path(), self);
+        self.save_to(&Self::path());
+    }
+
+    fn load_from(path: &Path) -> Memory {
+        crate::store::load_whole(path, "Jev's answers about todos")
+    }
+
+    fn save_to(&self, path: &Path) {
+        let _ = crate::store::save_whole(path, self);
     }
 
     /// The todos that look done now: answered for what's linked to them now, likely enough, and
@@ -524,6 +536,30 @@ mod tests {
         assert_eq!(s.depends_on, vec![("t1".to_string(), 0.85)]);
         // One project and no labels or other todos leaves nothing to ask.
         assert!(suggest_request("m", None, "x", "", "Acme", &projects[..1], &[], &[], &b).is_none());
+    }
+
+    #[test]
+    fn a_jev_todos_json_that_does_not_read_is_left_as_it_is_and_says_so() {
+        let dir = crate::store::test_dir("jev-todos");
+        let path = dir.join("jev-todos.json");
+        // A dismissal, saved and read back.
+        let mut m = Memory::default();
+        m.dismissed.insert("t1".into(), "sig".into());
+        m.save_to(&path);
+        assert_eq!(Memory::load_from(&path), m);
+        // Another build's shape, or a write cut short: Jev starts from nothing asked, but the
+        // file, with the dismissals in it, isn't saved over at its next answer, and a notice
+        // says why.
+        let broken = r#"{"asked": ["a"], "dismissed": {"t1": 7"#;
+        std::fs::write(&path, broken).unwrap();
+        assert_eq!(Memory::load_from(&path), Memory::default());
+        let mut next = Memory::default();
+        next.asked.insert("b".into());
+        next.save_to(&path);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
+        let problems = crate::store::problems(&dir);
+        assert!(problems.iter().any(|(f, why)| f == "jev-todos.json" && why.starts_with("jev-todos.json doesn't read as Jev's answers about todos")), "{problems:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
