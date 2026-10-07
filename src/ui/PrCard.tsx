@@ -95,8 +95,8 @@ const drafts = new Map<string, string>();
 const askDrafts = new Map<string, string>();
 
 /** Which side each PR's box is on, kept the same way. */
-type Side = 'review' | 'ask';
-const sides = new Map<string, Side>();
+type BoxSide = 'review' | 'ask';
+const boxSides = new Map<string, BoxSide>();
 
 /** The account picked to answer questions about PRs, in every window; none for Auto's. */
 const ASK_ACCOUNT = 'codealong.prask.account';
@@ -114,7 +114,7 @@ const DONE: Record<Verdict, { past: string; left: menus.Left }> = {
 export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom }: PrCardProps) {
   const { pr } = item;
   const { report } = can;
-  const [side, setSide] = useState<Side>(() => sides.get(pr.key) ?? 'review');
+  const [side, setSide] = useState<BoxSide>(() => boxSides.get(pr.key) ?? 'review');
   const asking = side === 'ask';
   const [reviewText, setReviewText] = useState(() => drafts.get(pr.key) ?? '');
   const [askText, setAskText] = useState(() => askDrafts.get(pr.key) ?? '');
@@ -136,7 +136,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     askDrafts.set(pr.key, askText);
   }, [pr.key, askText]);
   useEffect(() => {
-    sides.set(pr.key, side);
+    boxSides.set(pr.key, side);
   }, [pr.key, side]);
   useEffect(() => {
     if (autoFocus) box.current?.focus();
@@ -151,7 +151,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   const answerer = conversation && !conversation.ended ? (conversation.account ?? null) : askAccount(accounts, usage, now, chosen);
   const [starting, setStarting] = useState(false);
 
-  const switchTo = (to: Side) => {
+  const switchTo = (to: BoxSide) => {
     setSide(to);
     setNote(null);
     box.current?.focus();
