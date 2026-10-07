@@ -220,6 +220,21 @@ describe('a reusable worktree’s earlier work', () => {
   });
 });
 
+describe('an archived session', () => {
+  // Archived while it waited on you: still listed, but out of its worktree's status (board.rs).
+  const gone = { ...session('gone', 'needs', NOW), archived: true };
+  const current = session('current', 'working', NOW - 60_000);
+  const l = { ...lane([current], null), id: '/r/archived', sessions: [current, gone] };
+
+  it('stays out of the status filters and their counts, as it does the row and the bay', () => {
+    expect(worktreeRow(l).agents.map((a) => a.session.key)).toEqual(['current']);
+    expect(relaned(l, l.sessions).bay).toBe('working');
+    expect(inboxCounts([l])).toEqual({ needs: 0, working: 1, unread: 0, review: 0, work: 0 });
+    expect(narrowed(l, ['needs'], '')).toBeNull();
+    expect(narrowed(l, ['needs', 'working'], '')!.sessions.map((s) => s.key)).toEqual(['current']);
+  });
+});
+
 describe('withoutAccount', () => {
   it('drops the account the chip already shows', () => {
     expect(withoutAccount('`claude` · Fix the test')).toBe('Fix the test');

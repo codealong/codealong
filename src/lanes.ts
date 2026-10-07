@@ -300,13 +300,20 @@ function idleHeadline(lane: Lane, own: Session[]): [string, string | null] {
   return ['No agents', null];
 }
 
+/** Whether a session counts toward its worktree's status, as board.rs has it: the worktree's own
+ *  (not a visitor's), not archived, and not a reusable worktree's earlier work. The bays, the
+ *  rows' lines, the status filters and their counts all go by it. */
+function inStatus(s: Session): boolean {
+  return !s.visitor && !s.archived && !s.earlier;
+}
+
 /**
  * The lane with its sessions' statuses changed (src/ahead.ts): the bay, glyph and sentence
  * worked out again from its own sessions, as the engine would. A lane whose PR puts it in review
  * or merged keeps the engine's sentence when it was there already.
  */
 export function relaned(lane: Lane, sessions: Session[]): Lane {
-  const own = sessions.filter((s) => !s.visitor && !s.archived && !s.earlier).sort(bySession);
+  const own = sessions.filter(inStatus).sort(bySession);
   const [bay, glyph] = bayOf(own, lane.pr);
   const next = { ...lane, sessions, bay, glyph };
   if (bay === 'needs' || bay === 'working' || bay === 'unread') {
@@ -331,7 +338,7 @@ export function relaned(lane: Lane, sessions: Session[]): Lane {
  */
 function withSessions(lane: Lane, sessions: Session[], since: string): Lane {
   if (sessions.length === lane.sessions.length) return lane;
-  const own = sessions.filter((s) => !s.visitor && !s.archived && !s.earlier);
+  const own = sessions.filter(inStatus);
   const [bay, glyph] = bayOf(own, lane.pr);
   const agents = bay === 'needs' || bay === 'working' || bay === 'unread';
   if (!agents && bay === lane.bay && glyph === lane.glyph) return { ...lane, sessions };
@@ -382,7 +389,7 @@ export function filterByAge(lanes: Lane[], cutoff: number, pinnedLanes: Set<stri
 /** A worktree's row: a line for each own agent that needs you, is working or just finished. */
 export function worktreeRow(lane: Lane): WorktreeRow {
   const agents = lane.sessions
-    .filter((s) => !s.visitor && !s.archived && !s.earlier && AGENT_BAY[s.status])
+    .filter((s) => inStatus(s) && AGENT_BAY[s.status])
     .sort(bySession)
     .map((session): AgentItem => ({ kind: 'agent', key: `${lane.id}::${session.key}`, lane, session }));
   return { key: lane.id, lane, agents };
@@ -407,14 +414,14 @@ export function buildBays(lanes: Lane[]): { bay: Bay; rows: WorktreeRow[] }[] {
 /**
  * A worktree as the status filters show it, or null when they leave it out. In review and PR
  * needs work are about its PR and keep it whole. Needs you, Working and Your turn narrow it to
- * its agents in those states, and it moves to the bay they put it in, as it does under the age
- * filter. No filter keeps every worktree.
+ * its agents in those states (`inStatus`: not archived ones), and it moves to the bay they put it
+ * in, as it does under the age filter. No filter keeps every worktree.
  */
 export function narrowed(lane: Lane, fs: readonly Filter[], since: string): Lane | null {
   if (fs.length === 0) return lane;
   const forPr = fs.some((f) => (f === 'work' ? prNeedsWork(lane.pr) : !AGENT_FILTERS.has(f) && lane.bay === f));
   if (forPr) return lane;
-  const sessions = lane.sessions.filter((s) => !s.visitor && !s.earlier && fs.includes(AGENT_BAY[s.status] as Filter));
+  const sessions = lane.sessions.filter((s) => inStatus(s) && fs.includes(AGENT_BAY[s.status] as Filter));
   if (sessions.length === 0) return null;
   // The same copy while the worktree and the filters stay the same, so its row skips rendering
   // between pushes, as `ageFiltered`'s does (`keptCopy`).
@@ -432,14 +439,13 @@ const NARROWED: LaneCopies = new WeakMap();
 const AGENT_FILTERS = new Set<Filter>(['needs', 'working', 'unread']);
 
 /**
- * The status filters' counts: agents that need you, are working or just finished, and worktrees whose
- * PR is in review or needs work.
+ * The status filters' counts: agents that need you, are working or just finished (`inStatus`), and
+ * worktrees whose PR is in review or needs work.
  */
 export function inboxCounts(lanes: Lane[]): { needs: number; working: number; unread: number; review: number; work: number } {
   const c = { needs: 0, working: 0, unread: 0, review: 0, work: 0 };
   for (const lane of lanes) {
-    const own = lane.sessions.filter((s) => !s.visitor && !s.earlier);
-    for (const s of own) {
+    for (const s of lane.sessions.filter(inStatus)) {
       const bay = AGENT_BAY[s.status];
       if (bay === 'needs' || bay === 'working' || bay === 'unread') c[bay]++;
     }
