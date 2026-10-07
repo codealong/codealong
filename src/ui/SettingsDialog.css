@@ -75,6 +75,14 @@
 .ca-settings-fields .ca-settings-select {
   max-width: 440px;
 }
+/* Settings' selects show their value as its text fields do (.ca-field input), in code's mono: a
+   terminal, an editor or a Chrome profile is a setting's value, as a folder is. The Chrome
+   profile select is one component, so a worktree's Preview URL sheet, whose fields are the same,
+   gets it too. After controls.css, whose .ca-start-select select is body-strong: of two rules
+   alike the later wins. */
+.ca-settings-select select {
+  font: var(--type-code);
+}
 
 .ca-settings-theme {
   justify-self: start;
