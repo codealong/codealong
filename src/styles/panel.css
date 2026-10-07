@@ -5,7 +5,7 @@
 .ca-insp-title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ca-insp-call { font: var(--type-title); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-insp-title .ca-tag { margin-left: auto; }
-.ca-insp-path { display: flex; align-items: center; gap: 5px; margin-top: 6px; font: 400 11px/16px var(--font-mono); color: var(--ink-3); }
+.ca-insp-path { display: flex; align-items: center; gap: 5px; margin-top: 6px; font: var(--type-code-block); color: var(--ink-3); }
 .ca-insp-path .ca-icon { color: var(--ink-3); }
 .ca-insp-branch { margin-top: 3px; }
 .ca-insp-actions { display: flex; align-items: center; gap: 6px; }

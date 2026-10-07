@@ -2,7 +2,7 @@
 
 .ca-meter { display: grid; gap: 6px; min-width: 0; }
 .ca-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
-.ca-meter-label { font: 500 12px/16px var(--font-sans); color: var(--ink-2); }
+.ca-meter-label { font: var(--type-meta-strong); color: var(--ink-2); }
 .ca-meter-value { font: 600 24px/24px var(--font-display); color: var(--ink); font-variant-numeric: tabular-nums; }
 .ca-meter-track { position: relative; height: 6px; border-radius: var(--radius-pill); background: var(--neutral-tint); }
 .ca-meter-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: inherit; background: var(--ink-2); }
@@ -97,7 +97,7 @@
   color: var(--ink-3);
 }
 .ca-uchip-name {
-  font: 600 12px/16px var(--font-mono);
+  font: var(--type-code-heading);
   color: var(--ink);
 }
 .ca-uchip-note {
@@ -109,7 +109,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font: 500 12px/16px var(--font-sans);
+  font: var(--type-meta-strong);
   color: var(--attn);
 }
 .ca-uchip .ca-meter.is-compact {
@@ -132,7 +132,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font: 400 11px/14px var(--font-mono);
+  font: var(--type-code-caption);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

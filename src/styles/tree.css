@@ -69,6 +69,6 @@
 /* Words beside a worktree's name, in the PR panel: prose, not a callsign. */
 .ca-tree-note {
   flex: none;
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
   color: var(--ink-3);
 }

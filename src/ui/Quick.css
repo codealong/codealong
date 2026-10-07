@@ -41,7 +41,7 @@ html.is-quick body {
   border-radius: var(--radius-sm);
   background: var(--neutral-tint);
   color: var(--ink);
-  font: 600 13px/18px var(--font-sans);
+  font: var(--type-heading-sm);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -241,7 +241,7 @@ html.is-quick body {
 .ca-quick-row-tab {
   flex: none;
   color: var(--ink-3);
-  font: 500 11px/14px var(--font-sans);
+  font: var(--type-caption-strong);
   white-space: nowrap;
 }
 /* The last row: a new session. A line sets it apart from the sessions above. */
@@ -383,7 +383,7 @@ html.is-quick body {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font: 500 12px/16px var(--font-sans);
+  font: var(--type-meta-strong);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -425,14 +425,14 @@ html.is-quick body {
   text-transform: none;
 }
 .ca-quick-acct-name {
-  font: 600 12px/16px var(--font-mono);
+  font: var(--type-code-heading);
   color: var(--ink);
 }
 .ca-quick-acct-detail {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
   color: var(--ink-3);
 }
 .ca-quick-acct-meters {

@@ -46,7 +46,7 @@
   font-variant-numeric: tabular-nums;
 }
 .ca-prhover-title {
-  font: 600 13px/18px var(--font-sans);
+  font: var(--type-heading-sm);
   overflow-wrap: anywhere;
 }
 .ca-prhover-meta {

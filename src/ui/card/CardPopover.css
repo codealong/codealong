@@ -79,7 +79,7 @@
 /* Over a popover's list of the sessions a session came from or that came of it. */
 .ca-cvp-label {
   color: var(--ink-3);
-  font: 500 11px/14px var(--font-sans);
+  font: var(--type-caption-strong);
 }
 .ca-cvp-label:not(:first-child) {
   margin-top: var(--space-1);
@@ -111,5 +111,5 @@
   padding-top: 7px;
   border-top: 1px solid var(--line);
   color: var(--ink-3);
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
 }

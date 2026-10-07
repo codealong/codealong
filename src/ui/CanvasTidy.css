@@ -49,7 +49,7 @@
 }
 
 .ca-cv-tidy-head {
-  font: 600 13px/18px var(--font-sans);
+  font: var(--type-heading-sm);
 }
 .ca-cv-tidy-note,
 .ca-cv-tidy-rowlabel {

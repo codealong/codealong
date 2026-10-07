@@ -21,7 +21,7 @@
 .ca-thread-note {
   align-self: center;
   color: var(--ink-3);
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
 }
 .ca-thread-note {
   padding: 2px 8px;
@@ -40,14 +40,14 @@
   align-items: center;
   gap: 6px;
   color: var(--ink-3);
-  font: 500 11px/14px var(--font-sans);
+  font: var(--type-caption-strong);
 }
 .ca-thread-you {
   padding: 8px 10px;
   border-radius: var(--radius-md);
   background: var(--neutral-tint);
   color: var(--ink);
-  font: 400 13px/19px var(--font-sans);
+  font: var(--type-reading);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -112,7 +112,7 @@
 }
 .ca-thread-agent {
   color: var(--ink);
-  font: 400 13px/19px var(--font-sans);
+  font: var(--type-reading);
   overflow-wrap: anywhere;
 }
 /* Under each message, a button that copies it as written, markdown and all (CopyButton.tsx):
@@ -203,7 +203,7 @@
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   color: var(--ink-2);
-  font: 400 11px/16px var(--font-mono);
+  font: var(--type-code-block);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

@@ -98,7 +98,7 @@
 .ca-cv-age {
   margin-left: auto;
   flex: none;
-  font: 500 11px/16px var(--font-mono);
+  font: var(--type-code-meta);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
@@ -107,7 +107,7 @@
   align-items: center;
   gap: 3px;
   flex: none;
-  font: 500 11px/16px var(--font-mono);
+  font: var(--type-code-meta);
   color: var(--ink-2);
 }
 .ca-cv-account .ca-icon {

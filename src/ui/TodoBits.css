@@ -25,7 +25,7 @@
   border-radius: var(--chip-radius);
   background: var(--neutral-tint);
   color: var(--ink-2);
-  font: 500 11px/14px var(--font-sans);
+  font: var(--type-caption-strong);
   white-space: nowrap;
 }
 .ca-labelchip--button {
@@ -68,7 +68,7 @@
 .ca-chip.ca-todochip {
   max-width: 240px;
   min-width: 0;
-  font: 500 11px/14px var(--font-sans);
+  font: var(--type-caption-strong);
 }
 .ca-todochip-title {
   min-width: 0;

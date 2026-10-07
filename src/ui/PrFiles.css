@@ -190,7 +190,7 @@
   padding: 6px 0;
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
-  font: 400 11px/16px var(--font-mono);
+  font: var(--type-code-block);
   color: var(--ink-2);
 }
 .ca-patch > span {

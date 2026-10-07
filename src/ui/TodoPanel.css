@@ -101,7 +101,7 @@
 }
 .ca-labelpick-note {
   margin: 4px 8px 2px;
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
   color: var(--ink-3);
 }
 .ca-label.ca-todoinsp-linkhead {
@@ -198,7 +198,7 @@
 }
 .ca-waitpick-note {
   flex: none;
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
   color: var(--ink-3);
 }
 
@@ -292,7 +292,7 @@
   flex: none;
   min-width: 14px;
   color: var(--ink-3);
-  font: 500 11px/16px var(--font-mono);
+  font: var(--type-code-meta);
   text-align: right;
 }
 .ca-todopick-name {

@@ -5,7 +5,7 @@
 .ca-bay { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--space-3); font: var(--type-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
 .ca-bay--needs { color: var(--attn); }
 .ca-bay-count { font: var(--type-code-sm); letter-spacing: 0; font-variant-numeric: tabular-nums; }
-.ca-bay-action { margin-left: auto; font: 500 12px/16px var(--font-sans); letter-spacing: 0; text-transform: none; color: var(--ink-3); }
+.ca-bay-action { margin-left: auto; font: var(--type-meta-strong); letter-spacing: 0; text-transform: none; color: var(--ink-3); }
 
 .ca-lane { display: grid; grid-template-columns: 32px 176px minmax(0, 1fr) 52px; min-height: var(--lane-h); background: var(--surface); border-bottom: 1px solid var(--line); color: var(--ink); cursor: default; outline: none; transition: background var(--dur-fast) ease-out; }
 .ca-lane:hover { background: var(--surface-hover); }
@@ -20,7 +20,7 @@
 .ca-seg-call { gap: 2px; background: var(--surface-sunken); }
 .ca-lane.is-needs .ca-seg-call { background: var(--attn-tint); }
 .ca-lane-call { font: var(--type-callsign); letter-spacing: 0.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ca-lane-sub { font: 400 11px/14px var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-lane-sub { font: var(--type-code-caption); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-seg-main { gap: 5px; }
 .ca-lane-line1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-body); }
 .ca-lane-headline { color: var(--ink); }
@@ -32,7 +32,7 @@
 
 .ca-bayblock { margin-top: var(--space-2); }
 .ca-bay-lanes { border-top: 1px solid var(--line); }
-.ca-parked { display: block; width: 100%; height: 32px; padding: 0 0 0 44px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink-3); font: 500 12px/16px var(--font-sans); text-align: left; cursor: pointer; }
+.ca-parked { display: block; width: 100%; height: 32px; padding: 0 0 0 44px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink-3); font: var(--type-meta-strong); text-align: left; cursor: pointer; }
 .ca-parked:hover { background: var(--surface-hover); color: var(--ink-2); }
 
 .ca-bay-hint {

@@ -53,7 +53,7 @@
   box-sizing: border-box;
   max-height: calc(var(--ca-box-lines) * 19px + 12px);
   padding: 8px 10px 4px;
-  font: 400 13px/19px var(--font-sans);
+  font: var(--type-reading);
   scrollbar-gutter: stable;
 }
 .ca-composer-text > textarea {
@@ -133,7 +133,7 @@
   flex: 1;
   min-width: 0;
   color: var(--ink-3);
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
 }
 .ca-composer-note.is-error {
   color: var(--alert);
@@ -144,7 +144,7 @@
   gap: var(--space-2);
   background: var(--attn-tint);
   color: var(--attn);
-  font: 500 12px/16px var(--font-sans);
+  font: var(--type-meta-strong);
 }
 .ca-composer.is-waiting > span {
   flex: 1;
@@ -164,7 +164,7 @@
   align-items: center;
   gap: 6px;
   color: var(--attn);
-  font: 600 12px/16px var(--font-sans);
+  font: var(--type-heading-xs);
 }
 .ca-approval-head .ca-linkbtn {
   margin-left: auto;
@@ -173,7 +173,7 @@
 .ca-approval-unwritten {
   margin: 0;
   color: var(--ink-3);
-  font: 400 11px/14px var(--font-sans);
+  font: var(--type-caption);
 }
 .ca-approval-label {
   color: var(--ink);
@@ -193,7 +193,7 @@
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font: 400 11px/16px var(--font-mono);
+  font: var(--type-code-block);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
