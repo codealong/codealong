@@ -144,7 +144,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Other `/…` commands go to the session as typed. The selected session's panel keeps its top
     to three lines so the conversation has the room: the title with the ways to open it, mark it
     seen, expand the panel, its details (ⓘ: account, ID, folder, times) and its menu (⋯, New
-    session here among the rest); where it stands, its harness, worktree and branch; and the PRs it
+    session here among the rest); where it stands, its worktree and branch, and its account (its
+    harness on hover); and the PRs it
     worked on (as the PRs view links them, else its worktree's), each a chip that opens on GitHub
     and shows the PR's card on hover, with the todo it's on and +N for the rest. Below is its
     whole conversation, read from the session's own record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the

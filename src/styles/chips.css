@@ -32,6 +32,9 @@
 .ca-branch .ca-icon { color: var(--ink-3); }
 .ca-branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-branch-ab, .ca-branch-dirty { color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-account { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 100%; font: var(--type-code); color: var(--ink-2); }
+.ca-account .ca-icon { flex: none; color: var(--ink-3); }
+.ca-account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 :root {
   --chip-radius: var(--radius-pill);

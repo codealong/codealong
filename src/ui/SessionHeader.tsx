@@ -2,7 +2,8 @@
 // the main window, the floating bar's peek and the waiting window (SessionPanel.tsx puts
 // it over the conversation in all three). It keeps to a few lines so the conversation has the room:
 // the title with the ways to open it and act on it (its folder in your terminal and your editors
-// among them), one line of where it stands and where it works, and one of the PRs it worked on
+// among them), one line of where it stands, where it works and, last as on a row, its account
+// (the harness's name alone didn't say which of its accounts), and one of the PRs it worked on
 // (each one's card on hover), the todo it's on, and how many side conversations it has
 // (SideStrip.tsx), which shows them above the box. The rest is in Details and the ⋯ menu.
 //
@@ -23,7 +24,7 @@ import { useMemo, useRef, useState } from 'react';
 import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
-import { HARNESS_WORD, sessionName, sessionPlace } from '../harness';
+import { sessionName, sessionPlace } from '../harness';
 import { limitWords, seenable } from '../lanes';
 import { cameWord, originWord, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, type SessionActions } from '../menus';
@@ -35,7 +36,7 @@ import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { PreviewLink } from './PreviewBits';
 import { PrChipCard } from './PrLink';
-import { BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, StatusGlyph } from './primitives';
+import { AccountLabel, BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, StatusGlyph } from './primitives';
 import { runFolder } from './RunButton';
 import { SidesChip } from './SideStrip';
 import { TodoGlyph } from './TodoBits';
@@ -290,8 +291,6 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           <>
             <span>{status}</span>
             <span aria-hidden="true">·</span>
-            <span>{HARNESS_WORD[s.harness]}</span>
-            <span aria-hidden="true">·</span>
             {onShowLane ? (
               <button type="button" className="ca-sessinsp-lane" title={`Show ${lane.callsign}: ${tildePath(lane.path)}`} onClick={() => onShowLane(lane)}>
                 <Icon name="folder" size={12} />
@@ -309,6 +308,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
                 <BranchLabel branch={branch} />
               </>
             )}
+            <span aria-hidden="true">·</span>
+            <AccountLabel session={s} />
           </>
         )}
       </div>

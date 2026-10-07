@@ -4,7 +4,7 @@ import type { ButtonHTMLAttributes, CSSProperties, FormEvent, MouseEvent as Reac
 import { forwardRef, Fragment, useId, useRef } from 'react';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
-import { sessionPlace } from '../harness';
+import { HARNESS_WORD, sessionPlace } from '../harness';
 import { branchLabel } from '../lanes';
 import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
 import { LOGO_LABEL } from '../logo';
@@ -445,6 +445,17 @@ export function HarnessChip({ session, withStatus = true, onOpen, inRow = false,
       <Icon name={SURFACE_ICON[session.surface]} size={12} />
       <span>{session.account}</span>
     </Chip>
+  );
+}
+
+/** A session's account where a line of text names it (its header), as its chip shows it: the icon
+ *  for where it runs and the name as typed, with its harness on hover. */
+export function AccountLabel({ session }: { session: Session }) {
+  return (
+    <span className="ca-account" title={`Its account: ${session.account} (${HARNESS_WORD[session.harness]})`}>
+      <Icon name={SURFACE_ICON[session.surface]} size={12} />
+      <span className="ca-account-name">{session.account}</span>
+    </span>
   );
 }
 
