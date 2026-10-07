@@ -225,6 +225,8 @@ export async function closeSession(key: string): Promise<string> {
 export interface Done {
   done: boolean;
   message: string;
+  /** Something didn't go as asked: a terminal left open, or one that didn't close. */
+  noted?: boolean;
   at?: number | null;
 }
 

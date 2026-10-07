@@ -136,7 +136,8 @@ export interface SessionCan {
   /** Archives or unarchives it, where that does more (an undo in the main window). */
   archive?: (archived: boolean) => void;
   /** Says what Mark as done did with a way back, where the window has one (the main window's
-   *  Undo, which unarchives it); elsewhere `report` says it. */
+   *  Undo, which unarchives it). Elsewhere the session leaving the list says it was done, and
+   *  `report` says only what didn't go as asked: a terminal left open, say. */
   undoDone?: (message: string) => void;
   /** It left the list it was picked from, and how: the peek goes away, the waiting window's queue
    *  and the notch's go on to the next. */
@@ -253,7 +254,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       .then((r) => {
         if (!r.done) holds(r.message);
         else if (can.undoDone) can.undoDone(r.message);
-        else if (r.message) report.info(r.message);
+        else if (r.noted) report.info(r.message);
       })
       .catch((e: unknown) => report.error(errorText(e)));
   };

@@ -803,10 +803,12 @@ fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
         Some(what) => format!("Done with “{title}”: {what} and it's archived."),
         None => format!("Done with “{title}”: it's archived."),
     };
-    if let Some(note) = note {
+    if let Some(note) = &note {
         message = format!("{message} {note}");
     }
-    Ok(json!({ "done": true, "message": message, "at": shown_at(c, at) }))
+    // `noted`: something didn't go as asked (a terminal left open, say), which even the windows
+    // that let the session leaving their list say it was done should say.
+    Ok(json!({ "done": true, "message": message, "noted": note.is_some(), "at": shown_at(c, at) }))
 }
 
 /// Asks a throwaway copy of it `text`, on the side (side.rs): the session carries on, unaware.

@@ -472,14 +472,19 @@ describe('actions by name', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(1_000_000);
     try {
-      // Done: it goes on to the next, and the window says what happened, or the main window
-      // offers its Undo.
+      // Done: it goes on to the next, which says it was done, and the window says nothing more
+      // unless something didn't go as asked; the main window offers its Undo.
       answer({ done: true, message: 'Done with “Fix login”: its terminal is closed and it’s archived.', at: 5 });
       sessionActions(lane(), session(), can).done?.run();
       await settled();
       expect(ask).toHaveBeenLastCalledWith('claude:c:1', false);
       expect(left).toEqual(['done']);
-      expect(said).toEqual(['Done with “Fix login”: its terminal is closed and it’s archived.']);
+      expect(said).toEqual([]);
+      answer({ done: true, message: 'Done with “Fix login”: it’s archived. It’s still open in the Claude app.', noted: true, at: 5 });
+      sessionActions(lane(), session(), can).done?.run();
+      await settled();
+      expect(said).toEqual(['Done with “Fix login”: it’s archived. It’s still open in the Claude app.']);
+      said.length = 0;
       answer({ done: true, message: 'Done with “Fix login”: it’s archived.', at: 6 });
       sessionActions(lane(), session(), { ...can, undoDone: (m) => undone.push(m) }).done?.run();
       await settled();
