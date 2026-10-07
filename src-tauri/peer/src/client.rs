@@ -282,7 +282,10 @@ impl Client {
     }
 
     /// Asks a linked device, by its key or short id, to run a request, and waits for its answer.
+    /// One that acts and isn't answered in time may still be done there, and says so, so that
+    /// it isn't asked for twice.
     pub fn ask(&self, device: &str, method: &str, params: Value, timeout: Duration) -> std::result::Result<Value, String> {
+        let acts = api::reach(method) == Some(api::Reach::Control);
         let inner = &self.0;
         let (id, rx, name) = {
             let mut st = inner.lock();
@@ -303,7 +306,7 @@ impl Client {
             Ok(r) => r,
             Err(_) => {
                 inner.lock().pending.remove(&id);
-                Err(format!("{name} didn't answer in time."))
+                Err(if acts { format!("{name} didn't answer in time, so it may still have done it: look before you ask again.") } else { format!("{name} didn't answer in time.") })
             }
         }
     }

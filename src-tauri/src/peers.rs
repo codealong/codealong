@@ -85,8 +85,9 @@ pub enum Via {
 pub struct Hooks {
     /// The board as it stands, for the feed.
     pub board: Box<dyn Fn() -> Board + Send + Sync>,
-    /// Answers a linked device's request, as the matching Tauri command would here.
-    pub answer: Box<dyn Fn(&str, Value) -> Result<Value, String> + Send + Sync>,
+    /// Answers a linked device's request, as the matching Tauri command would here; with true
+    /// when the device only watches (a phone), which runs no agents, so what it sends is yours.
+    pub answer: Box<dyn Fn(&str, Value, bool) -> Result<Value, String> + Send + Sync>,
     /// Hands the windows what they show of other devices.
     pub emit: Box<dyn Fn(&DevicesView) + Send + Sync>,
 }
@@ -764,9 +765,10 @@ impl Inner {
 
     /// Runs a linked device's request, after checking it may make it.
     fn answer(&self, from: &str, method: &str, params: Value) -> std::result::Result<Value, String> {
-        let (linked, control, me, them) = {
+        let (linked, watching, control, me, them) = {
             let st = self.lock();
-            (Self::is_linked(&st, from), st.cfg.remote_control, self.my_name(&st), self.name_of(&st, from))
+            let watching = st.linked.iter().find(|l| l.key == from).is_some_and(Linked::watches);
+            (Self::is_linked(&st, from), watching, st.cfg.remote_control, self.my_name(&st), self.name_of(&st, from))
         };
         if !linked {
             return Err(format!("{me} isn't linked with this device."));
@@ -778,7 +780,7 @@ impl Inner {
             return Err(format!("Remote control is off on {me}; turn it on there in Settings › Devices."));
         }
         let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
-        let got = (self.hooks.answer)(method, params);
+        let got = (self.hooks.answer)(method, params, watching);
         if acts {
             audit(&them, short_of(from), method, &key, &got);
         }
@@ -1576,8 +1578,8 @@ mod tests {
         let (b, v, a) = (board.clone(), views.clone(), asked.clone());
         let hooks = Hooks {
             board: Box::new(move || b.lock().unwrap().clone()),
-            answer: Box::new(move |method, params| {
-                a.lock().unwrap().push((method.to_string(), params.clone()));
+            answer: Box::new(move |method, params, watching| {
+                a.lock().unwrap().push((method.to_string(), json!({ "params": params, "watching": watching })));
                 match method {
                     "session-page" => Ok(json!({ "items": [], "before": null, "after": 0, "key": params["key"] })),
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
@@ -1682,13 +1684,14 @@ mod tests {
 
         let page = phone.page(&d.short, "claude:claude:s2", None).unwrap();
         assert!(page.items.is_empty() && page.before.is_none());
-        assert_eq!(mac.asked.lock().unwrap().last().unwrap().1["key"], "claude:claude:s2");
+        assert_eq!(mac.asked.lock().unwrap().last().unwrap().1["params"]["key"], "claude:claude:s2");
         let refused = phone.send(&d.short, "claude:claude:s2", "hi", false).unwrap_err();
         assert!(refused.contains("Remote control is off on Mini"), "{refused}");
         // Naming a session changes how it's listed, not what its agent does: it needs no remote
         // control.
         phone.rename(&d.short, "claude:claude:s2", "Fix the build").unwrap();
-        assert_eq!(*mac.asked.lock().unwrap().last().unwrap(), ("session-rename".to_string(), json!({ "key": "claude:claude:s2", "name": "Fix the build" })));
+        // Asked by a phone, which runs no agents: what it sends is its user's own.
+        assert_eq!(*mac.asked.lock().unwrap().last().unwrap(), ("session-rename".to_string(), json!({ "params": { "key": "claude:claude:s2", "name": "Fix the build" }, "watching": true })));
         // Where it could start a session reads without remote control; starting one needs it.
         let options = phone.start_options(&d.short).unwrap();
         assert_eq!((options.accounts[0].name.as_str(), options.accounts[0].places[0].place), ("claude", codealong_peer::api::Place::Background));
@@ -1780,6 +1783,8 @@ mod tests {
         b.peers.configure(&on);
         let sent = a.peers.ask(&b_short, "session-send", json!({ "key": "claude:claude:s2", "text": "hi" }), Duration::from_secs(5)).unwrap();
         assert_eq!(sent["message"], "Sent.");
+        // An agent on the other Mac may have asked it: what it sends isn't taken as yours.
+        assert_eq!(b.asked.lock().unwrap().last().unwrap().1["watching"], false);
 
         // The link is kept on disk on both sides.
         assert!(load_linked(&a.dir).iter().any(|l| l.key == key_of(&b) && l.name == "Mini"));

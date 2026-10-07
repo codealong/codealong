@@ -124,8 +124,13 @@ pub enum From {
     Here,
     /// A linked device, whose request peers.rs has let through (`api::reach`); or the engine's
     /// `--snapshot`, which like a device isn't you at a window: what it sends claims nothing of
-    /// yours, and nothing is left for someone here to finish.
+    /// yours, since an agent on another Mac may have asked it, and nothing is left for someone
+    /// here to finish.
     Device,
+    /// A linked phone or tablet, which only watches (`Linked::watches`): it runs no agents, so
+    /// what it sends is yours, as a window's is. Otherwise as a device: nothing is left for
+    /// someone here to finish.
+    Phone,
     /// The `codealong` command on this device, where an agent may have typed it: with the key
     /// of the session that ran it, when the command found one. It gets what a window has less
     /// what is its user's alone to do (each request's `command`), and what it sends says it's
@@ -402,10 +407,12 @@ pub fn typed<T: DeserializeOwned>(v: Value) -> Result<T, String> {
 }
 
 /// Answers a linked device's request (peers.rs has checked it may make it) as a window's would be.
-pub fn answer(engine: &Handle, name: &str, params: Value) -> Result<Value, String> {
+/// `watching`: the device only watches (a phone), so what it sends is yours.
+pub fn answer(engine: &Handle, name: &str, params: Value, watching: bool) -> Result<Value, String> {
     let req = find(name).filter(|r| r.only_here.is_none()).ok_or_else(|| format!("Codealong on this device doesn't know how to {name} yet; update it here."))?;
     let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
-    (req.here)(engine, &Call { key: &key, params: &params, from: &From::Device })
+    let from = if watching { From::Phone } else { From::Device };
+    (req.here)(engine, &Call { key: &key, params: &params, from: &from })
 }
 
 fn cfg() -> Result<config::Config, String> {
@@ -520,7 +527,8 @@ fn sent_after(engine: &Handle, c: &Call, key: &str, text: &str, said: &str) -> R
 /// Who a message is from, as send.rs tells the session.
 fn sender_of(from: &From) -> send::Sender {
     match from {
-        From::Here => send::Sender::You,
+        // What you type on your phone is yours too: a phone runs no agents that could have typed it.
+        From::Here | From::Phone => send::Sender::You,
         From::Device => send::Sender::Elsewhere,
         From::Command(session) => send::Sender::Agent(session.clone()),
     }
@@ -532,7 +540,7 @@ fn sender_of(from: &From) -> send::Sender {
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Send = c.read()?;
     let sent = send::send_here(engine, c.session()?, &p.text, sender_of(c.from), p.now).map_err(words)?;
-    if *c.from == From::Device && sent.opened {
+    if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
     to_value(sent)
@@ -549,7 +557,7 @@ fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
     if let Some(copy) = resumed.key.as_deref().filter(|k| *k != key) {
         hand_over(engine, &board, key, copy);
     }
-    if *c.from == From::Device && resumed.sent.opened {
+    if matches!(c.from, From::Device | From::Phone) && resumed.sent.opened {
         return Err(format!("It needs someone at this device: {}", resumed.sent.message));
     }
     to_value(resumed.sent)
@@ -601,7 +609,7 @@ fn mark_seen(engine: &Handle, c: &Call) -> Result<Value, String> {
     let keys = c.read::<params::Keys>()?.keys;
     Ok(match c.from {
         From::Here => json!(engine.mark_seen_shown(keys)),
-        From::Device | From::Command(_) => {
+        From::Device | From::Phone | From::Command(_) => {
             engine.mark_seen(keys);
             Value::Null
         }
@@ -893,17 +901,17 @@ mod tests {
     #[test]
     fn another_devices_request_for_what_needs_someone_here_is_refused() {
         let engine = Handle::for_tests();
-        let err = answer(&engine, FORK_TERMINAL, json!({ "key": "claude:claude:abc" })).unwrap_err();
+        let err = answer(&engine, FORK_TERMINAL, json!({ "key": "claude:claude:abc" }), false).unwrap_err();
         assert!(err.contains("doesn't know how to"), "{err}");
-        let err = answer(&engine, "session-launch-rockets", json!({})).unwrap_err();
+        let err = answer(&engine, "session-launch-rockets", json!({}), true).unwrap_err();
         assert!(err.contains("update it here"), "{err}");
-        let err = answer(&engine, api::SESSION_PAGE, json!({})).unwrap_err();
+        let err = answer(&engine, api::SESSION_PAGE, json!({}), false).unwrap_err();
         assert_eq!(err, "The request names no session.");
     }
 
     fn no_devices() -> (Peers, crate::fixtures::Scratch) {
         let dir = crate::fixtures::scratch("actions");
-        let hooks = crate::peers::Hooks { board: Box::new(crate::model::Board::default), answer: Box::new(|_, _| Err("no".into())), emit: Box::new(|_| {}) };
+        let hooks = crate::peers::Hooks { board: Box::new(crate::model::Board::default), answer: Box::new(|_, _, _| Err("no".into())), emit: Box::new(|_| {}) };
         (Peers::new(dir.to_path_buf(), hooks), dir)
     }
 
@@ -1022,9 +1030,19 @@ mod tests {
         assert!(elsewhere(find(FORK_TERMINAL).unwrap(), &From::Here).unwrap_err().contains("on the Mac it runs on"));
         // A window may allow, and so may a device, which peers.rs lets through only with remote
         // control on: both get as far as the session.
-        for from in [From::Here, From::Device] {
+        for from in [From::Here, From::Device, From::Phone] {
             let err = local(&engine, &from, api::SESSION_ANSWER, "claude:claude:abc", json!({ "id": "t1", "answer": "allow" })).unwrap_err();
             assert!(err.contains("isn't on the board"), "{from:?}: {err}");
         }
+    }
+
+    /// What you write on your phone is yours, as what you write in a window here is: a phone runs
+    /// no agents. Another Mac's request may have come from an agent there, and claims nothing.
+    #[test]
+    fn a_phones_messages_are_its_users_own() {
+        assert_eq!(sender_of(&From::Here), send::Sender::You);
+        assert_eq!(sender_of(&From::Phone), send::Sender::You);
+        assert_eq!(sender_of(&From::Device), send::Sender::Elsewhere);
+        assert_eq!(sender_of(&From::Command(None)), send::Sender::Agent(None));
     }
 }

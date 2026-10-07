@@ -4,10 +4,11 @@
 //!
 //! A session that skips permission prompts holds such a message for you to allow unless it
 //! claims the session's own permission class, and the Claude app has no way to show a held one.
-//! What you type in Codealong's windows on this Mac is yours, as if typed in the session, so it
-//! makes that claim; from another device it doesn't, and from an agent only when the agent's own
-//! session skips permission prompts too, as Claude Code's own messages between sessions claim
-//! their sender's class. So an agent can't use Codealong to get past the hold, and a Claude app
+//! What you type in Codealong's windows on this Mac, or on your phone, which runs no agents, is
+//! yours, as if typed in the session, so it makes that claim; from another Mac it doesn't, since
+//! an agent there may have asked for it, and from an agent only when the agent's own session skips
+//! permission prompts too, as Claude Code's own messages between sessions claim their sender's
+//! class. So an agent can't use Codealong to get past the hold, and a Claude app
 //! session is told nothing rather than holding a message no one will see.
 
 use std::io::Write;
@@ -244,9 +245,9 @@ mod tests {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
         let app = Session { surface: Surface::App, status: Status::Unread, live: true, pid: Some(42), title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Claude, "claude", "abc") };
         // Whose a message is, as send.rs says it: yours here claims to skip prompts (`bypasses`),
-        // one from another device doesn't, and an agent's does only when its own session skips them.
+        // one from another Mac doesn't, and an agent's does only when its own session skips them.
         let refused = |route: &Message, agent: Option<&str>, bypasses: bool| route.deliver(&Delivery { session: &app, account: &account, text: "hi", agent, bypasses, now: false, untyped: None }).map(|_| ()).unwrap_err().to_string();
-        // From another device, a Claude app session that skips prompts
+        // From another Mac, a Claude app session that skips prompts
         // would hold it where no one sees it: nothing is sent, and the error says why.
         let route = Message { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) };
         let err = refused(&route, None, false);

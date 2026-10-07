@@ -1502,8 +1502,8 @@ pub fn run() {
                     config::support_dir(),
                     peers::Hooks {
                         board: Box::new(move || boards.get().map(|e| e.board()).unwrap_or_default()),
-                        answer: Box::new(move |method, params| match answers.get() {
-                            Some(e) => actions::answer(e, method, params),
+                        answer: Box::new(move |method, params, watching| match answers.get() {
+                            Some(e) => actions::answer(e, method, params, watching),
                             None => Err("Codealong is still starting on that device.".into()),
                         }),
                         emit: Box::new(move |view| {

@@ -46,9 +46,9 @@ pub use codealong_peer::api::{Sent, Way};
 /// Who a message is from: how the session is told, and which ways in it may take.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sender {
-    /// You, in one of Codealong's windows on this Mac.
+    /// You, in one of Codealong's windows on this Mac, or on your phone, which runs no agents.
     You,
-    /// Another of your devices, or the engine's `--snapshot --send`, where an agent may have
+    /// Another of your Macs, or the engine's `--snapshot --send`, where an agent may have
     /// written it.
     Elsewhere,
     /// An agent, through `codealong session send`: the key of the session that ran the command,
