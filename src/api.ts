@@ -35,15 +35,27 @@ export async function popupMenu(rid: number, at?: { x: number; y: number }): Pro
   await invoke('popup_menu', { rid, at: at ? { Logical: { x: at.x * z, y: at.y * z } } : null });
 }
 
-/** Calls `cb` with every board the engine publishes. Returns an unsubscribe function. */
-export function onBoard(cb: (board: Board) => void): () => void {
-  if (!inTauri) return () => {};
+/** Calls `cb` with every board the engine publishes. Returns an unsubscribe function. Tauri
+ *  takes a moment to start listening; `listening` is called once it has, so a board read then
+ *  can't miss a push that came before the listening began (followBoard.ts). */
+export function onBoard(cb: (board: Board) => void, listening?: () => void): () => void {
+  if (!inTauri) {
+    listening?.();
+    return () => {};
+  }
   let cancelled = false;
   let unlisten: (() => void) | undefined;
-  void listen<Board>('board', (e) => cb(e.payload)).then((u) => {
-    if (cancelled) u();
-    else unlisten = u;
-  });
+  void listen<Board>('board', (e) => cb(e.payload)).then(
+    (u) => {
+      if (cancelled) return u();
+      unlisten = u;
+      listening?.();
+    },
+    // No pushes, but the window still reads the board once.
+    () => {
+      if (!cancelled) listening?.();
+    },
+  );
   return () => {
     cancelled = true;
     unlisten?.();

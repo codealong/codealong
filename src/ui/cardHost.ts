@@ -8,10 +8,11 @@
 // A card in a window that floats draws at the zoom and takes its keys (`zoomKey`, zoom.ts).
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import { barNote, getBoard, onBoard, prAt, showMain, zoomWindows } from '../api';
+import { barNote, getBoard, prAt, showMain, zoomWindows } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { useEditorIcons } from '../editors';
+import { followBoard, type Following } from '../followBoard';
 import { homeOf } from '../lanes';
 import * as menus from '../menus';
 import { openWhere, where } from '../open';
@@ -57,20 +58,28 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   toldNow.current = told;
 
   // One listener while a session is shown, whichever it is: going from one to the next doesn't
-  // ask for the board again.
+  // ask for the board again. The board is read as the card shows, and a read older than a push
+  // that came first is dropped (followBoard.ts).
   const key = told?.session.key ?? null;
   const up = shown && key !== null;
+  const following = useRef<Following | null>(null);
   useEffect(() => {
     if (!up) return;
     // The board's pushes come while the card is up, so one that didn't read comes with the next.
-    void getBoard().then(takeBoard, () => {});
-    return onBoard((b) => {
-      observe(boardView(b.generatedAt, [b.lanes]));
-      const under = toldNow.current;
-      const home = under && homeOf(b.lanes, under.session.key);
-      if (under && home) setLive({ under, ...home, theme: b.theme, zoom: b.zoom ?? null });
+    const f = followBoard((b, how) => {
+      if (how === 'push') {
+        observe(boardView(b.generatedAt, [b.lanes]));
+        const under = toldNow.current;
+        const home = under && homeOf(b.lanes, under.session.key);
+        if (under && home) setLive({ under, ...home, theme: b.theme, zoom: b.zoom ?? null });
+      }
       takeBoard(b);
     });
+    following.current = f;
+    return () => {
+      f.off();
+      following.current = null;
+    };
   }, [up, takeBoard]);
 
   const ahead = useAhead();
@@ -78,7 +87,12 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   const engineLane = now?.lane ?? told?.lane ?? null;
   const lane = useMemo(() => (engineLane ? lanesAhead([engineLane], ahead)[0] : null), [engineLane, ahead]);
   const session = lane?.sessions.find((s) => s.key === key) ?? now?.session ?? told?.session ?? null;
-  const needBoard = useCallback(() => void getBoard().then(takeBoard, () => setBoard((prev) => prev ?? { prs: [], lanes: [], todos: [] })), [takeBoard]);
+  const needBoard = useCallback(() => {
+    const failed = () => setBoard((prev) => prev ?? { prs: [], lanes: [], todos: [] });
+    // While it follows the board, by the same rule as its first read.
+    if (following.current) following.current.read(failed);
+    else void getBoard().then(takeBoard, failed);
+  }, [takeBoard]);
   return { lane, session, theme: now?.theme ?? null, zoom: now?.zoom ?? null, board, needBoard };
 }
 
@@ -135,16 +149,23 @@ export function useLivePr(key: string | null, shown: boolean): LivePr {
   }, [key]);
 
   const up = shown && key !== null;
+  const following = useRef<Following | null>(null);
   useEffect(() => {
     if (!up) return;
-    void getBoard().then(take, () => {});
-    return onBoard((b) => {
-      observe(boardView(b.generatedAt, [b.lanes]));
+    // A read that didn't come back is made up for by the next push.
+    const f = followBoard((b, how) => {
+      if (how === 'push') observe(boardView(b.generatedAt, [b.lanes]));
       take(b);
     });
+    following.current = f;
+    return () => {
+      f.off();
+      following.current = null;
+    };
   }, [up, take]);
 
-  const needBoard = useCallback(() => void getBoard().then(take, () => {}), [take]);
+  // One that didn't read comes with the next push while the card is up.
+  const needBoard = useCallback(() => (following.current ? following.current.read() : void getBoard().then(take, () => {})), [take]);
   const known = told && told.key === key ? told : null;
   const onBoardNow = key !== null && now ? (now.board.prs.find((p) => p.key === key) ?? null) : null;
   const pr = onBoardNow ?? known?.pr ?? null;

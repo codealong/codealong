@@ -18,10 +18,11 @@
 // forward beside this one; a session it came from, or that came of it, shows here in its place.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getBoard, onBoard, onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
+import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
 import { boardAhead, boardView, observe, renameAhead, useAhead } from '../ahead';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
+import { followBoard } from '../followBoard';
 import { useSessionHistory } from '../history';
 import { liveOrLatest } from '../lanes';
 import { useLatest } from '../latest';
@@ -73,24 +74,19 @@ export function Waiting() {
   const onDesktop = menus.useDesktopPins();
   useTheme(board?.theme ?? 'system');
 
+  // Followed afresh each time it's brought up (followBoard.ts): any board that comes then, read or
+  // pushed, was made since it came up.
   useEffect(() => {
     if (!up) return;
-    let over = false;
-    const take = (b: Board) => setBoard((prev) => (prev ? reuse(prev, b) : b));
-    getBoard().then(
+    const following = followBoard(
       (b) => {
-        if (over) return;
-        take(b);
+        setBoard((prev) => (prev ? reuse(prev, b) : b));
         setReadFor(opened);
         clearNotice(BOARD_NOTICE);
       },
-      (e: unknown) => reportNotice(failedNotice(BOARD_NOTICE, 'Can’t read sessions', 'The waiting window couldn’t read your sessions', e)),
+      (e) => reportNotice(failedNotice(BOARD_NOTICE, 'Can’t read sessions', 'The waiting window couldn’t read your sessions', e)),
     );
-    const off = onBoard(take);
-    return () => {
-      over = true;
-      off();
-    };
+    return following.off;
   }, [up, opened]);
   // What it knows of the changes ahead of the engine follows the board while it's up.
   useEffect(() => {

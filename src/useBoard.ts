@@ -1,6 +1,7 @@
 // The board as the main window follows it: read once as the window opens, then taken push by
-// push from the engine, each push handed over with the parts that didn't change as the objects
-// it already had (reuse.ts), and with your changes the engine hasn't shown yet on top (ahead.ts).
+// push from the engine (followBoard.ts, which keeps a read from putting an older board over a
+// push), each handed over with the parts that didn't change as the objects it already had
+// (reuse.ts), and with your changes the engine hasn't shown yet on top (ahead.ts).
 //
 // The quick panel and the cards on the desktop follow the board differently, so they don't use
 // this: the quick panel is handed its board by the script that opens it and listens only while
@@ -9,7 +10,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { boardAhead, useAhead, type Ahead } from './ahead';
-import { getBoard, onBoard } from './api';
+import { followBoard } from './followBoard';
 import { usePerf } from './perf';
 import { reuse } from './reuse';
 import type { Board } from './types';
@@ -41,29 +42,30 @@ export function useBoard(): FollowedBoard {
   const arrived = useRef<number | null>(null);
   usePerf(engine, arrived);
   useEffect(() => {
-    getBoard()
-      .then((b) => setEngine((prev) => (prev ? reuse(prev, b) : b)))
-      .catch((e: unknown) => setLoadError(String(e)));
-    // A window that can't be seen keeps only the latest push and shows it when it's seen again:
+    // A window that can't be seen keeps only the latest board and shows it when it's seen again:
     // the engine publishes many times a minute, and every render of a board no one sees is waste.
+    // Its first board shows at once, seen or not.
     let held: Board | null = null;
-    const show = (b: Board) => {
-      arrived.current = performance.now();
+    let shownOnce = false;
+    const show = (b: Board, pushed: boolean) => {
+      shownOnce = true;
+      held = null;
+      if (pushed) arrived.current = performance.now();
       setEngine((prev) => (prev ? reuse(prev, b) : b));
     };
     const onVisible = () => {
-      if (document.hidden || !held) return;
-      const b = held;
-      held = null;
-      show(b);
+      if (!document.hidden && held) show(held, true);
     };
     document.addEventListener('visibilitychange', onVisible);
-    const off = onBoard((b) => {
-      if (document.hidden) held = b;
-      else show(b);
-    });
+    const following = followBoard(
+      (b, how) => {
+        if (document.hidden && shownOnce) held = b;
+        else show(b, how === 'push');
+      },
+      (e) => setLoadError(String(e)),
+    );
     return () => {
-      off();
+      following.off();
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);

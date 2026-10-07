@@ -21,9 +21,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onBoard, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize } from '../api';
+import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize } from '../api';
 import { renameAhead } from '../ahead';
 import { readDraft } from '../drafts';
+import { followBoard } from '../followBoard';
 import { homeOf } from '../lanes';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Board, Lane, PeekOpen, Session } from '../types';
@@ -146,9 +147,9 @@ export function Peek({ kept = false }: { kept?: boolean }) {
           void keptReady();
         }
       };
-      stop = onBoard(take);
-      // The board's pushes come too, so one that didn't read comes with the next.
-      void getBoard().then(take, () => {});
+      // Read once, then taken push by push (followBoard.ts): a read that didn't come back is made
+      // up for by the next push.
+      stop = followBoard(take).off;
     });
     return () => {
       over = true;

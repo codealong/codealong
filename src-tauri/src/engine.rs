@@ -2534,15 +2534,22 @@ impl Engine {
             return;
         }
         self.last_hash = hash;
+        // The board `get_board` reads is this one before any window hears of it: a window that
+        // reads the board as this push comes gets this board or a later one, never the one
+        // before it, which nothing would correct while the board stays the same. It goes out
+        // from the slot, under a read lock: only this thread writes there, and readers don't
+        // wait on each other.
+        match self.board.write() {
+            Ok(mut slot) => *slot = board,
+            Err(poisoned) => *poisoned.into_inner() = board,
+        }
+        let board = self.board.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         let t = Instant::now();
         (self.emit)(&board);
         let emitted = t.elapsed();
         if perf::enabled() {
             let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running());
             perf::log(&line);
-        }
-        if let Ok(mut slot) = self.board.write() {
-            *slot = board;
         }
     }
 }
