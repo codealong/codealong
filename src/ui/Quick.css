@@ -129,6 +129,22 @@ html.is-quick body {
   font: var(--type-code-sm);
   letter-spacing: 0;
 }
+/* Whether searches list archived sessions, at the end of Sessions' heading: a box of the usual
+   kind, in the heading's quieter type. */
+.ca-quick-glabel .ca-quick-archived {
+  gap: 5px;
+  margin-left: auto;
+  font: 500 11px/16px var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+}
+.ca-quick-glabel .ca-quick-archived:hover {
+  color: var(--ink-2);
+}
+.ca-quick-archived-count {
+  font: var(--type-code-sm);
+}
 .ca-quick-row {
   display: flex;
   align-items: center;

@@ -421,9 +421,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   title, description, label, project, or the worktrees and sessions linked to them, then PRs by
   number, title, repo, branch or author. A word of one or two letters among others counts only
   as a whole word, so "class c" doesn't find everything with a c in it. Archived sessions are
-  left out until you ask for them: when some match, a row under the sessions says how many, and
-  picking it lists them after the others, each with an Archived chip, in this and later searches
-  until you pick Leave out archived sessions there. ⏎ on a session
+  left out unless you ask for them: the Archived box at the end of the Sessions heading, there
+  whenever you search, says how many match, and checked (a click, or ⇧⌘A) lists them after the
+  others, each with an Archived chip, in this and later searches until you uncheck it. ⏎ on a session
   shows it in Codealong, with its conversation and a box to answer it, and ⌥⏎ opens it where it
   lives. ⏎ on a todo
   shows its session the same way, or, when it has none, gets a session ready to start for it (its prompt,

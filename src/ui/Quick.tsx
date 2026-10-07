@@ -148,19 +148,7 @@ interface MoreRow {
   count: number;
 }
 
-/** Under a search's sessions, where archived ones match: whether the search lists them too. A
- *  click turns that on or off, and the panel remembers it. */
-interface ArchivedRow {
-  kind: 'archived';
-  key: string;
-  group: 'found';
-  /** How many archived sessions match. */
-  count: number;
-  /** They're in the list. */
-  on: boolean;
-}
-
-type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | ArchivedRow | SkillRow;
+type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SkillRow;
 
 /** The most sessions a search lists once you ask for all of them. */
 const FOUND_ALL = 40;
@@ -652,7 +640,7 @@ export function Quick() {
   const hits = useMemo(() => (textFound ? textFound.hits : textFor && textSearch ? stillSaid(textSearch.found.hits, queryWords(textFor)) : []), [textFound, textFor, textSearch]);
   const said = useMemo(() => new Map(hits.map((h) => [h.key, h] as const)), [hits]);
   const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, withArchived ? 'with' : 'without') : []), [board, current, query, said, withArchived]);
-  // How many archived sessions match, for the row that lists them or leaves them out.
+  // How many archived sessions match, for the toggle that lists them or leaves them out.
   const archivedFound = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, 'only').length : 0), [board, current, query, said]);
   // A search lists its first few sessions, so todos and PRs fit below; a row under them lists
   // the rest, until what's typed changes.
@@ -708,8 +696,14 @@ export function Quick() {
 
   const ranked = rankedBy(foundSessions, route);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
-  const archivedRow: ArchivedRow[] = archivedFound > 0 ? [{ kind: 'archived', key: 'archived:found', group: 'found', count: archivedFound, on: withArchived }] : [];
-  const rows: Row[] = slash ? skillsListed : query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...archivedRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
+  const rows: Row[] = slash ? skillsListed : query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
+  /** Lists archived sessions in searches, or leaves them out, from now on (Sessions' heading has
+   *  the box, ⇧⌘A presses it). They come after all the others, so turned on, the search lists all
+   *  it finds, and the ones just asked for show. */
+  const toggleArchived = () => {
+    if (!withArchived) setAllFor(query);
+    setWithArchived(!withArchived);
+  };
   const keys = [...rows.map((r) => r.key), COMPOSE];
   // A result dragged out of the panel is pinned to the desktop: a session, a todo, a PR, or the
   // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
@@ -888,7 +882,7 @@ export function Quick() {
 
   /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
-    if (r.kind === 'more' || r.kind === 'archived' || r.kind === 'skill') return;
+    if (r.kind === 'more' || r.kind === 'skill') return;
     const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
     if (r.kind === 'suggest') {
       const sg = r.s;
@@ -1066,11 +1060,6 @@ export function Quick() {
       // The first of those it adds takes its place.
       setAllFor(query);
       setActiveKey(ranked[FOUND_SESSIONS]?.key ?? null);
-    } else if (row.kind === 'archived') {
-      // The row stays where it was, saying the other way now. Archived sessions come after all
-      // the others, so the search lists all of them, and the ones just asked for show above it.
-      if (!row.on) setAllFor(query);
-      setWithArchived(!row.on);
     } else (alt ? openSession : showSession)(row.lane, row.session);
   };
 
@@ -1174,6 +1163,12 @@ export function Quick() {
         return;
       }
       const k = e.key.toLowerCase();
+      // ⇧⌘A, while there's a search: the box on Sessions' heading. ⌘A alone selects what's typed.
+      if (k === 'a' && e.shiftKey && query) {
+        e.preventDefault();
+        toggleArchived();
+        return;
+      }
       if (k === 'p' || k === 't' || k === 'l' || (k === 'd' && macs.length > 0)) {
         e.preventDefault();
         togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : 'agent');
@@ -1326,6 +1321,9 @@ export function Quick() {
     if (last && last.group === r.group) last.rows.push(r);
     else sections.push({ group: r.group, rows: [r] });
   }
+  // While there's a search, Sessions' heading is there even with no session found: it has the box
+  // that lists archived sessions too.
+  if (query && !sections.some((x) => x.group === 'found')) sections.splice(sections[0]?.group === 'suggested' ? 1 : 0, 0, { group: 'found', rows: [] });
   const nothingWaits = listing && !!attention && attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
@@ -1428,13 +1426,41 @@ export function Quick() {
                 )}
                 {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
                 {typing && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No repo here to read skills from.' : `No skill of ${current === ALL_PROJECTS ? 'these repos' : `${current}’s repos`} starts like that.`) : 'Reading skills…'}</p>}
-                {query && rows.length === 0 && <p className="ca-quick-note">No sessions, todos or PRs match. Start a session with this prompt below.</p>}
+                {query && rows.length === 0 && (
+                  <p className="ca-quick-note">
+                    {archivedFound > 0 && !withArchived
+                      ? `No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`
+                      : 'No sessions, todos or PRs match. Start a session with this prompt below.'}
+                  </p>
+                )}
                 {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
                 {sections.map((s) => (
                   <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
                     <div className={`ca-quick-glabel is-${s.group}`}>
                       {GROUP_WORD[s.group]}
                       <span>{groupCount(s.group, s.rows.length)}</span>
+                      {s.group === 'found' && (
+                        <label
+                          className="ca-check ca-quick-archived"
+                          title={withArchived ? 'Searches list archived sessions after the others. ⇧⌘A leaves them out' : `Searches leave archived sessions out${archivedFound > 0 ? `; ${archivedFound} ${archivedFound === 1 ? 'matches' : 'match'} this one` : ''}. ⇧⌘A lists them`}
+                          // The keyboard stays in the box.
+                          onMouseDown={(e) => e.preventDefault()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={withArchived}
+                            onChange={() => {
+                              toggleArchived();
+                              refocus();
+                            }}
+                          />
+                          <span className="ca-check-box" aria-hidden="true">
+                            <Icon name="check" size={11} stroke={2.5} />
+                          </span>
+                          Archived
+                          {archivedFound > 0 && <span className="ca-quick-archived-count">{archivedFound}</span>}
+                        </label>
+                      )}
                     </div>
                     {s.rows.map((r) => {
                       const n = rows.indexOf(r) + 1;
@@ -1525,30 +1551,6 @@ export function Quick() {
                             </span>
                             <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
                             <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
-                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                          </div>
-                        );
-                      }
-                      if (r.kind === 'archived') {
-                        const many = r.count === 1 ? 'archived session matches' : 'archived sessions match';
-                        return (
-                          <div
-                            key={r.key}
-                            role="option"
-                            aria-selected={active === r.key}
-                            className={cx('ca-quick-row', 'is-more', active === r.key && 'is-active')}
-                            title={r.on ? 'Searches list archived sessions under the others. ⏎ leaves them out from now on' : 'Searches leave archived sessions out. ⏎ lists them under the others from now on'}
-                            onMouseMove={handlers.onMouseMove}
-                            onMouseDown={handlers.onMouseDown}
-                            onClick={handlers.onClick}
-                          >
-                            <span className="ca-quick-plus">
-                              <Icon name="archive" size={13} stroke={2} />
-                            </span>
-                            <span className="ca-quick-row-main">
-                              <span className="ca-quick-row-title">{r.on ? 'Leave out archived sessions' : `Show ${r.count} archived ${r.count === 1 ? 'session' : 'sessions'}`}</span>
-                              <span className="ca-quick-row-why">{r.on ? `${r.count} ${many} · searches list them until you leave them out` : 'Searches leave them out until you show them'}</span>
-                            </span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
                         );
