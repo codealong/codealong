@@ -1,6 +1,6 @@
 // The stylesheets stay in order: each class has one home, nothing is styled that nothing renders,
-// every file is in the index once, tokens.css is what its generator writes, and a value a token
-// holds is written as the token.
+// every file is in the index once, tokens.css is what its generator writes, a value a token
+// holds is written as the token, and every font is a type token or a special listed below.
 //
 // Ownership, which the first test holds. Only `ca-` names are things; other class names (is-*,
 // has-*) are states of a thing. A rule defines a class when it names no state and the class is
@@ -210,28 +210,100 @@ describe('the stylesheets', () => {
     expect(problems, problems.join('\n')).toEqual([]);
   });
 
-  // Only where every such value already uses its token: a font shorthand that is a style of the
-  // type scale, and a gap of one length that is a spacing step. Values between the steps, and
-  // padding and margins with one, stay as they are for a designer to decide.
-  it('write a type style or a spacing step as its token', () => {
-    const tokens = JSON.parse(read(join(root, 'design/tokens.json'))) as {
-      type: { groups: { family: string; styles: { name: string; fontSize: string; lineHeight: string; fontWeight: number }[] }[] };
-      spacing: { tokens: { name: string; value: string }[] };
-    };
-    const type = new Map(tokens.type.groups.flatMap((g) => g.styles.map((t) => [`${t.fontWeight} ${t.fontSize}/${t.lineHeight} var(--font-${g.family})`, `--type-${t.name}`])));
+  // Only where every such value already uses its token: a gap of one length that is a spacing
+  // step. Values between the steps, and padding and margins with one, stay as they are for a
+  // designer to decide.
+  it('write a spacing step as its token', () => {
+    const tokens = JSON.parse(read(join(root, 'design/tokens.json'))) as { spacing: { tokens: { name: string; value: string }[] } };
     const space = new Map(tokens.spacing.tokens.map((t) => [t.value, `--${t.name}`]));
     const problems: string[] = [];
     for (const file of sheets) {
       const text = read(file).replace(/\/\*[\s\S]*?\*\//g, (c: string) => c.replace(/[^\n]/g, ' '));
-      for (const m of text.matchAll(/([{;]\s*)(font|gap|row-gap|column-gap)\s*:\s*([^;{}]*?)\s*(?:!important\s*)?(?=[;}])/g)) {
+      for (const m of text.matchAll(/([{;]\s*)(gap|row-gap|column-gap)\s*:\s*([^;{}]*?)\s*(?:!important\s*)?(?=[;}])/g)) {
         const value = m[3].replace(/\s+/g, ' ');
-        const token = m[2] === 'font' ? type.get(value) : space.get(value);
+        const token = space.get(value);
         if (!token) continue;
         const line = text.slice(0, m.index + m[1].length).split('\n').length;
         problems.push(`${short(file)}:${line} ${m[2]}: ${value} is ${token} in design/tokens.json: write ${m[2]}: var(${token}).`);
       }
     }
     expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  // Every font shorthand is a style of the type scale (font: var(--type-meta)), inherit, or one of
+  // these, each a place whose numbers do a job no style of the scale does: a line height that is
+  // its own box's height, so the glyph sits in the middle of a keycap or a badge, or a size or a
+  // line set for one place. A rule is listed by its selector as written; a new style goes in
+  // design/tokens.json (`npm run tokens`), named for what it's for, not here.
+  const SPECIAL_FONTS: Record<string, { font: string; why: string }> = {
+    '.ca-kbd': { font: '500 11px/1 var(--font-sans)', why: 'a keycap: on a line of 1, so its 18px box centers the key' },
+    '.ca-kbd.is-mark': { font: '700 15px/1 var(--font-mono)', why: 'a keycap that shows a mark (⌘, ⏎) rather than a word, larger and heavier so the mark reads' },
+    '.ca-hotkey kbd': { font: '500 10px/1 var(--font-sans)', why: "a hotkey's key, centered in its 16px box as a keycap is in its own" },
+    '.ca-nav-badge': { font: '600 10px/16px var(--font-mono)', why: "a count in a round 16px badge, on the badge's height" },
+    '.ca-projswitch-badge': { font: '600 10px/16px var(--font-mono)', why: "a count in a round 16px badge, on the badge's height (as .ca-nav-badge)" },
+    '.ca-rail-badge': { font: '600 9px/14px var(--font-mono)', why: "a count in the rail's 14px badge, on the badge's height, over an icon" },
+    '.ca-modelmenu-said': { font: '500 12px/26px var(--font-sans)', why: "a model that can't be switched from here, said on the 26px line of the chip it stands in for" },
+    '.ca-meter-value': { font: '600 24px/24px var(--font-display)', why: "a usage meter's figure: numeral's face at the size the meter has room for" },
+    '.ca-cv-callsign': { font: '600 15px/18px var(--font-display)', why: "a card's callsign: callsign's face on the card's 18px first line, smaller than a lane's" },
+    '.ca-cv-farlabel': { font: '600 12px/16px var(--font-display)', why: "a card's name over a canvas zoomed far out, scaled with the zoom" },
+    '.ca-cv-note': { font: '400 14px/20px var(--font-sans)', why: 'a note on the canvas, written larger than the UI around it so it still reads zoomed out' },
+    '.ca-settings-editor': { font: '400 12px/18px var(--font-mono)', why: "config.toml in Settings: code's size, with room between the lines of a whole file you edit" },
+    '.ca-ucard-name': { font: '600 14px/18px var(--font-mono)', why: "the usage card's heading is an account's name: heading's size, in mono as account names are set" },
+    '.ca-quick-input textarea': { font: '400 17px/22px var(--font-sans)', why: "the quick panel's prompt, large as a launcher's field is" },
+  };
+  it('write every font as a type token, inherit, or a special listed here', () => {
+    const tokens = JSON.parse(read(join(root, 'design/tokens.json'))) as {
+      type: { groups: { family: string; styles: { name: string; fontSize: string; lineHeight: string; fontWeight: number }[] }[] };
+    };
+    const styles = tokens.type.groups.flatMap((g) => g.styles.map((t) => ({ token: `--type-${t.name}`, family: g.family, weight: t.fontWeight, size: parseFloat(t.fontSize), line: parseFloat(t.lineHeight), value: `${t.fontWeight} ${t.fontSize}/${t.lineHeight} var(--font-${g.family})` })));
+    // The style a hand-written font is closest to: its family's, nearest in size, then line
+    // height, then weight.
+    const nearest = (value: string) => {
+      const m = /^(\d+) ([\d.]+)px\/([\d.]+)(px)? var\(--font-(\w+)\)$/.exec(value);
+      if (!m) return null;
+      const [weight, size, line, family] = [Number(m[1]), parseFloat(m[2]), parseFloat(m[3]) * (m[4] ? 1 : parseFloat(m[2])), m[5]];
+      const same = styles.filter((s) => s.family === family);
+      const score = (s: (typeof styles)[number]) => Math.abs(s.size - size) * 100 + Math.abs(s.line - line) * 10 + Math.abs(s.weight - weight) / 100;
+      return (same.length ? same : styles).reduce((a, b) => (score(b) < score(a) ? b : a));
+    };
+    const problems: string[] = [];
+    const used = new Set<string>();
+    for (const file of sheets) {
+      if (file === join(src, 'styles/tokens.css')) continue;
+      const text = read(file).replace(/\/\*[\s\S]*?\*\//g, (c: string) => c.replace(/[^\n]/g, ' '));
+      for (const m of text.matchAll(/([{;]\s*)font\s*:\s*([^;{}]*?)\s*(?:!important\s*)?(?=[;}])/g)) {
+        const value = m[2].replace(/\s+/g, ' ');
+        const at = m.index + m[1].length;
+        const line = text.slice(0, at).split('\n').length;
+        const open = text.lastIndexOf('{', at);
+        const selector = text
+          .slice(Math.max(text.lastIndexOf('}', open), text.lastIndexOf(';', open), text.lastIndexOf('{', open - 1)) + 1, open)
+          .trim()
+          .replace(/\s+/g, ' ');
+        const where = `${short(file)}:${line} ${selector} { font: ${value} }`;
+        const token = /^var\((--type-[\w-]+)\)$/.exec(value);
+        if (token) {
+          if (!styles.some((s) => s.token === token[1])) problems.push(`${where}: ${token[1]} is no style in design/tokens.json.`);
+          continue;
+        }
+        if (value === 'inherit') continue;
+        const special = SPECIAL_FONTS[selector];
+        if (special && special.font === value) {
+          used.add(selector);
+          continue;
+        }
+        const exact = styles.find((s) => s.value === value);
+        const near = nearest(value);
+        problems.push(
+          exact
+            ? `${where}: that's ${exact.token}: write font: var(${exact.token}).`
+            : `${where} is written by hand. Write the type style it's meant to be${near ? ` (the nearest is ${near.token}, ${near.value})` : ''}, or if it's a style of its own, add it to design/tokens.json named for what it's for and run \`npm run tokens\`. A font whose numbers do a job no style can (a line height that is its box's height) goes in SPECIAL_FONTS in this file, with why.`,
+        );
+      }
+    }
+    // The list stays true: each entry is a rule that still writes that font.
+    for (const [selector, { font }] of Object.entries(SPECIAL_FONTS)) if (!used.has(selector)) problems.push(`SPECIAL_FONTS lists ${selector} { font: ${font} }, which no stylesheet writes: take it off the list.`);
+    expect(problems, problems.join('\n\n')).toEqual([]);
   });
 
   it('have tokens.css as scripts/tokens.mjs writes it', () => {

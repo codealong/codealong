@@ -250,8 +250,9 @@ Each rule names the file whose header has the rest.
   beside it and what several share in `src/styles/` (read those before styling something new).
   `src/styles/app.css` is the one stylesheet code imports, and its order is the cascade (its
   header says where a new file goes). Colors only through CSS variables; type, spacing,
-  durations and stacking from tokens (`design/tokens.json`, `npm run tokens`). `styles.test.ts`
-  says what else it holds. Icons are Tabler outline paths in `src/ui/icons.ts`.
+  durations and stacking from tokens (`design/tokens.json`, `npm run tokens`); a new type style
+  is a new token, not a hand-written `font:`. `styles.test.ts` says what else it holds. Icons
+  are Tabler outline paths in `src/ui/icons.ts`.
 - UI copy is sentence case and plain words. Comments explain why, in plain sentences.
 - `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
 
