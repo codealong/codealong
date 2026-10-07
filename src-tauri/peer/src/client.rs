@@ -335,14 +335,40 @@ impl Client {
         read(self.ask(device, api::SESSION_PENDING, of(params::Session { key: key.into() }), READ_WAIT)?)
     }
 
-    /// Allows or denies tool call `id`, if it's still the one the session waits on. Says how it went.
-    pub fn answer(&self, device: &str, key: &str, id: &str, answer: api::Answer) -> std::result::Result<String, String> {
-        read(self.ask(device, api::SESSION_ANSWER, of(params::Answer { key: key.into(), id: id.into(), answer: Some(answer), ..Default::default() }), ACT_WAIT)?)
+    /// Answers what a session on `device` waits on, if it's still call `answer.id`: allows or
+    /// denies it, answers the questions it asks (`answers`), or denies it saying what to do
+    /// instead (`message`). `key` is the session's key there. Says how it went.
+    pub fn answer(&self, device: &str, key: &str, answer: params::Answer) -> std::result::Result<String, String> {
+        read(self.ask(device, api::SESSION_ANSWER, of(params::Answer { key: key.into(), ..answer }), ACT_WAIT)?)
     }
 
-    /// Sends a session on `device` a prompt, where it runs there.
-    pub fn send(&self, device: &str, key: &str, text: &str) -> std::result::Result<api::Sent, String> {
-        read(self.ask(device, api::SESSION_SEND, of(params::Send { key: key.into(), text: text.into(), now: false }), ACT_WAIT)?)
+    /// Sends a session on `device` a prompt, where it runs there; with `now`, into the turn it's
+    /// taking at once (one whose feed says `steerable`).
+    pub fn send(&self, device: &str, key: &str, text: &str, now: bool) -> std::result::Result<api::Sent, String> {
+        read(self.ask(device, api::SESSION_SEND, of(params::Send { key: key.into(), text: text.into(), now }), ACT_WAIT)?)
+    }
+
+    /// How a message sent to a session on `device` would reach it, or None for one Codealong runs
+    /// there.
+    pub fn way(&self, device: &str, key: &str) -> std::result::Result<Option<api::Way>, String> {
+        read(self.ask(device, api::SESSION_WAY, of(params::Session { key: key.into() }), READ_WAIT)?)
+    }
+
+    /// Goes on with a session on `device` that isn't running, where `resume` says, on `prompt`
+    /// when it isn't empty. Says how it went, as a send does.
+    pub fn resume(&self, device: &str, key: &str, resume: api::ResumeIn, prompt: &str) -> std::result::Result<api::Sent, String> {
+        read(self.ask(device, api::SESSION_RESUME, of(params::Resume { key: key.into(), resume, prompt: prompt.into() }), ACT_WAIT)?)
+    }
+
+    /// Switches a running session on `device` to another of its account's models, for it alone.
+    /// Says what happened.
+    pub fn switch_model(&self, device: &str, key: &str, model: &str) -> std::result::Result<String, String> {
+        read(self.ask(device, api::SESSION_MODEL, of(params::Model { key: key.into(), model: model.into() }), ACT_WAIT)?)
+    }
+
+    /// Names a session on `device` where its harness keeps its name.
+    pub fn rename(&self, device: &str, key: &str, name: &str) -> std::result::Result<(), String> {
+        self.ask(device, api::SESSION_RENAME, of(params::Rename { key: key.into(), name: name.into() }), ACT_WAIT).map(|_| ())
     }
 
     pub fn archive(&self, device: &str, key: &str, archived: bool) -> std::result::Result<(), String> {
@@ -400,9 +426,10 @@ impl Client {
         self.0.lock().streams.get(&hex).and_then(|m| m.get(key)).cloned()
     }
 
-    /// Stops the turn a session Codealong runs on `device` is taking.
-    pub fn cancel(&self, device: &str, key: &str) -> std::result::Result<(), String> {
-        self.ask(device, api::SESSION_CANCEL, of(params::Session { key: key.into() }), ACT_WAIT).map(|_| ())
+    /// Stops the turn a session on `device` is taking (one whose feed says `stoppable`). Says what
+    /// happened; None from Macs before 2026-09-29, which stop only sessions Codealong runs.
+    pub fn cancel(&self, device: &str, key: &str) -> std::result::Result<Option<String>, String> {
+        read(self.ask(device, api::SESSION_CANCEL, of(params::Session { key: key.into() }), ACT_WAIT)?)
     }
 
     /// A linked device's whole key, from it or its short id.

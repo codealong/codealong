@@ -1583,6 +1583,7 @@ mod tests {
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
                     "session-send" => Ok(json!({ "message": "Sent.", "opened": false })),
                     "session-stream" => Ok(Value::Null),
+                    "session-rename" => Ok(Value::Null),
                     // A request that takes a while, as a side question does.
                     "slow" => {
                         std::thread::sleep(Duration::from_millis(800));
@@ -1682,8 +1683,12 @@ mod tests {
         let page = phone.page(&d.short, "claude:claude:s2", None).unwrap();
         assert!(page.items.is_empty() && page.before.is_none());
         assert_eq!(mac.asked.lock().unwrap().last().unwrap().1["key"], "claude:claude:s2");
-        let refused = phone.send(&d.short, "claude:claude:s2", "hi").unwrap_err();
+        let refused = phone.send(&d.short, "claude:claude:s2", "hi", false).unwrap_err();
         assert!(refused.contains("Remote control is off on Mini"), "{refused}");
+        // Naming a session changes how it's listed, not what its agent does: it needs no remote
+        // control.
+        phone.rename(&d.short, "claude:claude:s2", "Fix the build").unwrap();
+        assert_eq!(*mac.asked.lock().unwrap().last().unwrap(), ("session-rename".to_string(), json!({ "key": "claude:claude:s2", "name": "Fix the build" })));
         // Where it could start a session reads without remote control; starting one needs it.
         let options = phone.start_options(&d.short).unwrap();
         assert_eq!((options.accounts[0].name.as_str(), options.accounts[0].places[0].place), ("claude", codealong_peer::api::Place::Background));
