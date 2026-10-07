@@ -250,6 +250,13 @@ impl Link {
         self.pid
     }
 
+    /// Whether the child's output has ended: it stopped, or is about to, and what's asked of it
+    /// from now on fails. True a moment before the function the client was started with hears
+    /// `Heard::Closed`.
+    pub fn is_closed(&self) -> bool {
+        lock(&self.waiting).is_none()
+    }
+
     /// Writes one line as it is.
     pub fn send(&self, line: &Value) -> io::Result<()> {
         self.write(line, Some(Instant::now() + WRITE_TIMEOUT))
@@ -455,11 +462,13 @@ mod tests {
     fn a_child_that_stops_fails_what_waits_with_what_it_last_said() {
         let (client, rx) = child("read one; echo 'warming up' >&2; echo >&2; echo '  No conversation found ' >&2; exit 3", Wire::Bare);
         let said = ["warming up".to_string(), "No conversation found".to_string()];
+        assert!(!client.is_closed());
         match client.request("thread/fork", json!({}), None) {
             Err(Failure::Closed(last)) => assert_eq!(last, said),
             other => panic!("{other:?}"),
         }
         assert_eq!(next(&rx), (None, said.to_vec()));
+        assert!(client.is_closed());
         // And what's asked after that fails at once, the same way.
         assert!(matches!(client.request("again", json!({}), None), Err(Failure::Closed(last)) if last == said));
     }

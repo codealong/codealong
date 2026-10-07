@@ -309,10 +309,10 @@ impl Agent {
     }
 }
 
-/// The account's adapter process, started when there isn't one.
+/// The account's adapter process, started when there isn't one running.
 fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
-    if let Some(ag) = state().agents.get(&a.name) {
-        return Ok(ag.clone());
+    if let Some(ag) = running(&a.name) {
+        return Ok(ag);
     }
     let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // Through a shell, so an account's command may set variables the way it does in a terminal.
@@ -325,13 +325,56 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
         Err(e) => bail!("{}'s agent didn't start ({e:#}). Its log: {}", a.name, crate::util::tilde(&log_path(&a.name))),
     };
     *ag.caps.lock().unwrap_or_else(|e| e.into_inner()) = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
-    let mut st = state();
-    // Another start may have raced this one; the first one in stays.
-    if let Some(existing) = st.agents.get(&a.name) {
-        return Ok(existing.clone());
+    keep_agent(&a.name, ag).map_err(|e| anyhow!("{e} Its log: {}", crate::util::tilde(&log_path(&a.name))))
+}
+
+/// The account's process, if it has one that's still running. One whose output has ended is
+/// let go here, if its end hasn't been heard yet (`stopped`), so the next use starts another.
+fn running(account: &str) -> Option<Arc<Agent>> {
+    {
+        let mut st = state();
+        match st.agents.get(account) {
+            Some(ag) if !ag.client.is_closed() => return Some(ag.clone()),
+            Some(_) => let_go(&mut st, account),
+            None => return None,
+        }
     }
-    st.agents.insert(a.name.clone(), ag.clone());
-    Ok(ag)
+    notify(Change::Board);
+    None
+}
+
+/// Whether the account has a process that's running.
+fn alive(st: &State, account: &str) -> bool {
+    st.agents.get(account).is_some_and(|a| !a.client.is_closed())
+}
+
+/// Makes `ag` the account's process, and returns the account's process: another start may have
+/// beaten this one to it, and the first one in stays while it runs. One that stopped as it started
+/// isn't kept, or the account's sessions would be sent to a process that's gone until the app
+/// restarts. Whichever way, its end is heard as the account's (`stopped`) only once it's kept:
+/// it's checked under the lock that end takes.
+fn keep_agent(account: &str, ag: Arc<Agent>) -> Result<Arc<Agent>> {
+    let (kept, ended) = {
+        let mut st = state();
+        let ended = match st.agents.get(account) {
+            Some(existing) if !existing.client.is_closed() => return Ok(existing.clone()),
+            Some(_) => {
+                let_go(&mut st, account);
+                true
+            }
+            None => false,
+        };
+        if ag.client.is_closed() {
+            (Err(anyhow!("{account}'s agent stopped as it started.")), ended)
+        } else {
+            st.agents.insert(account.to_string(), ag.clone());
+            (Ok(ag), ended)
+        }
+    };
+    if ended {
+        notify(Change::Board);
+    }
+    kept
 }
 
 /// Starts an account's adapter process, with its stderr in `log`. What it writes that isn't an
@@ -389,19 +432,24 @@ fn stopped(account: &str, link: &rpc::Link) {
         if !current(&st, account, link) {
             return;
         }
-        st.agents.remove(account);
-        for h in st.sessions.values_mut().filter(|h| h.account == account && h.loaded) {
-            h.loaded = false;
-            if h.running {
-                h.running = false;
-                h.since = now_ms();
-                h.error = Some("Its agent stopped.".into());
-            }
-            h.permission = None;
-            h.queue.clear();
-        }
+        let_go(&mut st, account);
     }
     notify(Change::Board);
+}
+
+/// Forgets the account's process, which has ended, and stops what its sessions were doing in it.
+fn let_go(st: &mut State, account: &str) {
+    st.agents.remove(account);
+    for h in st.sessions.values_mut().filter(|h| h.account == account && h.loaded) {
+        h.loaded = false;
+        if h.running {
+            h.running = false;
+            h.since = now_ms();
+            h.error = Some("Its agent stopped.".into());
+        }
+        h.permission = None;
+        h.queue.clear();
+    }
 }
 
 /// The key of the session a message from the account's process `link` is about; none from a
@@ -625,7 +673,7 @@ pub fn set_model(a: &AccountCfg, key: &str, model: &str) -> Result<()> {
     let (id, cwd, loaded) = {
         let st = state();
         let h = st.sessions.get(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
-        (h.id.clone(), h.cwd.clone(), h.loaded && st.agents.contains_key(&a.name))
+        (h.id.clone(), h.cwd.clone(), h.loaded && alive(&st, &a.name))
     };
     let ag = agent(a)?;
     if !loaded {
@@ -693,7 +741,7 @@ pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
     let begun = {
         let mut guard = state();
         let st = &mut *guard;
-        let alive = st.agents.contains_key(&a.name);
+        let alive = alive(st, &a.name);
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
         if h.running {
             h.queue.push(text.to_string());
@@ -901,7 +949,7 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     let st = state();
     let Some(h) = st.sessions.get(&s.key) else { return };
     s.hosted = true;
-    let alive = h.loaded && st.agents.contains_key(&h.account);
+    let alive = h.loaded && alive(&st, &h.account);
     // Live, but with no pid of its own: the adapter's process serves all the account's hosted
     // sessions, and a session's pid is taken for its own (closing idle terminals, finding the
     // session a command runs in).
@@ -1322,6 +1370,45 @@ mod tests {
         let h = state().sessions.remove(&key).unwrap();
         assert_eq!((h.loaded, h.running, h.queue.len(), h.permission.is_none(), h.error.as_deref()), (false, false, 0, true, Some("Its agent stopped.")));
         assert!(!state().agents.contains_key(account));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An account's process that stops between answering the handshake and being kept isn't kept,
+    /// and one kept that has stopped, its end not heard yet, is let go at the next use: either way
+    /// the account's sessions get a process that runs, rather than one that's gone until the app
+    /// restarts.
+    #[test]
+    fn a_process_that_stops_as_it_starts_isnt_kept() {
+        let dir = store::test_dir("acp-stops-starting");
+        let account = "test-adapter-stops-starting";
+        // It answers the handshake and leaves.
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", r#"read -r line; echo '{"jsonrpc":"2.0","id":1,"result":{}}'"#]);
+        let gone = connect(account, cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
+        gone.initialize().unwrap();
+        wait_until("it to leave", 10, || gone.client.is_closed());
+        assert_eq!(keep_agent(account, gone.clone()).err().map(|e| e.to_string()).as_deref(), Some("test-adapter-stops-starting's agent stopped as it started."));
+        assert!(running(account).is_none());
+
+        // One that was kept and has stopped since, with a session's turn running in it.
+        let key = key_of(Harness::Codex, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, queue: vec!["And then?".into()], ..Default::default() });
+        state().agents.insert(account.into(), gone.clone());
+        assert!(running(account).is_none());
+        assert!(!state().agents.contains_key(account));
+        let h = state().sessions[&key].clone();
+        assert_eq!((h.loaded, h.running, h.queue.len(), h.error.as_deref()), (false, false, 0, Some("Its agent stopped.")));
+        // The next one is kept, and the old one's end, heard late, leaves it alone.
+        state().agents.insert(account.into(), gone.clone());
+        let keeps = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#;
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", keeps, "sh"]).arg(dir.join("heard"));
+        let next = connect(account, cmd, std::fs::File::create(dir.join("log2")).unwrap()).unwrap();
+        assert!(Arc::ptr_eq(&keep_agent(account, next.clone()).unwrap(), &next));
+        stopped(account, &gone.client);
+        assert!(running(account).is_some_and(|a| Arc::ptr_eq(&a, &next)));
+        state().sessions.remove(&key);
+        state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
