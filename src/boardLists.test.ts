@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ageListingPr,
+  ageListingSession,
   archivedIn,
   bayRowsOf,
   currentProject,
@@ -301,6 +302,34 @@ describe('ageListingPr', () => {
     expect(ageListingPr(fx.prItem({ updatedAt: NOW - DAY / 2 }), new Set(), ages, '1d', NOW)).toBeNull();
     // A pinned PR is listed whatever its age.
     expect(ageListingPr(old, new Set([old.key]), ages, '1d', NOW)).toBeNull();
+  });
+});
+
+describe('ageListingSession', () => {
+  const ages = [
+    { id: '1d', ms: DAY },
+    { id: '3d', ms: 3 * DAY },
+    { id: '7d', ms: 7 * DAY },
+    { id: 'all', ms: 0 },
+  ] as const;
+  const l = lane('/r/a');
+  const old = session('claude:claude:old', { lastActivity: NOW - 5 * DAY });
+
+  it('widens the age filter as little as lists a session asked to be shown', () => {
+    expect(ageListingSession(old, new Set(), ages, '1d', NOW)).toBe('7d');
+    expect(ageListingSession(old, new Set(), ages, '3d', NOW)).toBe('7d');
+    expect(ageListingSession(session('claude:claude:older', { lastActivity: NOW - 10 * DAY }), new Set(), ages, '1d', NOW)).toBe('all');
+    // What it widens to lists it, by the rule the Sessions view goes by.
+    expect(shownSessionsOf([item(l, old)], NOW - 3 * DAY, new Set(), '', [])).toEqual([]);
+    expect(shownSessionsOf([item(l, old)], NOW - 7 * DAY, new Set(), '', []).map((r) => r.session.key)).toEqual([old.key]);
+  });
+
+  it('leaves the filter alone when it lists the session already', () => {
+    expect(ageListingSession(old, new Set(), ages, '7d', NOW)).toBeNull();
+    expect(ageListingSession(old, new Set(), ages, 'all', NOW)).toBeNull();
+    expect(ageListingSession(session('claude:claude:new', { lastActivity: NOW - DAY / 2 }), new Set(), ages, '1d', NOW)).toBeNull();
+    // A pinned session is listed whatever its age.
+    expect(ageListingSession(old, new Set([old.key]), ages, '1d', NOW)).toBeNull();
   });
 });
 

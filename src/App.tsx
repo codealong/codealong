@@ -63,7 +63,7 @@ import { useMainKeys } from './mainKeys';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingPr, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
+import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
 import { inProject } from './quick';
 import { setPageZoom, type ZoomStep } from './zoom';
 
@@ -553,6 +553,9 @@ export function App() {
       // the board would only show its line on its worktree's row.
       setView('sessions');
       setBayFilter([]);
+      // One older than the age filter lets through: the filter widens as far as it, as for a PR.
+      const wider = ageListingSession(session, sessionPins.set, AGES, age, Date.now());
+      if (wider) setAge(wider);
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       setView('prs');

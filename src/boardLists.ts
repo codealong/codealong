@@ -215,9 +215,22 @@ export function prInDone(pr: PrItem, pinned: ReadonlySet<string>): boolean {
  *  whatever its age. Without it the PR isn't listed and can't be selected, and the panel would
  *  show the view's first PR in its place, as it did for one under Merged & closed (`prInDone`). */
 export function ageListingPr<A extends string>(pr: PrItem, pinned: ReadonlySet<string>, ages: readonly { id: A; ms: number }[], current: A, now: number): A | null {
-  const lists = (ms: number) => ms === 0 || pr.updatedAt >= now - ms;
-  const at = ages.find((a) => a.id === current);
-  if (pinned.has(pr.key) || !at || lists(at.ms)) return null;
+  return ageListing(pr.updatedAt, pinned.has(pr.key), ages, current, now);
+}
+
+/** The age filter a window asked to show a session widens to, as `ageListingPr` has it for a PR:
+ *  the narrowest that lists a session last active when this one was, as the Sessions view goes by
+ *  (`shownSessionsOf`). Null when the filter lists it already, or it's pinned. Without it the
+ *  session isn't listed, and Sessions would select another of its worktree's, or its first. */
+export function ageListingSession<A extends string>(s: Session, pinned: ReadonlySet<string>, ages: readonly { id: A; ms: number }[], current: A, now: number): A | null {
+  return ageListing(s.lastActivity, pinned.has(s.key), ages, current, now);
+}
+
+/** The narrowest of `ages` that lists what was last active `at`, when `current` doesn't. */
+function ageListing<A extends string>(at: number, pinned: boolean, ages: readonly { id: A; ms: number }[], current: A, now: number): A | null {
+  const lists = (ms: number) => ms === 0 || at >= now - ms;
+  const shown = ages.find((a) => a.id === current);
+  if (pinned || !shown || lists(shown.ms)) return null;
   return ages.find((a) => lists(a.ms))?.id ?? null;
 }
 
