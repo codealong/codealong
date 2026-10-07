@@ -246,7 +246,7 @@ fn stop(_: &Args, rest: &[String]) -> Done {
 
 fn done(args: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
-    let v = act(actions::DONE, key, params::Done { stop: args.has("--stop") })?;
+    let v = act(api::SESSION_DONE, key, params::Done { stop: args.has("--stop"), ..Default::default() })?;
     Ok(v.get("message").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 

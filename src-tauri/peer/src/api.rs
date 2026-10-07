@@ -47,6 +47,11 @@ pub const SESSION_RESUME: &str = "session-resume";
 /// session alone, answering what happened in a sentence. Macs before 2026-10-06 refuse it as a
 /// request they don't know.
 pub const SESSION_MODEL: &str = "session-model";
+/// Done with a session (`key`): it ends as far as its Mac can end it without ending more than it
+/// (its terminal tab closes, its background job stops), and is marked seen and archived,
+/// answering `Done`. Work under way holds it unless `stop` ends that too. Macs before 2026-10-07
+/// refuse it as a request they don't know; the Mac asking then marks it seen and archives it.
+pub const SESSION_DONE: &str = "session-done";
 
 /// What each request carries, as its makers write it (the engine's windows and command, and a
 /// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
@@ -149,6 +154,16 @@ pub mod params {
         }
     }
 
+    /// `session-done`: whether to end work under way too (a turn, or a command its turn left
+    /// running in the background).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Done {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub stop: bool,
+    }
+
     /// `session-rename`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -210,7 +225,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 19] = [
+pub const REQUESTS: [(&str, Reach); 20] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -230,6 +245,7 @@ pub const REQUESTS: [(&str, Reach); 19] = [
     (SESSION_FORK, Reach::Control),
     (SESSION_RESUME, Reach::Control),
     (SESSION_MODEL, Reach::Control),
+    (SESSION_DONE, Reach::Control),
 ];
 
 /// Who may make `method` of a device; None for a request this crate doesn't know.
@@ -404,6 +420,21 @@ pub struct Sent {
     /// Missing from devices that don't know it yet.
     #[serde(default)]
     pub fell_back: bool,
+}
+
+/// What being done with a session came to (`session-done`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Done {
+    /// It was marked seen and archived. False when work under way held it, which `message` says,
+    /// and nothing was done: asked again with `stop`, that ends too.
+    pub done: bool,
+    /// One sentence: what ended, or what's under way.
+    pub message: String,
+    /// Something didn't go as asked (a terminal left open, say), worth saying even where the
+    /// session leaving its list says it was done.
+    #[serde(default)]
+    pub noted: bool,
 }
 
 /// How a message sent to a session would reach it, for its box to say before you send: the first

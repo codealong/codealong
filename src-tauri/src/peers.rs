@@ -1585,7 +1585,11 @@ mod tests {
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
                     "session-send" => Ok(json!({ "message": "Sent.", "opened": false })),
                     "session-stream" => Ok(Value::Null),
-                    "session-rename" => Ok(Value::Null),
+                    "session-rename" | "mark-seen" | "session-archive" => Ok(Value::Null),
+                    // As a Mac does that knows it, asked to end work under way; else as one from
+                    // before it does.
+                    "session-done" if params["stop"] == true => Ok(json!({ "done": true, "message": "Done with “s2”: its turn is stopped and it's archived.", "noted": false })),
+                    "session-done" => Err("Codealong on this device doesn't know how to session-done yet; update it here.".into()),
                     // A request that takes a while, as a side question does.
                     "slow" => {
                         std::thread::sleep(Duration::from_millis(800));
@@ -1796,6 +1800,45 @@ mod tests {
         until("b to forget a", || b.peers.view().devices.is_empty());
         assert!(a.peers.view().lanes.is_empty());
         assert!(a.peers.ask(&b_short, "search", json!({}), Duration::from_secs(1)).is_err());
+        for m in [&a, &b] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    #[test]
+    fn a_session_on_a_mac_that_wont_end_it_is_still_done_with() {
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![lane("/Users/sam/app", vec![Session { title: "Fix login".into(), ..session("claude:claude:s2", Status::Unread) }])]);
+        join(&a, &b);
+        link(&a, &b);
+        until("a to get b's lanes", || a.peers.view().lanes.len() == 1);
+        let engine = crate::engine::Handle::over(Board { lanes: a.peers.view().lanes, ..Board::default() });
+        let key = format!("@{}:claude:claude:s2", short_of(&key_of(&b)));
+        let done = |stop: bool| crate::actions::run(&engine, &a.peers, codealong_peer::api::SESSION_DONE, &key, codealong_peer::api::params::Done { stop, ..Default::default() }).unwrap();
+        let asked = || b.asked.lock().unwrap().iter().map(|(m, p)| (m.clone(), p["params"].clone())).collect::<Vec<_>>();
+        let organized = || vec![("mark-seen".to_string(), json!({ "keys": ["claude:claude:s2"] })), ("session-archive".to_string(), json!({ "key": "claude:claude:s2", "archived": true }))];
+
+        // Remote control off: the Mini ends nothing, but marks it seen and archives it, and Done
+        // says why its terminal is still open.
+        let answer = done(false);
+        assert_eq!((answer["done"].clone(), answer["noted"].clone()), (json!(true), json!(true)), "{answer}");
+        assert_eq!(answer["message"], "Done with “Fix login”: it's archived, but still open on Mini. Remote control is off on Mini; turn it on there in Settings › Devices.");
+        assert_eq!(asked(), organized(), "the Mini never ran Done");
+
+        // Remote control on, at a Mini from before it knew Done: the same, and it says to update it.
+        let on = DevicesCfg { remote_control: true, ..b.peers.0.lock().cfg.clone() };
+        b.board.lock().unwrap().devices = on.clone();
+        b.peers.configure(&on);
+        b.asked.lock().unwrap().clear();
+        let answer = done(false);
+        assert_eq!(answer["message"], "Done with “Fix login”: it's archived, but still open on Mini. Codealong there is from before it could be asked to close it: update it on Mini.");
+        assert_eq!(asked(), [vec![("session-done".to_string(), json!({ "key": "claude:claude:s2", "stop": false }))], organized()].concat());
+
+        // A Mini that knows it does it all, and its answer stands.
+        b.asked.lock().unwrap().clear();
+        let answer = done(true);
+        assert_eq!(answer, json!({ "done": true, "message": "Done with “s2”: its turn is stopped and it's archived.", "noted": false }));
+        assert_eq!(asked(), vec![("session-done".to_string(), json!({ "key": "claude:claude:s2", "stop": true }))]);
         for m in [&a, &b] {
             let _ = std::fs::remove_dir_all(&m.dir);
         }

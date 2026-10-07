@@ -253,7 +253,7 @@ async fn close_session(engine: State<'_, engine::Handle>, peers: State<'_, peers
 #[tauri::command]
 async fn session_done(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, stop: bool) -> Result<serde_json::Value, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
-    blocking(move || actions::run(&engine, &peers, actions::DONE, &key, actions::params::Done { stop })).await?
+    blocking(move || actions::run(&engine, &peers, api::SESSION_DONE, &key, actions::params::Done { stop, ..Default::default() })).await?
 }
 
 /// Marks sessions seen, each on the device it's on: its status changes there, and so on every

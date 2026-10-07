@@ -64,7 +64,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     with it: a terminal that shows other sessions too stays open, and a session in the Claude or
     Codex app is only archived, since the app has no way for another program to close it. A
     session still working, or one that left a command running in the background, isn't ended
-    by surprise: Mark as done says so, and pressed again within 15 seconds ends that too. Here
+    by surprise: Mark as done says so, and pressed again within 15 seconds ends that too. A
+    session on another Mac is done there, when that Mac lets its linked devices act on its
+    sessions (remote control); otherwise it's only marked seen and archived, and the toast
+    says why its terminal is still open. Here
     the toast says what was done, and its Undo takes it out of the archive; the windows that
     float (the bar, the notch, the waiting window) say only what didn't go as asked, such as a
     terminal left open, since the session leaving their list says the rest. With a search typed, Sessions' Archived fold lists
@@ -768,8 +771,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
   narrow the views to the ones you pick; and Worktrees can group by device. A session on another
   device shows its whole conversation in its panel, and when that device lets its linked
-  devices act on its sessions (remote control, off by default) you can send it a message or
-  answer an approval from here. Devices find each other on your tailnet when Tailscale runs,
+  devices act on its sessions (remote control, off by default) you can send it a message,
+  answer an approval or mark it done from here. Devices find each other on your tailnet when Tailscale runs,
   and reach linked devices anywhere through iroh; they talk directly, encrypted end to end,
   with no server of Codealong's in between. You link a device once: on your tailnet, both show
   the same six digits and you say yes on the other one; elsewhere, with a link code made on one
@@ -993,7 +996,7 @@ light scan (no git, PRs or visitors).
 - Transcripts stay on the Mac; only titles, statuses and short excerpts are kept in memory.
   With Devices on, the devices you've linked get those too, and read a conversation or search
   what was said only by asking this device, directly. With remote control on, they can also send
-  prompts, answer approvals and start sessions here; each such request is written to
+  prompts, answer approvals, start sessions and end them here; each such request is written to
   `~/Library/Logs/Codealong/devices.log`.
 
 ## Code

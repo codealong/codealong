@@ -183,7 +183,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
           <Hotkey
             label="Done"
             keys={sign('done')}
-            title={done && session ? doneTitle(session) : session && shortOf(session.key) ? 'Mark it done on the Mac it runs on' : 'It’s archived already'}
+            title={done && session ? doneTitle(session) : 'It’s archived already'}
             run={done && (() => done.run())}
           />
           {/* A menu that didn't pop up leaves nothing half done, and the snooze keys beside it still work. */}

@@ -170,7 +170,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     if (selected?.kind !== 'agent') return;
     const act = actionsRef.current.session(selected.lane, selected.session, 'session').done;
     if (act) act.run();
-    else say(selected.session.archived ? 'It’s archived already.' : 'Mark it done on the Mac it runs on.');
+    else say('It’s archived already.');
     return;
   }
   // The queue's keys in Sessions (queue.ts `QUEUE_CHORDS`), from the panel's box too: ⌘] or

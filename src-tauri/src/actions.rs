@@ -27,7 +27,6 @@ use crate::{acp, config, harness, peerfeed, send, transcript};
 pub const FORK_TERMINAL: &str = "session-fork-terminal";
 pub const MOVE: &str = "session-move";
 pub const CLOSE: &str = "session-close";
-pub const DONE: &str = "session-done";
 pub const SIDE_ASK: &str = "session-side-ask";
 pub const SIDE_CLOSE: &str = "session-side-close";
 pub const OPEN: &str = "open-target";
@@ -50,13 +49,6 @@ pub mod params {
         pub account: String,
         #[serde(skip_serializing_if = "String::is_empty")]
         pub lane: String,
-    }
-
-    /// `session-done`: whether to end work under way too (`idle::ending`).
-    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-    #[serde(default)]
-    pub struct Done {
-        pub stop: bool,
     }
 
     /// `session-side-ask`: the question for its side conversation.
@@ -178,10 +170,14 @@ struct Request {
     back: fn(Value, &str) -> Result<Value, String>,
     /// How long another device is given to answer, when not as long as its kind takes (`ask`).
     wait: Option<Duration>,
+    /// What's done instead when another device doesn't do it, given its short id, what it calls
+    /// the session and why: it's from before the request, or doesn't let this device drive its
+    /// agents. Its answer stands, unless this fails too.
+    instead: Option<fn(&Handle, &Peers, &str, &str, &str) -> Result<Value, String>>,
 }
 
 /// A request any linked device can make and the command too; each line says what differs.
-const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null), there: with_key, back: |v, _| Ok(v), wait: None };
+const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null), there: with_key, back: |v, _| Ok(v), wait: None, instead: None };
 
 const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_PAGE, here: page, ..ANY },
@@ -210,8 +206,11 @@ const REQUESTS: &[Request] = &[
     // goes on under, and whose usage it spends, is its user's to choose.
     Request { name: MOVE, only_here: Some("Move it on the Mac it runs on."), here: move_session, command: move_in_windows, ..ANY },
     Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close, ..ANY },
-    // Done closes it too, and it's you who's done with a session, not an agent.
-    Request { name: DONE, only_here: Some("Be done with it on the Mac it runs on."), here: done, command: done_in_windows, ..ANY },
+    // Done ends no more than the session, and what it leaves for someone at its Mac (a question
+    // about its worktree) it says. It's you who's done with a session, not an agent. A worktree
+    // its harness made can take most of a minute to remove (idle.rs `exit`). A Mac that won't do
+    // it still lets it be marked seen and archived.
+    Request { name: api::SESSION_DONE, here: done, command: done_in_windows, wait: Some(Duration::from_secs(75)), instead: Some(done_anyway), ..ANY },
     // A side conversation's copy runs on the session's Mac, and its answer goes to the windows
     // there. The copy may do what its session may without asking, which isn't the command's to
     // borrow.
@@ -283,7 +282,10 @@ pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, p
     let params = to_value(params)?;
     let req = asked(from, name, &params)?;
     match on.split() {
-        (Some(device), own) => ask_there(peers, req, from, device, own, params),
+        (Some(device), own) => ask_there(peers, req, from, device, own, params).or_else(|why| match req.instead {
+            Some(instead) => instead(engine, peers, device, own, &why).map_err(|_| why),
+            None => Err(why),
+        }),
         (None, key) => (req.here)(engine, &Call { key, params: &params, from }),
     }
 }
@@ -406,10 +408,13 @@ pub fn typed<T: DeserializeOwned>(v: Value) -> Result<T, String> {
     serde_json::from_value(v).map_err(|e| e.to_string())
 }
 
+/// How a device says it doesn't know a request (`answer`), as every Mac since 2026-09-29 says it.
+const UNKNOWN: &str = "doesn't know how to";
+
 /// Answers a linked device's request (peers.rs has checked it may make it) as a window's would be.
 /// `watching`: the device only watches (a phone), so what it sends is yours.
 pub fn answer(engine: &Handle, name: &str, params: Value, watching: bool) -> Result<Value, String> {
-    let req = find(name).filter(|r| r.only_here.is_none()).ok_or_else(|| format!("Codealong on this device doesn't know how to {name} yet; update it here."))?;
+    let req = find(name).filter(|r| r.only_here.is_none()).ok_or_else(|| format!("Codealong on this device {UNKNOWN} {name} yet; update it here."))?;
     let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
     let from = if watching { From::Phone } else { From::Device };
     (req.here)(engine, &Call { key: &key, params: &params, from: &from })
@@ -830,9 +835,30 @@ fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
     if let Some(note) = &note {
         message = format!("{message} {note}");
     }
-    // `noted`: something didn't go as asked (a terminal left open, say), which even the windows
-    // that let the session leaving their list say it was done should say.
-    Ok(json!({ "done": true, "message": message, "noted": note.is_some(), "at": shown_at(c, at) }))
+    let mut answer = to_value(api::Done { done: true, message, noted: note.is_some() })?;
+    answer["at"] = shown_at(c, at);
+    Ok(answer)
+}
+
+/// Done with a session on another device that won't end it (`why`): Codealong there is from
+/// before it could be asked to, or has remote control off. What any linked device may ask still
+/// goes: it's marked seen and archived there, and the rest is left as it is. For one that isn't
+/// running, that's all Done would have done.
+fn done_anyway(engine: &Handle, peers: &Peers, device: &str, own: &str, why: &str) -> Result<Value, String> {
+    let ask_for = |name: &str, params: Value| ask(peers, find(name).expect("what any linked device may ask is in the table"), device, params);
+    ask_for(api::MARK_SEEN, to_value(params::Keys { keys: vec![own.to_string()] })?)?;
+    ask_for(api::SESSION_ARCHIVE, to_value(params::Archive { key: own.to_string(), archived: true })?)?;
+    let (title, live, mac) = engine.read(|b| match b.session(&peerfeed::remote_key(device, own)) {
+        Some((lane, s)) => (s.title.clone(), s.live, lane.device.as_ref().map(|d| d.name.clone())),
+        None => (String::new(), true, None),
+    });
+    if !live {
+        return to_value(api::Done { done: true, message: format!("Done with “{title}”: it's archived."), noted: false });
+    }
+    let mac = mac.unwrap_or_else(|| "its Mac".into());
+    let why = if why.contains(UNKNOWN) { format!("Codealong there is from before it could be asked to close it: update it on {mac}.") } else { why.to_string() };
+    let message = format!("Done with “{title}”: it's archived, but still open on {mac}. {why}");
+    to_value(api::Done { done: true, message, noted: true })
 }
 
 /// Asks a throwaway copy of it `text`, on the side (side.rs): the session carries on, unaware.
@@ -989,7 +1015,7 @@ mod tests {
         assert!(err.contains("isn't on the board"), "{err}");
         // A side conversation's copy acts with its session's permissions, and a move chooses
         // whose usage the conversation spends; being done with a session is its user's to say.
-        for name in [SIDE_ASK, SIDE_CLOSE, MOVE, DONE] {
+        for name in [SIDE_ASK, SIDE_CLOSE, MOVE, api::SESSION_DONE] {
             assert!(ask(name, json!({ "text": "what changed?", "account": "claude2" })).unwrap_err().contains("in Codealong's windows"), "{name}");
         }
         // The rest is the command's as it is a window's: these get as far as the session.

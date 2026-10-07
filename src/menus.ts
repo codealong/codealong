@@ -299,8 +299,10 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
           },
         }
       : undefined,
-    // On this Mac, where it closes; an archived one is done with already.
-    done: here && !s.archived ? { label: 'Mark as done', run: done } : undefined,
+    // On any Mac: one that won't close it (it has remote control off, or an older Codealong)
+    // still marks it seen and archives it (actions.rs `done_anyway`). An archived one is done
+    // with already.
+    done: !s.archived ? { label: 'Mark as done', run: done } : undefined,
     archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
