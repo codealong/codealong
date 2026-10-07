@@ -187,7 +187,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::ROUTE, here: route, ..ANY },
     Request { name: api::START_OPTIONS, here: start_options, ..ANY },
     Request { name: api::START, here: start, there: start_there, back: started_back, ..ANY },
-    Request { name: api::SESSION_FORK, here: fork, ..ANY },
+    // A fork answers as a start does, with the copy by the key it has on its device.
+    Request { name: api::SESSION_FORK, here: fork, back: started_back, ..ANY },
     Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
@@ -868,6 +869,14 @@ mod tests {
         assert_eq!(there, json!({ "spec": { "laneId": "/Users/sam/app", "account": "claude", "place": "background", "prompt": "Fix the build", "model": null, "effort": null, "worktree": false, "todos": [] } }));
         let back = (start.back)(json!({ "key": "claude:claude:new", "message": "Started." }), "a1b2c3d4e5").unwrap();
         assert_eq!(back["key"], "@a1b2c3d4e5:claude:claude:new");
+        // So does the copy a fork there made, for what's asked of it next to go there too; one
+        // whose key isn't known yet comes back without one.
+        let fork = find(api::SESSION_FORK).unwrap();
+        assert_eq!((fork.there)(json!({ "prompt": "Try it the other way" }), "claude:claude:abc").unwrap(), json!({ "key": "claude:claude:abc", "prompt": "Try it the other way" }));
+        let back = (fork.back)(json!({ "key": "claude:claude:copy", "message": "Forked in the background." }), "a1b2c3d4e5").unwrap();
+        assert_eq!(back, json!({ "key": "@a1b2c3d4e5:claude:claude:copy", "message": "Forked in the background." }));
+        assert_eq!(peerfeed::split_remote(back["key"].as_str().unwrap()), Some(("a1b2c3d4e5", "claude:claude:copy")));
+        assert_eq!((fork.back)(json!({ "key": null, "message": null }), "a1b2c3d4e5").unwrap(), json!({ "key": null, "message": null }));
         // What a search found there is named by the keys its sessions have here, and a device
         // slow to answer is left out after a few seconds.
         let search = find(api::SEARCH).unwrap();
