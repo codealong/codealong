@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completed, leftOutWords, matching, mentionAt, mentionsIn, repoLanes, sessionSkills, skillNamed, skillRows, skillStart, writtenFor } from './skills';
+import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillNamed, skillRows, skillStart, writtenFor } from './skills';
 import * as fx from './testing/fixtures';
 import type { Skill, SkillsListed } from './types';
 
@@ -85,6 +85,40 @@ describe('writtenFor', () => {
     expect(skillNamed('fix it, then /probe and /ship', skills)?.name).toBe('probe');
     expect(skillNamed('/compact then /ship', skills)?.name).toBe('ship');
     expect(skillNamed('/shi', skills)).toBeUndefined();
+  });
+
+  it('leaves the full stop that ends a sentence out of the name, and in the text', () => {
+    expect(writtenFor('Fix it, then /ship.', skills, 'codex')).toBe('Fix it, then $ship.');
+    expect(writtenFor('Run /ship. Then wait.', skills, 'codex')).toBe('Run $ship. Then wait.');
+    expect(writtenFor('Run /ship... then wait', skills, 'codex')).toBe('Run $ship... then wait');
+    expect(skillNamed('Fix it, then /ship.', skills)?.name).toBe('ship');
+    // Only for a skill: what names none stays as typed.
+    expect(writtenFor('Clear /tmp.', skills, 'codex')).toBe('Clear /tmp.');
+    expect(writtenFor('Then /probe.', skills, 'claude')).toBe('Then /probe.');
+  });
+
+  it('keeps a dot inside a name, and a name that ends in one, and passes over paths still', () => {
+    const dotted = [...skills, skill('v1.2'), skill('ship.it'), skill('odd.'), skill('review')];
+    expect(writtenFor('Run /v1.2 now, then /v1.2.', dotted, 'codex')).toBe('Run $v1.2 now, then $v1.2.');
+    expect(writtenFor('/ship.it and /ship.', dotted, 'codex')).toBe('$ship.it and $ship.');
+    // A name with the full stop that's a skill itself is that skill.
+    expect(writtenFor('Try /odd.', dotted, 'codex')).toBe('Try $odd.');
+    expect(writtenFor('Read /review/notes.md.', dotted, 'codex')).toBe('Read /review/notes.md.');
+    expect(skillNamed('Read /review/notes.md.', dotted)).toBeUndefined();
+  });
+});
+
+describe('namedBy', () => {
+  const known = (name: string) => ['ship', 'v1.2'].includes(name);
+
+  it('gives the mention as it names a skill, ending before a sentence’s full stop', () => {
+    const [m] = mentionsIn('then /ship.');
+    expect(m).toEqual({ name: 'ship.', start: 5, end: 11 });
+    expect(namedBy(m, known)).toEqual({ name: 'ship', start: 5, end: 10 });
+    expect(namedBy(mentionsIn('/v1.2.')[0], known)).toEqual({ name: 'v1.2', start: 0, end: 5 });
+    expect(namedBy(mentionsIn('/v1.2')[0], known)).toEqual({ name: 'v1.2', start: 0, end: 5 });
+    expect(namedBy(mentionsIn('/v1.')[0], known)).toBeNull();
+    expect(namedBy(mentionsIn('/.')[0], known)).toBeNull();
   });
 });
 

@@ -16,7 +16,8 @@ const NAME = String.raw`[A-Za-z0-9_:.-]`;
  *  "then /ship it" or "then /ship, and", not the one in a path. A path's first part is no skill,
  *  even one that names a skill (`/review/notes.md` with a skill named `review`), so the name has
  *  to end at a space, the end of the text or punctuation that ends a word in prose, never at the
- *  slash or anything else a path goes on with. */
+ *  slash or anything else a path goes on with. A name may hold a dot (`/v1.2`), so a full stop
+ *  after one is in it here; which skill it names, if any, is `namedBy`'s to say. */
 const MENTION = new RegExp(String.raw`(^|\s)/(${NAME}*)(?=$|[\s,;!?)\]}"'’”])`, 'g');
 
 /** A `/name` in the text: where its slash is, where its name ends, and the name so far. */
@@ -73,6 +74,16 @@ export function named(skills: Skill[], name: string): Skill | undefined {
   return skills.find((s) => s.name === name);
 }
 
+/** A mention as it names a skill `known` says is one: by its whole name, else by the name
+ *  without the full stops it ends in, which end the sentence ("then /ship.") and stay in the text
+ *  after it. A name may hold a dot, so a full stop is the sentence's only when the name with it
+ *  is no skill and the name without it is. Null when it names none. */
+export function namedBy(m: Mention, known: (name: string) => boolean): Mention | null {
+  if (known(m.name)) return m;
+  const bare = m.name.replace(/\.+$/, '');
+  return bare !== m.name && known(bare) ? { ...m, name: bare, end: m.start + 1 + bare.length } : null;
+}
+
 /** A session's skills from what the engine listed for its folder and account: the worktree's
  *  first, which win a name both have. Only the ones its harness can be told to run, picked
  *  before the names are made unique: a worktree's skill another harness reads doesn't hide the
@@ -87,20 +98,26 @@ export function sessionSkills(listed: SkillsListed | null, harness: Harness): Sk
 /** What goes to a session on `harness` for what's typed: each skill named as the harness wants
  *  it, in place of its `/name`. What names no skill the harness reads stays as typed. */
 export function writtenFor(text: string, skills: Skill[], harness: Harness): string {
+  const written = (name: string) => named(skills, name)?.written[harness];
   let out = '';
   let at = 0;
   for (const m of mentionsIn(text)) {
-    const to = named(skills, m.name)?.written[harness];
-    if (!to) continue;
-    out += text.slice(at, m.start) + to;
-    at = m.end;
+    const n = namedBy(m, (name) => !!written(name));
+    const to = n && written(n.name);
+    if (!n || !to) continue;
+    out += text.slice(at, n.start) + to;
+    at = n.end;
   }
   return out + text.slice(at);
 }
 
 /** The first skill the text names, whole. */
 export function skillNamed(text: string, skills: Skill[]): Skill | undefined {
-  return mentionsIn(text).map((m) => named(skills, m.name)).find((s) => !!s);
+  for (const m of mentionsIn(text)) {
+    const n = namedBy(m, (name) => !!named(skills, name));
+    if (n) return named(skills, n.name);
+  }
+  return undefined;
 }
 
 /** Whether an account's harness can be asked to run a skill. */

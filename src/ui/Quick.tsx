@@ -75,7 +75,7 @@ import {
   startOptionsFailed,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { completed, leftOutWords, mentionAt, mentionsIn, repoLanes, skillRows, skillStart, takes, writtenFor, type Mention, type SkillRow } from '../skills';
+import { completed, leftOutWords, mentionAt, mentionsIn, namedBy, repoLanes, skillRows, skillStart, takes, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
@@ -492,11 +492,13 @@ export function Quick() {
   const listedSkills = useSkills(repoPaths, NO_ACCOUNTS, shown && mentions.length > 0);
   const typingName = typing?.name ?? null;
   const skillsFound = useMemo(() => (typingName === null ? [] : skillRows(listedSkills, repos, typingName, false, MAX_ROWS)), [listedSkills, repos, typingName]);
-  // The first name that's a skill of some repo, with its rows (one a repo that has it).
+  // The first name that's a skill of some repo, with its rows (one a repo that has it). A full
+  // stop that ends the sentence isn't in it (skills.ts `namedBy`).
   const named = useMemo(() => {
+    const rowsFor = (name: string) => skillRows(listedSkills, repos, name, true, MAX_ROWS);
     for (const m of mentions) {
-      const rows = skillRows(listedSkills, repos, m.name, true, MAX_ROWS);
-      if (rows.length > 0) return { mention: m, rows };
+      const n = namedBy(m, (name) => rowsFor(name).length > 0);
+      if (n) return { mention: n, rows: rowsFor(n.name) };
     }
     return null;
   }, [mentions, listedSkills, repos]);
