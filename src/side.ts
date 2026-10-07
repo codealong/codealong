@@ -4,9 +4,15 @@
 // unaware; it has one at a time, and it lasts until it's closed. Codealong keeps what was asked
 // and answered, so the closed ones can be read again: a session's box shows them (`showSides`),
 // and its header says how many there are (`useKept`), from the one list kept here.
+//
+// What shows above a session's box is the same in every window (`SideView`, kept in local
+// storage, which they share), and so is whether the box is the side conversation's: a box in
+// one window that sent to the session while another window's asked the copy once sent the
+// session a question meant for the side (2026-10-06).
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { onSide, sideForget, sideGet, sidePast } from './api';
+import { readStored, writeStored, type Codec } from './stored';
 import type { Side, SideKept, SideTurn } from './types';
 
 const sides = new Map<string, Side>();
@@ -34,32 +40,98 @@ export function noteSide(side: Side): void {
   if (side.turns.length > 0) sides.set(side.key, side);
   else sides.delete(side.key);
   if (side.turns.length === 0 || before?.id !== side.id || ended(before) !== ended(side)) readKept(side.key);
+  // A question being asked has its copy now, or the copy is gone: the engine says which.
+  if (viewOf(side.key)?.kind === 'starting') showSides(side.key, null);
   tell();
 }
 
 /** What a session's box shows in place of its open side conversation: the list of the ones
- *  kept, or one of them to read. Null shows the open one, if there is one. It's this window's. */
-export type SideView = { kind: 'list' } | { kind: 'past'; id: string } | null;
+ *  kept, or one of them to read, or the question just asked (`starting`, at `at`), until the
+ *  engine says its copy has started, which takes seconds on a busy Mac. Null shows the open one,
+ *  if there is one. Every window shows the same. */
+export type SideView = { kind: 'list' } | { kind: 'past'; id: string } | { kind: 'starting'; at: number } | null;
 
+/** Each session's view is an item of its own in local storage. */
+const VIEW = 'codealong.sideview.';
+
+/** How long a question waits for the engine to say its copy started before its box is the
+ *  session's again: a window that quit while one was starting never hears. */
+export const STARTING_MS = 2 * 60 * 1000;
+
+/** A view as it's kept: JSON. What doesn't read as one reads as none. */
+export const viewCodec: Codec<SideView> = {
+  parse: (raw) => {
+    const v: unknown = JSON.parse(raw);
+    if (typeof v !== 'object' || v === null) return undefined;
+    const o = v as Record<string, unknown>;
+    if (o.kind === 'list') return { kind: 'list' };
+    if (o.kind === 'past' && typeof o.id === 'string') return { kind: 'past', id: o.id };
+    if (o.kind === 'starting' && typeof o.at === 'number') return { kind: 'starting', at: o.at };
+    return undefined;
+  },
+  format: (view) => (view ? JSON.stringify(view) : null),
+};
+
+/** The views read so far, by session: null for one read and found to be none. */
 const views = new Map<string, SideView>();
+let watching = false;
 
+/** Takes another window's changes to the views: each is read again when next looked at. */
+function watchViews(): void {
+  if (watching || typeof window === 'undefined') return;
+  watching = true;
+  window.addEventListener('storage', (e) => {
+    // No key: storage was cleared.
+    if (e.key === null) views.clear();
+    else if (e.key.startsWith(VIEW)) views.delete(e.key.slice(VIEW.length));
+    else return;
+    tell();
+  });
+}
+
+function viewOf(key: string): SideView {
+  if (!views.has(key)) views.set(key, readStored(VIEW + key, viewCodec, null));
+  return views.get(key) ?? null;
+}
+
+/** Shows what's above a session's box, in every window. */
 export function showSides(key: string, view: SideView): void {
-  if (view) views.set(key, view);
-  else views.delete(key);
+  views.set(key, view);
+  writeStored(VIEW + key, viewCodec, view);
   // Read again as they're shown: another window may have deleted one.
-  if (view) readKept(key);
+  if (view && view.kind !== 'starting') readKept(key);
   tell();
 }
 
-export function useSideView(key: string): SideView {
-  return useSyncExternalStore(subscribe, () => views.get(key) ?? null);
+/** A question goes to a session's side conversation: its box stays the side conversation's
+ *  while the engine starts the copy, in every window. */
+export function startingSide(key: string): void {
+  showSides(key, { kind: 'starting', at: Date.now() });
 }
 
-/** Whether anything of a session's side conversations shows above its box in this window: the
- *  open one (answering or ended), the list, or one being read. While it does, what's typed in the
- *  box is for the side conversation, as Codex's `/side` takes its box until you go back. */
+/** A question that couldn't be asked: its box stays the side conversation's, with the open one
+ *  above it, or with none open, the ones kept. */
+export function notAsked(key: string): void {
+  if (viewOf(key)?.kind !== 'starting') return;
+  showSides(key, sides.has(key) ? null : { kind: 'list' });
+}
+
+export function useSideView(key: string): SideView {
+  return useSyncExternalStore(subscribe, () => viewOf(key));
+}
+
+/** Whether a view gives a session's box to its side conversation: any, but a question's start
+ *  only while it may still come. */
+export function takesBox(view: SideView, now: number): boolean {
+  return !!view && (view.kind !== 'starting' || now - view.at < STARTING_MS);
+}
+
+/** Whether anything of a session's side conversations shows above its box, in this window and
+ *  every other: the open one (answering or ended), the list, one being read, or a question
+ *  starting one. While it does, what's typed in the box is for the side conversation, as Codex's
+ *  `/side` takes its box until you go back. */
 export function useAside(key: string): boolean {
-  return useSyncExternalStore(subscribe, () => sides.has(key) || views.has(key));
+  return useSyncExternalStore(subscribe, () => sides.has(key) || takesBox(viewOf(key), Date.now()));
 }
 
 /** The side conversations kept for each session this window has shown, the latest first. */
@@ -118,6 +190,7 @@ export function keptLine(kept: SideKept): string {
 }
 
 function subscribe(hear: () => void): () => void {
+  watchViews();
   hearers.add(hear);
   return () => {
     hearers.delete(hear);

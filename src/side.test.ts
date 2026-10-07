@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keptLine, keptSummary, turnState } from './side';
+import { keptLine, keptSummary, STARTING_MS, takesBox, turnState, viewCodec } from './side';
 import type { Side, SideKept, SideTurn } from './types';
 
 const turn = (t: Partial<SideTurn>): SideTurn => ({ question: 'why?', answer: '', done: false, ...t });
@@ -46,5 +46,35 @@ describe('keptSummary', () => {
     // Only the open one: it's already showing.
     expect(keptSummary([kept('a')], open('a'))).toEqual({ words: '1 side conversation', show: null });
     expect(keptSummary([kept('a'), kept('b')], open('a'))).toEqual({ words: '2 side conversations', show: { kind: 'list' } });
+  });
+});
+
+describe('takesBox', () => {
+  it('gives the box to the side conversation while anything of it shows', () => {
+    expect(takesBox(null, 0)).toBe(false);
+    expect(takesBox({ kind: 'list' }, 0)).toBe(true);
+    expect(takesBox({ kind: 'past', id: 'a' }, 0)).toBe(true);
+  });
+
+  it('holds it for a question whose copy is starting, but not for ever', () => {
+    // A window that quit while its copy started never hears it did.
+    expect(takesBox({ kind: 'starting', at: 1000 }, 1000 + STARTING_MS - 1)).toBe(true);
+    expect(takesBox({ kind: 'starting', at: 1000 }, 1000 + STARTING_MS)).toBe(false);
+  });
+});
+
+describe('viewCodec', () => {
+  it('keeps each view as every window reads it back', () => {
+    for (const view of [{ kind: 'list' }, { kind: 'past', id: 'a' }, { kind: 'starting', at: 5 }] as const) {
+      expect(viewCodec.parse(viewCodec.format(view) ?? '')).toEqual(view);
+    }
+    // None is no item at all.
+    expect(viewCodec.format(null)).toBeNull();
+  });
+
+  it('reads what it does not know as none', () => {
+    expect(viewCodec.parse('{"kind":"past"}')).toBeUndefined();
+    expect(viewCodec.parse('{"kind":"open"}')).toBeUndefined();
+    expect(viewCodec.parse('"list"')).toBeUndefined();
   });
 });

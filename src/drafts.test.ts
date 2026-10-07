@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { draftChange, pruneDrafts, putBack, readDraft, writeDraft, type DraftStorage } from './drafts';
+import { draftChange, pruneDrafts, putBack, readDraft, sideDraft, writeDraft, type DraftStorage } from './drafts';
 
 /** Local storage as the app's windows share it, in memory. */
 function memoryStorage(): DraftStorage & { items: Map<string, string> } {
@@ -29,6 +29,18 @@ describe('drafts', () => {
     writeDraft('claude:claude:a', '', store);
     expect(readDraft('claude:claude:a', store)).toBe('');
     expect([...store.items.keys()]).toEqual(['codealong.draft.codex:codex:b']);
+  });
+
+  it('keeps what is written to a session’s side conversation apart from what is written to it', () => {
+    const store = memoryStorage();
+    writeDraft('claude:claude:a', 'for the session', store);
+    writeDraft(sideDraft('claude:claude:a'), 'for the copy', store);
+    expect(readDraft('claude:claude:a', store)).toBe('for the session');
+    expect(readDraft(sideDraft('claude:claude:a'), store)).toBe('for the copy');
+    // Another window hears each as its own.
+    const e = { key: 'codealong.draft.' + sideDraft('claude:claude:a'), newValue: store.getItem('codealong.draft.' + sideDraft('claude:claude:a')) };
+    expect(draftChange('claude:claude:a', e)).toBeNull();
+    expect(draftChange(sideDraft('claude:claude:a'), e)).toBe('for the copy');
   });
 
   it('keeps a draft in the window when storage refuses it', () => {

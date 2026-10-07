@@ -3,11 +3,14 @@
 // session nothing, clears the box and shows the question above it; the answer shows as the engine
 // tells of it (the tool the copy runs, then its words, and what it did folded under the answer);
 // a second question joins the first; while it shows, the box is its, and plain text asks the copy
-// rather than the session; Close ends it, keeps it, and gives the box back to the session; a
-// question that can't be asked
-// is back in the box with why; /side alone lists the ones kept, each opens to read, Delete
-// forgets one; Earlier beside an open one lists them too; and the session's header says how many
-// it has, which shows the only one, or the list, and puts it away again.
+// rather than the session; Close ends it, keeps it, and gives the box back to the session; /side
+// alone lists the ones kept, each opens to read, Delete forgets one; Earlier beside an open one
+// lists them too; and the session's header says how many it has, which shows the only one, or the
+// list, and puts it away again. A question that can't be asked is back in the box with why, and
+// the box stays the side conversation's; what's typed for the side is a draft of its own, apart
+// from the session's; what another window shows above the box (local storage) makes this box the
+// side conversation's too, so ⏎ there asks the copy; and while a question's copy starts, the box
+// stays the side conversation's, in every window.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/side-check.js
 (function () {
   // A Claude Code session to peek at, idle and taking messages.
@@ -21,13 +24,25 @@
   var key = picked.key;
   localStorage.setItem('codealong.preview.peek', key);
   localStorage.removeItem('codealong.draft.' + key);
+  localStorage.removeItem('codealong.draft.side:' + key);
+  localStorage.removeItem('codealong.sideview.' + key);
   var calm = { status: 'idle', live: true, stoppable: false, stalledSince: null, asks: false };
   var failNext = false;
+  // The next question waits for `release` before the engine hears it, as one does while its copy
+  // starts on a busy Mac.
+  var slowNext = false;
+  var release = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd) {
     if (cmd === 'side_ask' && failNext) {
       window.__calls.push([cmd, arguments[1]]);
       return Promise.reject('Its folder is gone, so a copy of it has nowhere to run.');
+    }
+    if (cmd === 'side_ask' && slowNext) {
+      slowNext = false;
+      var self = this;
+      var args = arguments;
+      return new Promise(function (r) { release = function () { r(real.apply(self, args)); }; });
     }
     var got = real.apply(this, arguments);
     if (cmd !== 'get_board') return got;
@@ -170,14 +185,69 @@
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
 
+      var aside = function () { return !!document.querySelector('.ca-composer.is-aside'); };
       failNext = true;
+      var sentNow = calls('send_to_session').length;
       type(box(), '/side where does it run?');
       await wait(50);
       enter();
       await until(function () { return noteText().indexOf('Its folder is gone') >= 0; }, 5000);
-      check('a question that can’t be asked says why', !strip());
-      check('and is back in the box', box().value === '/side where does it run?', box().value);
+      check('a question that can’t be asked says why, and sends the session nothing', calls('send_to_session').length === sentNow);
+      check('and is back in the box, which stays the side conversation’s', box().value === 'where does it run?' && aside() && !!strip(), box().value);
       failNext = false;
+
+      // What's typed for the side is a draft of its own.
+      headButton('Close').click();
+      await until(function () { return !aside(); }, 5000);
+      check('put away, the box has the session’s draft', box().value === '', box().value);
+      type(box(), 'for the session');
+      await wait(50);
+      chip().click();
+      await until(aside, 5000);
+      check('shown again, it has what was written for the side', box().value === 'where does it run?', box().value);
+      chip().click();
+      await until(function () { return !aside(); }, 5000);
+      check('and put away, what was written for the session', box().value === 'for the session', box().value);
+
+      // Another window shows the side conversations: this box is theirs too.
+      var viewKey = 'codealong.sideview.' + key;
+      var otherWindow = function (value) {
+        if (value === null) localStorage.removeItem(viewKey);
+        else localStorage.setItem(viewKey, value);
+        window.dispatchEvent(new StorageEvent('storage', { key: viewKey, newValue: value }));
+      };
+      otherWindow('{"kind":"list"}');
+      await until(aside, 5000);
+      check('shown in another window, the box here is the side conversation’s too', box().getAttribute('aria-placeholder') === 'Ask on the side' && !!strip() && box().value === 'where does it run?', box().value);
+      var sentThen = calls('send_to_session').length;
+      var askedThen = calls('side_ask').length;
+      enter();
+      await until(function () { return calls('side_ask').length > askedThen; }, 5000);
+      check('and ⏎ there asks the copy, sending the session nothing', calls('side_ask')[askedThen][1].text === 'where does it run?' && calls('send_to_session').length === sentThen);
+      await until(function () { return turns().length === 1; }, 5000);
+      headButton('Close').click();
+      await until(function () { return !aside(); }, 5000);
+      otherWindow('{"kind":"list"}');
+      await until(aside, 5000);
+      otherWindow(null);
+      await until(function () { return !aside(); }, 5000);
+      check('and put away there, the session’s again, with its draft', box().value === 'for the session', box().value);
+
+      // While a question's copy starts, the box stays the side conversation's, in every window.
+      slowNext = true;
+      type(box(), '/side slow to start?');
+      await wait(50);
+      enter();
+      await until(function () { return release; }, 5000);
+      await wait(50);
+      var stored = JSON.parse(localStorage.getItem(viewKey) || 'null');
+      check('while its copy starts, the box stays the side conversation’s', aside() && box().value === '' && strip().textContent.indexOf('Starting a copy') > 0, strip() && strip().textContent);
+      check('as every window reads it', !!stored && stored.kind === 'starting', JSON.stringify(stored));
+      release();
+      await until(function () { return turns().length === 1 && turns()[0].indexOf('slow to start?') === 0; }, 5000);
+      check('and the question shows once it has started', aside() && localStorage.getItem(viewKey) === null, localStorage.getItem(viewKey));
+      headButton('Close').click();
+      await until(function () { return !aside(); }, 5000);
 
     } catch (e) {
       return stopped(e);

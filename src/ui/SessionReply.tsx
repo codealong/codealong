@@ -37,10 +37,13 @@
 // then its account's): ↑ ↓ choose, ⇥ or ⏎ finishes the name, Escape puts the list away. Each
 // skill named goes as its harness takes it (`$name` for Codex).
 //
-// While a side conversation shows above it (the open one, the list, or one being read), the box
-// is the side conversation's, as Codex's `/side` takes its box until you go back: ⏎ asks the copy
-// (a new one when none is open), Escape leaves the session's turn alone, and the placeholder and
-// the line under the box say where it goes. Closing what shows gives the box back to the session.
+// While a side conversation shows above it (the open one, the list, one being read, or a question
+// whose copy is starting), the box is the side conversation's, as Codex's `/side` takes its box
+// until you go back: ⏎ asks the copy (a new one when none is open), Escape leaves the session's
+// turn alone, and the placeholder and the line under the box say where it goes. Closing what
+// shows gives the box back to the session. What shows is the same in every window showing the
+// session (side.ts), and the box holds a draft of its own while it's the side conversation's
+// (drafts.ts `sideDraft`), so what's typed for the copy never reaches the session from any of them.
 //
 // While its turn runs, Escape in the box stops it where Codealong can reach the session (the
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
@@ -59,10 +62,10 @@ import { sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
 import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
-import { onDraftChange, readDraft, writeDraft } from '../drafts';
+import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
-import { showSides, useAside } from '../side';
+import { notAsked, showSides, startingSide, useAside } from '../side';
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
@@ -79,6 +82,7 @@ import { offersResume, ResumeModel, ResumePlaces } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SideStrip } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
+import { useLatest } from '../latest';
 import { errorText } from '../report';
 
 /** Nothing picked for a resume: it goes on where it went on last, on the account's own model. */
@@ -177,7 +181,18 @@ function land(key: string, note: Note): boolean {
 }
 
 function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent, onFailed, onNext, onAllow, onDeny, onDenySaying }: ComposerProps) {
-  const [text, setTextNow] = useState(() => readDraft(s.key));
+  // A side conversation shows above the box, in this window and every other, so the box is its.
+  const aside = useAside(s.key);
+  // The box holds the draft for where it sends: the session's, or its side conversation's, kept
+  // apart so what's typed for one never goes to the other.
+  const draft = aside ? sideDraft(s.key) : s.key;
+  const draftNow = useLatest(draft);
+  const [text, setTextNow] = useState(() => readDraft(draft));
+  const [drafting, setDrafting] = useState(draft);
+  if (drafting !== draft) {
+    setDrafting(draft);
+    setTextNow(readDraft(draft));
+  }
   // A message to this session on its way, from this box or any other.
   const going = sending(useAhead(), s.key);
   const [note, setNote] = useState<Note | null>(() => landed.get(s.key) ?? null);
@@ -233,14 +248,14 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   const setText = (t: string) => {
     setTextNow(t);
     latest.current = t;
-    writeDraft(s.key, t);
+    writeDraft(draftNow.current, t);
   };
 
-  // Another window wrote to this session too, or sent what was written, or a prompt the session
+  // Another window wrote to this draft too, or sent what was written, or a prompt the session
   // took back was put back here.
   useEffect(
     () =>
-      onDraftChange(s.key, (t, focus) => {
+      onDraftChange(draft, (t, focus) => {
         setTextNow(t);
         latest.current = t;
         const el = box.current;
@@ -248,7 +263,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         el.focus();
         window.requestAnimationFrame(() => el.setSelectionRange(t.length, t.length));
       }),
-    [s.key],
+    [draft],
   );
 
   // How this session's sends go, whichever box sent them. A message that didn't go is back in the
@@ -260,7 +275,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     const hear = (n: Note) => {
       setNote(n);
       if (!n.error) return;
-      const t = readDraft(s.key);
+      const t = readDraft(draftNow.current);
       setTextNow(t);
       latest.current = t;
       box.current?.focus();
@@ -272,7 +287,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       boxes.delete(hear);
       if (boxes.size === 0) hearing.delete(s.key);
     };
-  }, [s.key]);
+  }, [s.key, draftNow]);
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -382,6 +397,8 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     if (forking) return;
     const key = s.key;
     const typed = text;
+    // It goes back where it was typed: the session's draft or its side conversation's.
+    const from = draft;
     setForking(true);
     setNote(null);
     setText('');
@@ -390,7 +407,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         (started) => void land(key, { text: started?.message ?? 'Forked in the background.', error: false }),
         (e: unknown) => {
           const why = errorText(e);
-          writeDraft(key, [typed, readDraft(key)].filter((t) => t.trim()).join('\n\n'));
+          writeDraft(from, [typed, readDraft(from)].filter((t) => t.trim()).join('\n\n'));
           if (!land(key, { text: why, error: true })) onFailed?.(why);
         },
       )
@@ -398,35 +415,35 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   };
 
   // `/side`, and the question after it. The box clears at once and the question shows above it
-  // as soon as its copy is started; one that can't be asked is back in the box, with why. With no
-  // question it shows the side conversations kept from before.
+  // as soon as its copy is started; one that can't be asked is back in the box, which stays the
+  // side conversation's, with why. With no question it shows the side conversations kept from
+  // before.
   const [asking, setAsking] = useState(false);
   const askAside = (question: string) => {
     if (asking) return;
     const key = s.key;
-    const typed = text;
     setNote(null);
     setText('');
     if (!question) {
       showSides(key, { kind: 'list' });
       return;
     }
-    // The open one shows, whatever was being read.
-    showSides(key, null);
+    // The open one shows, whatever was being read, and until the engine says its copy started
+    // the box is still the side conversation's, in every window.
+    startingSide(key);
     setAsking(true);
     // The question shows as the engine tells of it (side.ts), as its answer does: what this
     // resolves with can be behind what's been heard since.
     sideAsk(key, question)
       .catch((e: unknown) => {
         const why = errorText(e);
-        writeDraft(key, [typed, readDraft(key)].filter((t) => t.trim()).join('\n\n'));
+        const side = sideDraft(key);
+        writeDraft(side, [question, readDraft(side)].filter((t) => t.trim()).join('\n\n'));
+        notAsked(key);
         if (!land(key, { text: why, error: true })) onFailed?.(why);
       })
       .finally(() => setAsking(false));
   };
-
-  // A side conversation shows above the box, so the box is its.
-  const aside = useAside(s.key);
 
   /** Runs what's in the box when it's one of Codealong's commands, else sends it: to the session,
    *  or to its side conversation while that shows. */

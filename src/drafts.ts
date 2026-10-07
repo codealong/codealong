@@ -81,6 +81,14 @@ export function writeDraft(key: string, text: string, store: DraftStorage | null
   else unstored.delete(key);
 }
 
+/** Where what's written to a session's side conversation (side.ts) is kept: a draft apart from
+ *  the session's own, so what was typed for the copy is never sent to the session, from this
+ *  window or another, and the session's draft is there again once the side conversation is put
+ *  away. */
+export function sideDraft(key: string): string {
+  return `side:${key}`;
+}
+
 /** A prompt the session took back before its agent saw it, put back in its box as Claude Code
  *  puts it back in its own (claude/conversation.rs): once for each prompt (`id` names it), and only when the
  *  box is empty, unless you asked for it (`asked`), which adds it after what's there. Says

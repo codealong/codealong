@@ -8,7 +8,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { sideClose } from '../api';
 import { agoPhrase } from '../format';
-import { forgetSide, keptLine, keptSummary, noteSide, showSides, turnState, useKept, useSide, useSideView } from '../side';
+import { forgetSide, keptLine, keptSummary, noteSide, showSides, takesBox, turnState, useKept, useSide, useSideView } from '../side';
 import type { Session, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Icon, Rich } from './primitives';
@@ -68,7 +68,10 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
 export function SideStrip({ session }: { session: Session }) {
   const key = session.key;
   const side = useSide(key);
-  const view = useSideView(key);
+  const shown = useSideView(key);
+  // A question starting a copy shows the open one, as nothing else does, once there is one.
+  const starting = shown?.kind === 'starting';
+  const view = starting ? null : shown;
   const past = useKept(key);
   const earlier = past.filter((k) => k.id !== side?.id);
   const reading = view?.kind === 'past' ? past.find((k) => k.id === view.id) : undefined;
@@ -136,7 +139,22 @@ export function SideStrip({ session }: { session: Session }) {
     );
   }
 
-  if (!side) return null;
+  if (!side) {
+    if (!starting || !takesBox(shown, now)) return null;
+    // Asked, and the engine is still starting its copy.
+    return (
+      <section className="ca-sidestrip" aria-label="Side conversation">
+        <Head title="On the side" about="A throwaway copy answers. The session never sees this.">
+          {hide}
+        </Head>
+        <div className="ca-sidestrip-turns">
+          <div className="ca-sidestrip-doing" role="status">
+            Starting a copy of the conversation…
+          </div>
+        </div>
+      </section>
+    );
+  }
   const close = () => {
     noteSide({ id: side.id, key, turns: [], running: false, ended: true });
     // The strip lets it go either way. Closing one here can't fail (side.rs); only another device
@@ -178,7 +196,7 @@ export function SidesChip({ session }: { session: Session }) {
   const summary = keptSummary(useKept(key), side);
   if (!summary) return null;
   const { words, show } = summary;
-  const showing = !!view && !!show;
+  const showing = !!view && view.kind !== 'starting' && !!show;
   return (
     <button
       type="button"
