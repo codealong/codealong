@@ -90,10 +90,20 @@ mod zoom;
 use tauri::{Emitter, Manager, State};
 use util::words;
 
-/// `Kestrel` → `project-kestrel`: window labels allow letters, digits, `-`, `/`, `:` and `_`.
+/// `Kestrel` → `project-kestrel-6f1c0e2a`. Window labels allow letters, digits, `-`, `/`, `:` and `_`,
+/// so the name is cut down to those, and the start of a hash of the whole name keeps apart two
+/// projects that cut down the same (`Foo Bar` and `Foo-Bar`, or names in a script that leaves
+/// nothing). A long name is cut short, so the label stays short too.
 fn project_window_label(project: &str) -> String {
+    use sha2::{Digest, Sha256};
     let slug: String = project.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
-    format!("project-{}", slug.trim_matches('-'))
+    let slug: String = slug.trim_matches('-').chars().take(40).collect();
+    let hash = Sha256::digest(project.as_bytes());
+    let short: String = hash[..4].iter().map(|b| format!("{b:02x}")).collect();
+    match slug.trim_end_matches('-') {
+        "" => format!("project-{short}"),
+        slug => format!("project-{slug}-{short}"),
+    }
 }
 
 /// A label for one more window on a project: the project's own if no window has it, else
@@ -1689,14 +1699,30 @@ mod tests {
 
     #[test]
     fn another_window_takes_the_first_free_label() {
-        assert_eq!(project_window_label("Spur"), "project-spur");
-        assert_eq!(project_window_label("All projects"), "project-all-projects");
-        assert_eq!(another_window_label("Spur", |_| false), "project-spur");
-        let open = ["project-spur", "project-spur:2"];
-        assert_eq!(another_window_label("Spur", |l| open.contains(&l)), "project-spur:3");
+        let spur = project_window_label("Spur");
+        assert_eq!(another_window_label("Spur", |_| false), spur);
+        let open = [spur.clone(), format!("{spur}:2")];
+        assert_eq!(another_window_label("Spur", |l| open.iter().any(|o| o == l)), format!("{spur}:3"));
         // A project whose own label looks like a second window's still gets its own.
-        assert_eq!(project_window_label("Spur 2"), "project-spur-2");
-        assert_ne!(another_window_label("Spur", |l| l == "project-spur"), project_window_label("Spur 2"));
+        assert_ne!(another_window_label("Spur", |l| l == spur), project_window_label("Spur 2"));
+    }
+
+    #[test]
+    fn each_project_has_a_window_label_of_its_own() {
+        // Readable where the name allows, and the same for the same name every time.
+        assert!(project_window_label("All projects").starts_with("project-all-projects-"));
+        assert_eq!(project_window_label("Spur"), project_window_label("Spur"));
+        // Names that cut down the same, or to nothing, still differ.
+        let names = ["Foo Bar", "Foo-Bar", "foo bar", "日本語", "中文", "Ünï", "Uni"];
+        let labels: std::collections::HashSet<String> = names.iter().map(|n| project_window_label(n)).collect();
+        assert_eq!(labels.len(), names.len(), "{labels:?}");
+        assert_eq!(project_window_label("日本語").len(), "project-".len() + 8);
+        // Only what a label may hold, and short whatever the name.
+        for name in names.iter().copied().chain([&*"a very long project name ".repeat(20)]) {
+            let label = project_window_label(name);
+            assert!(label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'), "{label}");
+            assert!(label.len() <= 60 && !label.contains("--"), "{label}");
+        }
     }
 
     #[test]
@@ -1709,7 +1735,7 @@ mod tests {
         let allowed = |label: &str| listed.iter().any(|w| *w == label || w.strip_suffix('*').is_some_and(|prefix| label.starts_with(prefix)));
         let card = format!("{}1", desktop::PREFIX);
         let kept = format!("{}1", kept::PREFIX);
-        for label in ["main", project_window_label("Spur").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, waiting::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
+        for label in ["main", project_window_label("Spur").as_str(), project_window_label("日本語").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, waiting::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
             assert!(allowed(label), "{label} isn't in capabilities/default.json");
         }
     }
@@ -1740,7 +1766,8 @@ mod tests {
 
     #[test]
     fn menu_commands_go_only_to_windows_that_show_the_board() {
-        for label in ["main", project_window_label("Spur").as_str(), another_window_label("Spur", |l| l == "project-spur").as_str()] {
+        let spur = project_window_label("Spur");
+        for label in ["main", spur.as_str(), another_window_label("Spur", |l| l == spur).as_str(), project_window_label("日本語").as_str()] {
             assert!(shows_board(label), "{label}");
         }
         // These say they're key while they aren't, or never show a dialog.
