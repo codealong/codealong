@@ -366,10 +366,11 @@ describe('stillSaid', () => {
 
 describe('what the start row and the Mac menu say', () => {
   it('titles the start row by what it starts for', () => {
-    expect(startTitle(3, true)).toBe('Start one session for these 3 todos');
-    expect(startTitle(1, true)).toBe('Start a session for this todo');
-    expect(startTitle(0, true)).toBe('Start a new session with this prompt');
-    expect(startTitle(0, false)).toBe('Start a new session');
+    expect(startTitle(3, 'Start in api')).toBe('Start in api for these 3 todos');
+    expect(startTitle(1, 'Start in api')).toBe('Start in api for this todo');
+    expect(startTitle(0, 'Start in api')).toBe('Start in api');
+    expect(startTitle(0, null)).toBe('Start a new session');
+    expect(startTitle(1, null)).toBe('Start a new session for this todo');
   });
 
   it('adds what goes with the prompt, and what isn’t linked on another Mac', () => {

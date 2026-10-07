@@ -6,6 +6,7 @@
 import { agoPhrase } from './format';
 import { homeOf, sessionWhy } from './lanes';
 import { mainCheckoutOf, newWorkIn } from './reusable';
+import { startDoes, startTitleWords, startWhereWords } from './start';
 import type { Board, Lane, Route, RoutePick, Session, StartPlace } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
@@ -171,6 +172,10 @@ export interface SuggestionContext {
   onModel: string;
   place: StartPlace | null;
   makesWorktree: boolean;
+  /** What the terminal place is called, and whether Background opens it behind your windows
+   *  (start.ts `StartPlan`). */
+  terminal: string;
+  behind: boolean;
   /** The session that may already be doing it (`duplicateOf`). */
   duplicate: { session: Pick<Session, 'title'> } | null;
 }
@@ -203,27 +208,18 @@ export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: s
   }
   const tree = c.makesWorktree && sg.newWorktree && !sg.lane.startsChats;
   const who = c.account ? `${c.account}${c.onModel}` : 'a session';
-  const background = c.place === 'background' ? ' in the background' : '';
-  // The row's title says it's in no project.
-  const there = sg.lane.startsChats ? 'a folder of its own' : sg.lane.callsign;
-  const why =
-    c.place === 'codealong'
-      ? `Codealong runs ${who} in ${there}.`
-      : c.place === 'claude-app'
-        ? `The Claude app opens a new session in ${there} with this prompt filled in.`
-        : c.place === 'codex-app'
-          ? `The Codex app starts a new thread in ${there} on this prompt.`
-          : tree
-            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${background}.`
-            : `Starts ${who} in ${there}${background}.`;
+  // Said as the start row below says its own start (start.ts), so the two read alike.
+  const why = startDoes({ lane: sg.lane, who, place: c.place, newWorktree: tree, prompted: true, terminal: c.terminal, behind: c.behind });
+  const title = startTitleWords(sg.lane, tree);
+  const where = startWhereWords(sg.lane);
   if (sg.lane.startsChats) {
     const warnedChat = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}` : why;
-    return { icon: 'message-circle', title: 'Start a chat in no project', why: warnedChat, where: 'No project' };
+    return { icon: 'message-circle', title, why: warnedChat, where };
   }
   // What the reusable worktree it starts in holds (reusable.ts): new work joins work under way
   // only in a worktree Jev matched it to, not the main worktree.
   const held = tree || !sg.lane.reuse ? '' : sg.lane.reuse === 'free' ? ' It holds no work now.' : sg.lane.reuse === 'landed' ? ' Its last work landed.' : sg.lane.origin === 'main' ? '' : ' It joins the work under way there.';
   // The warning leads: the row's line is cut short when it's long.
   const warned = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}${held}` : `${why}${held}`;
-  return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why: warned, where: `${sg.lane.project} · ${sg.lane.repo}` };
+  return { icon: 'plus', title, why: warned, where };
 }

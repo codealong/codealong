@@ -73,6 +73,8 @@ import {
   startHappens,
   startingLabel,
   startOptionsFailed,
+  startTitleWords,
+  startWhereWords,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, leftOutWords, mentionAt, mentionsIn, namedBy, repoLanes, skillRows, skillStart, takes, writtenFor, type Mention, type SkillRow } from '../skills';
@@ -910,6 +912,7 @@ export function Quick() {
   const ready = !!lane && !!account && !!placeNow;
   const terminalName = places.find((p) => p.place === 'terminal')?.label ?? 'The terminal';
   const onModel = onModelWords(startsOn, effortWord, models);
+  const behind = places.find((p) => p.place === 'background')?.behind ?? false;
   const happens = startHappens({
     lane,
     account,
@@ -920,7 +923,7 @@ export function Quick() {
     onModel,
     prompted,
     terminal: terminalName,
-    behind: places.find((p) => p.place === 'background')?.behind ?? false,
+    behind,
   });
   // Only the new-thread page adds the folder as a project; a thread Codealong starts on a prompt
   // shows under the app's Recents.
@@ -1290,7 +1293,7 @@ export function Quick() {
   };
 
   /** A suggestion's row: what ⏎ does, and where. */
-  const describe = (sg: Suggestion) => suggestionWords(sg, { now, text, account, onModel, place: placeNow, makesWorktree, duplicate });
+  const describe = (sg: Suggestion) => suggestionWords(sg, { now, text, account, onModel, place: placeNow, makesWorktree, terminal: terminalName, behind, duplicate });
 
   /* ---- Render ---- */
 
@@ -1598,7 +1601,7 @@ export function Quick() {
               <Icon name="plus" size={14} stroke={2} />
             </span>
             <span className="ca-quick-row-main">
-              <span className="ca-quick-row-title">{startTitle(forTodos.length, prompted)}</span>
+              <span className="ca-quick-row-title">{startTitle(forTodos.length, lane ? startTitleWords(lane, inNewWorktree) : null)}</span>
               <span className="ca-quick-row-why">
                 {skillNow && `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. `}
                 {happens}
@@ -1609,6 +1612,9 @@ export function Quick() {
                 {deviceNow && forTodos.length > 0 && todosStayNote(forTodos.length)}
               </span>
             </span>
+            {lane && <span className="ca-quick-row-where">{startWhereWords(lane)}</span>}
+            {/* Where a suggestion says how likely it is, so the columns line up with theirs. */}
+            <span className="ca-quick-sure" aria-hidden="true" />
             <Kbd keys={['⌘', '⏎']} />
           </div>
         </div>

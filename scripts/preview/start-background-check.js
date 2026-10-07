@@ -1,7 +1,8 @@
 // Checks Background in the quick panel (Quick.tsx, start.ts `startHappens`): every account that
 // starts in the terminal offers it; for an agent with no background service of its own (Codex,
 // OpenCode, Antigravity) the start row says its terminal opens behind your windows, and for
-// Claude Code that it runs with no terminal; either way ⌘⏎ asks for the background place.
+// Claude Code that it runs in the background, a terminal attached later; either way ⌘⏎ asks for
+// the background place.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-background-check.js
 // It needs a Claude Code account and one of another agent in config.toml; a missing one is
 // noted and its steps are skipped.
@@ -75,7 +76,7 @@
     .then(function () {
       var claude = listed.find(function (a) { return a.harness === 'claude' && a.places.some(function (p) { return p.place === 'background'; }); });
       if (!claude) return note('no Claude Code account here: its steps skipped');
-      return tryAccount(claude, 'with no terminal');
+      return tryAccount(claude, 'in the background. Attach a terminal any time.');
     })
     .then(done)
     .catch(stopped);

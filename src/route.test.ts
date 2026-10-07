@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion, type SuggestionContext } from './route';
+import { startHappens, startTitleWords, startWhereWords } from './start';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
 
@@ -249,7 +250,7 @@ describe('rankedBy', () => {
 // A suggestion's row, pinned as it reads for each kind and each state its session can be in.
 describe('suggestionWords', () => {
   const NOW = fx.NOW;
-  const ctx = (over: Partial<SuggestionContext> = {}): SuggestionContext => ({ now: NOW, text: 'later: fix the login page', account: 'work', onModel: '', place: 'terminal', makesWorktree: true, duplicate: null, ...over });
+  const ctx = (over: Partial<SuggestionContext> = {}): SuggestionContext => ({ now: NOW, text: 'later: fix the login page', account: 'work', onModel: '', place: 'terminal', makesWorktree: true, terminal: 'Ghostty', behind: false, duplicate: null, ...over });
   const at = lane('/api', [], 'api', { reuse: 'open', callsign: 'api', project: 'P' });
   const send = (over: Partial<Session>): Suggestion => ({ kind: 'send', key: 'k', lane: at, session: fx.session({ title: 'Fix it', account: 'work', startedAt: null, ...over }), p: 1 });
   const open = (over: Partial<Session>): Suggestion => ({ kind: 'open', key: 'k', lane: at, session: fx.session({ title: 'Fix it', account: 'work', startedAt: null, ...over }), p: 1 });
@@ -257,7 +258,7 @@ describe('suggestionWords', () => {
 
   it('says a chat starts in a folder of its own', () => {
     const chats = lane('/chats', [], 'Chats', { project: 'Elsewhere', startsChats: true, callsign: 'Chats' });
-    expect(suggestionWords(start(chats, true), ctx())).toEqual({ icon: 'message-circle', title: 'Start a chat in no project', why: 'Starts work in a folder of its own.', where: 'No project' });
+    expect(suggestionWords(start(chats, true), ctx())).toEqual({ icon: 'message-circle', title: 'Start a chat in no project', why: 'Starts work in a folder of its own in Ghostty.', where: 'No project' });
     expect(suggestionWords(start(chats), ctx({ place: 'claude-app' })).why).toBe('The Claude app opens a new session in a folder of its own with this prompt filled in.');
   });
 
@@ -285,26 +286,37 @@ describe('suggestionWords', () => {
 
   it('says how new work starts in each place', () => {
     const free = lane('/api', [], 'api', { reuse: 'free', callsign: 'api', project: 'P' });
-    expect(suggestionWords(start(free), ctx({ onModel: ' on Opus' }))).toEqual({ icon: 'plus', title: 'Start in api', why: 'Starts work on Opus in api. It holds no work now.', where: 'P · api' });
+    expect(suggestionWords(start(free), ctx({ onModel: ' on Opus' }))).toEqual({ icon: 'plus', title: 'Start in api', why: 'Starts work on Opus in api in Ghostty. It holds no work now.', where: 'P · api' });
     expect(suggestionWords(start(free), ctx({ place: 'background' })).why).toBe('Starts work in api in the background. It holds no work now.');
     expect(suggestionWords(start(free), ctx({ place: 'codealong', account: null })).why).toBe('Codealong runs a session in api. It holds no work now.');
     expect(suggestionWords(start(free), ctx({ place: 'claude-app' })).why).toBe('The Claude app opens a new session in api with this prompt filled in. It holds no work now.');
     expect(suggestionWords(start(free), ctx({ place: 'codex-app' })).why).toBe('The Codex app starts a new thread in api on this prompt. It holds no work now.');
+    expect(suggestionWords(start(free), ctx({ place: 'background', behind: true })).why).toBe('Starts work in api in Ghostty, behind your windows. It holds no work now.');
+  });
+
+  // So the start ⌘⏎ makes can be read against the suggestions above it.
+  it('says a start as the start row says the same start', () => {
+    const main = lane('/api', [], 'api', { reuse: 'free', callsign: 'api', project: 'P', origin: 'main' });
+    const said = suggestionWords(start(main), ctx({ place: 'background', onModel: ' on Opus' }));
+    const row = startHappens({ lane: main, account: 'work', place: 'background', mac: null, reading: false, newWorktree: false, onModel: ' on Opus', prompted: true, terminal: 'Ghostty', behind: false });
+    expect(said).toEqual({ icon: 'plus', title: 'Start in api (main)', why: 'Starts work on Opus in api in the background. It holds no work now.', where: 'P · api' });
+    expect(row).toBe('Starts work on Opus in api in the background. Attach a terminal any time.');
+    expect([startTitleWords(main, false), startWhereWords(main)]).toEqual([said.title, said.where]);
   });
 
   it('makes a new worktree only where the harness does', () => {
     const main = lane('/api', [], 'api', { reuse: 'free', callsign: 'api', project: 'P', origin: 'main' });
     expect(suggestionWords(start(main, true), ctx({ place: 'background' }))).toEqual({ icon: 'plus', title: 'Start in a new worktree of api', why: 'Claude Code makes a new worktree of api and starts work there in the background.', where: 'P · api' });
-    expect(suggestionWords(start(main, true), ctx({ makesWorktree: false }))).toEqual({ icon: 'plus', title: 'Start in api (main)', why: 'Starts work in api. It holds no work now.', where: 'P · api' });
+    expect(suggestionWords(start(main, true), ctx({ makesWorktree: false }))).toEqual({ icon: 'plus', title: 'Start in api (main)', why: 'Starts work in api in Ghostty. It holds no work now.', where: 'P · api' });
   });
 
   it('says what the worktree holds, and warns first of a session that may be on it', () => {
     const with_ = (reuse: Lane['reuse'], origin: Lane['origin'] = 'script') => lane('/api', [], 'api', { reuse, origin, callsign: 'api', project: 'P' });
-    expect(suggestionWords(start(with_('landed')), ctx()).why).toBe('Starts work in api. Its last work landed.');
-    expect(suggestionWords(start(with_('open')), ctx()).why).toBe('Starts work in api. It joins the work under way there.');
-    expect(suggestionWords(start(with_('open', 'main')), ctx()).why).toBe('Starts work in api.');
-    expect(suggestionWords(start(with_(undefined)), ctx()).why).toBe('Starts work in api.');
-    expect(suggestionWords(start(with_('free')), ctx({ duplicate: { session: { title: 'Login work' } } })).why).toBe('“Login work” may already be on this. Starts work in api. It holds no work now.');
+    expect(suggestionWords(start(with_('landed')), ctx()).why).toBe('Starts work in api in Ghostty. Its last work landed.');
+    expect(suggestionWords(start(with_('open')), ctx()).why).toBe('Starts work in api in Ghostty. It joins the work under way there.');
+    expect(suggestionWords(start(with_('open', 'main')), ctx()).why).toBe('Starts work in api in Ghostty.');
+    expect(suggestionWords(start(with_(undefined)), ctx()).why).toBe('Starts work in api in Ghostty.');
+    expect(suggestionWords(start(with_('free')), ctx({ duplicate: { session: { title: 'Login work' } } })).why).toBe('“Login work” may already be on this. Starts work in api in Ghostty. It holds no work now.');
   });
 });
 

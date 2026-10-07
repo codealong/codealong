@@ -547,11 +547,12 @@ export function recallList(draft: string | null, history: string[]): string[] {
   return draft?.trim() && draft !== history[0] ? [draft, ...history] : history;
 }
 
-/** The start row's title: one session for the todos it's for, else with or without a prompt. */
-export function startTitle(todos: number, prompted: boolean): string {
-  if (todos > 1) return `Start one session for these ${todos} todos`;
-  if (todos === 1) return 'Start a session for this todo';
-  return prompted ? 'Start a new session with this prompt' : 'Start a new session';
+/** The start row's title: where it starts, as Jev's start suggestions say theirs (start.ts
+ *  `startTitleWords`, null before there's a worktree), and the todos it's for. */
+export function startTitle(todos: number, where: string | null): string {
+  const title = where ?? 'Start a new session';
+  if (todos > 1) return `${title} for these ${todos} todos`;
+  return todos === 1 ? `${title} for this todo` : title;
 }
 
 /** What the start row adds about the files attached to the prompt. */

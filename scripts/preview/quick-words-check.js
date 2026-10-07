@@ -29,7 +29,16 @@
       suggestions().forEach(function (r, i) {
         note('suggestion ' + (i + 1) + ': ' + text('.ca-quick-row-title', r) + ' | ' + text('.ca-quick-row-why', r) + ' | ' + text('.ca-quick-row-where', r) + ' | ' + r.title.replace(/\n/g, ' / '));
       });
-      note('start with a prompt: ' + text('.ca-quick-row-title', compose()) + ' | ' + text('.ca-quick-row-why', compose()));
+      note('start with a prompt: ' + text('.ca-quick-row-title', compose()) + ' | ' + text('.ca-quick-row-why', compose()) + ' | ' + text('.ca-quick-row-where', compose()));
+      // The start row says its start as the suggestions say theirs, in the same columns, so the
+      // two can be read against each other.
+      var where = q('.ca-quick-row-where', compose());
+      var theirs = q('.ca-quick-row-where', suggestions()[0]);
+      check('the start row says where, as the suggestions do', !!where && !!where.textContent, where && where.textContent);
+      if (where && theirs) {
+        var edge = function (el) { return Math.round(el.getBoundingClientRect().right); };
+        check('in the suggestions’ column', Math.abs(edge(where) - edge(theirs)) <= 1, edge(where) + ' vs ' + edge(theirs));
+      }
       key(window, { key: 'l', metaKey: true });
       return until(function () { return all('.ca-picker-opt').length > 0; }, 3000);
     })

@@ -211,7 +211,11 @@ html.is-quick body {
   text-align: right;
   color: var(--ink-3);
 }
+/* The keys column is a little wider than ⌘⏎, so the start row's columns line up with those of
+   the ⌘1…⌘9 rows above it, whose keys are narrower. */
 .ca-quick-row .ca-kbds {
+  min-width: 46px;
+  justify-content: flex-end;
   opacity: 0.55;
 }
 .ca-quick-row.is-active .ca-kbds {

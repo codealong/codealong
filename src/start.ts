@@ -443,26 +443,48 @@ function startsIn(lane: Pick<Lane, 'callsign' | 'startsChats'>): string {
   return lane.startsChats ? 'a chat of its own' : lane.callsign;
 }
 
-function startHappensThere({ lane: worktree, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {
-  if (!worktree) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
+function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {
+  if (!lane) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
   if (!account || !place) return on?.error ? `${mac} didn’t say where its accounts can start: ${on.error}` : '';
-  const withPrompt = prompted ? ' with this prompt' : '';
-  const lane = { repo: worktree.repo, callsign: startsIn(worktree) };
-  switch (place) {
-    case 'background':
-      if (behind) return `${terminal} starts ${account}${onModel} in ${newWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}${withPrompt}, behind your windows, so you stay where you are.`;
-      return newWorktree
-        ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in the background${withPrompt}. Attach a terminal any time.`
-        : `${account}${onModel} starts in the background in ${lane.callsign}${withPrompt}, with no terminal. Attach one any time.`;
-    case 'terminal':
-      return newWorktree ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in ${terminal}${withPrompt}.` : `${terminal} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`;
-    case 'codealong':
-      return `Codealong runs ${account}${onModel} in ${lane.callsign}${withPrompt}. Its panel here shows the reply, takes the next prompt and answers what it asks.`;
-    case 'claude-app':
-      return `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`;
-    default:
-      return prompted ? `The Codex app starts a new thread in ${lane.callsign} on this prompt.` : `Codex opens a new thread in ${lane.callsign}. You write the prompt there.`;
-  }
+  const does = startDoes({ lane, who: `${account}${onModel}`, place, newWorktree, prompted, terminal, behind });
+  // What the start row has room to add after the words it shares with Jev's suggestions.
+  const more =
+    place === 'background' && !behind
+      ? ' Attach a terminal any time.'
+      : place === 'codealong'
+        ? ' Its panel here shows the reply, takes the next prompt and answers what it asks.'
+        : place === 'claude-app'
+          ? ' You send it from there.'
+          : place === 'codex-app' && !prompted
+            ? ' You write the prompt there.'
+            : '';
+  return `${does}${more}`;
+}
+
+// A start's title, where and line are said the same by the start row and Jev's start
+// suggestions above it, so the start ⌘⏎ makes reads against theirs at a glance.
+
+/** A start's title: where it starts. */
+export function startTitleWords(lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats' | 'origin'>, newWorktree: boolean): string {
+  if (lane.startsChats) return 'Start a chat in no project';
+  return newWorktree ? `Start in a new worktree of ${lane.repo}` : `Start in ${lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign}`;
+}
+
+/** The project and repo a start is in, at the right of its row. */
+export function startWhereWords(lane: Pick<Lane, 'project' | 'repo' | 'startsChats'>): string {
+  return lane.startsChats ? 'No project' : `${lane.project} · ${lane.repo}`;
+}
+
+/** What a start does: "Starts claude on Opus in api in the background." `who` is the account
+ *  with what it starts on (`onModelWords`); `newWorktree`, that its harness makes one for it. */
+export function startDoes(s: { lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats'>; who: string; place: StartPlace | null; newWorktree: boolean; prompted: boolean; terminal: string; behind: boolean }): string {
+  // The row's title says a chat is in no project.
+  const there = s.lane.startsChats ? 'a folder of its own' : s.lane.callsign;
+  if (s.place === 'codealong') return `Codealong runs ${s.who} in ${there}.`;
+  if (s.place === 'claude-app') return `The Claude app opens a new session in ${there}${s.prompted ? ' with this prompt filled in' : ''}.`;
+  if (s.place === 'codex-app') return s.prompted ? `The Codex app starts a new thread in ${there} on this prompt.` : `Codex opens a new thread in ${there}.`;
+  const how = s.place === 'terminal' ? ` in ${s.terminal}` : s.place === 'background' ? (s.behind ? ` in ${s.terminal}, behind your windows` : ' in the background') : '';
+  return s.newWorktree && !s.lane.startsChats ? `Claude Code makes a new worktree of ${s.lane.repo} and starts ${s.who} there${how}.` : `Starts ${s.who} in ${there}${how}.`;
 }
 
 /** What the window that opened the panel says while a start is under way. `mac` is the other

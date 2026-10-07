@@ -31,8 +31,12 @@
       check('the chip says No project', /No project/.test(chip().textContent), chip().textContent);
       var tree = q('.ca-quick-newtree input');
       check('a chat has no new worktree', !!tree && tree.disabled && !tree.checked);
+      var title = q('.ca-quick-compose .ca-quick-row-title');
       var why = q('.ca-quick-compose .ca-quick-row-why');
-      check('the start row says it’s a chat', !!why && /a chat of its own/.test(why.textContent), why && why.textContent);
+      var where = q('.ca-quick-compose .ca-quick-row-where');
+      check('the start row says it’s a chat', !!title && title.textContent === 'Start a chat in no project', title && title.textContent);
+      check('in a folder of its own', !!why && /a folder of its own/.test(why.textContent), why && why.textContent);
+      check('in no project', !!where && where.textContent === 'No project', where && where.textContent);
       key(input(), { key: 'Enter', metaKey: true });
       return until(function () { return sent('start_from_quick').length > 0; }, 5000, 'the start');
     })
