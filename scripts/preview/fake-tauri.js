@@ -478,35 +478,48 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'resume_session') return Promise.resolve({ message: 'Resumed (in the preview nothing starts anywhere).', opened: false });
     if (cmd === 'switch_session_model') return Promise.resolve('Switched its model (in the preview nothing is typed anywhere).');
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
-    // Close idle terminals: the board's live terminal sessions quiet that long, without the
-    // engine's checks for Ghostty, Jev or questions; nothing is closed.
-    if (cmd === 'idle_terminals' || cmd === 'close_idle_terminals') {
+    // Close idle sessions: the board's live sessions quiet that long, without the engine's checks
+    // for Ghostty, Jev or questions. A terminal's tab closes, a job stops, and an app's session
+    // or one Codealong runs is listed only to be archived; nothing is closed. The first key
+    // asked to close stays open, as the tab you're in would.
+    if (cmd === 'idle_sessions' || cmd === 'close_idle_sessions') {
       return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
         var after = (args || {}).afterMs || 864e5;
+        var archive = !!(args || {}).archive;
         var seen = {};
         var rows = [];
         board.lanes.forEach(function (l) {
           l.sessions.forEach(function (s) {
-            if (s.visitor || seen[s.key] || !s.live || s.surface !== 'cli' || s.attachCommand) return;
+            if (s.visitor || seen[s.key] || !s.live) return;
             seen[s.key] = true;
-            rows.push({ s: s, l: l });
+            var ends = s.attachCommand ? 'job' : s.surface === 'cli' && s.pid && !s.hosted ? 'terminal' : 'archive';
+            var place = s.hosted ? 'in Codealong' : s.surface === 'app' ? 'in the ' + (s.harness === 'codex' ? 'Codex' : 'Claude') + ' app' : 'in a terminal Codealong can\u2019t close';
+            rows.push({ s: s, l: l, ends: ends, place: place });
           });
         });
         var now = Date.now();
         var quiet = function (r) { return (r.s.status === 'idle' || r.s.status === 'unread') && now - r.s.lastActivity >= after; };
-        if (cmd === 'close_idle_terminals') {
+        var listed = function (r) { return quiet(r) && (archive || r.ends !== 'archive'); };
+        if (cmd === 'close_idle_sessions') {
           return (args.keys || []).map(function (k, i) {
-            return { key: k, title: k, closed: i > 0, message: i > 0 ? 'Closed.' : 'It\u2019s the tab you\u2019re in.' };
+            var r = rows.find(function (x) { return x.s.key === k; });
+            var ends = r ? r.ends : 'terminal';
+            var did = ends === 'job' ? 'Stopped' : 'Closed';
+            if (i === 0 && ends !== 'archive') return { key: k, title: r ? r.s.title : k, ends: ends, closed: false, archived: false, ok: false, message: 'It\u2019s the tab you\u2019re in.' };
+            return { key: k, title: r ? r.s.title : k, ends: ends, closed: ends !== 'archive', archived: archive, ok: true, message: ends === 'archive' ? 'Archived; it stays open where it is.' : did + (archive ? ' and archived.' : '.') };
           });
         }
         return {
           afterMs: after,
-          close: rows.filter(quiet).map(function (r) {
+          archive: archive,
+          close: rows.filter(listed).map(function (r) {
             var days = Math.floor((now - r.s.lastActivity) / 864e5);
-            return { key: r.s.key, title: r.s.title, account: r.s.account, harness: r.s.harness, pid: r.s.pid || 0, cwd: r.s.cwd, worktree: r.l.id, callsign: r.l.callsign, lastActivity: r.s.lastActivity, why: (days >= 2 ? 'idle ' + days + ' days' : 'idle ' + Math.floor((now - r.s.lastActivity) / 36e5) + ' hours') + ' \u00b7 last reply asks nothing' };
+            var why = (days >= 2 ? 'idle ' + days + ' days' : 'idle ' + Math.floor((now - r.s.lastActivity) / 36e5) + ' hours') + ' \u00b7 last reply asks nothing';
+            return { key: r.s.key, title: r.s.title, account: r.s.account, harness: r.s.harness, ends: r.ends, pid: r.ends === 'terminal' ? r.s.pid : null, cwd: r.s.cwd, worktree: r.l.id, callsign: r.l.callsign, lastActivity: r.s.lastActivity, why: r.ends === 'archive' ? why + ' \u00b7 stays open ' + r.place : why };
           }),
-          kept: rows.filter(function (r) { return !quiet(r); }).map(function (r) {
-            return { key: r.s.key, title: r.s.title, account: r.s.account, why: r.s.status === 'working' ? 'working' : r.s.status === 'needs' ? 'needs you' : 'active 3 hours ago' };
+          kept: rows.filter(function (r) { return !listed(r); }).map(function (r) {
+            var why = quiet(r) ? r.place : r.s.status === 'working' ? 'working' : r.s.status === 'needs' ? 'needs you' : 'active 3 hours ago';
+            return { key: r.s.key, title: r.s.title, account: r.s.account, why: why };
           }),
         };
       });

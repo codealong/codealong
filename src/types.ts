@@ -1246,23 +1246,31 @@ export interface Question {
  *  several where the question takes more. */
 export type Answers = Record<string, string | string[]>;
 
-/** A terminal that Close idle terminals would close, named by its session (idle.rs). */
-export interface IdleTerminal {
+/** How a session Close idle sessions lists ends: its terminal tab closes, its background job
+ *  stops, or nothing Codealong can do ends it and it's only archived (idle.rs `Ends`). */
+export type IdleEnds = 'terminal' | 'job' | 'archive';
+
+/** A session that Close idle sessions would close, or a terminal, named by the session it shows
+ *  (idle.rs). */
+export interface IdleSession {
   key: string;
   title: string;
   account: string;
   harness: Harness;
-  pid: number;
+  ends: IdleEnds;
+  pid: number | null;
   cwd: string;
   worktree: string;
   callsign: string;
   lastActivity: number;
-  /** Why it can close, in words. */
+  /** Why it can close, in words, and where it stays open when it's only archived. */
   why: string;
+  /** The other sessions its terminal shows, which close with it. */
+  with?: string[];
 }
 
-/** A live terminal session that stays open, and why. */
-export interface KeptTerminal {
+/** A live session that stays open, and why. */
+export interface KeptSession {
   key: string;
   title: string;
   account: string;
@@ -1271,15 +1279,23 @@ export interface KeptTerminal {
 
 export interface IdlePlan {
   afterMs: number;
-  close: IdleTerminal[];
-  kept: KeptTerminal[];
+  /** Whether what closes is archived too, and what can't close is archived only. */
+  archive: boolean;
+  close: IdleSession[];
+  kept: KeptSession[];
 }
 
-/** What closing one terminal did. */
+/** What closing one session did. */
 export interface CloseOutcome {
   key: string;
   title: string;
+  /** What was to end it, when the plan still listed it. */
+  ends?: IdleEnds;
+  /** Its terminal closed or its job stopped. */
   closed: boolean;
+  archived: boolean;
+  /** Everything asked of it was done. */
+  ok: boolean;
   message: string;
 }
 

@@ -229,7 +229,7 @@ export function App() {
   useEffect(() => onSettings(() => openSettings()), [openSettings]);
   // The app menu's Check for updates…: Settings › General says how it goes.
   useEffect(() => onCheckUpdates(() => openSettings('general')), [openSettings]);
-  // File › Close idle terminals… (ui/CloseIdleDialog.tsx).
+  // File › Close idle sessions… (ui/CloseIdleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
   // The worktree whose preview URL is being set (ui/PreviewBits.tsx), by id.
   const [previewFor, setPreviewFor] = useState<string | null>(null);

@@ -1,26 +1,46 @@
-//! Closing the Ghostty terminals of sessions that sat idle a long while and want nothing from
-//! you. It's a one-off action: `plan` says what would close and why, and `close` closes the ones
-//! you kept ticked, checking each again first. Closing ends the agent's process; its conversation
-//! stays on disk and resumes like any other.
+//! Closing the sessions that sat idle a long while and want nothing from you. It's a one-off
+//! action: `plan` says what would close and why, and `close` closes the ones you kept ticked,
+//! checking each again first. A session in a Ghostty, iTerm2 or Terminal tab closes with its tab,
+//! which ends the agent's process; a background job is stopped by its harness. Either way its
+//! conversation stays on disk and resumes like any other.
 //!
-//! A terminal closes only when every session in it is idle or unread, has been quiet for the
-//! whole wait, left nothing running in the background, and its last reply asks you nothing: by
-//! Jev's read when `[jev] sessions` has one, else by the reply not ending in a question.
+//! A session closes only when it's idle or unread, has been quiet for the whole wait, left
+//! nothing running in the background, and its last reply asks you nothing: by Jev's read when
+//! `[jev] sessions` has one, else by the reply not ending in a question. A terminal closes only
+//! when every session in it can.
+//!
+//! Asked to archive them too, it does to each what Mark as done does (`actions::done`): marks it
+//! seen and archives it, so it leaves every list but Archived. What Codealong can't end (an app's
+//! session, one it runs itself, one in a terminal it can't close) is then listed to be archived
+//! only, and stays open where it is.
 //!
 //! A session's menu closes that one session (`close_one`) without those checks: you picked it.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Board, Harness, Session, Status, Surface};
+use crate::model::{Board, Harness, Lane, Session, Status, Surface};
 use crate::util::DAY_MS;
 
-/// Jev's likelihood that a reply asks you something, from which the terminal stays. Lower than
+/// Jev's likelihood that a reply asks you something, from which the session stays. Lower than
 /// the board's Needs you mark: a reply that might ask something is worth keeping open.
 const ASKS_YOU_KEEP: f64 = 0.3;
 
-/// A terminal that can close, named by its session.
+/// How a session the plan lists ends.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Ends {
+    /// Its terminal tab closes, and its agent's process with it.
+    Terminal,
+    /// Its background job stops (`Adapter::stop`).
+    Job,
+    /// Nothing Codealong can do ends it, so it's only archived: listed only when that's asked.
+    Archive,
+}
+
+/// A session that can close, or a terminal, named by the session it shows.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Idle {
@@ -28,17 +48,23 @@ pub struct Idle {
     pub title: String,
     pub account: String,
     pub harness: Harness,
-    pub pid: u32,
+    pub ends: Ends,
+    /// The process whose terminal closes.
+    pub pid: Option<u32>,
     pub cwd: String,
     /// The worktree it's listed under (a lane id), and its short name.
     pub worktree: String,
     pub callsign: String,
     pub last_activity: i64,
-    /// Why it can close, in words.
+    /// Why it can close, in words, and where it stays open when it's only archived.
     pub why: String,
+    /// The other sessions its terminal shows (one OpenCode terminal can show several), which
+    /// close with it, and are archived with it when that's asked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub with: Vec<String>,
 }
 
-/// A live terminal session that stays open, and why.
+/// A live session that stays open, and why.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Kept {
@@ -52,21 +78,31 @@ pub struct Kept {
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
     pub after_ms: i64,
+    /// Whether what closes is archived too, and what can't close is archived only.
+    #[serde(default)]
+    pub archive: bool,
     pub close: Vec<Idle>,
     pub kept: Vec<Kept>,
 }
 
-/// What closing one terminal did.
+/// What closing one session did.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
     pub key: String,
     pub title: String,
+    /// What was to end it, when the plan still listed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ends: Option<Ends>,
+    /// Its terminal closed or its job stopped.
     pub closed: bool,
+    pub archived: bool,
+    /// Everything asked of it was done.
+    pub ok: bool,
     pub message: String,
 }
 
-/// Whether a live terminal session lets its terminal close: `Ok` with why, `Err` with why not.
+/// Whether a live session may close: `Ok` with why, `Err` with why not.
 pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
     match s.status {
         Status::Needs => return Err("needs you".into()),
@@ -101,79 +137,186 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
     Ok(why.join(" · "))
 }
 
-/// What would close: every live terminal session on the board, grouped by process (one
-/// terminal can show several OpenCode sessions), closing only where all of them agree.
-/// `closable` says whether a process runs in a tab Codealong can close: Ghostty's, iTerm2's or
-/// Terminal's.
-pub fn plan(board: &Board, now: i64, after_ms: i64, closable: impl Fn(u32) -> bool) -> Plan {
+/// What would close: every live session on the board. A terminal's sessions are grouped by its
+/// process (one terminal can show several OpenCode sessions), and it closes only where all of
+/// them agree; a background job stops on its own. With `archive`, a session that could close
+/// but that Codealong can't end is listed to be archived only. `closable` says whether a process
+/// runs in a tab Codealong can close: Ghostty's, iTerm2's or Terminal's.
+pub fn plan(board: &Board, now: i64, after_ms: i64, archive: bool, closable: impl Fn(u32) -> bool) -> Plan {
     let mut seen = HashSet::new();
-    let mut by_pid: BTreeMap<u32, Vec<(&Session, &crate::model::Lane)>> = BTreeMap::new();
+    let mut by_pid: BTreeMap<u32, Vec<(&Session, &Lane)>> = BTreeMap::new();
+    let mut out = Plan { after_ms, archive, ..Plan::default() };
     for lane in &board.lanes {
         for s in &lane.sessions {
-            if s.visitor.is_some() || !seen.insert(s.key.as_str()) {
+            if s.visitor.is_some() || !s.live || !seen.insert(s.key.as_str()) {
                 continue;
             }
-            // Background jobs and the apps' sessions have no terminal of their own.
-            let Some(pid) = s.pid.filter(|_| s.live && s.surface == Surface::Cli && s.attach_command.is_none()) else { continue };
-            by_pid.entry(pid).or_default().push((s, lane));
+            if s.attach_command.is_some() {
+                match verdict(s, now, after_ms) {
+                    Ok(why) => out.close.push(idle(s, lane, Ends::Job, why)),
+                    Err(why) => out.kept.push(kept(s, why)),
+                }
+                continue;
+            }
+            match (s.surface, s.pid) {
+                (Surface::Cli, Some(pid)) if !s.hosted => by_pid.entry(pid).or_default().push((s, lane)),
+                (Surface::App, _) => out.stays(s, lane, now, format!("in {}", crate::harness::adapter(s.harness).app())),
+                _ if s.hosted => out.stays(s, lane, now, "in Codealong".into()),
+                _ => out.stays(s, lane, now, NO_TAB.into()),
+            }
         }
     }
-    let mut out = Plan { after_ms, ..Plan::default() };
     for (pid, sessions) in by_pid {
-        let kept = |s: &Session, why: String| Kept { key: s.key.clone(), title: s.title.clone(), account: s.account.clone(), why };
         if !closable(pid) {
-            out.kept.extend(sessions.iter().map(|(s, _)| kept(s, format!("not in a {} tab", crate::launch::closes_tabs_in()))));
+            for (s, lane) in sessions {
+                out.stays(s, lane, now, NO_TAB.into());
+            }
             continue;
         }
         let verdicts: Vec<_> = sessions.iter().map(|(s, _)| verdict(s, now, after_ms)).collect();
-        if let Some(Err(why)) = verdicts.iter().find(|v| v.is_err()) {
-            out.kept.extend(sessions.iter().map(|(s, _)| kept(s, why.clone())));
+        if let Some(i) = verdicts.iter().position(|v| v.is_err()) {
+            // One that can't close holds its terminal open for the others too.
+            let (holds, held) = (sessions[i].0, verdicts[i].clone().unwrap_err());
+            for ((s, lane), v) in sessions.iter().zip(verdicts) {
+                match v {
+                    Ok(why) if archive => out.close.push(idle(s, lane, Ends::Archive, format!("{why} · its terminal stays open for “{}”", holds.title))),
+                    _ => out.kept.push(kept(s, held.clone())),
+                }
+            }
             continue;
         }
         // The newest session names the terminal: it's the one the tab shows.
-        let (i, (s, lane)) = sessions.iter().enumerate().max_by_key(|(_, (s, _))| s.last_activity).expect("a group has a session");
-        out.close.push(Idle {
-            key: s.key.clone(),
-            title: s.title.clone(),
-            account: s.account.clone(),
-            harness: s.harness,
-            pid,
-            cwd: s.cwd.clone(),
-            worktree: lane.id.clone(),
-            callsign: lane.callsign.clone(),
-            last_activity: s.last_activity,
-            why: verdicts[i].clone().unwrap_or_default(),
-        });
+        let i = (0..sessions.len()).max_by_key(|&i| sessions[i].0.last_activity).expect("a group has a session");
+        let (s, lane) = sessions[i];
+        let mut terminal = idle(s, lane, Ends::Terminal, verdicts[i].clone().unwrap_or_default());
+        terminal.pid = Some(pid);
+        terminal.with = sessions.iter().filter(|(o, _)| o.key != s.key).map(|(o, _)| o.key.clone()).collect();
+        out.close.push(terminal);
     }
     out.close.sort_by_key(|c| c.last_activity);
     out
 }
 
-/// The plan for the board as it is now, with where each process runs asked of the kernel.
-pub fn plan_now(board: &Board, after_ms: i64) -> Plan {
-    plan(board, crate::util::now_ms(), after_ms, |pid| crate::launch::terminal_kind(pid).is_some_and(|t| t.closes_tabs()))
+/// Where a session in a terminal Codealong can't close stays open: tmux, an editor's terminal.
+const NO_TAB: &str = "in a terminal Codealong can't close";
+
+impl Plan {
+    /// A session that may close but stays open `place` whatever Codealong does: archived only
+    /// when that's asked, else kept, saying where.
+    fn stays(&mut self, s: &Session, lane: &Lane, now: i64, place: String) {
+        match verdict(s, now, self.after_ms) {
+            Ok(why) if self.archive => self.close.push(idle(s, lane, Ends::Archive, format!("{why} · stays open {place}"))),
+            Ok(_) => self.kept.push(kept(s, place)),
+            Err(why) => self.kept.push(kept(s, why)),
+        }
+    }
 }
 
-/// Closes the terminals of `keys` that the board, looked at again now, still says can close.
-pub fn close(board: &Board, keys: &[String], after_ms: i64) -> Vec<Outcome> {
-    let fresh = plan_now(board, after_ms);
+fn idle(s: &Session, lane: &Lane, ends: Ends, why: String) -> Idle {
+    Idle {
+        key: s.key.clone(),
+        title: s.title.clone(),
+        account: s.account.clone(),
+        harness: s.harness,
+        ends,
+        pid: None,
+        cwd: s.cwd.clone(),
+        worktree: lane.id.clone(),
+        callsign: lane.callsign.clone(),
+        last_activity: s.last_activity,
+        why,
+        with: Vec::new(),
+    }
+}
+
+fn kept(s: &Session, why: String) -> Kept {
+    Kept { key: s.key.clone(), title: s.title.clone(), account: s.account.clone(), why }
+}
+
+/// The plan for the board as it is now, with where each process runs asked of the kernel.
+pub fn plan_now(board: &Board, after_ms: i64, archive: bool) -> Plan {
+    plan(board, crate::util::now_ms(), after_ms, archive, |pid| crate::launch::terminal_kind(pid).is_some_and(|t| t.closes_tabs()))
+}
+
+/// Archives sessions, each marked seen first, as Mark as done does: each key's result, in order.
+pub type Archiver<'a> = &'a dyn Fn(&[String]) -> Vec<anyhow::Result<()>>;
+
+/// Closes the sessions of `keys` that the board, looked at again now, still says can close, and
+/// with `archive` archives them, and the ones listed to be archived only. One outcome a key, and
+/// one for each other session a closed terminal showed.
+pub fn close(board: &Board, cfg: &crate::config::Config, keys: &[String], after_ms: i64, archive: Option<Archiver>) -> Vec<Outcome> {
+    use crate::util::words;
+    let fresh = plan_now(board, after_ms, archive.is_some());
     let chosen: Vec<&Idle> = keys.iter().filter_map(|k| fresh.close.iter().find(|c| &c.key == k)).collect();
-    let targets: Vec<(u32, &std::path::Path)> = chosen.iter().map(|c| (c.pid, std::path::Path::new(c.cwd.as_str()))).collect();
-    let results = crate::launch::close_session_terminals(&targets);
-    keys.iter()
-        .map(|key| {
-            if let Some(n) = chosen.iter().position(|c| &c.key == key) {
-                let title = chosen[n].title.clone();
-                return match &results[n] {
-                    Ok(()) => Outcome { key: key.clone(), title, closed: true, message: "Closed.".into() },
-                    Err(e) => Outcome { key: key.clone(), title, closed: false, message: e.to_string() },
-                };
-            }
-            let title = board.session(key).map(|(_, s)| s.title.clone()).unwrap_or_default();
-            let why = fresh.kept.iter().find(|k| &k.key == key).map(|k| format!("Kept open: {}.", k.why)).unwrap_or_else(|| "Its terminal is already closed.".into());
-            Outcome { key: key.clone(), title, closed: false, message: why }
-        })
-        .collect()
+    // How each ended: the terminals together, each told by a script, then the jobs one by one.
+    let mut ended: HashMap<&str, Result<(), String>> = HashMap::new();
+    let tabs: Vec<(&Idle, u32)> = chosen.iter().filter(|c| c.ends == Ends::Terminal).filter_map(|c| Some((*c, c.pid?))).collect();
+    let targets: Vec<(u32, &Path)> = tabs.iter().map(|(c, pid)| (*pid, Path::new(c.cwd.as_str()))).collect();
+    for ((c, _), result) in tabs.iter().zip(crate::launch::close_session_terminals(&targets)) {
+        ended.insert(&c.key, result.map_err(words));
+    }
+    for c in chosen.iter().filter(|c| c.ends == Ends::Job) {
+        let stopped = crate::harness::find(board, cfg, &c.key).and_then(|(s, account)| crate::harness::adapter(s.harness).stop(&crate::harness::Ctx { account }, s));
+        ended.insert(&c.key, stopped.map(|_| ()).map_err(words));
+    }
+    // Then what's archived: what ended, with the other sessions its terminal showed, and what
+    // only archiving was asked of. What didn't end stays as it was.
+    let mut archived: HashMap<String, Result<(), String>> = HashMap::new();
+    if let Some(archive) = archive {
+        let keys: Vec<String> = chosen
+            .iter()
+            .filter(|c| c.ends == Ends::Archive || ended.get(c.key.as_str()).is_some_and(|r| r.is_ok()))
+            .flat_map(|c| std::iter::once(c.key.clone()).chain(c.with.iter().cloned()))
+            .collect();
+        if !keys.is_empty() {
+            let results = archive(&keys);
+            archived = keys.into_iter().zip(results.into_iter().map(|r| r.map_err(words))).collect();
+        }
+    }
+    let title = |key: &str| board.session(key).map(|(_, s)| s.title.clone()).unwrap_or_default();
+    let mut out = Vec::new();
+    for key in keys {
+        let Some(c) = chosen.iter().find(|c| &c.key == key) else {
+            let why = fresh.kept.iter().find(|k| &k.key == key).map(|k| format!("Kept open: {}.", k.why)).unwrap_or_else(|| "It isn't running any more.".into());
+            out.push(Outcome { key: key.clone(), title: title(key), ends: None, closed: false, archived: false, ok: false, message: why });
+            continue;
+        };
+        for one in std::iter::once(&c.key).chain(&c.with) {
+            out.push(outcome(one, title(one), c.ends, ended.get(c.key.as_str()), archive.is_some(), archived.get(one)));
+        }
+    }
+    out
+}
+
+/// What closing one session did, with a sentence that says it: `ended` is how its terminal or
+/// job went and `archived` how archiving it went, where either was tried; `asked` whether
+/// archiving was.
+fn outcome(key: &str, title: String, ends: Ends, ended: Option<&Result<(), String>>, asked: bool, archived: Option<&Result<(), String>>) -> Outcome {
+    let closed = ended.is_some_and(|r| r.is_ok());
+    let is_archived = archived.is_some_and(|r| r.is_ok());
+    let did = if ends == Ends::Job { "Stopped" } else { "Closed" };
+    let message = match (ends, ended, archived) {
+        (Ends::Archive, _, Some(Ok(()))) => "Archived; it stays open where it is.".to_string(),
+        (_, Some(Ok(())), Some(Ok(()))) => format!("{did} and archived."),
+        (_, Some(Ok(())), Some(Err(e))) => format!("{did}, but it couldn't be archived: {e}"),
+        (_, Some(Ok(())), None) => format!("{did}."),
+        (_, Some(Err(e)), _) => e.clone(),
+        (_, _, Some(Err(e))) => format!("It couldn't be archived: {e}"),
+        _ => "Nothing was done.".to_string(),
+    };
+    let ok = (closed || ends == Ends::Archive) && (is_archived || !asked);
+    Outcome { key: key.to_string(), title, ends: Some(ends), closed, archived: is_archived, ok, message }
+}
+
+/// `close` for the app, whose engine archives: each session is marked seen, then archived, as
+/// Mark as done does.
+pub fn close_on(engine: &crate::engine::Handle, keys: &[String], after_ms: i64, archive: bool) -> Result<Vec<Outcome>, String> {
+    let cfg = crate::config::current().map_err(crate::util::words)?;
+    let archiver = |keys: &[String]| {
+        engine.mark_seen(keys.to_vec());
+        engine.archive_all(keys)
+    };
+    Ok(close(&engine.board(), &cfg, keys, after_ms, archive.then_some(&archiver as Archiver)))
 }
 
 /// Closes one session because you picked Close from its menu, whatever it's doing: its terminal
@@ -324,21 +467,93 @@ mod tests {
         app.surface = Surface::App;
         let mut job = session("job", 5, Status::Idle, 3 * day);
         job.attach_command = Some("claude attach 5".into());
+        let mut busy_job = session("busy-job", 7, Status::Working, 3 * day);
+        busy_job.attach_command = Some("claude attach 7".into());
         let mut gone = session("gone", 6, Status::Idle, 3 * day);
         gone.live = false;
+        let mut hosted = session("hosted", 0, Status::Idle, 3 * day);
+        (hosted.hosted, hosted.pid) = (true, None);
+        let mut pair_new = session("pair-new", 8, Status::Idle, 2 * day);
+        pair_new.title = "Newer".into();
         let b = board(vec![
-            session("old", 1, Status::Idle, 3 * day),
+            session("old", 1, Status::Idle, 4 * day),
             session("shared-old", 2, Status::Idle, 3 * day),
             session("shared-busy", 2, Status::Working, 3 * day),
             session("tmux", 3, Status::Idle, 3 * day),
             app,
             job,
+            busy_job,
             gone,
+            hosted,
+            session("pair-old", 8, Status::Idle, 5 * day),
+            pair_new,
         ]);
-        let p = plan(&b, NOW, day, |pid| pid != 3);
-        assert_eq!(p.close.iter().map(|c| c.key.as_str()).collect::<Vec<_>>(), ["old"]);
+        let p = plan(&b, NOW, day, false, |pid| pid != 3);
+        let close: Vec<(&str, Ends, &[String])> = p.close.iter().map(|c| (c.key.as_str(), c.ends, c.with.as_slice())).collect();
+        // Longest idle first; a terminal of two closes as one, named by the newer.
+        assert_eq!(close, [("old", Ends::Terminal, &[][..]), ("job", Ends::Job, &[][..]), ("pair-new", Ends::Terminal, &["pair-old".to_string()][..])]);
+        assert_eq!(p.close[0].pid, Some(1));
+        assert_eq!(p.close[1].pid, None);
         let kept: Vec<(&str, &str)> = p.kept.iter().map(|k| (k.key.as_str(), k.why.as_str())).collect();
-        assert_eq!(kept, [("shared-old", "working"), ("shared-busy", "working"), ("tmux", "not in a Ghostty, iTerm2 or Terminal tab")]);
+        assert_eq!(
+            kept,
+            [
+                ("app", "in the Claude app"),
+                ("busy-job", "working"),
+                ("hosted", "in Codealong"),
+                ("shared-old", "working"),
+                ("shared-busy", "working"),
+                ("tmux", "in a terminal Codealong can't close"),
+            ]
+        );
+    }
+
+    #[test]
+    fn archiving_takes_what_cannot_close_too() {
+        let day = DAY_MS;
+        let mut app = session("app", 4, Status::Unread, 3 * day);
+        app.surface = Surface::App;
+        let mut asks = session("app-asks", 5, Status::Idle, 3 * day);
+        asks.surface = Surface::App;
+        asks.reply_tail = Some("Shall I merge it?".into());
+        let mut hosted = session("hosted", 0, Status::Idle, 3 * day);
+        (hosted.hosted, hosted.pid) = (true, None);
+        let mut held_by = session("shared-busy", 2, Status::Working, 3 * day);
+        held_by.title = "Fix login".into();
+        let b = board(vec![session("old", 1, Status::Idle, 3 * day), session("shared-old", 2, Status::Idle, 3 * day), held_by, session("tmux", 3, Status::Idle, 3 * day), app, asks, hosted]);
+        let p = plan(&b, NOW, day, true, |pid| pid != 3);
+        assert!(p.archive);
+        let mut close: Vec<(&str, Ends, &str)> = p.close.iter().map(|c| (c.key.as_str(), c.ends, c.why.as_str())).collect();
+        close.sort_by_key(|c| c.0);
+        assert_eq!(
+            close,
+            [
+                ("app", Ends::Archive, "idle 3 days · last reply unread · last reply asks nothing · stays open in the Claude app"),
+                ("hosted", Ends::Archive, "idle 3 days · last reply asks nothing · stays open in Codealong"),
+                ("old", Ends::Terminal, "idle 3 days · last reply asks nothing"),
+                ("shared-old", Ends::Archive, "idle 3 days · last reply asks nothing · its terminal stays open for “Fix login”"),
+                ("tmux", Ends::Archive, "idle 3 days · last reply asks nothing · stays open in a terminal Codealong can't close"),
+            ]
+        );
+        // What may not close isn't archived either.
+        let kept: Vec<(&str, &str)> = p.kept.iter().map(|k| (k.key.as_str(), k.why.as_str())).collect();
+        assert_eq!(kept, [("app-asks", "last reply asks a question"), ("shared-busy", "working")]);
+    }
+
+    #[test]
+    fn outcomes_say_what_was_done() {
+        let ok = Ok(());
+        let failed = Err("the tab is gone".to_string());
+        let said = |ends, ended, asked, archived| {
+            let o = outcome("k", "T".into(), ends, ended, asked, archived);
+            (o.closed, o.archived, o.ok, o.message)
+        };
+        assert_eq!(said(Ends::Terminal, Some(&ok), false, None), (true, false, true, "Closed.".into()));
+        assert_eq!(said(Ends::Job, Some(&ok), true, Some(&ok)), (true, true, true, "Stopped and archived.".into()));
+        assert_eq!(said(Ends::Terminal, Some(&ok), true, Some(&failed)), (true, false, false, "Closed, but it couldn't be archived: the tab is gone".into()));
+        assert_eq!(said(Ends::Terminal, Some(&failed), true, None), (false, false, false, "the tab is gone".into()));
+        assert_eq!(said(Ends::Archive, None, true, Some(&ok)), (false, true, true, "Archived; it stays open where it is.".into()));
+        assert_eq!(said(Ends::Archive, None, true, Some(&failed)), (false, false, false, "It couldn't be archived: the tab is gone".into()));
     }
 
     #[test]
@@ -380,17 +595,17 @@ mod tests {
         assert_eq!(ending(&b, &hosted, false), Ok(Ending::Nothing(None)));
     }
 
-    /// What would close on this Mac now, closing nothing:
-    /// `cargo test this_macs_idle_terminals -- --ignored --nocapture`.
+    /// What would close or be archived on this Mac now, doing nothing:
+    /// `cargo test this_macs_idle_sessions -- --ignored --nocapture`.
     #[test]
     #[ignore]
-    fn this_macs_idle_terminals() {
-        let p = plan_now(&crate::engine::light_snapshot(), DAY_MS);
+    fn this_macs_idle_sessions() {
+        let p = plan_now(&crate::engine::light_snapshot(), DAY_MS, true);
         for c in &p.close {
-            println!("close  {:<10} {:<40} {}", c.account, c.title.chars().take(40).collect::<String>(), c.why);
+            println!("{:<9} {:<10} {:<40} {}", format!("{:?}", c.ends).to_lowercase(), c.account, c.title.chars().take(40).collect::<String>(), c.why);
         }
         for k in &p.kept {
-            println!("keep   {:<10} {:<40} {}", k.account, k.title.chars().take(40).collect::<String>(), k.why);
+            println!("keep      {:<10} {:<40} {}", k.account, k.title.chars().take(40).collect::<String>(), k.why);
         }
     }
 

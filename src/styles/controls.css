@@ -183,7 +183,7 @@
   cursor: default;
 }
 
-/* A checkbox with its label (the quick panel's New worktree, Settings' and Close idle terminals' boxes). */
+/* A checkbox with its label (the quick panel's New worktree, Settings' and Close idle sessions' boxes). */
 .ca-check {
   position: relative;
   display: inline-flex;

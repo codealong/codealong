@@ -758,13 +758,16 @@ Commands:
   find        Sessions whose title, excerpt, account, worktree, branch or PR contains
               the words (all of them, any case), or whose prompts and replies do, for
               sessions active in the last `[search] days`
-  close-idle  Close the Ghostty, iTerm2 and Terminal tabs of sessions that sat idle and
-              want nothing from you: idle or unread, quiet for --after, nothing left
-              running in the background, and a last reply that asks nothing (Jev's read
-              with `[jev] sessions` on, else no question mark at its end). A tab closes
-              only when every session in it qualifies. Its agent's process ends; the
-              conversation stays and resumes as usual. Lists what it would close with
-              --dry-run; run that first
+  close-idle  Close the sessions that sat idle and want nothing from you: idle or
+              unread, quiet for --after, nothing left running in the background, and a
+              last reply that asks nothing (Jev's read with `[jev] sessions` on, else no
+              question mark at its end). A session in a Ghostty, iTerm2 or Terminal tab
+              closes with its tab, which closes only when every session in it qualifies;
+              a Claude Code background job is stopped. Its agent's process ends; the
+              conversation stays and resumes as usual. With --archive each is also
+              marked seen and archived, as Mark as done does, and the ones Codealong
+              can't close (in the Claude or Codex app, run by Codealong, in tmux) are
+              archived only. Lists what it would do with --dry-run; run that first
   help        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -869,12 +872,15 @@ Options:
 ## codealong sessions close-idle
 
 ```
-Close the Ghostty, iTerm2 and Terminal tabs of sessions that sat idle and want nothing
-from you: idle or unread, quiet for --after, nothing left running in the background, and
-a last reply that asks nothing (Jev's read with `[jev] sessions` on, else no question
-mark at its end). A tab closes only when every session in it qualifies. Its agent's
-process ends; the conversation stays and resumes as usual. Lists what it would close
-with --dry-run; run that first
+Close the sessions that sat idle and want nothing from you: idle or unread, quiet for
+--after, nothing left running in the background, and a last reply that asks nothing
+(Jev's read with `[jev] sessions` on, else no question mark at its end). A session in a
+Ghostty, iTerm2 or Terminal tab closes with its tab, which closes only when every
+session in it qualifies; a Claude Code background job is stopped. Its agent's process
+ends; the conversation stays and resumes as usual. With --archive each is also marked
+seen and archived, as Mark as done does, and the ones Codealong can't close (in the
+Claude or Codex app, run by Codealong, in tmux) are archived only. Lists what it would
+do with --dry-run; run that first
 
 Usage: codealong sessions close-idle [OPTIONS]
 
@@ -887,11 +893,15 @@ Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
-      --dry-run
-          Only say what would close and what stays open, and why
+      --archive
+          Archive them too, and archive the ones that can't be closed. Needs the app
+          running
 
       --table
           Tables, even when piped
+
+      --dry-run
+          Only say what would close and what stays open, and why
 
       --verbose
           Say on stderr whether the app or the files answered

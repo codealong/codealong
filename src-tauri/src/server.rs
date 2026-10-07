@@ -40,10 +40,19 @@ pub enum Request {
     Start { spec: StartSpec },
     /// Sessions whose prompts and replies have every word (search.rs).
     Search { words: Vec<String> },
-    /// What closing idle terminals would close (idle.rs).
-    IdleTerminals { after_ms: i64 },
-    /// Closes the terminals of these sessions, each checked again first.
-    CloseIdle { keys: Vec<String>, after_ms: i64 },
+    /// What closing idle sessions would close, and with `archive` only archive (idle.rs).
+    IdleSessions {
+        after_ms: i64,
+        #[serde(default)]
+        archive: bool,
+    },
+    /// Closes these sessions, each checked again first, and with `archive` archives them.
+    CloseIdle {
+        keys: Vec<String>,
+        after_ms: i64,
+        #[serde(default)]
+        archive: bool,
+    },
     /// Your other devices (peers.rs) as Settings › Devices shows them, with how many worktrees and
     /// sessions each has in place of the worktrees themselves.
     Devices,
@@ -211,8 +220,8 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
             Err(e) => Reply::err(e),
         },
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
-        Request::IdleTerminals { after_ms } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms)),
-        Request::CloseIdle { keys, after_ms } => Reply::ok(crate::idle::close(&engine.board(), &keys, after_ms)),
+        Request::IdleSessions { after_ms, archive } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms, archive)),
+        Request::CloseIdle { keys, after_ms, archive } => answered(crate::idle::close_on(engine, &keys, after_ms, archive)),
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),
         Request::Devices => Reply::ok(DevicesSummary::of(peers.view())),
         Request::DeviceLink { key } => answered(peers.link(&key)),

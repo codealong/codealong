@@ -1,4 +1,4 @@
-/* Close idle terminals (File menu): a dialog listing what would close. */
+/* Close idle sessions (File menu): a dialog listing what would close. */
 
 .ca-idle {
   width: min(640px, 100%);
@@ -53,6 +53,19 @@
 .ca-idle-why {
   font: var(--type-meta);
   color: var(--ink-3);
+}
+/* What closing does to the row, at its end: closes its tab, stops its job, only archived. */
+.ca-idle-does {
+  flex: none;
+  margin-left: auto;
+  padding-top: 2px;
+  font: var(--type-meta);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+/* Also archive them, at the end of the row the wait is picked in. */
+.ca-idle-archive {
+  margin-left: auto;
 }
 .ca-idle-note {
   margin: 0;

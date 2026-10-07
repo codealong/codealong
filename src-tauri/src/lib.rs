@@ -223,18 +223,20 @@ fn editor_icons() -> Vec<editors::Icon> {
     editors::icons()
 }
 
-/// What "Close idle terminals" would close, sessions quiet for `after_ms` or longer (idle.rs).
+/// What "Close idle sessions" would close, sessions quiet for `after_ms` or longer, and with
+/// `archive` what it would only archive (idle.rs).
 #[tauri::command]
-async fn idle_terminals(engine: State<'_, engine::Handle>, after_ms: i64) -> Result<idle::Plan, String> {
-    Ok(idle::plan_now(&engine.board(), after_ms))
+async fn idle_sessions(engine: State<'_, engine::Handle>, after_ms: i64, archive: bool) -> Result<idle::Plan, String> {
+    Ok(idle::plan_now(&engine.board(), after_ms, archive))
 }
 
-/// Closes the terminals of these sessions, each checked again first. On the blocking pool: each
-/// terminal is told by a script, which is waited on.
+/// Closes these sessions, each checked again first, and with `archive` archives them. On the
+/// blocking pool: each terminal is told by a script and each job stopped by a command, which are
+/// waited on.
 #[tauri::command]
-async fn close_idle_terminals(engine: State<'_, engine::Handle>, keys: Vec<String>, after_ms: i64) -> Result<Vec<idle::Outcome>, String> {
+async fn close_idle_sessions(engine: State<'_, engine::Handle>, keys: Vec<String>, after_ms: i64, archive: bool) -> Result<Vec<idle::Outcome>, String> {
     let engine = engine.inner().clone();
-    blocking(move || idle::close(&engine.board(), &keys, after_ms)).await
+    blocking(move || idle::close_on(&engine, &keys, after_ms, archive)).await?
 }
 
 /// Closes one session from its menu: its terminal tab, or a background job stopped (idle.rs).
@@ -1384,7 +1386,7 @@ fn add_settings_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 const SETTINGS_MENU_ID: &str = "settings";
 
-/// Puts New window (⌘⇧N) at the top of the File menu, and Close idle terminals… under it. Choosing it asks the front window for
+/// Puts New window (⌘⇧N) at the top of the File menu, and Close idle sessions… under it. Choosing it asks the front window for
 /// another window on the project it shows; without one (closing the main window only hides
 /// it), the main window comes back. The menu's shortcut works with no window open, where a
 /// page's own keys can't.
@@ -1397,7 +1399,7 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     });
     let Some(file) = file else { return Ok(()) };
     let item = MenuItem::with_id(app, NEW_WINDOW_MENU_ID, "New window", true, Some("CmdOrCtrl+Shift+N"))?;
-    let close_idle = MenuItem::with_id(app, CLOSE_IDLE_MENU_ID, "Close idle terminals…", true, None::<&str>)?;
+    let close_idle = MenuItem::with_id(app, CLOSE_IDLE_MENU_ID, "Close idle sessions…", true, None::<&str>)?;
     file.prepend_items(&[&item, &PredefinedMenuItem::separator(app)?, &close_idle, &PredefinedMenuItem::separator(app)?])?;
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
@@ -1410,7 +1412,7 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
             None => {
                 let _ = front::show_main(app, None);
-                // Close idle terminals is a dialog, so the main window opens it.
+                // Close idle sessions is a dialog, so the main window opens it.
                 if id == CLOSE_IDLE_MENU_ID {
                     let _ = app.emit_to("main", id, ());
                 }
@@ -1634,7 +1636,7 @@ pub fn run() {
             kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, idle_terminals, close_idle_terminals, close_session, session_done, open_target, open_config, editor_icons, mark_seen, set_pr_nudge, snooze_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, review_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, show_waiting, waiting_asked, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, resume_session, switch_session_model, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, idle_sessions, close_idle_sessions, close_session, session_done, open_target, open_config, editor_icons, mark_seen, set_pr_nudge, snooze_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, review_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, show_waiting, waiting_asked, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, resume_session, switch_session_model, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

@@ -112,9 +112,9 @@ pub enum Msg {
     SetPinnedWorktrees(Vec<String>),
     /// The full list of pinned PRs (`owner/name#number`), in order.
     SetPinnedPrs(Vec<String>),
-    /// A session archived (true) or unarchived from Codealong; Codex has already done its part.
-    /// The reply is the time of the board that shows it, published at once.
-    SetArchived(String, bool, Sender<i64>),
+    /// Sessions archived (true) or unarchived from Codealong; Codex has already done its part.
+    /// The reply is the time of the board that shows them, published at once.
+    SetArchived(Vec<String>, bool, Sender<i64>),
     /// The theme, already saved to config.toml.
     SetTheme(Theme),
     /// The board windows' zoom, already saved to config.toml.
@@ -328,17 +328,29 @@ impl Handle {
     /// Codealong, where a session of any other harness stays archived until it's active again.
     /// Returns the time of the board that shows it, as `mark_seen_shown` does.
     pub fn archive(&self, key: &str, archived: bool) -> Result<Option<i64>> {
-        let mut parts = key.splitn(3, ':');
-        let (Some(harness), Some(account), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
-            bail!("That isn't a session.");
-        };
-        if let Some(adapter) = harness::named(harness) {
-            let cfg = config::current()?;
-            let a = cfg.accounts.iter().find(|a| a.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
-            adapter.archive(a, id, archived)?;
+        archive_in_harness(key, archived)?;
+        self.set_archived(vec![key.to_string()], archived)
+    }
+
+    /// Archives several sessions as `archive` does each, shown on one board: each key's result,
+    /// in order. One its harness wouldn't archive isn't archived in Codealong either.
+    pub fn archive_all(&self, keys: &[String]) -> Vec<Result<()>> {
+        let mut results: Vec<Result<()>> = keys.iter().map(|k| archive_in_harness(k, true)).collect();
+        let done: Vec<String> = keys.iter().zip(&results).filter(|(_, r)| r.is_ok()).map(|(k, _)| k.clone()).collect();
+        if !done.is_empty() {
+            if let Err(e) = self.set_archived(done, true) {
+                let e = crate::util::words(e);
+                for r in results.iter_mut().filter(|r| r.is_ok()) {
+                    *r = Err(anyhow!("{e}"));
+                }
+            }
         }
+        results
+    }
+
+    fn set_archived(&self, keys: Vec<String>, archived: bool) -> Result<Option<i64>> {
         let (tx, rx) = channel();
-        if self.tx.send(Msg::SetArchived(key.to_string(), archived, tx)).is_err() {
+        if self.tx.send(Msg::SetArchived(keys, archived, tx)).is_err() {
             bail!("Codealong's engine stopped.");
         }
         Ok(rx.recv_timeout(SHOWN_WAIT).ok())
@@ -472,6 +484,21 @@ impl Handle {
         }
         Ok(())
     }
+}
+
+/// Archives a session in its harness, or takes it out of its archive, where the harness has one
+/// another program can reach (`Adapter::archive`).
+fn archive_in_harness(key: &str, archived: bool) -> Result<()> {
+    let mut parts = key.splitn(3, ':');
+    let (Some(harness), Some(account), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
+        bail!("That isn't a session.");
+    };
+    if let Some(adapter) = harness::named(harness) {
+        let cfg = config::current()?;
+        let a = cfg.accounts.iter().find(|a| a.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
+        adapter.archive(a, id, archived)?;
+    }
+    Ok(())
 }
 
 /// Opens a lane's target on `board`. Returns the key of the session it opened, if any.
@@ -1402,13 +1429,16 @@ impl Engine {
                     self.dirty = true;
                 }
                 Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
-                Ok(Msg::SetArchived(key, archived, reply)) => {
-                    self.seen.set_archived(&key, archived, now_ms());
+                Ok(Msg::SetArchived(keys, archived, reply)) => {
+                    let now = now_ms();
+                    for key in &keys {
+                        self.seen.set_archived(key, archived, now);
+                    }
                     self.save_state();
                     // A harness with an archive of its own reads what's in it now.
                     let look = Self::look(&self.seen);
-                    let harness = key.split(':').next().and_then(harness::named).map(|a| a.harness());
-                    for r in self.readers.iter_mut().filter(|r| Some(r.harness()) == harness) {
+                    let harnesses: HashSet<_> = keys.iter().filter_map(|k| k.split(':').next().and_then(harness::named)).map(|a| a.harness()).collect();
+                    for r in self.readers.iter_mut().filter(|r| harnesses.contains(&r.harness())) {
                         r.archives_changed(&harness::accounts_of(&self.cfg, r.harness()), &look);
                     }
                     // Now rather than on the next tick: the window shows it already, and waits for it.

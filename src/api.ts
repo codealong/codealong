@@ -183,7 +183,7 @@ export function onNewWindow(cb: () => void): () => void {
   };
 }
 
-/** Calls `cb` when File › Close idle terminals… asks this window to show its dialog. */
+/** Calls `cb` when File › Close idle sessions… asks this window to show its dialog. */
 export function onCloseIdle(cb: () => void): () => void {
   if (!inTauri) return () => {};
   let cancelled = false;
@@ -200,16 +200,17 @@ export function onCloseIdle(cb: () => void): () => void {
   };
 }
 
-/** Which terminals have sat idle for `afterMs` with nothing asked of you, and which stay open. */
-export async function idleTerminals(afterMs: number): Promise<IdlePlan> {
-  if (!inTauri) return { afterMs, close: [], kept: [] };
-  return invoke<IdlePlan>('idle_terminals', { afterMs });
+/** Which sessions have sat idle for `afterMs` with nothing asked of you, and which stay open;
+ *  with `archive`, the ones that can't close are listed to be archived only. */
+export async function idleSessions(afterMs: number, archive: boolean): Promise<IdlePlan> {
+  if (!inTauri) return { afterMs, archive, close: [], kept: [] };
+  return invoke<IdlePlan>('idle_sessions', { afterMs, archive });
 }
 
-/** Closes these sessions' terminals, each checked again first. */
-export async function closeIdleTerminals(keys: string[], afterMs: number): Promise<CloseOutcome[]> {
+/** Closes these sessions, each checked again first, and with `archive` archives them. */
+export async function closeIdleSessions(keys: string[], afterMs: number, archive: boolean): Promise<CloseOutcome[]> {
   if (!inTauri) return [];
-  return invoke<CloseOutcome[]>('close_idle_terminals', { keys, afterMs });
+  return invoke<CloseOutcome[]>('close_idle_sessions', { keys, afterMs, archive });
 }
 
 /** Closes one session: its terminal tab, or a background job stopped. Says what happened. */

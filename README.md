@@ -726,12 +726,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
-- **Close idle terminals** (File › Close idle terminals…): lists the Ghostty, iTerm2 and Terminal tabs of sessions
-  that sat idle for a day or more (12 hours to a week, you choose) and asked you nothing in
-  their last reply, by Jev's read where it has one, else by it not ending in a question. It
-  says why for each, and closes the ones you leave ticked. Nothing closes by itself. Closing
-  ends the agent's process; the conversation stays and resumes. `codealong sessions close-idle
-  --dry-run` lists the same from the command line.
+- **Close idle sessions** (File › Close idle sessions…): lists the sessions that sat idle for a
+  day or more (12 hours to a week, you choose) and asked you nothing in their last reply, by
+  Jev's read where it has one, else by it not ending in a question. It says why for each and
+  what closing does to it, and closes the ones you leave ticked: a Ghostty, iTerm2 or Terminal
+  tab closes, which ends the agent's process, and a Claude Code background job is stopped.
+  Nothing closes by itself, and the conversation stays and resumes. With **Also archive them**
+  (remembered), each is marked seen and archived too, as Mark as done does, and the sessions
+  Codealong can't close (in the Claude or Codex app, run by Codealong, in tmux) are listed to
+  be archived only, staying open where they are. `codealong sessions close-idle --dry-run
+  [--archive]` lists the same from the command line.
 
 - **Your other devices** (Settings › Devices; off until you turn it on): Codealong on each of
   your devices shows the others' worktrees and sessions beside its own. Everything from another
@@ -953,8 +957,9 @@ light scan (no git, PRs or visitors).
   answers, the board shows those worktrees without git and, after 10 seconds or so, names the
   folders it's waiting to open; everything else loads as usual.
 - Codealong only reads: it never creates, resets or removes worktrees, never changes
-  branches, and never types into a live session. Close idle terminals ends idle sessions'
-  processes and closes their tabs, but only the ones you tick. Git runs with `GIT_OPTIONAL_LOCKS=0`.
+  branches, and never types into a live session. Close idle sessions ends idle sessions'
+  processes, closing their tabs or stopping their background jobs, but only the ones you
+  tick. Git runs with `GIT_OPTIONAL_LOCKS=0`.
 - A session started In Codealong runs as a child of the app, through the agent's ACP adapter;
   what it's allowed to do is the agent's own permission setting for the account, and what it
   asks is answered only by you, in its panel. Its processes end when Codealong quits.
@@ -986,7 +991,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |
 | `src-tauri/src/previews.rs`, `src-tauri/src/chrome.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL and Chrome profile (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; Chrome's profiles and opening a page in one; the row's chip, the panel's section and the URL sheet |
-| `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
+| `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle sessions: which sessions can close or only be archived, and why (pure, tested), and closing and archiving them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick; and going on with one that isn't running, by the same rules (`resume`) |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut and the waiting window's, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/waiting.rs`, `src/ui/Waiting.tsx` | The waiting window: an ordinary window, made when first asked for and hidden on close, that keeps where it was, comes from ⌥⌘., Window › Waiting on you and ⇥ in the quick panel, and works through what waits on you one card at a time (`quick.ts` `queueRows`, `queue.ts`) |
