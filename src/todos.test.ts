@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, nextColor, panelTodos, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, nextColor, panelTodos, pieces, primaryHolds, sectionOf, snippet, todoAgent, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -37,6 +37,20 @@ describe('applyOp', () => {
     s = { ...s, todos: [{ ...s.todos[0], pending: [{ lane: '/r/app', harness: 'codex', account: 'codex', at: NOW }] }] };
     s = applyOp(s, { op: 'link', id: 'a', worktree: '/r/app', linked: false }, NOW);
     expect(s.todos[0]).toMatchObject({ worktrees: [], pending: [], sessions: ['codex:codex:t1'] });
+  });
+
+  it('makes the first session linked the primary one, until it’s unlinked or another is made it', () => {
+    let s = applyOp(store(todo('a')), { op: 'link', id: 'a', session: 'c:1', linked: true }, NOW);
+    expect(s.todos[0].primary).toEqual({ session: 'c:1', since: NOW });
+    // Taking over from a session that stopped is the engine's to say, on its board.
+    s = applyOp(s, { op: 'link', id: 'a', session: 'c:2', linked: true }, NOW + 1);
+    expect(s.todos[0].primary?.session).toBe('c:1');
+    s = applyOp(s, { op: 'primary', id: 'a', session: 'c:3' }, NOW + 2);
+    expect(s.todos[0]).toMatchObject({ sessions: ['c:1', 'c:2', 'c:3'], primary: { session: 'c:3', since: NOW + 2 } });
+    s = applyOp(s, { op: 'link', id: 'a', session: 'c:3', linked: false }, NOW + 3);
+    expect(s.todos[0].primary).toBeNull();
+    s = applyOp(s, { op: 'primary', id: 'a', session: 'c:1' }, NOW + 4);
+    expect(applyOp(s, { op: 'primary', id: 'a', session: null }, NOW + 5).todos[0].primary).toBeNull();
   });
 
   it('deletes, restores in place and reorders', () => {
@@ -135,6 +149,18 @@ describe('prompts and images', () => {
     expect(todosPrompt([a])).toBe(todoPrompt(a));
   });
 
+  it('tells a session started on a todo of its primary session', () => {
+    // The same text as `todo_prompt`'s test in cli.rs.
+    const a = todo('t-a', { title: 'Fix the header', primary: { session: 'claude:claude:s1', since: 0 } });
+    const footer = "This is Codealong todo t-a. When the work is merged or I say it's done, mark it done with `codealong todo done t-a`.";
+    expect(todoPrompt(a, true)).toBe(`Fix the header\n\n${footer}\n\nt-a's primary session is claude:claude:s1, which is running: send it what you find with \`codealong session send claude:claude:s1 "…"\` rather than do the same work.`);
+    expect(todoPrompt(a, false)).toBe(`Fix the header\n\n${footer}\n\nSession claude:claude:s1 had t-a before you: \`codealong session show claude:claude:s1\` has its records.`);
+    // Without word of whether it runs, or with no primary session, it says nothing of one.
+    expect(todoPrompt(a)).toBe(`Fix the header\n\n${footer}`);
+    expect(todoPrompt(todo('t-b', { title: 'Fix the header' }), true)).not.toContain('primary');
+    expect(todosPrompt([todo('t-b'), a], (t) => t.id === 't-a')).toMatch(/\n\nt-a's primary session is claude:claude:s1, which is running: .* rather than do the same work\.$/);
+  });
+
   it('splits a description into text and its images', () => {
     const text = `Before\n![image](images/${shot})\nafter ![x](images/nope.png) and ![y](https://e.com/a.png)`;
     expect(pieces(text)).toEqual([
@@ -194,6 +220,36 @@ describe('prompts and images', () => {
   it('gives new labels a color no label has yet', () => {
     expect(nextColor([])).toBe('red');
     expect(nextColor([{ id: 'a', name: 'A', color: 'red' }])).toBe('pink');
+  });
+});
+
+describe('a todo’s primary session', () => {
+  const s1 = session('c:1', { live: true, lastActivity: NOW - 9 });
+  const s2 = session('c:2', { live: true, lastActivity: NOW });
+  const item = (t: Todo, sessions: Session[]) => {
+    const lanes = [lane('/r/app', sessions)];
+    return todoItem(t, new Map(lanes.map((l) => [l.id, l])), sessionHomes(lanes), new Map());
+  };
+
+  it('is what a todo opens while it runs, before a newer session', () => {
+    const t = todo('a', { sessions: ['c:1', 'c:2'], primary: { session: 'c:1', since: NOW - 10 } });
+    expect(item(t, [s1, s2]).primary?.session.key).toBe('c:1');
+    expect(todoAgent(item(t, [s1, s2]))?.session.key).toBe('c:1');
+    // Stopped or archived, it doesn't hold the todo: the running one opens, as without one.
+    for (const stopped of [{ ...s1, live: false }, { ...s1, archived: true }]) {
+      const r = item(t, [stopped, s2]);
+      expect(r.primary).toBeNull();
+      expect(itemPrimaryHolds(r, NOW)).toBe(false);
+      expect(todoAgent(r)?.session.key).toBe('c:2');
+    }
+  });
+
+  it('holds the todo for a moment after it took it, before the board lists it', () => {
+    const t = todo('a', { sessions: ['c:9'], primary: { session: 'c:9', since: NOW } });
+    expect(primaryHolds(t, new Map(), NOW + 60_000)).toBe(true);
+    expect(primaryHolds(t, new Map(), NOW + 5 * 60_000)).toBe(false);
+    expect(primaryHolds(todo('b'), new Map(), NOW)).toBe(false);
+    expect(item(t, []).primary).toBeNull();
   });
 });
 

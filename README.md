@@ -340,6 +340,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Link worktrees and sessions you already have from the todo, or from a session's or
     worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
     todo's chip; double-click it (click it in a panel) to go to the todo.
+    The first session on a todo is its primary session, so two agents don't do the same work:
+    while it runs, the todo opens it, its panel offers Show session before Start another, and
+    a session started for it works alongside it and is told to send it what it finds. Once it
+    stops, the next session on the todo takes over and is told where the last one's records
+    are. A session's right-click menu makes it a todo's primary session (Primary session
+    for …), and Move to hands the role to the copy. An agent's `codealong todo start` is
+    turned down while another session is the primary one and runs, naming it; `--take`
+    takes the todo over.
     With Jev on for todos (Settings › Jev, `[jev] todos`), a session that starts outside a todo
     is linked to the open todo it's for when Jev is sure; a todo whose linked sessions ended
     their turns, or whose PR merged, shows Looks done when Jev reads it as finished (Mark done,

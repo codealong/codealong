@@ -19,8 +19,9 @@ window.__CODEALONG_PREVIEW__ = true;
 window.__calls = [];
 window.__unknown = [];
 // Todos from todos-fixture.json (PREVIEW_TODOS in preview.sh) in place of the board's own, with
-// "$lane:N" and "$session:N" as the project's Nth most recent worktree and session, a wait's
-// `sinceAgo` in minutes, and `dueIn` as a due date that many days from today.
+// "$lane:N" and "$session:N" as the project's Nth most recent worktree and session (`primary`
+// names one, made primary a minute ago), a wait's `sinceAgo` in minutes, and `dueIn` as a due
+// date that many days from today.
 function withFixture(board, fixture) {
   var shown = null;
   try {
@@ -50,6 +51,7 @@ function withFixture(board, fixture) {
       doneAt: t.status === 'done' ? now - 7200e3 : null,
       waiting: t.waiting ? { note: t.waiting.note || '', since: now - (t.waiting.sinceAgo || 0) * 60e3 } : null,
       due: t.dueIn == null ? t.due || null : dayFrom(now, t.dueIn),
+      primary: t.primary && at(t.primary) ? { session: at(t.primary), since: now - 60e3 } : null,
     });
   });
   return board;

@@ -484,9 +484,21 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         </div>
       </header>
       <div className="ca-insp-actions ca-todoinsp-actions">
-        <Button variant="primary" icon="player-play" title="Start a session for this todo (⌘N). ⌘-click other todos in the list to start them with it, in one session." onClick={onStart}>
-          Start session
-        </Button>
+        {item.primary ? (
+          <>
+            {/* Its primary session runs: what you want done goes there, so it comes first. */}
+            <Button variant="primary" icon="message-circle" title={`Show “${item.primary.session.title}”, its primary session, here`} onClick={() => item.primary && onShowSession(item.primary.lane, item.primary.session)}>
+              Show session
+            </Button>
+            <Button icon="player-play" title={`Start another session for this todo (⌘N). It works alongside “${item.primary.session.title}”, which stays its primary session.`} onClick={onStart}>
+              Start another
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" icon="player-play" title="Start a session for this todo (⌘N). ⌘-click other todos in the list to start them with it, in one session." onClick={onStart}>
+            Start session
+          </Button>
+        )}
         <Seg label="Status" options={STATUSES.map((st) => ({ id: st, label: STATUS_WORD[st] }))} value={todo.status} onPick={(status) => update({ status })} />
       </div>
 
@@ -628,6 +640,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
                 onShowSession={onShowSession}
                 onOpenSession={onOpenSession}
                 onSessionMenu={onSessionMenu}
+                primary={item.primary?.session.key}
               />
             ))}
           </div>

@@ -59,6 +59,11 @@
   font: var(--type-caption);
   color: var(--ink-2);
 }
+/* A todo's primary session is said beside its title, which gives way to it. */
+.ca-psess-primary {
+  flex: none;
+  align-self: center;
+}
 .ca-psess.is-visitor .ca-psess-title {
   color: var(--ink-3);
 }

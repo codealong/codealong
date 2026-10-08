@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, macUnavailable, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, macUnavailable, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount } from './quick';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
@@ -392,6 +392,14 @@ describe('what the start row and the Mac menu say', () => {
     expect(attachmentsNote(2)).toBe(' Attachments go as file paths the agent opens.');
     expect(todosStayNote(1)).toBe(' Todos are this Mac’s, so it isn’t linked to the session.');
     expect(todosStayNote(2)).toBe(' Todos are this Mac’s, so they aren’t linked to the session.');
+  });
+
+  it('says first that a todo’s primary session is running, so a new one works alongside it', () => {
+    const at = { lane: { callsign: 'app-2' }, session: { title: 'Fix the header', account: 'claude2' } };
+    expect(primaryRunningWords([], 1)).toBe('');
+    expect(primaryRunningWords([{ todo: { title: 'Header wraps' }, at }], 1)).toBe('“Fix the header” (claude2 · app-2) is this todo’s primary session and is running: this one would work alongside it. ');
+    expect(primaryRunningWords([{ todo: { title: 'Header wraps' }, at }], 2)).toBe('“Fix the header” (claude2 · app-2) is “Header wraps”’s primary session and is running: this one would work alongside it. ');
+    expect(primaryRunningWords([{ todo: { title: '' }, at }, { todo: { title: 'B' }, at }], 2)).toBe('“Fix the header” (claude2 · app-2) and 1 more are running as these todos’ primary sessions: this one would work alongside them. ');
   });
 
   it('counts a Mac’s worktrees in the project', () => {

@@ -16,6 +16,12 @@
 //! A todo can have a due date: a day on the calendar, with no time or zone, so it's the same
 //! day wherever you read it. It only says when you mean it done by: the list keeps your order,
 //! and nothing moves or changes status when the day comes.
+//!
+//! A todo has one primary session, so two agents don't do the same work: the session the work
+//! on it goes on in, which other sessions send what they find instead of taking it on too. The
+//! first session linked to it is the primary one, and the next one is once that one has stopped
+//! (`holds`); you, or an agent told to (`codealong todo start --take`), can make another one it.
+//! A session linked while the primary one runs works alongside it.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -30,6 +36,9 @@ use crate::util::{civil_from_days, days_from_civil};
 
 /// How long a start in an app waits for its session to show up before it's forgotten.
 pub const PENDING_MS: i64 = 30 * 60 * 1000;
+/// How long a session made primary holds the todo before the board lists it: one started in a
+/// terminal is linked as it starts, and shows up a few seconds later.
+const NEW_PRIMARY_MS: i64 = 5 * 60 * 1000;
 /// A session that says it started this long before the start still counts: clocks and
 /// transcript timestamps don't agree to the millisecond.
 const PENDING_SLACK_MS: i64 = 60 * 1000;
@@ -223,6 +232,17 @@ pub struct PendingStart {
     pub at: i64,
 }
 
+/// A todo's primary session (see the top of this file).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Primary {
+    /// Its key.
+    pub session: String,
+    /// When it became the primary one.
+    #[serde(default)]
+    pub since: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Todo {
@@ -268,6 +288,10 @@ pub struct Todo {
     /// The day it's due, as `2026-10-03`. A done todo keeps it. Left out when it has none.
     #[serde(default, deserialize_with = "due_field", skip_serializing_if = "Option::is_none")]
     pub due: Option<String>,
+    /// Its primary session, kept after that session stops as the one that had it last. Left out
+    /// when it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<Primary>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -324,6 +348,9 @@ pub enum TodoOp {
     Update { id: String, patch: TodoPatch },
     /// Links (or unlinks) a worktree or a session.
     Link { id: String, worktree: Option<String>, session: Option<String>, linked: bool },
+    /// Makes a session the todo's primary one, linking it if it isn't; with none, leaves the todo
+    /// without one, so the next session linked becomes it.
+    Primary { id: String, session: Option<String> },
     Delete { id: String },
     /// Puts a deleted todo back where it was.
     Restore { todo: Todo, index: usize },
@@ -334,32 +361,57 @@ pub enum TodoOp {
     Labels { labels: Vec<Label> },
 }
 
-/// What linking needs to know about a worktree: its project, for a todo that has none yet.
+/// What linking needs to know from the board: a worktree's project, for a todo that has none
+/// yet, and whether a session runs, for its primary one.
 pub trait Lanes {
     fn project_of(&self, lane: &str) -> Option<String>;
     /// A repo's identity, the same for all of its worktrees.
     fn repo_of(&self, lane: &str) -> Option<String>;
+    /// Whether a session is running: its process is up and it isn't archived. None when the
+    /// board doesn't list it.
+    fn running(&self, _session: &str) -> Option<bool> {
+        None
+    }
 }
 
-/// Each worktree's project and repo, by lane id, as a board has them: what the engine, the
-/// `codealong` command and a start from todos link by. It's a copy, so nothing holds the board
-/// while todos change.
+/// Each worktree's project and repo, by lane id, and whether each session runs, as a board has
+/// them: what the engine, the `codealong` command and a start from todos link by. It's a copy, so
+/// nothing holds the board while todos change.
 #[derive(Default)]
-pub struct LaneIndex(HashMap<String, (String, String)>);
+pub struct LaneIndex {
+    lanes: HashMap<String, (String, String)>,
+    sessions: HashMap<String, bool>,
+}
 
 impl LaneIndex {
     pub fn of(lanes: &[Lane]) -> LaneIndex {
-        LaneIndex(lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect())
+        let mut sessions = HashMap::new();
+        for s in lanes.iter().flat_map(|l| &l.sessions) {
+            *sessions.entry(s.key.clone()).or_insert(false) |= s.live && !s.archived;
+        }
+        LaneIndex { lanes: lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect(), sessions }
     }
 }
 
 impl Lanes for LaneIndex {
     /// None for a worktree outside every project: a todo isn't filed under Elsewhere.
     fn project_of(&self, lane: &str) -> Option<String> {
-        self.0.get(lane).map(|(p, _)| p.clone()).filter(|p| p != ELSEWHERE)
+        self.lanes.get(lane).map(|(p, _)| p.clone()).filter(|p| p != ELSEWHERE)
     }
     fn repo_of(&self, lane: &str) -> Option<String> {
-        self.0.get(lane).map(|(_, r)| r.clone())
+        self.lanes.get(lane).map(|(_, r)| r.clone())
+    }
+    fn running(&self, session: &str) -> Option<bool> {
+        self.sessions.get(session).copied()
+    }
+}
+
+/// Whether a todo's primary session still has it: it's running, or it became primary so lately
+/// that the board doesn't list it yet. `primaryOf` in src/todos.ts shows the same.
+pub fn holds(p: &Primary, lanes: &dyn Lanes, now: i64) -> bool {
+    match lanes.running(&p.session) {
+        Some(running) => running,
+        None => now - p.since < NEW_PRIMARY_MS,
     }
 }
 
@@ -500,6 +552,16 @@ fn link(t: &mut Todo, worktree: Option<&str>, session: Option<&str>, lanes: &dyn
             changed = true;
             started(t, now);
         }
+        // One linked while the primary session runs works alongside it. A session that has
+        // stopped takes over only a todo that has no primary one at all.
+        let taken = match &t.primary {
+            Some(p) => p.session == s || holds(p, lanes, now) || lanes.running(s) == Some(false),
+            None => s.is_empty(),
+        };
+        if !taken {
+            t.primary = Some(Primary { session: s.to_string(), since: now });
+            changed = true;
+        }
     }
     changed
 }
@@ -599,6 +661,7 @@ impl TodoStore {
                     depends_on,
                     waiting: None,
                     due,
+                    primary: None,
                 };
                 set_status(&mut t, todo.status, now);
                 // The engine keeps the clock: a new todo's wait begins now.
@@ -666,10 +729,31 @@ impl TodoStore {
                     let before = (t.worktrees.len(), t.sessions.len());
                     t.worktrees.retain(|w| Some(w.as_str()) != worktree.as_deref());
                     t.sessions.retain(|s| Some(s.as_str()) != session.as_deref());
+                    if t.primary.as_ref().is_some_and(|p| Some(p.session.as_str()) == session.as_deref()) {
+                        t.primary = None;
+                    }
                     // Unlinking the worktree a start is waiting in gives up on that start.
                     t.pending.retain(|p| Some(p.lane.as_str()) != worktree.as_deref());
                     before != (t.worktrees.len(), t.sessions.len())
                 };
+                if changed {
+                    t.updated_at = now;
+                }
+                Ok(changed)
+            }
+            TodoOp::Primary { id, session } => {
+                let Some(t) = self.todos.iter_mut().find(|t| t.id == id) else { bail!("That todo is gone.") };
+                let before = t.clone();
+                match session.filter(|s| !s.is_empty()) {
+                    Some(s) => {
+                        link(t, None, Some(&s), lanes, now);
+                        if t.primary.as_ref().is_none_or(|p| p.session != s) {
+                            t.primary = Some(Primary { session: s, since: now });
+                        }
+                    }
+                    None => t.primary = None,
+                }
+                let changed = *t != before;
                 if changed {
                     t.updated_at = now;
                 }
@@ -901,6 +985,7 @@ mod tests {
             depends_on: vec![],
             waiting: None,
             due: None,
+            primary: None,
         }
     }
 
@@ -1247,6 +1332,115 @@ mod tests {
 
     fn pending(lane: &str, harness: &str, account: &str, at: i64) -> PendingStart {
         PendingStart { lane: lane.into(), harness: harness.into(), account: account.into(), at }
+    }
+
+    /// The fake board's worktrees, with the sessions it lists: each running or not.
+    struct Board(FakeLanes, HashMap<&'static str, bool>);
+
+    impl Lanes for Board {
+        fn project_of(&self, lane: &str) -> Option<String> {
+            self.0.project_of(lane)
+        }
+        fn repo_of(&self, lane: &str) -> Option<String> {
+            self.0.repo_of(lane)
+        }
+        fn running(&self, session: &str) -> Option<bool> {
+            self.1.get(session).copied()
+        }
+    }
+
+    fn board(sessions: &[(&'static str, bool)]) -> Board {
+        Board(lanes(), sessions.iter().copied().collect())
+    }
+
+    fn primary(s: &TodoStore) -> Option<&str> {
+        s.todos[0].primary.as_ref().map(|p| p.session.as_str())
+    }
+
+    #[test]
+    fn the_first_session_on_a_todo_is_its_primary_one_until_it_stops() {
+        let mut s = store(&["a"]);
+        let link = |session: &str| TodoOp::Link { id: "a".into(), worktree: None, session: Some(session.into()), linked: true };
+        let on = board(&[("c:1", true), ("c:2", true), ("c:3", true)]);
+        s.apply(link("c:1"), &on, 10).unwrap();
+        assert_eq!(primary(&s), Some("c:1"));
+        assert_eq!(s.todos[0].primary.as_ref().unwrap().since, 10);
+        // Another linked while it runs works alongside it.
+        s.apply(link("c:2"), &on, 20).unwrap();
+        assert_eq!((primary(&s), s.todos[0].sessions.len()), (Some("c:1"), 2));
+        // Once it has stopped, the next session linked takes the todo; linking again one that's on
+        // it already does too.
+        let stopped = board(&[("c:1", false), ("c:2", true), ("c:3", true)]);
+        assert!(s.apply(link("c:2"), &stopped, 30).unwrap());
+        assert_eq!(primary(&s), Some("c:2"));
+        // An archived session or one whose process ended isn't running (`LaneIndex`); one the
+        // board doesn't list holds it only for a moment after it took it, before it shows up.
+        let gone = board(&[]);
+        s.apply(link("c:3"), &gone, 30 + NEW_PRIMARY_MS - 1).unwrap();
+        assert_eq!(primary(&s), Some("c:2"));
+        s.apply(TodoOp::Link { id: "a".into(), worktree: None, session: Some("c:4".into()), linked: true }, &gone, 30 + NEW_PRIMARY_MS).unwrap();
+        assert_eq!(primary(&s), Some("c:4"));
+    }
+
+    #[test]
+    fn a_session_that_has_stopped_takes_over_only_a_todo_no_session_has_had() {
+        let link = |session: &str| TodoOp::Link { id: "a".into(), worktree: None, session: Some(session.into()), linked: true };
+        let all_stopped = board(&[("c:1", false), ("c:2", false)]);
+        let mut s = store(&["a"]);
+        s.apply(link("c:1"), &all_stopped, 10).unwrap();
+        assert_eq!(primary(&s), Some("c:1"));
+        // The primary one stays the one that had it last.
+        s.apply(link("c:2"), &all_stopped, 20).unwrap();
+        assert_eq!(primary(&s), Some("c:1"));
+    }
+
+    #[test]
+    fn a_session_is_made_primary_by_hand_and_unlinking_it_leaves_none() {
+        let mut s = store(&["a"]);
+        let on = board(&[("c:1", true), ("c:2", true)]);
+        s.apply(TodoOp::Link { id: "a".into(), worktree: None, session: Some("c:1".into()), linked: true }, &on, 10).unwrap();
+        // Made primary, a session is linked too, and the todo is under way.
+        assert!(s.apply(TodoOp::Primary { id: "a".into(), session: Some("c:2".into()) }, &on, 20).unwrap());
+        assert_eq!((primary(&s), s.todos[0].sessions.clone(), s.todos[0].updated_at), (Some("c:2"), vec!["c:1".to_string(), "c:2".to_string()], 20));
+        assert!(!s.apply(TodoOp::Primary { id: "a".into(), session: Some("c:2".into()) }, &on, 30).unwrap());
+        // Unlinked, the primary session leaves the todo without one; the next linked is it.
+        s.apply(TodoOp::Link { id: "a".into(), worktree: None, session: Some("c:2".into()), linked: false }, &on, 40).unwrap();
+        assert_eq!(primary(&s), None);
+        // None leaves it without one, so a start can take it.
+        s.apply(TodoOp::Primary { id: "a".into(), session: Some("c:1".into()) }, &on, 50).unwrap();
+        assert!(s.apply(TodoOp::Primary { id: "a".into(), session: None }, &on, 60).unwrap());
+        assert_eq!(primary(&s), None);
+        assert!(s.apply(TodoOp::Primary { id: "gone".into(), session: None }, &on, 70).is_err());
+    }
+
+    #[test]
+    fn a_start_on_a_todo_whose_primary_session_runs_works_alongside_it() {
+        let mut s = store(&["a"]);
+        let on = board(&[("claude:claude:s1", true)]);
+        s.started("a", Some("/r/app"), Some("claude:claude:s1"), None, &on, 10);
+        s.started("a", Some("/r/app"), Some("claude:claude:s2"), None, &on, 20);
+        assert_eq!((primary(&s), s.todos[0].sessions.len()), (Some("claude:claude:s1"), 2));
+        // An app's start, linked when its session shows up, does the same.
+        let p = PendingStart { lane: "/r/app".into(), harness: "codex".into(), account: "codex".into(), at: 30 };
+        s.started("a", Some("/r/app"), None, Some(p), &on, 30);
+        s.resolve_pending(&[session("codex:codex:t1", "/r/app", "codex", "codex", 40)], &on, 40);
+        assert_eq!((primary(&s), s.todos[0].sessions.len()), (Some("claude:claude:s1"), 3));
+        // Once the primary session stops, a start takes the todo.
+        let stopped = board(&[("claude:claude:s1", false)]);
+        s.started("a", Some("/r/app"), Some("claude:claude:s3"), None, &stopped, 50);
+        assert_eq!(primary(&s), Some("claude:claude:s3"));
+    }
+
+    #[test]
+    fn a_todos_primary_session_is_written_only_when_it_has_one() {
+        let t = todo("a");
+        assert!(!serde_json::to_string(&t).unwrap().contains("primary"));
+        let read: Todo = serde_json::from_str(r#"{"id":"a","primary":{"session":"c:1","since":5}}"#).unwrap();
+        assert_eq!(read.primary, Some(Primary { session: "c:1".into(), since: 5 }));
+        // Written by hand without a time, it's as old as can be: it holds only while it runs.
+        let read: Todo = serde_json::from_str(r#"{"id":"a","primary":{"session":"c:1"}}"#).unwrap();
+        assert!(!holds(read.primary.as_ref().unwrap(), &board(&[]), NEW_PRIMARY_MS));
+        assert!(holds(read.primary.as_ref().unwrap(), &board(&[("c:1", true)]), NEW_PRIMARY_MS));
     }
 
     fn session<'a>(key: &'a str, lane: &'a str, harness: &'a str, account: &'a str, started: i64) -> SessionRef<'a> {

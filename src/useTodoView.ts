@@ -7,14 +7,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ListRow } from './boardLists';
 import { showContextMenu, type MenuSpec } from './contextMenu';
-import { liveOrLatest, type Filter } from './lanes';
+import { type Filter } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import { nextAfter, usePicks } from './picks';
 import { reorderPinned, type Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import type { Report } from './report';
-import { COLOR_WORD, newTodo, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoSection, type TodoSectionId } from './todos';
+import { COLOR_WORD, itemPrimaryHolds, newTodo, todoAgent, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoSection, type TodoSectionId } from './todos';
 import type { Label, Lane, ProjectSummary, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import type { UndoToast } from './ui/Toasts';
@@ -78,7 +78,7 @@ export function useTodoView(input: TodoViewInput) {
 
   /** Opens the quick panel for a todo: in its worktree, with the todo as the prompt. */
   const startForTodo = useCallback(
-    (r: TodoItem) => newSession({ laneId: r.lane?.id ?? selectedLane?.id ?? null, todo: r.todo.id, prompt: todoPrompt(r.todo) }),
+    (r: TodoItem) => newSession({ laneId: r.lane?.id ?? selectedLane?.id ?? null, todo: r.todo.id, prompt: todoPrompt(r.todo, itemPrimaryHolds(r, Date.now())) }),
     [newSession, selectedLane?.id],
   );
 
@@ -86,7 +86,9 @@ export function useTodoView(input: TodoViewInput) {
    *  has one, on a prompt that has each of them. */
   const startForTodos = useCallback((rows: TodoItem[]) => {
     if (rows.length === 1) return startForTodo(rows[0]);
-    newSession({ laneId: rows.find((r) => r.lane)?.lane?.id ?? selectedLane?.id ?? null, todos: rows.map((r) => r.todo.id), prompt: todosPrompt(rows.map((r) => r.todo)) });
+    const now = Date.now();
+    const holding = (t: Todo) => rows.some((r) => r.todo === t && itemPrimaryHolds(r, now));
+    newSession({ laneId: rows.find((r) => r.lane)?.lane?.id ?? selectedLane?.id ?? null, todos: rows.map((r) => r.todo.id), prompt: todosPrompt(rows.map((r) => r.todo), holding) });
   }, [startForTodo, newSession, selectedLane?.id]);
 
   /** Shows a todo in the Todo view, in its project, with nothing hiding it. */
@@ -213,7 +215,7 @@ export function useTodoView(input: TodoViewInput) {
   const todoMenu = (r: TodoItem) => void showContextMenu(todoMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
   const todoMenuSpec = (r: TodoItem): MenuSpec => {
     const t = r.todo;
-    const agent = liveOrLatest(r.sessions);
+    const agent = todoAgent(r);
     return menus.todoMenu(t, {
       report,
       start: () => startForTodo(r),
@@ -287,6 +289,15 @@ export function useTodoView(input: TodoViewInput) {
         ],
       },
       ...on.map((t) => ({ label: `Remove from todo “${(t.title || 'Untitled').slice(0, 40)}”`, run: () => runTodo({ op: 'link', id: t.id, ...link, linked: false }) })),
+      // A session's own: the todos it's on that aren't done, it as their primary session or not.
+      ...(link.session ? on.filter((t) => t.status !== 'done') : []).map((t) => {
+        const primary = t.primary?.session === link.session;
+        return {
+          label: `Primary session for “${(t.title || 'Untitled').slice(0, 40)}”`,
+          checked: primary,
+          run: () => runTodo({ op: 'primary', id: t.id, session: primary ? null : (link.session ?? null) }),
+        };
+      }),
     ];
   };
 

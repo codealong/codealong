@@ -61,7 +61,7 @@ import { usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountHeadWords,
   agentChipWords,
@@ -87,7 +87,7 @@ import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
-import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
+import { attachmentsIn, blockedBy, insertAttachments, newTodo, primaryHolds, snippet, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
@@ -339,9 +339,10 @@ export function Quick() {
         const ids = ctx.todos ?? (ctx.todo ? [ctx.todo] : []);
         const ts = !ctx.keep && ctx.prompt === undefined ? ids.flatMap((id) => b.todos.find((x) => x.id === id) ?? []) : [];
         if (ts.length > 0) {
-          setText(todosPrompt(ts));
-          const laneById = new Map(b.lanes.map((l) => [l.id, l]));
           const homes = sessionHomes(b.lanes);
+          const now = Date.now();
+          setText(todosPrompt(ts, (t) => primaryHolds(t, homes, now)));
+          const laneById = new Map(b.lanes.map((l) => [l.id, l]));
           if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
         }
       }
@@ -595,6 +596,16 @@ export function Quick() {
   const blocked = board ? forTodos.map((t) => ({ t, on: blockedBy(t, board.todos).filter((w) => !todoIds.includes(w.id)) })).filter((b) => b.on.length > 0) : [];
   const waitsOn = [...new Map(blocked.flatMap((b) => b.on).map((w) => [w.id, w])).values()];
   const marked = forTodos.filter((t) => t.waiting);
+  // The todos whose primary session is running, with it: a new session would work alongside it.
+  const held = useMemo(() => {
+    if (!board) return [];
+    const laneById = new Map(board.lanes.map((l) => [l.id, l]));
+    const homes = sessionHomes(board.lanes);
+    return forTodos.flatMap((t) => {
+      const at = todoItem(t, laneById, homes, new Map()).primary;
+      return at ? [{ todo: t, at }] : [];
+    });
+  }, [board, forTodos]);
   const attached = attachmentsIn(text);
 
   // Attachments go in at the cursor, each on a line of its own.
@@ -791,14 +802,15 @@ export function Quick() {
     void showWaiting({ key, rename });
   };
 
-  /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
-  const todoSession = (r: TodoRow) => liveOrLatest(r.item.sessions);
+  /** The session ⏎ opens for a todo, as in the main window: its primary one while that runs,
+   *  else the live one, else the latest. */
+  const todoSession = (r: TodoRow) => todoAgent(r.item);
 
   /** Makes the new session the todo's: its prompt, its worktree, and linked to it. It starts
    *  when you say so. */
   const prepareTodo = (r: TodoRow) => {
     setTodoIds([r.item.todo.id]);
-    setText(todoPrompt(r.item.todo));
+    setText(todoPrompt(r.item.todo, board ? primaryHolds(r.item.todo, sessionHomes(board.lanes), Date.now()) : undefined));
     if (r.item.lane) setLaneId(r.item.lane.id);
     setActiveKey(COMPOSE);
     setError(null);
@@ -1680,6 +1692,8 @@ export function Quick() {
             <span className="ca-quick-row-main">
               <span className="ca-quick-row-title">{startTitle(forTodos.length, lane ? startTitleWords(lane, inNewWorktree) : null)}</span>
               <span className="ca-quick-row-why">
+                {/* The warning leads: the row's line is cut short when it's long. */}
+                {primaryRunningWords(held, forTodos.length)}
                 {skillNow && `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. `}
                 {happens}
                 {skillLeftOut && ` ${skillLeftOut}`}
@@ -1707,6 +1721,17 @@ export function Quick() {
                 {forTodos.length > 1 && (blocked.length === 1 ? 'one ' : `${blocked.length} `)}
                 {forTodos.length > 1 && blocked.length > 1 ? 'wait' : 'waits'} on {waitsOn.length === 1 ? 'a todo that isn’t done' : `${waitsOn.length} todos that aren’t done`}
               </span>
+            )}
+            {held.length > 0 && (
+              <button
+                type="button"
+                className="ca-quick-todo-wait ca-quick-todo-primary"
+                title={held.map(({ todo: t, at }) => `“${at.session.title}” (${at.session.account} · ${at.lane.callsign}) is ${forTodos.length > 1 ? `“${t.title || 'Untitled'}”’s` : 'its'} primary session. Click to show it.`).join('\n')}
+                onClick={() => showSession(held[0].at.lane, held[0].at.session)}
+              >
+                <Icon name="user" size={12} />
+                <span className="ca-quick-todo-primary-text">{held.length === 1 ? `“${held[0].at.session.title}” is on it` : `${held.length} already have a session`}</span>
+              </button>
             )}
             {marked.length > 0 && (
               <span className="ca-quick-todo-wait" title={`Starting a session on ${forTodos.length > 1 ? 'them' : 'it'} ends the wait.`}>

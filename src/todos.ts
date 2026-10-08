@@ -1,12 +1,12 @@
 // Todos: work you mean to hand an agent. The engine keeps them in todos.json
 // (src-tauri/src/todos.rs) and publishes them with the board. This file has the list's rules:
 // its sections (In progress, Ready, Waiting, Done), search and the status filters, the worktrees and sessions each todo is linked
-// to, the prompt a todo starts a session with, and the copy of each change a window shows
-// until the engine's board has it.
+// to and which of them is its primary session, the prompt a todo starts a session with, and the
+// copy of each change a window shows until the engine's board has it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
-import { prNeedsWork, type Placed } from './lanes';
+import { liveOrLatest, prNeedsWork, type Placed } from './lanes';
 import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus, TodoSuggested, Waiting } from './types';
 import { LABEL_COLORS } from './types';
 import { errorText } from './report';
@@ -20,6 +20,8 @@ export type TodoOp =
   | { op: 'create'; todo: Todo }
   | { op: 'update'; id: string; patch: TodoPatch }
   | { op: 'link'; id: string; worktree?: string; session?: string; linked: boolean }
+  /** Makes a session the primary one, linking it; null leaves the todo without one. */
+  | { op: 'primary'; id: string; session: string | null }
   | { op: 'delete'; id: string }
   | { op: 'restore'; todo: Todo; index: number }
   | { op: 'order'; ids: string[] }
@@ -264,11 +266,16 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
             worktrees: t.worktrees.filter((w) => w !== op.worktree),
             sessions: t.sessions.filter((s) => s !== op.session),
             pending: t.pending.filter((p) => p.lane !== op.worktree),
+            primary: t.primary && t.primary.session === op.session ? null : t.primary,
           };
         }
-        let next = { ...t, worktrees: uniq([...t.worktrees, op.worktree ?? '']), sessions: uniq([...t.sessions, op.session ?? '']) };
-        if (op.session && !t.sessions.includes(op.session) && t.status === 'todo') next = withStatus(next, 'in-progress', now);
-        return next;
+        return linked(t, op.worktree, op.session, now);
+      });
+    case 'primary':
+      return map(op.id, (t) => {
+        if (!op.session) return { ...t, primary: null, updatedAt: now };
+        const next = linked(t, undefined, op.session, now);
+        return next.primary?.session === op.session ? next : { ...next, primary: { session: op.session, since: now }, updatedAt: now };
       });
     case 'delete':
       return { ...store, todos: store.todos.filter((t) => t.id !== op.id) };
@@ -288,6 +295,15 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
     case 'labels':
       return { ...store, labels: op.labels };
   }
+}
+
+/** A todo with a worktree or session linked. The first session on it is its primary one; when
+ *  the engine has another session take it over from one that stopped, its board says so. */
+function linked(t: Todo, worktree: string | undefined, session: string | undefined, now: number): Todo {
+  let next: Todo = { ...t, worktrees: uniq([...t.worktrees, worktree ?? '']), sessions: uniq([...t.sessions, session ?? '']) };
+  if (session && !t.sessions.includes(session) && t.status === 'todo') next = withStatus(next, 'in-progress', now);
+  if (session && !t.primary) next = { ...next, primary: { session, since: now } };
+  return next;
 }
 
 /**
@@ -348,6 +364,8 @@ export interface TodoItem {
   places: TodoPlace[];
   /** Its linked sessions on the board, newest first. */
   sessions: Placed[];
+  /** Its primary session while that runs (`primaryHolds`), where the board lists it. */
+  primary: Placed | null;
   labels: Label[];
   /** The newest of its own changes and its sessions' activity. */
   lastActivity: number;
@@ -369,7 +387,37 @@ export function todoItem(todo: Todo, laneById: Map<string, Lane>, homes: Map<str
   }
   const lane = places.find((p) => p.linked)?.lane ?? sessions[0]?.lane ?? null;
   const lastActivity = Math.max(todo.updatedAt, ...sessions.map((s) => s.session.lastActivity));
-  return { kind: 'todo', key: `todo:${todo.id}`, todo, lane, places, sessions, labels: todo.labels.flatMap((id) => labelById.get(id) ?? []), lastActivity };
+  const primary = sessions.find((s) => s.session.key === todo.primary?.session && running(s.session)) ?? null;
+  return { kind: 'todo', key: `todo:${todo.id}`, todo, lane, places, sessions, primary, labels: todo.labels.flatMap((id) => labelById.get(id) ?? []), lastActivity };
+}
+
+/** How long a session made primary holds its todo before the board lists it (`NEW_PRIMARY_MS`
+ *  in todos.rs): one started in a terminal shows up a few seconds after it's linked. */
+const NEW_PRIMARY_MS = 5 * 60 * 1000;
+
+/** Running, as a primary session has to be to hold its todo: its process is up and it isn't
+ *  archived. */
+function running(s: Session): boolean {
+  return s.live && !s.archived;
+}
+
+/** Whether a todo's primary session still has it: it's running, or it became primary so lately
+ *  that the board doesn't list it yet. `holds` in todos.rs has the same rule. */
+export function primaryHolds(todo: Todo, homes: Map<string, Placed>, now: number): boolean {
+  if (!todo.primary) return false;
+  const home = homes.get(todo.primary.session);
+  return home ? running(home.session) : now - todo.primary.since < NEW_PRIMARY_MS;
+}
+
+/** `primaryHolds` for a todo's row, whose sessions are the ones on the board linked to it. */
+export function itemPrimaryHolds(item: Pick<TodoItem, 'todo' | 'sessions'>, now: number): boolean {
+  return primaryHolds(item.todo, new Map(item.sessions.map((s) => [s.session.key, s])), now);
+}
+
+/** The session to open for a todo: its primary one while that runs, else the running one, else
+ *  the latest. */
+export function todoAgent(item: Pick<TodoItem, 'primary' | 'sessions'>): Placed | null {
+  return item.primary ?? liveOrLatest(item.sessions);
 }
 
 /** The PR of a todo's worktrees, open ones first. */
@@ -469,24 +517,37 @@ export function panelTodos(todos: Todo[]): Todo[] {
 }
 
 /** What a session started from a todo is asked: the title, the description, then which todo
- *  it is, so the agent can mark it done through the codealong skill. `todo_prompt` in cli.rs
+ *  it is, so the agent can mark it done through the codealong skill, and its primary session
+ *  (`primaryLine`) when `holding` says whether that one still has it. `todo_prompt` in cli.rs
  *  writes the same text. */
-export function todoPrompt(t: Todo): string {
+export function todoPrompt(t: Todo, holding?: boolean): string {
   const title = t.title.trim();
   const body = t.description.trim();
   const footer = `This is Codealong todo ${t.id}. When the work is merged or I say it's done, mark it done with \`codealong todo done ${t.id}\`.`;
-  return [title, body, footer].filter(Boolean).join('\n\n');
+  return [title, body, footer, holding === undefined ? null : primaryLine(t, holding)].filter(Boolean).join('\n\n');
+}
+
+/** What a session started on a todo is told of the todo's primary session: that it's running,
+ *  so this one sends it what it finds; or that it had the todo before, where its work is.
+ *  `primary_line` in cli.rs writes the same text. */
+export function primaryLine(t: Todo, holding: boolean): string | null {
+  const key = t.primary?.session;
+  if (!key) return null;
+  return holding
+    ? `${t.id}'s primary session is ${key}, which is running: send it what you find with \`codealong session send ${key} "…"\` rather than do the same work.`
+    : `Session ${key} had ${t.id} before you: \`codealong session show ${key}\` has its records.`;
 }
 
 /** What one session started for several todos is asked: each one's title and description,
- *  numbered, then which todos they are. One todo is `todoPrompt`'s. `todos_prompt` in cli.rs
- *  writes the same text. */
-export function todosPrompt(ts: Todo[]): string {
-  if (ts.length === 1) return todoPrompt(ts[0]);
+ *  numbered, then which todos they are, and their primary sessions when `holding` is given.
+ *  One todo is `todoPrompt`'s. `todos_prompt` in cli.rs writes the same text. */
+export function todosPrompt(ts: Todo[], holding?: (t: Todo) => boolean): string {
+  if (ts.length === 1) return todoPrompt(ts[0], holding?.(ts[0]));
   const parts = ts.flatMap((t, i) => [`${i + 1}. ${t.title.trim() || 'Untitled'}`, t.description.trim()].filter(Boolean));
   const ids = ts.map((t, i) => `${t.id} (${i + 1})`);
   const footer = `These are Codealong todos ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}. When the work on one is merged or I say it's done, mark it done with \`codealong todo done <id>\`.`;
-  return [`Work on these ${ts.length} todos:`, ...parts, footer].join('\n\n');
+  const primaries = holding ? ts.flatMap((t) => primaryLine(t, holding(t)) ?? []) : [];
+  return [`Work on these ${ts.length} todos:`, ...parts, footer, ...primaries].join('\n\n');
 }
 
 /** The first line of a description, for a row. Images drop out; a file leaves its name. */

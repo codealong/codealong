@@ -11,7 +11,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { homeOf, liveOrLatest, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { homeOf, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
@@ -22,7 +22,7 @@ import { usePicks } from './picks';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
-import { todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
+import { itemPrimaryHolds, todoAgent, todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo } from './types';
 import { shortOf, type DeviceFilter } from './devices';
 import { DeviceBadge } from './ui/DeviceBadge';
@@ -605,11 +605,11 @@ export function App() {
         return;
       }
       if (row.kind === 'todo') {
-        // A todo opens its agent where it lives: the live one, else the latest. Without one,
-        // it's time to start one.
-        const s = liveOrLatest(row.sessions);
+        // A todo opens its agent where it lives: its primary session while that runs, else the
+        // live one, else the latest. Without one, it's time to start one.
+        const s = todoAgent(row);
         if (s) open(s.lane, s.session.openTarget);
-        else newSession({ laneId: row.lane?.id ?? null, todo: row.todo.id, prompt: todoPrompt(row.todo) });
+        else newSession({ laneId: row.lane?.id ?? null, todo: row.todo.id, prompt: todoPrompt(row.todo, itemPrimaryHolds(row, Date.now())) });
         return;
       }
       open(row.lane, row.kind === 'agent' ? row.session.openTarget : row.lane.defaultTarget);

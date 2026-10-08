@@ -149,8 +149,13 @@ enum TodoCmd {
     Add(TodoAddArgs),
     /// Change a todo's fields. Only the ones given change.
     Update(TodoUpdateArgs),
-    /// Mark a todo in progress, and link the session running this command and its worktree to it.
-    Start { id: String },
+    /// Mark a todo in progress, and link the session running this command and its worktree to it. The first session on a todo is its primary one, where the work on it goes on; while another session is that and is running, this is turned down: send that session what you have instead (`codealong session send`), or take the todo over with --take.
+    Start {
+        id: String,
+        /// Make the session running this command the todo's primary one, though another is and runs: when your user asks, or that session is stuck.
+        #[arg(long)]
+        take: bool,
+    },
     /// Mark a todo done, and link the session running this command to it: finishing a todo says you worked on it.
     Done { id: String },
     /// Put a done or in-progress todo back to todo.
@@ -566,6 +571,9 @@ struct StartArgs {
     /// The prompt, when not starting a todo.
     #[arg(long)]
     prompt: Option<String>,
+    /// Start it on a todo whose primary session is running, and make the new session the primary one. Without it, a session running this command that isn't that one is turned down; one started from a terminal works alongside it.
+    #[arg(long, conflicts_with = "prompt")]
+    take: bool,
     /// The account to run it on. `auto` picks as the quick panel does: a preferred account with room for the model (config.toml's `preferred`), and among those the one whose weekly limit resets soonest.
     #[arg(long, default_value = "auto")]
     account: String,
@@ -768,7 +776,7 @@ impl Client {
     /// anything changed. The cached board is dropped, so the next read shows the change.
     fn apply(&mut self, op: TodoOp) -> Result<bool> {
         self.note();
-        let needs_lanes = matches!(op, TodoOp::Link { .. });
+        let needs_lanes = matches!(op, TodoOp::Link { .. } | TodoOp::Primary { .. });
         let out = match self.app.is_some() {
             true => match server::ask(&Request::TodoApply { op }) {
                 Some(Ok(_)) => Ok(true),
@@ -776,7 +784,8 @@ impl Client {
                 None => bail!("The app stopped answering."),
             },
             false => {
-                // Only a link looks a worktree up, and the board takes a moment to read.
+                // Only a link looks a worktree or a session up, and the board takes a moment to
+                // read.
                 let lanes = match needs_lanes {
                     true => todos::LaneIndex::of(&self.board()?.lanes),
                     false => todos::LaneIndex::default(),
@@ -2429,6 +2438,9 @@ struct TodoRow {
     labels: Vec<String>,
     worktrees: Vec<String>,
     sessions: Vec<String>,
+    /// Its primary session's key: where the work on it goes on, or went on last when that session
+    /// has stopped. Null when no session has been on it.
+    primary: Option<String>,
     /// Ids of the todos it waits on.
     depends_on: Vec<String>,
     /// The ones of those not done yet: while any are, it's blocked.
@@ -2485,6 +2497,7 @@ fn todo_row(t: &Todo, store: &TodoStore, full: bool) -> TodoRow {
         labels: t.labels.iter().map(|id| store.labels.iter().find(|l| &l.id == id).map(|l| l.name.clone()).unwrap_or_else(|| id.clone())).collect(),
         worktrees: t.worktrees.clone(),
         sessions: t.sessions.clone(),
+        primary: t.primary.as_ref().map(|p| p.session.clone()),
         depends_on: t.depends_on.iter().filter(|d| store.todos.iter().any(|x| &x.id == *d)).cloned().collect(),
         blocked_by: store.blocked_by(t).iter().map(|x| x.id.clone()).collect(),
         waiting: t.waiting.clone(),
@@ -2635,7 +2648,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let now = now_ms();
             let waiting = a.wait_for.map(|note| Waiting { note, since: now });
             let due = a.due.as_deref().map(|w| todos::due_from_words(w, util::today_local())).transpose()?;
-            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, due };
+            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, due, primary: None };
             c.apply(TodoOp::Create { todo })?;
             link(c, &id, worktree.as_deref(), session.as_deref(), true)?;
             show_after(c, &id, json)
@@ -2684,11 +2697,32 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             }
             show_after(c, &id, json)
         }
-        TodoCmd::Start { id } => {
+        TodoCmd::Start { id, take } => {
             let store = c.todos()?;
             let id = resolve_todo(&store, &id)?;
+            let t = store.todos.iter().find(|t| t.id == id).unwrap();
+            let me = find_me(c)?.0;
+            if let Some(p) = primary_elsewhere(c, t, me.as_deref())? {
+                let who = session_words(c, &p.session);
+                match (&me, take) {
+                    (Some(_), false) => bail!(
+                        "{id}'s primary session is {who}, which is running. Send it what you have with `codealong session send {key} \"…\"` rather than take {id} on too. `codealong todo start {id} --take` makes this session the primary one instead: for when your user asks, or that session is stuck.",
+                        key = p.session
+                    ),
+                    (None, false) => eprintln!("note: {id}'s primary session is {who}, which is running."),
+                    _ => {}
+                }
+            }
+            if take && me.is_none() {
+                bail!("Codealong couldn't tell which session runs this command, so there's none to make {id}'s primary session.");
+            }
             warn_blocked(&store, &id, &[]);
-            set_status(c, &id, TodoStatus::InProgress, json)
+            c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { status: Some(TodoStatus::InProgress), ..Default::default() } })?;
+            link_caller(c, &id, TodoStatus::InProgress, json);
+            if let Some(me) = me.filter(|_| take) {
+                c.apply(TodoOp::Primary { id: id.clone(), session: Some(me) })?;
+            }
+            show_after(c, &id, json)
         }
         TodoCmd::Move(a) => {
             let store = c.todos()?;
@@ -2858,6 +2892,22 @@ fn link_caller(c: &mut Client, id: &str, status: TodoStatus, json: bool) {
     }
 }
 
+/// A todo's primary session when it's another than `me` and still has the todo
+/// (`todos::holds`): the session to send what you have, rather than take the todo on too.
+fn primary_elsewhere(c: &mut Client, t: &Todo, me: Option<&str>) -> Result<Option<todos::Primary>> {
+    let Some(p) = t.primary.clone().filter(|p| Some(p.session.as_str()) != me) else { return Ok(None) };
+    let lanes = todos::LaneIndex::of(&c.board()?.lanes);
+    Ok(todos::holds(&p, &lanes, now_ms()).then_some(p))
+}
+
+/// A session as a message names it: its title, account and worktree, then its key.
+fn session_words(c: &mut Client, key: &str) -> String {
+    match c.board().ok().and_then(|b| b.session(key)) {
+        Some((lane, s)) => format!("\"{}\" ({} · {}, {key})", s.title, s.account, lane.callsign),
+        None => key.to_string(),
+    }
+}
+
 /// Links (or unlinks) the worktree and session named, `.` and `me` included.
 fn link(c: &mut Client, id: &str, worktree: Option<&str>, session: Option<&str>, linked: bool) -> Result<()> {
     if let Some(w) = worktree {
@@ -2891,7 +2941,7 @@ fn print_todo(r: &TodoRow) {
         println!("Worktree: {}", tilde(Path::new(w)));
     }
     for s in &r.sessions {
-        println!("Session: {s}");
+        println!("Session: {s}{}", if r.primary.as_ref() == Some(s) { " (primary)" } else { "" });
     }
     for w in r.waits_on.iter().flatten() {
         println!("Waits on: {} {} ({})", w.id, w.title, w.status);
@@ -2989,18 +3039,31 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
 // ---- start ----
 
 /// What a session started on a todo is asked: the title, the description, then which todo it
-/// is, so the agent can mark it done. `todoPrompt` in `src/todos.ts` writes the same text.
-fn todo_prompt(t: &Todo) -> String {
+/// is, so the agent can mark it done, and its primary session (`primary_line`). `holding` says
+/// whether that session still has it. `todoPrompt` in `src/todos.ts` writes the same text.
+fn todo_prompt(t: &Todo, holding: bool) -> String {
     let footer = format!("This is Codealong todo {id}. When the work is merged or I say it's done, mark it done with `codealong todo done {id}`.", id = t.id);
-    [t.title.trim(), t.description.trim(), &footer].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n\n")
+    let primary = primary_line(t, holding).unwrap_or_default();
+    [t.title.trim(), t.description.trim(), &footer, &primary].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n\n")
+}
+
+/// What a session started on a todo is told of the todo's primary session: that it's running,
+/// so this one sends it what it finds; or that it had the todo before, where its work is.
+/// `primaryLine` in `src/todos.ts` writes the same text.
+fn primary_line(t: &Todo, holding: bool) -> Option<String> {
+    let key = &t.primary.as_ref()?.session;
+    Some(match holding {
+        true => format!("{id}'s primary session is {key}, which is running: send it what you find with `codealong session send {key} \"…\"` rather than do the same work.", id = t.id),
+        false => format!("Session {key} had {id} before you: `codealong session show {key}` has its records.", id = t.id),
+    })
 }
 
 /// What one session started on several todos is asked: each one's title and description,
-/// numbered, then which todos they are. One todo is `todo_prompt`'s. `todosPrompt` in
-/// `src/todos.ts` writes the same text.
-fn todos_prompt(ts: &[&Todo]) -> String {
+/// numbered, then which todos they are, and their primary sessions. One todo is `todo_prompt`'s.
+/// `todosPrompt` in `src/todos.ts` writes the same text.
+fn todos_prompt(ts: &[&Todo], holding: impl Fn(&Todo) -> bool) -> String {
     if let [t] = ts {
-        return todo_prompt(t);
+        return todo_prompt(t, holding(t));
     }
     let mut parts = vec![format!("Work on these {} todos:", ts.len())];
     for (i, t) in ts.iter().enumerate() {
@@ -3013,6 +3076,7 @@ fn todos_prompt(ts: &[&Todo]) -> String {
     let ids: Vec<String> = ts.iter().enumerate().map(|(i, t)| format!("{} ({})", t.id, i + 1)).collect();
     let (last, rest) = ids.split_last().map(|(l, r)| (l.clone(), r.join(", "))).unwrap_or_default();
     parts.push(format!("These are Codealong todos {rest} and {last}. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`."));
+    parts.extend(ts.iter().filter_map(|t| primary_line(t, holding(t))));
     parts.join("\n\n")
 }
 
@@ -3020,6 +3084,10 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     // Codealong's chats are a lane like any other, by their folder, which start.rs gives a chat
     // of its own.
     let lane_id = if a.chat { crate::config::chats_dir().to_string_lossy().into_owned() } else { resolve_worktree(c, &a.worktree)? };
+    // Run by an agent, the new session was started by that agent's.
+    let from = find_me(c)?.0;
+    // The todos whose primary session runs, which --take takes them from.
+    let mut taken: Vec<(String, todos::Primary)> = Vec::new();
     let (prompt, todo_ids) = match (a.todo.as_slice(), &a.prompt) {
         ([], Some(p)) => (p.clone(), Vec::new()),
         ([], None) => bail!("Give --todo or --prompt."),
@@ -3032,11 +3100,30 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
                     ids.push(id);
                 }
             }
+            let ts: Vec<&Todo> = ids.iter().filter_map(|id| store.todos.iter().find(|t| &t.id == id)).collect();
+            // A session that's a todo's primary one starts others to work alongside it; any other
+            // agent's start would be a second one doing the same work.
+            let mut turned_down = Vec::new();
+            for t in &ts {
+                let Some(p) = primary_elsewhere(c, t, from.as_deref())? else { continue };
+                let who = session_words(c, &p.session);
+                match (a.take, &from) {
+                    (true, _) => taken.push((t.id.clone(), p)),
+                    (false, Some(_)) => turned_down.push(format!("{}'s primary session is {who}, which is running. Send it what you have with `codealong session send {} \"…\"` rather than start another session on it; --take starts one that takes it over, for when your user asks.", t.id, p.session)),
+                    (false, None) => eprintln!("note: {}'s primary session is {who}, which is running; the new session works alongside it. --take makes the new one the primary session.", t.id),
+                }
+            }
+            if !turned_down.is_empty() {
+                bail!("{}", turned_down.join("\n"));
+            }
             for id in &ids {
                 warn_blocked(&store, id, &ids);
             }
-            let ts: Vec<&Todo> = ids.iter().filter_map(|id| store.todos.iter().find(|t| &t.id == id)).collect();
-            (todos_prompt(&ts), ids)
+            let lanes = todos::LaneIndex::of(&c.board()?.lanes);
+            let now = now_ms();
+            // Taken over, its primary session is the one that had it before.
+            let holding = |t: &Todo| !taken.iter().any(|(id, _)| id == &t.id) && t.primary.as_ref().is_some_and(|p| todos::holds(p, &lanes, now));
+            (todos_prompt(&ts, holding), ids)
         }
     };
     let place = a.place.map(|p| match p {
@@ -3067,8 +3154,6 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             places.first().copied().ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    // Run by an agent, the new session was started by that agent's.
-    let from = find_me(c)?.0;
     let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from };
     if a.dry_run {
         let cfg = c.cfg()?.clone();
@@ -3080,7 +3165,21 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&plan)?);
         return Ok(());
     }
-    let started = c.start(&spec)?;
+    // Without a primary session, the todo's next one becomes it: the one this starts.
+    for (id, _) in &taken {
+        c.apply(TodoOp::Primary { id: id.clone(), session: None })?;
+    }
+    let started = match c.start(&spec) {
+        Ok(s) => s,
+        Err(e) => {
+            for (id, p) in taken {
+                if let Err(e) = c.apply(TodoOp::Primary { id: id.clone(), session: Some(p.session) }) {
+                    eprintln!("note: {id} was left without a primary session: {e:#}");
+                }
+            }
+            return Err(e);
+        }
+    };
     if json {
         return print_json(&started);
     }
@@ -3434,7 +3533,7 @@ mod tests {
     fn ids_are_usable_and_prefixes_resolve() {
         let id = new_todo_id();
         assert!(id.starts_with("t-") && id.len() > 8 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None };
+        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None, primary: None };
         let store = TodoStore { todos: vec![t("t-abc1"), t("t-abd2")], labels: vec![] };
         assert_eq!(resolve_todo(&store, "t-abc").unwrap(), "t-abc1");
         assert!(resolve_todo(&store, "t-ab").unwrap_err().to_string().contains("2 todos"));
@@ -3444,17 +3543,57 @@ mod tests {
 
     #[test]
     fn several_todos_start_on_one_prompt() {
-        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None };
+        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None, primary: None };
         let (a, b, c) = (t("t-a", " Fix the header ", "\nIt wraps.\n"), t("t-b", "Add a logout button", ""), t("t-c", "", "No title."));
         // The same text as `todosPrompt`'s test in src/todos.test.ts.
         let footer = "When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
-        assert_eq!(todos_prompt(&[&a, &b]), format!("Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). {footer}"));
-        assert!(todos_prompt(&[&a, &b, &c]).contains("3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3)."));
-        assert_eq!(todos_prompt(&[&a]), todo_prompt(&a));
+        assert_eq!(todos_prompt(&[&a, &b], |_| false), format!("Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). {footer}"));
+        assert!(todos_prompt(&[&a, &b, &c], |_| false).contains("3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3)."));
+        assert_eq!(todos_prompt(&[&a], |_| false), todo_prompt(&a, false));
         let cli = Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--todo", "t-b"]).unwrap();
         let Cmd::Start(s) = cli.cmd else { panic!() };
         assert_eq!(s.todo, vec!["t-a".to_string(), "t-b".to_string()]);
         assert!(Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--prompt", "Fix it"]).is_err());
+        // Taking a todo over is for starts on todos.
+        assert!(Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--take"]).is_ok());
+        assert!(Cli::try_parse_from(["codealong", "start", "--prompt", "Fix it", "--take"]).is_err());
+    }
+
+    #[test]
+    fn a_session_started_on_a_todo_is_told_of_its_primary_session() {
+        let t = |id: &str, primary: Option<&str>| Todo {
+            id: id.into(),
+            project: String::new(),
+            title: "Fix the header".into(),
+            description: String::new(),
+            status: TodoStatus::InProgress,
+            labels: vec![],
+            worktrees: vec![],
+            sessions: vec![],
+            created_at: 0,
+            updated_at: 0,
+            done_at: None,
+            pending: vec![],
+            depends_on: vec![],
+            waiting: None,
+            due: None,
+            primary: primary.map(|s| todos::Primary { session: s.into(), since: 0 }),
+        };
+        let (a, b) = (t("t-a", Some("claude:claude:s1")), t("t-b", None));
+        // The same text as `todoPrompt`'s test in src/todos.test.ts.
+        let footer = "This is Codealong todo t-a. When the work is merged or I say it's done, mark it done with `codealong todo done t-a`.";
+        // One that runs gets what this one finds; one that stopped left its records.
+        assert_eq!(
+            todo_prompt(&a, true),
+            format!("Fix the header\n\n{footer}\n\nt-a's primary session is claude:claude:s1, which is running: send it what you find with `codealong session send claude:claude:s1 \"…\"` rather than do the same work.")
+        );
+        assert_eq!(todo_prompt(&a, false), format!("Fix the header\n\n{footer}\n\nSession claude:claude:s1 had t-a before you: `codealong session show claude:claude:s1` has its records."));
+        // A todo no session has been on says nothing of one.
+        assert!(!todo_prompt(&b, false).contains("session "));
+        assert!(todos_prompt(&[&b, &a], |t| t.id == "t-a").ends_with("t-a's primary session is claude:claude:s1, which is running: send it what you find with `codealong session send claude:claude:s1 \"…\"` rather than do the same work."));
+        let cli = Cli::try_parse_from(["codealong", "todo", "start", "t-a", "--take"]).unwrap();
+        let Cmd::Todo { cmd: TodoCmd::Start { take, .. }, .. } = cli.cmd else { panic!() };
+        assert!(take);
     }
 
     fn session(key: &str, live: bool, visitor: Option<&str>) -> Session {
@@ -3464,7 +3603,7 @@ mod tests {
 
     fn todo(id: &str, status: TodoStatus, sessions: &[&str], worktrees: &[&str]) -> Todo {
         let strings = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
-        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None }
+        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None, primary: None }
     }
 
     /// The main checkout, where this session and another live one work, and a worktree of its

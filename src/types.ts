@@ -759,6 +759,17 @@ export interface Todo {
   waiting?: Waiting | null;
   /** The day it's due, as `2026-10-03` (src/due.ts). Missing or null when it has none. */
   due?: string | null;
+  /** Its primary session: where the work on it goes on, which other sessions send what they
+   *  find instead of taking it on too (todos.rs `Primary`). Kept after that session stops, as
+   *  the one that had it last. Missing or null when no session has been on it. */
+  primary?: TodoPrimary | null;
+}
+
+export interface TodoPrimary {
+  /** Its key. */
+  session: string;
+  /** When it became the primary one. */
+  since: number;
 }
 
 /** Light, dark, or following macOS. */

@@ -37,6 +37,7 @@
       "sessions": [
         "$session:0"
       ],
+      "primary": "$session:0",
       "dueIn": -2
     },
     {

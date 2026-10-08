@@ -339,6 +339,26 @@ html.is-quick body {
   gap: var(--space-1);
   color: var(--attn);
 }
+/* A todo's primary session, running: a flag like the waits-on one that shows the session, and
+   gives way to the todo's title before it's cut short. */
+.ca-quick-todo-primary {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.ca-quick-todo-primary:hover .ca-quick-todo-primary-text {
+  text-decoration: underline;
+}
+.ca-quick-todo-primary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ca-quick-error {
   display: flex;
   align-items: flex-start;

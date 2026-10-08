@@ -16,9 +16,11 @@ interface PanelSessionProps {
   onShow: (lane: Lane, session: Session) => void;
   onOpen: (lane: Lane, session: Session) => void;
   onMenu: (lane: Lane, session: Session) => void;
+  /** It's the todo's primary session, and running. */
+  primary?: boolean;
 }
 
-export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu }: PanelSessionProps) {
+export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, primary = false }: PanelSessionProps) {
   return (
     <div
       role="treeitem"
@@ -33,6 +35,11 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu }: 
         <span className="ca-psess-text">
           <span className="ca-psess-line1">
             <span className="ca-psess-title">{s.title}</span>
+            {primary && (
+              <span className="ca-tag ca-psess-primary" title="The todo's primary session: where the work on it goes on. Sessions started for it while this one runs work alongside it.">
+                Primary
+              </span>
+            )}
             <span className="ca-tree-age" title={absolute(s.lastActivity)}>
               {ago(s.lastActivity, now)}
             </span>
@@ -63,10 +70,12 @@ interface PanelPlaceProps {
   onShowSession: (lane: Lane, session: Session) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onSessionMenu: (lane: Lane, session: Session) => void;
+  /** The key of the todo's primary session, while it runs. */
+  primary?: string | null;
 }
 
 /** A worktree and its sessions in a panel, as the sidebar's tree draws them. */
-export function PanelPlace({ lane, sessions, note, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu }: PanelPlaceProps) {
+export function PanelPlace({ lane, sessions, note, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlaceProps) {
   return (
     <div role="treeitem" aria-expanded={sessions.length > 0 ? true : undefined}>
       <div
@@ -85,7 +94,7 @@ export function PanelPlace({ lane, sessions, note, now, onShowLane, onLaneMenu, 
       {sessions.length > 0 && (
         <div className="ca-tree-children" role="group">
           {sessions.map((s) => (
-            <PanelSession key={s.key} lane={lane} session={s} now={now} onShow={onShowSession} onOpen={onOpenSession} onMenu={onSessionMenu} />
+            <PanelSession key={s.key} lane={lane} session={s} now={now} onShow={onShowSession} onOpen={onOpenSession} onMenu={onSessionMenu} primary={s.key === primary} />
           ))}
         </div>
       )}

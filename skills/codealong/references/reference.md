@@ -180,7 +180,10 @@ Commands:
   add     A new todo at the top of the list. Prints it
   update  Change a todo's fields. Only the ones given change
   start   Mark a todo in progress, and link the session running this command and its
-          worktree to it
+          worktree to it. The first session on a todo is its primary one, where the work
+          on it goes on; while another session is that and is running, this is turned
+          down: send that session what you have instead (`codealong session send`), or
+          take the todo over with --take
   done    Mark a todo done, and link the session running this command to it: finishing a
           todo says you worked on it
   reopen  Put a done or in-progress todo back to todo
@@ -412,7 +415,9 @@ Options:
 
 ```
 Mark a todo in progress, and link the session running this command and its worktree to
-it
+it. The first session on a todo is its primary one, where the work on it goes on; while
+another session is that and is running, this is turned down: send that session what you
+have instead (`codealong session send`), or take the todo over with --take
 
 Usage: codealong todo start [OPTIONS] <ID>
 
@@ -423,6 +428,10 @@ Arguments:
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --take
+          Make the session running this command the todo's primary one, though another
+          is and runs: when your user asks, or that session is stuck
 
       --table
           Tables, even when piped
@@ -1759,15 +1768,20 @@ Options:
       --table
           Tables, even when piped
 
+      --take
+          Start it on a todo whose primary session is running, and make the new session
+          the primary one. Without it, a session running this command that isn't that
+          one is turned down; one started from a terminal works alongside it
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
       --account <ACCOUNT>
           The account to run it on. `auto` picks as the quick panel does: a preferred
           account with room for the model (config.toml's `preferred`), and among those
           the one whose weekly limit resets soonest
           
           [default: auto]
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
       --worktree <WORKTREE>
           The worktree to run in: a path, or `.` (the default)

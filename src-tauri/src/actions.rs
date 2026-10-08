@@ -720,12 +720,15 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(started)
 }
 
-/// The copy a session moved into takes its place: the todos it was on and its place among the
-/// pinned sessions. The session itself is archived.
+/// The copy a session moved into takes its place: the todos it was on, as their primary session
+/// where it was theirs, and its place among the pinned sessions. The session itself is archived.
 fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
     for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
         // The session stays on it too, as one that worked on it.
-        let link = crate::todos::TodoOp::Link { id: t.id.clone(), worktree: None, session: Some(copy.to_string()), linked: true };
+        let link = match t.primary.as_ref().is_some_and(|p| p.session == key) {
+            true => crate::todos::TodoOp::Primary { id: t.id.clone(), session: Some(copy.to_string()) },
+            false => crate::todos::TodoOp::Link { id: t.id.clone(), worktree: None, session: Some(copy.to_string()), linked: true },
+        };
         if let Err(e) = engine.todo(link) {
             eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
         }

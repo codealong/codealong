@@ -10,7 +10,7 @@ import { branchLabel, byStatusTime, sessionHomes } from './lanes';
 import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
-import type { Board, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
+import type { Board, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 /** Codealong's chats, as the worktree picker offers them: a chat of its own, in no project. */
@@ -562,6 +562,17 @@ export function startTitle(todos: number, where: string | null): string {
   const title = where ?? 'Start a new session';
   if (todos > 1) return `${title} for these ${todos} todos`;
   return todos === 1 ? `${title} for this todo` : title;
+}
+
+/** What the start row says first when a todo it's for has a primary session that's running
+ *  (todos.ts `primaryHolds`): the new session would work alongside it, not in its place. */
+export function primaryRunningWords(held: { todo: Pick<Todo, 'title'>; at: { lane: Pick<Lane, 'callsign'>; session: Pick<Session, 'title' | 'account'> } }[], todos: number): string {
+  const [first] = held;
+  if (!first) return '';
+  const who = `“${first.at.session.title}” (${first.at.session.account} · ${first.at.lane.callsign})`;
+  if (held.length > 1) return `${who} and ${held.length - 1} more are running as these todos’ primary sessions: this one would work alongside them. `;
+  const whose = todos > 1 ? `“${first.todo.title || 'Untitled'}”’s` : 'this todo’s';
+  return `${who} is ${whose} primary session and is running: this one would work alongside it. `;
 }
 
 /** What the start row adds about the files attached to the prompt. */

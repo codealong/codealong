@@ -32,8 +32,15 @@ done` say on stderr that no session was linked; give a session key when you want
   file with `--description-file`, or from stdin with `--description-file -`.
 - **When you take on a todo:** `codealong todo start <id>`. It marks the todo in progress and
   links your session and worktree, so the app shows the todo on both. A session started from a
-  todo gets a prompt that ends by naming it ("This is Codealong todo <id>"); that session is
-  already linked, and that id is the one to mark done.
+  todo gets a prompt that names it ("This is Codealong todo <id>"); that session is already
+  linked, and that id is the one to mark done.
+- **One primary session per todo.** The first session on a todo is its primary one (`primary`
+  in the JSON), where the work on it goes on. While another session is that and is running,
+  `todo start` is turned down and names it: send it what you have (`codealong session send`)
+  rather than do the same work. `--take` makes your session the primary one instead; use it
+  only when your user asks, or that session is stuck. A session started for a todo whose
+  primary session runs works alongside it, and its prompt says which session to report to;
+  one that took over is told which session had the todo before, whose records show its work.
 - **When the work is done:** `codealong todo done <id>`, once it's merged or the user says
   it's done. It links your session to the todo too, if it wasn't already. Don't mark a todo
   done on your own guess that it is; ask.
@@ -195,7 +202,9 @@ prompt, then a line naming the todo) in the current worktree, on the account Aut
 (a tab or window, as config.toml's `new_terminal` says), and links the session to the todo. Give `--todo` more than once to
 start several todos in one session: the prompt numbers them, and the session is linked to each. `--account`, `--worktree`, `--new-worktree`,
 `--in background|claude-app|codex-app` (background: nothing comes forward; Claude Code's `--bg` with no terminal, any other agent in a terminal behind your windows), `--model` and `--effort` change that. Only do this when the user asks for a
-session to be started.
+session to be started. A todo's primary session starts others on it to work alongside it; from
+any other session, a start on a todo whose primary session runs is turned down, as `todo start`
+is, and `--take` starts one that takes the todo over.
 
 ## Configuring Codealong
 
