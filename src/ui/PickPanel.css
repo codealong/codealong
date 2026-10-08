@@ -1,40 +1,40 @@
-/* Several sessions picked in Sessions (SessionPickPanel.tsx): how many, the strip of what's done
-   to all of them, and each of them, as the panel for several todos has them (TodoPanel.css). */
+/* Rows picked together in a list (PickPanel.tsx): how many, the strip of what's done to all of
+   them, and each of them. */
 
-.ca-sesspick-header {
+.ca-pick-header {
   display: grid;
   gap: 6px;
 }
-.ca-sesspick .ca-insp-title .ca-tag {
+.ca-pick .ca-insp-title .ca-tag {
   margin-left: 0;
 }
-.ca-sesspick-more {
+.ca-pick-more {
   margin-left: auto;
 }
-.ca-sesspick-head {
+.ca-pick-head {
   margin: 0;
   color: var(--ink);
   font: var(--type-heading-lg);
 }
-.ca-sesspick-help {
+.ca-pick-help {
   margin: 0;
   font: var(--type-meta);
   color: var(--ink-3);
 }
 /* The strip a session's panel has over its box, here at the panel's start, wrapping where it's
    narrow. */
-.ca-sesspick .ca-hotkeys.ca-sesspick-keys {
+.ca-pick .ca-hotkeys.ca-pick-keys {
   justify-content: flex-start;
   margin: 0 -5px;
 }
-.ca-sesspick-list {
+.ca-pick-list {
   display: grid;
   gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.ca-sesspick-row {
+.ca-pick-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -44,13 +44,20 @@
   padding: 0 4px 0 6px;
   border-radius: var(--radius-sm);
 }
-.ca-sesspick-row:hover {
+.ca-pick-row:hover {
   background: var(--surface-hover);
 }
-.ca-sesspick-row.is-archived {
+.ca-pick-row.is-dim {
   opacity: 0.8;
 }
-.ca-sesspick-name {
+.ca-pick-n {
+  flex: none;
+  min-width: 14px;
+  color: var(--ink-3);
+  font: var(--type-code-meta);
+  text-align: right;
+}
+.ca-pick-name {
   flex: 1;
   min-width: 0;
   padding: 0;
@@ -64,14 +71,16 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.ca-sesspick-chips {
+.ca-pick-chips {
   flex: 0 1 auto;
   min-width: 0;
 }
-.ca-sesspick-row .ca-account {
+.ca-pick-row .ca-tag,
+.ca-pick-row .ca-account {
   flex: none;
+  margin-left: 0;
 }
-.ca-sesspick-out {
+.ca-pick-out {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -85,7 +94,7 @@
   color: var(--ink-3);
   cursor: pointer;
 }
-.ca-sesspick-out:hover {
+.ca-pick-out:hover {
   background: var(--surface-selected);
   color: var(--ink);
 }

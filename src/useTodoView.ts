@@ -373,6 +373,8 @@ export function useTodoView(input: TodoViewInput) {
     duePicked,
     pickedRows,
     pickedKeys,
+    pickAll: picks.all,
+    clearPick,
     composer,
     setComposer,
     composerRef,

@@ -6,14 +6,15 @@
 
 import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
 import type { ListRow } from './boardLists';
+import type { MenuAction } from './contextMenu';
 import { historyChord } from './history';
 import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
-import type { SelectHow } from './picks';
 import type { Pins } from './pins';
 import { chordPressed, queueKey, type QueueAction } from './queue';
 import type { TodoItem } from './todos';
+import type { ListPicksKeys } from './useListPicks';
 import type { Bay, Lane, ProjectSummary, Session } from './types';
 import { openSwitcher, projectForDigit } from './ui/ProjectSwitcher';
 import type { PrRowItem } from './ui/PrsView';
@@ -51,9 +52,9 @@ export interface MainKeys<V extends string> {
   selected: ListRow | null;
   visible: ListRow[];
   pickedRows: TodoItem[];
-  /** Sessions picked together in Sessions (picks.ts), and what's done to them. */
-  sessionPicks: { picked: SessionItem[]; select: (row: SessionItem, how: SelectHow) => void; all: () => void; clear: () => void };
-  sessionsActions: (rows: SessionItem[]) => menus.SessionsActions;
+  /** Rows picked together in the view's list (useListPicks.ts), and what the keys do to them;
+   *  null where the view has no list. */
+  listPicks: ListPicksKeys | null;
   selectedLane: Lane | null;
   /** Where ⌘N starts a session. */
   startLaneId: string | null;
@@ -109,7 +110,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, sessionPicks, sessionsActions, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   const mod = e.metaKey;
   const key = e.key.toLowerCase();
@@ -120,8 +121,14 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   const letters = view !== 'sessions';
   // ⌃⌘, with a menu's letter or ↑ ↓.
   const chord = e.ctrlKey && mod && !e.altKey && !e.shiftKey;
-  // Several sessions picked in Sessions: the keys that act on one act on all of them.
-  const picking = view === 'sessions' && sessionPicks.picked.length > 0;
+  // Several rows picked in the view's list: the keys that act on one act on all of them, by the
+  // names one row's actions have.
+  const picking = !!listPicks && listPicks.count > 0;
+  const picked = (name: string): MenuAction | undefined => {
+    const acts = picking ? listPicks?.actions() : null;
+    const it = acts ? (acts as unknown as Record<string, MenuAction | { items: unknown } | undefined>)[name] : undefined;
+    return it && !('items' in it) ? it : undefined;
+  };
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
   const toTerminal = chordPressed(menus.CHORDS.terminal ?? '', e);
   // ⌘= and ⌘- zoom the window and ⌘0 puts it back, as in VS Code, from any field or sheet. The
@@ -174,9 +181,9 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   if (chordPressed(menus.CHORDS.done ?? '', e)) {
     e.preventDefault();
     if (picking) {
-      const act = sessionsActions(sessionPicks.picked).done;
+      const act = picked('done');
       if (act) act.run();
-      else say('They’re archived already.');
+      else if (view !== 'prs') say('They’re archived already.');
       return;
     }
     if (selected?.kind !== 'agent') return;
@@ -195,7 +202,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // With several picked, ⌘E marks them all seen, and stays on them.
   if (queueStep === 'seen' && picking) {
     e.preventDefault();
-    const act = sessionsActions(sessionPicks.picked).seen;
+    const act = picked('seen');
     if (act) act.run();
     else say('None of them has a turn to mark seen.');
     return;
@@ -252,17 +259,17 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     }
     return;
   }
-  // ⌘A picks every session listed, from the list (in a panel it's the page's), and Esc goes back
-  // to the one the keyboard is on.
+  // ⌘A picks every row listed, from the list (in a panel it's the page's), and Esc goes back to
+  // the one the keyboard is on.
   const onList = !document.activeElement || document.activeElement === document.body || !!document.activeElement.closest('.ca-board-list');
-  if (view === 'sessions' && mod && !e.ctrlKey && !e.altKey && !e.shiftKey && key === 'a' && onList) {
+  if (listPicks && mod && !e.ctrlKey && !e.altKey && !e.shiftKey && key === 'a' && onList) {
     e.preventDefault();
-    sessionPicks.all();
+    listPicks.all();
     return;
   }
   if (e.key === 'Escape' && picking) {
     e.preventDefault();
-    sessionPicks.clear();
+    listPicks?.clear();
     return;
   }
   // The canvas's keys, unless the keyboard is in the panel beside it.
@@ -287,22 +294,35 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   if (todoKeys.current(e, key)) return;
-  // ⇧↑ ⇧↓ pick the session above or below too, as ⇧-click does.
-  if (view === 'sessions' && e.shiftKey && vertical && !mod && !e.ctrlKey && !e.altKey && selected?.kind === 'agent') {
+  // ⇧↑ ⇧↓ pick the row above or below too, as ⇧-click does (the Todo view's own keys, above).
+  if (listPicks && e.shiftKey && vertical && !mod && !e.ctrlKey && !e.altKey && selected) {
     e.preventDefault();
     const i = visible.indexOf(selected);
     const to = visible[Math.min(visible.length - 1, Math.max(0, i + (e.key === 'ArrowUp' ? -1 : 1)))];
-    if (to?.kind === 'agent') sessionPicks.select(to, 'range');
+    if (to) listPicks.range(to);
     return;
   }
-  // The ⌃⌘ chords act on all the sessions picked: what doesn't apply to any of them does nothing,
-  // and what's done to one at a time (rename) waits for one.
-  if (chord && picking && !vertical) {
-    e.preventDefault();
-    const found = menus.keyed(sessionsActions(sessionPicks.picked), key, true);
-    if (found) found.action.run();
-    else if (key === 'r') say('Rename one session at a time: Esc goes back to one.');
-    return;
+  // A menu's letter (outside Sessions) or its ⌃⌘ chord acts on all the rows picked: what doesn't
+  // apply to any of them does nothing, and what's done to one at a time (rename) waits for one.
+  // E marks seen below, and ⌘O opens PRs.
+  const acts = picking ? listPicks?.actions() : null;
+  if (acts && ((!mod && letters && key !== 'e') || (chord && !vertical))) {
+    const found = menus.keyed(acts, key, chord);
+    if (found) {
+      e.preventDefault();
+      found.action.run();
+      return;
+    }
+    if (key === 'r') {
+      e.preventDefault();
+      say('Rename one at a time: Esc goes back to one.');
+      return;
+    }
+    // Nor does one row's action run on the row the keyboard is on.
+    if (chord || Object.values(menus.KEYS).includes(key.toUpperCase())) {
+      e.preventDefault();
+      return;
+    }
   }
   if (mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && view === 'sessions' && selected?.kind === 'agent') {
     e.preventDefault();
@@ -388,7 +408,9 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     if (lane?.preview) open(lane, 'l|preview');
   } else if (mod && key === 'o') {
     e.preventDefault();
-    if (selected?.kind === 'pr') openRow(selected);
+    const github = picked('github');
+    if (github) github.run();
+    else if (selected?.kind === 'pr') openRow(selected);
     else if (lane?.pr) open(lane, 'p|github');
   } else if (mod && e.shiftKey && key === 'c') {
     e.preventDefault();
@@ -396,6 +418,10 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   } else if (mod && key === 'c' && !window.getSelection()?.toString()) {
     e.preventDefault();
     copy(lane?.branch, 'branch name');
+  } else if (key === 'e' && ((!mod && letters) || (mod && !e.ctrlKey && !e.shiftKey && !e.altKey)) && picking) {
+    // With several picked, all of them.
+    const act = picked('seen');
+    if (act) act.run();
   } else if (key === 'e' && ((!mod && letters) || (mod && !e.ctrlKey && !e.shiftKey && !e.altKey))) {
     // ⌘E too, as in Sessions (above).
     const sessions = selected?.kind === 'agent' ? [selected.session] : selected?.kind === 'todo' ? (pickedRows.length > 0 ? pickedRows : [selected]).flatMap((r) => r.sessions.map((x) => x.session)) : (lane?.sessions ?? []);
@@ -411,10 +437,10 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
  *  ⌘.) keeps hearing a key before this one does. */
 export function useMainKeys<V extends string>(keys: MainKeys<V>): void {
   const latest = useLatest(keys);
-  const { visible, selected, pickedRows, sessionPicks, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel } = keys;
+  const { visible, selected, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel } = keys;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => onMainKey(e, latest.current);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [latest, visible, selected, pickedRows, sessionPicks.picked, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
+  }, [latest, visible, selected, pickedRows, listPicks?.count, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
 }

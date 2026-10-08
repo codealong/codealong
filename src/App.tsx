@@ -18,7 +18,6 @@ import * as menus from './menus';
 import { prRefOf } from './prLinks';
 import { archiveAhead, boardView, lanesAhead, observe, seenAhead } from './ahead';
 import { reuse } from './reuse';
-import { usePicks } from './picks';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
@@ -61,6 +60,7 @@ import { asText, flag, oneOf, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
 import { useLatest } from './latest';
 import { useMainKeys } from './mainKeys';
+import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
@@ -441,16 +441,14 @@ export function App() {
     if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
-  // Sessions picked together with the selected one (⌘-click, ⇧-click, ⇧↑ ⇧↓; picks.ts), to mark
-  // seen, snooze, close, mark done or archive at once (menus.ts `sessionsActions`).
-  const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
-  const sessionPicks = usePicks(sessionItems, selected?.key ?? null, setSelectedKey);
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
     duePick,
     duePicked,
     pickedRows,
     pickedKeys,
+    pickAll: pickAllTodos,
+    clearPick: clearTodoPick,
     composer,
     setComposer,
     composerRef,
@@ -632,6 +630,36 @@ export function App() {
       );
   }, [setToast]);
 
+  /** Approves several PRs as you, one after another, and says how it went. */
+  const approveAll = useCallback(
+    (prs: PrItem[]) => {
+      const keys = prs.map((p) => p.key);
+      setApproving((a) => new Set([...a, ...keys]));
+      const wrong: string[] = [];
+      let approved = 0;
+      const each = prs.reduce<Promise<void>>(
+        (before, p) =>
+          before.then(() =>
+            reviewPr(p.repoSlug, p.number, 'approve', '').then(
+              () => void approved++,
+              (e: unknown) => void wrong.push(`Couldn’t approve #${p.number}: ${errorText(e).replace(/\.$/, '')}.`),
+            ),
+          ),
+        Promise.resolve(),
+      );
+      track(`Approving ${count(prs.length, 'PR')}…`, each)
+        .then(() => setToast([approved > 0 ? `Approved ${count(approved, 'PR')}.` : '', ...wrong].filter(Boolean).join(' ')))
+        .finally(() =>
+          setApproving((a) => {
+            const next = new Set(a);
+            for (const k of keys) next.delete(k);
+            return next;
+          }),
+        );
+    },
+    [setToast, track],
+  );
+
   const copy = useCallback((text: string | null | undefined, what: string) => {
     if (!text) return;
     navigator.clipboard
@@ -759,6 +787,27 @@ export function App() {
     [setArchivedUndo, setToast],
   );
 
+  // Rows picked together in Sessions, on the Worktrees board and in PRs, and what's done to all
+  // of them (useListPicks.ts); the Todo view's are its own.
+  const picks = useListPicks({
+    view,
+    loading,
+    selected: selected?.key ?? null,
+    setSelectedKey,
+    sessionRows,
+    worktreeItems,
+    prVisible,
+    showArchived,
+    report,
+    setToast,
+    sessionPins,
+    lanePins,
+    prPins,
+    archive: setArchived,
+    undoArchive: setArchivedUndo,
+    approve: approveAll,
+  });
+
 
   // Where each account can start a session, for Review with: read at launch, and again each time
   // the menu is built, so a menu goes by the last answer and never waits on one.
@@ -870,30 +919,6 @@ export function App() {
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
 
-  /** What this window can do to sessions picked together in Sessions, for their menu, their
-   *  panel and the keys. Ones that leave the list (done, archived while the fold is shut) leave
-   *  the pick, and with none left the row after them is selected; the rest stay picked, to do
-   *  more to (a working one Mark as done held, say). */
-  const sessionsCan = (rows: SessionItem[]): menus.SessionsCan => {
-    const unarchived = rows.filter((r) => !r.session.archived).map((r) => r.session.key);
-    const unpinned = unarchived.filter((k) => !sessionPins.set.has(k));
-    return {
-      report,
-      keys: 'chords',
-      pin: unpinned.length > 0 ? { label: `Pin ${count(unpinned.length, 'session')}`, run: () => sessionPins.pinAll(unpinned, true) } : { label: `Unpin ${count(unarchived.length, 'session')}`, run: () => sessionPins.pinAll(unarchived, false) },
-      archive: (keys, archived) => setArchived(keys, archived, rows.find((r) => r.session.key === keys[0])?.session.title ?? ''),
-      // Undo takes them out of the archive, as it does one.
-      undoDone: (keys, message) => setArchivedUndo({ keys, title: '', message }),
-      left: (done, keys) => {
-        // Archived (done ones are too), they stay listed only in the Archived fold, shown.
-        if ((done !== 'done' && done !== 'archived') || showArchived) return;
-        sessionPicks.leave(new Set(rows.filter((r) => keys.includes(r.session.key)).map((r) => r.key)));
-      },
-    };
-  };
-  const sessionsActions = (rows: SessionItem[]) => menus.sessionsActions(rows, sessionsCan(rows));
-  const sessionsMenu = (rows: SessionItem[], at?: { x: number; y: number }) => void showContextMenu(menus.sessionsMenu(rows, sessionsCan(rows)), at).catch((e: unknown) => setToast(String(e)));
-
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
   const laneCan = (lane: Lane): menus.LaneCan => ({
       report,
@@ -978,8 +1003,8 @@ export function App() {
     selected,
     visible,
     pickedRows,
-    sessionPicks,
-    sessionsActions,
+    // The Todo view's keys act on its picks themselves (useTodoView.ts): ⌘A and Esc are the lists' own.
+    listPicks: picks.keys ?? (view === 'todo' ? { count: pickedRows.length, range: () => {}, all: pickAllTodos, clear: clearTodoPick, actions: () => null } : null),
     selectedLane,
     startLaneId,
     terminalAt,
@@ -1130,13 +1155,18 @@ export function App() {
       row={r}
       now={now}
       selectedKey={selected?.key ?? null}
+      picked={rowItems(r).flatMap((i) => (picks.board.keys.has(i.key) ? [i.key] : []))}
       domId={domIdOf}
-      onSelect={setSelectedKey}
+      onSelect={(key, how) => {
+        const item = rowItems(r).find((i) => i.key === key);
+        if (item) picks.board.select(item, how);
+      }}
       onOpen={(lane) => open(lane, lane.defaultTarget)}
       onOpenTarget={open}
       pinned={index != null}
-      onContextMenu={() => laneMenu(r.lane)}
-      onAgentMenu={(s) => sessionMenu(r.lane, s, 'worktree')}
+      // On a line picked with others, the menu is for all of them.
+      onContextMenu={() => (picks.board.keys.has(r.lane.id) ? picks.board.menu() : laneMenu(r.lane))}
+      onAgentMenu={(s) => (picks.board.keys.has(`${r.lane.id}::${s.key}`) ? picks.board.menu() : sessionMenu(r.lane, s, 'worktree'))}
       onPrMenu={() => lanePrMenu(r.lane)}
       onPrOpen={() => openLanePr(r.lane)}
       todos={todoLinks.byLane.get(r.lane.id)}
@@ -1316,7 +1346,7 @@ export function App() {
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && sessionPicks.picked.length === 0 && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && picks.sessions.rows.length === 0 && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -1451,7 +1481,7 @@ export function App() {
             role="listbox"
             aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Agents and worktrees'}
             aria-activedescendant={selected ? domId(selected) : undefined}
-            aria-multiselectable={view === 'todo' || view === 'sessions' || undefined}
+            aria-multiselectable
             tabIndex={0}
             ref={listRef}
             className="ca-board-list"
@@ -1515,16 +1545,18 @@ export function App() {
                 sections={prSecs}
                 now={now}
                 selectedKey={selected?.key ?? null}
+                picked={picks.prs.keys}
                 domId={domId}
                 showDone={showDonePrs}
                 onToggleDone={() => setShowDonePrs(!showDonePrs)}
-                onSelect={(r) => setSelectedKey(r.key)}
+                onSelect={picks.prs.select}
                 onOpen={(r) => {
-                  setSelectedKey(r.key);
+                  picks.prs.select(r, 'one');
                   openRow(r);
                 }}
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
-                onContextMenu={(r) => prMenu(r)}
+                // On one of the PRs picked, the menu is for all of them.
+                onContextMenu={(r) => (picks.prs.keys.has(r.key) ? picks.prs.menu() : prMenu(r))}
               />
             )}
             {view === 'sessions' && (
@@ -1535,20 +1567,20 @@ export function App() {
                 lines={sessionLines}
                 now={now}
                 selectedKey={selected?.key ?? null}
-                picked={sessionPicks.keys}
+                picked={picks.sessions.keys}
                 domId={domId}
                 onSelect={(r, how) => {
-                  sessionPicks.select(r, how);
+                  picks.sessions.select(r, how);
                   if (how === 'one') focusBox();
                 }}
                 onOpen={(r) => {
-                  sessionPicks.select(r, 'one');
+                  picks.sessions.select(r, 'one');
                   openRow(r);
                 }}
                 onContextMenu={(r) => {
                   // On one of the sessions picked, the menu is for all of them; on another, for
                   // that one, and the selection stays where it was.
-                  if (sessionPicks.keys.has(r.key)) sessionsMenu(sessionPicks.picked);
+                  if (picks.sessions.keys.has(r.key)) picks.sessions.menu();
                   else sessionMenu(r.lane, r.session, 'session');
                 }}
                 onPrMenu={(r) => lanePrMenu(r.lane)}
@@ -1640,7 +1672,7 @@ export function App() {
           todosFor={todosFor}
           prRowOf={prRowOf}
           pickedRows={pickedRows}
-          sessionPick={{ rows: sessionPicks.picked, actions: sessionsActions, select: sessionPicks.select, menu: sessionsMenu }}
+          picks={picks}
           todo={{ startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
           approving={approving}
           drill={drill}

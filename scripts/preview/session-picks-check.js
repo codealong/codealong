@@ -75,11 +75,11 @@
   };
   var press = function (i, init) { row(i).dispatchEvent(new MouseEvent('mousedown', Object.assign({ bubbles: true, cancelable: true, button: 0 }, init))); };
   var keyDown = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
-  var pickPanel = function () { return q('.ca-sesspick'); };
-  var head = function () { var h = q('.ca-sesspick-head'); return h ? h.textContent : ''; };
-  var names = function () { return all('.ca-sesspick-name').map(function (b) { return b.textContent; }).join(','); };
+  var pickPanel = function () { return q('.ca-pick'); };
+  var head = function () { var h = q('.ca-pick-head'); return h ? h.textContent : ''; };
+  var names = function () { return all('.ca-pick-name').map(function (b) { return b.textContent; }).join(','); };
   var hotkey = function (label) {
-    return all('.ca-sesspick .ca-hotkey').filter(function (b) { return b.textContent.indexOf(label) === 0; })[0];
+    return all('.ca-pick .ca-hotkey').filter(function (b) { return b.textContent.indexOf(label) === 0; })[0];
   };
   var toast = function () { var t = q('.ca-toast:not(.is-busy)'); return t ? t.textContent : ''; };
   var title = function () { var t = q('.ca-sessinsp-title'); return t ? t.textContent : null; };

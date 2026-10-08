@@ -60,17 +60,20 @@ export function nextAfter(order: string[], gone: ReadonlySet<string>): string | 
   return after ?? order.slice(0, at[0] ?? 0).reverse().find((k) => !gone.has(k)) ?? null;
 }
 
+const NONE: never[] = [];
+
 /** Rows picked together in a list, which lists `rows` in its order (null while it isn't shown),
  *  with `selected` the key of the row selected: `picked` is them in the list's order, none when
  *  fewer than two are, `select` selects a row the way a press did, `all` picks them all, and
  *  `leave` lets go of rows done with. */
 export function usePicks<R extends { key: string }>(rows: R[] | null, selected: string | null, setSelectedKey: (key: string) => void) {
   const [pick, setPick] = useState<RowPick | null>(null);
-  // They hold while the keyboard stays on the row they were picked from.
-  const picked = useMemo(() => {
-    if (!rows || !pick || pick.focus !== selected) return [];
+  // They hold while the keyboard stays on the row they were picked from. None is one empty list,
+  // so a list's rows that are given what's picked don't render again on every board for it.
+  const picked = useMemo((): R[] => {
+    if (!rows || !pick || pick.focus !== selected) return NONE;
     const list = rows.filter((r) => pick.keys.includes(r.key));
-    return list.length > 1 ? list : [];
+    return list.length > 1 ? list : NONE;
   }, [rows, pick, selected]);
   const keys = useMemo(() => new Set(picked.map((r) => r.key)), [picked]);
   const select = (r: R, how: SelectHow) => {

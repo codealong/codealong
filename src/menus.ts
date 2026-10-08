@@ -18,11 +18,11 @@ import { HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness'
 import { chromeLabel, openLabel } from './open';
 import { closable, exitsItsOwnWay, seenable, stoppable } from './lanes';
 import { chordPressed, QUEUE_CHORDS } from './queue';
-import { SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
+import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
-import type { AccountInfo, DesktopPinned, Label, Lane, Pr, Session, StartAccount, Todo } from './types';
+import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, Todo } from './types';
 import { errorText, type Report } from './report';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
@@ -572,6 +572,104 @@ export function sessionsMenu(picked: { lane: Lane; session: Session }[], can: Se
   return laidOut(SESSIONS_MENU, sessionsActions(picked, can), {}, can.keys);
 }
 
+/** A line picked on the Worktrees board: one of a worktree's agents, or a worktree with none. */
+export type BoardPicked = { kind: 'agent'; lane: Lane; session: Session } | { kind: 'lane'; lane: Lane };
+
+/** What can be done to lines picked together on the Worktrees board: to the sessions on them,
+ *  as `sessionsActions` does, and to their worktrees, each once, as a worktree's menu does. */
+export interface BoardActions extends SessionsActions {
+  reuse?: MenuAction;
+  copyPath?: MenuAction;
+  copyBranch?: MenuAction;
+}
+
+/** The board's lines picked together. `can.pin` pins their worktrees, as P does on the board. */
+export function boardActions(picked: BoardPicked[], can: SessionsCan): BoardActions {
+  const { report } = can;
+  const agents = picked.flatMap((p) => (p.kind === 'agent' ? [{ lane: p.lane, session: p.session }] : []));
+  const lanes = [...new Map(picked.map((p) => [p.lane.id, p.lane])).values()];
+  // Only the worktrees that can be reused take it, as one's menu offers it.
+  const reusable = lanes.filter((l) => reuseItem(l, report));
+  const reused = reusable.length > 0 && reusable.every((l) => l.reuse != null);
+  const setReuse = () => void Promise.all(reusable.map((l) => setReusable(l.id, !reused))).catch((e: unknown) => report.error(errorText(e)));
+  const lines = (list: (string | null | undefined)[]) => list.filter((x): x is string => !!x).join('\n');
+  return {
+    ...sessionsActions(agents, { ...can, pin: undefined }),
+    pin: can.pin,
+    reuse: reusable.length > 0 ? { label: 'Reuse for new work', checked: reused, run: setReuse } : undefined,
+    copyPath: copyItem(lanes.length === 1 ? 'Copy path' : 'Copy paths', lines(lanes.map((l) => l.path)), 'worktree paths', report),
+    copyBranch: copyItem(lanes.length === 1 ? 'Copy branch name' : 'Copy branch names', lines(lanes.map((l) => l.branch)), 'branch names', report),
+  };
+}
+
+/** The order of the board's menu for lines picked together: what their sessions are to you, then
+ *  their worktrees' as a worktree's menu has it, then copying. */
+const BOARD_MENU = [
+  ['stop', 'seen', 'snooze', 'close', 'done', 'archive'],
+  ['reuse'],
+  ['pin'],
+  ['copyId', 'copyPath', 'copyBranch'],
+] as const;
+
+/** The menu of lines picked together on the Worktrees board. */
+export function boardMenu(picked: BoardPicked[], can: SessionsCan): MenuSpec {
+  return laidOut(BOARD_MENU, boardActions(picked, can), {}, can.keys);
+}
+
+/** What a window can do to several PRs picked together (the main window's PRs). */
+export interface PrsCan {
+  report: Report;
+  /** Approves these, each as you, one after another. */
+  approve?: (prs: PrItem[]) => void;
+  /** Pins them to this window's own list, or unpins them. */
+  pin?: MenuAction;
+  keys?: boolean | 'chords';
+}
+
+/** What can be done to several PRs at once, by the names a row's keys go by (`keyed`: P pins
+ *  them), each saying how many where it takes only some. */
+export interface PrsActions {
+  github?: MenuAction;
+  approve?: MenuAction;
+  snooze?: MenuGroup;
+  pin?: MenuAction;
+  copyLink?: MenuAction;
+  copyBranch?: MenuAction;
+  /** How many of them each takes. */
+  takes: Record<'approve' | 'snooze', number>;
+}
+
+/** Whether you're asked to review it and it's still open: what Approve and Snooze review take. */
+function asksYourReview(p: PrItem): boolean {
+  return p.reviewRequested && p.state !== 'merged' && p.state !== 'closed';
+}
+
+export function prsActions(prs: PrItem[], can: PrsCan): PrsActions {
+  const { report } = can;
+  const asked = prs.filter(asksYourReview);
+  const n = (list: unknown[]) => count(list.length, 'PR');
+  // One after another, so they open in the list's order.
+  const openAll = () => void prs.reduce<Promise<unknown>>((before, p) => before.then(() => openUrl(p.url)), Promise.resolve()).catch((e: unknown) => report.error(errorText(e)));
+  const lines = (list: (string | null | undefined)[]) => list.filter((x): x is string => !!x).join('\n');
+  return {
+    github: prs.length > 0 ? { label: `Open ${n(prs)} on GitHub`, run: openAll } : undefined,
+    approve: can.approve && asked.length > 0 ? { label: `Approve ${n(asked)}`, run: () => can.approve?.(asked) } : undefined,
+    snooze: asked.length > 0 ? reviewsSnoozeMenu(asked, Date.now(), (act) => void act.catch((e: unknown) => report.error(errorText(e))), !!can.keys) : undefined,
+    pin: can.pin,
+    copyLink: copyItem(prs.length === 1 ? 'Copy link' : 'Copy links', lines(prs.map((p) => p.url)), 'PR links', report),
+    copyBranch: copyItem(prs.length === 1 ? 'Copy branch name' : 'Copy branch names', lines(prs.map((p) => p.head)), 'branch names', report),
+    takes: { approve: asked.length, snooze: asked.length },
+  };
+}
+
+/** The order of the menu of several PRs picked together, as one PR's menu has them. */
+const PRS_MENU = [['github'], ['approve', 'snooze'], ['pin'], ['copyLink', 'copyBranch']] as const;
+
+/** The menu of several PRs picked together. */
+export function prsMenu(prs: PrItem[], can: PrsCan): MenuSpec {
+  return laidOut(PRS_MENU, prsActions(prs, can), {}, can.keys);
+}
+
 export interface LaneCan {
   report: Report;
   /** Opens one of its targets: its terminal, an editor, Finder, its app in the browser. */
@@ -698,7 +796,7 @@ export function chordLetter(key: string): boolean {
 /** The time ⌃⌘ with a digit snoozes a session, or your review of a PR, to (snooze.ts
  *  `SNOOZE_CHORDS`), as its Snooze menu has it now; none for one that can't be snoozed, or a key
  *  that isn't one of them. */
-function snoozeChorded(actions: SessionActions | SessionsActions | LaneActions | PrActions, key: string): MenuAction | null {
+function snoozeChorded(actions: SessionActions | SessionsActions | LaneActions | PrActions | PrsActions, key: string): MenuAction | null {
   const snooze = 'snooze' in actions ? actions.snooze : undefined;
   const it = snooze?.items[snoozeChordIndex(key)];
   return it && it !== 'separator' && !('items' in it) ? it : null;
@@ -719,7 +817,7 @@ export function chordKeys(chord: string): string[] {
 /** The action a key runs among a session's or worktree's (or several sessions'), by the key as
  *  typed, when it applies to them now: the letter alone (`KEYS`), or with `chord` the letter
  *  pressed with ⌃⌘ (`CHORDS`). */
-export function keyed(actions: SessionActions | SessionsActions | LaneActions, key: string, chord = false): { id: string; action: MenuAction } | null {
+export function keyed(actions: SessionActions | SessionsActions | LaneActions | PrsActions, key: string, chord = false): { id: string; action: MenuAction } | null {
   const snooze = chord ? snoozeChorded(actions, key) : null;
   if (snooze) return { id: 'snooze', action: snooze };
   const letter = key.toUpperCase();

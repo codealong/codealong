@@ -22,9 +22,12 @@ interface LaneRowProps {
   now: number;
   /** The selected item: one of the row's agents, or the worktree when it has none. */
   selectedKey: string | null;
+  /** The keys of its items picked together with others (picks.ts). */
+  picked?: string[];
   /** The element id of an item, for the list's active descendant. */
   domId: (key: string) => string;
-  onSelect: (key: string) => void;
+  /** A press on one of its items: alone, or with ⌘ or ⇧ held, picking it with others. */
+  onSelect: (key: string, how: SelectHow) => void;
   /** Double-click on the worktree: opens its most recent session. */
   onOpen: (lane: Lane) => void;
   /** Opens one session where it lives: a click on its chip, or a double-click on its line. */
@@ -200,18 +203,20 @@ function LaneRowView(props: LaneRowProps) {
 export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
 /** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
-function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: LaneRowProps) {
+function WorktreeOnlyRow({ row, now, selectedKey, picked = [], domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: LaneRowProps) {
   const { lane } = row;
   const chips = currentSessions(lane, now);
-  const selected = selectedKey === lane.id;
+  const selected = selectedKey === lane.id || picked.includes(lane.id);
   return (
     <Row
       id={domId(lane.id)}
       selected={selected}
       className={cx('ca-lane', 'is-worktree', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
-      onSelect={() => onSelect(lane.id)}
-      onOpen={() => onOpen(lane)}
+      onSelect={(e) => onSelect(lane.id, selectHow(e))}
+      onOpen={(e) => {
+        if (!e.metaKey && !e.shiftKey) onOpen(lane);
+      }}
       onMenu={onContextMenu}
     >
       <div className="ca-seg ca-seg-glyph">
@@ -238,7 +243,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
               sessions={chips}
               max={2}
               onOpen={(s) => {
-                onSelect(lane.id);
+                onSelect(lane.id, 'one');
                 onOpenTarget(lane, s.openTarget);
               }}
             />
@@ -280,19 +285,21 @@ function LaneLinks({ lane, now, onOpenTarget, onPrMenu, onPrOpen }: { lane: Lane
  * A worktree with agents that need you, are working or just finished: the worktree once on the
  * left, and a line for each agent, which you select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
+function GroupRow({ row, now, selectedKey, picked = [], domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
   const { lane, agents } = row;
   const listed = new Set(agents.map((a) => a.session.key));
   // Recent sessions without a line of their own: finished a while ago, or visiting.
   const others = currentSessions(lane, now).filter((s) => !listed.has(s.key));
-  const hasSelection = agents.some((a) => a.key === selectedKey);
+  const isSelected = (key: string) => key === selectedKey || picked.includes(key);
+  const hasSelection = agents.some((a) => isSelected(a.key));
   // The worktree's own todos, less the ones its agents' lines already show.
   const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
   const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
   const foot = others.length > 0 || footTodos.length > 0 || lane.pr != null || lane.preview != null || lane.reuse === 'free';
-  const selectFirst = () => onSelect(agents[0].key);
+  const selectFirst = () => onSelect(agents[0].key, 'one');
+  // The worktree's own part selects its first agent's line, as a press with ⌘ or ⇧ would.
   const pressFirst = (e: ReactMouseEvent) => {
-    if (selects(e)) selectFirst();
+    if (selects(e)) onSelect(agents[0].key, selectHow(e));
   };
   return (
     <Row
@@ -316,9 +323,9 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
             item={a}
             now={now}
             domId={domId(a.key)}
-            selected={a.key === selectedKey}
+            selected={isSelected(a.key)}
             pinned={pinned === true && i === 0}
-            onSelect={() => onSelect(a.key)}
+            onSelect={(how) => onSelect(a.key, how)}
             onOpen={() => onOpenTarget(lane, a.session.openTarget)}
             onContextMenu={onAgentMenu ? () => onAgentMenu(a.session) : undefined}
             todos={todosFor?.(a.session.key)}
@@ -377,7 +384,7 @@ interface AgentLineProps {
   selected: boolean;
   /** Shows the pin mark under its age: the first line of a pinned worktree. */
   pinned: boolean;
-  onSelect: () => void;
+  onSelect: (how: SelectHow) => void;
   onOpen: () => void;
   onContextMenu?: () => void;
   /** Todos the agent's session is linked to. */
@@ -390,7 +397,16 @@ interface AgentLineProps {
 function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
   return (
-    <Row id={domId} selected={selected} className={cx('ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`)} onSelect={onSelect} onOpen={onOpen} onMenu={onContextMenu}>
+    <Row
+      id={domId}
+      selected={selected}
+      className={cx('ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`)}
+      onSelect={(e) => onSelect(selectHow(e))}
+      onOpen={(e) => {
+        if (!e.metaKey && !e.shiftKey) onOpen();
+      }}
+      onMenu={onContextMenu}
+    >
       <span className="ca-agentline-main">
         <SessionGlyph s={s} size={10} />
         <SessionText s={s} now={now} />

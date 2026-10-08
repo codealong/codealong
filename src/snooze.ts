@@ -82,6 +82,13 @@ export function snoozeMenu(keys: string[], now: number, opts: SnoozeOpts): MenuG
   return timesMenu((until) => snoozeAhead(keys, until), now, opts, opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'));
 }
 
+/** Snooze review for several PRs at once, each an open one that asks for your review: the times,
+ *  and Wake now where any is snoozed already. */
+export function reviewsSnoozeMenu(prs: Pick<PrItem, 'key' | 'snoozedUntil'>[], now: number, onDone: SnoozeOpts['onDone'], chords = false): MenuGroup {
+  const until = Math.max(0, ...prs.map((p) => p.snoozedUntil ?? 0)) || null;
+  return timesMenu((u) => snoozeReviewsAhead(prs.map((p) => p.key), u), now, { until, onDone, chords }, `Snooze ${prs.length} ${prs.length === 1 ? 'review' : 'reviews'}`);
+}
+
 /** The Snooze review submenu for an open PR that asks for your review: the times, and Wake now
  *  for one that's snoozed already. None for any other PR. */
 export function reviewSnoozeMenu(pr: Pick<PrItem, 'key' | 'reviewRequested' | 'state' | 'snoozedUntil'>, now: number, onDone: SnoozeOpts['onDone'], chords = false): MenuGroup | undefined {

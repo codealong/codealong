@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead } from './ahead';
 import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { boardActions, boardMenu, chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
 import type { TodoOp } from './todos';
-import type { Label, Lane, Session, Todo } from './types';
+import type { Label, Lane, PrItem, Session, Todo } from './types';
 
 // What the engine says to Mark as done: done, unless a test says otherwise.
 vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn() }));
@@ -269,6 +269,65 @@ describe('several sessions picked together', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('lines picked together on the Worktrees board', () => {
+  const api = lane();
+  const web = lane({ id: '/r/web', callsign: 'web', path: '/r/web', branch: 'fix-nav', pr: null });
+  const agent = (l: Lane, over: Partial<Session> = {}) => ({ kind: 'agent' as const, lane: l, session: session({ ...over, openTarget: `s|${over.key ?? 'claude:c:1'}|focus` }) });
+
+  it('acts on the sessions on the lines, and on their worktrees each once', () => {
+    const picked = [agent(api), agent(api, { key: 'claude:c:2', id: 'b2', status: 'idle', live: false, pid: null }), { kind: 'lane' as const, lane: web }];
+    const pin = { label: 'Pin 2 worktrees', run: noop };
+    expect(labels(boardMenu(picked, { report, pin }))).toEqual([
+      'Mark 1 session as seen',
+      'Snooze 2 sessions ›',
+      'Close 1 session',
+      'Mark 2 sessions as done',
+      'Archive 2 sessions',
+      '-',
+      'Reuse for new work',
+      '-',
+      'Pin 2 worktrees',
+      '-',
+      'Copy session IDs',
+      'Copy paths',
+      'Copy branch names',
+    ]);
+    // P pins the worktrees, as it does on the board.
+    const acts = boardActions(picked, { report, pin, keys: true });
+    expect(keyed(acts, 'p')?.action).toBe(pin);
+    expect(keyed(acts, 'a')?.action).toBe(acts.archive);
+  });
+
+  it('pins worktrees with no line among them, which have no sessions to act on', () => {
+    const pin = { label: 'Pin 2 worktrees', run: noop };
+    expect(labels(boardMenu([{ kind: 'lane', lane: api }, { kind: 'lane', lane: web }], { report, pin }))).toEqual(['Reuse for new work', '-', 'Pin 2 worktrees', '-', 'Copy paths', 'Copy branch names']);
+  });
+});
+
+describe('PRs picked together', () => {
+  const pr = (over: Partial<PrItem> = {}): PrItem => fx.prItem({ key: 'acme/api#7', number: 7, url: 'https://github.com/acme/api/pull/7', head: 'fix-login', reviewRequested: true, ...over });
+  const asked = pr();
+  const mine = pr({ key: 'acme/api#8', number: 8, url: 'https://github.com/acme/api/pull/8', head: 'add-tests', reviewRequested: false });
+  const merged = pr({ key: 'acme/api#9', number: 9, url: 'https://github.com/acme/api/pull/9', head: 'old', state: 'merged' });
+
+  it('approves and snoozes the ones that ask for your review, and says how many', () => {
+    const approved: string[][] = [];
+    const can = { report, approve: (prs: PrItem[]) => approved.push(prs.map((p) => p.key)), pin: { label: 'Pin 3 PRs', run: noop } };
+    expect(labels(prsMenu([asked, mine, merged], can))).toEqual(['Open 3 PRs on GitHub', '-', 'Approve 1 PR', 'Snooze 1 review ›', '-', 'Pin 3 PRs', '-', 'Copy links', 'Copy branch names']);
+    const acts = prsActions([asked, mine, merged], can);
+    expect(acts.takes).toEqual({ approve: 1, snooze: 1 });
+    acts.approve?.run();
+    // A merged PR asked of you is past reviewing.
+    expect(approved).toEqual([['acme/api#7']]);
+    expect(keyed(acts, 'p')?.action).toBe(can.pin);
+  });
+
+  it('offers no approval where the window can’t give one, nor where none asks for it', () => {
+    expect(prsActions([asked, mine], { report }).approve).toBeUndefined();
+    expect(labels(prsMenu([mine, merged], { report }))).toEqual(['Open 2 PRs on GitHub', '-', 'Copy links', 'Copy branch names']);
   });
 });
 

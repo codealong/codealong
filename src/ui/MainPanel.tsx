@@ -17,14 +17,15 @@ import type { ListRow } from '../boardLists';
 import type { TodoItem, useTodoStore } from '../todos';
 import type { Board, DevicesView, Lane, Pr, PrItem, Session, Todo } from '../types';
 import type { WaitingQueue } from '../useWaitingQueue';
+import type { useListPicks } from '../useListPicks';
 import type { useTodoView } from '../useTodoView';
 import { Inspector } from './Inspector';
 import { PrInspector } from './PrInspector';
 import { ALL_PROJECTS } from './ProjectSwitcher';
 import type { PrRowItem } from './PrsView';
 import { SessionPanel } from './SessionPanel';
+import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
-import type { SessionItem } from './SessionsView';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
 
 /** What the canvas's selected card is, as its panel shows it; null when nothing is selected or
@@ -76,13 +77,9 @@ export interface MainPanelProps {
   prRowOf: (pr: PrItem) => PrRowItem;
   pickedRows: TodoItem[];
   todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu'>;
-  /** Sessions picked together in Sessions, what can be done to them, and their panel's clicks. */
-  sessionPick: {
-    rows: SessionItem[];
-    actions: (rows: SessionItem[]) => menus.SessionsActions;
-    select: (row: SessionItem, how: 'one' | 'toggle') => void;
-    menu: (rows: SessionItem[], at: { x: number; y: number }) => void;
-  };
+  /** Rows picked together in Sessions, on the Worktrees board and in PRs (useListPicks.ts):
+   *  their panel shows in place of one row's. */
+  picks: ReturnType<typeof useListPicks>;
   approving: Set<string>;
   /** The session a PR's or todo's panel shows in its place, and from which. */
   drill: { from: string; key: string } | null;
@@ -115,7 +112,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, sessionPick, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
   const { startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -279,20 +276,32 @@ export function MainPanel(props: MainPanelProps) {
       </aside>
     )
   ) : view === 'prs' ? (
-    selected?.kind === 'pr' ? (
+    picks.prs.rows.length > 0 ? (
+      <PrPickPanel items={picks.prs.rows} actions={picks.prs.actions()} onShow={(r) => picks.prs.select(r, 'one')} onLeaveOut={(r) => picks.prs.select(r, 'toggle')} onMoreMenu={picks.prs.menu} />
+    ) : selected?.kind === 'pr' ? (
       prPanel(selected)
     ) : (
       <aside className="ca-insp ca-insp--empty">
         <p>Select a PR to see its description, reviews and changes.</p>
       </aside>
     )
-  ) : view === 'sessions' && sessionPick.rows.length > 0 ? (
+  ) : view === 'sessions' && picks.sessions.rows.length > 0 ? (
     <SessionPickPanel
-      items={sessionPick.rows}
-      actions={sessionPick.actions(sessionPick.rows)}
-      onShow={(r) => sessionPick.select(r, 'one')}
-      onLeaveOut={(r) => sessionPick.select(r, 'toggle')}
-      onMoreMenu={(at) => sessionPick.menu(sessionPick.rows, at)}
+      items={picks.sessions.rows}
+      actions={picks.sessions.actions()}
+      pins="session"
+      onShow={(r) => r.kind === 'agent' && picks.sessions.select(r, 'one')}
+      onLeaveOut={(r) => r.kind === 'agent' && picks.sessions.select(r, 'toggle')}
+      onMoreMenu={picks.sessions.menu}
+    />
+  ) : view === 'worktrees' && picks.board.rows.length > 0 ? (
+    <SessionPickPanel
+      items={picks.board.rows}
+      actions={picks.board.actions()}
+      pins="worktree"
+      onShow={(r) => picks.board.select(r, 'one')}
+      onLeaveOut={(r) => picks.board.select(r, 'toggle')}
+      onMoreMenu={picks.board.menu}
     />
   ) : view === 'sessions' && selected?.kind === 'agent' ? (
     sessionPanel(selected.lane, selected.session, undefined, selected.key)

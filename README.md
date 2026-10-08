@@ -34,7 +34,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   chips selects the row, as a click anywhere on it does, and a double-click does the chip's own
   thing (its PR on GitHub, the session where it runs, its todo, its app) in place of opening
   the row; in a panel, a click does. A right-click (or ⌃-click) opens a row's menu and leaves
-  the selection where it was; the row is ringed while its menu is up. Chips are one shape and
+  the selection where it was; the row is ringed while its menu is up. In every list ⌘-click
+  picks a row beside the selected one or leaves it out, ⇧-click (or ⇧↑ ⇧↓ from the list) picks
+  a run and ⌘A picks every row: the panel then lists them with what's commonly done to all of
+  them at once, a right-click on one of them is the menu for all of them, the keys act on all of
+  them, and Esc goes back to one. Chips are one shape and
   size in every list, and none is cut off: on a row short of room a long name shortens inside
   its chip, and the last chips drop out whole. The views:
   - **Sessions**: every session in one list, with no headings. Pinned ones come first in your
@@ -283,6 +287,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     its line diff, a row shows how far the worktree has moved from the default branch on the
     remote (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote
     doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
+    Lines picked together (a worktree with no line is picked whole) take their sessions' Seen,
+    Done, Snooze, Close and Archive, and their worktrees' Pin (`p`), Reuse for new work and
+    copies of their paths and branch names.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each: the ones that made, edited or commented on it, or pushed to it (from their own
     records: Claude Code's `gitOperation` results and its `pr-link` lines, Codex's commands
@@ -306,7 +313,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     menu, or Snooze… in the panel) puts one off for 15 minutes, an hour, three hours or until 9
     the next morning: it leaves Review requested, the bar's reviews pill, the mark and the
     sidebar's count, and waits under Snoozed with when it's back, the soonest first, until its
-    time or Wake now.
+    time or Wake now. PRs picked together open on GitHub one after another (⌘O), pin (`p`) and
+    copy their links and branch names; the ones that ask for your review are approved one after
+    another with one toast, or snoozed together.
     A PR's right-click menu, on its row here or on its number where a worktree or session shows
     it (and the worktree's panel), opens it on GitHub or in Codex and copies its link; a
     worktree's own menu copies its PR's link too. Colored pills say where

@@ -4,8 +4,11 @@
 // ones fold at the end. Each row names the local worktree and the sessions that
 // worked on the PR. Drag a PR up among the pinned ones to pin it there, a pinned one down to the
 // list to unpin it, and any out of the window to pin it to the desktop (useRowDrag.tsx).
+// ⌘-click and ⇧-click (or ⇧↑ ⇧↓, ⌘A) pick several, to open, approve, snooze, pin or copy together
+// (picks.ts, PrPickPanel.tsx).
 
 import { absolute, ago, count } from '../format';
+import { selectHow, type SelectHow } from '../picks';
 import { prFlag } from '../prStatus';
 import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
@@ -138,7 +141,8 @@ interface PrRowProps {
   domId: string;
   now: number;
   selected: boolean;
-  onSelect: () => void;
+  /** A press: alone, or with ⌘ or ⇧ held, picking it with others (picks.ts). */
+  onSelect: (how: SelectHow) => void;
   onOpen: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onContextMenu: () => void;
@@ -157,8 +161,11 @@ function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, on
       selected={selected}
       className={cx('ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, drag?.pinIndex != null && 'is-pinned')}
       drag={drag}
-      onSelect={onSelect}
-      onOpen={onOpen}
+      // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
+      onSelect={(e) => onSelect(selectHow(e))}
+      onOpen={(e) => {
+        if (!e.metaKey && !e.shiftKey) onOpen();
+      }}
       onMenu={onContextMenu}
     >
       <div className="ca-seg ca-seg-glyph">
@@ -212,10 +219,13 @@ interface PrsViewProps {
   sections: PrSection[];
   now: number;
   selectedKey: string | null;
+  /** The rows picked together with the selected one, when there are several. */
+  picked: ReadonlySet<string>;
   domId: (row: PrRowItem) => string;
   showDone: boolean;
   onToggleDone: () => void;
-  onSelect: (row: PrRowItem) => void;
+  /** A row pressed with the primary button, alone or with ⌘ or ⇧. */
+  onSelect: (row: PrRowItem, how: SelectHow) => void;
   onOpen: (row: PrRowItem) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onContextMenu: (row: PrRowItem) => void;
@@ -229,7 +239,7 @@ interface PrsViewProps {
 const SECTION_ICON: Record<PrSection['id'], string> = { requested: 'eye', mine: 'user', others: 'pr', snoozed: 'zzz', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
-  const { pinned, sections, now, selectedKey, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
+  const { pinned, sections, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
   const byKey = (key: string) => pinned.find((r) => r.pr.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.pr.key === key);
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -248,8 +258,8 @@ export function PrsView(props: PrsViewProps) {
       item={r}
       domId={domId(r)}
       now={now}
-      selected={r.key === selectedKey}
-      onSelect={() => onSelect(r)}
+      selected={r.key === selectedKey || picked.has(r.key)}
+      onSelect={(how) => onSelect(r, how)}
       onOpen={() => onOpen(r)}
       onOpenSession={onOpenSession}
       onContextMenu={() => onContextMenu(r)}
