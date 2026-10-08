@@ -7,6 +7,7 @@ import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
 import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
+import type { Waits } from '../queue';
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
 import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
@@ -72,12 +73,12 @@ export function Rich({ text, now }: { text: string; now: number }) {
   );
 }
 
-export function Icon({ name, size = 16, stroke = 1.5, title }: { name: string; size?: number; stroke?: number; title?: string }) {
+export function Icon({ name, size = 16, stroke = 1.5, title, className }: { name: string; size?: number; stroke?: number; title?: string; className?: string }) {
   const paths = ICONS[name];
   if (!paths) return null;
   return (
     <svg
-      className="ca-icon"
+      className={cx('ca-icon', className)}
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -106,6 +107,13 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
       <path className="ca-mark-node" d={MARK_PATHS[1]} />
     </svg>
   );
+}
+
+/** What a kind of wait on you is drawn as wherever it's counted (the notch's pills, the strip over
+ *  a session): a session by its status's glyph, a PR waiting on your review by the PR icon in the
+ *  amber of what needs you. */
+export function WaitsGlyph({ waits }: { waits: Waits }) {
+  return waits === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} className="ca-glyph-review" /> : <StatusGlyph status={waits} title="" />;
 }
 
 /** A status's glyph. `waiting` draws a working one as a clock that stands still: its turn is

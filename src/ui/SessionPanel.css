@@ -65,6 +65,21 @@
 .ca-reply-queue-note.is-error {
   color: var(--alert);
 }
+/* What else waits on you, counted as the notch counts it: each kind's glyph and how many. */
+.ca-reply-queue-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  vertical-align: middle;
+}
+.ca-reply-queue-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--ink-2);
+  font: var(--type-caption-strong);
+  font-variant-numeric: tabular-nums;
+}
 .ca-reply-queue .ca-btn {
   flex: none;
 }
@@ -78,6 +93,10 @@
 }
 .ca-reply-queue.has-keys .ca-reply-queue-note {
   flex: 1 1 96px;
+}
+/* Saying nothing, it asks no room of its own, so the buttons don't go to a line of their own. */
+.ca-reply-queue.has-keys .ca-reply-queue-note:empty {
+  flex-basis: 0;
 }
 /* On a line of their own that's still too short (the waiting window at its narrowest, a PR's
    five), they wrap rather than run past the strip's end, the last line to the right. */
@@ -135,8 +154,7 @@
   margin: 0 3px;
   background: var(--line);
 }
-/* In the notch the strip is one line at any width the session has: the buttons are sized to
-   leave the count its room at the narrowest, and what says how the last one went is cut short
+/* In the notch the strip is one line at any width the session has: what it says is cut short
    before anything goes to a second line. */
 .ca-notch-card .ca-reply-queue.has-keys,
 .ca-notch-card .ca-hotkeys {

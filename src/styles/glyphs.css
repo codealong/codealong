@@ -24,6 +24,8 @@
 .ca-g-hands { fill: none; stroke: var(--ink-2); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .ca-g-alert { fill: var(--alert-solid); }
 .ca-g-x { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; }
+/* A PR waiting on your review, where what waits is counted (WaitsGlyph). */
+.ca-glyph-review { color: var(--attn); }
 @keyframes ca-sweep { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .ca-g-arc { display: none; animation: none; }

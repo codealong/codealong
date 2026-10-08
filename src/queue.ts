@@ -322,6 +322,22 @@ export function firstLeft<T>(view: Pick<QueueView<T>, 'waiting' | 'reads'>, hand
   return leftAfter(view.waiting, '', handled, view.reads)[0];
 }
 
+/** How many of each kind wait on you, as the notch counts them. */
+export type WaitCounts = Record<Waits, number>;
+
+export function waitCounts<T>(rows: T[], waitsOf: (row: T) => Waits): WaitCounts {
+  const counts: WaitCounts = { needs: 0, reviews: 0, unread: 0 };
+  for (const r of rows) counts[waitsOf(r)] += 1;
+  return counts;
+}
+
+/** A kind's count in words, for a tooltip: `2 need you`, `1 PR to review`, `3 your turn`. */
+export function waitCountWords(waits: Waits, n: number): string {
+  if (waits === 'needs') return `${n} ${n === 1 ? 'needs' : 'need'} you`;
+  if (waits === 'reviews') return `${n} ${n === 1 ? 'PR' : 'PRs'} to review`;
+  return `${n} your turn`;
+}
+
 /** What the strip over the header goes by: what's left after the session shown, the next first,
  *  and whether it's one of those waiting itself. */
 export function standing<T>(view: QueueView<T>, handled: Handled): { left: T[]; waiting: boolean } | null {

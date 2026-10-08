@@ -145,7 +145,9 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
 
   const stands = rules.standing(view, handled.current);
   const after = stands?.left[0];
-  const queue: Queue | undefined = stands ? { left: stands.left.length, next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, waiting: stands.waiting } : undefined;
+  const queue: Queue | undefined = stands
+    ? { counts: rules.waitCounts(stands.left, view.reads.waitsOf), next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, waiting: stands.waiting }
+    : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
   const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);
 

@@ -57,6 +57,8 @@
 
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return t ? t.textContent : ''; };
+  // What the strip counts of what else waits on you: the total, then the counts' tooltip.
+  var counted = function () { var c = q('.ca-sessinsp .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.title; };
   var note = function () { var t = document.querySelector('.ca-sessinsp .ca-composer:not(.is-approval) .ca-composer-note'); return t ? t.textContent : ''; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
@@ -71,7 +73,7 @@
     })
     .then(function () {
       check('clicking a row puts the cursor in its box', document.activeElement === box());
-      check('a session that waits on you shows what’s left', /4 more waiting on you/.test(strip()), strip());
+      check('a session that waits on you counts what’s left', /^4 · Waiting on you after this one: /.test(counted()), counted());
       check('the box says what ⌘⏎ does', /⌘⏎ send \+ next/.test(note()), note());
       type(box(), 'Yes, go ahead.');
       key(box(), { key: 'Enter', metaKey: true });
@@ -133,7 +135,7 @@
     })
     .then(function () {
       check('a plain ⏎ sends and stays', title() === 'Queue D' && calls('send_to_session').length === 2, title());
-      check('once it no longer waits on you the strip counts only what else does', !/more waiting on you/.test(strip()), strip());
+      check('once it no longer waits on you the strip counts only what else does', !/after this one/.test(counted()), counted());
       // The strip is always there in Sessions, with what's commonly done to a session and its keys:
       // Close, or End job where the session is a background job, as the board has it today.
       var keys = Array.prototype.map.call(document.querySelectorAll('.ca-sessinsp .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });

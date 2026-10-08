@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answered, chordPressed, firstLeft, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, placeOf, QUEUE_CHORDS, queueKey, seenStep, standing, statusWaits, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
+import { answered, chordPressed, firstLeft, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, placeOf, QUEUE_CHORDS, queueKey, seenStep, standing, statusWaits, stepAlong, stepTo, waitCounts, waitCountWords, waits, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
 
 // A window's rows, as the bar's pills are: a session's key, when its status began, what it waits
 // on you as, its title.
@@ -380,5 +380,19 @@ describe('a session that left what waits on you', () => {
 
   it('moves nothing when it isn’t the one shown', () => {
     expect(left(card(B), none, 'A', 'archived', NOW)).toMatchObject({ went: 'away' });
+  });
+});
+
+describe('waitCounts', () => {
+  it('counts what waits by kind, as the notch does', () => {
+    const rows: Waits[] = ['needs', 'unread', 'reviews', 'needs'];
+    expect(waitCounts(rows, (w) => w)).toEqual({ needs: 2, reviews: 1, unread: 1 });
+    expect(waitCounts([], (w: Waits) => w)).toEqual({ needs: 0, reviews: 0, unread: 0 });
+  });
+
+  it('says each count in words', () => {
+    expect([waitCountWords('needs', 1), waitCountWords('needs', 2)]).toEqual(['1 needs you', '2 need you']);
+    expect([waitCountWords('reviews', 1), waitCountWords('reviews', 3)]).toEqual(['1 PR to review', '3 PRs to review']);
+    expect(waitCountWords('unread', 2)).toEqual('2 your turn');
   });
 });

@@ -145,10 +145,6 @@ html.is-notch body {
 .ca-notch.is-open button.ca-notch-count:hover {
   background: var(--surface-hover);
 }
-/* Reviews asked of you: the PR icon in the amber of what needs you. */
-.ca-notch-count.is-reviews > svg {
-  color: var(--attn);
-}
 .ca-notch-count.is-pulse {
   animation: ca-notch-pulse 1.1s ease-out 1;
 }

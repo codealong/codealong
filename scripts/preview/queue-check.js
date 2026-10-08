@@ -72,6 +72,8 @@
 
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-reply-queue-note'); return t ? t.textContent : ''; };
+  // What the strip counts of what else waits on you: the total, then the counts' tooltip.
+  var counted = function () { var c = q('.ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.title; };
   var box = function () { return document.querySelector('.ca-reply .ca-composer textarea'); };
   var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
   var empty = function () { var e = document.querySelector('.ca-waiting-empty'); return e ? e.textContent : ''; };
@@ -83,7 +85,7 @@
     .then(function () { return on('Queue A'); })
     .then(function () {
       check('it opens on the longest wait', title() === 'Queue A', title());
-      check('the strip says what’s left', /3 more waiting on you/.test(strip()), strip());
+      check('the strip counts what’s left', /^3 · Waiting on you after this one: /.test(counted()), counted());
       check('the box has the cursor', document.activeElement === box());
       key(window, { key: ']', code: 'BracketRight', metaKey: true });
       return on('Queue B');
@@ -94,7 +96,7 @@
       return wait(300);
     })
     .then(function () {
-      check('on one that runs the strip says what waits, not what more', /^3 waiting on you/.test(strip()), strip());
+      check('on one that runs the strip counts what waits, not what more', /^3 · Waiting on you: /.test(counted()), counted());
       key(window, { key: 'e', code: 'KeyE', metaKey: true });
       return on('Queue C');
     })
@@ -133,7 +135,7 @@
     })
     .then(function () {
       key(window, { key: 'ArrowUp', altKey: true });
-      return on('Queue B').then(function () { check('⌥↑ steps back', title() === 'Queue B' && /3 more waiting on you/.test(strip()), title() + ' / ' + strip()); });
+      return on('Queue B').then(function () { check('⌥↑ steps back', title() === 'Queue B' && /^3 · Waiting on you after this one: /.test(counted()), title() + ' / ' + counted()); });
     })
     .then(function () {
       check('the header leaves archiving to its menu and its shortcut', !button('Archive') && !button('Snooze') && !!button('More'));

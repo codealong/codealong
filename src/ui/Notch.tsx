@@ -23,9 +23,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
 import { NOTCH, NOTCH_ORDER, notchClip, notchDragged, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
 import type { Moment } from '../mark';
-import type { LogoStatus, Status } from '../types';
+import type { LogoStatus } from '../types';
 import { MarkLive } from './MarkLive';
-import { cx, Icon, StatusGlyph } from './primitives';
+import { cx, Icon, StatusGlyph, WaitsGlyph } from './primitives';
 import { readStored, writeStored, type Codec } from '../stored';
 import { zoomFactor } from '../zoom';
 
@@ -49,7 +49,6 @@ const SIZE_STORED: Codec<Size | null> = {
   format: (size) => (size ? JSON.stringify(size) : null),
 };
 
-const GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
 
 export interface NotchShellProps {
@@ -408,7 +407,7 @@ function Count({ kind, n, extra, pulse, open, onPick }: { kind: NotchKind; n: nu
         onPick(kind);
       }}
     >
-      {kind === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} /> : <StatusGlyph status={GLYPH[kind]} title="" />}
+      {kind === 'working' ? <StatusGlyph status="working" title="" /> : <WaitsGlyph waits={kind} />}
       <span>{n}</span>
     </button>
   );

@@ -26,24 +26,25 @@ import { shortOf } from '../devices';
 import { seenable } from '../lanes';
 import { useLatest } from '../latest';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
-import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
+import { AWAY_CHORD, QUEUE_CHORDS, WAITS, waitCountWords, type QueueAction, type WaitCounts } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { cardZoom } from '../zoom';
-import { Button, cx, Icon, Rich } from './primitives';
+import { Button, cx, Icon, Rich, WaitsGlyph } from './primitives';
 import { runFolder, runsInSession } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply, useWay } from './SessionReply';
 import { SessionThread } from './SessionThread';
 
-/** Working through what waits on you: how many are left after this one, and the next. */
+/** Working through what waits on you: what's left after this one, and the next. */
 export interface Queue {
-  left: number;
+  /** How many of each kind wait on you besides the one shown, which the strip counts. */
+  counts: WaitCounts;
   /** The next one, by its title: a row's session, or a pill on the bar. */
   next: Pick<Session, 'title'> | null;
   onNext: () => void;
   /** False when the session shown isn't itself one of those waiting (it runs, say): the strip
-   *  still says how many wait and goes to them, but sending doesn't go on. */
+   *  still counts them and goes to them, but sending doesn't go on. */
   waiting?: boolean;
 }
 
@@ -90,12 +91,30 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'next' | 'co
   onLoaded?: () => void;
 }
 
-/** What the strip says: how the one before went, else how many wait on you. */
-function queueWords(queue: Queue | undefined, notice: Notice | null | undefined, always: boolean): string {
-  if (notice) return notice.text;
-  if (!queue) return '';
-  if (queue.left > 0) return `${queue.left} ${queue.waiting === false ? '' : 'more '}waiting on you`;
-  return always && queue.waiting !== false ? 'The last one waiting on you' : '';
+/** What else waits on you, as the notch counts it: each kind's glyph and how many. */
+function QueueCounts({ queue }: { queue: Queue }) {
+  const kinds = WAITS.filter((w) => queue.counts[w] > 0);
+  if (kinds.length === 0) return null;
+  const words = kinds.map((w) => waitCountWords(w, queue.counts[w])).join(', ');
+  return (
+    <span className="ca-reply-queue-counts" title={`${queue.waiting === false ? 'Waiting on you' : 'Waiting on you after this one'}: ${words}`}>
+      {kinds.map((w) => (
+        <span key={w} className="ca-reply-queue-count">
+          <WaitsGlyph waits={w} />
+          {queue.counts[w]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** What the strip says: how the one before went, else what else waits on you, counted. */
+function QueueNote({ queue, notice }: { queue: Queue | undefined; notice: Notice | null | undefined }) {
+  return (
+    <span className={cx('ca-reply-queue-note', notice?.error && 'is-error')} role="status">
+      {notice ? notice.text : queue && <QueueCounts queue={queue} />}
+    </span>
+  );
 }
 
 /** A Snooze menu's times with the chord for each, as a tooltip says them: `⌃⌘1 for 15 minutes`. */
@@ -141,7 +160,7 @@ interface QueueStripProps {
   buttons?: ReactNode;
 }
 
-/** Above a session answered in turn: how the one before went, else how many more wait on you, and
+/** Above a session answered in turn: how the one before went, else what else waits on you, and
  *  the way on to the next (⌘]). With `hotkeys` it's always there, and has what's commonly done to
  *  the session as buttons that say their keys, the ones the session's menu runs (menus.ts); the
  *  keys for back, next and putting it away are the queue's (queue.ts). */
@@ -152,12 +171,10 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
     if (!notice && !next) return null;
     return (
       <div className="ca-reply-queue">
-        <span className={`ca-reply-queue-note${notice?.error ? ' is-error' : ''}`} role="status">
-          {queueWords(queue, notice, false)}
-        </span>
+        <QueueNote queue={queue} notice={notice} />
         {next && queue && (
           <Button variant="ghost" size="sm" kbd={[...nextKey]} title={`Next: ${next.title}`} onClick={queue.onNext}>
-            {notice ? `${queue.left} more` : 'Next'}
+            Next
           </Button>
         )}
       </div>
@@ -206,9 +223,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
   return (
     <div className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
-      <span className={`ca-reply-queue-note${notice?.error ? ' is-error' : ''}`} role="status">
-        {queueWords(queue, notice, true)}
-      </span>
+      <QueueNote queue={queue} notice={notice} />
       {buttons}
     </div>
   );
