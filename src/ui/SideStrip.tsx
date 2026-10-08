@@ -85,21 +85,32 @@ export function prSides(pr: Pick<PrItem, 'number'>, account: string | null): Sid
 export interface SideWindowCan {
   /** The session's title. */
   about: string;
+  /** Shows the session in Codealong's main window, as a click on its title does. */
+  show: () => void;
   /** Closes the window: the side conversation shows above the session's box again. */
   putBack: () => void;
   /** Closes the window and ends the open side conversation, as Close does above a box. */
   close: () => void;
 }
 
-/** The strip's top line: what this is, a few words about it, and what can be done with it. */
-function Head({ title, about, aboutTitle, children }: { title: string; about: string; aboutTitle?: string; children: ReactNode }) {
+/** The strip's top line: what this is, a few words about it, and what can be done with it. In a
+ *  window of its own the words are the session's title, which `onAbout` shows. */
+function Head({ title, about, aboutTitle, onAbout, children }: { title: string; about: string; aboutTitle?: string; onAbout?: () => void; children: ReactNode }) {
   return (
     <header className="ca-sidestrip-head">
       <Icon name="help" size={14} />
       <span className="ca-sidestrip-title">{title}</span>
-      <span className="ca-sidestrip-about" title={aboutTitle ?? about}>
-        {about}
-      </span>
+      {onAbout ? (
+        <span className="ca-sidestrip-about has-link">
+          <button type="button" className="ca-sidestrip-session" title={aboutTitle ?? about} onClick={onAbout}>
+            {about}
+          </button>
+        </span>
+      ) : (
+        <span className="ca-sidestrip-about" title={aboutTitle ?? about}>
+          {about}
+        </span>
+      )}
       <span className="ca-sidestrip-acts">{children}</span>
     </header>
   );
@@ -207,7 +218,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
       <Act icon="x" label="Close" onClick={() => showSides(key, null)} />
     </>
   );
-  const about = (said: string) => (inWindow ? { about: inWindow.about, aboutTitle: `${inWindow.about}: ${said}` } : { about: said });
+  const about = (said: string) => (inWindow ? { about: inWindow.about, aboutTitle: `Show “${inWindow.about}” in Codealong. ${said}`, onAbout: inWindow.show } : { about: said });
   const section = (label: string, head: ReactNode, body: ReactNode, scrolls?: boolean) => (
     <section className={cx('ca-sidestrip', inWindow && 'is-window')} aria-label={label}>
       {head}

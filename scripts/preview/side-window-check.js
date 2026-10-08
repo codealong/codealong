@@ -5,6 +5,7 @@
 // count brings the window forward; `/side` in the session's box still asks the copy and brings
 // the window forward without the keyboard, and plain text goes to the session; and once the
 // window closes, it's back above the box, which is the side conversation's again. In the window:
+// it says what session it's about, whose title shows the session in Codealong's main window;
 // with nothing open it says so over a box that asks on the side; a question asks the copy and
 // sends the session nothing; Put back closes the window and leaves the copy be; Close and ⌘W end
 // the copy and close the window; Earlier lists the ones from before, and Back goes back.
@@ -42,7 +43,7 @@
   var turns = function () { return all('.ca-sidestrip-turn').map(function (t) { return t.textContent; }); };
   var aside = function () { return !!q('.ca-composer.is-aside'); };
   var enter = function (meta) { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: !!meta, bubbles: true, cancelable: true })); };
-  var acts = function () { return strip() ? all('.ca-sidestrip-head button', strip()) : []; };
+  var acts = function () { return strip() ? all('.ca-sidestrip-acts button', strip()) : []; };
   var act = function (label) { return acts().filter(function (b) { return b.getAttribute('aria-label') === label; })[0]; };
   var labels = function () { return acts().map(function (b) { return b.getAttribute('aria-label'); }).join(', '); };
   var ask = async function (text) {
@@ -101,6 +102,11 @@
   async function ownWindow() {
     await until(function () { return strip() && box(); }, 20000, 'the window');
     check('it says what session it’s about', q('.ca-sidestrip-about').textContent === picked.title, q('.ca-sidestrip-about').textContent);
+    var title = q('.ca-sidestrip-head .ca-sidestrip-session');
+    title.click();
+    await until(function () { return calls('show_main').length === 1; }, 5000, 'the main window');
+    var shown = calls('show_main')[0][1];
+    check('a click on its title shows the session in Codealong, and the window stays', !!title && shown.reveal && shown.reveal.kind === 'session' && shown.reveal.key === key && calls('kept_close').length === 0, JSON.stringify(shown));
     check('with nothing open it says so', /^Nothing open on the side/.test(q('.ca-sidestrip-doing').textContent) && labels() === 'Close', labels());
     check('over a box that asks on the side', aside() && box().getAttribute('aria-placeholder') === 'Ask on the side' && /throwaway copy/.test(noteText()), noteText());
     await ask('why a queue?');

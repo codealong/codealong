@@ -399,7 +399,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           onPointerMove={moveWindow}
         >
           <div className="ca-reply" style={cardZoom(zoom)}>
-            <SideReply session={session} terminal={open.terminal} inWindow={{ about: session.title, putBack: () => void keptClose(), close: () => closeSide.current() }} />
+            <SideReply session={session} terminal={open.terminal} inWindow={{ about: session.title, show: () => host.showSession(lane, session), putBack: () => void keptClose(), close: () => closeSide.current() }} />
           </div>
         </div>
         {grip('side')}
