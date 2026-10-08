@@ -57,21 +57,80 @@ describe('linked', () => {
 });
 
 describe('blocks', () => {
+  /** An item that's one paragraph, as the parser reads one. */
+  const para = (text: string) => [{ kind: 'para', text }];
+
   it('reads headings, lists, code and paragraphs the way agents write them', () => {
     const b = blocks("Here's a plan.\n\n## What I found\n\n- **One** thing\n  wraps on\n- `two`\n\n1. first\n2. second\n\n```\ncargo test\n```\n> a quote\n---\nlast line");
     expect(b.map((x) => x.kind)).toEqual(['para', 'heading', 'list', 'list', 'code', 'quote', 'rule', 'para']);
-    expect(b[2]).toEqual({ kind: 'list', ordered: false, items: ['**One** thing wraps on', '`two`'] });
-    expect(b[3]).toMatchObject({ ordered: true, items: ['first', 'second'] });
+    expect(b[2]).toEqual({ kind: 'list', ordered: false, items: [para('**One** thing wraps on'), para('`two`')] });
+    expect(b[3]).toEqual({ kind: 'list', ordered: true, items: [para('first'), para('second')] });
     expect(b[4]).toEqual({ kind: 'code', text: 'cargo test', shell: false, session: false });
   });
 
-  it('reads a code block in a list as code, and the list going on after it', () => {
+  it('reads a code block in a list as part of its item, and the list going on after it', () => {
     const b = blocks('Then:\n1. Run this:\n   ```bash\n   cd app &&\n     npm test\n   ```\n2. Check the output.');
     expect(b).toEqual([
       { kind: 'para', text: 'Then:' },
-      { kind: 'list', ordered: true, items: ['Run this:'], start: 1 },
-      { kind: 'code', text: 'cd app &&\n  npm test', shell: true, session: false },
-      { kind: 'list', ordered: true, items: ['Check the output.'], start: 2 },
+      {
+        kind: 'list',
+        ordered: true,
+        items: [[{ kind: 'para', text: 'Run this:' }, { kind: 'code', text: 'cd app &&\n  npm test', shell: true, session: false }], para('Check the output.')],
+      },
+    ]);
+  });
+
+  it('nests a list indented under an item, and the paragraph under it, as Claude Code writes them', () => {
+    // A reply that came out flat, its sub-items beside their items and its paragraph out of the
+    // list (2026-10-08).
+    const src = [
+      '- **For a Northwind review, effort sets how many checks the planner proposes:**',
+      '  - Quick: about 10.',
+      '  - Deep: also every interface.',
+      '',
+      '  The approval card would say what the next level adds.',
+      "- **A customer's own list has no effort setting.** The list is the scope.",
+      '- **"Only P1s" isn\'t effort.** It fits in two places:',
+      '  - the list;',
+      '  - a filter.',
+    ].join('\n');
+    expect(blocks(src)).toEqual([
+      {
+        kind: 'list',
+        ordered: false,
+        items: [
+          [
+            { kind: 'para', text: '**For a Northwind review, effort sets how many checks the planner proposes:**' },
+            { kind: 'list', ordered: false, items: [para('Quick: about 10.'), para('Deep: also every interface.')] },
+            { kind: 'para', text: 'The approval card would say what the next level adds.' },
+          ],
+          para("**A customer's own list has no effort setting.** The list is the scope."),
+          [{ kind: 'para', text: '**"Only P1s" isn\'t effort.** It fits in two places:' }, { kind: 'list', ordered: false, items: [para('the list;'), para('a filter.')] }],
+        ],
+      },
+    ]);
+  });
+
+  it('keeps items a blank line apart in one list, and starts another where the kind changes', () => {
+    expect(blocks('1. one\n\n2. two\n\n- a')).toEqual([
+      { kind: 'list', ordered: true, items: [para('one'), para('two')] },
+      { kind: 'list', ordered: false, items: [para('a')] },
+    ]);
+    // A numbered list that starts later keeps its number, and lists nest three deep.
+    expect(blocks('3. three\n   - a\n     - b\n\nafter')).toEqual([
+      {
+        kind: 'list',
+        ordered: true,
+        start: 3,
+        items: [[{ kind: 'para', text: 'three' }, { kind: 'list', ordered: false, items: [[{ kind: 'para', text: 'a' }, { kind: 'list', ordered: false, items: [para('b')] }]] }]],
+      },
+      { kind: 'para', text: 'after' },
+    ]);
+  });
+
+  it('keeps a code block whole in its item, however its lines are indented', () => {
+    expect(blocks('- Run:\n  ```\nmake all\n  ```\n- Then check.')).toEqual([
+      { kind: 'list', ordered: false, items: [[{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'make all', shell: false, session: false }], para('Then check.')] },
     ]);
   });
 

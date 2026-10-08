@@ -68,8 +68,10 @@ export function linked(text: string): ReactNode[] {
 type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'para'; text: string }
-  /** `start`: an ordered list's first number, which goes on after a code block in the list. */
-  | { kind: 'list'; ordered: boolean; items: string[]; start?: number }
+  /** Each item is what's written in it: its first line's paragraph, then whatever is indented
+   *  under it (a list nested in it, a paragraph, a code block). `start`: an ordered list's first
+   *  number, when it isn't 1. */
+  | { kind: 'list'; ordered: boolean; items: Block[][]; start?: number }
   | { kind: 'quote'; text: string }
   /** `shell`: a finished block of shell commands, which can run in a new terminal. `session`:
    *  one written for the session's own shell, led by `!` as Claude Code's box takes one (bash
@@ -110,6 +112,17 @@ function cells(line: string): string[] {
   }
   out.push(cell.trim());
   return out;
+}
+
+/** How far a line is indented, in characters. */
+const indentOf = (line: string) => line.length - line.trimStart().length;
+
+/** A list item's lines as Markdown of their own: its first line, then the lines under it with the
+ *  indentation they share taken off, so a list nested in it reads as a list. */
+function dedent(body: string[]): string {
+  const [first, ...rest] = body;
+  const cut = Math.min(...rest.filter((l) => l.trim()).map(indentOf));
+  return [first, ...rest.map((l) => (l.trim() ? l.slice(cut) : ''))].join('\n');
 }
 
 /** Whether a table starts at line i: a row with a pipe, then a delimiter row with as many cells. */
@@ -168,16 +181,37 @@ export function blocks(src: string): Block[] {
     const item = ITEM.exec(line);
     if (item) {
       const ordered = !!item[1];
-      const items: string[] = [];
+      const at = indentOf(line);
+      const items: Block[][] = [];
       while (i < lines.length) {
         const m = ITEM.exec(lines[i]);
-        if (m) items.push(m[2]);
-        // A wrapped line continues the item before it; a fence under it is a code block of its own.
-        else if (lines[i].trim() && /^\s{2,}/.test(lines[i]) && !/^\s*```/.test(lines[i]) && items.length) items[items.length - 1] += ` ${lines[i].trim()}`;
-        else break;
+        if (!m || indentOf(lines[i]) !== at || !!m[1] !== ordered) break;
+        // An item holds the lines indented further than its marker, blank lines between them
+        // included: a wrapped line, a list nested in it, a paragraph or a code block under it.
+        const body = [m[2]];
         i++;
+        let fenced = false;
+        while (i < lines.length) {
+          // Inside a code block every line is the block's, however far it's indented.
+          if (fenced || (lines[i].trim() && indentOf(lines[i]) > at)) {
+            if (/^\s*```/.test(lines[i])) fenced = !fenced;
+            body.push(lines[i++]);
+            continue;
+          }
+          if (lines[i].trim()) break;
+          const next = lines.slice(i).findIndex((l) => l.trim() !== '');
+          if (next < 0 || indentOf(lines[i + next]) <= at) break;
+          body.push(...lines.slice(i, i + next));
+          i += next;
+        }
+        items.push(blocks(dedent(body)));
+        // A blank line between items keeps them in one list.
+        const next = lines.slice(i).findIndex((l) => l.trim() !== '');
+        const sibling = next >= 0 ? ITEM.exec(lines[i + next]) : null;
+        if (next > 0 && sibling && indentOf(lines[i + next]) === at && !!sibling[1] === ordered) i += next;
       }
-      out.push(ordered ? { kind: 'list', ordered, items, start: Number(item[1]) } : { kind: 'list', ordered, items });
+      const start = Number(item[1]);
+      out.push(ordered && start !== 1 ? { kind: 'list', ordered, items, start } : { kind: 'list', ordered, items });
       continue;
     }
     if (/^\s*>/.test(line)) {
@@ -223,65 +257,74 @@ export function inline(text: string, links = true): ReactNode[] {
   return out;
 }
 
+/** A list item: its first line's paragraph as a line of the item, then what's under it (a nested
+ *  list, a paragraph, a code block) as blocks. */
+function drawItem(item: Block[], j: number): ReactNode {
+  const [first, ...rest] = item;
+  const lead = first?.kind === 'para' ? inline(first.text) : first ? drawBlock(first, 0) : null;
+  return (
+    <li key={j}>
+      {lead}
+      {rest.map((b, k) => drawBlock(b, k + 1))}
+    </li>
+  );
+}
+
+function drawBlock(b: Block, i: number): ReactNode {
+  switch (b.kind) {
+    case 'heading':
+      return (
+        <p key={i} className={`ca-md-h ca-md-h${Math.min(b.level, 3)}`}>
+          {inline(b.text)}
+        </p>
+      );
+    case 'para':
+      return <p key={i}>{inline(b.text)}</p>;
+    case 'list': {
+      const Tag = b.ordered ? 'ol' : 'ul';
+      return (
+        <Tag key={i} start={b.start}>
+          {b.items.map(drawItem)}
+        </Tag>
+      );
+    }
+    case 'quote':
+      return <blockquote key={i}>{inline(b.text)}</blockquote>;
+    case 'code':
+      return <CodeBlock key={i} text={b.text} run={b.shell ? { session: b.session } : undefined} />;
+    case 'table':
+      return (
+        <div key={i} className="ca-md-table">
+          <table>
+            <thead>
+              <tr>
+                {b.head.map((c, j) => (
+                  <th key={j} style={b.align[j] ? { textAlign: b.align[j] } : undefined}>
+                    {inline(c)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.map((r, k) => (
+                <tr key={k}>
+                  {r.map((c, j) => (
+                    <td key={j} style={b.align[j] ? { textAlign: b.align[j] } : undefined}>
+                      {inline(c)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    case 'rule':
+      return <hr key={i} />;
+  }
+}
+
 /** Memoized: a thread re-renders every clock tick, and its messages' text doesn't change. */
 export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string }) {
-  return (
-    <div className={cx('ca-md', className)}>
-      {blocks(text).map((b, i) => {
-        switch (b.kind) {
-          case 'heading':
-            return (
-              <p key={i} className={`ca-md-h ca-md-h${Math.min(b.level, 3)}`}>
-                {inline(b.text)}
-              </p>
-            );
-          case 'para':
-            return <p key={i}>{inline(b.text)}</p>;
-          case 'list': {
-            const Tag = b.ordered ? 'ol' : 'ul';
-            return (
-              <Tag key={i} start={b.start != null && b.start !== 1 ? b.start : undefined}>
-                {b.items.map((it, j) => (
-                  <li key={j}>{inline(it)}</li>
-                ))}
-              </Tag>
-            );
-          }
-          case 'quote':
-            return <blockquote key={i}>{inline(b.text)}</blockquote>;
-          case 'code':
-            return <CodeBlock key={i} text={b.text} run={b.shell ? { session: b.session } : undefined} />;
-          case 'table':
-            return (
-              <div key={i} className="ca-md-table">
-                <table>
-                  <thead>
-                    <tr>
-                      {b.head.map((c, j) => (
-                        <th key={j} style={b.align[j] ? { textAlign: b.align[j] } : undefined}>
-                          {inline(c)}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {b.rows.map((r, k) => (
-                      <tr key={k}>
-                        {r.map((c, j) => (
-                          <td key={j} style={b.align[j] ? { textAlign: b.align[j] } : undefined}>
-                            {inline(c)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          case 'rule':
-            return <hr key={i} />;
-        }
-      })}
-    </div>
-  );
+  return <div className={cx('ca-md', className)}>{blocks(text).map(drawBlock)}</div>;
 });

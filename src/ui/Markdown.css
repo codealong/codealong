@@ -41,6 +41,11 @@
 .ca-md li + li {
   margin-top: 3px;
 }
+/* What's written under an item's first line: a list nested in it, a paragraph, a code block. Named
+   one by one, since an item's own line holds inline elements (code, links, PR chips) too. */
+.ca-md li > :is(ul, ol, p, blockquote, .ca-codeblock, .ca-md-table, hr) {
+  margin-top: 3px;
+}
 .ca-md blockquote {
   padding-left: 10px;
   border-left: 2px solid var(--line-strong);
