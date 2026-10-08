@@ -563,8 +563,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   session whose tab can't be found gets such a message too, and the note (on the bar, from the
   peek) says it wasn't typed and why; once typing has started, nothing else is tried, so it
   can't arrive twice, and the same text sent again while it's on its way goes once. A session that isn't running
-  is resumed with the prompt where the row at the foot of its box says, in the places its account
-  starts sessions in that its harness can go on in: a terminal, the background (Claude Code's
+  is resumed with the prompt where the place chip beside Send says (a menu, with a line on each),
+  among the places its account starts sessions in that its harness can go on in: a terminal, the background (Claude Code's
   background service, else a terminal behind your windows), its app, or Codealong, which runs it
   from then on. Beside Send, where a running session's box says its model, is the account's
   model and effort menu, as the start menu has it, and picking a model leaves only the places
@@ -581,7 +581,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's
   main checkout; pinned ones first), the account and model in one menu (⌘L, every account on
   every model it can start on, with its limits, and the effort under them: Default, Low,
-  Medium, High, Extra or Max, ← → to change it), and where it runs. Where a start on this Mac
+  Medium, High, Extra or Max, ← → to change it), and where it runs (⌘O, a chip beside the agent
+  menu that says the place, with a line on each in its menu). Where a start on this Mac
   runs becomes the account's `start` in config.toml (with Auto, of every account Auto picks
   among), so the next start opens there, and so does `codealong start` without `--in`; the
   places keep their order whichever it is. With other Macs linked,

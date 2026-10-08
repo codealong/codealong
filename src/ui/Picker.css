@@ -19,9 +19,14 @@
 .ca-picker.is-wide {
   width: 440px;
 }
-.ca-quick-agent .ca-picker {
+.ca-quick-agent .ca-picker,
+.ca-quick-place .ca-picker {
   right: 0;
   left: auto;
+}
+/* The places are a few short lines. */
+.ca-quick-place .ca-picker {
+  width: 300px;
 }
 .ca-picker-filter {
   flex: none;

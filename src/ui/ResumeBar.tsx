@@ -1,14 +1,14 @@
 // Where a session that isn't running goes on, and on what, picked in its box (SessionReply.tsx):
-// the places its account's sessions go on in, in a row under what you write, as the quick panel's
-// start row offers places, and the account's models and effort beside Send, where a running
-// session's box says its model (SessionModel.tsx), as the start row's agent menu offers them. What
-// the picks come to is start.ts's `resumeChoice`, a start's rules for that account; the box's
-// placeholder says what sending does then, and the send asks for it.
+// beside Send, the place its account's sessions go on in, as the quick panel's start row offers
+// places, then the account's models and effort, where a running session's box says its model
+// (SessionModel.tsx), as the start row's agent menu offers them. What the picks come to is
+// start.ts's `resumeChoice`, a start's rules for that account; the box's placeholder says what
+// sending does then, and the send asks for it.
 
 import { agentId, agentOptions, effortStep, parseAgent, placeTakesModel, resumeAccount, type ChosenStart, type ResumePicks } from '../start';
 import type { StartAccount, StartPlace } from '../types';
-import { ModelMenu } from './ModelMenu';
-import { EffortFoot, PlaceToggle } from './StartControls';
+import { BoxMenu, ModelMenu } from './ModelMenu';
+import { EffortFoot, placeIcon, placeSections } from './StartControls';
 
 interface ResumeProps {
   account: StartAccount;
@@ -18,15 +18,24 @@ interface ResumeProps {
   onPicks: (picks: ResumePicks) => void;
 }
 
-/** The places, as a row under the text. */
-export function ResumePlaces({ picks, chosen, onPicks }: Omit<ResumeProps, 'account'>) {
+/** The place it goes on in, as a chip beside the model's, when there's more than one. */
+export function ResumePlace({ picks, chosen, onPicks, onDone }: Omit<ResumeProps, 'account'> & { onDone: () => void }) {
   /** Picks where it goes on. The apps choose their model: a model asked for gives way to the
    *  account's own there, as it does for a start (useStartChoice.ts). */
   const pickPlace = (place: StartPlace) => onPicks({ ...picks, place, agent: placeTakesModel(place) ? picks.agent : null });
+  const now = chosen.places.find((p) => p.place === chosen.placeNow);
   return (
-    <div className="ca-composer-tools ca-resume">
-      <PlaceToggle label="Goes on in" places={chosen.places} value={chosen.placeNow} onPick={pickPlace} />
-    </div>
+    <BoxMenu
+      kind="place"
+      sections={placeSections(chosen.places)}
+      value={chosen.placeNow}
+      icon={now ? placeIcon(now.place) : undefined}
+      label={now?.label ?? 'Goes on in'}
+      title="Where it goes on"
+      placeholder="Goes on in"
+      onPick={(id) => pickPlace(id as StartPlace)}
+      onDone={onDone}
+    />
   );
 }
 

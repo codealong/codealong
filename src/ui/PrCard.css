@@ -33,7 +33,7 @@
 .ca-prreview-buttons {
   margin: 0 6px 6px;
 }
-/* Review or Ask, at the foot of the box, where a session's box has its resume's places. */
+/* Review or Ask, at the foot of the box, left of its buttons. */
 .ca-prreview-sides .ca-segctl button {
   height: 22px;
   padding: 0 9px;

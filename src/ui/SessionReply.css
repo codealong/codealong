@@ -12,8 +12,8 @@
 }
 /* The box itself, as chat apps draw theirs: what's attached, then the text across the box's whole
    width, its scrollbar at the box's edge once it has one, then a row at its foot with the model
-   and Send at the right (and where a session that isn't running goes on at the left,
-   ResumeBar.css). What the box has to say goes below it. */
+   and Send at the right (and before the model, where a session that isn't running goes on,
+   ResumeBar.tsx). What the box has to say goes below it. */
 .ca-composer-field {
   /* What opens over the conversation from inside it (ModelMenu.tsx) is placed against it. */
   position: relative;
@@ -81,6 +81,18 @@
 /* Send, or Stop while a turn runs and the box is empty: round, at the right of the box's foot.
    Send now goes before Send while the turn can take a message at once, quieter, as the second way
    to send. */
+/* A row of controls at the foot of the box, left of its buttons: a PR review's Review or Ask
+   (PrCard.tsx). */
+.ca-composer-tools {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0 0 5px 5px;
+  cursor: default;
+}
 .ca-composer-buttons {
   grid-column: 2;
   display: flex;

@@ -427,8 +427,13 @@ html.is-quick body {
   color: var(--ink-3);
   cursor: default;
 }
-.ca-quick-agent {
+/* The place and the agent at the right of the bar, the agent last. */
+.ca-quick-agent,
+.ca-quick-place {
   margin-left: auto;
+}
+.ca-quick-place + .ca-quick-agent {
+  margin-left: 0;
 }
 .ca-quick-counts {
   display: inline-flex;

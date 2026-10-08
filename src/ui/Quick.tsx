@@ -13,9 +13,9 @@
 // ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session or a PR shows it in Codealong,
 // with its conversation or its details, and ⌥⏎ opens it where it lives (a PR on GitHub); ⌥⏎ on a
 // todo shows it in Codealong. ⌘1 to ⌘9 do a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch
-// to one (⌥⌘0 to all of them), ⌘D picks the Mac (with others linked), ⌘T the worktree and ⌘L
-// the agent, whose menu has the effort
-// under its models (← → there), ↑ in the empty input brings back the last draft and earlier
+// to one (⌥⌘0 to all of them), ⌘D picks the Mac (with others linked), ⌘T the worktree, ⌘L
+// the agent, whose menu has the effort under its models (← → there), and ⌘O where it opens
+// (with more than one place), ↑ in the empty input brings back the last draft and earlier
 // prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
 // the page sees it.)
 //
@@ -91,7 +91,7 @@ import { attachmentsIn, blockedBy, insertAttachments, newTodo, primaryHolds, sni
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { agentLine, EffortFoot, PlaceToggle } from './StartControls';
+import { agentLine, EffortFoot, placeIcon, placeSections } from './StartControls';
 import { Chip, cx, Icon, Kbd, Mark, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
@@ -133,7 +133,7 @@ const RETRY_MS = 5_000;
 /** The device menu's id for this Mac; the others go by their short ids, which are hex. */
 const HERE = 'here';
 
-type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
+type PickerKind = 'project' | 'device' | 'worktree' | 'agent' | 'place';
 
 const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
@@ -940,6 +940,7 @@ export function Quick() {
 
   const ready = !!lane && !!account && !!placeNow;
   const terminalName = places.find((p) => p.place === 'terminal')?.label ?? 'The terminal';
+  const placeShown = places.find((p) => p.place === placeNow);
   const onModel = onModelWords(startsOn, effortWord, models);
   const behind = places.find((p) => p.place === 'background')?.behind ?? false;
   const happens = startHappens({
@@ -1203,9 +1204,9 @@ export function Quick() {
         toggleArchived();
         return;
       }
-      if (k === 'p' || k === 't' || k === 'l' || (k === 'd' && macs.length > 0)) {
+      if (k === 'p' || k === 't' || k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1)) {
         e.preventDefault();
-        togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : 'agent');
+        togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : k === 'o' ? 'place' : 'agent');
       } else if (k === 'q' || k === 'h') {
         // The menu bar is the other app's while the panel is up, so ⌘Q and ⌘H mean that app,
         // not Codealong: they close the panel instead of quitting or hiding Codealong.
@@ -1785,6 +1786,16 @@ export function Quick() {
             </span>
             New worktree
           </label>
+          {places.length > 1 && (
+            <div className="ca-quick-pick ca-quick-place">
+              <button type="button" data-picker-trigger className="ca-quick-chip" title="Opens in (⌘O)" aria-haspopup="dialog" aria-expanded={picker === 'place'} onClick={() => togglePicker('place')}>
+                {placeShown && <Icon name={placeIcon(placeShown.place)} size={14} />}
+                <span>{placeShown?.label ?? 'Opens in'}</span>
+                <Icon name="chevron-down" size={12} />
+              </button>
+              {picker === 'place' && <Picker sections={placeSections(places)} value={placeNow} placeholder="Opens in" onPick={(id) => { pickPlace(id as StartPlace); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
+            </div>
+          )}
           <div className="ca-quick-pick ca-quick-agent">
             <button type="button" data-picker-trigger className="ca-quick-chip" title="Account, model and effort (⌘L)" disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
               <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
@@ -1794,7 +1805,6 @@ export function Quick() {
             </button>
             {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
           </div>
-          <PlaceToggle className="ca-quick-places" label="Opens in" places={places} value={placeNow} onPick={pickPlace} />
         </div>
       </div>
     </div>

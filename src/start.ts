@@ -309,6 +309,21 @@ export function placeTakesModel(place: StartPlace): boolean {
   return onCommandLine(place) || place === 'codealong';
 }
 
+/** A place's line under its name in a menu of places (StartControls.tsx `placeLine`): what it is
+ *  beyond its name, and that an app goes on its own model, as a model picked gives way there. */
+export function placeNote(place: StartPlace, behind = false): string {
+  switch (place) {
+    case 'terminal':
+      return 'A new tab, in front';
+    case 'background':
+      return behind ? 'A tab behind your windows' : 'No window; attach a terminal any time';
+    case 'codealong':
+      return 'Its panel here takes your replies';
+    default:
+      return 'On the app’s own model';
+  }
+}
+
 /** What's picked in the quick panel's agent menu and its places, null for nothing picked. */
 export interface StartPicks {
   /** An agent menu id (`agentId`). */

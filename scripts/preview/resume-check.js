@@ -1,9 +1,9 @@
 // Checks going on with a session that isn't running from its box (ResumeBar.tsx, start.ts
-// `resumeChoice`): the row under the text offers the places its account's sessions go on in, and
-// the chip beside Send the account's models, where a running session's box has its model; the
-// placeholder says what sending does; a model leaves only the places
-// that take one; a send asks the engine to resume it there, on that model, and the place is kept
-// for the account's next one; and its menu has Resume in, with the same places.
+// `resumeChoice`): a chip beside Send offers the places its account's sessions go on in, each
+// saying what it is, and the chip after it the account's models, where a running session's box has
+// its model; the placeholder says what sending does; a model leaves only the places that take one;
+// a send asks the engine to resume it there, on that model, and the place is kept for the
+// account's next one; and its menu has Resume in, with the same places.
 //   scripts/preview.sh peek '' scripts/preview/resume-check.js
 (function () {
   // This runs before the app's script: pick a session on this Mac that isn't running, in a
@@ -37,36 +37,59 @@
   localStorage.removeItem('codealong.draft.' + picked.key);
   localStorage.removeItem('codealong.resumed');
 
-  var row = function () { return q('.ca-peek .ca-resume'); };
+  var placeChip = function () { return q('.ca-peek .ca-composer-buttons .ca-placemenu-chip'); };
   var box = function () { return q('.ca-peek .ca-composer textarea'); };
-  var places = function () { return all('.ca-peek .ca-resume .ca-places button').map(function (b) { return b.textContent.trim(); }); };
-  var on = function () { var b = q('.ca-peek .ca-resume .ca-places button.is-on'); return b ? b.textContent.trim() : ''; };
-  var place = function (label) { return all('.ca-peek .ca-resume .ca-places button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
+  var options = function () { return all('.ca-peek .ca-placemenu .ca-picker-opt'); };
+  var titleOf = function (o) { return q('.ca-picker-title', o).textContent.trim(); };
+  var places = function () { return options().map(titleOf); };
+  var on = function () { return placeChip() ? placeChip().textContent.trim() : ''; };
+  // Opens the menu of places; the chip closes it again.
+  var openPlaces = function () {
+    placeChip().click();
+    return until(function () { return options().length > 0; }, 3000, 'no menu of places');
+  };
+  var closePlaces = function () {
+    placeChip().click();
+    return until(function () { return options().length === 0; }, 3000, 'the menu of places stays open');
+  };
+  var pickPlace = function (label) {
+    return openPlaces().then(function () {
+      var o = options().filter(function (x) { return titleOf(x) === label; })[0];
+      if (!o) throw new Error('no ' + label + ' among the places: ' + places().join(', '));
+      o.click();
+      return wait(50);
+    });
+  };
   var chip = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); };
   var enter = function (el) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
   var other = acct.models.filter(function (m) { return m.id !== acct.defaultModel; })[0];
 
   say('resume check: ' + picked.key + ' on ' + acct.name);
-  until(function () { return !!row(); }, 20000, 'no resume row in the box')
+  until(function () { return !!placeChip(); }, 20000, 'no place chip in the box')
     .then(function () {
-      check('it offers the places its account’s sessions go on in', places().join(', ') === offered.map(function (p) { return p.label; }).join(', '), places().join(', '));
       check('it goes on in a terminal unless picked otherwise', on() === labelOf('terminal'), on());
       check('the placeholder says it resumes in the terminal', box().getAttribute('aria-placeholder').indexOf('resumes it in ' + board.apps.terminal) >= 0, box().getAttribute('aria-placeholder'));
       check('the model chip says the account’s own model', !!chip() && chip().textContent.length > 0, chip() ? chip().textContent : 'none');
-      check('the chip sits beside Send, right of the places', !!chip() && !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')) && chip().getBoundingClientRect().left >= row().getBoundingClientRect().right, chip() ? chip().getBoundingClientRect().left + ' / ' + row().getBoundingClientRect().right : 'none');
-      place(labelOf('background')).click();
-      return wait(50);
+      check('the chips sit beside Send, the place first', !!chip() && !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')) && chip().getBoundingClientRect().left >= placeChip().getBoundingClientRect().right, chip() ? chip().getBoundingClientRect().left + ' / ' + placeChip().getBoundingClientRect().right : 'none');
+      return openPlaces();
     })
     .then(function () {
+      check('its menu offers the places its account’s sessions go on in', places().join(', ') === offered.map(function (p) { return p.label; }).join(', '), places().join(', '));
+      check('each says what it is', options().every(function (o) { return !!q('.ca-picker-detail', o); }), options().map(function (o) { return o.textContent; }).join(' | '));
+      var menu = q('.ca-peek .ca-placemenu .ca-picker');
+      check('the menu opens upward, over the conversation', menu.getBoundingClientRect().bottom <= placeChip().getBoundingClientRect().top + 1, menu.getBoundingClientRect().bottom + ' / ' + placeChip().getBoundingClientRect().top);
+      return closePlaces();
+    })
+    .then(function () { return pickPlace(labelOf('background')); })
+    .then(function () {
       var behind = (offered.filter(function (p) { return p.place === 'background'; })[0] || {}).behind;
+      check('the menu closes on a pick, and the chip says it', options().length === 0 && on() === labelOf('background'), on());
       check('Background says where it goes', box().getAttribute('aria-placeholder').indexOf(behind ? 'behind your windows' : 'resumes it in the background') >= 0, box().getAttribute('aria-placeholder'));
       if (labelOf('claude-app')) {
-        place(labelOf('claude-app')).click();
-        return wait(50).then(function () {
+        return pickPlace(labelOf('claude-app')).then(function () {
           check('the Claude app picks its own model, so the chip goes', !chip(), chip() ? chip().textContent : 'gone');
           check('the Claude app takes it on the clipboard', box().getAttribute('aria-placeholder').indexOf('Claude app opens it') >= 0, box().getAttribute('aria-placeholder'));
-          place(labelOf('background')).click();
-          return wait(50);
+          return pickPlace(labelOf('background'));
         });
       }
     })
@@ -85,7 +108,13 @@
     })
     .then(function () {
       check('the menu closes on a pick', !q('.ca-peek .ca-modelmenu .ca-picker'), 'open');
+      return openPlaces();
+    })
+    .then(function () {
       check('a model leaves only the places that take one', places().indexOf('Claude app') < 0 && on() === labelOf('background'), places().join(', ') + ' · ' + on());
+      return closePlaces();
+    })
+    .then(function () {
       type(box(), 'Carry on where you left off');
       enter(box());
       return until(function () { return calls('resume_session').length === 1; }, 5000, 'no resume asked for');

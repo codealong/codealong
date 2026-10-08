@@ -1,7 +1,7 @@
 // Checks a session's box in the notch (NotchSession.tsx, SessionReply.tsx) offers what the peek's
-// does: for one that isn't running, where it goes on and on what (ResumeBar.tsx), and for one
-// that's running, the model it's on (SessionModel.tsx), the model beside Send in both, each inside
-// the card's width.
+// does: for one that isn't running, where it goes on and on what (ResumeBar.tsx), as chips beside
+// Send, and for one that's running, the model it's on (SessionModel.tsx), each inside the card's
+// width.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-model-check.js
 (function () {
   var json = function (url) {
@@ -46,20 +46,19 @@
     })
     .then(function () {
       pill(resting.key).click();
-      return until(function () { return !!q('.ca-notch-session .ca-resume'); }, 8000, 'no resume row in the notch');
+      return until(function () { return !!q('.ca-notch-session .ca-placemenu-chip'); }, 8000, 'no place chip in the notch');
     })
     .then(function () {
-      var row = q('.ca-notch-session .ca-resume');
-      var labels = all('.ca-places button', row).map(function (b) { return b.textContent.trim(); });
-      check('one that isn’t running offers where it goes on', labels.length > 1, labels.join(', '));
+      var place = q('.ca-notch-session .ca-composer-buttons .ca-placemenu-chip');
+      check('one that isn’t running says where it goes on, beside Send', !!place, 'no place chip');
       var chip = q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip');
-      check('and on what, beside Send', !!chip, 'no chip');
-      check('the row fits the card', inside(row), JSON.stringify(row.getBoundingClientRect()));
-      check('so does the chip', !!chip && inside(chip), chip ? JSON.stringify(chip.getBoundingClientRect()) : 'none');
-      note('resume row ' + Math.round(row.getBoundingClientRect().height) + 'px tall in a ' + Math.round(card().getBoundingClientRect().width) + 'px card');
+      check('and on what', !!chip, 'no chip');
+      check('the place chip fits the card', inside(place), JSON.stringify(place.getBoundingClientRect()));
+      check('so does the model chip', !!chip && inside(chip), chip ? JSON.stringify(chip.getBoundingClientRect()) : 'none');
+      check('the chips share the line Send is on', !!chip && Math.abs(place.getBoundingClientRect().top - chip.getBoundingClientRect().top) < 2, JSON.stringify([place.getBoundingClientRect().top, chip && chip.getBoundingClientRect().top]));
       pill(running.key).click();
-      // The one that isn't running has a chip beside Send too: wait for its row to go.
-      return until(function () { return !q('.ca-notch-session .ca-resume') && !!q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip'); }, 8000, 'no model chip without a resume row in the notch');
+      // The one that is running has a model chip beside Send too: wait for the place chip to go.
+      return until(function () { return !q('.ca-notch-session .ca-placemenu-chip') && !!q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip'); }, 8000, 'no model chip without a place chip in the notch');
     })
     .then(function () {
       var chip = q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip');

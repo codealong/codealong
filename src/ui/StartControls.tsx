@@ -3,27 +3,26 @@
 // rules for what they offer are start.ts's; these only draw them.
 
 import type { AgentOption, ModelOption } from '../start';
-import { agentOptionWords, effortNote } from '../start';
+import { agentOptionWords, effortNote, placeNote } from '../start';
 import type { Harness, StartAccount, StartPlace } from '../types';
-import type { PickerOption } from './Picker';
-import { cx, Icon, Kbd, Seg } from './primitives';
+import type { PickerOption, PickerSection } from './Picker';
+import { Icon, Kbd, Seg } from './primitives';
 
 export function placeIcon(place: StartPlace): string {
   return place === 'terminal' ? 'terminal' : place === 'background' ? 'stack' : 'app';
 }
 
-/** Where it goes: a toggle between the places on offer, or the one place said, or nothing. */
-export function PlaceToggle({ places, value, onPick, label, className, keepsFocus }: { places: StartAccount['places']; value: StartPlace | null; onPick: (p: StartPlace) => void; label: string; className?: string; keepsFocus?: boolean }) {
-  if (places.length > 1) {
-    return <Seg className={cx('ca-places', className)} label={label} iconSize={13} options={places.map((p) => ({ id: p.place, label: p.label, icon: placeIcon(p.place) }))} value={value} onPick={onPick} keepsFocus={keepsFocus} />;
-  }
-  if (places.length === 0) return null;
-  return (
-    <span className="ca-place">
-      <Icon name={placeIcon(places[0].place)} size={13} />
-      {places[0].label}
-    </span>
-  );
+/** Where it goes, as a menu of the places on offer: each with its icon, and under its name what
+ *  it is (start.ts `placeNote`). Picked seldom, so it's a chip that says the place, not a row of
+ *  every place; with one place there's nothing to pick, and the words of the start or the box
+ *  say where it goes. */
+export function placeSections(places: StartAccount['places']): PickerSection[] {
+  return [
+    {
+      key: 'places',
+      options: places.map((p) => ({ id: p.place, text: `${p.label} ${placeNote(p.place, p.behind)}`, label: p.label, detail: placeNote(p.place, p.behind), lead: <Icon name={placeIcon(p.place)} size={14} /> })),
+    },
+  ];
 }
 
 /** One of an account's lines in a model menu: its own model or one of its models, checked when

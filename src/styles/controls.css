@@ -118,22 +118,6 @@
   gap: 6px;
 }
 
-/* Where a session goes (StartControls.tsx): the places on offer, or the one place there is. */
-.ca-places button {
-  gap: 5px;
-  padding: 0 10px;
-}
-.ca-place {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font: var(--type-meta-strong);
-  color: var(--ink-2);
-}
-.ca-place .ca-icon {
-  color: var(--ink-3);
-}
-
 .ca-start-select {
   position: relative;
   display: grid;

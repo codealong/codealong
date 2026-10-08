@@ -3,14 +3,22 @@
 // OpenCode, Antigravity) the start row says its terminal opens behind your windows, and for
 // Claude Code that it runs in the background, a terminal attached later; either way ⌘⏎ asks for
 // the background place and keeps it as the account's start (`keep_start_place`), and picking a
-// model then leaves Background picked.
+// model then leaves Background picked. The places are a menu on a chip in the bar (⌘O), each
+// saying what it is.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-background-check.js
 // It needs a Claude Code account and one of another agent in config.toml; a missing one is
 // noted and its steps are skipped.
 (function () {
   var agentChip = function () { return q('.ca-quick-agent .ca-quick-chip'); };
   var why = function () { var el = q('.ca-quick-compose .ca-quick-row-why'); return el ? el.textContent : ''; };
-  var placeButton = function (label) { return all('.ca-quick-places button').find(function (b) { return b.textContent.trim() === label; }); };
+  var placeChip = function () { return q('.ca-quick-place .ca-quick-chip'); };
+  var placeNow = function () { return placeChip() ? placeChip().textContent.trim() : ''; };
+  var titleOf = function (o) { return q('.ca-picker-title', o).textContent.trim(); };
+  // Opens the menu of places with ⌘O, for its options.
+  var placeOptions = function () {
+    key(window, { key: 'o', metaKey: true });
+    return until(function () { return all('.ca-quick-place .ca-picker-opt').length > 0; }, 3000, 'no menu of places on ⌘O').then(function () { return all('.ca-quick-place .ca-picker-opt'); });
+  };
   var box = function () { return q('.ca-quick-input textarea'); };
   var listed = null;
 
@@ -29,12 +37,14 @@
   // Picks an account, then Background, and checks what the start row says and what ⌘⏎ asks for.
   var tryAccount = function (account, words) {
     return pickAccount(account.name)
-      .then(function () {
-        var b = placeButton('Background');
-        check(account.name + ' offers Background', !!b, all('.ca-quick-places button').map(function (x) { return x.textContent; }).join(', '));
+      .then(placeOptions)
+      .then(function (opts) {
+        var b = opts.find(function (o) { return titleOf(o) === 'Background'; });
+        check(account.name + ' offers Background', !!b, opts.map(titleOf).join(', '));
+        check(account.name + ': each place says what it is', opts.every(function (o) { return !!q('.ca-picker-detail', o); }), opts.map(function (o) { return o.textContent; }).join(' | '));
         if (!b) return null;
         b.click();
-        return until(function () { return b.classList.contains('is-on'); }, 2000);
+        return until(function () { return placeNow() === 'Background' && !q('.ca-quick-place .ca-picker'); }, 2000, 'the chip doesn’t say Background');
       })
       .then(function () {
         check(account.name + ': the start row says ' + words, why().indexOf(words) >= 0, why());
@@ -70,8 +80,7 @@
       if (!model) return note(account.name + ' lists no models: the model step skipped');
       model.click();
       return wait(300).then(function () {
-        var b = placeButton('Background');
-        check(account.name + ': picking a model keeps Background', !!b && b.classList.contains('is-on'), all('.ca-quick-places button.is-on').map(function (x) { return x.textContent; }).join(', '));
+        check(account.name + ': picking a model keeps Background', placeNow() === 'Background', placeNow());
       });
     });
   };

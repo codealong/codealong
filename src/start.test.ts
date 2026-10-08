@@ -25,6 +25,7 @@ import {
   onCommandLine,
   onModelWords,
   parseAgent,
+  placeNote,
   placesFor,
   placeTakesModel,
   preferredNames,
@@ -455,6 +456,17 @@ describe('what the quick panel says of a start', () => {
       [false, false],
       [false, false],
     ]);
+  });
+
+  it('says each place under its name in the menu of places, and that the apps go on their own model', () => {
+    expect(placeNote('terminal')).toBe('A new tab, in front');
+    expect(placeNote('background')).toBe('No window; attach a terminal any time');
+    expect(placeNote('background', true)).toBe('A tab behind your windows');
+    expect(placeNote('codealong')).toBe('Its panel here takes your replies');
+    for (const p of ['claude-app', 'codex-app'] as const) {
+      expect(placeTakesModel(p)).toBe(false);
+      expect(placeNote(p)).toBe('On the app’s own model');
+    }
   });
 });
 
