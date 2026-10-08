@@ -230,7 +230,20 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::DeviceCode => answered(peers.link_code()),
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(crate::actions::command_may_ask(&request, &params).and_then(|_| peers.ask(&device, &request, params, Duration::from_secs(40)))),
-        Request::Run { name, key, params, from } => answered(crate::actions::run_as(engine, peers, &crate::actions::From::Command(from), &name, crate::actions::On::Key(&key), params)),
+        Request::Run { name, key, params, from } => {
+            let ran = crate::actions::run_as(engine, peers, &crate::actions::From::Command(from), &name, crate::actions::On::Key(&key), params);
+            // A session an agent marked done leaves your lists with no window of yours having done
+            // it: the main window says which session did, with its Undo (Toasts.tsx).
+            if let Ok(answer) = &ran {
+                if name == codealong_peer::api::SESSION_DONE && answer.get("done").and_then(Value::as_bool) == Some(true) {
+                    use tauri::Emitter;
+                    let message = answer.get("message").and_then(Value::as_str).unwrap_or_default();
+                    let title = engine.read(|b| b.session(&key).map(|(_, s)| s.title.clone())).unwrap_or_default();
+                    let _ = app.emit("agent-done", serde_json::json!({ "key": key, "title": title, "message": message }));
+                }
+            }
+            answered(ran)
+        }
         Request::Show { reveal } => match crate::front::show_main(app, Some(reveal)) {
             // A bare binary isn't what its ID opens: that's whichever bundle has it.
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),

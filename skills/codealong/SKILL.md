@@ -146,6 +146,12 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
   says what a session waits on its user for, and `session answer <key> <id> deny` turns that
   down. Only deny: letting a call through, or answering a session's questions, is its user's
   to do.
+- `codealong session done me` ends your own session once this turn ends, when your work has
+  landed and nothing is left for you to do: your last reply stays for your user to read. A
+  session you started with `codealong start` can be marked done the same way once you've read
+  its result and its work has landed (`session done <key>`); it closes and leaves your user's
+  lists. Any other session, and one that's working or waiting on its user, is your user's to
+  mark done, in Codealong.
 
 ## PRs
 

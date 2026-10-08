@@ -210,7 +210,8 @@ const REQUESTS: &[Request] = &[
     // about its worktree) it says. It's you who's done with a session, not an agent. A worktree
     // its harness made can take most of a minute to remove (idle.rs `exit`). A Mac that won't do
     // it still lets it be marked seen and archived.
-    Request { name: api::SESSION_DONE, here: done, command: done_in_windows, wait: Some(Duration::from_secs(75)), instead: Some(done_anyway), ..ANY },
+    // From the command, only a session's own and the ones it started (`done`, agentdone.rs).
+    Request { name: api::SESSION_DONE, here: done, wait: Some(Duration::from_secs(75)), instead: Some(done_anyway), ..ANY },
     // A side conversation's copy runs on the session's Mac, and its answer goes to the windows
     // there. The copy may do what its session may without asking, which isn't the command's to
     // borrow.
@@ -258,10 +259,6 @@ fn side_in_windows(_: &Value) -> Result<(), String> {
 
 fn move_in_windows(_: &Value) -> Result<(), String> {
     Err("A session is moved to another account or folder in Codealong's windows.".into())
-}
-
-fn done_in_windows(_: &Value) -> Result<(), String> {
-    Err("A session is marked done in Codealong's windows.".into())
 }
 
 /// Does `name` for the session or worktree `key` from a window here: on this device, or, for
@@ -364,6 +361,11 @@ fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
     }
     if req.name == api::SESSION_SEND && matches!(from, From::Command(_)) {
         return Err("That session is on another device, where a message from the command would arrive as its user's own, so nothing was sent.".into());
+    }
+    // The other device would take it as its user's, and not as an agent's, which may mark done
+    // only its own session and those it started (agentdone.rs).
+    if req.name == api::SESSION_DONE && matches!(from, From::Command(_)) {
+        return Err("That session is on another device, where the command doesn't mark sessions done. Mark it done in Codealong.".into());
     }
     Ok(())
 }
@@ -779,22 +781,75 @@ fn close(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// it by its harness's own exit, which cleans that up, and is marked seen and archived, so it leaves
 /// every list but Archived. Work under way holds it unless `stop` ends that too: then nothing is
 /// done, and the answer's `done` is false, with what's under way. Says what happened, with the
-/// time of the board that shows it, as `archive` does.
+/// time of the board that shows it, as `archive` does. From the command it goes by what an agent
+/// may mark done (`done_for_agent`).
 fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
-    use crate::idle::{ending, Ending, Exited};
     let p: params::Done = c.read()?;
     let key = c.session()?;
+    if let From::Command(by) = c.from {
+        return done_for_agent(engine, c, by.as_deref(), key);
+    }
+    finish(engine, c, key, p.stop, None)
+}
+
+/// Mark as done from the command (agentdone.rs): its own session is ended once its turn ends and
+/// left for its user to read, and a session it started is marked done now, as from a window but
+/// never ending work under way, and saying which session did it.
+fn done_for_agent(engine: &Handle, c: &Call, by: Option<&str>, key: &str) -> Result<Value, String> {
+    use crate::agentdone::{may, wait_for_turn, Whose};
+    let cfg = cfg()?;
+    let board = engine.board();
+    let (s, _) = harness::find(&board, &cfg, key).map_err(words)?;
+    match may(&board, by, s)? {
+        Whose::Own => {
+            wait_for_turn(key);
+            let message = "This session ends once this turn does: its terminal closes, and its last reply stays in Your turn for its user to read and mark done.";
+            to_value(api::Done { done: false, message: message.into(), noted: false })
+        }
+        Whose::Started => {
+            let mine = by.and_then(|k| board.session(k)).map(|(_, me)| me.title.clone()).unwrap_or_else(|| "A session".into());
+            finish(engine, c, key, false, Some(&mine))
+        }
+    }
+}
+
+/// Ends `key` as far as `idle::ending` says, marks it seen and archives it (`done`). `by` names
+/// the session that asked for it from the command, which the message says.
+fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) -> Result<Value, String> {
     let cfg = cfg()?;
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
-    let ends = match ending(&board, s, p.stop) {
+    let ends = match crate::idle::ending(&board, s, stop) {
         Ok(ends) => ends,
-        Err(busy) => return Ok(json!({ "done": false, "message": busy })),
+        Err(busy) => return to_value(api::Done { done: false, message: busy, noted: false }),
     };
+    let (ended, note) = end(s, account, ends);
+    let title = s.title.clone();
+    engine.mark_seen(vec![key.to_string()]);
+    let at = engine.archive(key, true).map_err(words)?;
+    let what = match ended {
+        Some(what) => format!("{what} and it's archived."),
+        None => "it's archived.".to_string(),
+    };
+    let mut message = match by {
+        Some(by) => format!("“{by}” marked “{title}” done: {what}"),
+        None => format!("Done with “{title}”: {what}"),
+    };
+    if let Some(note) = &note {
+        message = format!("{message} {note}");
+    }
+    let mut answer = to_value(api::Done { done: true, message, noted: note.is_some() })?;
+    answer["at"] = shown_at(c, at);
+    Ok(answer)
+}
+
+/// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
+/// or what didn't go).
+fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending) -> (Option<String>, Option<String>) {
+    use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
-    // What ended, and what's worth saying besides: why nothing did, or what didn't go.
-    let (ended, note): (Option<String>, Option<String>) = match ends {
+    match ends {
         Ending::Terminal(pid) => match crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop() {
             Some(Ok(())) => (Some("its terminal is closed".into()), None),
             Some(Err(e)) => (None, Some(format!("Its terminal didn't close: {}", words(e)))),
@@ -824,20 +879,19 @@ fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
             Err(e) => (None, Some(format!("Its turn didn't stop: {}", words(e)))),
         },
         Ending::Nothing(why) => (None, why),
-    };
-    let title = s.title.clone();
-    engine.mark_seen(vec![key.to_string()]);
-    let at = engine.archive(key, true).map_err(words)?;
-    let mut message = match ended {
-        Some(what) => format!("Done with “{title}”: {what} and it's archived."),
-        None => format!("Done with “{title}”: it's archived."),
-    };
-    if let Some(note) = &note {
-        message = format!("{message} {note}");
     }
-    let mut answer = to_value(api::Done { done: true, message, noted: note.is_some() })?;
-    answer["at"] = shown_at(c, at);
-    Ok(answer)
+}
+
+/// Ends a session that asked from the command to be ended once its turn ended (agentdone.rs), as
+/// Mark as done ends one, but leaves it unseen and unarchived: its last reply is its user's to
+/// read. Says what happened, or why nothing did.
+pub fn end_after_turn(engine: &Handle, key: &str) -> Result<String, String> {
+    let cfg = cfg()?;
+    let board = engine.board();
+    let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
+    let ends = crate::idle::ending(&board, s, false)?;
+    let (ended, note) = end(s, account, ends);
+    Ok([ended.map(|e| format!("“{}”: {e}.", s.title)), note].into_iter().flatten().collect::<Vec<_>>().join(" "))
 }
 
 /// Done with a session on another device that won't end it (`why`): Codealong there is from
@@ -1014,12 +1068,13 @@ mod tests {
         let err = ask(api::SESSION_ANSWER, json!({ "id": "t1", "answer": "deny", "answers": null })).unwrap_err();
         assert!(err.contains("isn't on the board"), "{err}");
         // A side conversation's copy acts with its session's permissions, and a move chooses
-        // whose usage the conversation spends; being done with a session is its user's to say.
-        for name in [SIDE_ASK, SIDE_CLOSE, MOVE, api::SESSION_DONE] {
+        // whose usage the conversation spends.
+        for name in [SIDE_ASK, SIDE_CLOSE, MOVE] {
             assert!(ask(name, json!({ "text": "what changed?", "account": "claude2" })).unwrap_err().contains("in Codealong's windows"), "{name}");
         }
-        // The rest is the command's as it is a window's: these get as far as the session.
-        for name in [api::SESSION_PENDING, api::SESSION_CANCEL, api::SESSION_RENAME, api::SESSION_FORK, api::SESSION_SEND, CLOSE] {
+        // The rest is the command's as it is a window's: these get as far as the session. Mark as
+        // done goes by what an agent may mark done once it has the session (agentdone.rs).
+        for name in [api::SESSION_PENDING, api::SESSION_CANCEL, api::SESSION_RENAME, api::SESSION_FORK, api::SESSION_SEND, CLOSE, api::SESSION_DONE] {
             let err = ask(name, json!({ "name": "A name", "text": "hi" })).unwrap_err();
             assert!(err.contains("isn't on the board"), "{name}: {err}");
         }
@@ -1038,6 +1093,8 @@ mod tests {
         let deny = json!({ "id": "t1", "answer": "deny" });
         assert!(command_may_ask(api::SESSION_ANSWER, &deny).is_ok() && command_may_ask(api::SESSION_PAGE, &json!({})).is_ok());
         assert!(command_may_ask(api::SESSION_ANSWER, &json!({ "id": "t1", "answer": "allow" })).unwrap_err().contains("can only deny"));
+        // There, Mark as done would be its user's, not an agent's that may mark only its own.
+        assert!(command_may_ask(api::SESSION_DONE, &json!({})).unwrap_err().contains("where the command doesn't mark sessions done"));
         // A deny with words would hand the session an agent's words as its user's.
         let saying = json!({ "id": "t1", "answer": "deny", "message": "Do it this way" });
         assert!(command_may_ask(api::SESSION_ANSWER, &saying).unwrap_err().contains("not say what to do instead"));

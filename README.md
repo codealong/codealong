@@ -803,7 +803,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   brings the main window up on a session's conversation; `codealong session stop|rename|fork`
   do what a session's menu does, and `session pending` and `session answer … deny` what its
   panel does, except letting a call through or answering its questions, which is its user's to
-  do; `codealong start
+  do; `codealong session done` is Mark as done for what's the agent's own: its own session
+  (`me`), which ends once its turn does and stays in Your turn for you to read, and a session it
+  started, never one working or waiting on you, while the main window says which session did
+  it, with an Undo; `codealong start
   --todo <id>` starts a session the way New session does (`--todo` again for several todos in
   one session); `codealong config show|check`
   prints the settings and checks an edited config.toml. With the app running, answers come

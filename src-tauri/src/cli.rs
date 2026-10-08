@@ -403,6 +403,11 @@ enum SessionCmd {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
     },
+    /// Mark a session done, as Mark as done in Codealong does, from inside a session, which may mark only its own and the ones it started. `me`: this session ends once its current turn does (its terminal closes, or its harness exits it and cleans up a worktree it made), and its last reply stays in Your turn for its user to read and mark done. A session this one started with `codealong start`: it ends now and is marked seen and archived, and Codealong's main window says which session did it, with an Undo. Never a session that's working, waiting on its user, or on another Mac; any other session is its user's to mark done, in Codealong. Needs the app running.
+    Done {
+        /// The session: `me`, or one this session started (its key, its id, or a unique start of its id).
+        key: String,
+    },
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
         /// The session: its key, its id, a unique start of its id, or `me`.
@@ -881,6 +886,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
             session_act(c, &a.key, api::SESSION_ANSWER, params::Answer { id: a.id, answer: Some(answer), ..Default::default() }, json)
         }
         Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, params::Session::default(), json),
+        Cmd::Session { cmd: SessionCmd::Done { key } } => session_done(c, &key, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
@@ -1680,6 +1686,26 @@ fn session_act(c: &mut Client, key: &str, name: &str, params: impl Serialize, js
     }
     if let Some(copy) = &out.copy {
         println!("The copy: {copy}");
+    }
+    Ok(())
+}
+
+/// `session done`: asked as the session running the command, which the app holds to what an
+/// agent may mark done (agentdone.rs). The app keeps watch for the turn to end, so it must be up.
+fn session_done(c: &mut Client, key: &str, json: bool) -> Result<()> {
+    if c.app.is_none() {
+        bail!("Marking a session done needs the Codealong app running: it ends the session, and waits for this one's turn to end.");
+    }
+    let key = resolve_session(c, key)?;
+    let me = find_me(c)?.0;
+    let got = c.act(api::SESSION_DONE, &key, params::Done::default(), me)?;
+    let said = got.get("message").and_then(Value::as_str).map(String::from);
+    let out = ActOut { session: key, said, copy: None };
+    if json {
+        return print_json(&out);
+    }
+    if let Some(said) = &out.said {
+        println!("{said}");
     }
     Ok(())
 }
@@ -3357,6 +3383,7 @@ mod tests {
         // Allowing is its user's to do.
         assert!(Cli::try_parse_from(["codealong", "session", "answer", "abc", "toolu_1", "allow"]).is_err());
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));
         let cli = Cli::try_parse_from(["codealong", "session", "rename", "abc", "Fix the flaky test"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Rename { ref name, .. } } if name == "Fix the flaky test"));

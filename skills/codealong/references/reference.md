@@ -952,6 +952,15 @@ Commands:
            conversation stays, and the session waits for its next message. A command it
            had handed to the background may keep running. A Claude app or Antigravity
            session can't be stopped from outside; the error says so
+  done     Mark a session done, as Mark as done in Codealong does, from inside a
+           session, which may mark only its own and the ones it started. `me`: this
+           session ends once its current turn does (its terminal closes, or its harness
+           exits it and cleans up a worktree it made), and its last reply stays in Your
+           turn for its user to read and mark done. A session this one started with
+           `codealong start`: it ends now and is marked seen and archived, and
+           Codealong's main window says which session did it, with an Undo. Never a
+           session that's working, waiting on its user, or on another Mac; any other
+           session is its user's to mark done, in Codealong. Needs the app running
   rename   Name a session where its harness keeps names (Claude Code's /rename, a Codex
            thread's name, an OpenCode session's title), so the harness shows the name as
            Codealong does
@@ -1154,6 +1163,39 @@ Usage: codealong session stop [OPTIONS] <KEY>
 Arguments:
   <KEY>
           The session: its key, its id, a unique start of its id, or `me`
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session done
+
+```
+Mark a session done, as Mark as done in Codealong does, from inside a session, which may
+mark only its own and the ones it started. `me`: this session ends once its current turn
+does (its terminal closes, or its harness exits it and cleans up a worktree it made),
+and its last reply stays in Your turn for its user to read and mark done. A session this
+one started with `codealong start`: it ends now and is marked seen and archived, and
+Codealong's main window says which session did it, with an Undo. Never a session that's
+working, waiting on its user, or on another Mac; any other session is its user's to mark
+done, in Codealong. Needs the app running
+
+Usage: codealong session done [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: `me`, or one this session started (its key, its id, or a unique
+          start of its id)
 
 Options:
       --json

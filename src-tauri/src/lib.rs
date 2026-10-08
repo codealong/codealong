@@ -2,6 +2,7 @@
 
 mod acp;
 mod actions;
+mod agentdone;
 mod attachments;
 mod bar;
 mod barfeed;
@@ -1537,6 +1538,7 @@ pub fn run() {
             let emitter = app.handle().clone();
             let (mover, moves_with) = (std::sync::Mutex::new(limits::Mover::default()), engine_slot.clone());
             let (nudger, nudges_with) = (std::sync::Arc::new(std::sync::Mutex::new(nudges::Nudger::default())), engine_slot.clone());
+            let ends_with = engine_slot.clone();
             let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
@@ -1585,6 +1587,17 @@ pub fn run() {
                     if !due.is_empty() {
                         let (engine, nudger) = (engine.clone(), nudger.clone());
                         std::thread::spawn(move || nudges::send_now(&engine, &nudger, due));
+                    }
+                }
+                // Sessions that asked from the command to be ended once their turn ended
+                // (agentdone.rs); closing a terminal takes a moment, so off this thread.
+                if let Some(engine) = ends_with.get() {
+                    for key in agentdone::due(board) {
+                        let engine = engine.clone();
+                        std::thread::spawn(move || match actions::end_after_turn(&engine, &key) {
+                            Ok(said) => eprintln!("Ended {key} once its turn did, as it asked: {said}"),
+                            Err(e) => eprintln!("Couldn't end {key} once its turn did: {e}"),
+                        });
                     }
                 }
 

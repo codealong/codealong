@@ -1,11 +1,12 @@
 // The toasts at the foot of the main window: what went wrong with something you did here (a
 // click puts it away), what's still under way once it takes a moment (opens, starts, a start
-// the quick panel made for this window), and the way back from an archive or a todo change.
+// the quick panel made for this window), and the way back from an archive or a todo change,
+// yours or a session an agent marked done.
 // One shows at a time, in that order. What goes wrong in the background is a notice instead
 // (notices.ts).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { onQuickStart } from '../api';
+import { onAgentDone, onQuickStart } from '../api';
 import type { Report } from '../report';
 import { Icon, StatusGlyph } from './primitives';
 
@@ -98,6 +99,10 @@ export function useToasts(): ToastState {
       timers.forEach((t) => window.clearTimeout(t));
     };
   }, []);
+
+  // A session an agent marked done from the command (agentdone.rs) leaves the lists with nothing
+  // of yours doing it: the toast says which session did, with the way back.
+  useEffect(() => onAgentDone((e) => setArchived({ key: e.key, title: e.title, message: e.message })), []);
 
   return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo };
 }

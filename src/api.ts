@@ -1339,6 +1339,19 @@ export function onQuickStart(cb: (event: QuickStart) => void): () => void {
   return onWindowEvent<QuickStart>('quick-start', cb);
 }
 
+/** A session an agent marked done from the command (server.rs, agentdone.rs): which, and what
+ *  was done, saying which session did it. */
+export interface AgentDone {
+  key: string;
+  title: string;
+  message: string;
+}
+
+/** Calls `cb` as an agent marks a session done, which no window of yours did. */
+export function onAgentDone(cb: (event: AgentDone) => void): () => void {
+  return onWindowEvent<AgentDone>('agent-done', cb);
+}
+
 /** This window's label, which the quick panel reports back to. */
 export function windowLabel(): string | null {
   return inTauri ? getCurrentWebviewWindow().label : null;
