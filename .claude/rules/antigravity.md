@@ -53,7 +53,10 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   ask: a call that needs permission is denied, the turn ends with `denied_actions` in its
   result and exit 0. `--dangerously-skip-permissions` allows everything, and
   `~/.gemini/antigravity-cli/settings.json` (`permissions.allow`) what it lists; reads and
-  writes in the workspace aren't asked about.
+  writes in the workspace aren't asked about. With `--input-format stream-json` the prompt
+  still has to be given, empty, as `-p ''` and first: `-p --input-format …` takes the flag as
+  the prompt. Its `init` event names the tools and `permission_mode` (`request-review`), but
+  1.3.1 has no event to ask a permission over stdin or answer one.
 - A print run writes its summary row only as it ends; the terminal UI writes it as it goes:
   `antigravity.rs` (`started`), `board.rs` (`antigravity_session`).
 - Which `agy` has which conversation, by the `presence/<id>.lock` it holds open: `antigravity.rs`
@@ -65,6 +68,25 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 - It has no Agent Client Protocol mode, so Codealong can't run it itself. Google says running
   the binary as a child process on the user's sign-in is supported and counts against the same
   limits.
+- Every `agy`, print runs too, runs its agent as a language server inside its own process, on
+  two random ports on localhost: HTTPS for gRPC and plain HTTP, both ConnectRPC, named in its
+  log (`log/cli-<time>.log`, "Language server listening on random port"). It serves the hub's
+  `exa.language_server_pb.LanguageServerService` (`StartCascade`, `SendUserCascadeMessage`,
+  `HandleCascadeUserInteraction`, `CancelCascadeInvocation`…), but every call without the
+  `x-codeium-csrf-token` header is refused ("missing CSRF token", 401), and the token is never
+  in its arguments, its environment or a file (checked on 1.3.1, 2026-10-08). So Codealong
+  can't drive a running `agy` through it.
+- Remote Control (`agy --remote-control`, `/remote-control`, or the `agy remote-control
+  start|status|stop` daemon, which runs the hidden `agy remote-control serve` from a
+  LaunchAgent) carries that same server to Google's own clients, the dashboard on
+  antigravity.google.com and the hub app, over WebRTC and a reverse tunnel signed in as the
+  user (antigravity.google/docs/remote-control). From there you can follow a terminal
+  session, send it prompts, answer its permission prompts and, through the daemon, start
+  conversations on the Mac. Nothing local comes of it: no port, socket or token for another
+  program. The daemon signs in with the command line's own sign-in, kept in the keychain
+  (`serve` says "not signed in: run `agy`, sign in" before `start` has run); the daemon name
+  is `cliRemoteControlHostname` in `~/.gemini/config/config.json`; an account or org can have
+  it turned off ("Remote control is not enabled for your account.").
 - No deep link opens or starts a conversation, and quotas show only in the app: `launch.rs`
   (`open_antigravity`), `antigravity.rs` (`Antigravity::no_limits`).
 
@@ -75,4 +97,6 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   its prompts or stop its turns), and how it takes a paste, though Codealong types into a
   command line conversation's terminal (`Antigravity::routes`, `Route::Type`).
 - What the app writes mid-turn.
+- Where the conversations that Remote Control's daemon starts are written, and how they'd
+  show on the board: starting the daemon registers the Mac with Google, so it wasn't run.
 - Its hooks (`~/.gemini/config/hooks.json`; the binary names `PreToolUse` and `PostToolUse`).
