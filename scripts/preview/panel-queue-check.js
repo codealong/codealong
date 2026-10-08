@@ -63,6 +63,19 @@
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
+  // Whether the strip is one line, where its counts and its buttons fit side by side: what it
+  // says never puts the buttons on a line of their own. Where they don't fit, nothing to check.
+  var oneLine = function () {
+    var s = q('.ca-sessinsp .ca-reply-queue');
+    if (!s) return 'no strip';
+    var counts = q('.ca-reply-queue-counts', s);
+    var keys = q('.ca-hotkeys', s);
+    var cs = getComputedStyle(s);
+    var room = s.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - parseFloat(cs.columnGap);
+    var needs = (counts ? counts.getBoundingClientRect().width : 0) + keys.scrollWidth;
+    var tall = s.getBoundingClientRect().height;
+    return needs > room ? 'no room: ' + Math.round(needs) + ' of ' + Math.round(room) : tall < 34 ? 'one line' : 'two lines, ' + Math.round(needs) + ' of ' + Math.round(room);
+  };
 
   say('panel queue check: waiting for the list');
   until(function () { return picked.length === plan.length && row(0); }, 20000)
@@ -74,6 +87,8 @@
     .then(function () {
       check('clicking a row puts the cursor in its box', document.activeElement === box());
       check('a session that waits on you counts what’s left', /^4 · Waiting on you after this one: /.test(counted()), counted());
+      check('the strip is one line where the counts and buttons fit', /^(one line|no room)/.test(oneLine()), oneLine());
+      window.note('strip at ' + Math.round(q('.ca-sessinsp .ca-reply-queue').getBoundingClientRect().width) + ': ' + oneLine());
       check('the box says what ⌘⏎ does', /⌘⏎ send \+ next/.test(note()), note());
       type(box(), 'Yes, go ahead.');
       key(box(), { key: 'Enter', metaKey: true });
@@ -82,6 +97,7 @@
     .then(function () {
       check('⌘⏎ sends and goes on to the next', title() === 'Queue B' && calls('send_to_session').length === 1, title());
       check('and says it went', /Queue A: sent/.test(strip()), strip());
+      check('which keeps the strip to one line', /^(one line|no room)/.test(oneLine()), oneLine());
       check('the next one’s box has the cursor', document.activeElement === box());
       return until(function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); }, 3000).then(function () { return wait(50); });
     })

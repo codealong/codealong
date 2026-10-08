@@ -84,19 +84,22 @@
   flex: none;
 }
 /* With what's commonly done to the session as buttons that say their keys (SessionPanel.tsx
-   `Hotkeys`): where the strip is short of room, they go on a line of their own. */
+   `Hotkeys`): one line wherever the counts and the buttons fit side by side; where the strip is
+   shorter than that, the buttons go on a line of their own. */
 .ca-reply-queue.has-keys {
+  container: queuestrip / inline-size;
   flex-wrap: wrap;
   gap: 2px 8px;
   padding-top: 3px;
   padding-bottom: 3px;
 }
 .ca-reply-queue.has-keys .ca-reply-queue-note {
-  flex: 1 1 96px;
+  flex: none;
 }
-/* Saying nothing, it asks no room of its own, so the buttons don't go to a line of their own. */
-.ca-reply-queue.has-keys .ca-reply-queue-note:empty {
-  flex-basis: 0;
+/* How the last one went takes the room the buttons leave, cut short there (its tooltip has all
+   of it), so it never puts them on a line of their own for the few seconds it shows. */
+.ca-reply-queue.has-keys .ca-reply-queue-note.is-notice {
+  flex: 1 1 0;
 }
 /* On a line of their own that's still too short (the waiting window at its narrowest, a PR's
    five), they wrap rather than run past the strip's end, the last line to the right. */
@@ -147,6 +150,14 @@
   color: var(--ink-3);
   font: 500 10px/1 var(--font-sans);
 }
+/* Short of room, the buttons draw closer, as the notch's always are, so the strip keeps to one
+   line at the widths a session's panel usually has. */
+@container queuestrip (max-width: 600px) {
+  .ca-hotkey {
+    gap: 3px;
+    padding: 0 3px;
+  }
+}
 .ca-hotkeys-gap {
   flex: none;
   width: 1px;
@@ -154,14 +165,10 @@
   margin: 0 3px;
   background: var(--line);
 }
-/* In the notch the strip is one line at any width the session has: what it says is cut short
-   before anything goes to a second line. */
+/* In the notch the strip is one line at any width the session has. */
 .ca-notch-card .ca-reply-queue.has-keys,
 .ca-notch-card .ca-hotkeys {
   flex-wrap: nowrap;
-}
-.ca-notch-card .ca-reply-queue.has-keys .ca-reply-queue-note {
-  flex: 1 1 0;
 }
 .ca-notch-card .ca-hotkey {
   gap: 3px;

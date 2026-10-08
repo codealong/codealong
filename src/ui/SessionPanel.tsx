@@ -111,7 +111,7 @@ function QueueCounts({ queue }: { queue: Queue }) {
 /** What the strip says: how the one before went, else what else waits on you, counted. */
 function QueueNote({ queue, notice }: { queue: Queue | undefined; notice: Notice | null | undefined }) {
   return (
-    <span className={cx('ca-reply-queue-note', notice?.error && 'is-error')} role="status">
+    <span className={cx('ca-reply-queue-note', notice && 'is-notice', notice?.error && 'is-error')} role="status" title={notice?.text}>
       {notice ? notice.text : queue && <QueueCounts queue={queue} />}
     </span>
   );
