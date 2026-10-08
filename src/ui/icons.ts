@@ -180,6 +180,9 @@ export const ICONS: Record<string, string[]> = {
  "chevron-down": [
   "M6 9l6 6l6 -6"
  ],
+ "chevron-up": [
+  "M6 15l6 -6l6 6"
+ ],
  "chevron-right": [
   "M9 6l6 6l-6 6"
  ],

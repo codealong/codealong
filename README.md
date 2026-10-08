@@ -194,7 +194,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     cursor isn't in a text box), reading further back as they go; the prompt behind what you're
     reading stays pinned at the top once it has scrolled off, two lines of it and more on hover,
     even when a long turn put it pages back (they're read then, and kept for scrolling up), and a
-    click brings it up. Code blocks have Copy on hover, and a shell block in a
+    click brings it up. ⌘F finds words in it, wherever the panel shows: a bar over the
+    conversation marks every match and counts them across the whole conversation (the pages
+    further back are read for it), starting from the one nearest where you're reading; ⏎ goes to
+    the match before, on into earlier pages, ⇧⏎ to the one after (⌘G and ⇧⌘G from anywhere in the
+    window), a run of tool calls opens to show a call it finds, and Escape closes the bar and gives
+    the keyboard back. It finds what shows: prompts, replies and the calls' lines, and a call's
+    input and output once you've opened it. Code blocks have Copy on hover, and a shell block in a
     reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
     terminal where the session works, or where the command ran, and types the commands there
     without their comments. A block led by `!`, which an agent writes for you to run in the

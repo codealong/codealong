@@ -30,8 +30,11 @@
 // read what came of it; a click brings the whole of it up. A long turn can write more than a page,
 // so when the first page doesn't start with a prompt, the pages before it are read (and kept for
 // scrolling up) until one does: it's pinned from the start.
+//
+// ⌘F finds words in it (ThreadFind.tsx): what `FIND_IN` names is what's searched, the whole
+// conversation's pages read for it, and a run of calls opens to show the ones it finds.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { putBack } from '../drafts';
@@ -46,7 +49,9 @@ import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
+import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
+import { FindContext, ThreadFind } from './ThreadFind';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -54,6 +59,9 @@ const NEAR_TOP = 240;
 const FOLD_AT = 3;
 /** Pages read back past the first, looking for the prompt behind it, before giving up. */
 const LOOK_BACK = 16;
+/** What ⌘F searches: your prompts, the replies, notes, the calls' lines, a call's input and output
+ *  once it's open, the commands you ran with what they printed, and the page a call made. */
+const FIND_IN = '.ca-thread-you, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle';
 
 type Row =
   | { kind: 'item'; item: TranscriptItem; result?: TranscriptItem }
@@ -176,9 +184,13 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
 }
 
 function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; result?: TranscriptItem }[]; stateOf: (it: TranscriptItem) => 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
-  const [open, setOpen] = useState(false);
+  // Folded until you open it, or while ⌘F finds one of the calls it folds away; a click says
+  // which from then on.
+  const [opened, setOpen] = useState<boolean | null>(null);
   const last = calls[calls.length - 1];
   const earlier = calls.slice(0, -1);
+  const finding = useContext(FindContext);
+  const open = opened ?? (!!finding && earlier.some((c) => says(finding, shownText(c.item))));
   const names = [...new Set(earlier.map((c) => c.item.text.split(' · ')[0]))].slice(0, 4).join(', ');
   const failed = earlier.filter((c) => c.item.failed || c.result?.failed).length;
   return (
@@ -301,6 +313,12 @@ interface SessionThreadProps {
 export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
+  // `before` as soon as it's set, for laying out pages that must begin where the last ones did.
+  const shownBefore = useRef<number | null>(null);
+  const placeBefore = useCallback((at: number | null) => {
+    shownBefore.current = at;
+    setBefore(at);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const after = useRef(0);
@@ -378,7 +396,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     readAhead.current = new Map();
     setEarlier(null);
     setItems([]);
-    setBefore(null);
+    placeBefore(null);
     setLoaded(false);
     setError(null);
     loading.current = true;
@@ -387,7 +405,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         if (read !== reading.current) return;
         anchor.current = { kind: 'end' };
         setItems(p.items);
-        setBefore(p.before);
+        placeBefore(p.before);
         after.current = p.after;
         landed.current = read;
         setLoaded(true);
@@ -406,7 +424,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         at = p.before;
       }
     };
-  }, [s.key, s.continues, pageAt]);
+  }, [s.key, s.continues, pageAt, placeBefore]);
 
   const loadOlder = useCallback(() => {
     if (loading.current || before == null) return;
@@ -420,11 +438,26 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         readAhead.current.delete(at);
         anchor.current = { kind: 'keep', fromEnd: el ? el.scrollHeight - el.scrollTop : 0 };
         setItems((old) => [...p.items, ...old]);
-        setBefore(p.before);
+        placeBefore(p.before);
       })
       .catch(() => (seeking.current = null))
       .finally(() => read === reading.current && (loading.current = false));
-  }, [s.key, before, pageAt]);
+  }, [s.key, before, pageAt, placeBefore]);
+
+  /** Lays out pages read back from where the ones shown begin, nearest first, in one go: the way
+   *  back to what ⌘F found. Not while a page is on its way in, which would come in twice. */
+  const show = useCallback(
+    (pages: { at: number; page: TranscriptPage }[]) => {
+      if (loading.current || pages.length === 0 || pages[0].at !== shownBefore.current) return false;
+      const el = scroller.current;
+      for (const { at } of pages) readAhead.current.delete(at);
+      anchor.current = { kind: 'keep', fromEnd: el ? el.scrollHeight - el.scrollTop : 0 };
+      setItems((old) => [...[...pages].reverse().flatMap((p) => p.page.items), ...old]);
+      placeBefore(pages[pages.length - 1].page.before);
+      return true;
+    },
+    [placeBefore],
+  );
 
   // As the session goes on: what's new since the last read. OpenCode rereads a message still
   // streaming, so an item already here is replaced by its place.
@@ -660,67 +693,69 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   }
   return (
     <RunContext.Provider value={run ?? null}>
-      <div className="ca-thread" ref={scroller} onScroll={onScroll}>
-        {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
-        <div className="ca-thread-pin">
-          {pinned && (
-            <button
-              type="button"
-              className="ca-thread-pinned"
-              title="Go to this prompt (⌘⇧↑)"
-              // The cursor stays in the box below.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => goTo(pinned.key)}
-            >
-              <span className="ca-thread-pintext">{pinned.text}</span>
-              <Icon name="arrow-up" size={12} />
-            </button>
+      <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded, read: reading.current, before, pageAt, show }}>
+        <div className="ca-thread" ref={scroller} onScroll={onScroll}>
+          {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
+          <div className="ca-thread-pin">
+            {pinned && (
+              <button
+                type="button"
+                className="ca-thread-pinned"
+                title="Go to this prompt (⌘⇧↑)"
+                // The cursor stays in the box below.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => goTo(pinned.key)}
+              >
+                <span className="ca-thread-pintext">{pinned.text}</span>
+                <Icon name="arrow-up" size={12} />
+              </button>
+            )}
+          </div>
+          {!loaded && <p className="ca-empty">Reading the conversation…</p>}
+          {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
+          {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
+          {rows.map((r) => {
+            if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
+            const it = r.item;
+            if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
+            if (it.kind === 'note') {
+              return (
+                <div key={keyOf(it)} className="ca-thread-note">
+                  {it.text}
+                </div>
+              );
+            }
+            const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
+            return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={it.kind === 'you' ? 'You' : s.account} onPutBack={again} />;
+          })}
+          {showing.map((a) => (
+            <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
+          ))}
+          {streaming?.text && <Said item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }} now={now} label={`${s.account} · writing`} />}
+          {streaming && !streaming.text && streaming.tool && !pending && (
+            <div className="ca-thread-note">
+              <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
+            </div>
+          )}
+          {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
+          {s.status === 'needs' && !pending && s.excerpt && (
+            <div className="ca-thread-tool is-asks">
+              <div className="ca-thread-askrow">
+                <span>
+                  <Rich text={s.excerpt} now={now} />
+                </span>
+                {/* A question in its reply is answered in the box below; anything else where it runs. */}
+                {!s.asks && !answeredBelow && (
+                  <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
+                    <Icon name="arrow-up-right" size={13} />
+                    <span>Open to answer</span>
+                  </button>
+                )}
+              </div>
+            </div>
           )}
         </div>
-        {!loaded && <p className="ca-empty">Reading the conversation…</p>}
-        {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
-        {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
-        {rows.map((r) => {
-          if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
-          const it = r.item;
-          if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
-          if (it.kind === 'note') {
-            return (
-              <div key={keyOf(it)} className="ca-thread-note">
-                {it.text}
-              </div>
-            );
-          }
-          const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-          return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={it.kind === 'you' ? 'You' : s.account} onPutBack={again} />;
-        })}
-        {showing.map((a) => (
-          <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
-        ))}
-        {streaming?.text && <Said item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }} now={now} label={`${s.account} · writing`} />}
-        {streaming && !streaming.text && streaming.tool && !pending && (
-          <div className="ca-thread-note">
-            <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
-          </div>
-        )}
-        {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
-        {s.status === 'needs' && !pending && s.excerpt && (
-          <div className="ca-thread-tool is-asks">
-            <div className="ca-thread-askrow">
-              <span>
-                <Rich text={s.excerpt} now={now} />
-              </span>
-              {/* A question in its reply is answered in the box below; anything else where it runs. */}
-              {!s.asks && !answeredBelow && (
-                <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
-                  <Icon name="arrow-up-right" size={13} />
-                  <span>Open to answer</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      </ThreadFind>
     </RunContext.Provider>
   );
 }
