@@ -266,10 +266,12 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
   );
 }
 
-/** `[limits] when_hit`: what's done about a session its account's usage limit stopped. */
+/** `[limits] when_hit`: what's done about a session its account's usage limit stopped; and
+ *  `[sessions] continue_after_network_error`, about one a lost connection stopped. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const value = cfg.limits?.when_hit ?? 'suggest';
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
+  const continues = cfg.sessions?.continue_after_network_error ?? true;
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <div className="ca-field">
@@ -279,6 +281,11 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
           {WHEN_LIMITED.find((w) => w.id === value)?.says} It goes to another account of its agent ({agents}) that has room by its meters and by what its own sessions last heard. The first reply there reads the whole conversation again, since a prompt cache is an account’s own.
         </small>
       </div>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={continues} onChange={(e) => void onSave({ ...cfg, sessions: { continue_after_network_error: e.target.checked } })} />
+        <span>Carry on after a network error</span>
+        <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, for now.</small>
+      </label>
     </fieldset>
   );
 }

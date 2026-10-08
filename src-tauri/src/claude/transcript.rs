@@ -67,6 +67,9 @@ pub struct TranscriptInfo {
     pub continued_in: Option<String>,
     /// The usage limit the last turn ended on, until a reply or a prompt of yours comes after.
     pub limit: Option<SessionLimit>,
+    /// When the last turn ended for want of a connection to the API (`connection_lost_at`),
+    /// until a reply or a prompt of yours comes after.
+    pub connection_lost: Option<i64>,
     /// The model the latest reply came from.
     pub model: Option<String>,
     /// A message from another session it holds for you to allow (held.rs), until a line says
@@ -292,6 +295,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             Some("assistant") => {
                 // A limit's refusal is written as a reply; any other reply means it went on.
                 info.limit = limit_of(&v).map(|l| SessionLimit { model: info.model.clone(), ..l });
+                info.connection_lost = connection_lost_at(&v);
                 if let Some(m) = v.pointer("/message/model").and_then(Value::as_str).filter(|m| !m.starts_with('<')) {
                     info.model = Some(m.to_string());
                 }
@@ -343,6 +347,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 }
                 if you_typed(&v) {
                     info.limit = None;
+                    info.connection_lost = None;
                     if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
                         info.last_prompt_at = Some(ts);
                     }
@@ -402,6 +407,37 @@ pub(super) fn limit_of(v: &Value) -> Option<SessionLimit> {
         move_to: None,
         model: None,
     })
+}
+
+/// What Claude Code says as it ends a turn for want of a connection, after the text "API Error: ":
+/// its words for a request that couldn't connect (ENOTFOUND and EAI_AGAIN, no route, a connection
+/// reset, any other connection error) and for a reply cut off by the Mac sleeping or the connection
+/// going (2.1.293's code). A refused connection and a proxy that won't tunnel are left out: they
+/// don't come right by waiting.
+const CONNECTION_LOST: &[&str] = &[
+    "Can't reach the API server",
+    "No internet route",
+    "Connection dropped",
+    "Unable to connect to API",
+    "Your computer went to sleep",
+    "Connection lost",
+];
+
+/// When an assistant line says the turn ended for want of a connection: Claude Code writes the
+/// error as a reply, `isApiErrorMessage` with `error: "server_error"`, no `apiErrorStatus` and
+/// `message.model` `"<synthetic>"`, its text one of `CONNECTION_LOST` ("API Error: Can't reach the
+/// API server — check your internet or DNS (ENOTFOUND)"). It retries ten times first, half a
+/// second apart and doubling up to 32 seconds, which only counts time the Mac is awake; but with
+/// the lid closed the Mac wakes for a few seconds every minute or two without DNS, and the
+/// retries run out in those (seen on this Mac on 2026-10-07). Only a reply the sleep itself cut
+/// off is retried without counting. Nothing else is written, and the session waits for a prompt.
+pub(super) fn connection_lost_at(v: &Value) -> Option<i64> {
+    if v.get("isApiErrorMessage").and_then(Value::as_bool) != Some(true) || v.get("apiErrorStatus").is_some_and(|s| !s.is_null()) {
+        return None;
+    }
+    let text = v.pointer("/message/content")?.as_array()?.iter().find_map(|i| i.get("text")?.as_str())?;
+    let said = text.strip_prefix("API Error: ")?;
+    CONNECTION_LOST.iter().any(|w| said.starts_with(w)).then(|| str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0))
 }
 
 /// The worktree a `worktree-state` line says the session made and holds. Claude Code writes one
@@ -917,6 +953,42 @@ mod tests {
         assert_eq!(parse_lines(HEAD, &format!("{SPEND_CAPPED}\n{prompt}\n")).limit, None);
         let reply = r#"{"type":"assistant","timestamp":"2026-10-02T21:00:05.000Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
         assert_eq!(parse_lines(HEAD, &format!("{SPEND_CAPPED}\n{notice}\n{reply}\n")).limit, None);
+    }
+
+    /// A turn that ended for want of a connection, as Claude Code 2.1.293 wrote it with the lid
+    /// closed, cut to the fields that matter here.
+    fn lost(text: &str) -> String {
+        serde_json::json!({ "type": "assistant", "timestamp": "2026-10-07T23:48:20.610Z", "error": "server_error", "isApiErrorMessage": true, "message": { "model": "<synthetic>", "content": [{ "type": "text", "text": text }] } }).to_string()
+    }
+
+    #[test]
+    fn a_turn_a_lost_connection_ended_says_when_until_something_comes_after() {
+        let at = parse_rfc3339_ms("2026-10-07T23:48:20.610Z");
+        for text in [
+            "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+            "API Error: Your computer went to sleep mid-response. The response above may be incomplete.",
+            "API Error: Connection lost before a response was produced. Try again.",
+            "API Error: No internet route — check your connection or VPN (ENETUNREACH)",
+        ] {
+            assert_eq!(parse_lines(HEAD, &format!("{}\n", lost(text))).connection_lost, at, "{text}");
+        }
+        // Errors that waiting doesn't mend, and a limit, aren't one.
+        for text in ["API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)", "API Error: 529 Overloaded. This is a server-side issue, usually temporary."] {
+            assert_eq!(parse_lines(HEAD, &format!("{}\n", lost(text))).connection_lost, None, "{text}");
+        }
+        assert_eq!(parse_lines(HEAD, &format!("{SPEND_CAPPED}\n")).connection_lost, None);
+        // An agent's own words about it are no error of Claude Code's.
+        let said = r#"{"type":"assistant","timestamp":"2026-10-07T23:50:00.000Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"API Error: Can't reach the API server is what it printed."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{said}\n")).connection_lost, None);
+        // A task's notice leaves it, the turn it starts having said nothing yet; a prompt of yours
+        // or a reply ends it.
+        let error = lost("API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)");
+        let notice = r#"{"type":"user","timestamp":"2026-10-07T23:50:00.567Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{error}\n{notice}\n")).connection_lost, at);
+        let prompt = r#"{"type":"user","timestamp":"2026-10-08T00:23:42.747Z","origin":{"kind":"human"},"message":{"content":"continue"}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{error}\n{prompt}\n")).connection_lost, None);
+        let reply = r#"{"type":"assistant","timestamp":"2026-10-08T00:23:46.497Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{error}\n{notice}\n{reply}\n")).connection_lost, None);
     }
 
     #[test]

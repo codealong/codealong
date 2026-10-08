@@ -229,6 +229,13 @@ pub trait Adapter: Sync {
         bail!("{} can't fork a session in the background.", self.harness().word())
     }
 
+    /// Where its sessions' requests go, as `host:port`: a session whose turn a lost connection
+    /// ended (`Session::connection_lost`) is told to carry on once this can be reached
+    /// (reconnect.rs). None where its sessions are never marked so.
+    fn api_address(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Its sessions can move to another of its accounts (`move_to`), which a session stopped at
     /// its account's usage limit is offered (`start::limit_moves`).
     fn moves_accounts(&self) -> bool {

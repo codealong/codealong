@@ -126,6 +126,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     spend limit shows on no meter). Moved, it's told to carry on where it stopped. `[limits]
     when_hit = "move"` (Settings › Accounts) moves it there by itself, as soon as it stops; a
     session moved there that stops again is offered a move rather than moved back.
+    A Claude Code session whose turn ended because it couldn't reach its API says so (Network
+    error): with the lid closed the Mac wakes for a few seconds every minute or two without
+    DNS, and Claude Code's retries run out there. Codealong tells it to carry on once the API
+    can be reached again, once for each time, and leaves it for you (with a notice) when it
+    loses the connection again straight after a few times running; `[sessions]
+    continue_after_network_error = false` (Settings › Accounts) turns that off.
     Move to worktree, in the same menu (in the main window, the quick panel and the waiting
     window), moves a Claude
     Code session that runs in a terminal or in the background, or isn't running, to another
@@ -919,6 +925,9 @@ remote_control = false         # let linked devices act on sessions here
 
 [limits]
 when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Accounts)
+
+[sessions]
+continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Accounts)
 
 
 [debug]

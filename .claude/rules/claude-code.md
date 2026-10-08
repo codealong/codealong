@@ -131,6 +131,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   line says the limit lifted, and a background task's notification wakes the session into
   another refusal each time. The usage endpoint's meters show no spend limit (2.1.257 to
   2.1.287, 2026-10-02).
+- A turn ended for want of a connection is an `assistant` line with `isApiErrorMessage`,
+  `error: "server_error"` and no `apiErrorStatus`, its text "API Error: " and Claude Code's words
+  ("Can't reach the API server — check your internet or DNS (ENOTFOUND)", "Your computer went to
+  sleep mid-response…"): `claude/transcript.rs` (`CONNECTION_LOST`, `connection_lost_at`). Its
+  retries and why they run out with the lid closed (2.1.293's code, and `pmset -g log` on
+  2026-10-07) are there too. `CLAUDE_CODE_MAX_RETRIES` (default 10) is clamped to 15 unless the
+  undocumented `CLAUDE_CODE_RETRY_WATCHDOG` is set, which allows 300 and retries 429s and 529s
+  for good, so Codealong sets neither and carries such a session on itself (reconnect.rs).
+  Claude Code's own automatic resume is only for a usage limit that lifts.
 - `--resume <id>` run in another folder goes on as the same session, its transcript staying in
   the first folder's project with the new folder on its lines, and `--bg --resume <id>` keeps
   the ID only for a session no background job has had, copying one that has into a new job

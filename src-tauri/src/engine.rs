@@ -100,6 +100,9 @@ pub enum Msg {
     LimitMoved(Option<String>),
     /// Sessions told their PR was approved (nudges.rs), and which weren't and why if any.
     Nudged(Option<String>),
+    /// Sessions told to carry on after a lost connection (reconnect.rs), and which weren't and
+    /// why if any.
+    Continued(Option<String>),
     /// pr-links.json was changed from a window: read now, without waiting for the watcher.
     PrLinksChanged,
     /// The usage read is over: what it read, or none when it fell over or never started.
@@ -251,6 +254,12 @@ impl Handle {
     /// a later nudge works.
     pub fn nudged(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Nudged(result.err()));
+    }
+
+    /// How telling sessions to carry on after a lost connection went (reconnect.rs): a failure
+    /// is a notice until a later one works.
+    pub fn continued(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::Continued(result.err()));
     }
 
     /// pr-links.json was just changed here (a PR's nudge turned on or off): the board follows
@@ -830,6 +839,7 @@ struct Engine {
     limit_move_warning: Option<String>,
     /// Why a session wasn't told its PR was approved, when Codealong sends that itself.
     nudge_warning: Option<String>,
+    continue_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
     /// why (`store::problems`), as of the last board.
     store_warnings: Vec<(String, String)>,
@@ -941,6 +951,7 @@ impl Engine {
             reusable_warning: None,
             limit_move_warning: None,
             nudge_warning: None,
+            continue_warning: None,
             store_warnings: Vec::new(),
             servers: None,
             git: HashMap::new(),
@@ -1188,6 +1199,19 @@ impl Engine {
         sessions
     }
 
+    /// Sessions a lost connection stopped, each saying whether Codealong tells it to carry on
+    /// once its API can be reached (reconnect.rs): when config.toml says to, it runs, and its
+    /// harness says where its API is.
+    fn with_connections(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        let on = self.cfg.sessions.continue_after_network_error;
+        for s in &mut sessions {
+            if let Some(lost) = s.connection_lost.as_mut() {
+                lost.continues = on && s.live && harness::adapter(s.harness).api_address().is_some();
+            }
+        }
+        sessions
+    }
+
     /// Sessions with their snoozes applied (board::apply_snooze). A snooze's time coming changes
     /// nothing on disk: the 30-second heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
@@ -1426,6 +1450,10 @@ impl Engine {
                 }
                 Ok(Msg::Nudged(why)) => {
                     self.nudge_warning = why;
+                    self.dirty = true;
+                }
+                Ok(Msg::Continued(why)) => {
+                    self.continue_warning = why;
                     self.dirty = true;
                 }
                 Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
@@ -1865,6 +1893,7 @@ impl Engine {
             said("held", "Waiting to open a folder", held.as_ref()),
             said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
             said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
+            said("reconnect", "A session didn't carry on after its connection came back", self.continue_warning.as_ref()),
 
         ]
         .into_iter()
@@ -2505,7 +2534,7 @@ impl Engine {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_limits(self.with_snoozes(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now), now), &usage, now),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now), now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),

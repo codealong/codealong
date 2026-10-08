@@ -40,6 +40,8 @@ pub struct Config {
     #[serde(default)]
     pub limits: LimitsCfg,
     #[serde(default)]
+    pub sessions: SessionsCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -58,6 +60,7 @@ impl Default for Config {
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
+            sessions: SessionsCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -211,6 +214,21 @@ impl WhenLimited {
             WhenLimited::Suggest => "suggest",
             WhenLimited::Move => "move",
         }
+    }
+}
+
+/// What Codealong does for sessions by itself.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionsCfg {
+    /// A session whose turn ended because its agent couldn't reach its API (the Mac slept, or
+    /// the network dropped) is told to carry on once the API can be reached again (reconnect.rs).
+    #[serde(default = "yes")]
+    pub continue_after_network_error: bool,
+}
+
+impl Default for SessionsCfg {
+    fn default() -> Self {
+        SessionsCfg { continue_after_network_error: true }
     }
 }
 
@@ -641,6 +659,7 @@ const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` se
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
+const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
@@ -960,6 +979,18 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["limits"]["when_hit"], Value::from(cfg.limits.when_hit.as_str()));
     }
 
+    // Like [updates]: only a file that has the table or turns continuing off gets it.
+    if cfg.sessions != SessionsCfg::default() || doc.get("sessions").is_some() {
+        if !doc.get("sessions").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{SESSIONS_COMMENT}"));
+            doc.insert("sessions", Item::Table(t));
+            let after = ["limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "sessions", after);
+        }
+        set_value(&mut doc["sessions"]["continue_after_network_error"], Value::from(cfg.sessions.continue_after_network_error));
+    }
+
     // `[pull_requests] when_approved` was a setting for a day (2026-10-05); nudges are turned on
     // PR by PR now (nudges.rs), so a file that still has it loses it, and the table with it.
     if let Some(t) = doc.get_mut("pull_requests").and_then(Item::as_table_like_mut) {
@@ -1135,6 +1166,12 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[limits]\n");
         s.push_str(&format!("when_hit = {}\n", q(cfg.limits.when_hit.as_str())));
     }
+    if cfg.sessions != SessionsCfg::default() {
+        s.push('\n');
+        s.push_str(SESSIONS_COMMENT);
+        s.push_str("[sessions]\n");
+        s.push_str(&format!("continue_after_network_error = {}\n", cfg.sessions.continue_after_network_error));
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -1211,6 +1248,7 @@ mod tests {
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
+            sessions: SessionsCfg { continue_after_network_error: false },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1487,6 +1525,7 @@ mod tests {
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
+            sessions: SessionsCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
     }
@@ -1533,6 +1572,24 @@ mod tests {
         // Turned back on, the table stays, saying so.
         let on = with_config(&out, &full()).unwrap();
         assert!(on.contains("[updates]\ncheck = true"), "{on}");
+    }
+
+    #[test]
+    fn continuing_after_a_network_error_is_on_unless_the_file_turns_it_off() {
+        assert!(toml::from_str::<Config>("").unwrap().sessions.continue_after_network_error);
+        let old = render(&full());
+        assert!(!old.contains("[sessions]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[sessions]"));
+        let mut off = full();
+        off.sessions.continue_after_network_error = false;
+        let out = with_config(&old, &off).unwrap();
+        assert!(out.contains(&format!("{SESSIONS_COMMENT}[sessions]\ncontinue_after_network_error = false")), "{out}");
+        assert!(out.find("[sessions]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), off);
+        assert_eq!(parse(&render(&off)).unwrap(), off);
+        // Turned back on, the table stays, saying so.
+        let on = with_config(&out, &full()).unwrap();
+        assert!(on.contains("[sessions]\ncontinue_after_network_error = true"), "{on}");
     }
 
     #[test]

@@ -11,6 +11,15 @@ export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'cl
 export type Merge = 'clean' | 'conflicts' | 'behind' | 'blocked' | 'unstable' | 'unknown';
 
 /** The usage limit a session's last turn ended on (peer model.rs `SessionLimit`). */
+/** A turn a lost connection ended (peer/src/model.rs `ConnectionLost`). */
+export interface ConnectionLost {
+  /** When the turn ended. */
+  at: number;
+  /** Codealong on its Mac tells it to carry on once its API can be reached again (config.toml's
+   *  `[sessions] continue_after_network_error`, reconnect.rs). */
+  continues?: boolean;
+}
+
 export interface SessionLimit {
   /** The limit, as its account's meters key it (`session`, `week`, `model:<name>`), when said. */
   meter: string | null;
@@ -89,6 +98,9 @@ export interface Session {
   chrome?: ChromeTabs;
   /** Its last turn ended on its account's usage limit, and nothing has been said since. */
   limit?: SessionLimit;
+  /** Its last turn ended because its harness couldn't reach its API (the Mac slept, or the
+   *  network dropped), and nothing has been said since. Missing from older Macs. */
+  connectionLost?: ConnectionLost;
   /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
    *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
   model?: string;
@@ -343,6 +355,9 @@ export interface Config {
   updates?: { check: boolean };
   /** What's done about a session a usage limit stopped. Older files have none: suggest. */
   limits?: { when_hit: WhenLimited };
+  /** What Codealong does for sessions by itself. Older files have none: carry on after a lost
+   *  connection. */
+  sessions?: { continue_after_network_error: boolean };
   debug: { perf_log: boolean };
 }
 

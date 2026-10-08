@@ -62,6 +62,7 @@ mod previews;
 mod prlinks;
 mod procs;
 mod quick;
+mod reconnect;
 mod repos;
 mod reusable;
 mod send;
@@ -1539,6 +1540,7 @@ pub fn run() {
             let (mover, moves_with) = (std::sync::Mutex::new(limits::Mover::default()), engine_slot.clone());
             let (nudger, nudges_with) = (std::sync::Arc::new(std::sync::Mutex::new(nudges::Nudger::default())), engine_slot.clone());
             let ends_with = engine_slot.clone();
+            let (continuer, continues_with) = (std::sync::Arc::new(std::sync::Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
             let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
@@ -1587,6 +1589,15 @@ pub fn run() {
                     if !due.is_empty() {
                         let (engine, nudger) = (engine.clone(), nudger.clone());
                         std::thread::spawn(move || nudges::send_now(&engine, &nudger, due));
+                    }
+                }
+                // And sessions a lost connection stopped, once their API can be reached: one
+                // thread for the batch, for the same reason, which tries the API first.
+                if let Some(engine) = continues_with.get() {
+                    let due = continuer.lock().map(|mut c| c.due(board, board.generated_at)).unwrap_or_default();
+                    if !due.is_empty() {
+                        let (engine, continuer) = (engine.clone(), continuer.clone());
+                        std::thread::spawn(move || reconnect::send_now(&engine, &continuer, due));
                     }
                 }
                 // Sessions that asked from the command to be ended once their turn ended

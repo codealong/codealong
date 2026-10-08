@@ -384,6 +384,13 @@ impl crate::harness::Adapter for ClaudeCode {
         true
     }
 
+    /// Anthropic's API, which a Claude.ai sign-in uses. An account sent elsewhere
+    /// (`ANTHROPIC_BASE_URL`, Bedrock, Vertex) is tried here all the same: a Mac that reaches
+    /// one after a sleep reaches the other.
+    fn api_address(&self) -> Option<&'static str> {
+        Some("api.anthropic.com:443")
+    }
+
     /// A background job takes the transcript's path too: `--bg --resume <path> --fork-session`
     /// under the other account starts a job there that goes on from it (checked on 2.1.287,
     /// 2026-10-02), its session ID the service's choice, as any `--bg` start's is.
@@ -888,7 +895,7 @@ impl Reader {
         for key in origins.sessions.keys() {
             let Some(id) = key.strip_prefix(&prefix).filter(|id| !known.contains(id)) else { continue };
             let Some(from) = self.moved_copy(&a.name, origins.origin_of(key)) else { continue };
-            let info = TranscriptInfo { session_id: id.to_string(), limit: None, ..from.transcript.1.clone() };
+            let info = TranscriptInfo { session_id: id.to_string(), limit: None, connection_lost: None, ..from.transcript.1.clone() };
             let seen_at = look.seen.seen_at(&from.key).max(look.seen.seen_at(key));
             let Some(mut s) = crate::board::claude_session(a, None, Some(&info), seen_at, look.now, &crate::board::Quiet::default()) else { continue };
             s.archived = look.archived_here(key, s.last_activity);
@@ -1069,9 +1076,9 @@ impl crate::harness::Reader for Reader {
             let reg = moved.as_ref().or(reg);
             let seen_at = from.as_ref().map(|f| look.seen.seen_at(&f.key)).unwrap_or(0).max(look.seen.seen_at(&key));
             let info = tr.map(|(_, t)| t);
-            // A limit in the conversation it goes on from stopped that session's turn, maybe on
-            // another account; this one hasn't taken a turn yet.
-            let unlimited = from.as_ref().and(info).filter(|t| t.limit.is_some()).map(|t| TranscriptInfo { limit: None, ..t.clone() });
+            // A limit or a lost connection in the conversation it goes on from stopped that
+            // session's turn, maybe on another account; this one hasn't taken a turn yet.
+            let unlimited = from.as_ref().and(info).filter(|t| t.limit.is_some() || t.connection_lost.is_some()).map(|t| TranscriptInfo { limit: None, connection_lost: None, ..t.clone() });
             let info = unlimited.as_ref().or(info);
             // Only a busy session that's gone quiet costs a look outside its transcript,
             // and one whose turn left a command running in the background (read once

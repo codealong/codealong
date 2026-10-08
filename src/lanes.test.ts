@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, exitsItsOwnWay, filterByAge, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -287,6 +287,15 @@ describe('sessionFlag', () => {
     expect(flag({ excerpt: 'Held message from “Review 1021”' })).toBe('Message');
     expect(flag({ stalledSince: NOW - 3_600_000, excerpt: 'No activity for {for:1}' })).toBe('Stuck');
     expect(sessionFlag(s({ status: 'error', excerpt: 'API error' }))).toMatchObject({ label: 'Error', tone: 'bad' });
+  });
+
+  it('says a lost connection ended its turn, and whether Codealong carries it on', () => {
+    const lost = s({ status: 'unread', excerpt: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", connectionLost: { at: NOW - 60_000, continues: true } });
+    expect(sessionFlag(lost)).toMatchObject({ label: 'Network error', tone: 'warn' });
+    expect(connectionLostWords({ at: NOW, continues: true })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Codealong tells it to carry on once the API can be reached again.');
+    expect(connectionLostWords({ at: NOW })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Send it something to carry on.');
+    // Carried on, it's working: nothing to flag.
+    expect(sessionFlag({ ...lost, status: 'working', excerpt: null })).toBeNull();
   });
 
   it('says which usage limit stopped a session, when it lifts and where it could go on', () => {

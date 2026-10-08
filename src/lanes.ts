@@ -9,7 +9,7 @@ import { shortOf } from './devices';
 import { withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
-import type { Bay, Lane, Pr, PrItem, Session, SessionLimit, Status } from './types';
+import type { Bay, ConnectionLost, Lane, Pr, PrItem, Session, SessionLimit, Status } from './types';
 
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
 /** The status filter an agent falls under, for the statuses that have one. */
@@ -282,6 +282,12 @@ export function limitWords(account: string, limit: SessionLimit, now: number, of
   return `It stopped at ${account}’s ${limitName(limit.meter)}${spent}.${when}${where}`;
 }
 
+/** What a lost connection that ended a session's turn comes to, and who carries it on. */
+export function connectionLostWords(lost: ConnectionLost): string {
+  const then = lost.continues ? 'Codealong tells it to carry on once the API can be reached again.' : 'Send it something to carry on.';
+  return `Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. ${then}`;
+}
+
 /**
  * What a session waits on you for, as a label beside its title: the words its headline puts
  * before the title. A session's row leads with its title, and its glyph and bay already say it
@@ -290,6 +296,7 @@ export function limitWords(account: string, limit: SessionLimit, now: number, of
 export function sessionFlag(s: Session): InsightLabel | null {
   if (s.stalledSince != null) return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
   if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now()) };
+  if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: connectionLostWords(s.connectionLost) };
   if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };
   if (s.status !== 'needs') return null;
   if (s.asks) return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };

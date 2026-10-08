@@ -243,6 +243,11 @@ pub struct Session {
     /// Its last turn ended on its account's usage limit, and nothing has been said since.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<SessionLimit>,
+    /// Its last turn ended because its harness couldn't reach its API, and nothing has been said
+    /// since: the Mac slept or the network dropped, and the harness gave up retrying. None from
+    /// Macs before 2026-10-08.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_lost: Option<ConnectionLost>,
     /// The model it's on, as its harness names it (`claude-opus-5-5`, `gpt-5.5`): the one its
     /// latest reply came from, or one it was switched to since. None where the harness doesn't
     /// say, and from Macs before 2026-10-06.
@@ -325,6 +330,7 @@ impl Session {
             earlier: false,
             chrome: None,
             limit: None,
+            connection_lost: None,
             model: None,
             own_worktree: None,
         }
@@ -351,6 +357,18 @@ pub struct SessionLimit {
     /// The model its last reply came from, which decides which of an account's limits it spends.
     #[serde(skip)]
     pub model: Option<String>,
+}
+
+/// A turn a lost connection ended, as its harness recorded it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionLost {
+    /// When the turn ended.
+    pub at: i64,
+    /// Codealong on its Mac tells it to carry on once its API can be reached again (config.toml's
+    /// `[sessions] continue_after_network_error`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continues: bool,
 }
 
 /// Where a session came from: the session it was forked from or started by.

@@ -242,6 +242,9 @@ pub fn claude_session(
     };
     // A turn the account's limit refused is stopped, not done: what to do about it waits on you.
     let limit = tr.and_then(|t| t.limit.clone()).filter(|_| status != Status::Working);
+    // The same for a turn a lost connection ended; whether Codealong carries it on is the
+    // engine's to say (`engine::with_connections`).
+    let connection_lost = tr.and_then(|t| t.connection_lost).filter(|_| status != Status::Working).map(|at| ConnectionLost { at, continues: false });
     let status = if limit.is_some() && status == Status::Unread { Status::Error } else { status };
     let entrypoint = reg.and_then(|r| r.entrypoint.clone()).or_else(|| tr.and_then(|t| t.entrypoint.clone())).unwrap_or_default();
     let surface = if entrypoint.contains("desktop") { Surface::App } else { Surface::Cli };
@@ -331,6 +334,7 @@ pub fn claude_session(
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
         limit,
+        connection_lost,
         model: tr.and_then(|t| t.model.clone()),
         // Held only while it runs: the lock and the cleanup at exit are its process's.
         own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
@@ -2214,6 +2218,18 @@ mod tests {
         assert_eq!((seen.status, seen.limit.is_some()), (Status::Idle, true));
         let busy = s("busy", NOW - 100);
         assert_eq!((busy.status, busy.limit), (Status::Working, None));
+    }
+
+    #[test]
+    fn a_turn_a_lost_connection_ended_says_so_until_it_works_again() {
+        let a = acct("claude");
+        let t = TranscriptInfo { connection_lost: Some(NOW - 10), ..tr() };
+        let s = |status: &str| claude_session(&a, Some(&reg(status, NOW - 10)), Some(&t), 0, NOW, &Quiet::default()).unwrap();
+        // A finished turn to read, as any other; the engine says whether it's carried on.
+        let ended = s("idle");
+        assert_eq!((ended.status, ended.connection_lost), (Status::Unread, Some(ConnectionLost { at: NOW - 10, continues: false })));
+        let busy = s("busy");
+        assert_eq!((busy.status, busy.connection_lost), (Status::Working, None));
     }
 
     #[test]
