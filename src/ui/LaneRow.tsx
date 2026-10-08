@@ -22,11 +22,11 @@ interface LaneRowProps {
   now: number;
   /** The selected item: one of the row's agents, or the worktree when it has none. */
   selectedKey: string | null;
-  /** The keys of its items picked together with others (picks.ts). */
-  picked?: string[];
+  /** Picked whole together with other worktrees (picks.ts). */
+  picked?: boolean;
   /** The element id of an item, for the list's active descendant. */
   domId: (key: string) => string;
-  /** A press on one of its items: alone, or with ⌘ or ⇧ held, picking it with others. */
+  /** A press on one of its items: alone, or with ⌘ or ⇧ held, picking the worktree with others. */
   onSelect: (key: string, how: SelectHow) => void;
   /** Double-click on the worktree: opens its most recent session. */
   onOpen: (lane: Lane) => void;
@@ -203,10 +203,10 @@ function LaneRowView(props: LaneRowProps) {
 export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
 /** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
-function WorktreeOnlyRow({ row, now, selectedKey, picked = [], domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: LaneRowProps) {
+function WorktreeOnlyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: LaneRowProps) {
   const { lane } = row;
   const chips = currentSessions(lane, now);
-  const selected = selectedKey === lane.id || picked.includes(lane.id);
+  const selected = picked || selectedKey === lane.id;
   return (
     <Row
       id={domId(lane.id)}
@@ -285,19 +285,20 @@ function LaneLinks({ lane, now, onOpenTarget, onPrMenu, onPrOpen }: { lane: Lane
  * A worktree with agents that need you, are working or just finished: the worktree once on the
  * left, and a line for each agent, which you select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, picked = [], domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
+function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
   const { lane, agents } = row;
   const listed = new Set(agents.map((a) => a.session.key));
   // Recent sessions without a line of their own: finished a while ago, or visiting.
   const others = currentSessions(lane, now).filter((s) => !listed.has(s.key));
-  const isSelected = (key: string) => key === selectedKey || picked.includes(key);
+  // Picked, the worktree is selected whole: each of its lines.
+  const isSelected = (key: string) => picked || key === selectedKey;
   const hasSelection = agents.some((a) => isSelected(a.key));
   // The worktree's own todos, less the ones its agents' lines already show.
   const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
   const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
   const foot = others.length > 0 || footTodos.length > 0 || lane.pr != null || lane.preview != null || lane.reuse === 'free';
   const selectFirst = () => onSelect(agents[0].key, 'one');
-  // The worktree's own part selects its first agent's line, as a press with ⌘ or ⇧ would.
+  // The worktree's own part selects its first agent's line; with ⌘ or ⇧ it picks the worktree.
   const pressFirst = (e: ReactMouseEvent) => {
     if (selects(e)) onSelect(agents[0].key, selectHow(e));
   };
@@ -305,7 +306,7 @@ function GroupRow({ row, now, selectedKey, picked = [], domId, onSelect, onOpen,
     <Row
       role="group"
       label={`${lane.callsign}, ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`}
-      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, agents.length > 1 && 'is-tall', hasSelection && 'has-selection', pinned && 'is-pinned', away(lane) && 'is-away')}
+      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, agents.length > 1 && 'is-tall', hasSelection && 'has-selection', picked && 'is-picked', pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
       onMenu={onContextMenu}
     >

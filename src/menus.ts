@@ -572,48 +572,51 @@ export function sessionsMenu(picked: { lane: Lane; session: Session }[], can: Se
   return laidOut(SESSIONS_MENU, sessionsActions(picked, can), {}, can.keys);
 }
 
-/** A line picked on the Worktrees board: one of a worktree's agents, or a worktree with none. */
-export type BoardPicked = { kind: 'agent'; lane: Lane; session: Session } | { kind: 'lane'; lane: Lane };
-
-/** What can be done to lines picked together on the Worktrees board: to the sessions on them,
- *  as `sessionsActions` does, and to their worktrees, each once, as a worktree's menu does. */
-export interface BoardActions extends SessionsActions {
-  reuse?: MenuAction;
-  copyPath?: MenuAction;
-  copyBranch?: MenuAction;
+/** What a window can do to several worktrees picked together (the main window's Worktrees). */
+export interface LanesCan {
+  report: Report;
+  /** Pins them to this window's own list, or unpins them. */
+  pin?: MenuAction;
+  keys?: boolean | 'chords';
 }
 
-/** The board's lines picked together. `can.pin` pins their worktrees, as P does on the board. */
-export function boardActions(picked: BoardPicked[], can: SessionsCan): BoardActions {
+/** What can be done to several worktrees at once, by the names a worktree's or a session's keys
+ *  go by (`keyed`: E marks seen, P pins): marking their sessions seen, as E does on a worktree,
+ *  and what a worktree's menu does that makes sense for several. */
+export interface LanesActions {
+  seen?: MenuAction;
+  reuse?: MenuAction;
+  pin?: MenuAction;
+  copyPath?: MenuAction;
+  copyBranch?: MenuAction;
+  /** How many of their sessions Mark as seen takes. */
+  takes: Record<'seen', number>;
+}
+
+export function lanesActions(lanes: Lane[], can: LanesCan): LanesActions {
   const { report } = can;
-  const agents = picked.flatMap((p) => (p.kind === 'agent' ? [{ lane: p.lane, session: p.session }] : []));
-  const lanes = [...new Map(picked.map((p) => [p.lane.id, p.lane])).values()];
+  const seen = lanes.flatMap((l) => l.sessions.filter((s) => !s.visitor && seenable(s)).map((s) => s.key));
   // Only the worktrees that can be reused take it, as one's menu offers it.
   const reusable = lanes.filter((l) => reuseItem(l, report));
   const reused = reusable.length > 0 && reusable.every((l) => l.reuse != null);
   const setReuse = () => void Promise.all(reusable.map((l) => setReusable(l.id, !reused))).catch((e: unknown) => report.error(errorText(e)));
   const lines = (list: (string | null | undefined)[]) => list.filter((x): x is string => !!x).join('\n');
   return {
-    ...sessionsActions(agents, { ...can, pin: undefined }),
-    pin: can.pin,
+    seen: seen.length > 0 ? { label: `Mark ${count(seen.length, 'session')} as seen`, run: () => void seenAhead(seen).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     reuse: reusable.length > 0 ? { label: 'Reuse for new work', checked: reused, run: setReuse } : undefined,
+    pin: can.pin,
     copyPath: copyItem(lanes.length === 1 ? 'Copy path' : 'Copy paths', lines(lanes.map((l) => l.path)), 'worktree paths', report),
     copyBranch: copyItem(lanes.length === 1 ? 'Copy branch name' : 'Copy branch names', lines(lanes.map((l) => l.branch)), 'branch names', report),
+    takes: { seen: seen.length },
   };
 }
 
-/** The order of the board's menu for lines picked together: what their sessions are to you, then
- *  their worktrees' as a worktree's menu has it, then copying. */
-const BOARD_MENU = [
-  ['stop', 'seen', 'snooze', 'close', 'done', 'archive'],
-  ['reuse'],
-  ['pin'],
-  ['copyId', 'copyPath', 'copyBranch'],
-] as const;
+/** The order of the menu of several worktrees picked together, as one worktree's menu has them. */
+const LANES_MENU = [['seen'], ['reuse'], ['pin'], ['copyPath', 'copyBranch']] as const;
 
-/** The menu of lines picked together on the Worktrees board. */
-export function boardMenu(picked: BoardPicked[], can: SessionsCan): MenuSpec {
-  return laidOut(BOARD_MENU, boardActions(picked, can), {}, can.keys);
+/** The menu of several worktrees picked together. */
+export function lanesMenu(lanes: Lane[], can: LanesCan): MenuSpec {
+  return laidOut(LANES_MENU, lanesActions(lanes, can), {}, can.keys);
 }
 
 /** What a window can do to several PRs picked together (the main window's PRs). */
@@ -796,7 +799,7 @@ export function chordLetter(key: string): boolean {
 /** The time ⌃⌘ with a digit snoozes a session, or your review of a PR, to (snooze.ts
  *  `SNOOZE_CHORDS`), as its Snooze menu has it now; none for one that can't be snoozed, or a key
  *  that isn't one of them. */
-function snoozeChorded(actions: SessionActions | SessionsActions | LaneActions | PrActions | PrsActions, key: string): MenuAction | null {
+function snoozeChorded(actions: SessionActions | SessionsActions | LaneActions | LanesActions | PrActions | PrsActions, key: string): MenuAction | null {
   const snooze = 'snooze' in actions ? actions.snooze : undefined;
   const it = snooze?.items[snoozeChordIndex(key)];
   return it && it !== 'separator' && !('items' in it) ? it : null;
@@ -817,7 +820,7 @@ export function chordKeys(chord: string): string[] {
 /** The action a key runs among a session's or worktree's (or several sessions'), by the key as
  *  typed, when it applies to them now: the letter alone (`KEYS`), or with `chord` the letter
  *  pressed with ⌃⌘ (`CHORDS`). */
-export function keyed(actions: SessionActions | SessionsActions | LaneActions | PrsActions, key: string, chord = false): { id: string; action: MenuAction } | null {
+export function keyed(actions: SessionActions | SessionsActions | LaneActions | LanesActions | PrsActions, key: string, chord = false): { id: string; action: MenuAction } | null {
   const snooze = chord ? snoozeChorded(actions, key) : null;
   if (snooze) return { id: 'snooze', action: snooze };
   const letter = key.toUpperCase();

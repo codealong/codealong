@@ -1,7 +1,7 @@
 // Rows picked together in a list (⌘-click, ⇧-click, ⇧↑ ⇧↓, ⌘A; picks.ts), shown in the panel in
 // place of one row's: how many, what's done to all of them at once, and each of them, to show
 // alone or leave out. Every list's picks go through this one panel, each filling it with its own
-// actions and rows: sessions and the Worktrees board's lines (SessionPickPanel.tsx), PRs
+// actions and rows: sessions (SessionPickPanel.tsx), worktrees (WorktreePickPanel.tsx), PRs
 // (PrPickPanel.tsx) and todos (TodoPanel.tsx `TodoPickPanel`).
 
 import type { ReactNode } from 'react';

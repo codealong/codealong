@@ -112,6 +112,12 @@
 .ca-lane.is-group.has-selection .ca-seg-glyph {
   background: var(--surface-selected);
 }
+/* Picked whole with other worktrees (picks.ts): the whole row reads as selected, its name, its
+   lines and the chips at its foot. */
+.ca-lane.is-group.is-picked,
+.ca-lane.is-group.is-picked:hover {
+  background: var(--surface-selected);
+}
 .ca-lane.is-group.is-tall .ca-seg-glyph {
   justify-content: flex-start;
   padding-top: 9px;

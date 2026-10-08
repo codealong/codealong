@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead } from './ahead';
 import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { boardActions, boardMenu, chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
@@ -272,38 +272,24 @@ describe('several sessions picked together', () => {
   });
 });
 
-describe('lines picked together on the Worktrees board', () => {
-  const api = lane();
-  const web = lane({ id: '/r/web', callsign: 'web', path: '/r/web', branch: 'fix-nav', pr: null });
-  const agent = (l: Lane, over: Partial<Session> = {}) => ({ kind: 'agent' as const, lane: l, session: session({ ...over, openTarget: `s|${over.key ?? 'claude:c:1'}|focus` }) });
+describe('worktrees picked together', () => {
+  // One with a turn that ended and one idle, and one with nothing to mark seen.
+  const api = lane({ sessions: [session(), session({ key: 'claude:c:2', id: 'b2', status: 'idle' })] });
+  const web = lane({ id: '/r/web', callsign: 'web', path: '/r/web', branch: 'fix-nav', pr: null, sessions: [session({ key: 'claude:c:3', id: 'c3', status: 'idle' })] });
+  const pin = { label: 'Pin 2 worktrees', run: noop };
 
-  it('acts on the sessions on the lines, and on their worktrees each once', () => {
-    const picked = [agent(api), agent(api, { key: 'claude:c:2', id: 'b2', status: 'idle', live: false, pid: null }), { kind: 'lane' as const, lane: web }];
-    const pin = { label: 'Pin 2 worktrees', run: noop };
-    expect(labels(boardMenu(picked, { report, pin }))).toEqual([
-      'Mark 1 session as seen',
-      'Snooze 2 sessions ›',
-      'Close 1 session',
-      'Mark 2 sessions as done',
-      'Archive 2 sessions',
-      '-',
-      'Reuse for new work',
-      '-',
-      'Pin 2 worktrees',
-      '-',
-      'Copy session IDs',
-      'Copy paths',
-      'Copy branch names',
-    ]);
-    // P pins the worktrees, as it does on the board.
-    const acts = boardActions(picked, { report, pin, keys: true });
+  it('marks their sessions seen, as E does on one, and pins, reuses and copies them', () => {
+    expect(labels(lanesMenu([api, web], { report, pin }))).toEqual(['Mark 1 session as seen', '-', 'Reuse for new work', '-', 'Pin 2 worktrees', '-', 'Copy paths', 'Copy branch names']);
+    const acts = lanesActions([api, web], { report, pin, keys: true });
+    expect(acts.takes).toEqual({ seen: 1 });
+    // P pins them and E marks seen, as on one worktree; nothing else takes a key.
     expect(keyed(acts, 'p')?.action).toBe(pin);
-    expect(keyed(acts, 'a')?.action).toBe(acts.archive);
+    expect(keyed(acts, 'e')?.action).toBe(acts.seen);
+    expect(keyed(acts, 'a')).toBeNull();
   });
 
-  it('pins worktrees with no line among them, which have no sessions to act on', () => {
-    const pin = { label: 'Pin 2 worktrees', run: noop };
-    expect(labels(boardMenu([{ kind: 'lane', lane: api }, { kind: 'lane', lane: web }], { report, pin }))).toEqual(['Reuse for new work', '-', 'Pin 2 worktrees', '-', 'Copy paths', 'Copy branch names']);
+  it('leaves out Mark as seen where none of their sessions has a turn that ended', () => {
+    expect(labels(lanesMenu([web], { report, pin }))).toEqual(['Reuse for new work', '-', 'Pin 2 worktrees', '-', 'Copy path', 'Copy branch name']);
   });
 });
 

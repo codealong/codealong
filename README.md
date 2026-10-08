@@ -287,9 +287,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     its line diff, a row shows how far the worktree has moved from the default branch on the
     remote (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote
     doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
-    Lines picked together (a worktree with no line is picked whole) take their sessions' Seen,
-    Done, Snooze, Close and Archive, and their worktrees' Pin (`p`), Reuse for new work and
-    copies of their paths and branch names.
+    Worktrees are picked whole, from any part of their row: picked together they take Mark as
+    seen for their sessions (`e`), Pin (`p`), Reuse for new work and copies of their paths and
+    branch names.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each: the ones that made, edited or commented on it, or pushed to it (from their own
     records: Claude Code's `gitOperation` results and its `pr-link` lines, Codex's commands

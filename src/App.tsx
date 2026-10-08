@@ -334,6 +334,7 @@ export function App() {
     shownBays,
     shownGroups,
     foldParked,
+    worktreeRows,
     worktreeItems,
     laneById,
     prRowOf,
@@ -792,10 +793,10 @@ export function App() {
   const picks = useListPicks({
     view,
     loading,
-    selected: selected?.key ?? null,
+    selected,
     setSelectedKey,
     sessionRows,
-    worktreeItems,
+    worktreeRows,
     prVisible,
     showArchived,
     report,
@@ -1004,7 +1005,7 @@ export function App() {
     visible,
     pickedRows,
     // The Todo view's keys act on its picks themselves (useTodoView.ts): ⌘A and Esc are the lists' own.
-    listPicks: picks.keys ?? (view === 'todo' ? { count: pickedRows.length, range: () => {}, all: pickAllTodos, clear: clearTodoPick, actions: () => null } : null),
+    listPicks: picks.keys ?? (view === 'todo' ? { count: pickedRows.length, step: () => {}, all: pickAllTodos, clear: clearTodoPick, actions: () => null } : null),
     selectedLane,
     startLaneId,
     terminalAt,
@@ -1155,18 +1156,20 @@ export function App() {
       row={r}
       now={now}
       selectedKey={selected?.key ?? null}
-      picked={rowItems(r).flatMap((i) => (picks.board.keys.has(i.key) ? [i.key] : []))}
+      picked={picks.worktrees.keys.has(r.key)}
       domId={domIdOf}
+      // A press with ⌘ or ⇧ picks the whole worktree, whichever part of its row it's on.
       onSelect={(key, how) => {
-        const item = rowItems(r).find((i) => i.key === key);
-        if (item) picks.board.select(item, how);
+        if (how !== 'one') return picks.worktrees.select(r, how);
+        picks.worktrees.clear();
+        setSelectedKey(key);
       }}
       onOpen={(lane) => open(lane, lane.defaultTarget)}
       onOpenTarget={open}
       pinned={index != null}
-      // On a line picked with others, the menu is for all of them.
-      onContextMenu={() => (picks.board.keys.has(r.lane.id) ? picks.board.menu() : laneMenu(r.lane))}
-      onAgentMenu={(s) => (picks.board.keys.has(`${r.lane.id}::${s.key}`) ? picks.board.menu() : sessionMenu(r.lane, s, 'worktree'))}
+      // On a worktree picked with others, the menu is for all of them.
+      onContextMenu={() => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : laneMenu(r.lane))}
+      onAgentMenu={(s) => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : sessionMenu(r.lane, s, 'worktree'))}
       onPrMenu={() => lanePrMenu(r.lane)}
       onPrOpen={() => openLanePr(r.lane)}
       todos={todoLinks.byLane.get(r.lane.id)}

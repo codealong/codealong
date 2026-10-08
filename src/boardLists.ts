@@ -321,8 +321,10 @@ export function useBoardLists(input: ListsInput) {
   const fold = useCallback((bs: typeof bays) => folded(bs, foldParked), [foldParked]);
   const shownBays = useMemo(() => fold(bays), [fold, bays]);
   const shownGroups = useMemo(() => (deviceGroups ?? [{ short: undefined as string | null | undefined, bays }]).map((g) => ({ ...g, shown: fold(g.bays) })), [deviceGroups, bays, fold]);
-  // What you can select on the board, top to bottom: agents' lines, and worktrees without any.
-  const worktreeItems = useMemo(() => [...pinnedLaneRows, ...shownGroups.flatMap((g) => g.shown.flatMap((b) => b.rows))].flatMap(rowItems), [pinnedLaneRows, shownGroups]);
+  // The board's worktrees top to bottom, which are picked together whole; and what you can
+  // select on it: agents' lines, and worktrees without any.
+  const worktreeRows = useMemo(() => [...pinnedLaneRows, ...shownGroups.flatMap((g) => g.shown.flatMap((b) => b.rows))], [pinnedLaneRows, shownGroups]);
+  const worktreeItems = useMemo(() => worktreeRows.flatMap(rowItems), [worktreeRows]);
 
   // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
   // worked on them.
@@ -379,6 +381,7 @@ export function useBoardLists(input: ListsInput) {
     shownBays,
     shownGroups,
     foldParked,
+    worktreeRows,
     worktreeItems,
     laneById,
     prRowOf: prRow,

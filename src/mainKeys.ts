@@ -183,7 +183,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     if (picking) {
       const act = picked('done');
       if (act) act.run();
-      else if (view !== 'prs') say('They’re archived already.');
+      else if (view === 'sessions') say('They’re archived already.');
       return;
     }
     if (selected?.kind !== 'agent') return;
@@ -297,9 +297,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // ⇧↑ ⇧↓ pick the row above or below too, as ⇧-click does (the Todo view's own keys, above).
   if (listPicks && e.shiftKey && vertical && !mod && !e.ctrlKey && !e.altKey && selected) {
     e.preventDefault();
-    const i = visible.indexOf(selected);
-    const to = visible[Math.min(visible.length - 1, Math.max(0, i + (e.key === 'ArrowUp' ? -1 : 1)))];
-    if (to) listPicks.range(to);
+    listPicks.step(e.key === 'ArrowUp' ? -1 : 1);
     return;
   }
   // A menu's letter (outside Sessions) or its ⌃⌘ chord acts on all the rows picked: what doesn't

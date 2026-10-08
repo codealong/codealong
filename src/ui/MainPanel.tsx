@@ -26,6 +26,7 @@ import type { PrRowItem } from './PrsView';
 import { SessionPanel } from './SessionPanel';
 import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
+import { WorktreePickPanel } from './WorktreePickPanel';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
 
 /** What the canvas's selected card is, as its panel shows it; null when nothing is selected or
@@ -289,19 +290,17 @@ export function MainPanel(props: MainPanelProps) {
     <SessionPickPanel
       items={picks.sessions.rows}
       actions={picks.sessions.actions()}
-      pins="session"
-      onShow={(r) => r.kind === 'agent' && picks.sessions.select(r, 'one')}
-      onLeaveOut={(r) => r.kind === 'agent' && picks.sessions.select(r, 'toggle')}
+      onShow={(r) => picks.sessions.select(r, 'one')}
+      onLeaveOut={(r) => picks.sessions.select(r, 'toggle')}
       onMoreMenu={picks.sessions.menu}
     />
-  ) : view === 'worktrees' && picks.board.rows.length > 0 ? (
-    <SessionPickPanel
-      items={picks.board.rows}
-      actions={picks.board.actions()}
-      pins="worktree"
-      onShow={(r) => picks.board.select(r, 'one')}
-      onLeaveOut={(r) => picks.board.select(r, 'toggle')}
-      onMoreMenu={picks.board.menu}
+  ) : view === 'worktrees' && picks.worktrees.rows.length > 0 ? (
+    <WorktreePickPanel
+      items={picks.worktrees.rows}
+      actions={picks.worktrees.actions()}
+      onShow={(r) => picks.worktrees.select(r, 'one')}
+      onLeaveOut={(r) => picks.worktrees.select(r, 'toggle')}
+      onMoreMenu={picks.worktrees.menu}
     />
   ) : view === 'sessions' && selected?.kind === 'agent' ? (
     sessionPanel(selected.lane, selected.session, undefined, selected.key)

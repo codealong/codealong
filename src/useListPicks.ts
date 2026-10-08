@@ -1,14 +1,15 @@
 // Rows picked together in the main window's lists (⌘-click, ⇧-click, ⇧↑ ⇧↓, ⌘A; picks.ts):
-// sessions in Sessions, lines on the Worktrees board and PRs in PRs, each with what's done to all
-// of them (menus.ts `sessionsActions`, `boardActions`, `prsActions`) for their right-click menu,
-// their panel (PickPanel.tsx) and the keys (mainKeys.ts `ListPicks`). The Todo view's picks, for
-// starting one session on several todos, are its own (useTodoView.ts).
+// sessions in Sessions, worktrees on the Worktrees board (each whole, whichever part of its row
+// is pressed) and PRs in PRs, each with what's done to all of them (menus.ts `sessionsActions`,
+// `lanesActions`, `prsActions`) for their right-click menu, their panel (PickPanel.tsx) and the
+// keys (mainKeys.ts). The Todo view's picks, for starting one session on several todos, are its
+// own (useTodoView.ts).
 
 import { useMemo } from 'react';
 import type { ListRow } from './boardLists';
 import { showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { count } from './format';
-import type { BoardRow } from './lanes';
+import type { WorktreeRow } from './lanes';
 import * as menus from './menus';
 import { usePicks, type SelectHow } from './picks';
 import type { Pins } from './pins';
@@ -23,11 +24,12 @@ export interface ListPicksInput {
   view: string;
   /** Nothing is listed until the board is read, so nothing is picked. */
   loading: boolean;
-  /** The key of the row selected, as the window resolves it. */
-  selected: string | null;
+  /** The row selected, as the window resolves it. */
+  selected: ListRow | null;
   setSelectedKey: (key: string) => void;
   sessionRows: ListRow[];
-  worktreeItems: BoardRow[];
+  /** The board's worktrees, top to bottom. */
+  worktreeRows: WorktreeRow[];
   prVisible: ListRow[];
   /** Sessions' Archived fold is open, so archived sessions stay listed. */
   showArchived: boolean;
@@ -49,19 +51,35 @@ export interface ListPick<R, A> {
   rows: R[];
   keys: ReadonlySet<string>;
   select: (row: R, how: SelectHow) => void;
+  /** Goes back to one, leaving the selection where it is. */
+  clear: () => void;
   actions: () => A;
   /** Their right-click menu, and the panel's ⋯ menu at `at`. */
   menu: (at?: { x: number; y: number }) => void;
 }
 
+/** The view's picks as the keys go by them (mainKeys.ts): how many, ⇧↑ ⇧↓, ⌘A, Esc, and what
+ *  the keys run on all of them, by the names one row's actions have. */
+export interface ListPicksKeys {
+  count: number;
+  /** Picks the row above or below too, as ⇧-click does. */
+  step: (dir: 1 | -1) => void;
+  all: () => void;
+  clear: () => void;
+  actions: () => menus.SessionsActions | menus.LanesActions | menus.PrsActions | null;
+}
+
 export function useListPicks(input: ListPicksInput) {
-  const { view, loading, selected, setSelectedKey, sessionRows, worktreeItems, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve } = input;
+  const { view, loading, selected, setSelectedKey, sessionRows, worktreeRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve } = input;
   const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
-  const boardItems = useMemo(() => (view === 'worktrees' && !loading ? worktreeItems : null), [view, loading, worktreeItems]);
+  const laneItems = useMemo(() => (view === 'worktrees' && !loading ? worktreeRows : null), [view, loading, worktreeRows]);
   const prItems = useMemo(() => (view === 'prs' && !loading ? prVisible.filter((r): r is PrRowItem => r.kind === 'pr') : null), [view, loading, prVisible]);
-  const sessions = usePicks(sessionItems, selected, setSelectedKey);
-  const board = usePicks(boardItems, selected, setSelectedKey);
-  const prs = usePicks(prItems, selected, setSelectedKey);
+  // A worktree is picked by its id, whichever of its lines is selected: picking one selects it,
+  // which selects its first line.
+  const selectedLane = selected && selected.kind !== 'pr' && selected.kind !== 'todo' ? selected.lane.id : null;
+  const sessions = usePicks(sessionItems, selected?.key ?? null, setSelectedKey);
+  const worktrees = usePicks(laneItems, selectedLane, setSelectedKey);
+  const prs = usePicks(prItems, selected?.key ?? null, setSelectedKey);
   const showMenu = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => setToast(String(e)));
 
   /** Pins or unpins `keys` in `pins`: pins the ones that aren't, else unpins them all. */
@@ -71,81 +89,66 @@ export function useListPicks(input: ListPicksInput) {
     return unpinned.length > 0 ? { label: `Pin ${count(unpinned.length, word)}`, run: () => pins.pinAll(unpinned, true) } : { label: `Unpin ${count(keys.length, word)}`, run: () => pins.pinAll(keys, false) };
   };
 
-  /** What's done to sessions, here or on the board: ones that leave the list (done, archived)
-   *  leave the pick, and with none left the row after them is selected; the rest stay picked, to
-   *  do more to (a working one Mark as done held, say). */
-  const sessionsCan = (rows: { key: string; session: { key: string; title: string; archived?: boolean } }[], leave: (gone: ReadonlySet<string>) => void, stays: boolean): menus.SessionsCan => ({
+  /** What's done to sessions: ones that leave the list (done, or archived while the Archived fold
+   *  is shut) leave the pick, and with none left the row after them is selected; the rest stay
+   *  picked, to do more to (a working one Mark as done held, say). */
+  const sessionsOf = (rows: SessionItem[]): menus.SessionsCan => ({
     report,
     keys: 'chords',
+    pin: pinItem(sessionPins, rows.filter((r) => !r.session.archived).map((r) => r.session.key), 'session'),
     archive: (keys, archived) => archive(keys, archived, rows.find((r) => r.session.key === keys[0])?.session.title ?? ''),
     // Undo takes them out of the archive, as it does one.
     undoDone: (keys, message) => undoArchive({ keys, title: '', message }),
     left: (done, keys) => {
-      if ((done !== 'done' && done !== 'archived') || stays) return;
-      leave(new Set(rows.filter((r) => keys.includes(r.session.key)).map((r) => r.key)));
+      if ((done !== 'done' && done !== 'archived') || showArchived) return;
+      sessions.leave(new Set(rows.filter((r) => keys.includes(r.session.key)).map((r) => r.key)));
     },
   });
-
-  // Sessions pins the sessions; archived ones stay listed only in the Archived fold, shown.
-  const sessionsOf = (rows: SessionItem[]): menus.SessionsCan => ({
-    ...sessionsCan(rows, sessions.leave, showArchived),
-    pin: pinItem(sessionPins, rows.filter((r) => !r.session.archived).map((r) => r.session.key), 'session'),
-  });
-  // The board pins worktrees, as P does there; done and archived sessions leave it.
-  const boardOf = (rows: BoardRow[]): menus.SessionsCan => ({
-    ...sessionsCan(rows.flatMap((r) => (r.kind === 'agent' ? [r] : [])), board.leave, false),
-    keys: true,
-    pin: pinItem(lanePins, [...new Set(rows.map((r) => r.lane.id))], 'worktree'),
-  });
-  const prsOf = (): menus.PrsCan => ({ report, keys: true, approve, pin: pinItem(prPins, prs.picked.map((r) => r.pr.key), 'PR') });
+  const lanesOf = (rows: WorktreeRow[]): menus.LanesCan => ({ report, keys: true, pin: pinItem(lanePins, rows.map((r) => r.lane.id), 'worktree') });
+  const prsOf = (rows: PrRowItem[]): menus.PrsCan => ({ report, keys: true, approve, pin: pinItem(prPins, rows.map((r) => r.pr.key), 'PR') });
+  const lanes = worktrees.picked.map((r) => r.lane);
   const pickedPrs = prs.picked.map((r) => r.pr);
 
   const sessionPick: ListPick<SessionItem, menus.SessionsActions> = {
     rows: sessions.picked,
     keys: sessions.keys,
     select: sessions.select,
+    clear: sessions.clear,
     actions: () => menus.sessionsActions(sessions.picked, sessionsOf(sessions.picked)),
     menu: (at) => showMenu(menus.sessionsMenu(sessions.picked, sessionsOf(sessions.picked)), at),
   };
-  const boardPick: ListPick<BoardRow, menus.BoardActions> = {
-    rows: board.picked,
-    keys: board.keys,
-    select: board.select,
-    actions: () => menus.boardActions(board.picked, boardOf(board.picked)),
-    menu: (at) => showMenu(menus.boardMenu(board.picked, boardOf(board.picked)), at),
+  const worktreePick: ListPick<WorktreeRow, menus.LanesActions> = {
+    rows: worktrees.picked,
+    keys: worktrees.keys,
+    select: worktrees.select,
+    clear: worktrees.clear,
+    actions: () => menus.lanesActions(lanes, lanesOf(worktrees.picked)),
+    menu: (at) => showMenu(menus.lanesMenu(lanes, lanesOf(worktrees.picked)), at),
   };
   const prPick: ListPick<PrRowItem, menus.PrsActions> = {
     rows: prs.picked,
     keys: prs.keys,
     select: prs.select,
-    actions: () => menus.prsActions(pickedPrs, prsOf()),
-    menu: (at) => showMenu(menus.prsMenu(pickedPrs, prsOf()), at),
+    clear: prs.clear,
+    actions: () => menus.prsActions(pickedPrs, prsOf(prs.picked)),
+    menu: (at) => showMenu(menus.prsMenu(pickedPrs, prsOf(prs.picked)), at),
   };
 
+  /** ⇧↑ ⇧↓ in a list of `rows`, from the one selected, `at`. */
+  const stepIn = <R extends { key: string }>(rows: R[] | null, at: string | null, select: (row: R, how: SelectHow) => void, dir: 1 | -1) => {
+    if (!rows || at === null) return;
+    const i = rows.findIndex((r) => r.key === at);
+    const to = rows[Math.min(rows.length - 1, Math.max(0, i + dir))];
+    if (to && i >= 0) select(to, 'range');
+  };
   // The view's picks, as the keys go by them.
-  const live = view === 'sessions' ? { p: sessions, pick: sessionPick } : view === 'worktrees' ? { p: board, pick: boardPick } : view === 'prs' ? { p: prs, pick: prPick } : null;
-  const keys: ListPicksKeys | null = live
-    ? {
-        count: live.pick.rows.length,
-        range: (row) => {
-          if (view === 'sessions' && row.kind === 'agent') sessions.select(row, 'range');
-          else if (view === 'worktrees' && (row.kind === 'agent' || row.kind === 'lane')) board.select(row, 'range');
-          else if (view === 'prs' && row.kind === 'pr') prs.select(row, 'range');
-        },
-        all: live.p.all,
-        clear: live.p.clear,
-        actions: live.pick.actions,
-      }
-    : null;
-  return { sessions: sessionPick, board: boardPick, prs: prPick, keys };
-}
-
-/** The view's picks as the keys go by them (mainKeys.ts): how many, ⇧↑ ⇧↓'s run, ⌘A, Esc, and
- *  what the keys run on all of them, by the names one row's actions have. */
-export interface ListPicksKeys {
-  count: number;
-  range: (row: ListRow) => void;
-  all: () => void;
-  clear: () => void;
-  actions: () => menus.SessionsActions | menus.BoardActions | menus.PrsActions | null;
+  const keys: ListPicksKeys | null =
+    view === 'sessions'
+      ? { count: sessions.picked.length, step: (dir) => stepIn(sessionItems, selected?.key ?? null, sessions.select, dir), all: sessions.all, clear: sessions.clear, actions: sessionPick.actions }
+      : view === 'worktrees'
+        ? { count: worktrees.picked.length, step: (dir) => stepIn(laneItems, selectedLane, worktrees.select, dir), all: worktrees.all, clear: worktrees.clear, actions: worktreePick.actions }
+        : view === 'prs'
+          ? { count: prs.picked.length, step: (dir) => stepIn(prItems, selected?.key ?? null, prs.select, dir), all: prs.all, clear: prs.clear, actions: prPick.actions }
+          : null;
+  return { sessions: sessionPick, worktrees: worktreePick, prs: prPick, keys };
 }
