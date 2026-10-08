@@ -587,8 +587,9 @@ export function archiveAhead(key: string, archived: boolean): Promise<void> {
 
 /** Done with a session: marked seen and archived in every window at once, as the engine ends
  *  it (actions.rs `done`). One the engine held for work under way comes back, and so does one it
- *  couldn't do, which rejects with why. */
-export function doneAhead(key: string, stop: boolean): Promise<Done> {
+ *  couldn't do, which rejects with why. With `after`, the engine is asked once that settles:
+ *  several done together all show at once, and their terminals close one after another. */
+export function doneAhead(key: string, stop: boolean, after?: Promise<unknown>): Promise<Done> {
   const seen = made({ kind: 'seen', keys: [key] });
   const archived = made({ kind: 'archive', key, archived: true });
   put(seen, true);
@@ -597,7 +598,8 @@ export function doneAhead(key: string, stop: boolean): Promise<Done> {
     drop(seen.id, true);
     drop(archived.id, true);
   };
-  return sessionDone(key, stop).then(
+  const asked = after ? after.then(() => sessionDone(key, stop), () => sessionDone(key, stop)) : sessionDone(key, stop);
+  return asked.then(
     (r) => {
       if (r.done) {
         answered(seen.id, r.at ?? null);

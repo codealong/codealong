@@ -489,45 +489,6 @@ export function todosPrompt(ts: Todo[]): string {
   return [`Work on these ${ts.length} todos:`, ...parts, footer].join('\n\n');
 }
 
-/** Todos picked together in the Todo view, to start in one session. It holds while `focus` is
- *  the selected row: selecting another row any other way ends it. */
-export interface TodoPick {
-  /** The row the keyboard is on; the panel's todo when only one is picked. */
-  focus: string;
-  /** Where a ⇧-click or ⇧↑ ⇧↓ range starts. */
-  anchor: string;
-  keys: string[];
-}
-
-/** The rows from `from` to `to`, both included, in the list's order. */
-function rangeOf(order: string[], from: string, to: string): string[] {
-  const a = order.indexOf(from);
-  const b = order.indexOf(to);
-  if (a < 0 || b < 0) return [to];
-  return order.slice(Math.min(a, b), Math.max(a, b) + 1);
-}
-
-/** ⇧-click, or ⇧↑ ⇧↓: the rows from the anchor to `to`. Without a pick, the anchor is the row
- *  selected before. */
-export function pickTo(order: string[], pick: TodoPick | null, selected: string | null, to: string): TodoPick {
-  const anchor = pick?.anchor ?? selected ?? to;
-  return { focus: to, anchor, keys: rangeOf(order, anchor, to) };
-}
-
-/** ⌘-click: adds a row to the pick, or leaves it out. Leaving out the row the keyboard is on
- *  moves it to the nearest row still picked, in the list's order. */
-export function pickToggle(order: string[], pick: TodoPick | null, selected: string | null, key: string): TodoPick {
-  const keys = pick?.keys ?? (selected ? [selected] : []);
-  if (!keys.includes(key)) return { focus: key, anchor: key, keys: [...keys, key] };
-  const left = keys.filter((k) => k !== key);
-  if (left.length === 0) return { focus: key, anchor: key, keys: [key] };
-  if (pick && pick.focus !== key && left.includes(pick.focus)) return { ...pick, keys: left };
-  const at = order.indexOf(key);
-  const inOrder = [...left].sort((x, y) => order.indexOf(x) - order.indexOf(y));
-  const focus = inOrder.find((k) => order.indexOf(k) > at) ?? inOrder[inOrder.length - 1];
-  return { focus, anchor: focus, keys: left };
-}
-
 /** The first line of a description, for a row. Images drop out; a file leaves its name. */
 export function snippet(description: string, max = 140): string {
   const text = description

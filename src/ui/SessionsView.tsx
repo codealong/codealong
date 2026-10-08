@@ -2,9 +2,11 @@
 // and marked with a pin. The rest go by status, as the floating bar orders them, or by when they
 // started. Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder; drag any session up among them
 // to pin it there, a pinned one down to unpin it, and any out of the window to pin it to the
-// desktop (useRowDrag.tsx).
+// desktop (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze,
+// close, mark done or archive together (picks.ts, SessionPickPanel.tsx).
 
 import { bySession, byStatusTime, startedOf } from '../lanes';
+import type { SelectHow } from '../picks';
 import type { DesktopPinned, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { SectionHeader } from './primitives';
@@ -98,9 +100,12 @@ interface SessionsViewProps {
   lines: SessionRows;
   now: number;
   selectedKey: string | null;
+  /** The rows picked together with the selected one, when there are several. */
+  picked: ReadonlySet<string>;
   domId: (row: SessionItem) => string;
-  /** A row pressed with the primary button: a right-click leaves the selection alone. */
-  onSelect: (row: SessionItem) => void;
+  /** A row pressed with the primary button, alone or with ⌘ or ⇧: a right-click leaves the
+   *  selection alone. */
+  onSelect: (row: SessionItem, how: SelectHow) => void;
   onOpen: (row: SessionItem) => void;
   /** Right-click on a row. */
   onContextMenu: (row: SessionItem) => void;
@@ -125,7 +130,7 @@ interface SessionsViewProps {
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, rows, sort, lines, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
+  const { pinned, rows, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? rows.find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
@@ -149,8 +154,8 @@ export function SessionsView(props: SessionsViewProps) {
       now={now}
       age={sort === 'started' ? 'started' : 'active'}
       slim={lines === 'one'}
-      selected={r.key === selectedKey}
-      onSelect={() => onSelect(r)}
+      selected={r.key === selectedKey || picked.has(r.key)}
+      onSelect={(how) => onSelect(r, how)}
       onOpen={() => onOpen(r)}
       pinned={index != null}
       onContextMenu={() => onContextMenu(r)}

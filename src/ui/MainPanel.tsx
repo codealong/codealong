@@ -1,6 +1,7 @@
 // The panel on the right of the main window, as the view and its selection have it: a
-// worktree's (Inspector), a session's with its conversation (SessionPanel), a PR's, a todo's or
-// the todos picked together, the canvas's selected card, or what to select. A PR's or todo's
+// worktree's (Inspector), a session's with its conversation (SessionPanel) or the sessions picked
+// together, a PR's, a todo's or the todos picked together, the canvas's selected card, or what to
+// select. A PR's or todo's
 // panel can show one of its sessions in its place, with the way back (`drill`). The window
 // passes what the panels show and what their clicks do.
 
@@ -22,6 +23,8 @@ import { PrInspector } from './PrInspector';
 import { ALL_PROJECTS } from './ProjectSwitcher';
 import type { PrRowItem } from './PrsView';
 import { SessionPanel } from './SessionPanel';
+import { SessionPickPanel } from './SessionPickPanel';
+import type { SessionItem } from './SessionsView';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
 
 /** What the canvas's selected card is, as its panel shows it; null when nothing is selected or
@@ -73,6 +76,13 @@ export interface MainPanelProps {
   prRowOf: (pr: PrItem) => PrRowItem;
   pickedRows: TodoItem[];
   todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu'>;
+  /** Sessions picked together in Sessions, what can be done to them, and their panel's clicks. */
+  sessionPick: {
+    rows: SessionItem[];
+    actions: (rows: SessionItem[]) => menus.SessionsActions;
+    select: (row: SessionItem, how: 'one' | 'toggle') => void;
+    menu: (rows: SessionItem[], at: { x: number; y: number }) => void;
+  };
   approving: Set<string>;
   /** The session a PR's or todo's panel shows in its place, and from which. */
   drill: { from: string; key: string } | null;
@@ -105,7 +115,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, sessionPick, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
   const { startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -276,6 +286,14 @@ export function MainPanel(props: MainPanelProps) {
         <p>Select a PR to see its description, reviews and changes.</p>
       </aside>
     )
+  ) : view === 'sessions' && sessionPick.rows.length > 0 ? (
+    <SessionPickPanel
+      items={sessionPick.rows}
+      actions={sessionPick.actions(sessionPick.rows)}
+      onShow={(r) => sessionPick.select(r, 'one')}
+      onLeaveOut={(r) => sessionPick.select(r, 'toggle')}
+      onMoreMenu={(at) => sessionPick.menu(sessionPick.rows, at)}
+    />
   ) : view === 'sessions' && selected?.kind === 'agent' ? (
     sessionPanel(selected.lane, selected.session, undefined, selected.key)
   ) : (

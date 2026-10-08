@@ -12,6 +12,7 @@ import { archiveAhead, doneAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
+import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
@@ -326,6 +327,7 @@ export function doneTitle(s: Session): string {
 /** How long after Mark as done was held by work under way another ends that too. */
 export const DONE_HOLD_MS = 15_000;
 const DONE_AGAIN = 'Mark it done again to end that too.';
+const DONE_AGAIN_MANY = 'Mark them done again to end that too.';
 /** Sessions Mark as done was held on, by key, with when: each window's own. */
 const holding = new Map<string, number>();
 
@@ -387,6 +389,187 @@ export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
     canvas: s.visitor ? [] : (can.canvas ?? []),
   };
   return laidOut(SESSION_MENU, sessionActions(lane, s, can), extras, can.keys);
+}
+
+/** What a window can do to several sessions picked together (the main window's Sessions), as
+ *  `SessionCan` says it for one. */
+export interface SessionsCan {
+  report: Report;
+  /** Pins them to this window's own list, or unpins them. */
+  pin?: MenuAction;
+  /** Archives these or takes them out of the archive, where that does more (an undo). */
+  archive?: (keys: string[], archived: boolean) => void;
+  /** Says what Mark as done did with a way back, where the window has one: the ones done. */
+  undoDone?: (keys: string[], message: string) => void;
+  /** These left the list they were picked from, or what waits on you, and how. */
+  left?: (done: Left, keys: string[]) => void;
+  keys?: boolean | 'chords';
+}
+
+/** What can be done to several sessions at once, by the names `SessionActions` gives them, so
+ *  the same keys run them (`keyed`). Each acts on the ones it applies to by `sessionActions`'s
+ *  rules for one, says how many in its label, and is missing when it applies to none. */
+export interface SessionsActions {
+  stop?: MenuAction;
+  seen?: MenuAction;
+  pin?: MenuAction;
+  snooze?: MenuGroup;
+  close?: MenuAction;
+  done?: MenuAction;
+  archive?: MenuAction;
+  copyId?: MenuAction;
+  /** How many of them each takes. */
+  takes: Record<'stop' | 'seen' | 'snooze' | 'close' | 'done' | 'archive', number>;
+}
+
+/** Their titles, as a sentence lists them. */
+function titles(list: Session[]): string {
+  const said = list.map((s) => `“${s.title}”`);
+  return said.length > 1 ? `${said.slice(0, -1).join(', ')} and ${said[said.length - 1]}` : (said[0] ?? '');
+}
+
+/** Does `work` to each in turn, each once the one before is done: closing a terminal or typing
+ *  into one goes through the terminal app, which takes one at a time. Says how each went. */
+async function oneByOne<T>(list: Session[], work: (s: Session) => Promise<T>): Promise<{ s: Session; ok?: T; error?: string }[]> {
+  const out: { s: Session; ok?: T; error?: string }[] = [];
+  for (const s of list) {
+    try {
+      out.push({ s, ok: await work(s) });
+    } catch (e) {
+      out.push({ s, error: errorText(e) });
+    }
+  }
+  return out;
+}
+
+/** What went wrong with some of them, after what went right: `Closed 2 sessions. Couldn't close
+ *  “Fix login”: why.` */
+function howItWent(right: string, verb: string, out: { s: Session; error?: string }[]): { words: string; wrong: boolean } {
+  const wrong = out.filter((o) => o.error).map((o) => `Couldn’t ${verb} “${o.s.title}”: ${(o.error ?? '').replace(/\.$/, '')}.`);
+  return { words: [right, ...wrong].filter(Boolean).join(' '), wrong: wrong.length > 0 };
+}
+
+export function sessionsActions(picked: { lane: Lane; session: Session }[], can: SessionsCan): SessionsActions {
+  const { report } = can;
+  const busy = <T>(label: string, work: Promise<T>) => (report.busy ? report.busy(label, work) : work);
+  // Each one's own actions say whether one applies to it, so the rules stay `sessionActions`'s.
+  const own = picked.map(({ lane, session }) => ({ s: session, a: sessionActions(lane, session, { report, open: () => {}, terminal: '' }) }));
+  const those = (name: keyof SessionActions) => own.filter((x) => x.a[name]).map((x) => x.s);
+  const keysOf = (list: Session[]) => list.map((s) => s.key);
+  const all = own.map((x) => x.s);
+  const [stop, seen, snooze, close, done] = (['stop', 'seen', 'snooze', 'close', 'done'] as const).map(those);
+  const toArchive = all.filter((s) => !s.archived);
+  const archive = can.archive ?? ((keys: string[], archived: boolean) => void Promise.all(keys.map((k) => archiveAhead(k, archived))).catch((e: unknown) => report.error(errorText(e))));
+  const say = (said: { words: string; wrong: boolean }) => said.words && (said.wrong ? report.error(said.words) : report.info(said.words));
+  // Work under way holds those it's in, as it holds one: the rest are done, and Mark as done
+  // again soon after ends the work too.
+  const doneAll = () => {
+    const now = Date.now();
+    const going = done.map((s) => ({ s, stop: held(s.key, now) }));
+    const working = going.filter((g) => !g.stop && g.s.status === 'working').map((g) => g.s);
+    for (const s of working) holding.set(s.key, now);
+    const asked = going.filter((g) => !working.includes(g.s));
+    const still = working.length > 0 ? `${titles(working)} ${working.length === 1 ? 'is' : 'are'} still working.` : '';
+    if (asked.length === 0) return report.info(`${still} ${working.length === 1 ? DONE_AGAIN : DONE_AGAIN_MANY}`);
+    can.left?.('done', asked.map((g) => g.s.key));
+    // They all show as done at once, and the engine ends them one after another.
+    let before: Promise<unknown> | undefined;
+    const answers = asked.map(({ s, stop }) => {
+      const answer = doneAhead(s.key, stop, before);
+      before = answer;
+      return answer.then(
+        (ok) => ({ s, ok }),
+        (e: unknown) => ({ s, ok: undefined, error: errorText(e) }),
+      );
+    });
+    void busy(`Wrapping up ${count(asked.length, 'session')}…`, Promise.all(answers)).then((out) => {
+      const finished = out.filter((o) => o.ok?.done);
+      const heldBack = out.filter((o) => o.ok && !o.ok.done);
+      for (const o of heldBack) holding.set(o.s.key, Date.now());
+      const waits = working.length + heldBack.length;
+      const words = [
+        finished.length > 0 ? `Done with ${count(finished.length, 'session')}.` : '',
+        ...finished.filter((o) => o.ok?.noted).map((o) => o.ok?.message ?? ''),
+        still,
+        ...heldBack.map((o) => o.ok?.message ?? ''),
+        waits > 0 ? (waits === 1 ? DONE_AGAIN : DONE_AGAIN_MANY) : '',
+      ];
+      const said = howItWent(words.filter(Boolean).join(' '), 'end', out);
+      if (finished.length > 0 && can.undoDone) can.undoDone(keysOf(finished.map((o) => o.s)), said.words);
+      else say(said);
+    });
+  };
+  return {
+    stop:
+      stop.length > 0
+        ? { label: `Stop ${count(stop.length, 'turn')}`, run: () => void busy(`Stopping ${count(stop.length, 'turn')}…`, oneByOne(stop, (s) => sessionCancel(s.key))).then((out) => say(howItWent('', 'stop', out))) }
+        : undefined,
+    seen:
+      seen.length > 0
+        ? {
+            label: `Mark ${count(seen.length, 'session')} as seen`,
+            run: () => {
+              can.left?.('marked seen', keysOf(seen));
+              seenAhead(keysOf(seen)).catch((e: unknown) => report.error(errorText(e)));
+            },
+          }
+        : undefined,
+    pin: toArchive.length > 0 ? can.pin : undefined,
+    // Wake now wakes them all, where any is snoozed.
+    snooze:
+      snooze.length > 0
+        ? snoozeMenu(keysOf(snooze), Date.now(), {
+            label: `Snooze ${count(snooze.length, 'session')}`,
+            until: Math.max(0, ...snooze.map((s) => s.snoozedUntil ?? 0)) || null,
+            onDone: (act) => {
+              can.left?.('snoozed', keysOf(snooze));
+              act.catch((e: unknown) => report.error(errorText(e)));
+            },
+            chords: !!can.keys,
+          })
+        : undefined,
+    close:
+      close.length > 0
+        ? {
+            label: `Close ${count(close.length, 'session')}`,
+            run: () => {
+              can.left?.('closed', keysOf(close));
+              void busy(`Closing ${count(close.length, 'session')}…`, oneByOne(close, (s) => closeSession(s.key))).then((out) => {
+                const closed = out.filter((o) => !o.error).length;
+                say(howItWent(closed > 0 ? `Closed ${count(closed, 'session')}.` : '', 'close', out));
+              });
+            },
+          }
+        : undefined,
+    done: done.length > 0 ? { label: `Mark ${count(done.length, 'session')} as done`, run: doneAll } : undefined,
+    // Any not archived yet are archived; when all are, they come out of it.
+    archive:
+      toArchive.length > 0
+        ? {
+            label: `Archive ${count(toArchive.length, 'session')}`,
+            run: () => {
+              can.left?.('archived', keysOf(toArchive));
+              archive(keysOf(toArchive), true);
+            },
+          }
+        : all.length > 0
+          ? { label: `Unarchive ${count(all.length, 'session')}`, run: () => archive(keysOf(all), false) }
+          : undefined,
+    copyId: copyItem('Copy session IDs', all.map((s) => s.id).join(' '), 'session IDs', report),
+    takes: { stop: stop.length, seen: seen.length, snooze: snooze.length, close: close.length, done: done.length, archive: toArchive.length || all.length },
+  };
+}
+
+/** The order of the menu of several sessions picked together: what they are to you, then
+ *  copying them. Opening them, and what's done to one at a time (rename, move, fork), aren't. */
+const SESSIONS_MENU = [
+  ['stop', 'seen', 'pin', 'snooze', 'close', 'done', 'archive'],
+  ['copyId'],
+] as const;
+
+/** The menu of several sessions picked together. */
+export function sessionsMenu(picked: { lane: Lane; session: Session }[], can: SessionsCan): MenuSpec {
+  return laidOut(SESSIONS_MENU, sessionsActions(picked, can), {}, can.keys);
 }
 
 export interface LaneCan {
@@ -515,7 +698,7 @@ export function chordLetter(key: string): boolean {
 /** The time ⌃⌘ with a digit snoozes a session, or your review of a PR, to (snooze.ts
  *  `SNOOZE_CHORDS`), as its Snooze menu has it now; none for one that can't be snoozed, or a key
  *  that isn't one of them. */
-function snoozeChorded(actions: SessionActions | LaneActions | PrActions, key: string): MenuAction | null {
+function snoozeChorded(actions: SessionActions | SessionsActions | LaneActions | PrActions, key: string): MenuAction | null {
   const snooze = 'snooze' in actions ? actions.snooze : undefined;
   const it = snooze?.items[snoozeChordIndex(key)];
   return it && it !== 'separator' && !('items' in it) ? it : null;
@@ -533,9 +716,10 @@ export function chordKeys(chord: string): string[] {
   return chord.split('+').map((k) => signs[k] ?? k);
 }
 
-/** The action a key runs among a session's or worktree's, by the key as typed, when it applies
- *  to them now: the letter alone (`KEYS`), or with `chord` the letter pressed with ⌃⌘ (`CHORDS`). */
-export function keyed(actions: SessionActions | LaneActions, key: string, chord = false): { id: string; action: MenuAction } | null {
+/** The action a key runs among a session's or worktree's (or several sessions'), by the key as
+ *  typed, when it applies to them now: the letter alone (`KEYS`), or with `chord` the letter
+ *  pressed with ⌃⌘ (`CHORDS`). */
+export function keyed(actions: SessionActions | SessionsActions | LaneActions, key: string, chord = false): { id: string; action: MenuAction } | null {
   const snooze = chord ? snoozeChorded(actions, key) : null;
   if (snooze) return { id: 'snooze', action: snooze };
   const letter = key.toUpperCase();

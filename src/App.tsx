@@ -13,11 +13,12 @@ import { below, showContextMenu, type MenuAction, type MenuSpec } from './contex
 import { useEditorIcons } from './editors';
 import { homeOf, liveOrLatest, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
-import { middleTruncate } from './format';
+import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
 import { archiveAhead, boardView, lanesAhead, observe, seenAhead } from './ahead';
 import { reuse } from './reuse';
+import { usePicks } from './picks';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
@@ -440,6 +441,10 @@ export function App() {
     if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
+  // Sessions picked together with the selected one (⌘-click, ⇧-click, ⇧↑ ⇧↓; picks.ts), to mark
+  // seen, snooze, close, mark done or archive at once (menus.ts `sessionsActions`).
+  const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
+  const sessionPicks = usePicks(sessionItems, selected?.key ?? null, setSelectedKey);
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
     duePick,
@@ -740,12 +745,13 @@ export function App() {
     return `${title ? `${word} to ${middleTruncate(title, 60)}` : none} (${keys})`;
   };
 
-  /** Archives a session (Codex threads in Codex itself), or unarchives it. */
+  /** Archives sessions (Codex threads in Codex itself), or unarchives them; archived, they can
+   *  be put back from the toast. `title` is what it says of one. */
   const setArchivedUndo = toasts.setArchived;
   const setArchived = useCallback(
-    (key: string, archived: boolean, title: string) => {
-      setArchivedUndo(archived ? { key, title } : null);
-      archiveAhead(key, archived).catch((e: unknown) => {
+    (keys: string[], archived: boolean, title: string) => {
+      setArchivedUndo(archived ? { keys, title, message: keys.length > 1 ? `Archived ${keys.length} sessions.` : undefined } : null);
+      Promise.all(keys.map((key) => archiveAhead(key, archived))).catch((e: unknown) => {
         setArchivedUndo(null);
         setToast(errorText(e));
       });
@@ -854,15 +860,39 @@ export function App() {
       worktrees: board?.lanes,
       archive: (archived) => {
         if (archived) leftAndOn(s, 'archived');
-        setArchived(s.key, archived, s.title);
+        setArchived([s.key], archived, s.title);
       },
       // Undo takes it out of the archive; a terminal it closed stays closed, and it resumes as any other.
-      undoDone: (message) => setArchivedUndo({ key: s.key, title: s.title, message }),
+      undoDone: (message) => setArchivedUndo({ keys: [s.key], title: s.title, message }),
       left: (done) => leftAndOn(s, done),
       canvas: canvasItem('session', s.key),
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
+
+  /** What this window can do to sessions picked together in Sessions, for their menu, their
+   *  panel and the keys. Ones that leave the list (done, archived while the fold is shut) leave
+   *  the pick, and with none left the row after them is selected; the rest stay picked, to do
+   *  more to (a working one Mark as done held, say). */
+  const sessionsCan = (rows: SessionItem[]): menus.SessionsCan => {
+    const unarchived = rows.filter((r) => !r.session.archived).map((r) => r.session.key);
+    const unpinned = unarchived.filter((k) => !sessionPins.set.has(k));
+    return {
+      report,
+      keys: 'chords',
+      pin: unpinned.length > 0 ? { label: `Pin ${count(unpinned.length, 'session')}`, run: () => sessionPins.pinAll(unpinned, true) } : { label: `Unpin ${count(unarchived.length, 'session')}`, run: () => sessionPins.pinAll(unarchived, false) },
+      archive: (keys, archived) => setArchived(keys, archived, rows.find((r) => r.session.key === keys[0])?.session.title ?? ''),
+      // Undo takes them out of the archive, as it does one.
+      undoDone: (keys, message) => setArchivedUndo({ keys, title: '', message }),
+      left: (done, keys) => {
+        // Archived (done ones are too), they stay listed only in the Archived fold, shown.
+        if ((done !== 'done' && done !== 'archived') || showArchived) return;
+        sessionPicks.leave(new Set(rows.filter((r) => keys.includes(r.session.key)).map((r) => r.key)));
+      },
+    };
+  };
+  const sessionsActions = (rows: SessionItem[]) => menus.sessionsActions(rows, sessionsCan(rows));
+  const sessionsMenu = (rows: SessionItem[], at?: { x: number; y: number }) => void showContextMenu(menus.sessionsMenu(rows, sessionsCan(rows)), at).catch((e: unknown) => setToast(String(e)));
 
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
   const laneCan = (lane: Lane): menus.LaneCan => ({
@@ -948,6 +978,8 @@ export function App() {
     selected,
     visible,
     pickedRows,
+    sessionPicks,
+    sessionsActions,
     selectedLane,
     startLaneId,
     terminalAt,
@@ -1284,7 +1316,7 @@ export function App() {
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && sessionPicks.picked.length === 0 && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -1419,7 +1451,7 @@ export function App() {
             role="listbox"
             aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Agents and worktrees'}
             aria-activedescendant={selected ? domId(selected) : undefined}
-            aria-multiselectable={view === 'todo' || undefined}
+            aria-multiselectable={view === 'todo' || view === 'sessions' || undefined}
             tabIndex={0}
             ref={listRef}
             className="ca-board-list"
@@ -1503,16 +1535,22 @@ export function App() {
                 lines={sessionLines}
                 now={now}
                 selectedKey={selected?.key ?? null}
+                picked={sessionPicks.keys}
                 domId={domId}
-                onSelect={(r) => {
-                  setSelectedKey(r.key);
-                  focusBox();
+                onSelect={(r, how) => {
+                  sessionPicks.select(r, how);
+                  if (how === 'one') focusBox();
                 }}
                 onOpen={(r) => {
-                  setSelectedKey(r.key);
+                  sessionPicks.select(r, 'one');
                   openRow(r);
                 }}
-                onContextMenu={(r) => sessionMenu(r.lane, r.session, 'session')}
+                onContextMenu={(r) => {
+                  // On one of the sessions picked, the menu is for all of them; on another, for
+                  // that one, and the selection stays where it was.
+                  if (sessionPicks.keys.has(r.key)) sessionsMenu(sessionPicks.picked);
+                  else sessionMenu(r.lane, r.session, 'session');
+                }}
                 onPrMenu={(r) => lanePrMenu(r.lane)}
                 onPrOpen={(r) => openLanePr(r.lane)}
                 onPlacePinned={(key, index) => sessionPins.place(pinnedRows.map((r) => r.session.key), key, index)}
@@ -1602,6 +1640,7 @@ export function App() {
           todosFor={todosFor}
           prRowOf={prRowOf}
           pickedRows={pickedRows}
+          sessionPick={{ rows: sessionPicks.picked, actions: sessionsActions, select: sessionPicks.select, menu: sessionsMenu }}
           todo={{ startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
           approving={approving}
           drill={drill}
@@ -1648,7 +1687,7 @@ export function App() {
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
-      <Toasts state={toasts} onUnarchive={(u) => setArchived(u.key, false, u.title)} />
+      <Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>
   );
 }

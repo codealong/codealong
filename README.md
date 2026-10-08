@@ -70,7 +70,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     says why its terminal is still open. Here
     the toast says what was done, and its Undo takes it out of the archive; the windows that
     float (the bar, the notch, the waiting window) say only what didn't go as asked, such as a
-    terminal left open, since the session leaving their list says the rest. With a search typed, Sessions' Archived fold lists
+    terminal left open, since the session leaving their list says the rest. ⌘-click (or
+    ⇧-click, ⇧↑ ⇧↓ from the list, ⌘A for all) picks several sessions: the panel lists them with
+    Seen, Done, Snooze, Close and Archive for all of them at once, each saying how many it takes
+    where that's fewer, a right-click on one of them is the menu for all (Pin, Stop turn and
+    Copy session IDs too), and the same chords act on all of them; Esc goes back to one. Archive
+    and Mark as done have one Undo for the lot. With a search typed, Sessions' Archived fold lists
     the archived sessions it finds, so its count says how many match. Rename a session
     with ⌃⌘R (`r` elsewhere) or its right-click menu, here or wherever a session has one
     (the floating bar's pills and cards on the desktop change the name in place, and the quick

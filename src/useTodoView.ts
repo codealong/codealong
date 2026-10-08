@@ -10,14 +10,15 @@ import { showContextMenu, type MenuSpec } from './contextMenu';
 import { liveOrLatest, type Filter } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
+import { nextAfter, usePicks } from './picks';
 import { reorderPinned, type Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import type { Report } from './report';
-import { COLOR_WORD, newTodo, pickTo, pickToggle, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoPick, type TodoSection, type TodoSectionId } from './todos';
+import { COLOR_WORD, newTodo, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoSection, type TodoSectionId } from './todos';
 import type { Label, Lane, ProjectSummary, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import type { UndoToast } from './ui/Toasts';
-import type { ComposerContext, SelectHow } from './ui/TodoView';
+import type { ComposerContext } from './ui/TodoView';
 
 /** What the Todo view goes by, as the window has it. */
 export interface TodoViewInput {
@@ -58,9 +59,6 @@ export function useTodoView(input: TodoViewInput) {
   // The todo whose panel should open its due date's picker, for Pick a date… and D.
   const [duePick, setDuePick] = useState<string | null>(null);
   const duePicked = useCallback(() => setDuePick(null), []);
-  // Todos picked together with the selected one (⌘-click, ⇧-click, ⇧↑ ⇧↓), to start in one
-  // session.
-  const [pick, setPick] = useState<TodoPick | null>(null);
   // The box that adds todos, and what a new one gets linked to.
   const [composer, setComposer] = useState<{ text: string; context: ComposerContext | null }>({ text: '', context: null });
   const composerRef = useRef<HTMLInputElement>(null);
@@ -72,14 +70,11 @@ export function useTodoView(input: TodoViewInput) {
     composerRef.current?.select();
   }, [composerFocus]);
 
-  // The todos picked together, in the list's order. They hold while the keyboard stays on the
-  // row they were picked from: selecting a row any other way ends them. Fewer than two is none.
-  const pickedRows = useMemo(() => {
-    if (view !== 'todo' || !pick || pick.focus !== selected?.key) return [];
-    const rows = todoVisible.filter((r): r is TodoItem => r.kind === 'todo' && pick.keys.includes(r.key));
-    return rows.length > 1 ? rows : [];
-  }, [view, pick, selected?.key, todoVisible]);
-  const pickedKeys = useMemo(() => new Set(pickedRows.map((r) => r.key)), [pickedRows]);
+  // Todos picked together with the selected one (⌘-click, ⇧-click, ⇧↑ ⇧↓), to start in one
+  // session (picks.ts).
+  const todoRows = useMemo(() => (view === 'todo' ? todoVisible.filter((r): r is TodoItem => r.kind === 'todo') : null), [view, todoVisible]);
+  const picks = usePicks(todoRows, selected?.key ?? null, setSelectedKey);
+  const { picked: pickedRows, keys: pickedKeys, select: selectTodoRow, clear: clearPick } = picks;
 
   /** Opens the quick panel for a todo: in its worktree, with the todo as the prompt. */
   const startForTodo = useCallback(
@@ -93,21 +88,6 @@ export function useTodoView(input: TodoViewInput) {
     if (rows.length === 1) return startForTodo(rows[0]);
     newSession({ laneId: rows.find((r) => r.lane)?.lane?.id ?? selectedLane?.id ?? null, todos: rows.map((r) => r.todo.id), prompt: todosPrompt(rows.map((r) => r.todo)) });
   }, [startForTodo, newSession, selectedLane?.id]);
-
-  /** Selects a todo's row: alone, or with ⌘ adds it to the ones picked (or leaves it out), or
-   *  with ⇧ picks the rows from the anchor to it. */
-  const selectTodoRow = (r: TodoItem, how: SelectHow) => {
-    if (how === 'one') {
-      setPick(null);
-      setSelectedKey(r.key);
-      return;
-    }
-    const order = todoVisible.map((x) => x.key);
-    const live = pickedRows.length > 0 ? pick : null;
-    const next = how === 'toggle' ? pickToggle(order, live, selected?.key ?? null, r.key) : pickTo(order, live, selected?.key ?? null, r.key);
-    setPick(next);
-    setSelectedKey(next.focus);
-  };
 
   /** Shows a todo in the Todo view, in its project, with nothing hiding it. */
   const showTodo = (t: Todo) => {
@@ -177,12 +157,8 @@ export function useTodoView(input: TodoViewInput) {
     const index = new Map(ts.map((t) => [t.id, todoStore.todos.findIndex((x) => x.id === t.id)]));
     const keys = new Set(ts.map((t) => `todo:${t.id}`));
     // The selection moves to the row after the last one deleted, else the one before the first.
-    if (selected && keys.has(selected.key)) {
-      const at = todoVisible.flatMap((r, i) => (keys.has(r.key) ? [i] : []));
-      const next = todoVisible.slice((at[at.length - 1] ?? -1) + 1).find((r) => !keys.has(r.key)) ?? todoVisible.slice(0, at[0] ?? 0).reverse().find((r) => !keys.has(r.key));
-      setSelectedKey(next?.key ?? null);
-    }
-    setPick(null);
+    if (selected && keys.has(selected.key)) setSelectedKey(nextAfter(todoVisible.map((r) => r.key), keys));
+    clearPick();
     for (const t of ts) runTodo({ op: 'delete', id: t.id });
     // They go back one after another, first to last, so each lands where it was.
     const back = [...ts].sort((a, b) => (index.get(a.id) ?? 0) - (index.get(b.id) ?? 0));
@@ -348,7 +324,7 @@ export function useTodoView(input: TodoViewInput) {
       return true;
     }
     if (e.key === 'Escape' && pickedRows.length > 0) {
-      setPick(null);
+      clearPick();
       return true;
     }
     if (e.key === 'Enter' && !e.altKey && pickedRows.length > 0) {

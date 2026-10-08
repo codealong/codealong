@@ -9,6 +9,7 @@
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
+import { selectHow, type SelectHow } from '../picks';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, Row, WorktreeChip } from './primitives';
@@ -73,9 +74,6 @@ export const TodoComposer = forwardRef<HTMLInputElement, ComposerProps>(function
   );
 });
 
-/** How a click selects a row: alone, ⌘ to add it or leave it out, ⇧ for the rows up to it. */
-export type SelectHow = 'one' | 'toggle' | 'range';
-
 interface TodoRowProps {
   item: TodoItem;
   /** The section it's listed in. */
@@ -115,7 +113,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it. A right-click
       // leaves the selection alone: on a picked row, the menu is for all of them.
-      onSelect={(e) => onSelect(e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one')}
+      onSelect={(e) => onSelect(selectHow(e))}
       onOpen={(e) => {
         if (!e.metaKey && !e.shiftKey) onOpen();
       }}

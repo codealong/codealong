@@ -39,6 +39,7 @@
 @import '../ui/LaneRow.css';
 @import '../ui/InsightBits.css';
 @import '../ui/SessionsView.css';
+@import '../ui/SessionPickPanel.css';
 @import '../ui/useRowDrag.css';
 @import '../ui/PrsView.css';
 @import '../ui/PrPills.css';

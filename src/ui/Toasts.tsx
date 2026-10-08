@@ -17,9 +17,10 @@ export interface UndoToast {
   undo: () => void;
 }
 
-/** A session just archived, for its Undo. */
+/** Sessions just archived, for their Undo, which takes them all out of the archive. */
 export interface Archived {
-  key: string;
+  keys: string[];
+  /** One's title, which the toast says without `message`. */
   title: string;
   /** What was done besides, when it was marked done: its terminal closed, say. */
   message?: string;
@@ -102,12 +103,12 @@ export function useToasts(): ToastState {
 
   // A session an agent marked done from the command (agentdone.rs) leaves the lists with nothing
   // of yours doing it: the toast says which session did, with the way back.
-  useEffect(() => onAgentDone((e) => setArchived({ key: e.key, title: e.title, message: e.message })), []);
+  useEffect(() => onAgentDone((e) => setArchived({ keys: [e.key], title: e.title, message: e.message })), []);
 
   return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo };
 }
 
-/** The toast that shows now. `onUnarchive` puts an archived session back. */
+/** The toast that shows now. `onUnarchive` puts archived sessions back. */
 export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive: (archived: Archived) => void }) {
   const { toast, setToast, busy, archived: undo, setArchived: setUndo, todoUndo, setTodoUndo } = state;
   return (

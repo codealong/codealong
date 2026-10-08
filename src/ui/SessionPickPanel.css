@@ -1,0 +1,91 @@
+/* Several sessions picked in Sessions (SessionPickPanel.tsx): how many, the strip of what's done
+   to all of them, and each of them, as the panel for several todos has them (TodoPanel.css). */
+
+.ca-sesspick-header {
+  display: grid;
+  gap: 6px;
+}
+.ca-sesspick .ca-insp-title .ca-tag {
+  margin-left: 0;
+}
+.ca-sesspick-more {
+  margin-left: auto;
+}
+.ca-sesspick-head {
+  margin: 0;
+  color: var(--ink);
+  font: var(--type-heading-lg);
+}
+.ca-sesspick-help {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+/* The strip a session's panel has over its box, here at the panel's start, wrapping where it's
+   narrow. */
+.ca-sesspick .ca-hotkeys.ca-sesspick-keys {
+  justify-content: flex-start;
+  margin: 0 -5px;
+}
+.ca-sesspick-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-sesspick-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  margin: 0 -6px;
+  padding: 0 4px 0 6px;
+  border-radius: var(--radius-sm);
+}
+.ca-sesspick-row:hover {
+  background: var(--surface-hover);
+}
+.ca-sesspick-row.is-archived {
+  opacity: 0.8;
+}
+.ca-sesspick-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-body);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-sesspick-chips {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-sesspick-row .ca-account {
+  flex: none;
+}
+.ca-sesspick-out {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-sesspick-out:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}

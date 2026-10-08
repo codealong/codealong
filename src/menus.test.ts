@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead } from './ahead';
 import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type TodoEdit } from './menus';
+import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
@@ -174,6 +174,101 @@ describe('sessionMenu', () => {
     expect(openLabel(lane({ targets: [] }), session(), 'Ghostty')).toBe('Show in Ghostty');
     expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|resume' }), 'Ghostty')).toBe('Resume in Ghostty');
     expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|claude-app' }), 'Ghostty')).toBe('Open in Claude app');
+  });
+});
+
+describe('several sessions picked together', () => {
+  // Unread with a terminal of its own; idle with none; archived.
+  const a = { lane: lane(), session: session() };
+  const b = { lane: lane(), session: session({ key: 'claude:c:2', id: 'b2', title: 'Add tests', status: 'idle', live: false, pid: null }) };
+  const c = { lane: lane(), session: session({ key: 'claude:c:3', id: 'c3', title: 'Old work', status: 'idle', live: false, pid: null, archived: true }) };
+  const settled = () => new Promise((r) => setTimeout(r, 0));
+
+  it('says how many each action takes, and leaves out what takes none', () => {
+    expect(labels(sessionsMenu([a, b], { report, pin: { label: 'Pin 2 sessions', run: noop } }))).toEqual([
+      'Mark 1 session as seen',
+      'Pin 2 sessions',
+      'Snooze 2 sessions ›',
+      'Close 1 session',
+      'Mark 2 sessions as done',
+      'Archive 2 sessions',
+      '-',
+      'Copy session IDs',
+    ]);
+    expect(sessionsActions([a, b, c], { report }).takes).toEqual({ stop: 0, seen: 1, snooze: 2, close: 1, done: 2, archive: 2 });
+    // All archived: they come out of it together, and aren't pinned, snoozed or done.
+    const d = { ...c, session: { ...c.session, key: 'claude:c:4', id: 'd4' } };
+    expect(labels(sessionsMenu([c, d], { report, pin: { label: 'Pin 2 sessions', run: noop } }))).toEqual(['Unarchive 2 sessions', '-', 'Copy session IDs']);
+  });
+
+  it('runs on the chords one session’s actions do, shown beside them', () => {
+    const acts = sessionsActions([a, b], { report, keys: 'chords' });
+    expect(keyed(acts, 'a', true)?.action).toBe(acts.archive);
+    expect(keyed(acts, 'w', true)?.action).toBe(acts.close);
+    expect(keyed(acts, '2', true)?.id).toBe('snooze');
+    // Rename is one at a time.
+    expect(keyed(acts, 'r', true)).toBeNull();
+    const chords = sessionsMenu([a, b], { report, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
+    expect(chords).toEqual(['Cmd+E', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
+  });
+
+  it('archives the ones not archived yet, and says they left', () => {
+    const archived: [string[], boolean][] = [];
+    const left: [string, string[]][] = [];
+    const can: SessionsCan = { report, archive: (keys, on) => archived.push([keys, on]), left: (done, keys) => left.push([done, keys]) };
+    sessionsActions([a, b, c], can).archive?.run();
+    expect(archived).toEqual([[['claude:c:1', 'claude:c:2'], true]]);
+    expect(left).toEqual([['archived', ['claude:c:1', 'claude:c:2']]]);
+  });
+
+  it('closes the ones it can, one after another, and says how many', async () => {
+    const said: string[] = [];
+    const left: [string, string[]][] = [];
+    sessionsActions([a, b], { report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (done, keys) => left.push([done, keys]) }).close?.run();
+    await settled();
+    expect(left).toEqual([['closed', ['claude:c:1']]]);
+    expect(said).toEqual(['Closed 1 session.']);
+  });
+
+  it('marks them done together, holding the working ones until asked again', async () => {
+    const ask = vi.mocked(doneAhead);
+    ask.mockReset();
+    ask.mockResolvedValue({ done: true, message: 'Done.', at: 5 });
+    const said: string[] = [];
+    const undone: [string[], string][] = [];
+    const left: [string, string[]][] = [];
+    const can: SessionsCan = { report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, undoDone: (keys, m) => undone.push([keys, m]), left: (done, keys) => left.push([done, keys]) };
+    const busy = { lane: lane(), session: session({ key: 'claude:c:5', id: 'e5', title: 'Busy', status: 'working' }) };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(2_000_000);
+    try {
+      sessionsActions([a, b, busy], can).done?.run();
+      await settled();
+      // Each waits on the one before, so their terminals close one after another.
+      expect(ask.mock.calls.map(([key, stop]) => [key, stop])).toEqual([
+        ['claude:c:1', false],
+        ['claude:c:2', false],
+      ]);
+      expect(ask.mock.calls[0][2]).toBeUndefined();
+      expect(ask.mock.calls[1][2]).toBe(ask.mock.results[0].value);
+      expect(left).toEqual([['done', ['claude:c:1', 'claude:c:2']]]);
+      expect(undone).toEqual([[['claude:c:1', 'claude:c:2'], 'Done with 2 sessions. “Busy” is still working. Mark it done again to end that too.']]);
+      // Again soon after, the working one ends too.
+      ask.mockClear();
+      sessionsActions([busy], can).done?.run();
+      await settled();
+      expect(ask).toHaveBeenLastCalledWith('claude:c:5', true, undefined);
+      // All of them working: nothing's asked, and it says so.
+      ask.mockClear();
+      said.length = 0;
+      const busy2 = { lane: lane(), session: session({ key: 'claude:c:6', id: 'f6', title: 'Busy too', status: 'working' }) };
+      vi.setSystemTime(2_000_000 + DONE_HOLD_MS + 1);
+      sessionsActions([busy, busy2], can).done?.run();
+      expect(ask).not.toHaveBeenCalled();
+      expect(said).toEqual(['“Busy” and “Busy too” are still working. Mark them done again to end that too.']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

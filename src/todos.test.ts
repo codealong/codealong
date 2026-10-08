@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, nextColor, panelTodos, pickTo, pickToggle, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, nextColor, panelTodos, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -377,32 +377,5 @@ describe('suggestions from Jev', () => {
   it('asks once the title says something', () => {
     expect(worthSuggesting(todo('x', { title: 'Fix it' }))).toBe(false);
     expect(worthSuggesting(todo('x', { title: 'Retry failed export jobs' }))).toBe(true);
-  });
-});
-
-describe('picking several todos', () => {
-  const order = ['a', 'b', 'c', 'd', 'e'];
-
-  it('⇧ picks the rows from the anchor, which stays put', () => {
-    const p = pickTo(order, null, 'b', 'd');
-    expect(p).toEqual({ focus: 'd', anchor: 'b', keys: ['b', 'c', 'd'] });
-    // Back up past the anchor: the range turns around it.
-    expect(pickTo(order, p, 'd', 'a')).toEqual({ focus: 'a', anchor: 'b', keys: ['a', 'b'] });
-    // Nothing selected before: the row alone.
-    expect(pickTo(order, null, null, 'c').keys).toEqual(['c']);
-  });
-
-  it('⌘ adds a row or leaves it out, and the keyboard stays on a picked row', () => {
-    const p = pickToggle(order, null, 'b', 'd');
-    expect(p).toEqual({ focus: 'd', anchor: 'd', keys: ['b', 'd'] });
-    const q = pickToggle(order, p, 'd', 'a');
-    expect(q.keys).toEqual(['b', 'd', 'a']);
-    // Leaving out another row keeps the keyboard where it is.
-    expect(pickToggle(order, q, 'a', 'd')).toEqual({ focus: 'a', anchor: 'a', keys: ['b', 'a'] });
-    // Leaving out its own row moves it to the next picked row, else the one before.
-    expect(pickToggle(order, { focus: 'b', anchor: 'b', keys: ['a', 'b', 'd'] }, 'b', 'b').focus).toBe('d');
-    expect(pickToggle(order, { focus: 'd', anchor: 'd', keys: ['a', 'b', 'd'] }, 'd', 'd').focus).toBe('b');
-    // The last one can't be left out: something stays selected.
-    expect(pickToggle(order, null, 'c', 'c').keys).toEqual(['c']);
   });
 });

@@ -8,6 +8,7 @@ import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
 import { branchLabel, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
+import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
 import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
@@ -417,7 +418,8 @@ interface AgentRowProps {
   /** On one line: what it's about, then its worktree and PR. */
   slim?: boolean;
   selected: boolean;
-  onSelect: () => void;
+  /** A press: alone, or with ⌘ or ⇧ held, picking it with others (picks.ts). */
+  onSelect: (how: SelectHow) => void;
   onOpen: () => void;
   pinned?: boolean;
   /** Right-click: the session's menu (open, pin, archive…). */
@@ -461,8 +463,11 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
       selected={selected}
       className={cx('ca-lane', 'is-agent', slim && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
-      onSelect={onSelect}
-      onOpen={onOpen}
+      // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
+      onSelect={(e) => onSelect(selectHow(e))}
+      onOpen={(e) => {
+        if (!e.metaKey && !e.shiftKey) onOpen();
+      }}
       onMenu={onContextMenu}
     >
       {/* One line leaves the account out: the status says it when pointed at. */}

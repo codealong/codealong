@@ -47,6 +47,9 @@ export interface Pins {
   place: (shown: string[], key: string, index: number) => void;
   /** Unpins `key`. */
   remove: (key: string) => void;
+  /** Pins these at the top, in this order, the ones pinned already staying where they are; or
+   *  unpins them. */
+  pinAll: (keys: string[], pinned: boolean) => void;
 }
 
 /**
@@ -91,5 +94,12 @@ export function usePins(saved: string[] | undefined, save: (keys: string[]) => P
     },
     [keys, set, update],
   );
-  return useMemo(() => ({ keys, set, toggle, move, place, remove }), [keys, set, toggle, move, place, remove]);
+  const pinAll = useCallback(
+    (many: string[], pinned: boolean) => {
+      const next = pinned ? [...many.filter((k) => !set.has(k)), ...keys] : keys.filter((k) => !many.includes(k));
+      if (next.length !== keys.length) update(next);
+    },
+    [keys, set, update],
+  );
+  return useMemo(() => ({ keys, set, toggle, move, place, remove, pinAll }), [keys, set, toggle, move, place, remove, pinAll]);
 }

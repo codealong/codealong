@@ -10,6 +10,7 @@ import { historyChord } from './history';
 import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
+import type { SelectHow } from './picks';
 import type { Pins } from './pins';
 import { chordPressed, queueKey, type QueueAction } from './queue';
 import type { TodoItem } from './todos';
@@ -50,6 +51,9 @@ export interface MainKeys<V extends string> {
   selected: ListRow | null;
   visible: ListRow[];
   pickedRows: TodoItem[];
+  /** Sessions picked together in Sessions (picks.ts), and what's done to them. */
+  sessionPicks: { picked: SessionItem[]; select: (row: SessionItem, how: SelectHow) => void; all: () => void; clear: () => void };
+  sessionsActions: (rows: SessionItem[]) => menus.SessionsActions;
   selectedLane: Lane | null;
   /** Where ⌘N starts a session. */
   startLaneId: string | null;
@@ -105,7 +109,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, sessionPicks, sessionsActions, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   const mod = e.metaKey;
   const key = e.key.toLowerCase();
@@ -116,6 +120,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   const letters = view !== 'sessions';
   // ⌃⌘, with a menu's letter or ↑ ↓.
   const chord = e.ctrlKey && mod && !e.altKey && !e.shiftKey;
+  // Several sessions picked in Sessions: the keys that act on one act on all of them.
+  const picking = view === 'sessions' && sessionPicks.picked.length > 0;
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
   const toTerminal = chordPressed(menus.CHORDS.terminal ?? '', e);
   // ⌘= and ⌘- zoom the window and ⌘0 puts it back, as in VS Code, from any field or sheet. The
@@ -167,6 +173,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // as ⌘E beside it marks seen there. Done goes on to the next that waits, as ⌘E does.
   if (chordPressed(menus.CHORDS.done ?? '', e)) {
     e.preventDefault();
+    if (picking) {
+      const act = sessionsActions(sessionPicks.picked).done;
+      if (act) act.run();
+      else say('They’re archived already.');
+      return;
+    }
     if (selected?.kind !== 'agent') return;
     const act = actionsRef.current.session(selected.lane, selected.session, 'session').done;
     if (act) act.run();
@@ -180,6 +192,14 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // as `e` does (below). In the search field the arrows stay the field's own, whatever is
   // held with them: ↑ moves and selects in its text, and ↓ gives the list the keyboard (below).
   const queueStep = view === 'sessions' && !(typing && vertical) ? queueKey(e) : null;
+  // With several picked, ⌘E marks them all seen, and stays on them.
+  if (queueStep === 'seen' && picking) {
+    e.preventDefault();
+    const act = sessionsActions(sessionPicks.picked).seen;
+    if (act) act.run();
+    else say('None of them has a turn to mark seen.');
+    return;
+  }
   if (queueStep === 'next' || queueStep === 'back' || queueStep === 'seen') {
     e.preventDefault();
     runQueue(queueStep, queueStep === 'seen' ? inBox : true);
@@ -232,6 +252,19 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     }
     return;
   }
+  // ⌘A picks every session listed, from the list (in a panel it's the page's), and Esc goes back
+  // to the one the keyboard is on.
+  const onList = !document.activeElement || document.activeElement === document.body || !!document.activeElement.closest('.ca-board-list');
+  if (view === 'sessions' && mod && !e.ctrlKey && !e.altKey && !e.shiftKey && key === 'a' && onList) {
+    e.preventDefault();
+    sessionPicks.all();
+    return;
+  }
+  if (e.key === 'Escape' && picking) {
+    e.preventDefault();
+    sessionPicks.clear();
+    return;
+  }
   // The canvas's keys, unless the keyboard is in the panel beside it.
   if (view === 'canvas' && !document.activeElement?.closest('.ca-insp') && canvasKeys.current(e)) return;
   if (gPending.current) {
@@ -254,6 +287,23 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   if (todoKeys.current(e, key)) return;
+  // ⇧↑ ⇧↓ pick the session above or below too, as ⇧-click does.
+  if (view === 'sessions' && e.shiftKey && vertical && !mod && !e.ctrlKey && !e.altKey && selected?.kind === 'agent') {
+    e.preventDefault();
+    const i = visible.indexOf(selected);
+    const to = visible[Math.min(visible.length - 1, Math.max(0, i + (e.key === 'ArrowUp' ? -1 : 1)))];
+    if (to?.kind === 'agent') sessionPicks.select(to, 'range');
+    return;
+  }
+  // The ⌃⌘ chords act on all the sessions picked: what doesn't apply to any of them does nothing,
+  // and what's done to one at a time (rename) waits for one.
+  if (chord && picking && !vertical) {
+    e.preventDefault();
+    const found = menus.keyed(sessionsActions(sessionPicks.picked), key, true);
+    if (found) found.action.run();
+    else if (key === 'r') say('Rename one session at a time: Esc goes back to one.');
+    return;
+  }
   if (mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && view === 'sessions' && selected?.kind === 'agent') {
     e.preventDefault();
     togglePanelMax();
@@ -361,10 +411,10 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
  *  ⌘.) keeps hearing a key before this one does. */
 export function useMainKeys<V extends string>(keys: MainKeys<V>): void {
   const latest = useLatest(keys);
-  const { visible, selected, pickedRows, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel } = keys;
+  const { visible, selected, pickedRows, sessionPicks, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel } = keys;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => onMainKey(e, latest.current);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [latest, visible, selected, pickedRows, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
+  }, [latest, visible, selected, pickedRows, sessionPicks.picked, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
 }
