@@ -47,6 +47,9 @@ const READ_WAIT: Duration = Duration::from_secs(15);
 /// Jev answers in a second or two, but the Mac may be busy.
 const ROUTE_WAIT: Duration = Duration::from_secs(20);
 const ACT_WAIT: Duration = Duration::from_secs(40);
+/// How long being done with a session is given: removing a worktree its harness made can take
+/// most of a minute there, as the engine's actions.rs waits for it.
+const DONE_WAIT: Duration = Duration::from_secs(75);
 
 /// A device this one is linked with, as `devices.json` keeps it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -397,6 +400,13 @@ impl Client {
     /// when it isn't empty.
     pub fn fork(&self, device: &str, key: &str, prompt: &str) -> std::result::Result<api::Started, String> {
         read(self.ask(device, api::SESSION_FORK, of(params::Fork { key: key.into(), prompt: prompt.into() }), ACT_WAIT)?)
+    }
+
+    /// Done with a session on `device`: it ends as far as that Mac can end it, and is marked seen
+    /// and archived there. Work under way holds it (`done` false, `message` says what) unless
+    /// `stop` ends that too. Macs before 2026-10-07 refuse it as a request they don't know.
+    pub fn done(&self, device: &str, key: &str, stop: bool) -> std::result::Result<api::Done, String> {
+        read(self.ask(device, api::SESSION_DONE, of(params::Done { key: key.into(), stop }), DONE_WAIT)?)
     }
 
     /// Asks `device` to send the replies of these sessions (keys there) as they're written, in

@@ -1723,8 +1723,10 @@ mod tests {
         until("the reply", || phone.stream(&d.short, "claude:claude:s2").is_some_and(|s| s.text == "Looking at the build"));
         mac.peers.stream(codealong_peer::api::Stream { key: "claude:claude:s2".into(), text: String::new(), tool: None });
         until("the turn's end", || phone.stream(&d.short, "claude:claude:s2").is_none());
-        // Stopping a turn acts on the session, so it needs remote control there.
+        // Stopping a turn acts on the session, so it needs remote control there, and so does
+        // being done with it, which closes its terminal.
         assert!(phone.cancel(&d.short, "claude:claude:s2").unwrap_err().contains("Remote control is off on Mini"));
+        assert!(phone.done(&d.short, "claude:claude:s2", false).unwrap_err().contains("Remote control is off on Mini"));
 
         // A Mac that forgot the phone without saying so (its list edited): the phone still has
         // it, and a new code links them again.
