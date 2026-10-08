@@ -8,7 +8,7 @@ import { branchLabel } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
-import { BranchLabel, Button, cx, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionGlyph } from './primitives';
+import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionGlyph } from './primitives';
 import { useDismiss } from './useDismiss';
 import { PreviewChip, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
@@ -168,6 +168,8 @@ interface InspectorProps {
   /** Todos a session is linked to. */
   todosFor?: (sessionKey: string) => Todo[] | undefined;
   onShowTodo?: (todo: Todo) => void;
+  /** Right-click on its header: the worktree's menu, as its row has it. */
+  onMenu?: () => void;
   /** Right-click on its PR: the PR's menu (open it, copy its link…). */
   onPrMenu?: () => void;
   /** Drops Review with… for its PR from the button. */
@@ -176,7 +178,7 @@ interface InspectorProps {
   onSetPreview?: () => void;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onPrMenu, onReviewPr, onSetPreview }: InspectorProps) {
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onMenu, onPrMenu, onReviewPr, onSetPreview }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   const icons = useEditorIcons(apps);
@@ -193,7 +195,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
   const sessions = showAll ? lane.sessions : lane.sessions.slice(0, SESSIONS_SHOWN);
   return (
     <aside className="ca-insp" aria-label={`${lane.callsign} details`}>
-      <header>
+      <header onContextMenu={headerMenu(onMenu)}>
         <div className="ca-insp-title">
           <LaneGlyph lane={lane} />
           <span className="ca-insp-call" title={lane.callsign}>

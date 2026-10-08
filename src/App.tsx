@@ -1676,7 +1676,7 @@ export function App() {
           prRowOf={prRowOf}
           pickedRows={pickedRows}
           picks={picks}
-          todo={{ startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
+          todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
           approving={approving}
           drill={drill}
           setDrill={setDrill}
@@ -1694,6 +1694,7 @@ export function App() {
           sessionMenu={sessionMenu}
           sessionMenuSpec={sessionMenuSpec}
           lanePrMenu={lanePrMenu}
+          prMenu={prMenu}
           prChipMenu={prChipMenu}
           approve={approve}
           reviewMenuFrom={reviewMenuFrom}

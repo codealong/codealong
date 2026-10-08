@@ -77,7 +77,7 @@ export interface MainPanelProps {
   todosFor: (key: string) => Todo[] | undefined;
   prRowOf: (pr: PrItem) => PrRowItem;
   pickedRows: TodoItem[];
-  todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu'>;
+  todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoMenu' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu'>;
   /** Rows picked together in Sessions, on the Worktrees board and in PRs (useListPicks.ts):
    *  their panel shows in place of one row's. */
   picks: ReturnType<typeof useListPicks>;
@@ -101,6 +101,8 @@ export interface MainPanelProps {
   sessionMenu: (lane: Lane, s: Session, pin: 'session' | 'worktree') => void;
   sessionMenuSpec: (lane: Lane, s: Session, pin: 'session' | 'worktree') => MenuSpec;
   lanePrMenu: (lane: Lane) => void;
+  /** A PR's right-click menu, as its row in PRs has it. */
+  prMenu: (r: PrRowItem) => void;
   prChipMenu: (lane: Lane, pr: Pr) => void;
   approve: (pr: PrItem) => void;
   reviewMenuFrom: (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, el: Element) => void;
@@ -113,8 +115,8 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
-  const { startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
+  const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
 
@@ -137,6 +139,7 @@ export function MainPanel(props: MainPanelProps) {
       onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
       onLinkMenu={(at) => todoLinkMenu(item, at)}
       onMoreMenu={(at) => todoMoreMenu(item, at)}
+      onMenu={() => todoMenu(item)}
       onLabelMenu={labelMenu}
       onError={setToast}
       hint={board?.jev?.todos ? board.todoHints?.[item.todo.id] : null}
@@ -169,6 +172,7 @@ export function MainPanel(props: MainPanelProps) {
       onApprove={() => approve(item.pr)}
       onReview={(el) => reviewMenuFrom(item.pr, el)}
       onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
+      onMenu={() => prMenu(item)}
       onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
@@ -187,6 +191,7 @@ export function MainPanel(props: MainPanelProps) {
       todos={lane ? todoLinks.byLane.get(lane.id) : undefined}
       todosFor={todosFor}
       onShowTodo={showTodoFromPanel}
+      onMenu={lane ? () => laneMenu(lane) : undefined}
       onPrMenu={() => lane && lanePrMenu(lane)}
       onReviewPr={lane?.pr ? (el) => lane.pr && reviewMenuFrom(reviewedPr(lane, lane.pr), el) : undefined}
       onSetPreview={lane && !lane.device ? () => setPreviewFor(lane.id) : undefined}

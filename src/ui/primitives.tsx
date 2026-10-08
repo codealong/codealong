@@ -2,6 +2,7 @@
 
 import type { ButtonHTMLAttributes, CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
 import { forwardRef, Fragment, useId, useRef } from 'react';
+import { fieldAt, typingIn } from '../contextMenu';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
@@ -519,6 +520,22 @@ export function rowMenu(show: (() => void) | undefined): ((e: Pick<ReactMouseEve
   return (e) => {
     e.preventDefault();
     e.stopPropagation();
+    show();
+  };
+}
+
+/** A panel header's answer to a right-click anywhere on it: the menu of what the panel shows, as
+ *  its row has it in the list. Anything inside with a menu of its own keeps it (it prevents the
+ *  default), as does a text field you're typing in. One you weren't typing in, such as a todo's
+ *  title, is part of the header, and lets go of any keyboard the right-click gave it, so the next
+ *  key doesn't type over a word it selected. */
+export function headerMenu(show: (() => void) | undefined): ((e: Pick<ReactMouseEvent, 'defaultPrevented' | 'preventDefault' | 'target'>) => void) | undefined {
+  if (!show) return undefined;
+  return (e) => {
+    if (e.defaultPrevented || typingIn(e.target)) return;
+    e.preventDefault();
+    const field = fieldAt(e.target);
+    if (field && document.activeElement === field) field.blur();
     show();
   };
 }

@@ -34,7 +34,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   chips selects the row, as a click anywhere on it does, and a double-click does the chip's own
   thing (its PR on GitHub, the session where it runs, its todo, its app) in place of opening
   the row; in a panel, a click does. A right-click (or ⌃-click) opens a row's menu and leaves
-  the selection where it was; the row is ringed while its menu is up. In every list ⌘-click
+  the selection where it was; the row is ringed while its menu is up. A right-click on the
+  header of a panel (a session's, a worktree's, a PR's, a todo's, or the rows picked together)
+  is its row's menu, a todo's title too unless you're typing in it. In every list ⌘-click
   picks a row beside the selected one or leaves it out, ⇧-click (or ⇧↑ ⇧↓ from the list) picks
   a run and ⌘A picks every row: the panel then lists them with what's commonly done to all of
   them at once, a right-click on one of them is the menu for all of them, the keys act on all of

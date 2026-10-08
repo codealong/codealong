@@ -17,8 +17,8 @@ interface WorktreePickPanelProps {
   onShow: (item: WorktreeRow) => void;
   /** Takes it out of the ones picked. */
   onLeaveOut: (item: WorktreeRow) => void;
-  /** The ⋯ button: everything that can be done to them. */
-  onMoreMenu: (at: { x: number; y: number }) => void;
+  /** The ⋯ button and a right-click on the header: everything that can be done to them. */
+  onMoreMenu: (at?: { x: number; y: number }) => void;
 }
 
 export function WorktreePickPanel({ items, actions, onShow, onLeaveOut, onMoreMenu }: WorktreePickPanelProps) {

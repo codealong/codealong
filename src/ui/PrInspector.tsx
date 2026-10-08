@@ -16,7 +16,7 @@ import type { Lane, PrComment, PrDetail, Session } from '../types';
 import { PanelPlace } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
-import { Button, Icon } from './primitives';
+import { Button, headerMenu, Icon } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
@@ -91,6 +91,9 @@ export interface PrDetailsProps {
   now: number;
   /** The panel's buttons, under the header. */
   actions?: ReactNode;
+  /** Right-click on its header: the PR's menu, as its row has it. A PR's card takes the
+   *  right-click anywhere on it (PrCard.tsx), so it passes none. */
+  onMenu?: () => void;
   /** Shows a session in the panel, in place of the PR until you go back. */
   onShowSession: (lane: Lane, session: Session) => void;
   /** Opens a session where it runs. */
@@ -145,7 +148,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, ...detai
 
 /** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
  *  comments, its description and its files. */
-export function PrDetails({ item, now, actions, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys }: PrDetailsProps) {
+export function PrDetails({ item, now, actions, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys }: PrDetailsProps) {
   const { pr } = item;
   const files = useRef<FilesFinder>(null);
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
@@ -213,7 +216,7 @@ export function PrDetails({ item, now, actions, onShowSession, onOpenSession, on
 
   return (
     <>
-      <header>
+      <header onContextMenu={headerMenu(onMenu)}>
         <div className="ca-insp-title">
           <PrGlyph pr={pr} />
           <span className="ca-insp-call">#{pr.number}</span>

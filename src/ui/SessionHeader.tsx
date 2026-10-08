@@ -36,7 +36,7 @@ import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
 import { PrChipCard } from './PrLink';
-import { AccountLabel, BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, SessionGlyph } from './primitives';
+import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, STATUS_WORD, SessionGlyph } from './primitives';
 import { runFolder } from './RunButton';
 import { SidesChip } from './SideStrip';
 import { TodoGlyph } from './TodoBits';
@@ -200,18 +200,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const branch = s.branch ?? lane.branch;
 
   return (
-    <header
-      className="ca-sessinsp-head"
-      onContextMenu={
-        onMenu &&
-        ((e) => {
-          // The name's field keeps its own menu, for copy and paste, as does anything inside with one.
-          if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;
-          e.preventDefault();
-          onMenu();
-        })
-      }
-    >
+    <header className="ca-sessinsp-head" onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
       {back && (
         <button type="button" className="ca-linkbtn ca-sessinsp-back" title={back.title ?? `Back to ${back.label}`} onClick={back.onBack}>
           <Icon name="chevron-left" size={12} />

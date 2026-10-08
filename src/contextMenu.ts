@@ -39,6 +39,10 @@ type Items = NonNullable<MenuOptions['items']>;
 // that asked for the menu landed on: a session's line on its worktree's row, else the row.
 // It's marked with an attribute, which React leaves alone when the row renders again.
 let pressed: Element | null = null;
+// What had the keyboard when the pointer was last pressed, before the press could move it: by
+// the time a right-click's menu event comes, a text field under it can have the keyboard, and on
+// macOS a word in it selected.
+let focusAtPress: Element | null = null;
 if (typeof document !== 'undefined') {
   document.addEventListener(
     'contextmenu',
@@ -51,6 +55,27 @@ if (typeof document !== 'undefined') {
     },
     true,
   );
+  document.addEventListener(
+    'mousedown',
+    () => {
+      focusAtPress = document.activeElement;
+    },
+    true,
+  );
+}
+
+const FIELD = 'input, textarea, [contenteditable="true"]';
+
+/** The text field a right-click landed in, if any. */
+export function fieldAt(target: EventTarget | null): HTMLElement | null {
+  return target instanceof Element ? target.closest<HTMLElement>(FIELD) : null;
+}
+
+/** Whether a right-click landed in a text field you were typing in: that keeps its own menu, for
+ *  copy, paste and spelling. One you weren't typing in is part of what it's on (`headerMenu`). */
+export function typingIn(target: EventTarget | null): boolean {
+  const field = fieldAt(target);
+  return !!field && field === focusAtPress;
 }
 
 function options(items: MenuSpec, path: string): Items {

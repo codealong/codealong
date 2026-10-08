@@ -19,7 +19,7 @@ import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../typ
 import { DescriptionEditor } from './DescriptionEditor';
 import { PanelPlace } from './PanelSession';
 import { PickList, PickPanel, PickRow } from './PickPanel';
-import { Button, Chip, cx, Icon, Kbd, Seg } from './primitives';
+import { Button, Chip, cx, headerMenu, Icon, Kbd, Seg } from './primitives';
 import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 import { useDismiss } from './useDismiss';
 
@@ -425,6 +425,9 @@ interface TodoPanelProps {
   onLinkMenu: (at: { x: number; y: number }) => void;
   /** The ⋯ button: move, copy, delete. */
   onMoreMenu: (at: { x: number; y: number }) => void;
+  /** Right-click on its header, the title too unless you're typing in it: the todo's menu, as
+   *  its row has it. */
+  onMenu?: () => void;
   /** Right-click on a label in the picker. */
   onLabelMenu: (label: Label, rename: () => void) => void;
   onError: (message: string) => void;
@@ -441,7 +444,7 @@ interface TodoPanelProps {
   onPickDue?: () => void;
 }
 
-export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [], pickDue = false, onPickDue }: TodoPanelProps) {
+export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [], pickDue = false, onPickDue }: TodoPanelProps) {
   const { todo } = item;
   const section = sectionOf(todo, todos);
   const [picking, setPicking] = useState(false);
@@ -465,7 +468,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
 
   return (
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
-      <header>
+      <header onContextMenu={headerMenu(onMenu)}>
         <div className="ca-insp-title">
           <TodoGlyph status={todo.status} waiting={section === 'waiting'} size={14} />
           <span className="ca-tag">{SECTION_WORD[section]}</span>
@@ -677,8 +680,8 @@ interface TodoPickPanelProps {
   onShow: (item: TodoItem) => void;
   /** Takes it out of the ones picked. */
   onLeaveOut: (item: TodoItem) => void;
-  /** The ⋯ button: status, copy as prompt, delete. */
-  onMoreMenu: (at: { x: number; y: number }) => void;
+  /** The ⋯ button and a right-click on the header: status, copy as prompt, delete. */
+  onMoreMenu: (at?: { x: number; y: number }) => void;
 }
 
 /** Several todos picked in the list (⌘-click, ⇧-click), in the pick panel (PickPanel.tsx): one

@@ -20,8 +20,8 @@ interface SessionPickPanelProps {
   onShow: (item: SessionItem) => void;
   /** Takes it out of the ones picked. */
   onLeaveOut: (item: SessionItem) => void;
-  /** The ⋯ button: everything that can be done to them. */
-  onMoreMenu: (at: { x: number; y: number }) => void;
+  /** The ⋯ button and a right-click on the header: everything that can be done to them. */
+  onMoreMenu: (at?: { x: number; y: number }) => void;
 }
 
 export function SessionPickPanel({ items, actions, onShow, onLeaveOut, onMoreMenu }: SessionPickPanelProps) {
