@@ -882,6 +882,16 @@ impl Reader {
         newest.map(|(path, (_, (_, t, _)))| Source { id: id.to_string(), key: origin.key.clone(), transcript: (path.as_path(), t) })
     }
 
+    /// The key of `id`, the session a job of `account` was forked from. The job's record and
+    /// the roster name it by its ID alone, and it's another account's when the job is a copy
+    /// moved here from there (start.rs `move_to`): then only that account's transcripts have
+    /// it, and only those are looked through.
+    fn parent_key(&self, account: &str, ours: bool, id: &str) -> String {
+        let theirs = || self.transcripts.values().find(|(acct, (_, t, _))| t.session_id == id && acct != account).map(|(acct, _)| acct.as_str());
+        let at = if ours { account } else { theirs().unwrap_or(account) };
+        Session::key_for(Harness::Claude, at, id)
+    }
+
     /// Copies moved here from another account (start.rs `move_to`) whose process ended before
     /// their first prompt, with `known` the IDs the account's registry and transcripts have.
     /// Claude Code wrote nothing of such a copy, and once its process is gone the registry
@@ -1102,7 +1112,7 @@ impl crate::harness::Reader for Reader {
                 // A job's record says what it's a fork of; the roster says for a
                 // running one whose record hasn't been read yet.
                 let parent = self.forks.get(&a.name).and_then(|f| f.parent_of(id)).or(reg.and_then(|r| r.resumes.as_deref()));
-                s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: Session::key_for(Harness::Claude, &a.name, p), how: OriginHow::Fork });
+                s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: self.parent_key(&a.name, by_id.contains_key(p), p), how: OriginHow::Fork });
                 out.push(s);
             }
         }
@@ -1453,6 +1463,12 @@ mod tests {
         assert!(reader.moved_copy("claude", moved("claude:claude:s1", OriginHow::Fork)).is_none());
         assert!(reader.moved_copy("claude2", moved("claude:claude:s1", OriginHow::Started)).is_none());
         assert!(reader.moved_copy("claude2", None).is_none());
+        // Moved as a background job, the job's roster names the conversation by its ID alone, and
+        // the copy is said to come from the account that has it; a fork of one of its own
+        // account's sessions, or of one no account has any more, from its own.
+        assert_eq!(reader.parent_key("claude2", false, "s1"), "claude:claude:s1");
+        assert_eq!(reader.parent_key("claude2", true, "s1"), "claude:claude2:s1");
+        assert_eq!(reader.parent_key("claude2", false, "gone"), "claude:claude2:gone");
 
         // Its panel, a fork of it and a side question read that transcript, in the other account's folder.
         let copy = Session { live: true, continues: Some("s1".into()), origin: moved("claude:claude:s1", OriginHow::Fork), ..Session::new(Harness::Claude, "claude2", "c0") };

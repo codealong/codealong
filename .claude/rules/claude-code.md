@@ -154,7 +154,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   arguments: `claude/mod.rs` (`move_to`, `move_to_background`, `Reader::moved_copy`,
   `Reader::closed_copies`, `resume_args`), `claude/start.rs` (`fork_args`), `start.rs`
   (`move_to`). A background copy's `dispatch.launch` is as above with the path and
-  `restoresTranscript: true`. Haiku took on a Sonnet conversation too, and
+  `restoresTranscript: true`, and its `state.json` has no `forkParentSessionId` (2.1.294), so
+  the parent is known by its ID alone and its account is the one whose transcripts have it
+  (`Reader::parent_key`). Haiku took on a Sonnet conversation too, and
   `--no-session-persistence` wrote nothing but an empty `memory` folder for the project
   (2.1.287, 2026-10-02).
 - `/btw <question>` in a session asks a separate call over the conversation's context that has
