@@ -4,6 +4,7 @@ mod acp;
 mod actions;
 mod agentdone;
 mod attachments;
+mod autoreview;
 mod bar;
 mod barfeed;
 mod board;
@@ -1572,6 +1573,7 @@ pub fn run() {
             let (nudger, nudges_with) = (std::sync::Arc::new(std::sync::Mutex::new(nudges::Nudger::default())), engine_slot.clone());
             let ends_with = engine_slot.clone();
             let (continuer, continues_with) = (std::sync::Arc::new(std::sync::Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
+            let (reviewer, reviews_with) = (std::sync::Arc::new(std::sync::Mutex::new(autoreview::Reviewer::load())), engine_slot.clone());
             let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
@@ -1629,6 +1631,16 @@ pub fn run() {
                     if !due.is_empty() {
                         let (engine, continuer) = (engine.clone(), continuer.clone());
                         std::thread::spawn(move || reconnect::send_now(&engine, &continuer, due));
+                    }
+                }
+                // PRs that wait on your review, reviewed without being asked when config.toml says
+                // to (autoreview.rs): a thread for each job, since reading GitHub, starting a
+                // session and posting each take a while; one PR's jobs never overlap.
+                if let Some(engine) = reviews_with.get() {
+                    let due = reviewer.lock().map(|mut r| r.due(board, &board.reviews, board.generated_at)).unwrap_or_default();
+                    for job in due {
+                        let (engine, reviewer) = (engine.clone(), reviewer.clone());
+                        std::thread::spawn(move || autoreview::run(&engine, &reviewer, job));
                     }
                 }
                 // Sessions that asked from the command to be ended once their turn ended

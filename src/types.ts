@@ -359,7 +359,19 @@ export interface Config {
   /** What Codealong does for sessions by itself. Older files have none: carry on after a lost
    *  connection. */
   sessions?: { continue_after_network_error: boolean };
+  /** Reviewing the PRs that wait on your review without being asked. Older files have none: off. */
+  reviews?: ReviewsCfg;
   debug: { perf_log: boolean };
+}
+
+/** `[reviews]` (config.rs `ReviewsCfg`, autoreview.rs). */
+export interface ReviewsCfg {
+  /** An agent reviews each open PR that waits on your review, and again when new commits come in. */
+  auto: boolean;
+  /** The account the reviews run on; empty for the one Auto would start. */
+  account: string;
+  /** Each review is posted on its PR as a comment from your GitHub account. */
+  comment: boolean;
 }
 
 /** Where automatic updates stand (src-tauri/src/updates.rs): this copy's version, and a state. */
@@ -624,6 +636,8 @@ export interface Board {
   waitingShortcut?: string;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
   jev?: JevCfg;
+  /** `[reviews]` from config.toml. Missing on older boards. */
+  reviews?: ReviewsCfg;
   /** Open todos whose work Jev says looks done, by todo id. Missing on older boards. */
   todoHints?: Record<string, TodoHint>;
   /** `[devices]` from config.toml. Missing on older boards. */
@@ -830,6 +844,36 @@ export interface PrItem {
   lanes: string[];
   /** The sessions that worked on the PR while it was open, each with the worktree it's listed under. */
   sessions: PrSession[];
+  /** The commit its branch is at, when GitHub says. */
+  headOid?: string;
+  /** Where Codealong's own review of it stands, once it's had one (autoreview.rs). */
+  autoReview?: AutoReview;
+}
+
+/** Where a round of Codealong's automatic review of a PR stands (model.rs `ReviewStage`):
+ *  `queued` is the round to come for a commit no session has started on yet. */
+export type ReviewStage = 'queued' | 'reviewing' | 'posted' | 'kept' | 'skipped' | 'failed';
+
+/** Codealong's automatic review of a PR: its latest round (model.rs `AutoReview`). */
+export interface AutoReview {
+  stage: ReviewStage;
+  /** The commit it reviews. */
+  head: string;
+  /** The session that reviews the PR, once known. */
+  session?: string;
+  /** When the round began, or ended once it has. */
+  at: number;
+  /** The latest review it posted, by its link. */
+  comment?: string;
+  /** Why it was skipped, didn't get done, or wasn't posted. */
+  note?: string;
+  /** How many rounds the PR has had. */
+  rounds: number;
+  /** The PR has new commits since: another round follows while it waits on your review. */
+  behind?: boolean;
+  /** The agent's review of its commit isn't done, so the PR is out of what waits on you until
+   *  it is (`heldForAgent`). */
+  holds?: boolean;
 }
 
 /** A session that worked on a PR. */

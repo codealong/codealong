@@ -6,6 +6,7 @@
 // said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
 
 import { agoPhrase, middleTruncate } from './format';
+import { heldForAgent } from './prStatus';
 import { branchLabel, byStatusTime, sessionHomes } from './lanes';
 import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, type Reads } from './queue';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
@@ -66,11 +67,11 @@ export type QueueRow = SessionRow | ReviewRow;
  *  `Handled`): the latest request to you, else the PR's last update. */
 export const reviewSince = (pr: PrItem) => pr.requestedAt ?? pr.updatedAt;
 
-/** The open PRs that wait on your review, your snoozed ones left out, the longest wait first,
- *  as the floating bar lists them (barfeed.rs). */
+/** The open PRs that wait on your review, your snoozed ones and the ones Codealong's agent is
+ *  still reviewing left out, the longest wait first, as the floating bar lists them (barfeed.rs). */
 export function reviewRows(board: Board, project: string): ReviewRow[] {
   return (board.prs ?? [])
-    .filter((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed' && !p.snoozedUntil && (project === ALL_PROJECTS || p.project === project))
+    .filter((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed' && !p.snoozedUntil && !heldForAgent(p) && (project === ALL_PROJECTS || p.project === project))
     .sort((a, b) => reviewSince(a) - reviewSince(b) || a.key.localeCompare(b.key))
     .map((pr) => ({ kind: 'review' as const, key: pr.key, group: 'reviews' as const, pr, marks: [] }));
 }

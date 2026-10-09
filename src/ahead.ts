@@ -19,6 +19,7 @@ import { useSyncExternalStore } from 'react';
 import { archiveSession, emitAhead, markSeen, markUnread, onAhead, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
+import { heldForAgent } from './prStatus';
 import { relaned, sessionHeadline, unreadable } from './lanes';
 import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, PrItem, ResumeIn, Sent, Session, Status, TranscriptItem } from './types';
 
@@ -198,7 +199,7 @@ export function logoOf(lanes: Lane[], prs: PrItem[]): LogoStatus {
     if (l.hidden) continue;
     for (const s of l.sessions) if (!s.archived && !s.visitor) see(logoColor(s));
   }
-  if (prs.some((p) => p.reviewRequested && !p.snoozedUntil && p.state !== 'merged' && p.state !== 'closed')) see('needs');
+  if (prs.some((p) => p.reviewRequested && !p.snoozedUntil && !heldForAgent(p) && p.state !== 'merged' && p.state !== 'closed')) see('needs');
   return LOGO_RANK[best];
 }
 

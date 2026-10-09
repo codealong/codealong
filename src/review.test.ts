@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { askAccount, askAccounts, reviewLane, reviewPicks, reviewPrompt } from './review';
+import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewPicks, reviewPrompt } from './review';
 import * as fx from './testing/fixtures';
-import type { Lane, StartAccount } from './types';
+import type { AutoReview, Lane, StartAccount } from './types';
+
+describe('autoReviewWords', () => {
+  const r = (stage: AutoReview['stage'], more: Partial<AutoReview> = {}): AutoReview => ({ stage, head: '309811aaaabbbb', at: 0, rounds: 1, ...more });
+  it('says where the latest round stands, by its commit', () => {
+    expect(autoReviewWords(r('reviewing'))).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', note: null });
+    expect(autoReviewWords(r('posted', { comment: 'https://github.com/o/r/pull/7#issuecomment-1' })).says).toBe('Agent reviewed 309811a and commented');
+    expect(autoReviewWords(r('skipped', { note: 'The diff is generated code.' }))).toEqual({ icon: 'circle-dashed', says: 'Agent passed on 309811a', note: 'The diff is generated code.' });
+    expect(autoReviewWords(r('failed', { note: 'Its session is gone.' })).says).toBe('Agent review of 309811a didn’t finish');
+  });
+  it('says a round is to come, and that the PR waits on you once the agent is done', () => {
+    expect(autoReviewWords(r('queued', { holds: true }))).toEqual({ icon: 'hourglass', says: 'Agent review of 309811a to come', note: 'It waits on your review once the agent’s is done.' });
+    expect(autoReviewWords(r('posted', { behind: true, holds: true })).note).toBe('New commits since: it reviews them again once they settle. It waits on your review once the agent’s is done.');
+  });
+  it('says a review kept in its session is there, and that new commits get another', () => {
+    expect(autoReviewWords(r('kept')).note).toBe('Its review is in its session: posting is off.');
+    expect(autoReviewWords(r('kept', { note: 'Not posted: the PR was closed before the review was done.' })).note).toBe('Not posted: the PR was closed before the review was done.');
+    expect(autoReviewWords(r('posted', { behind: true })).note).toBe('New commits since: it reviews them again once they settle.');
+    expect(autoReviewWords(r('reviewing', { behind: true })).note).toBe('New commits since: it reviews them once this one’s done.');
+  });
+});
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
 const background = { place: 'background' as const, label: 'Background' };

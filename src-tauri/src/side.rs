@@ -408,7 +408,7 @@ fn pr_recipe(board: &Board, cfg: &Config, key: &str, account: &str) -> Result<(R
     let Some(pr) = board.prs.iter().find(|p| p.key == key) else { bail!("Codealong doesn't list {key} any more.") };
     let Some(a) = cfg.accounts.iter().find(|a| a.name == account) else { bail!("There's no account named {account} in config.toml.") };
     let Some(adapter) = crate::harness::of(a) else { bail!("Codealong doesn't know {account}'s harness, {}.", a.harness) };
-    let (md, diff) = crate::github::for_reading(pr)?;
+    let (md, diff, _) = crate::github::for_reading(pr)?;
     let reads = reading_dir(pr);
     std::fs::create_dir_all(&reads).and_then(|_| std::fs::write(reads.join("pr.md"), md)).and_then(|_| std::fs::write(reads.join("pr.diff"), diff)).with_context(|| format!("Couldn't write #{}'s diff for it to read.", pr.number))?;
     tidy_readings(&reads, Duration::from_secs(7 * 24 * 3600));
@@ -442,13 +442,21 @@ fn tidy_readings(keep: &Path, age: Duration) {
 /// repo, as a review started from the PR's card picks one (src/review.ts `reviewLane`). None
 /// where this Mac has no checkout of the repo.
 fn pr_folder(board: &Board, pr: &PrItem) -> (Option<PathBuf>, bool) {
+    match pr_lane(board, pr) {
+        Some((l, holds)) => (Some(PathBuf::from(&l.path)), holds),
+        None => (None, false),
+    }
+}
+
+/// The worktree `pr_folder` names, and whether it holds the PR's branch: where an automatic
+/// review of the PR starts too (autoreview.rs).
+pub fn pr_lane<'a>(board: &'a Board, pr: &PrItem) -> Option<(&'a Lane, bool)> {
     let here: Vec<&Lane> = board.lanes.iter().filter(|l| l.device.is_none() && Path::new(&l.path).is_dir()).collect();
     if let Some(l) = here.iter().find(|l| pr.lanes.contains(&l.id) && l.branch.as_deref() == Some(pr.head.as_str())) {
-        return (Some(PathBuf::from(&l.path)), true);
+        return Some((l, true));
     }
-    let of_repo: Vec<&&Lane> = here.iter().filter(|l| [&l.repo_slug, &l.repo_slug_now].iter().any(|s| s.as_deref() == Some(pr.repo_slug.as_str()))).collect();
-    let lane = of_repo.iter().find(|l| l.origin == Origin::Main).or(of_repo.first());
-    (lane.map(|l| PathBuf::from(&l.path)), false)
+    let of_repo: Vec<&Lane> = here.into_iter().filter(|l| [&l.repo_slug, &l.repo_slug_now].iter().any(|s| s.as_deref() == Some(pr.repo_slug.as_str()))).collect();
+    of_repo.iter().find(|l| l.origin == Origin::Main).or(of_repo.first()).map(|l| (*l, false))
 }
 
 /// What a PR's conversation is told before its first question: what the PR is, where to read
@@ -835,7 +843,7 @@ mod tests {
     /// PR #7 of `o/r`, on the branch `feat`, held by the worktree `/held`.
     fn pr() -> PrItem {
         use crate::model::{Checks, Merge, PrState};
-        PrItem { key: "o/r#7".into(), repo_slug: "o/r".into(), repo: "r".into(), project: "P".into(), number: 7, title: "Add teams".into(), url: "https://github.com/o/r/pull/7".into(), state: PrState::Open, author: Some("ana".into()), mine: false, review_requested: true, requested_by: None, requested_at: None, snoozed_until: None, nudge: false, head: "feat".into(), base: Some("main".into()), checks: Checks::default(), merge: Merge::Unknown, additions: 1, deletions: 0, changed_files: 1, created_at: 0, updated_at: 0, merged_at: None, closed_at: None, lanes: vec!["held".into()], sessions: Vec::new() }
+        PrItem { key: "o/r#7".into(), repo_slug: "o/r".into(), repo: "r".into(), project: "P".into(), number: 7, title: "Add teams".into(), url: "https://github.com/o/r/pull/7".into(), state: PrState::Open, author: Some("ana".into()), mine: false, review_requested: true, requested_by: None, requested_at: None, snoozed_until: None, nudge: false, head: "feat".into(), base: Some("main".into()), checks: Checks::default(), merge: Merge::Unknown, additions: 1, deletions: 0, changed_files: 1, created_at: 0, updated_at: 0, merged_at: None, closed_at: None, lanes: vec!["held".into()], sessions: Vec::new(), head_oid: None, auto_review: None }
     }
 
     #[test]

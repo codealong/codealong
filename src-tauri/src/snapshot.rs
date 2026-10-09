@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::actions::{self, params, From};
-use crate::{api, barfeed, chrome, config, detect, editors, engine, github, harness, model, route, send, side, start, usage, util};
+use crate::{api, autoreview, barfeed, chrome, config, detect, editors, engine, github, harness, model, route, send, side, start, usage, util};
 
 /// The command line, read one way for every mode.
 struct Args<'a>(&'a [String]);
@@ -84,6 +84,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
     Mode { flag: "--merge-box", takes: "<owner/name> <number>", run: merge_box },
+    Mode { flag: "--review-plan", takes: "<owner/name> <number>", run: review_plan },
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
     Mode { flag: "--link", takes: "<url>", run: link },
 ];
@@ -415,6 +416,14 @@ fn pr_card(_: &Args, rest: &[String]) -> Done {
 fn pr(_: &Args, rest: &[String]) -> Done {
     let (repo, number) = repo_and_number(rest)?;
     Ok(pretty(&github::detail(repo, number).map_err(failed)?))
+}
+
+/// What an automatic review of the PR would start (autoreview.rs `plan`), without starting it.
+fn review_plan(_: &Args, rest: &[String]) -> Done {
+    let (repo, number) = repo_and_number(rest)?;
+    let board = engine::snapshot(true, false);
+    let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
+    Ok(pretty(&autoreview::plan(&board, &cfg, &format!("{repo}#{number}")).map_err(failed)?))
 }
 
 fn merge_box(_: &Args, rest: &[String]) -> Done {

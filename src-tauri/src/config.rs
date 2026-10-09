@@ -42,6 +42,8 @@ pub struct Config {
     #[serde(default)]
     pub sessions: SessionsCfg,
     #[serde(default)]
+    pub reviews: ReviewsCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -61,6 +63,7 @@ impl Default for Config {
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
             sessions: SessionsCfg::default(),
+            reviews: ReviewsCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -229,6 +232,29 @@ pub struct SessionsCfg {
 impl Default for SessionsCfg {
     fn default() -> Self {
         SessionsCfg { continue_after_network_error: true }
+    }
+}
+
+/// Pull requests that wait on your review, reviewed by an agent of yours without being asked
+/// (autoreview.rs). Off until you turn it on.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewsCfg {
+    /// Start a review session for each open PR that waits on your review, and have it review the
+    /// PR again when new commits come in while it still waits.
+    #[serde(default)]
+    pub auto: bool,
+    /// The account the reviews run on; empty for the one Auto would start.
+    #[serde(default)]
+    pub account: String,
+    /// Post each review on its PR as a comment, from your GitHub account. Off, a review stays in
+    /// its session for you to read.
+    #[serde(default = "yes")]
+    pub comment: bool,
+}
+
+impl Default for ReviewsCfg {
+    fn default() -> Self {
+        ReviewsCfg { auto: false, account: String::new(), comment: true }
     }
 }
 
@@ -660,6 +686,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n";
+const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits\n# come in while it still waits. account: the account it runs on, \"\" for Auto. comment: post each review\n# on the PR as a comment from your GitHub account; false leaves it in the review's session.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
@@ -845,6 +872,10 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.jev.model.trim().is_empty() {
         return Err("[jev] model is empty; use \"jev-latest\".".into());
     }
+    let reviewer = cfg.reviews.account.trim();
+    if !reviewer.is_empty() && !cfg.accounts.iter().any(|a| a.name == reviewer) {
+        return Err(format!("[reviews] account is {reviewer:?}, which isn't one of the [[accounts]]; use one of them, or \"\" for Auto."));
+    }
     if cfg.devices.port < 1024 {
         return Err(format!("[devices] port is {}; use one from 1024 up ({DEFAULT_DEVICES_PORT} is the default).", cfg.devices.port));
     }
@@ -989,6 +1020,20 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "sessions", after);
         }
         set_value(&mut doc["sessions"]["continue_after_network_error"], Value::from(cfg.sessions.continue_after_network_error));
+    }
+
+    // The same: only a file that has the table or turns reviews on gets it.
+    if cfg.reviews != ReviewsCfg::default() || doc.get("reviews").is_some() {
+        if !doc.get("reviews").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{REVIEWS_COMMENT}"));
+            doc.insert("reviews", Item::Table(t));
+            let after = ["sessions", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "reviews", after);
+        }
+        set_value(&mut doc["reviews"]["auto"], Value::from(cfg.reviews.auto));
+        set_value(&mut doc["reviews"]["account"], Value::from(cfg.reviews.account.trim()));
+        set_value(&mut doc["reviews"]["comment"], Value::from(cfg.reviews.comment));
     }
 
     // `[pull_requests] when_approved` was a setting for a day (2026-10-05); nudges are turned on
@@ -1172,6 +1217,14 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[sessions]\n");
         s.push_str(&format!("continue_after_network_error = {}\n", cfg.sessions.continue_after_network_error));
     }
+    if cfg.reviews != ReviewsCfg::default() {
+        s.push('\n');
+        s.push_str(REVIEWS_COMMENT);
+        s.push_str("[reviews]\n");
+        s.push_str(&format!("auto = {}\n", cfg.reviews.auto));
+        s.push_str(&format!("account = {}\n", q(cfg.reviews.account.trim())));
+        s.push_str(&format!("comment = {}\n", cfg.reviews.comment));
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -1249,6 +1302,7 @@ mod tests {
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
+            reviews: ReviewsCfg { auto: true, account: "codex".into(), comment: false },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1526,6 +1580,7 @@ mod tests {
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
             sessions: SessionsCfg::default(),
+            reviews: ReviewsCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
     }
@@ -1590,6 +1645,28 @@ mod tests {
         // Turned back on, the table stays, saying so.
         let on = with_config(&out, &full()).unwrap();
         assert!(on.contains("[sessions]\ncontinue_after_network_error = true"), "{on}");
+    }
+
+    #[test]
+    fn reviews_are_off_until_the_file_turns_them_on_and_name_an_account_it_has() {
+        let none = toml::from_str::<Config>("").unwrap().reviews;
+        assert_eq!((none.auto, none.account.as_str(), none.comment), (false, "", true));
+        let old = render(&full());
+        assert!(!old.contains("[reviews]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
+        let mut on = full();
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), comment: true };
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\ncomment = true")), "{out}");
+        assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+        // Turned off again, the table stays, saying so.
+        let off = with_config(&out, &full()).unwrap();
+        assert!(off.contains("[reviews]\nauto = false\naccount = \"\"\ncomment = true"), "{off}");
+        // An account that isn't listed can't be the reviewer.
+        on.reviews.account = "claude9".into();
+        assert!(check(&on).unwrap_err().contains("claude9"));
     }
 
     #[test]

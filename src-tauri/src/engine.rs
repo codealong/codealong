@@ -13,6 +13,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::board::{self, LaneSeed, ELSEWHERE};
 use crate::chrome;
+use crate::autoreview;
 use crate::chrometabs;
 use crate::prlinks;
 use crate::previews;
@@ -107,6 +108,9 @@ pub enum Msg {
     /// Sessions told to carry on after a lost connection (reconnect.rs), and which weren't and
     /// why if any.
     Continued(Option<String>),
+    /// A job of the automatic reviews went (autoreview.rs), and why it didn't if it didn't:
+    /// reviews.json is read again at once.
+    Reviewed(Option<String>),
     /// pr-links.json was changed from a window: read now, without waiting for the watcher.
     PrLinksChanged,
     /// The usage read is over: what it read, or none when it fell over or never started.
@@ -282,6 +286,12 @@ impl Handle {
     /// is a notice until a later one works.
     pub fn continued(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Continued(result.err()));
+    }
+
+    /// How a job of the automatic reviews went (autoreview.rs): a failure is a notice until a
+    /// later job goes through, and the PRs' cards follow reviews.json at once.
+    pub fn reviewed(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::Reviewed(result.err()));
     }
 
     /// pr-links.json was just changed here (a PR's nudge turned on or off): the board follows
@@ -685,6 +695,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     e.refresh_visitors(true);
     lap("visitors", &t);
     e.load_pr_links();
+    e.load_reviews();
     e.scan_pr_marks(true);
     lap("pr marks", &t);
     e.load_previews();
@@ -851,6 +862,11 @@ struct Engine {
     /// Links to PRs made or taken away by hand (`pr-links.json`).
     pr_store: prlinks::LinkStore,
     pr_links_warning: Option<String>,
+    /// Where the automatic reviews stand (`reviews.json`), for the PRs' cards; autoreview.rs
+    /// keeps the file.
+    reviews: autoreview::Store,
+    /// Why an automatic review couldn't be started or posted, until a later one goes.
+    review_warning: Option<String>,
     /// Worktrees' preview URLs (`previews.json`) and the servers in their folders.
     previews: board::Previews,
     previews_warning: Option<String>,
@@ -967,6 +983,8 @@ impl Engine {
             chrome_lookups: HashMap::new(),
             pr_store: prlinks::LinkStore::default(),
             pr_links_warning: None,
+            reviews: autoreview::Store::default(),
+            review_warning: None,
             previews: board::Previews::default(),
             previews_warning: None,
             reusable: HashMap::new(),
@@ -1280,6 +1298,7 @@ impl Engine {
         self.reload_todos();
         self.refresh_visitors(false);
         self.load_pr_links();
+        self.load_reviews();
         self.scan_pr_marks(false);
         self.load_previews();
         self.load_reusable();
@@ -1480,6 +1499,11 @@ impl Engine {
                 }
                 Ok(Msg::Continued(why)) => {
                     self.continue_warning = why;
+                    self.dirty = true;
+                }
+                Ok(Msg::Reviewed(why)) => {
+                    self.review_warning = why;
+                    self.load_reviews();
                     self.dirty = true;
                 }
                 Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
@@ -1931,6 +1955,7 @@ impl Engine {
             said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
             said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
             said("reconnect", "A session didn't carry on after its connection came back", self.continue_warning.as_ref()),
+            said("reviews", "A pull request wasn't reviewed", self.review_warning.as_ref()),
 
         ]
         .into_iter()
@@ -2054,6 +2079,11 @@ impl Engine {
             }
             if p == prlinks::path() {
                 self.load_pr_links();
+                self.dirty = true;
+                continue;
+            }
+            if p == autoreview::path() {
+                self.load_reviews();
                 self.dirty = true;
                 continue;
             }
@@ -2285,6 +2315,12 @@ impl Engine {
     fn pr_links(&self) -> board::PrLinks {
         let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
         board::PrLinks { worked, unlinked, nudged: self.pr_store.nudges.iter().cloned().collect() }
+    }
+
+    /// reviews.json as autoreview.rs last saved it, for the PRs' cards. One that doesn't read
+    /// shows no reviews; autoreview.rs says why (store.rs `load_whole`).
+    fn load_reviews(&mut self) {
+        self.reviews = crate::store::read_or_default(&autoreview::path());
     }
 
     fn load_pr_links(&mut self) {
@@ -2586,9 +2622,11 @@ impl Engine {
             previews: &self.previews,
             reusable: &self.reusable,
             review_snoozes: &self.seen.review_snoozes,
+            auto_reviews: (&self.reviews, self.cfg.reviews.auto),
         });
         board.usage = usage;
         board.when_limited = self.cfg.limits.when_hit;
+        board.reviews = self.cfg.reviews.clone();
 
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.pinned_prs = self.seen.pinned_prs.clone();

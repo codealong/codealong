@@ -8,7 +8,7 @@ import type { MenuAction } from './contextMenu';
 import { FRESH_SIDES } from './harness';
 import { errorText, type Report } from './report';
 import { AUTO, autoPick, initialPlace, remembered, type Choice } from './start';
-import type { Lane, PrItem, StartAccount, StartPlace, StartSpec, Started, Usage } from './types';
+import type { AutoReview, Lane, PrItem, StartAccount, StartPlace, StartSpec, Started, Usage } from './types';
 
 /** One entry of the Review with menu. */
 export type ReviewPick =
@@ -112,4 +112,24 @@ export function askAccount(accounts: StartAccount[], usage: Usage[], now: number
   const can = askAccounts(accounts);
   if (chosen && can.some((a) => a.name === chosen)) return chosen;
   return autoPick(can, usage, now)?.account ?? can[0]?.name ?? null;
+}
+
+/** What a PR's card says of Codealong's own review of it (autoreview.rs, `[reviews] auto`): the
+ *  latest round in a few words with its icon, then why it didn't go as it would, and that new
+ *  commits are reviewed again. */
+export function autoReviewWords(r: AutoReview): { icon: string; says: string; note: string | null } {
+  const at = r.head.slice(0, 7);
+  const [icon, says] = {
+    queued: ['hourglass', `Agent review of ${at} to come`],
+    reviewing: ['eye', `Agent reviewing ${at}`],
+    posted: ['message-circle', `Agent reviewed ${at} and commented`],
+    kept: ['check', `Agent reviewed ${at}`],
+    skipped: ['circle-dashed', `Agent passed on ${at}`],
+    failed: ['alert', `Agent review of ${at} didn’t finish`],
+  }[r.stage];
+  const why = r.note ?? (r.stage === 'kept' ? 'Its review is in its session: posting is off.' : null);
+  const next = r.behind ? (r.stage === 'reviewing' ? 'New commits since: it reviews them once this one’s done.' : 'New commits since: it reviews them again once they settle.') : null;
+  const held = r.holds ? 'It waits on your review once the agent’s is done.' : null;
+  const note = [why, next, held].filter((x): x is string => !!x).join(' ');
+  return { icon, says, note: note || null };
 }

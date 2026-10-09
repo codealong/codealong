@@ -26,7 +26,9 @@ describe('queueRows', () => {
 
   it('puts the PRs waiting on your review after what needs you, the longest wait first, snoozed ones left out', () => {
     const review = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'open', reviewRequested: true, updatedAt: NOW - number, ...over });
-    const prs = [review(3, { requestedAt: NOW - 30 }), review(1, { requestedAt: NOW - 90 }), review(2, { snoozedUntil: NOW + 1000 }), review(4, { reviewRequested: false }), review(5, { state: 'merged' }), review(6, { project: 'Globex', requestedAt: NOW - 60 })];
+    // #7 is still being reviewed by Codealong's agent: it waits on you once that's done.
+    const reviewing = { stage: 'reviewing' as const, head: 'abc1234', at: NOW - 10, rounds: 1, holds: true };
+    const prs = [review(3, { requestedAt: NOW - 30 }), review(1, { requestedAt: NOW - 90 }), review(2, { snoozedUntil: NOW + 1000 }), review(4, { reviewRequested: false }), review(5, { state: 'merged' }), review(6, { project: 'Globex', requestedAt: NOW - 60 }), review(7, { requestedAt: NOW - 120, autoReview: reviewing })];
     const b2 = fx.board({ lanes: b.lanes, prs });
     expect(keys(queueRows(b2, ALL_PROJECTS))).toEqual(['n1', 'e', 'n2', 'acme/app#1', 'acme/app#6', 'acme/app#3', 'u1']);
     expect(keys(queueRows(b2, 'Acme'))).toEqual(['n1', 'e', 'n2', 'acme/app#1', 'acme/app#3', 'u1']);

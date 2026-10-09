@@ -14,12 +14,13 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type R
 import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
-import type { Lane, PrComment, PrDetail, Session } from '../types';
+import { autoReviewWords } from '../review';
+import type { AutoReview, Lane, PrComment, PrDetail, Session } from '../types';
 import { MergeBox } from './MergeBox';
 import { PanelPlace } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
-import { Button, headerMenu, Icon } from './primitives';
+import { Button, cx, headerMenu, Icon } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
@@ -85,6 +86,37 @@ function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace;
     );
   }
   return null;
+}
+
+/** Codealong's own review of the PR (autoreview.rs): where its latest round stands, with what it
+ *  posted on GitHub and its session a click away. */
+function AutoReviewRow({ review, now, held, onShowSession }: { review: AutoReview; now: number; held?: { lane: Lane; session: Session }; onShowSession: (lane: Lane, session: Session) => void }) {
+  const { icon, says, note } = autoReviewWords(review);
+  const rounds = `${review.rounds} ${review.rounds === 1 ? 'round' : 'rounds'} so far`;
+  return (
+    <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
+      <div className="ca-prinsp-auto-head">
+        <Icon name={icon} size={12} />
+        <span className="ca-prinsp-auto-says" title={`Codealong has an agent review the pull requests that wait on your review (Settings › Accounts): ${rounds}.`}>
+          {says}
+        </span>
+        <span className="ca-meta" title={absolute(review.at)}>
+          {ago(review.at, now)}
+        </span>
+        {review.comment && (
+          <button type="button" className="ca-linkbtn" title="Open its latest review on GitHub" onClick={() => review.comment && void openUrl(review.comment)}>
+            Comment
+          </button>
+        )}
+        {held && (
+          <button type="button" className="ca-linkbtn" title="Show the session that reviews it" onClick={() => onShowSession(held.lane, held.session)}>
+            Session
+          </button>
+        )}
+      </div>
+      {note && <p className="ca-prinsp-auto-note">{note}</p>}
+    </div>
+  );
 }
 
 /** What the details need: the PR with where it lives, and what a click on a worktree or session
@@ -323,6 +355,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             ))}
           </ul>
         )}
+        {pr.autoReview && <AutoReviewRow review={pr.autoReview} now={now} held={item.sessions.find((s) => s.session.key === pr.autoReview?.session)} onShowSession={onShowSession} />}
       </section>
 
       {comments.length > 0 && (

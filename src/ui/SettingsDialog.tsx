@@ -4,12 +4,12 @@
 // in AccountsSection.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, testJev } from '../api';
+import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, startOptions, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ShortcutStatus, Theme, Usage, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ReviewsCfg, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
@@ -117,6 +117,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
       <>
         <AccountsSection focus={focus} usage={usage} terminal={apps.terminal} now={now} onSaved={() => void load()} />
         {cfg && <LimitsField cfg={cfg} disabled={!!broken} onSave={save} />}
+        {cfg && <ReviewsField cfg={cfg} disabled={!!broken} onSave={save} />}
       </>
     );
   } else if (section === 'agents') {
@@ -286,6 +287,64 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <span>Carry on after a network error</span>
         <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, for now.</small>
       </label>
+    </fieldset>
+  );
+}
+
+/** `[reviews]` when config.toml has none (config.rs `ReviewsCfg`). */
+const REVIEWS_OFF: ReviewsCfg = { auto: false, account: '', comment: true };
+
+/** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
+ *  its harness's background service, else in Codealong, else in a terminal behind your windows.
+ *  Null for an account that can start none of those. */
+function reviewsRunIn(a: StartAccount): string | null {
+  const background = a.places.find((p) => p.place === 'background');
+  if (background && !background.behind) return 'in the background';
+  if (a.places.some((p) => p.place === 'codealong')) return 'in Codealong';
+  return background ? 'in a terminal behind your windows' : null;
+}
+
+/** `[reviews]`: an agent reviews the pull requests that wait on your review, on an account, and
+ *  posts each review on its pull request (autoreview.rs). */
+function ReviewsField({ cfg, disabled, onSave }: PaneProps) {
+  const reviews = { ...REVIEWS_OFF, ...cfg.reviews };
+  const [accounts, setAccounts] = useState<StartAccount[]>([]);
+  useEffect(() => {
+    // Without them only Auto and the account config.toml names are offered, which still work.
+    startOptions()
+      .then((o) => setAccounts(o.accounts))
+      .catch(() => {});
+  }, []);
+  const profiles: Profile[] = [{ id: '', name: 'Auto' }];
+  for (const a of accounts) {
+    const where = reviewsRunIn(a);
+    if (where) profiles.push({ id: a.name, name: `${a.name}, ${where}` });
+  }
+  const set = (next: Partial<ReviewsCfg>) => void onSave({ ...cfg, reviews: { ...reviews, ...next } });
+  return (
+    <fieldset className="ca-settings-fields" disabled={disabled}>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={reviews.auto} onChange={(e) => set({ auto: e.target.checked })} />
+        <span>Review pull requests that wait on your review</span>
+        <small>
+          An agent reviews each open pull request that asks for your review, in a session of its own, and again when new commits come in while it still waits on you. It reads the pull request and the code around it and changes nothing. A few run at once. A pull request joins what waits on
+          you once its agent’s review is done, and its card says where that stands.
+        </small>
+      </label>
+      {reviews.auto && (
+        <>
+          <label className="ca-field">
+            <span>Review on</span>
+            <ProfileSelect value={reviews.account} profiles={profiles} onChange={(account) => set({ account })} />
+            <small>Auto is the account the quick panel’s Auto would start, among those that can start a session out of the way.</small>
+          </label>
+          <label className="ca-field ca-settings-check">
+            <input type="checkbox" checked={reviews.comment} onChange={(e) => set({ comment: e.target.checked })} />
+            <span>Post each review on its pull request</span>
+            <small>As a comment from your GitHub account that says an agent wrote it and which commit it read. A comment leaves your review still asked for: approving or asking for changes stays yours. Off, each review stays in its session for you to read.</small>
+          </label>
+        </>
+      )}
     </fieldset>
   );
 }

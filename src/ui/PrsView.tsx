@@ -9,7 +9,7 @@
 
 import { absolute, ago, count } from '../format';
 import { selectHow, type SelectHow } from '../picks';
-import { prFlag } from '../prStatus';
+import { heldForAgent, prFlag } from '../prStatus';
 import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
 import { PrPills } from './PrPills';
@@ -74,9 +74,10 @@ export function prIsOpen(pr: PrItem): boolean {
   return pr.state !== 'merged' && pr.state !== 'closed';
 }
 
-/** Your review is asked for and you haven't snoozed it: it waits on you now. */
+/** Your review is asked for, you haven't snoozed it, and Codealong's agent isn't still reviewing
+ *  it: it waits on you now. */
 export function waitsOnReview(pr: PrItem): boolean {
-  return pr.reviewRequested && !pr.snoozedUntil && prIsOpen(pr);
+  return pr.reviewRequested && !pr.snoozedUntil && !heldForAgent(pr) && prIsOpen(pr);
 }
 
 /** Your review is asked for and you snoozed it until a time still to come. */

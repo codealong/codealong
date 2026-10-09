@@ -338,6 +338,25 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
     least_full(&all).or_else(|| candidates.iter().find(|c| c.preferred).or(candidates.first()).map(first))
 }
 
+/// Auto's account, by the quick panel's rule (`auto_pick`): among the accounts that can start a
+/// session (in one of `places`, when any are given; on `model`, when given, for the accounts whose
+/// command line takes it), preferred ones with room first, and among those the one whose week
+/// resets soonest. `codealong start`'s Auto, and the account automatic reviews run on unless
+/// config.toml names one (autoreview.rs).
+pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64) -> Option<String> {
+    let home = home();
+    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter_map(|a| ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
+    let preferred = preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
+    let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)))).collect();
+    let candidates: Vec<Candidate> = startable
+        .iter()
+        .zip(&models)
+        .filter(|((a, offered), _)| (places.is_empty() || places.iter().any(|p| offered.contains(p))) && model.is_none_or(|m| crate::harness::of(a).is_some_and(|h| h.offers_model(a, m))))
+        .map(|((a, _), m)| Candidate { name: &a.name, preferred: preferred.contains(&a.name.as_str()), model: m.as_deref() })
+        .collect();
+    auto_pick(&candidates, usages, now).map(|p| p.account)
+}
+
 /// A model name safe to type into the shell inside single quotes: letters, digits and `-._:[]`.
 /// The quotes matter: zsh would read `fable[1m]` as a file pattern.
 pub fn valid_model(m: &str) -> bool {

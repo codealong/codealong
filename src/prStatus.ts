@@ -2,7 +2,7 @@
 // its checks, and one for anything else that keeps GitHub from merging it. When nothing does,
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
-import type { Checks, Merge, PrComment, PrItem, PrState } from './types';
+import type { AutoReview, Checks, Merge, PrComment, PrItem, PrState } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
@@ -22,10 +22,20 @@ export interface PrFacts {
   state: PrState;
   checks: Checks;
   merge: Merge;
+  /** A PRs-view item's automatic review: one the agent is still on reads so in place of
+   *  Awaiting review. */
+  autoReview?: AutoReview;
   base?: string | null;
 }
 
 const isOpen = (state: PrState) => state !== 'merged' && state !== 'closed';
+
+/** Codealong's agent hasn't finished reviewing the PR's commit (autoreview.rs, `[reviews] auto`):
+ *  it's out of what waits on you until it has, as a snoozed review is until its time (model.rs
+ *  `PrItem::waits_on_review`). */
+export function heldForAgent(pr: { autoReview?: { holds?: boolean } }): boolean {
+  return !!pr.autoReview?.holds;
+}
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -47,6 +57,7 @@ function reviewPill(pr: PrFacts): PrPill {
       if (pr.merge === 'unknown') return pill('pass', 'Approved', "Approved. GitHub hasn't said yet whether it can merge");
       return pill('pass', 'Approved', 'Approved');
     default:
+      if (heldForAgent(pr)) return pill('plain', 'Agent reviewing', 'Codealong’s agent is reviewing it: it waits on your review once that’s done');
       return pill('plain', 'Awaiting review', 'Not approved yet');
   }
 }
@@ -88,8 +99,8 @@ export function prPills(pr: PrFacts): PrPill[] {
  *  are what the Needs you filter keeps. */
 export function prFlag(pr: PrItem): 'ready' | 'attn' | 'alert' | null {
   if (!isOpen(pr.state)) return null;
-  // A review you snoozed waits until its time.
-  if (pr.reviewRequested && !pr.snoozedUntil) return 'attn';
+  // A review you snoozed waits until its time, and one the agent is on until it's done.
+  if (pr.reviewRequested && !pr.snoozedUntil && !heldForAgent(pr)) return 'attn';
   if (!pr.mine) return null;
   if (prReady(pr)) return 'ready';
   if (pr.checks.failed > 0) return 'alert';

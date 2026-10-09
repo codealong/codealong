@@ -318,7 +318,25 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     stands (ready to merge, its checks are still running), so they take it from there; what you
     did to it yourself, which is what its agent did through `gh`, isn't told back. Turned on for
     a PR that's approved already, they're told that at once; what happened while Codealong
-    wasn't running isn't told, and a session that has stopped isn't resumed for it. The PRs you pinned come first, in your order (`p`, Pin PR in its
+    wasn't running isn't told, and a session that has stopped isn't resumed for it.
+    With `[reviews] auto = true` (Settings › Accounts), an agent reviews each open PR that asks
+    for your review, isn't yours and isn't a draft, in a session of its own on `[reviews]
+    account` (else the account Auto would start), out of sight: under Claude Code's background
+    service, else in Codealong, else in a terminal behind your windows. It starts in the
+    worktree that holds the PR's branch, else the repo's main checkout, is handed the PR and its
+    whole diff as files (so it never stops on a permission prompt to ask `gh`), is told to
+    change and post nothing, and is linked to the PR. When its turn ends, its last message is
+    posted on the PR as a comment from your GitHub account, saying an agent wrote it and which
+    commit it read (`comment = false` leaves it in the session); a comment, not a review, so the
+    review stays asked of you. When new commits come in while the PR still waits on you, the same
+    session reviews it again once the branch has held still five minutes, told what changed
+    since and asked what of its findings is fixed. Two run at once at most; a session waiting on
+    you holds no place. Until the agent's review of the PR's latest commit is done, or didn't get
+    done (two hours at most), the PR is out of what waits on you (the floating bar, the notch,
+    the waiting window and the mark), as a snoozed review is, so you review it after the agent;
+    it stays under Review requested, saying Agent reviewing. The PR's panel says where its latest round stands, with its comment and
+    its session a click away; `codealong --snapshot --review-plan <owner/name> <number>` prints
+    what a review would start, without starting it. The PRs you pinned come first, in your order (`p`, Pin PR in its
     menu, or drag its row up to the top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to
     reorder), whatever the age filter says. Then reviews asked of you; they're listed for every
     repo a project has here, one checked out only on its default branch too, whose other PRs
@@ -966,6 +984,11 @@ when_hit = "suggest"           # a session stopped at its usage limit offers a m
 [sessions]
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Accounts)
 
+[reviews]
+auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Accounts)
+account = ""                   # the account it runs on; "" for Auto
+comment = true                 # post each review on its PR as a comment from your GitHub account
+
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
@@ -1005,7 +1028,7 @@ chrome_profile = "Work"        # its worktrees' previews, and links into them, o
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
 kept in `state.json` next to it; whether the bar is on, floating or in the notch, and where you
 left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`; each project's canvas in `canvas.json`; which session started or was forked into which, where the harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from
-them by hand, and the PRs whose sessions are nudged with what happens on them, in `pr-links.json`; worktrees marked reusable or not in `worktrees.json`. Todos and labels are in `todos.json`, which is watched, so an
+them by hand, and the PRs whose sessions are nudged with what happens on them, in `pr-links.json`; worktrees marked reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`. Todos and labels are in `todos.json`, which is watched, so an
 agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
 other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
 this one is linked with are in `devices.json`, and what each last said in `device-feeds.json`;
@@ -1132,6 +1155,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/store.rs` | The small JSON files next to the config, read, locked and written one way: a temporary file of the write's own and a rename, a read-modify-write under the file's `.lock`, and a file that doesn't parse left as it is, with an error |
 | `src-tauri/src/reusable.rs`, `src/reusable.ts` | Reusable worktrees: the marks made by hand (`worktrees.json`); `board::reusable`, `reuse_of`, `earlier` and `looks_reusable` have the rules, `git::new_work` reads the reflog, and `src/route.ts` sends Jev's new work to them |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, links made by hand, and the PRs whose sessions are nudged with what happens on them (`pr-links.json`) |
+| `src-tauri/src/autoreview.rs` | Automatic reviews (`[reviews]`): which PRs are due a review and when, the session each runs in, what it's told, reading its review from its last message and posting it on the PR (`reviews.json`) |
 | `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |
 | `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |

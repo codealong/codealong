@@ -986,11 +986,12 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
 }
 
 /// What a conversation about a PR reads of it (side.rs `ask_pr`), which has no `gh` of its own
-/// to ask with: what it is, its description, reviews and comments as Markdown (`reading_md`),
-/// and its whole diff as `gh pr diff` gives it. `detail`'s requests and the diff go in parallel.
-/// A diff GitHub won't give whole (it refuses very large ones) is made of the files' own diffs,
-/// which leave out the largest files, and the Markdown says so.
-pub fn for_reading(pr: &crate::model::PrItem) -> Result<(String, String)> {
+/// to ask with, and an automatic review too (autoreview.rs): what it is, its description, reviews
+/// and comments as Markdown (`reading_md`), and its whole diff as `gh pr diff` gives it, with the
+/// detail they were made from. `detail`'s requests and the diff go in parallel. A diff GitHub
+/// won't give whole (it refuses very large ones) is made of the files' own diffs, which leave out
+/// the largest files, and the Markdown says so.
+pub fn for_reading(pr: &crate::model::PrItem) -> Result<(String, String, PrDetail)> {
     let (detail, diff) = std::thread::scope(|scope| {
         let diff = scope.spawn(|| procs::run("gh", &["pr", "diff", &pr.number.to_string(), "-R", &pr.repo_slug], None, Duration::from_secs(60)));
         (detail(&pr.repo_slug, pr.number), diff.join())
@@ -1000,7 +1001,40 @@ pub fn for_reading(pr: &crate::model::PrItem) -> Result<(String, String)> {
         Ok(Ok(diff)) => (diff, true),
         _ => (d.files.iter().filter_map(|f| f.patch.as_ref().map(|p| format!("diff --git a/{0} b/{0}\n{p}\n", f.path))).collect::<String>(), false),
     };
-    Ok((reading_md(pr, &d, whole), diff))
+    Ok((reading_md(pr, &d, whole), diff, d))
+}
+
+/// What changed on a PR's branch from commit `since` to `head`, as a diff of each file GitHub
+/// shows a diff for (REST, no GraphQL points). None when `head` doesn't follow from `since`: the
+/// branch was rebased or force-pushed, so a diff between them would hold the base's changes too.
+pub fn changes_since(slug: &str, since: &str, head: &str) -> Result<Option<String>> {
+    let out = procs::run("gh", &["api", &format!("repos/{slug}/compare/{since}...{head}")], None, Duration::from_secs(60)).map_err(|e| anyhow!("GitHub: {e}"))?;
+    changes_of(&out)
+}
+
+/// `changes_since` from GitHub's answer.
+fn changes_of(out: &str) -> Result<Option<String>> {
+    let v: Value = serde_json::from_str(out)?;
+    if v.get("status").and_then(Value::as_str) != Some("ahead") {
+        return Ok(None);
+    }
+    let mut diff = String::new();
+    for f in v.get("files").and_then(Value::as_array).into_iter().flatten() {
+        let path = f.get("filename").and_then(Value::as_str).unwrap_or("?");
+        match f.get("patch").and_then(Value::as_str) {
+            Some(p) => diff += &format!("diff --git a/{path} b/{path}\n{p}\n"),
+            None => diff += &format!("diff --git a/{path} b/{path}\n(GitHub shows no diff for this file: it's binary, too big, or only renamed.)\n"),
+        }
+    }
+    Ok(Some(diff))
+}
+
+/// Posts `body` as a comment on PR `number`'s conversation, as you, through `gh`; its link.
+pub fn comment(slug: &str, number: u64, body: &str) -> Result<String> {
+    let input = serde_json::json!({ "body": body }).to_string();
+    let out = procs::run_stdin("gh", &["api", "--method", "POST", &format!("repos/{slug}/issues/{number}/comments"), "--input", "-", "--jq", ".html_url"], &input, Duration::from_secs(30))
+        .map_err(|e| anyhow!("Couldn't comment on #{number}: {e}"))?;
+    Ok(out.trim().to_string())
 }
 
 /// A PR as Markdown, for a conversation about it to read (`for_reading`). `whole`: its diff is
@@ -1141,6 +1175,28 @@ pub fn tally(contexts: &[Value]) -> Checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_changed_since_a_commit_is_its_files_diffs_unless_the_branch_was_rewritten() {
+        let ahead = r#"{"status":"ahead","files":[{"filename":"a.rs","patch":"@@ -1 +1 @@\n-a\n+b"},{"filename":"logo.png"}]}"#;
+        let diff = changes_of(ahead).unwrap().unwrap();
+        assert!(diff.starts_with("diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-a\n+b\n"), "{diff}");
+        assert!(diff.contains("diff --git a/logo.png b/logo.png\n(GitHub shows no diff"), "{diff}");
+        assert_eq!(changes_of(r#"{"status":"diverged","files":[]}"#).unwrap(), None);
+        assert!(changes_of("not json").is_err());
+    }
+
+    #[test]
+    fn a_comment_goes_to_the_prs_conversation_with_its_text_on_stdin() {
+        procs::stand_in::set(Some(Box::new(|program, args, input, _| {
+            assert_eq!((program, args), ("gh", &["api", "--method", "POST", "repos/o/r/issues/7/comments", "--input", "-", "--jq", ".html_url"][..]));
+            assert_eq!(input, Some(r#"{"body":"Two \"problems\".\n<!-- m -->"}"#));
+            Ok("https://github.com/o/r/pull/7#issuecomment-9\n".into())
+        })));
+        let link = comment("o/r", 7, "Two \"problems\".\n<!-- m -->");
+        procs::stand_in::set(None);
+        assert_eq!(link.unwrap(), "https://github.com/o/r/pull/7#issuecomment-9");
+    }
 
     #[test]
     fn reads_a_repos_name_now() {

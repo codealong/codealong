@@ -372,6 +372,8 @@ mod tests {
             closed_at: None,
             lanes: vec!["/work".into()],
             sessions: sessions.iter().map(|k| PrSession { key: (*k).into(), lane: "/work".into() }).collect(),
+            head_oid: None,
+            auto_review: None,
         }
     }
 

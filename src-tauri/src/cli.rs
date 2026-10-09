@@ -3140,7 +3140,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
                 true => c.board()?.usage.clone(),
                 false => Vec::new(),
             };
-            pick_account(&cfg, &usages, place, a.model.as_deref()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
+            start::pick_account(&cfg, &usages, &place.into_iter().collect::<Vec<_>>(), a.model.as_deref(), now_ms()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
         }
         name => name.to_string(),
     };
@@ -3189,23 +3189,6 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         (None, None) => println!("Started."),
     }
     Ok(())
-}
-
-/// Auto's account, by the quick panel's rule (`start::auto_pick`): among the accounts that can
-/// start a session (in `place`, when given; on `model`, when given, for the accounts whose
-/// command line takes it), preferred ones with room first, and among those the one whose week resets soonest.
-fn pick_account(cfg: &Config, usages: &[crate::model::Usage], place: Option<Place>, model: Option<&str>) -> Option<String> {
-    let home = crate::util::home();
-    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter_map(|a| start::ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
-    let preferred = start::preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
-    let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)))).collect();
-    let candidates: Vec<start::Candidate> = startable
-        .iter()
-        .zip(&models)
-        .filter(|((a, places), _)| place.is_none_or(|p| places.contains(&p)) && model.is_none_or(|m| crate::harness::of(a).is_some_and(|h| h.offers_model(a, m))))
-        .map(|((a, _), m)| start::Candidate { name: &a.name, preferred: preferred.contains(&a.name.as_str()), model: m.as_deref() })
-        .collect();
-    start::auto_pick(&candidates, usages, crate::util::now_ms()).map(|p| p.account)
 }
 
 // ---- config ----

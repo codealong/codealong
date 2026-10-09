@@ -131,6 +131,10 @@ pub struct Board {
     pub waiting_shortcut: String,
     /// What Codealong asks Jev, from `[jev]` in config.toml.
     pub jev: crate::config::JevCfg,
+    /// `[reviews]` from config.toml: whether PRs that wait on your review are reviewed without
+    /// being asked (autoreview.rs), on which account, and whether each review is posted.
+    #[serde(default)]
+    pub reviews: crate::config::ReviewsCfg,
     /// Open todos whose work Jev says looks done, by todo id (todojev.rs).
     pub todo_hints: std::collections::BTreeMap<String, TodoHint>,
     /// `[devices]` from config.toml: your other devices (peers.rs), which follows it from here.
@@ -210,13 +214,68 @@ pub struct PrItem {
     pub lanes: Vec<String>,
     /// The sessions that worked on the PR, each with the worktree it's listed under.
     pub sessions: Vec<PrSession>,
+    /// The commit its branch is at, when GitHub says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_oid: Option<String>,
+    /// Where Codealong's own review of it stands, once it's had one (autoreview.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_review: Option<AutoReview>,
+}
+
+/// Where a round of Codealong's automatic review of a PR stands (autoreview.rs).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewStage {
+    /// Its commit is to be reviewed, and no session has started on it yet: it's waiting for its
+    /// branch to hold still, or for another review to finish. Only ever shown, never kept.
+    Queued,
+    /// Its session is reviewing it.
+    Reviewing,
+    /// Reviewed, and posted on the PR as a comment.
+    Posted,
+    /// Reviewed, and left in its session: config.toml says not to post.
+    Kept,
+    /// Its agent said it couldn't review it.
+    Skipped,
+    /// It didn't get done.
+    Failed,
+}
+
+/// Codealong's automatic review of a PR, for its card: the latest round.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoReview {
+    pub stage: ReviewStage,
+    /// The commit it reviews, as GitHub names it.
+    pub head: String,
+    /// The session that reviews the PR, once known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// When the round began, or ended once it has.
+    pub at: i64,
+    /// The latest review it posted, by its link: this round's, else an earlier one's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    /// Why it was skipped or didn't get done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// How many rounds the PR has had, this one with them.
+    pub rounds: usize,
+    /// The PR has new commits since this round's: another follows while it waits on your review.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub behind: bool,
+    /// Its review of the PR's commit isn't done yet, so the PR is held out of what waits on you
+    /// (`PrItem::waits_on_review`) until it is: you review it once the agent has.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub holds: bool,
 }
 
 impl PrItem {
-    /// It's open, your review is asked for, and you haven't snoozed it: what the floating bar
-    /// lists and the mark says needs you.
+    /// It's open, your review is asked for, you haven't snoozed it, and Codealong's agent isn't
+    /// still reviewing it (`AutoReview::holds`): what the floating bar lists and the mark says
+    /// needs you.
     pub fn waits_on_review(&self) -> bool {
-        self.review_requested && self.state.is_open() && self.snoozed_until.is_none()
+        self.review_requested && self.state.is_open() && self.snoozed_until.is_none() && !self.auto_review.as_ref().is_some_and(|a| a.holds)
     }
 }
 

@@ -5,6 +5,7 @@ paths:
   - "src-tauri/src/prlinks.rs"
   - "src-tauri/src/prasks.rs"
   - "src-tauri/src/prmerge.rs"
+  - "src-tauri/src/autoreview.rs"
 ---
 
 # GitHub
@@ -56,3 +57,14 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `gh api graphql` exit 1 with `gh: <message>` on stderr, and one that names a node that isn't
   there fails on `NOT_FOUND` only after its document is checked, which is how the mutations were
   checked without changing anything.
+- Automatic reviews (autoreview.rs) post with REST `POST repos/<owner>/<name>/issues/<n>/comments`
+  (`github.rs` `comment`, the body as JSON on stdin), not `gh pr review --comment`: any review
+  you submit, a comment one too, takes you off the PR's requested reviewers, and the review is
+  still yours to give. What changed between two commits is REST `repos/<owner>/<name>/compare/
+  <a>...<b>` (`changes_since`), whose `status` is `ahead` only when the second follows from the
+  first (`behind` the other way round; checked 2026-10-09, with `files[].filename` and `patch`);
+  after a rebase or force push it's `diverged` and its files hold the base's changes too, so a
+  review then reads the whole diff again. A posted review carries an HTML comment naming
+  the PR and commit (`autoreview::marker`), which GitHub doesn't show, so a review already
+  posted (from another Mac, or before a restart) is found among the PR's comments and not
+  posted twice. Neither the post nor its refusal was tried against a real PR (2026-10-09).

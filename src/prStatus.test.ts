@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentsToAsk, mayApprove, prFlag, prPills, prReady, type PrFacts } from './prStatus';
+import { asksFor, commentPreview, commentsToAsk, heldForAgent, mayApprove, prFlag, prPills, prReady, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -87,5 +87,22 @@ describe('review comments', () => {
   it('shows a comment as plain text on one line', () => {
     expect(commentPreview('**Please** add a [test](http://x)\n\n```ts\ncode\n```')).toBe('Please add a test [code]');
     expect(commentPreview('a'.repeat(300), 10)).toBe('aaaaaaaaa…');
+  });
+});
+
+describe('heldForAgent', () => {
+  const asked = (autoReview: PrItem['autoReview']) => item({ mine: false, reviewRequested: true, autoReview });
+  it('keeps a review the agent is still on out of what waits on you, and says so', () => {
+    const held = asked({ stage: 'reviewing', head: '309811a', at: 0, rounds: 1, holds: true });
+    expect(heldForAgent(held)).toBe(true);
+    expect(prFlag(held)).toBe(null);
+    expect(prPills(held)[0]).toMatchObject({ text: 'Agent reviewing', tone: 'plain' });
+  });
+  it('hands it to you once the agent is done', () => {
+    const done = asked({ stage: 'posted', head: '309811a', at: 0, rounds: 1 });
+    expect(heldForAgent(done)).toBe(false);
+    expect(prFlag(done)).toBe('attn');
+    expect(prPills(done)[0].text).toBe('Awaiting review');
+    expect(prFlag(asked(undefined))).toBe('attn');
   });
 });
