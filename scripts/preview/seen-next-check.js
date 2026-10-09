@@ -57,6 +57,8 @@
   };
 
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
+  // The strip's Seen: the header has no check of its own where the strip shows.
+  var seenKey = function () { return Array.prototype.filter.call(document.querySelectorAll('.ca-sessinsp .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent.indexOf('Seen') === 0; })[0]; };
   var strip = function () { var t = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return t ? t.textContent : ''; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
   var list = function () { return document.querySelector('[role="listbox"]'); };
@@ -116,7 +118,8 @@
       check('⌘E on the list marks a reply that asks you seen and goes on', title() === 'Queue B' && seenKeys().join(';') === picked[0].key, title() + ' ' + seenKeys().join(';'));
       check('and says so', /Queue A: marked seen/.test(strip()), strip());
       check('the keys stay with the list', document.activeElement === list(), document.activeElement && document.activeElement.className);
-      check('a call to allow has no check', !document.querySelector('.ca-sessinsp-seen'));
+      check('a call to allow has nothing to mark seen', !!seenKey() && seenKey().disabled, seenKey() && seenKey().title);
+      check('the header leaves Seen to the strip', !document.querySelector('.ca-sessinsp-seen'));
       key(list(), { key: 'e', metaKey: true });
       return wait(300);
     })
@@ -133,13 +136,13 @@
     .then(function () {
       check('⌘E in the box marks seen and goes on', title() === 'Queue D' && seenKeys()[1] === picked[2].key, title() + ' ' + seenKeys().join(';'));
       check('the next one’s box has the cursor', boxed());
-      var seenBtn = document.querySelector('.ca-sessinsp-seen');
-      check('the check says it goes on', !!seenBtn && /go on to the next \(⌘E\)/.test(seenBtn.title), seenBtn && seenBtn.title);
+      var seenBtn = seenKey();
+      check('Seen says it goes on', !!seenBtn && !seenBtn.disabled && /go on to the next/.test(seenBtn.title), seenBtn && seenBtn.title);
       seenBtn.click();
       return named('Queue B');
     })
     .then(function () {
-      check('the check marks seen and goes on to what’s left', title() === 'Queue B' && seenKeys()[2] === picked[3].key, title() + ' ' + seenKeys().join(';'));
+      check('Seen marks seen and goes on to what’s left', title() === 'Queue B' && seenKeys()[2] === picked[3].key, title() + ' ' + seenKeys().join(';'));
       box().focus();
       var taken = press(box(), { key: 'p', ctrlKey: true, metaKey: true });
       return wait(300).then(function () {

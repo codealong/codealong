@@ -76,6 +76,9 @@ export interface SessionHeaderProps {
   /** The session's actions (menus.ts), as its menu has them: the check marks it seen with them
    *  where the window doesn't say how. */
   actions?: SessionActions;
+  /** The strip above has Seen (SessionPanel.tsx `QueueStrip`), so the header leaves out its check:
+   *  where there's no strip (the peek, a kept session, the canvas) the check is the one button. */
+  seenAbove?: boolean;
   /** Keeps the session on the desktop, from the bar's peek or the notch (kept.rs); `keepTitle`
    *  says how, where it isn't the peek's way. */
   onKeep?: () => void;
@@ -92,8 +95,6 @@ export interface SessionHeaderProps {
   device?: DeviceView | null;
   /** Shown from somewhere to go back to (a PR's or a todo's panel). */
   back?: { label: string; onBack: () => void; title?: string };
-  /** There's another to go on to once this one is seen. */
-  next?: boolean;
   /** In Sessions: whether the panel takes the whole window, and the way to switch. */
   maximized?: boolean;
   onMaximize?: () => void;
@@ -171,7 +172,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -196,7 +197,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + snoozed;
   const naming = !!renaming && !!onRename;
   // Seen where the window says how, else by the session's own action, when it has a turn to see.
-  const seen = onSeen ? (seenable(s) ? onSeen : undefined) : actions?.seen?.run;
+  const seen = seenAbove ? undefined : onSeen ? (seenable(s) ? onSeen : undefined) : actions?.seen?.run;
   const branch = s.branch ?? lane.branch;
 
   return (
@@ -227,7 +228,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               Open in {sessionPlace(s, apps.terminal)}
             </Button>
           )}
-          {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar (⌘E)'} className="ca-sessinsp-seen" onClick={seen} />}
+          {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it goes idle and leaves the bar (⌘E)" className="ca-sessinsp-seen" onClick={seen} />}
           {onKeep && <Button variant="ghost" size="sm" icon="pin" aria-label="Keep on the desktop" title={keepTitle ?? 'Keep on the desktop: it stays up, here, until you close it. Dragging it by its header, or its edge to make it bigger, keeps it too.'} onClick={onKeep} />}
           {onMaximize && (
             <Button

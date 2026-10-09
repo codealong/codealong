@@ -15,7 +15,9 @@
   var menu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
   var said = function (items) { return items.filter(function (i) { return i.text; }).map(function (i) { return i.text + (i.accelerator ? '=' + i.accelerator : ''); }); };
   var has = function (list, text) { return list.some(function (t) { return t === text || t.indexOf(text + '=') === 0; }); };
-  // Mark as seen is there for a session with a turn to see, which the header's check says.
+  // Mark as seen is there for a session with a turn to see, which the header's check says, or the
+  // strip's Seen where the card has the strip (the waiting window) and the header leaves it out.
+  var seenKey = function () { return Array.prototype.filter.call(document.querySelectorAll('.ca-reply .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent.indexOf('Seen') === 0; })[0]; };
   var whole = function (list, seenable) {
     // Snooze reads as Snoozed until … on a session that's snoozed now, as the real board may have.
     return has(list, 'Show in Codealong') && has(list, 'Pin to desktop') && list.some(function (t) { return /^Snooze(d until .*)?$/.test(t); }) && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
@@ -26,8 +28,10 @@
   until(function () { return !!head(); }, 20000)
     .then(function () { return wait(400); })
     .then(function () {
-      seenable = !!button('Mark as seen');
+      var strip = seenKey();
+      seenable = strip ? !strip.disabled : !!button('Mark as seen');
       check('the header keeps to opening it, the check and ⋯', !button('Snooze') && !button('Snoozed') && !button('Archive') && !button('Show in Codealong') && !!button('More'));
+      check('with the strip above, its Seen stands for the check', !strip || !button('Mark as seen'));
       button('More').click();
       return wait(200);
     })
