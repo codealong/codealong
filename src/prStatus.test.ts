@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentsToAsk, prFlag, prPills, prReady, type PrFacts } from './prStatus';
+import { asksFor, commentPreview, commentsToAsk, mayApprove, prFlag, prPills, prReady, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -61,6 +61,17 @@ describe('prFlag', () => {
     expect(prFlag(item({ mine: false, state: 'approved', merge: 'clean' }))).toBeNull();
     expect(prFlag(item({ mine: false, checks: checks({ failed: 3 }) }))).toBeNull();
     expect(prFlag(item({ state: 'merged', merge: 'unknown', reviewRequested: true }))).toBeNull();
+  });
+});
+
+describe('mayApprove', () => {
+  it('approves any open PR but your own, whether or not your review was asked for', () => {
+    expect(mayApprove(item({ mine: false, reviewRequested: true }))).toBe(true);
+    expect(mayApprove(item({ mine: false }))).toBe(true);
+    expect(mayApprove(item({ mine: false, state: 'draft' }))).toBe(true);
+    expect(mayApprove(item({ mine: true }))).toBe(false);
+    expect(mayApprove(item({ mine: false, state: 'merged' }))).toBe(false);
+    expect(mayApprove(item({ mine: false, state: 'closed' }))).toBe(false);
   });
 });
 

@@ -1,7 +1,8 @@
 // Several PRs picked together in PRs (picks.ts), in the pick panel (PickPanel.tsx): what's
 // commonly done to all of them at once, as buttons that say their keys, and each of them. The
-// actions are the menu's (menus.ts `prsActions`): Approve and Snooze take the ones that ask for
-// your review, and say how many where that's fewer than all.
+// actions are the menu's (menus.ts `prsActions`): Approve takes the open ones that aren't yours
+// and Snooze the ones that ask for your review, and each says how many where that's fewer than
+// all.
 
 import { below, showContextMenu } from '../contextMenu';
 import { KEYS, type PrsActions } from '../menus';
@@ -36,7 +37,7 @@ export function PrPickPanel({ items, actions, onShow, onLeaveOut, onMoreMenu }: 
       onMoreMenu={onMoreMenu}
       actions={
         <PickKeys>
-          <Hotkey label={`Approve${some('approve')}`} title={approve ? `${approve.label}, as you` : 'None of them asks for your review'} run={approve && (() => approve.run())} />
+          <Hotkey label={`Approve${some('approve')}`} title={approve ? `${approve.label}, as you` : 'They’re yours or closed: GitHub doesn’t let you approve your own'} run={approve && (() => approve.run())} />
           {/* A menu that didn't pop up leaves nothing half done, and the snooze keys beside it still work. */}
           <Hotkey
             label={`Snooze${some('snooze')}`}

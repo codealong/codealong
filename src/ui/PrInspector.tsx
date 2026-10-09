@@ -1,9 +1,11 @@
 // A PR in the right sidebar: where it lives on this Mac first (worktrees and the sessions that
-// worked on it, drawn like the sidebar's tree), then where it stands, its merge box (MergeBox.tsx),
-// its comments, its description as GitHub renders it, and its changed files with their diffs
-// (PrFiles.tsx), which the file count under Checks and reviews goes to. `PrDetails` is that body
-// on its own, which the panel wraps with its buttons, and a PR's card (PrCard.tsx) with the strip
-// that works through what waits on you and the box that reviews it.
+// worked on it, drawn like the sidebar's tree), then where it stands, its comments, its
+// description as GitHub renders it, and its changed files with their diffs (PrFiles.tsx), which
+// the file count under Checks and reviews goes to. Under the header is a row of buttons: the
+// panel's (Approve, Snooze, GitHub, Review with) with the merge box's (MergeBox.tsx) after
+// Approve, so merging is where approving is. `PrDetails` is that body on its own, which the panel
+// wraps with its buttons, and a PR's card (PrCard.tsx) with the strip that works through what
+// waits on you and the box that reviews it.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
@@ -11,7 +13,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
-import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
+import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
 import type { Lane, PrComment, PrDetail, Session } from '../types';
 import { MergeBox } from './MergeBox';
 import { PanelPlace } from './PanelSession';
@@ -90,8 +92,10 @@ function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace;
 export interface PrDetailsProps {
   item: PrRowItem;
   now: number;
-  /** The panel's buttons, under the header. */
-  actions?: ReactNode;
+  /** The panel's buttons, in the row under the header with the merge box's (MergeBox.tsx):
+   *  Approve before them, the rest after. */
+  lead?: ReactNode;
+  trail?: ReactNode;
   /** Right-click on its header: the PR's menu, as its row has it. A PR's card takes the
    *  right-click anywhere on it (PrCard.tsx), so it passes none. */
   onMenu?: () => void;
@@ -108,7 +112,7 @@ export interface PrDetailsProps {
   keys?: boolean;
 }
 
-interface PrInspectorProps extends Omit<PrDetailsProps, 'actions'> {
+interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail'> {
   approving: boolean;
   onApprove: () => void;
   /** Drops Review with… from the button. */
@@ -120,13 +124,14 @@ interface PrInspectorProps extends Omit<PrDetailsProps, 'actions'> {
 export function PrInspector({ approving, onApprove, onReview, onSnooze, ...details }: PrInspectorProps) {
   const { pr } = details.item;
   const requested = pr.reviewRequested && prIsOpen(pr);
-  const actions = (
-    <div className="ca-insp-actions">
-      {requested && (
-        <Button variant="primary" icon="check" disabled={approving} onClick={onApprove}>
-          {approving ? 'Approving…' : 'Approve'}
-        </Button>
-      )}
+  // Approve is for any open PR but yours, asked for or not; it's filled when it's asked of you.
+  const lead = mayApprove(pr) && (
+    <Button variant={requested ? 'primary' : 'secondary'} icon="check" disabled={approving} title={requested ? undefined : 'Approve it as you, though your review wasn’t asked for'} onClick={onApprove}>
+      {approving ? 'Approving…' : 'Approve'}
+    </Button>
+  );
+  const trail = (
+    <>
       {requested && (
         <Button icon="zzz" title="Out of Review requested and off the floating bar until the time you pick" onClick={(e) => onSnooze(e.currentTarget)}>
           Snooze…
@@ -138,18 +143,18 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, ...detai
       <Button icon="eye" onClick={(e) => onReview(e.currentTarget)}>
         Review with…
       </Button>
-    </div>
+    </>
   );
   return (
     <aside className="ca-insp ca-prinsp" aria-label={`#${pr.number} details`}>
-      <PrDetails {...details} actions={actions} />
+      <PrDetails {...details} lead={lead} trail={trail} />
     </aside>
   );
 }
 
 /** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
  *  comments, its description and its files. */
-export function PrDetails({ item, now, actions, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys }: PrDetailsProps) {
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys }: PrDetailsProps) {
   const { pr } = item;
   const files = useRef<FilesFinder>(null);
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
@@ -251,7 +256,7 @@ export function PrDetails({ item, now, actions, onMenu, onShowSession, onOpenSes
           </span>
         </div>
       </header>
-      {actions}
+      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} />
 
       {item.places.length > 0 && (
         <section className="ca-insp-sec">
@@ -319,8 +324,6 @@ export function PrDetails({ item, now, actions, onMenu, onShowSession, onOpenSes
           </ul>
         )}
       </section>
-
-      <MergeBox key={pr.key} pr={pr} />
 
       {comments.length > 0 && (
         <section className="ca-insp-sec">

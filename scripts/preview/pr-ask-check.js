@@ -29,7 +29,7 @@
       // The first PR asks for your review, and no other does.
       board.prs = (board.prs || []).map(function (x) {
         if (pr && x.key !== pr.key) return Object.assign({}, x, { reviewRequested: false });
-        pr = Object.assign({}, x, { state: 'open', reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null });
+        pr = Object.assign({}, x, { state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null });
         return pr;
       });
       return board;

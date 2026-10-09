@@ -1,7 +1,8 @@
 // Checks picking several PRs in the PRs view (picks.ts, PrPickPanel.tsx, menus.ts `prsActions`,
-// mainKeys.ts): four open PRs of this Mac's, two of them asking for your review. ⌘-click picks
-// another beside the selected one and ⇧-click a run; ⌘A picks every one, and the panel's Approve
-// says it takes the two asking and approves them one after another, with one toast; a
+// mainKeys.ts): four open PRs of this Mac's, two of them asking for your review, one yours. ⌘-click
+// picks another beside the selected one and ⇧-click a run; the panel's Approve takes every open PR
+// but your own, asking or not; ⌘A picks every one, and Approve says it takes the three that aren't
+// yours and approves them one after another, with one toast, while Snooze takes the two asking; a
 // right-click on a picked row is the menu for all of them; P pins them, ⌘O opens each on
 // GitHub, Esc goes back to one, and ⇧↑ ⇧↓ pick the row beside.
 //   scripts/preview.sh prs '' scripts/preview/pr-picks-check.js
@@ -77,27 +78,27 @@
     })
     .then(function () {
       check('⇧-click picks the run from the last one picked', selectedRows() === 'CD', selectedRows());
-      check('Approve, with none asking, is dimmed', !!hotkey('Approve') && hotkey('Approve').disabled, hotkey('Approve') ? hotkey('Approve').textContent : 'none');
+      check('Approve, with none asking, takes the one that isn’t yours', !!hotkey('Approve') && hotkey('Approve').textContent === 'Approve 1' && !hotkey('Approve').disabled, hotkey('Approve') ? hotkey('Approve').textContent : 'none');
       keyDown({ key: 'a', code: 'KeyA', metaKey: true });
       return wait(100);
     })
     .then(function () {
       check('⌘A picks every PR listed', selectedRows() === 'ABCD' && head() === '4 PRs', selectedRows() + ' ' + head());
       var approve = hotkey('Approve');
-      check('Approve says it takes the two asking', !!approve && approve.textContent === 'Approve 2' && !approve.disabled, approve ? approve.textContent : 'none');
+      check('Approve says it takes the three that aren’t yours', !!approve && approve.textContent === 'Approve 3' && !approve.disabled, approve ? approve.textContent : 'none');
       return menuOf(row(1));
     })
     .then(function (labels) {
-      var want = ['Open 4 PRs on GitHub', 'Approve 2 PRs', 'Pin 4 PRs', 'Copy links', 'Copy branch names'];
+      var want = ['Open 4 PRs on GitHub', 'Approve 3 PRs', 'Pin 4 PRs', 'Copy links', 'Copy branch names'];
       check('a right-click on a picked row is the menu for all of them', want.every(function (l) { return labels.indexOf(l) >= 0; }) && labels.some(function (l) { return /^Snooze 2 reviews/.test(l); }), labels.join(' | '));
       hotkey('Approve').click();
-      return until(function () { return sent('review_pr').length >= 2; }, 3000, 'both approved').then(function () { return wait(100); });
+      return until(function () { return sent('review_pr').length >= 3; }, 3000, 'all three approved').then(function () { return wait(100); });
     })
     .then(function () {
       var asked = sent('review_pr');
-      var numbers = picked.slice(0, 2).map(function (k) { return Number(k.split('#')[1]); });
-      check('Approve approves the two asking, in the list’s order', asked.length === 2 && asked.every(function (a) { return a.verdict === 'approve'; }) && asked[0].number === numbers[0] && asked[1].number === numbers[1], JSON.stringify(asked));
-      check('one toast says so', /Approved 2 PRs\./.test(toast()), toast());
+      var numbers = [picked[0], picked[1], picked[3]].map(function (k) { return Number(k.split('#')[1]); });
+      check('Approve approves the three that aren’t yours, in the list’s order', asked.length === 3 && asked.every(function (a) { return a.verdict === 'approve'; }) && asked.map(function (a) { return a.number; }).join() === numbers.join(), JSON.stringify(asked));
+      check('one toast says so', /Approved 3 PRs\./.test(toast()), toast());
       keyDown({ key: 'p', code: 'KeyP' });
       return wait(100);
     })

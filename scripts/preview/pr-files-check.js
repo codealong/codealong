@@ -40,7 +40,7 @@
       // The first PR asks for your review, with these files, and no other does.
       board.prs = (board.prs || []).map(function (x) {
         if (pr && x.key !== pr.key) return Object.assign({}, x, { reviewRequested: false });
-        pr = Object.assign({}, x, { state: 'open', reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null, changedFiles: FILES.length });
+        pr = Object.assign({}, x, { state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null, changedFiles: FILES.length });
         return pr;
       });
       return board;

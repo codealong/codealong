@@ -306,24 +306,25 @@ describe('worktrees picked together', () => {
 describe('PRs picked together', () => {
   const pr = (over: Partial<PrItem> = {}): PrItem => fx.prItem({ key: 'acme/api#7', number: 7, url: 'https://github.com/acme/api/pull/7', head: 'fix-login', reviewRequested: true, ...over });
   const asked = pr();
-  const mine = pr({ key: 'acme/api#8', number: 8, url: 'https://github.com/acme/api/pull/8', head: 'add-tests', reviewRequested: false });
+  const mine = pr({ key: 'acme/api#8', number: 8, url: 'https://github.com/acme/api/pull/8', head: 'add-tests', reviewRequested: false, mine: true });
   const merged = pr({ key: 'acme/api#9', number: 9, url: 'https://github.com/acme/api/pull/9', head: 'old', state: 'merged' });
+  const other = pr({ key: 'acme/api#10', number: 10, url: 'https://github.com/acme/api/pull/10', head: 'docs', reviewRequested: false });
 
-  it('approves and snoozes the ones that ask for your review, and says how many', () => {
+  it('approves any open PR but your own, snoozes the ones that ask for your review, and says how many', () => {
     const approved: string[][] = [];
-    const can = { report, approve: (prs: PrItem[]) => approved.push(prs.map((p) => p.key)), pin: { label: 'Pin 3 PRs', run: noop } };
-    expect(labels(prsMenu([asked, mine, merged], can))).toEqual(['Open 3 PRs on GitHub', '-', 'Approve 1 PR', 'Snooze 1 review ›', '-', 'Pin 3 PRs', '-', 'Copy links', 'Copy branch names']);
-    const acts = prsActions([asked, mine, merged], can);
-    expect(acts.takes).toEqual({ approve: 1, snooze: 1 });
+    const can = { report, approve: (prs: PrItem[]) => approved.push(prs.map((p) => p.key)), pin: { label: 'Pin 4 PRs', run: noop } };
+    expect(labels(prsMenu([asked, mine, merged, other], can))).toEqual(['Open 4 PRs on GitHub', '-', 'Approve 2 PRs', 'Snooze 1 review ›', '-', 'Pin 4 PRs', '-', 'Copy links', 'Copy branch names']);
+    const acts = prsActions([asked, mine, merged, other], can);
+    expect(acts.takes).toEqual({ approve: 2, snooze: 1 });
     acts.approve?.run();
-    // A merged PR asked of you is past reviewing.
-    expect(approved).toEqual([['acme/api#7']]);
+    // A merged PR asked of you is past reviewing, and GitHub doesn't let you approve your own.
+    expect(approved).toEqual([['acme/api#7', 'acme/api#10']]);
     expect(keyed(acts, 'p')?.action).toBe(can.pin);
   });
 
-  it('offers no approval where the window can’t give one, nor where none asks for it', () => {
-    expect(prsActions([asked, mine], { report }).approve).toBeUndefined();
-    expect(labels(prsMenu([mine, merged], { report }))).toEqual(['Open 2 PRs on GitHub', '-', 'Copy links', 'Copy branch names']);
+  it('offers no approval where the window can’t give one, nor where none can be given', () => {
+    expect(prsActions([asked, other], { report }).approve).toBeUndefined();
+    expect(labels(prsMenu([mine, merged], { report, approve: noop }))).toEqual(['Open 2 PRs on GitHub', '-', 'Copy links', 'Copy branch names']);
   });
 });
 

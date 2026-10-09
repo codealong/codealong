@@ -45,7 +45,7 @@
     return Object.assign({}, i, { group: group, status: group, asks: false, snoozedUntil: null, since: 1000 + n, hidden: false });
   });
   var prs = (board.prs || []).slice(0, 2).map(function (p, n) {
-    return Object.assign({}, p, { state: 'open', reviewRequested: true, requestedBy: 'ana', requestedAt: 2000 + n, snoozedUntil: null, mergedAt: null, closedAt: null });
+    return Object.assign({}, p, { state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedBy: 'ana', requestedAt: 2000 + n, snoozedUntil: null, mergedAt: null, closedAt: null });
   });
   var reviews = prs.map(function (p) {
     return { key: p.key, number: p.number, title: p.title, repo: p.repo, repoSlug: p.repoSlug, url: p.url, project: p.project, requestedBy: 'ana', since: p.requestedAt, updatedAt: p.updatedAt };

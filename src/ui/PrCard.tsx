@@ -36,6 +36,7 @@ import { below, showContextMenu, type MenuAction, type MenuSpec } from '../conte
 import { useLatest } from '../latest';
 import * as menus from '../menus';
 import { errorText, type Report } from '../report';
+import { mayApprove } from '../prStatus';
 import { askAccount, askAccounts, reviewItems } from '../review';
 import { notAsked, showSides, startingSide, useKept, useSide, useSideView } from '../side';
 import { reviewSnoozeMenu } from '../snooze';
@@ -126,7 +127,9 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   const box = useRef<HTMLTextAreaElement>(null);
   const accounts = useStartAccounts();
   const onDesktop = menus.useDesktopPins();
-  const requested = pr.reviewRequested && prIsOpen(pr);
+  // Any open PR but your own takes a review, asked for or not; anything open takes a comment.
+  const reviewable = mayApprove(pr);
+  const stillOpen = prIsOpen(pr);
   const written = reviewText.trim().length > 0;
 
   useEffect(() => {
@@ -230,9 +233,9 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
 
   const reviewWith = reviewItems(pr, lanes, accounts, usage, report, () => can.left?.('review started'), now);
   const actions: menus.PrActions = {
-    approve: requested ? { label: `Approve #${pr.number}`, run: () => review('approve') } : undefined,
-    comment: requested ? { label: 'Comment', run: () => review('comment') } : undefined,
-    changes: requested ? { label: 'Request changes', run: () => review('request-changes') } : undefined,
+    approve: reviewable ? { label: `Approve #${pr.number}`, run: () => review('approve') } : undefined,
+    comment: stillOpen ? { label: 'Comment', run: () => review('comment') } : undefined,
+    changes: reviewable ? { label: 'Request changes', run: () => review('request-changes') } : undefined,
     review: reviewWith.length > 0 ? { label: 'Review with', items: reviewWith } : undefined,
     // As a session's snooze settles (menus.ts `settle`): the review has left what waits on you
     // at once, and what goes wrong is reported after.
@@ -284,20 +287,21 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     );
 
   const sign = (name: keyof typeof menus.PR_CHORDS) => menus.chordSigns(menus.PR_CHORDS[name] ?? '');
+  const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';
   const snooze = actions.snooze;
   const buttons: ReactNode = (
     <>
-      <Hotkey label="Approve" keys={sign('approve')} title={actions.approve ? 'Approve it, with what’s written on Review as the review’s text, and go on' : 'It doesn’t ask for your review'} run={actions.approve && (() => actions.approve?.run())} />
-      <Hotkey label="Comment" keys={sign('comment')} title={actions.comment ? 'Comment on it with what’s written on Review, and go on' : 'It doesn’t ask for your review'} run={actions.comment && (() => actions.comment?.run())} />
+      <Hotkey label="Approve" keys={sign('approve')} title={actions.approve ? 'Approve it, with what’s written on Review as the review’s text, and go on' : notReviewable} run={actions.approve && (() => actions.approve?.run())} />
+      <Hotkey label="Comment" keys={sign('comment')} title={actions.comment ? 'Comment on it with what’s written on Review, and go on' : 'It’s closed'} run={actions.comment && (() => actions.comment?.run())} />
       <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'The review can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
       <Hotkey label="Review with" keys={sign('review')} title={actions.review ? `Start a review on an account; the key starts it ${actions.review.items[0] && actions.review.items[0] !== 'separator' && !('items' in actions.review.items[0]) ? actions.review.items[0].label.replace(/^Auto \([^)]*\) /, 'on Auto ') : ''}` : 'No account can start a review here'} run={actions.review && ((el) => void showContextMenu(actions.review?.items ?? [], below(el)).catch(() => {}))} />
       <Hotkey label="GitHub" keys={sign('github')} title="Open it on GitHub" run={() => actions.github.run()} />
     </>
   );
 
-  const verdicts = requested ? `${sign('approve')} approves and goes on · ${sign('comment')} comments` : 'Your review isn’t asked for; a comment still goes to the PR';
+  const verdicts = reviewable ? `${sign('approve')} approves and goes on · ${sign('comment')} comments` : stillOpen ? `${notReviewable}; ${sign('comment')} comments` : 'It’s closed; a comment still goes to the PR';
   const answering = conversation?.running && !asking ? `${conversation.account ?? 'Ask'} is answering on Ask · ` : '';
-  const said = note?.text ?? (starting ? 'Reading the PR…' : asking ? [`⏎ asks${answerer ? ` ${answerer}` : ''}`, requested && `${sign('approve')} approves and goes on`].filter(Boolean).join(' · ') : answering + verdicts);
+  const said = note?.text ?? (starting ? 'Reading the PR…' : asking ? [`⏎ asks${answerer ? ` ${answerer}` : ''}`, reviewable && `${sign('approve')} approves and goes on`].filter(Boolean).join(' · ') : answering + verdicts);
   // Ask's earlier questions, while nothing about them shows above the box.
   const earlier = kept.filter((k) => k.id !== conversation?.id);
   const sideShown = !!conversation || (!!shown && shown.kind !== 'starting') || starting;
@@ -332,7 +336,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
             ref={box}
             value={text}
             lines={6}
-            hint={asking ? `Ask about #${pr.number}: ${answerer ?? 'an agent'} reads it and its code to answer` : requested ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
+            hint={asking ? `Ask about #${pr.number}: ${answerer ?? 'an agent'} reads it and its code to answer` : reviewable ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
             onChange={(e) => {
               setText(e.target.value);
               if (note?.error) setNote(null);

@@ -1,5 +1,6 @@
-// Checks a PR's merge box (MergeBox.tsx, merge.ts), on its card in the waiting window. A PR ready
-// to merge says so, with GitHub's pick for you on its button and a caret for the other ways;
+// Checks a PR's merge box (MergeBox.tsx, merge.ts), on its card in the waiting window, where its
+// row of buttons is right under the PR's title. A PR plainly ready to merge says so in its filled
+// button, GitHub's pick for you, with a caret for the other ways and no line under the row;
 // pressing it shows the commit GitHub would write for that way, which the caret's menu switches
 // (a rebase writes none), the email it goes under, and whether the branch goes too. ⌘⏎ in the
 // fields confirms, and doesn't approve the PR as ⌘⏎ does elsewhere on the card; it sends the head
@@ -47,7 +48,7 @@
       // The first PR asks for your review, and no other does.
       board.prs = (board.prs || []).map(function (x) {
         if (pr && x.key !== pr.key) return Object.assign({}, x, { reviewRequested: false });
-        pr = Object.assign({}, x, { state: 'open', reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null });
+        pr = Object.assign({}, x, { state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null });
         return pr;
       });
       return board;
@@ -56,8 +57,8 @@
 
   var box = function () { return q('.ca-merge'); };
   var says = function () { var s = q('.ca-merge-standing strong'); return s ? s.textContent : null; };
-  var main = function () { return q('.ca-merge-actions .ca-split-main, .ca-merge-actions .ca-split > .ca-btn'); };
-  var caret = function () { return q('.ca-merge-actions .ca-split-caret'); };
+  var main = function () { return q('.ca-merge-main > .ca-btn'); };
+  var caret = function () { return q('.ca-merge-main .ca-split-caret'); };
   var button = function (text) { return all('.ca-merge .ca-btn').filter(function (b) { return b.textContent === text; })[0]; };
   var title = function () { return q('.ca-merge-write .ca-field input'); };
   var message = function () { return q('.ca-merge-write textarea'); };
@@ -69,7 +70,8 @@
   say('merge box check: waiting for the box');
   until(function () { return !!pr && !!main(); }, 20000, 'the merge box')
     .then(function () {
-      check('a PR ready to merge says so', says() === 'Ready to merge', says());
+      check('a PR plainly ready says so in its filled button, with no line under the row', !says() && main().classList.contains('ca-btn--primary'), says());
+      check('the merge buttons sit in the row under the PR’s title', !!q('.ca-prinsp > .ca-merge > .ca-insp-actions .ca-merge-main') && q('.ca-prinsp > .ca-merge').previousElementSibling === q('.ca-prinsp > header'));
       check('its button is GitHub’s pick for you, with a caret for the others', main().textContent === 'Squash and merge' && !!caret(), main().textContent);
       check('the box is read for the PR the card shows', JSON.stringify(sent('merge_box')[0]) === JSON.stringify({ repo: pr.repoSlug, number: pr.number }), JSON.stringify(sent('merge_box')[0]));
       main().click();

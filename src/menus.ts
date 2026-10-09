@@ -23,6 +23,7 @@ import { rememberResumed, resumeAccount } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
 import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, Todo } from './types';
+import { mayApprove } from './prStatus';
 import { errorText, type Report } from './report';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
@@ -628,7 +629,7 @@ export function lanesMenu(lanes: Lane[], can: LanesCan): MenuSpec {
 /** What a window can do to several PRs picked together (the main window's PRs). */
 export interface PrsCan {
   report: Report;
-  /** Approves these, each as you, one after another. */
+  /** Approves these, each as you, one after another: the ones you may (prStatus.ts `mayApprove`). */
   approve?: (prs: PrItem[]) => void;
   /** Pins them to this window's own list, or unpins them. */
   pin?: MenuAction;
@@ -648,7 +649,7 @@ export interface PrsActions {
   takes: Record<'approve' | 'snooze', number>;
 }
 
-/** Whether you're asked to review it and it's still open: what Approve and Snooze review take. */
+/** Whether you're asked to review it and it's still open: what Snooze review takes. */
 function asksYourReview(p: PrItem): boolean {
   return p.reviewRequested && p.state !== 'merged' && p.state !== 'closed';
 }
@@ -656,18 +657,19 @@ function asksYourReview(p: PrItem): boolean {
 export function prsActions(prs: PrItem[], can: PrsCan): PrsActions {
   const { report } = can;
   const asked = prs.filter(asksYourReview);
+  const approvable = prs.filter(mayApprove);
   const n = (list: unknown[]) => count(list.length, 'PR');
   // One after another, so they open in the list's order.
   const openAll = () => void prs.reduce<Promise<unknown>>((before, p) => before.then(() => openUrl(p.url)), Promise.resolve()).catch((e: unknown) => report.error(errorText(e)));
   const lines = (list: (string | null | undefined)[]) => list.filter((x): x is string => !!x).join('\n');
   return {
     github: prs.length > 0 ? { label: `Open ${n(prs)} on GitHub`, run: openAll } : undefined,
-    approve: can.approve && asked.length > 0 ? { label: `Approve ${n(asked)}`, run: () => can.approve?.(asked) } : undefined,
+    approve: can.approve && approvable.length > 0 ? { label: `Approve ${n(approvable)}`, run: () => can.approve?.(approvable) } : undefined,
     snooze: asked.length > 0 ? reviewsSnoozeMenu(asked, Date.now(), (act) => void act.catch((e: unknown) => report.error(errorText(e))), !!can.keys) : undefined,
     pin: can.pin,
     copyLink: copyItem(prs.length === 1 ? 'Copy link' : 'Copy links', lines(prs.map((p) => p.url)), 'PR links', report),
     copyBranch: copyItem(prs.length === 1 ? 'Copy branch name' : 'Copy branch names', lines(prs.map((p) => p.head)), 'branch names', report),
-    takes: { approve: asked.length, snooze: asked.length },
+    takes: { approve: approvable.length, snooze: asked.length },
   };
 }
 
@@ -924,7 +926,7 @@ export interface PrCan {
   review?: MenuAction[];
   /** Shows it in the main window, from the other windows. */
   reveal?: () => void;
-  /** Approves it, when you're asked to review it and it's open. */
+  /** Approves it, where you may: it's open and it isn't yours (prStatus.ts `mayApprove`). */
   approve?: () => void;
   /** Snooze review (snooze.ts `reviewSnoozeMenu`), when it waits on your review. */
   snooze?: MenuGroup;

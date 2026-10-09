@@ -36,7 +36,7 @@
       var n = 0;
       board.prs = (board.prs || []).map(function (x) {
         if (n < 2) {
-          var asked = Object.assign({}, x, { state: 'open', reviewRequested: true, requestedBy: 'ana', requestedAt: now - (2 - n) * 1800e3, snoozedUntil: null, mergedAt: null, closedAt: null, title: 'Review ' + 'XY'[n] });
+          var asked = Object.assign({}, x, { state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedBy: 'ana', requestedAt: now - (2 - n) * 1800e3, snoozedUntil: null, mergedAt: null, closedAt: null, title: 'Review ' + 'XY'[n] });
           if (!prs[n]) prs[n] = asked;
           n += 1;
           return asked;

@@ -2,9 +2,9 @@
 // no Approve button (it's in the PR's panel and menu); a review asked of you has Snooze review in
 // its menu, which snoozes it and moves its row to Snoozed at once (ahead.ts); a snoozed review
 // waits under Snoozed with a chip that says when it's back; and its panel says until when, keeps
-// Approve, and its Snooze… wakes it. Each project's two latest open PRs are made reviews asked of
-// you, the second snoozed for three hours, since a snapshot seldom has a snoozed one; others may
-// wait on your review already.
+// Approve first, and its Snooze… wakes it. Each project's two latest open PRs are made reviews
+// asked of you, the second snoozed for three hours, since a snapshot seldom has a snoozed one;
+// others may wait on your review already.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-snooze-check.js
 (function () {
   var press = function (el) {
@@ -49,11 +49,13 @@
         var mine = open.filter(function (pr) { return pr.project === project.name; });
         if (mine[0]) {
           mine[0].reviewRequested = true;
+          mine[0].mine = false;
           mine[0].snoozedUntil = null;
           asked.push('#' + mine[0].number);
         }
         if (mine[1]) {
           mine[1].reviewRequested = true;
+          mine[1].mine = false;
           mine[1].snoozedUntil = now + 3 * 3600e3;
           snoozed.push('#' + mine[1].number);
         }
@@ -106,7 +108,7 @@
         var tag = all('.ca-prinsp-status .ca-tag', panel).map(function (t) { return t.textContent; });
         check('its panel says until when its review is snoozed', tag.some(function (t) { return /^Review snoozed until /.test(t); }) && tag.indexOf('Review requested') < 0, tag.join(' | '));
         var buttons = all('.ca-insp-actions button', panel).map(function (b) { return b.textContent; });
-        check('and keeps Approve beside Snooze…', buttons.slice(0, 2).join('|') === 'Approve|Snooze…', buttons.join(' | '));
+        check('and keeps Approve first, and Snooze…', buttons[0] === 'Approve' && buttons.indexOf('Snooze…') > 0, buttons.join(' | '));
         var snooze = all('.ca-insp-actions button', panel).filter(function (b) { return b.textContent === 'Snooze…'; })[0];
         var made = menus();
         snooze.click();

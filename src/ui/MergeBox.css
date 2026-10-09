@@ -1,11 +1,10 @@
-/* A PR's merge box (MergeBox.tsx): where it stands for merging, what you may do now, and the
-   commit written before a merge. The split button is Inspector.css's, the fields controls.css's. */
+/* A PR's merge box (MergeBox.tsx): the row of buttons it shares with the window's own, where it
+   stands for merging under it, and the commit written before a merge. The row is panel.css's,
+   the split button Inspector.css's, the fields controls.css's. */
 
 .ca-merge {
+  display: grid;
   gap: var(--space-2);
-}
-.ca-merge > .ca-label {
-  margin-bottom: 0;
 }
 
 /* Where it stands: GitHub's colors for ready, waiting, held back and merged. */
@@ -45,7 +44,7 @@
   color: var(--ink-3);
 }
 
-.ca-merge-actions,
+.ca-merge-confirm,
 .ca-merge-opts {
   display: flex;
   flex-wrap: wrap;

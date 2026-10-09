@@ -36,7 +36,8 @@ import { BayHeader, Button, cx, Icon, Kbd, Seg, StatusGlyph } from './ui/primiti
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
-import { prIsOpen, PrsView, type PrRowItem } from './ui/PrsView';
+import { mayApprove } from './prStatus';
+import { PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SESSION_ROWS, SESSION_SORTS, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
 import { TodoComposer, TodoView } from './ui/TodoView';
@@ -854,7 +855,7 @@ export function App() {
     return menus.prMenu(p, {
       report,
       review: reviewItems(p),
-      approve: p.reviewRequested && prIsOpen(p) ? () => approve(p) : undefined,
+      approve: mayApprove(p) ? () => approve(p) : undefined,
       snooze: snoozeReview(p),
       showLane: lane ? { lane, run: () => focusLane(lane) } : undefined,
       pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },

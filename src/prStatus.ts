@@ -97,6 +97,12 @@ export function prFlag(pr: PrItem): 'ready' | 'attn' | 'alert' | null {
   return null;
 }
 
+/** Whether you can approve it: any open PR but your own, which GitHub doesn't let you approve,
+ *  whether or not your review was asked for. Request changes goes by the same. */
+export function mayApprove(pr: Pick<PrItem, 'state' | 'mine'>): boolean {
+  return isOpen(pr.state) && !pr.mine;
+}
+
 /* ---- Review comments ---- */
 
 /** A comment "asks for a change" at this probability or more. */

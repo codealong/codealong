@@ -319,16 +319,19 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     menu, or drag its row up to the top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to
     reorder), whatever the age filter says. Then reviews asked of you; they're listed for every
     repo a project has here, one checked out only on its default branch too, whose other PRs
-    aren't read. Approve is in a PR's panel and its menu, not on its row. Snooze review (in the
+    aren't read. Approve is in a PR's panel and its menu, not on its row, for any open PR but
+    your own (GitHub doesn't let you approve that), your review asked for or not; it's filled
+    when it was asked. Snooze review (in the
     menu, or Snooze… in the panel) puts one off for 15 minutes, an hour, three hours or until 9
     the next morning: it leaves Review requested, the bar's reviews pill, the mark and the
     sidebar's count, and waits under Snoozed with when it's back, the soonest first, until its
     time or Wake now. PRs picked together open on GitHub one after another (⌘O), pin (`p`) and
-    copy their links and branch names; the ones that ask for your review are approved one after
-    another with one toast, or snoozed together.
-    A PR's panel, and its card in the notch and the waiting window, has GitHub's merge box under
-    its checks and reviews: where it stands for merging (ready, blocked and why, behind its base,
-    conflicts, a draft, in the merge queue, auto-merge on) and what you may do now. Merge it with
+    copy their links and branch names; the open ones that aren't yours are approved one after
+    another with one toast, and the ones that ask for your review snoozed together.
+    A PR's panel, and its card in the notch and the waiting window, has GitHub's merge box where
+    Approve is, in the row of buttons under its title, right after Approve: what you may do now,
+    and under the row where it stands for merging when it isn't plainly ready (blocked and why,
+    behind its base, conflicts, a draft, in the merge queue, auto-merge on). Merge it with
     a merge commit, squashed or rebased (picked from the button's caret and kept per repo,
     GitHub's pick for you until then), the commit's title and message first, GitHub's own for
     that way to start from, with the email it goes under and whether the branch goes too (⌘⏎
