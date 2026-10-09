@@ -1,9 +1,9 @@
 //! Plan usage per account: what every harness's numbers are put into, and the asking. Where
 //! the numbers come from is each harness's own (`Adapter::read_usage` for somewhere slow to
 //! ask, `Reader::usage` for what comes with its sessions): Claude Code's sign-in and usage
-//! endpoint are claude/usage.rs, Codex's rate-limit reports codex/usage.rs. OpenCode and
-//! Antigravity have nothing to read: OpenCode bills whichever provider you bring, and
-//! Antigravity keeps its quotas in the app.
+//! endpoint are claude/usage.rs, Codex's rate-limit reports codex/usage.rs. OpenCode,
+//! Antigravity and Cursor have nothing to read: OpenCode bills whichever provider you bring,
+//! Antigravity keeps its quotas in the app, and Cursor asks its servers.
 
 use crate::config::AccountCfg;
 use crate::model::{AccountInfo, Harness, Severity, Usage};

@@ -37,6 +37,7 @@ export function openWords(target: string, terminal: string): string {
     'claude-app': 'Open in Claude app',
     codex: 'Open in Codex',
     antigravity: 'Open Antigravity',
+    cursor: 'Open in Cursor',
     hosted: 'Show in Codealong',
     chrome: 'Show in Chrome',
   };

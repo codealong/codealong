@@ -1,7 +1,7 @@
 # Codealong
 
 A Mac app (Tauri 2: Rust engine, React UI) that tracks every coding agent running on this Mac,
-across Claude Code accounts, Codex, OpenCode and Antigravity, organized by project → repo →
+across Claude Code accounts, Codex, OpenCode, Antigravity and Cursor, organized by project → repo →
 worktree → branch → PR. It shows what each agent is doing, opens any session where it lives,
 and shows plan usage. README.md has the feature list, settings and code map. The design
 system (tokens, components, the model and build plan) is the artifact
@@ -266,7 +266,7 @@ name; read one yourself when you need it elsewhere. Read the one for a harness b
 its adapter, and add what you find to it, not here.
 
 - `claude-code.md`: Claude Code and the Claude app. `codex.md`, `opencode.md`,
-  `antigravity.md`, `acp.md` (the Agent Client Protocol adapters). `skills.md`: skills and the
+  `antigravity.md`, `cursor.md`, `acp.md` (the Agent Client Protocol adapters). `skills.md`: skills and the
   plugin, in every harness. `adding-a-harness.md`.
 - `terminals.md`: Ghostty, iTerm2, Terminal, and starting a session in them. `chrome.md`:
   Chrome's profiles and tabs, Claude in Chrome.

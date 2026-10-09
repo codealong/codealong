@@ -288,6 +288,8 @@ struct Conn {
     linked_there: bool,
     since: i64,
     outbox: Outbox,
+    /// What it knows beyond version 1, from its hello (`peerproto::KNOWS`).
+    knows: Vec<String>,
 }
 
 struct Ask {
@@ -555,7 +557,7 @@ impl Peers {
         if let Some(conn) = st.conns.get_mut(key) {
             let _ = conn.tx.send(Msg::Unlinked);
             let _ = conn.tx.send(Msg::Standing { linked: false });
-            conn.outbox = Outbox::default();
+            conn.outbox.restart();
         }
         drop(st);
         inner.wake.notify_all();
@@ -744,7 +746,7 @@ impl Inner {
             }
         }
         if let Some(c) = st.conns.get_mut(key) {
-            c.outbox = Outbox::default();
+            c.outbox.restart();
         }
         // The new device gets a whole feed at once.
         st.board_dirty = true;
@@ -765,10 +767,11 @@ impl Inner {
 
     /// Runs a linked device's request, after checking it may make it.
     fn answer(&self, from: &str, method: &str, params: Value) -> std::result::Result<Value, String> {
-        let (linked, watching, control, me, them) = {
+        let (linked, watching, control, me, them, older) = {
             let st = self.lock();
             let watching = st.linked.iter().find(|l| l.key == from).is_some_and(Linked::watches);
-            (Self::is_linked(&st, from), watching, st.cfg.remote_control, self.my_name(&st), self.name_of(&st, from))
+            let older = st.conns.get(from).is_some_and(|c| !peerfeed::knows_every_harness(&c.knows));
+            (Self::is_linked(&st, from), watching, st.cfg.remote_control, self.my_name(&st), self.name_of(&st, from), older)
         };
         if !linked {
             return Err(format!("{me} isn't linked with this device."));
@@ -780,7 +783,12 @@ impl Inner {
             return Err(format!("Remote control is off on {me}; turn it on there in Settings › Devices."));
         }
         let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
-        let got = (self.hooks.answer)(method, params, watching);
+        let mut got = (self.hooks.answer)(method, params, watching);
+        if older {
+            if let Ok(v) = &mut got {
+                peerfeed::for_older(v);
+            }
+        }
         if acts {
             audit(&them, short_of(from), method, &key, &got);
         }
@@ -1073,7 +1081,7 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         }
         // A device that knows how gets only what changed since its copy of this one's last feed.
         let resume = (linked && knows.iter().any(|k| k == peerproto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
-        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::default() });
+        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows });
         st.view_dirty = true;
         if let Some(lanes) = resume {
             let _ = tx.send(Msg::Have { lanes });
@@ -1267,7 +1275,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
             }
             if let Some(c) = st.conns.get_mut(key) {
                 c.linked_there = false;
-                c.outbox = Outbox::default();
+                c.outbox.restart();
             }
         }
         Msg::Ping => {

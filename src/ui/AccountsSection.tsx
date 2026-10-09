@@ -1,4 +1,4 @@
-// Settings › Accounts: the Claude Code, Codex, OpenCode and Antigravity accounts Codealong
+// Settings › Accounts: the Claude Code, Codex, OpenCode, Antigravity and Cursor accounts Codealong
 // reads, and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it. Adding an
 // account can put Codealong in it too (install.rs: the plugin in Claude Code, the skill elsewhere), as
@@ -40,13 +40,16 @@ function defaultsFor(harness: Harness, name: string): { home: string; command: s
       // Antigravity keeps every app data folder under ~/.gemini; its command line is `agy`
       // whatever the account is called, so the account takes no command of its own.
       return { home: `~/.gemini/${name}`, command: '' };
+    case 'cursor':
+      // The Cursor app's chats go with ~/.cursor; another folder is its command line's alone.
+      return plain ? { home: '~/.cursor', command: 'cursor-agent' } : { home: `~/.${name}`, command: `CURSOR_CONFIG_DIR=~/.${name} cursor-agent` };
   }
 }
 
 /** Where an account can start a session from Codealong, as start.rs's `places_of` has it: the
  *  Claude and Codex apps each run only the account in the default folder, Codealong runs any
- *  Claude Code, Codex or OpenCode account over its ACP adapter, and Antigravity starts in the
- *  terminal once its command line is installed (the engine says when it isn't). Every account
+ *  Claude Code, Codex or OpenCode account over its ACP adapter, and Antigravity and Cursor start
+ *  in the terminal once their command lines are installed (the engine says when not). Every account
  *  that starts in the terminal can start in the background: Claude Code's own service, or the
  *  terminal behind your windows. */
 export function startPlaces(harness: Harness, home: string): StartPlace[] {
@@ -59,6 +62,7 @@ export function startPlaces(harness: Harness, home: string): StartPlace[] {
     case 'opencode':
       return ['terminal', 'background', 'codealong'];
     case 'antigravity':
+    case 'cursor':
       return ['terminal', 'background'];
   }
 }
@@ -90,6 +94,12 @@ function folderHelp(harness: Harness): React.ReactNode {
       );
     case 'antigravity':
       return <>Antigravity's app data folder, with its conversations. The app's own is ~/.gemini/antigravity; its command line's, ~/.gemini/antigravity-cli beside it, is read with it.</>;
+    case 'cursor':
+      return (
+        <>
+          Where Cursor's command line keeps its chats. The Cursor app's chats are read with ~/.cursor. The command line reads another from <code className="ca-ic">CURSOR_CONFIG_DIR</code>.
+        </>
+      );
   }
 }
 
@@ -104,6 +114,8 @@ function commandHelp(harness: Harness, terminal: string): string {
       return `Starts this account in ${terminal}. Codealong adds --session to reopen a session.`;
     case 'antigravity':
       return `Its command line, agy unless you give another, starts and resumes conversations in ${terminal}. The app's own conversations open in the app.`;
+    case 'cursor':
+      return `Its command line, cursor-agent unless you give another, starts and resumes chats in ${terminal}. The app's own chats open in the app.`;
   }
 }
 
@@ -396,7 +408,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
               <dt>Folder</dt>
               <dd className="ca-code">{a.home}</dd>
               <dt>Command</dt>
-              <dd className="ca-code">{a.command ?? (a.harness === 'antigravity' ? 'agy' : a.name)}</dd>
+              <dd className="ca-code">{a.command ?? (a.harness === 'antigravity' ? 'agy' : a.harness === 'cursor' ? 'cursor-agent' : a.name)}</dd>
               {startPlaces(a.harness, a.home).length > 1 && (
                 <>
                   <dt>Starts in</dt>

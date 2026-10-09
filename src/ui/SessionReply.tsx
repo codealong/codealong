@@ -126,10 +126,13 @@ export function replyPlaceholder(s: Session, terminal: string, way?: Way | null,
       return `${to}: it isn’t running, so ${resumeWords(resuming?.place ?? 'terminal', way.app, resuming?.behind)}`;
     case 'claude-app':
       return `${to}: it isn’t running, so the Claude app opens it with this on the clipboard`;
+    case 'cursor':
+      return `${to}: Cursor opens with this on the clipboard`;
   }
   if (s.harness === 'antigravity' && s.surface === 'app') return `${to}: Antigravity opens with this on the clipboard`;
+  if (s.harness === 'cursor' && s.surface === 'app') return `${to}: Cursor opens with this on the clipboard`;
   if (!s.live && s.harness === 'claude') return s.surface === 'app' ? `${to}: it isn’t running, so the Claude app opens it with this on the clipboard` : `${to}: it isn’t running, so this resumes it in ${terminal}`;
-  if (!s.live && (s.harness === 'codex' || s.harness === 'antigravity') && s.surface === 'cli') return `${to}: it isn’t running, so this resumes it in ${terminal}`;
+  if (!s.live && (s.harness === 'codex' || s.harness === 'antigravity' || s.harness === 'cursor') && s.surface === 'cli') return `${to}: it isn’t running, so this resumes it in ${terminal}`;
   if (s.status === 'working') return `${to}: it takes this in as it works`;
   return to;
 }

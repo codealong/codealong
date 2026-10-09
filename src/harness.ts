@@ -3,13 +3,13 @@
 
 import type { Harness, Session, Usage } from './types';
 
-export const HARNESSES: Harness[] = ['claude', 'codex', 'opencode', 'antigravity'];
+export const HARNESSES: Harness[] = ['claude', 'codex', 'opencode', 'antigravity', 'cursor'];
 
 /** The harness's name as the UI says it. */
-export const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity' };
+export const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity', cursor: 'Cursor' };
 
 /** The app a harness's sessions open in when they don't live in the terminal. */
-export const HARNESS_APP: Record<Harness, string> = { claude: 'Claude app', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity' };
+export const HARNESS_APP: Record<Harness, string> = { claude: 'Claude app', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity', cursor: 'Cursor' };
 
 /** Where a session opens: the terminal by name, or the harness's app. */
 export function sessionPlace(s: Session, terminal: string): string {
@@ -55,6 +55,7 @@ export const NAME_KEPT: Record<Harness, string> = {
   codex: 'Codex keeps it with the thread, for the Codex app.',
   opencode: 'OpenCode keeps it with the session, for its terminal.',
   antigravity: '',
+  cursor: '',
 };
 
 /** The longest name a session takes (harness.rs `NAME_MAX`). */
@@ -81,6 +82,6 @@ export function usageNote(u: Usage | undefined): string {
   if (u.needsSignIn) return 'Not signed in';
   if (u.loading) return 'Reading…';
   if (u.harness === 'codex') return 'No turns yet';
-  if (u.harness === 'opencode' || u.harness === 'antigravity') return 'No limits to show';
+  if (u.harness === 'opencode' || u.harness === 'antigravity' || u.harness === 'cursor') return 'No limits to show';
   return 'Usage unavailable';
 }

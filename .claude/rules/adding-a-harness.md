@@ -7,7 +7,8 @@ paths:
 
 A harness is a module that knows its files, sockets and commands: a folder split by subject
 for the big ones (`claude/`, `codex/`, the adapter and the reader in `mod.rs` and each file's
-first lines saying what it holds), a file for the others (`opencode.rs`, `antigravity.rs`). Two
+first lines saying what it holds), a file for the others (`opencode.rs`, `antigravity.rs`,
+`cursor.rs`). Two
 things in it are what the rest of the app goes through (`harness.rs`): an `Adapter`, which
 answers for a session and for an account, and a `Reader`, which reads its sessions for the
 board. Nothing outside a harness's module branches on which harness it is: it asks
@@ -74,7 +75,11 @@ a change to what's sent shows there. What each harness records and accepts is in
    of lines, searched for a session's worktrees and PRs). Plan usage that comes with the
    sessions is `Reader::usage`. A database is opened with `harness::open_database`, which reads
    a WAL database its writer has closed.
-4. What's still said harness by harness, and so needs a line for a new one: a new way in of its
+4. A device whose build is from before the harness can't read a session, account or usage of
+   it: one in a feed or an answer would lose it the whole message. So it goes only to a device
+   whose hello says it knows it (codealong-peer's `proto::KNOWS`, as `proto::CURSOR`), and
+   `peerfeed.rs` (`reads_everywhere`) leaves it out for the others.
+5. What's still said harness by harness, and so needs a line for a new one: a new way in of its
    own needs a `Way` in codealong-peer, for what the reply box says (`send::Own::way`); a new
    place a session starts is a `Place` there too; a worktree folder the harness makes for itself
    is known by its path in repos.rs (`callsign`, `origin`, with an `Origin` of its own in

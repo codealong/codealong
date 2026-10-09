@@ -450,6 +450,7 @@ window.__TAURI_INTERNALS__ = {
         if (!s || s.hosted) return null;
         var terminal = board.apps.terminal;
         if (s.harness === 'antigravity') return { kind: 'antigravity' };
+        if (s.harness === 'cursor') return s.surface === 'app' ? { kind: 'cursor' } : s.live ? { kind: 'typed', app: terminal } : { kind: 'resume', app: terminal };
         if (s.harness === 'opencode') return { kind: 'opencode' };
         if (s.harness === 'codex') return s.surface === 'app' ? { kind: 'codex-app' } : s.live ? { kind: 'typed', app: terminal } : { kind: 'resume', app: terminal };
         if (!s.live) return s.surface === 'app' ? { kind: 'claude-app' } : { kind: 'resume', app: terminal };

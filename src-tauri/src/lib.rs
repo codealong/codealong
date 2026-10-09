@@ -14,6 +14,7 @@ mod caret;
 mod claude;
 mod cli;
 mod antigravity;
+mod cursor;
 mod codex;
 mod opencode;
 mod origins;

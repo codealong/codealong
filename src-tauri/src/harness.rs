@@ -1,6 +1,6 @@
 //! What Codealong does with a harness's sessions, harness by harness, behind one interface.
 //!
-//! Each harness (Claude Code, Codex, OpenCode, Antigravity) has a module of its own that knows
+//! Each harness (Claude Code, Codex, OpenCode, Antigravity, Cursor) has a module of its own that knows
 //! its files, formats and commands, and an `Adapter` that answers the questions the rest of the
 //! app asks: of a session, where its record is, what it said and did, what it's waiting on you
 //! for and how to answer, where it opens, how a prompt reaches it, how it's forked, stopped and
@@ -865,7 +865,7 @@ pub struct StartAsk<'a> {
     pub files_dir: &'a Path,
 }
 
-static ADAPTERS: [&dyn Adapter; 4] = [&crate::claude::ClaudeCode, &crate::codex::Codex, &crate::opencode::OpenCode, &crate::antigravity::Antigravity];
+static ADAPTERS: [&dyn Adapter; 5] = [&crate::claude::ClaudeCode, &crate::codex::Codex, &crate::opencode::OpenCode, &crate::antigravity::Antigravity, &crate::cursor::Cursor];
 
 /// Every harness's adapter, in the order the app lists them.
 pub fn all() -> impl Iterator<Item = &'static dyn Adapter> {
@@ -912,7 +912,7 @@ mod tests {
 
     #[test]
     fn every_harness_has_its_own_adapter() {
-        for h in [Harness::Claude, Harness::Codex, Harness::Opencode, Harness::Antigravity] {
+        for h in [Harness::Claude, Harness::Codex, Harness::Opencode, Harness::Antigravity, Harness::Cursor] {
             assert_eq!(adapter(h).harness(), h);
         }
     }

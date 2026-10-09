@@ -12,6 +12,7 @@ pub enum Harness {
     Codex,
     Opencode,
     Antigravity,
+    Cursor,
 }
 
 impl Harness {
@@ -22,6 +23,7 @@ impl Harness {
             "codex" => Harness::Codex,
             "opencode" => Harness::Opencode,
             "antigravity" => Harness::Antigravity,
+            "cursor" => Harness::Cursor,
             _ => Harness::Claude,
         }
     }
@@ -33,6 +35,7 @@ impl Harness {
             Harness::Codex => "codex",
             Harness::Opencode => "opencode",
             Harness::Antigravity => "antigravity",
+            Harness::Cursor => "cursor",
         }
     }
 
@@ -43,6 +46,7 @@ impl Harness {
             Harness::Codex => "Codex",
             Harness::Opencode => "OpenCode",
             Harness::Antigravity => "Antigravity",
+            Harness::Cursor => "Cursor",
         }
     }
 }
@@ -133,8 +137,8 @@ pub enum Merge {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    /// `claude:claude2:<id>`, `codex:codex:<id>`, `opencode:opencode:<id>` or
-    /// `antigravity:antigravity:<id>`.
+    /// `claude:claude2:<id>`, `codex:codex:<id>`, `opencode:opencode:<id>`,
+    /// `antigravity:antigravity:<id>` or `cursor:cursor:<id>`.
     pub key: String,
     pub id: String,
     pub short_id: String,

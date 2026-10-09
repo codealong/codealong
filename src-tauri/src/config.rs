@@ -566,7 +566,7 @@ fn update_at<R>(path: &Path, mut change: impl FnMut(&str) -> Result<(String, R)>
     Err(anyhow!("{} kept changing while Codealong saved it, so this change wasn't saved; try it again.", crate::util::tilde(path)))
 }
 
-pub const HARNESSES: [&str; 4] = ["claude", "codex", "opencode", "antigravity"];
+pub const HARNESSES: [&str; 5] = ["claude", "codex", "opencode", "antigravity", "cursor"];
 
 /// Why a list of accounts can't be saved, in words.
 pub fn check_accounts(accounts: &[AccountCfg]) -> std::result::Result<(), String> {
@@ -577,7 +577,7 @@ pub fn check_accounts(accounts: &[AccountCfg]) -> std::result::Result<(), String
             return Err(format!("\"{}\" can't be an account name. Use letters, numbers, dots, dashes or underscores.", a.name));
         }
         if !HARNESSES.contains(&a.harness.as_str()) {
-            return Err(format!("{} needs a harness: claude, codex, opencode or antigravity.", a.name));
+            return Err(format!("{} needs a harness: claude, codex, opencode, antigravity or cursor.", a.name));
         }
         if a.home.trim().is_empty() {
             return Err(format!("{} needs a config folder.", a.name));

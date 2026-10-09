@@ -1,6 +1,6 @@
 // The board as the Rust engine serializes it (src-tauri/src/model.rs). Option<T> arrives as null.
 
-export type Harness = 'claude' | 'codex' | 'opencode' | 'antigravity';
+export type Harness = 'claude' | 'codex' | 'opencode' | 'antigravity' | 'cursor';
 export type Surface = 'cli' | 'app';
 export type Status = 'needs' | 'error' | 'working' | 'unread' | 'idle' | 'stopped';
 export type LogoStatus = 'error' | 'needs' | 'unread' | 'working' | 'idle';
@@ -131,7 +131,8 @@ export type Way =
   | { kind: 'claude-app' }
   | { kind: 'codex-app' }
   | { kind: 'opencode' }
-  | { kind: 'antigravity' };
+  | { kind: 'antigravity' }
+  | { kind: 'cursor' };
 
 export interface Checks {
   passed: number;

@@ -3,10 +3,10 @@
 <img src="design/app-icon.svg" alt="Codealong" width="96" height="96" />
 
 A Mac app that keeps track of every coding agent you have running: Claude Code on two
-accounts (`claude`, `claude2`), the Codex app, OpenCode and Antigravity. It sorts them by
-project, worktree, branch and PR, shows what each one is doing, and opens any session where
-it lives: its tab in Ghostty, iTerm2 or Terminal, the Claude app, Codex, Antigravity, or the
-folder in your editor (VS Code, Cursor, Zed, Xcode and others).
+accounts (`claude`, `claude2`), the Codex app, OpenCode, Antigravity and Cursor. It sorts them
+by project, worktree, branch and PR, shows what each one is doing, and opens any session where
+it lives: its tab in Ghostty, iTerm2 or Terminal, the Claude app, Codex, Antigravity, Cursor, or
+the folder in your editor (VS Code, Cursor, Zed, Xcode and others).
 
 **Every agent runs in a worktree, and every worktree is a lane.**
 
@@ -971,7 +971,7 @@ perf_log = false               # true logs timings to ~/Library/Logs/Codealong/p
 
 [[accounts]]
 name = "claude2"               # what the board shows
-harness = "claude"             # claude, codex, opencode or antigravity
+harness = "claude"             # claude, codex, opencode, antigravity or cursor
 home = "~/.claude2"
 command = "claude2"            # used for `claude2 --resume <id>`
 start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong; a start from the quick panel sets it
@@ -988,6 +988,11 @@ command = "opencode"           # used for `opencode --session <id>`
 name = "antigravity"
 harness = "antigravity"
 home = "~/.gemini/antigravity" # the app's data folder; its command line's, ~/.gemini/antigravity-cli, is read with it
+
+[[accounts]]
+name = "cursor"
+harness = "cursor"
+home = "~/.cursor"             # the command line's folder; the Cursor app's chats are read with this one
 
 [[projects]]
 name = "Northwind"
@@ -1079,7 +1084,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude/` | Claude Code and the Claude app's Code sessions, a file a subject: the adapter and reader (`mod.rs`), the registry and the background service's records, transcripts and the conversation one holds, permission modes, the requests the plugin's hook hands the app (`asks.rs`), the app's records, the ways a prompt gets in (the background service's socket, a session's own, the app), starting and forking, names, side conversations, what its Bash tool is running, folder trust and plan usage |
 | `src-tauri/src/codex/` | Codex, in its app and its terminal UI: the adapter and reader (`mod.rs`), rollouts and the thread index, the conversation a rollout holds, its app-server (archiving, renaming, new threads), the socket the app's windows talk on (starting, steering and stopping a turn), its terminal UIs, side conversations and plan usage |
-| `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service; Antigravity's app and command line (`agy`), their conversation summaries, transcripts and processes |
+| `src-tauri/src/opencode.rs`, `antigravity.rs`, `cursor.rs` | Harness adapters: OpenCode's database and background service; Antigravity's app and command line (`agy`), their conversation summaries, transcripts and processes; Cursor's app (its chats in its state database) and command line (`cursor-agent`), their transcripts and processes |
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
 | `src-tauri/src/side.rs`, `src/side.ts`, `src/ui/SideStrip.tsx` | Side conversations: a throwaway copy of a session's conversation, run by its harness (`Adapter::side`), asked from the reply box with `/side` and shown above it, or popped out into a window of its own (kept.rs); what was asked and answered, kept to read later (`sides.json`) |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs`, `ghpoll.rs` | Repo discovery, callsigns, worktrees, git status, PRs, and when GitHub is asked for them |

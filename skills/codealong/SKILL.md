@@ -232,7 +232,7 @@ perf_log = false                   # true logs timings to ~/Library/Logs/Codealo
 
 [[accounts]]                       # one per harness config folder
 name = "claude2"                   # what the board shows; letters, digits, . _ -
-harness = "claude"                 # claude, codex, opencode or antigravity
+harness = "claude"                 # claude, codex, opencode, antigravity or cursor
 home = "~/.claude2"                # ~/.claude*, ~/.codex, ~/.local/share/opencode, ~/.gemini/antigravity
 command = "claude2"                # what starts it, for `<command> --resume <id>`; the name when left out
 

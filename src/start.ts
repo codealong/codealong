@@ -437,6 +437,7 @@ export function modelWords(takesAModel: boolean, place: StartPlace | null, harne
     if (harness === 'opencode') return 'OpenCode’s model';
     if (harness === 'codex') return 'Codex’s model';
     if (harness === 'antigravity') return 'Antigravity’s model';
+    if (harness === 'cursor') return 'Cursor’s model';
     return null;
   }
   if (model) return modelName(model, models);

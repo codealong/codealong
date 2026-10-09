@@ -18,7 +18,7 @@ use serde::Serialize;
 
 pub use codealong_peer::feed::{remote_key, split_remote, DeviceInfo, FeedMsg, Replica};
 
-use crate::model::{Board, DeviceTag, Lane, Usage};
+use crate::model::{Board, DeviceTag, Harness, Lane, Usage};
 
 /// What a device shares, cut from one board, with each part's hash worked out once for every
 /// connection it goes to.
@@ -31,18 +31,48 @@ pub struct Snapshot {
     lane_hashes: Vec<u64>,
     device_hash: u64,
     usage_hash: u64,
+    /// The same without what a device from before Cursor can't read (`reads_everywhere`), when
+    /// there's any.
+    older: Option<Box<Snapshot>>,
 }
 
 pub fn snapshot(board: &Board, device: DeviceInfo) -> Snapshot {
     let lanes: Vec<Lane> = board.lanes.iter().map(shareable).collect();
-    Snapshot {
-        generated_at: board.generated_at,
-        lane_hashes: lanes.iter().map(hash_of).collect(),
-        device_hash: hash_of(&device),
-        usage_hash: hash_of(&board.usage),
-        device,
-        lanes,
-        usage: board.usage.clone(),
+    let usage = board.usage.clone();
+    let newer = |h: Harness| !reads_everywhere(h);
+    let older = (lanes.iter().any(|l| l.sessions.iter().any(|s| newer(s.harness))) || usage.iter().any(|u| newer(u.harness))).then(|| {
+        let lanes: Vec<Lane> = lanes.iter().map(|l| Lane { sessions: l.sessions.iter().filter(|s| reads_everywhere(s.harness)).cloned().collect(), ..l.clone() }).collect();
+        let usage: Vec<Usage> = usage.iter().filter(|u| reads_everywhere(u.harness)).cloned().collect();
+        Box::new(Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device: device.clone(), lanes, usage, older: None })
+    });
+    Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device, lanes, usage, older }
+}
+
+/// Whether every device's build reads the harness: the ones there were before a device's hello
+/// said which it knows (`proto::KNOWS`). A Cursor session or account goes only to a device that
+/// says `proto::CURSOR`: in a feed or an answer to one from before, it would lose that device the
+/// whole message.
+pub fn reads_everywhere(h: Harness) -> bool {
+    !matches!(h, Harness::Cursor)
+}
+
+/// Whether a device whose hello said `knows` reads every harness.
+pub fn knows_every_harness(knows: &[String]) -> bool {
+    knows.iter().any(|k| k == codealong_peer::proto::CURSOR)
+}
+
+/// An answer for a device from before Cursor, without the Cursor sessions and accounts it can't
+/// read (`reads_everywhere`): whatever a list holds with a harness it doesn't know is left out.
+pub fn for_older(v: &mut serde_json::Value) {
+    use serde_json::Value;
+    let unknown = |v: &Value| v.get("harness").and_then(Value::as_str).is_some_and(|h| crate::config::HARNESSES.contains(&h) && !reads_everywhere(Harness::from_config(h)));
+    match v {
+        Value::Array(items) => {
+            items.retain(|item| !unknown(item));
+            items.iter_mut().for_each(for_older);
+        }
+        Value::Object(fields) => fields.values_mut().for_each(for_older),
+        _ => {}
     }
 }
 
@@ -77,9 +107,21 @@ pub struct Outbox {
     lanes: HashMap<String, u64>,
     device: Option<u64>,
     usage: Option<u64>,
+    /// The other device is from before Cursor: it gets the snapshot's `older` side.
+    older: bool,
 }
 
 impl Outbox {
+    /// The outbox for a device whose hello said `knows`.
+    pub fn for_device(knows: &[String]) -> Outbox {
+        Outbox { older: !knows_every_harness(knows), ..Outbox::default() }
+    }
+
+    /// Starts over, so the next feed carries everything, for the same device.
+    pub fn restart(&mut self) {
+        *self = Outbox { older: self.older, ..Outbox::default() };
+    }
+
     /// Picks up where the other device's copy leaves off (`Msg::Have`): the lanes it has, by the
     /// hashes this device sent it, so the next feed carries only the lanes that changed since and
     /// the ids of those that left, not everything. Only before anything went out on this
@@ -93,6 +135,10 @@ impl Outbox {
 
     /// What to send for `snap`, or None when nothing changed since the last feed.
     pub fn next(&mut self, snap: &Snapshot) -> Option<FeedMsg> {
+        let snap = match &snap.older {
+            Some(older) if self.older => older,
+            _ => snap,
+        };
         let full = self.rev == 0;
         let mut msg = FeedMsg { full, generated_at: snap.generated_at, ..Default::default() };
         if full || self.device != Some(snap.device_hash) {
@@ -242,6 +288,41 @@ mod tests {
         // A resume after the first feed changes nothing: the outbox already knows what went out.
         again.resume(std::collections::HashMap::new());
         assert!(again.next(&snapshot(&b2, info("Mini"))).is_none());
+    }
+
+    /// A build from before Cursor can't read a Cursor session or account, and one in a message
+    /// would lose it the whole message: it gets the board without them, and only a device that
+    /// says it knows them gets them.
+    #[test]
+    fn a_device_from_before_cursor_gets_no_cursor_sessions() {
+        let cursor = Session { harness: Harness::Cursor, ..session("cursor:cursor:c1", Status::Working) };
+        let usage = |account: &str, harness| Usage { account: account.into(), harness, plan: None, meters: Vec::new(), as_of: None, error: None, needs_sign_in: false, loading: false, preferred: false, rate_limited: false };
+        let mut b = board(vec![lane("/a", vec![session("s1", Status::Working), cursor.clone()]), lane("/b", vec![])]);
+        b.usage = vec![usage("claude", Harness::Claude), usage("cursor", Harness::Cursor)];
+        let snap = snapshot(&b, info("Mini"));
+
+        let mut older = Outbox::for_device(&["have".into(), "watch".into()]);
+        let first = older.next(&snap).unwrap();
+        assert_eq!(first.lanes[0].sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["s1"]);
+        assert_eq!(first.usage.as_ref().unwrap().iter().map(|u| u.account.as_str()).collect::<Vec<_>>(), ["claude"]);
+        // Only the Cursor session changing is nothing to it.
+        let mut b2 = b.clone();
+        b2.lanes[0].sessions[1].status = Status::Unread;
+        assert!(older.next(&snapshot(&b2, info("Mini"))).is_none());
+        // Starting over keeps it what it is.
+        older.restart();
+        assert_eq!(older.next(&snap).unwrap().lanes[0].sessions.len(), 1);
+
+        let mut newer = Outbox::for_device(&codealong_peer::proto::KNOWS.map(String::from));
+        let all = newer.next(&snap).unwrap();
+        assert_eq!(all.lanes[0].sessions.len(), 2);
+        assert_eq!(all.usage.unwrap().len(), 2);
+        assert!(newer.next(&snapshot(&b2, info("Mini"))).is_some());
+
+        // An answer to it leaves out what's listed with Cursor's harness, wherever it's listed.
+        let mut answer = serde_json::json!({ "accounts": [{ "name": "claude", "harness": "claude" }, { "name": "cursor", "harness": "cursor" }], "lane": { "sessions": [serde_json::to_value(&cursor).unwrap()] }, "harness": "cursor" });
+        for_older(&mut answer);
+        assert_eq!(answer, serde_json::json!({ "accounts": [{ "name": "claude", "harness": "claude" }], "lane": { "sessions": [] }, "harness": "cursor" }));
     }
 
     #[test]

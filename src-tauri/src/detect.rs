@@ -1,5 +1,5 @@
 //! The harness accounts on this Mac, whether config.toml lists them or not: Claude Code config
-//! folders, Codex, OpenCode and Antigravity, found by the files each keeps, and the wrappers and
+//! folders, Codex, OpenCode, Antigravity and Cursor, found by the files each keeps, and the wrappers and
 //! aliases people make to run a second account (a `claude2` script that sets
 //! `CLAUDE_CONFIG_DIR`, an `alias cw='CLAUDE_CONFIG_DIR=~/.claude-work claude'`). config.toml
 //! starts from the ones in use on first launch; Settings › Accounts lists the rest under Found

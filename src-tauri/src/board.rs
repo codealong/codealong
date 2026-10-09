@@ -22,6 +22,9 @@ const CODEX_STALE_MS: i64 = 15 * 60 * 1000;
 const OPENCODE_STALE_MS: i64 = 15 * 60 * 1000;
 /// An Antigravity conversation that says it's busy but hasn't changed for this long isn't.
 const ANTIGRAVITY_STALE_MS: i64 = 30 * 60 * 1000;
+/// A Cursor chat the app says is generating but hasn't written for this long isn't: the app
+/// writes a running chat's composerData every 30 seconds, so this is long past a slow call.
+const CURSOR_STALE_MS: i64 = 10 * 60 * 1000;
 /// A Bash call can't run past 10 minutes, so a Claude session that has said busy this long with
 /// nothing new in its transcript is stuck, not working: typically a command waiting on input
 /// no one will give it, like a browser sign-in inside a background job.
@@ -531,6 +534,71 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         last_activity: c.last_modified,
         excerpt,
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
+        ..known
+    }
+}
+
+/// A Cursor chat, from its record and the end of its messages. `process` is the command line
+/// process that has a command line chat open, when one does, and `app_running` whether the app
+/// is. The app's chat is under way while the app says it's generating and the app is there to
+/// do it: one generating when the app quit says so until the app opens it again. Something to
+/// allow or answer needs you; the command line writes nothing down while its prompt is up, so
+/// its chats never show so. A turn that ended on an error shows as one until it's seen.
+pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Option<&crate::cursor::Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
+    let under_way = match (c.cli, process) {
+        (true, Some(p)) => c.tail.turn_open || !p.terminal,
+        (true, None) => false,
+        (false, _) => c.generating() && app_running && now - c.last_updated < CURSOR_STALE_MS,
+    };
+    let waiting = under_way && !c.cli && (c.blocking || c.tail.open.iter().any(|call| call.waits));
+    let news = c.last_updated > seen_at;
+    let status = if waiting {
+        Status::Needs
+    } else if under_way {
+        Status::Working
+    } else if news && c.tail.error.is_some() {
+        Status::Error
+    } else if news && c.last_updated > c.tail.last_prompt_at.unwrap_or(0) {
+        Status::Unread
+    } else {
+        Status::Idle
+    };
+    let title = c.title.clone().or_else(|| c.tail.first_prompt.clone()).unwrap_or_else(|| "Cursor chat".to_string());
+    let excerpt = match status {
+        Status::Needs => c.tail.open.iter().find(|call| call.waits).or(c.tail.open.first()).map(|call| call.label.clone()).or_else(|| Some("Something waits for you in Cursor".to_string())),
+        Status::Working => c.tail.last_tool.clone().or_else(|| c.tail.first_prompt.clone()),
+        Status::Error => c.tail.error.clone(),
+        _ => c.tail.last_text.clone().or_else(|| c.tail.first_prompt.clone()),
+    };
+    // Its terminal, when it's the command line's own UI rather than a print run.
+    let terminal = process.filter(|p| p.terminal).map(|p| p.pid);
+    let action = match (c.cli, terminal) {
+        (false, _) => "cursor",
+        (true, Some(_)) => "focus",
+        (true, None) => "resume",
+    };
+    let known = Session::new(Harness::Cursor, &account.name, &c.id);
+    let last_prompt_at = c.tail.last_prompt_at.unwrap_or(c.created_at);
+    Session {
+        open_target: format!("s|{}|{action}", known.key),
+        surface: if c.cli { Surface::Cli } else { Surface::App },
+        status,
+        live: under_way || process.is_some(),
+        pid: terminal,
+        title: truncate(&plain(&title), 90),
+        cwd: c.cwd.clone().unwrap_or_default(),
+        work: c.tail.work.clone(),
+        reply_tail: c.tail.last_text_tail.clone(),
+        first_prompt: c.tail.first_prompt.clone(),
+        started_at: Some(c.created_at).filter(|t| *t > 0),
+        status_since: if under_way { Some(last_prompt_at) } else { Some(c.last_updated) },
+        last_prompt_at,
+        last_activity: c.last_updated,
+        excerpt,
+        branch: c.branch.clone(),
+        model: c.model.clone(),
+        archived: c.archived,
+        resume_command: c.cli.then(|| format!("{} --resume {}", crate::cursor::cli_command(account), c.id)),
         ..known
     }
 }
@@ -1092,7 +1160,7 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
         }
         Status::Needs => match (&s.excerpt, s.harness) {
             (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval · {title}"), Some(ex.clone())),
-            (Some(ex), Harness::Codex | Harness::Opencode | Harness::Antigravity) => (format!("{acct} asks for approval · {title}"), Some(ex.clone())),
+            (Some(ex), Harness::Codex | Harness::Opencode | Harness::Antigravity | Harness::Cursor) => (format!("{acct} asks for approval · {title}"), Some(ex.clone())),
             (None, _) => (format!("{acct} needs you · {title}"), None),
         },
         Status::Error if s.limit.is_some() => (format!("{acct} hit its usage limit · {title}"), s.excerpt.clone()),
@@ -2745,6 +2813,71 @@ mod tests {
         // An account with a command of its own resumes with it.
         let own = AccountCfg { command: Some("agy --sandbox".into()), ..a.clone() };
         assert_eq!(antigravity_session(&own, &c, None, false, 0, NOW).resume_command.as_deref(), Some("agy --sandbox --conversation c2"));
+    }
+
+    #[test]
+    fn maps_cursor_statuses() {
+        use crate::cursor::{Call, Chat};
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None };
+        // The app's chat, generating while the app is up.
+        let mut c = Chat { id: "c1".into(), title: Some("Fix the build".into()), cwd: Some("/r".into()), status: "generating".into(), created_at: NOW - 9_000, last_updated: NOW - 1_000, model: Some("gpt-5.5".into()), branch: Some("fix".into()), messages: 4, ..Default::default() };
+        c.tail.last_tool = Some("Run · `cargo test`".into());
+        c.tail.last_text = Some("The tests pass now.".into());
+        c.tail.last_prompt_at = Some(NOW - 5_000);
+        let s = cursor_session(&a, &c, None, true, 0, NOW);
+        assert_eq!((s.status, s.live, s.surface, s.excerpt.as_deref()), (Status::Working, true, Surface::App, Some("Run · `cargo test`")));
+        assert_eq!((s.open_target.as_str(), s.resume_command.as_deref(), s.status_since), ("s|cursor:cursor:c1|cursor", None, Some(NOW - 5_000)));
+        assert_eq!((s.model.as_deref(), s.branch.as_deref(), s.cwd.as_str()), (Some("gpt-5.5"), Some("fix"), "/r"));
+        // With the app quit, or nothing written for a long while, nothing runs it, whatever the
+        // app left saying.
+        assert_eq!(cursor_session(&a, &c, None, false, 0, NOW).status, Status::Unread);
+        c.last_updated = NOW - CURSOR_STALE_MS - 1;
+        assert!(!cursor_session(&a, &c, None, true, 0, NOW).live);
+        c.last_updated = NOW - 1_000;
+        // A call waiting to be allowed needs you, and says what waits.
+        c.blocking = true;
+        c.tail.open = vec![Call { label: "Run · `rm -rf target`".into(), open: true, waits: true, ..Default::default() }];
+        let s = cursor_session(&a, &c, None, true, 0, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Run · `rm -rf target`")));
+        assert_eq!(session_headline(&s).0, format!("`cursor` asks for approval · {}", s.title));
+        // Waiting is only while it runs: an aborted chat often keeps the app's flag.
+        c.status = "aborted".into();
+        assert_eq!(cursor_session(&a, &c, None, true, NOW, NOW).status, Status::Idle);
+        c.blocking = false;
+        c.tail.open.clear();
+        // Done: its reply is news until you've seen it; an error says so until then.
+        c.status = "completed".into();
+        let s = cursor_session(&a, &c, None, true, NOW - 2_000, NOW);
+        assert_eq!((s.status, s.live, s.excerpt.as_deref()), (Status::Unread, false, Some("The tests pass now.")));
+        assert_eq!(cursor_session(&a, &c, None, true, NOW, NOW).status, Status::Idle);
+        c.tail.error = Some("Connection failed".into());
+        let s = cursor_session(&a, &c, None, true, NOW - 2_000, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Error, Some("Connection failed")));
+        c.archived = true;
+        assert!(cursor_session(&a, &c, None, true, 0, NOW).archived);
+    }
+
+    #[test]
+    fn a_cursor_command_line_chat_runs_while_its_process_has_it() {
+        use crate::cursor::{Chat, Process};
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None };
+        let mut c = Chat { id: "c2".into(), cli: true, title: Some("Fix the build".into()), created_at: NOW - 9_000, last_updated: NOW - 2_000, ..Default::default() };
+        c.tail.turn_open = true;
+        let ui = Process { pid: 41, chat: Some("c2".into()), terminal: true };
+        let s = cursor_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.live, s.surface, s.pid), (Status::Working, true, Surface::Cli, Some(41)));
+        assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|cursor:cursor:c2|focus", Some("cursor-agent --resume c2")));
+        // At its prompt, its turn over: still running, and yours to read.
+        c.tail.turn_open = false;
+        let s = cursor_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.live), (Status::Unread, true));
+        // A print run has no terminal to show, and works until it ends.
+        let print = Process { terminal: false, ..ui.clone() };
+        let s = cursor_session(&a, &c, Some(&print), false, 0, NOW);
+        assert_eq!((s.status, s.pid, s.open_target.as_str()), (Status::Working, None, "s|cursor:cursor:c2|resume"));
+        // Gone: what it left is yours to read, and a new terminal resumes it.
+        let s = cursor_session(&a, &c, None, true, 0, NOW);
+        assert_eq!((s.status, s.live, s.open_target.as_str()), (Status::Unread, false, "s|cursor:cursor:c2|resume"));
     }
 
     #[test]
