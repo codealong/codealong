@@ -4,7 +4,7 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, WAITS, type Reads, type Waits } from './queue';
+import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, WAITS, type Reads } from './queue';
 import type { BarGroup, BarItem, BarReview } from './types';
 
 export type Group = BarGroup;
@@ -115,9 +115,9 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
 
 // ---- The bar docked in the notch (Notch.tsx) ----
 
-/** The docked bar's measures, in points: each side beside the camera while it's closed, wide
- *  enough for what waits of every kind as one count (three glyphs and two digits: `notchSum`),
- *  and how much wider it grows while the pointer is on it; the concave corners where it meets the menu
+/** The docked bar's measures, in points: each side beside the camera while it's closed, at
+ *  least (it's as wide as what shows there needs: `notchShut`), and how much wider it grows
+ *  while the pointer is on it; the concave corners where it meets the menu
  *  bar and its bottom corners, closed, with the pills showing and with a session under them; the
  *  padding around the pills; the session under them, `width` by `height` until you drag it to a
  *  size of your own, never narrower than `width` or shorter than `least`, nor wider than `widest`
@@ -125,7 +125,7 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
  *  the window keeps beside and under the shape for its shadow (app.css `--shadow-notch` reaches
  *  16 beside it and 30 under it). */
 export const NOTCH = {
-  wing: 66,
+  wing: 44,
   hover: 4,
   ear: { closed: 6, open: 14 },
   radius: { closed: 12, open: 22, session: 26 },
@@ -154,8 +154,11 @@ export interface NotchSizes {
   window: Size;
 }
 
-/** The docked bar's shape in each state, and its window. With the pills it's as wide as they or
- *  the sides beside the camera need, never narrower than closed; with a session it's the
+/** The docked bar's shape in each state, and its window. Closed it's the notch with a side on
+ *  each hand as wide as what shows beside the camera then needs (`shut`, measured with the room
+ *  around it), never narrower than `NOTCH.wing`: the counts of what waits on you, side by side,
+ *  widen it on both hands alike, since it stays centered on the camera. With the pills it's as
+ *  wide as they or the sides beside the camera need, never narrower than closed; with a session it's the
  *  session's width and as much taller, at the size you dragged it to (`want`: its width, and its
  *  height under the pills) or its usual one, within what the screen has room for. Everything is
  *  laid out once in the biggest it can get (`full`) and shown through a clip (`notchClip`). The
@@ -166,8 +169,8 @@ export interface NotchSizes {
  *  stays as you left it. The most it can get grows only for a usual size past it, so most zooms
  *  leave the window as it was: a window resized by the engine lands a moment after the page has
  *  laid out for it, and the shape jumped across in between. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1): NotchSizes {
-  const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1, shut = 0): NotchSizes {
+  const closed = { w: notch.width + 2 * Math.max(NOTCH.wing, Math.ceil(shut)), h: notch.height };
   // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
   // points, where they're sharp.
   const widened = (w: number) => closed.w + 2 * Math.ceil(Math.max(0, w - closed.w) / 2);
@@ -214,19 +217,13 @@ export type NotchKind = Group | 'reviews';
  *  needs you, after the sessions that do. */
 export const NOTCH_ORDER: NotchKind[] = [...WAITS, 'working'];
 
-/** Everything that waits on you, counted as one beside the closed notch's camera. */
-export interface NotchSum {
-  /** The kinds it adds up, most urgent first, each drawn by its glyph. */
-  kinds: Waits[];
-  n: number;
-}
-
-/** What waits on you as one count: the sessions that need you, the PRs waiting on your review and
- *  the turns that ended, which is what the queue goes through; none when nothing does. */
-export function notchSum(counts: Record<NotchKind, number>): NotchSum | null {
-  const kinds = WAITS.filter((k) => counts[k] > 0);
-  if (kinds.length === 0) return null;
-  return { kinds, n: kinds.reduce((sum, k) => sum + counts[k], 0) };
+/** What the closed notch counts beside the camera, each kind its own count side by side, as they
+ *  show open: everything that waits on you (the sessions that need you, the PRs waiting on your
+ *  review, the turns that ended: what the queue goes through), else what runs; none with
+ *  neither. The rest show only open, after these. */
+export function notchShut(counts: Record<NotchKind, number>): NotchKind[] {
+  const waits = WAITS.filter((k) => counts[k] > 0);
+  return waits.length > 0 ? waits : counts.working > 0 ? ['working'] : [];
 }
 
 // ---- What the notch works through (NotchSession.tsx, NotchReview.tsx) ----

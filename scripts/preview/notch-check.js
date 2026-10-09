@@ -1,5 +1,6 @@
-// Checks the bar docked in the notch (Notch.tsx): closed it shows the most urgent count and tells
-// Codealong its shape; pointing at it grows it a little at once and opens it after a moment, the
+// Checks the bar docked in the notch (Notch.tsx): closed it shows the counts of what waits on you
+// (or what runs), its sides as wide as those need and never narrower than 44, and tells Codealong
+// its shape; pointing at it grows it a little at once and opens it after a moment, the
 // clip only ever growing and the window never resized; leaving closes it after a moment; a click
 // opens it at once, on the current session; a peek up elsewhere (a card's on the desktop) doesn't hold it open, since a
 // docked bar has none of its own; and Codealong's own word of the pointer (`notch-pointer`) works
@@ -22,7 +23,8 @@
   };
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
   var leave = function () { shape().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })); };
-  var closedW = 185 + 2 * 66;
+  // The closed shape's width, as it first says it: as wide as the counts beside the camera need.
+  var closedW;
 
   say('notch check: waiting for it');
   var windowAtStart;
@@ -33,8 +35,10 @@
       windowAtStart = fits()[fits().length - 1];
       fitsAtStart = fits().length;
       var s = lastShape();
-      check('says its closed shape', s.w === closedW && s.h === 32 && s.y === 0, JSON.stringify(s));
-      check('shows the most urgent count', !!document.querySelector('.ca-notch-side.is-right .ca-notch-count'));
+      closedW = s.w;
+      var shut = document.querySelector('.ca-notch-shut').getBoundingClientRect();
+      check('says its closed shape, wide enough for what it counts', s.w >= 185 + 2 * 44 && (s.w - 185) % 2 === 0 && s.h === 32 && s.y === 0 && shut.right <= s.x + s.w - 5, JSON.stringify(s) + ', counts to ' + Math.round(shut.right));
+      check('shows what waits on you, or what runs', !!document.querySelector('.ca-notch-shut .ca-notch-count'));
       check('dark', document.documentElement.dataset.theme === 'dark');
       enter();
       return wait(100);

@@ -103,7 +103,6 @@ html.is-notch body {
   justify-content: flex-end;
 }
 .ca-notch-side-in {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -113,14 +112,32 @@ html.is-notch body {
 .ca-notch-side.is-left .ca-notch-side-in {
   flex-direction: row-reverse;
 }
-/* What shows only open: the project beside the mark, the counts after the first. */
+/* What shows closed beside the camera: the counts of what waits on you, side by side as they
+   are open, measured for the closed shape's width (Notch.tsx). */
+.ca-notch-shut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ca-notch-shut:empty {
+  display: none;
+}
+/* What shows only open: the project beside the mark, the counts after those that wait. Hidden
+   too once it has faded, not only clear: WebKit drew a clear count that something composited
+   lay over (2026-10-09). */
 .ca-notch-extra {
   opacity: 0;
-  transition: opacity var(--dur-fast) ease-out;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-fast) ease-out,
+    visibility 0s linear var(--dur-fast);
 }
 .ca-notch.is-open .ca-notch-extra {
   opacity: 1;
-  transition: opacity 0.2s ease-out var(--dur-fast);
+  visibility: visible;
+  transition:
+    opacity 0.2s ease-out var(--dur-fast),
+    visibility 0s;
 }
 .ca-notch-count {
   appearance: none;
@@ -145,20 +162,6 @@ html.is-notch body {
 }
 .ca-notch.is-open button.ca-notch-count:hover {
   background: var(--surface-hover);
-}
-/* What shows only closed: what waits of more than one kind as one count, over the first of the
-   counts it adds up, which take its place as it opens. */
-.ca-notch-sum {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 6px;
-  transition: opacity 0.2s ease-out var(--dur-fast);
-}
-.ca-notch.is-open .ca-notch-sum {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--dur-fast) ease-out;
 }
 .ca-notch-count.is-pulse {
   animation: ca-notch-pulse 1.1s ease-out 1;

@@ -1,14 +1,14 @@
 // The bar docked in the notch (bar.rs): one black shape with the hardware notch at the top of the
 // screen, always dark whatever the theme. It shows one of three things. Closed, it's the notch
-// with a side on each hand: the mark on the left, and on the right everything that waits on you
-// as one count (the sessions that need you, the PRs that wait on your review and the turns that
-// ended, drawn as the glyphs of the kinds in it), else what's running. Pointing at it for a moment, or clicking
-// it, opens it down into the bar's pills, with the project and each count on its own beside the
-// camera; it closes a moment after the pointer leaves, unless a menu is up or its pin keeps it
-// open. And a click opens it further, into a session under the pills, to read and answer
-// (NotchSession.tsx): a click on a session's pill into that one, a click on the notch itself into
-// the current one, and a second click on either
-// puts it away. There's no peek beside a docked bar. The session's bottom corners and bottom edge
+// with a side on each hand: the mark on the left, and on the right the count of each kind that
+// waits on you, side by side (the sessions that need you, the PRs that wait on your review, the
+// turns that ended), else what's running; the sides are as wide as those need, so it widens a
+// little for several. Pointing at it for a moment, or clicking it, opens it down into the bar's
+// pills, with the project and the rest of the counts beside the camera after those; it closes a
+// moment after the pointer leaves, unless a menu is up or its pin keeps it open. And a click
+// opens it further, into a session under the pills, to read and answer (NotchSession.tsx): a
+// click on a session's pill into that one, a click on the notch itself into the current one, and
+// a second click on either puts it away. There's no peek beside a docked bar. The session's bottom corners and bottom edge
 // drag it to a size of your own, which it keeps (a double-click on one gives it its usual size
 // back); the notch stays centered, so a corner pulled out widens it as much on the other side. A session has the keyboard, and stays up whatever the
 // pointer does until it's put away; one that lost the keyboard to another app stays while the
@@ -22,11 +22,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
-import { NOTCH, NOTCH_ORDER, notchClip, notchDragged, notchSizes, notchSum, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
+import { NOTCH, NOTCH_ORDER, notchClip, notchDragged, notchShut, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
 import type { Moment } from '../mark';
 import type { LogoStatus } from '../types';
 import { MarkLive } from './MarkLive';
-import { cx, Icon, StatusGlyph, WaitsGlyph, WaitsGlyphs } from './primitives';
+import { cx, Icon, StatusGlyph, WaitsGlyph } from './primitives';
 import { readStored, writeStored, type Codec } from '../stored';
 import { zoomFactor } from '../zoom';
 
@@ -112,7 +112,8 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   const body = useRef<HTMLDivElement>(null);
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
-  const [natural, setNatural] = useState<{ body: Size; side: number }>({ body: { w: 0, h: 0 }, side: 0 });
+  const shutRef = useRef<HTMLSpanElement>(null);
+  const [natural, setNatural] = useState<{ body: Size; side: number; shut: number }>({ body: { w: 0, h: 0 }, side: 0, shut: 0 });
   // The window's width, to place the shape at a whole point: centering by halves blurs it.
   const [viewW, setViewW] = useState(() => window.innerWidth);
   useEffect(() => {
@@ -140,23 +141,26 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
       cancelAnimationFrame(second);
     };
   }, [zooming, zoom]);
-  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom));
+  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom), natural.shut);
   const state: NotchState = sessionOpen ? 'session' : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
   // Something shows under the notch.
   const below = state === 'pills' || state === 'session';
 
-  // What opens below, and what the sides hold open, measured at their own size.
+  // What opens below, what the sides hold open, and what shows beside the camera closed with as
+  // much room around it as the side gives it at the camera's edge, measured at their own size.
   useLayoutEffect(() => {
     const measure = () => {
       const b = body.current?.getBoundingClientRect();
       const side = Math.max(left.current?.scrollWidth ?? 0, right.current?.scrollWidth ?? 0);
-      const next = { body: { w: Math.ceil(b?.width ?? 0), h: Math.ceil(b?.height ?? 0) }, side: Math.ceil(side) };
-      setNatural((was) => (was.body.w === next.body.w && was.body.h === next.body.h && was.side === next.side ? was : next));
+      const w = shutRef.current?.getBoundingClientRect().width ?? 0;
+      const pad = right.current ? parseFloat(getComputedStyle(right.current).paddingLeft) || 0 : 0;
+      const next = { body: { w: Math.ceil(b?.width ?? 0), h: Math.ceil(b?.height ?? 0) }, side: Math.ceil(side), shut: w > 0 ? Math.ceil(w + 2 * pad) : 0 };
+      setNatural((was) => (was.body.w === next.body.w && was.body.h === next.body.h && was.side === next.side && was.shut === next.shut ? was : next));
     };
     measure();
     const observer = new ResizeObserver(measure);
-    for (const el of [body.current, left.current, right.current]) if (el) observer.observe(el);
+    for (const el of [body.current, left.current, right.current, shutRef.current]) if (el) observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
@@ -284,7 +288,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     if (!d?.moved) return;
     cancelAnimationFrame(d.frame);
     setSizing(false);
-    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to, zoomFactor(zoom));
+    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to, zoomFactor(zoom), natural.shut);
     const kept = { w: s.session.w, h: s.session.h - s.pills.h };
     setWant(kept);
     writeStored(SIZE_KEY, SIZE_STORED, kept);
@@ -298,11 +302,10 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     <div className={`ca-notch-grip is-${edge}`} aria-hidden="true" onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} onDoubleClick={resetSize} />
   );
 
-  const shown = NOTCH_ORDER.filter((k) => counts[k] > 0);
-  // Closed, what waits of more than one kind shows as one count, in place of the counts that add
-  // up to it; one kind alone is its own count, the first, which stays where it is as it opens.
-  const sum = notchSum(counts);
-  const merged = sum && sum.kinds.length > 1 ? sum : null;
+  // Closed, the counts of what waits on you show beside the camera (else what runs); the rest
+  // show after them once it's open, and nothing moves as it opens.
+  const shut = notchShut(counts);
+  const rest = NOTCH_ORDER.filter((k) => counts[k] > 0 && !shut.includes(k));
   // The corners move and grow by their place and size, as the clip does, not by a transform:
   // WebKit runs a transform's animation apart from the page's, and the corners fell out of step
   // with the shape. Each reaches 3 points under the shape's edge: where two antialiased edges
@@ -353,14 +356,13 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
           <div className="ca-notch-cam" aria-hidden="true" />
           <div className="ca-notch-side is-right">
             <div ref={right} className="ca-notch-side-in">
-              {merged && (
-                <span key={`sum-${counts.needs}`} className={cx('ca-notch-count', 'ca-notch-sum', counts.needs > 0 && 'is-pulse')} title={merged.kinds.map((k) => countWords(k, counts[k])).join(', ')}>
-                  <WaitsGlyphs waits={merged.kinds} />
-                  <span>{merged.n}</span>
-                </span>
-              )}
-              {shown.map((k, i) => (
-                <Count key={i === 0 && !merged ? `${k}-${counts[k]}` : k} kind={k} n={counts[k]} extra={i > 0 || !!merged} pulse={i === 0 && !merged && k === 'needs'} open={open} onPick={onCount} />
+              <span ref={shutRef} className="ca-notch-shut">
+                {shut.map((k) => (
+                  <Count key={k === 'needs' ? `${k}-${counts[k]}` : k} kind={k} n={counts[k]} pulse={k === 'needs'} open={open} onPick={onCount} />
+                ))}
+              </span>
+              {rest.map((k) => (
+                <Count key={k} kind={k} n={counts[k]} extra open={open} onPick={onCount} />
               ))}
               <button
                 type="button"
@@ -397,20 +399,14 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   );
 }
 
-/** How many of a kind, in words. */
-function countWords(kind: NotchKind, n: number): string {
-  return kind === 'reviews' ? (n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`) : `${n} ${WORD[kind]}`;
-}
-
-/** A group's glyph, or the PR icon for reviews asked of you, and how many there are. The first
- *  beside the camera shows closed too, unless what waits is counted as one there; the others only
- *  open. One that needs you pulses when it comes, and again when the number changes, as the one
- *  count does while it has any. Open, a count is a button: its group's first
+/** A group's glyph, or the PR icon for reviews asked of you, and how many there are. Those of
+ *  what waits on you show closed too; the others only open. One that needs you pulses when it
+ *  comes, and again when the number changes. Open, a count is a button: its group's first
  *  session, or the first PR waiting on your review, shows under the pills, the way into working
  *  through them. */
 function Count({ kind, n, extra, pulse, open, onPick }: { kind: NotchKind; n: number; extra?: boolean; pulse?: boolean; open: boolean; onPick: (kind: NotchKind) => void }) {
   const className = cx('ca-notch-count', `is-${kind}`, extra && 'ca-notch-extra', pulse && 'is-pulse');
-  const words = countWords(kind, n);
+  const words = kind === 'reviews' ? (n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`) : `${n} ${WORD[kind]}`;
   return (
     <button
       type="button"

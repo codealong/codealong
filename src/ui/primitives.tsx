@@ -117,18 +117,6 @@ export function WaitsGlyph({ waits }: { waits: Waits }) {
   return waits === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} className="ca-glyph-review" /> : <StatusGlyph status={waits} title="" />;
 }
 
-/** Waits of more than one kind counted as one (the closed notch): each kind's glyph, side by side
- *  and closer than they are to the count, so they read as one. */
-export function WaitsGlyphs({ waits }: { waits: Waits[] }) {
-  return (
-    <span className="ca-waitsglyphs" aria-hidden="true">
-      {waits.map((w) => (
-        <WaitsGlyph key={w} waits={w} />
-      ))}
-    </span>
-  );
-}
-
 /** A status's glyph. `waiting` draws a working one as a clock that stands still: its turn is
  *  over and it waits on a command it left running in the background (`waitsInBackground`). */
 export function StatusGlyph({ status, size = 12, title, waiting = false }: { status: Status; size?: number; title?: string; waiting?: boolean }) {

@@ -26,10 +26,6 @@
 .ca-g-x { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; }
 /* A PR waiting on your review, where what waits is counted (WaitsGlyph). */
 .ca-glyph-review { color: var(--attn); }
-/* Waits of more than one kind counted as one (WaitsGlyphs): side by side, a point into each
-   other's room, which leaves about two points between what they draw. */
-.ca-waitsglyphs { flex: none; display: inline-flex; align-items: center; }
-.ca-waitsglyphs > * + * { margin-left: -1px; }
 @keyframes ca-sweep { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .ca-g-arc { display: none; animation: none; }

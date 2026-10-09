@@ -744,11 +744,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   you send a session a message from Codealong. Point at the mark and the C turns once about the
   node, and turns back as the pointer leaves. With Reduce Motion on it only changes color. **In the notch**, the bar docks at the top of the screen instead:
   one black shape with the notch, dark whatever the theme, showing the mark on the camera's
-  left and, on its right, everything that waits on you as one count: the sessions that need you,
-  the PRs that wait on your review and Your turn added up, drawn with the glyph of each kind in
-  it side by side, else what's working (a new one that needs you pulses); it's wide enough for all
-  three kinds and two digits. Rest the pointer on it for a moment, or click it, and it opens down into the
-  bar's pills, with the project and each count on its own beside the camera;
+  left and, on its right, the count of each kind that waits on you side by side (Needs you, PRs
+  that wait on your review, Your turn), else what's working; it widens a little to fit several (a
+  new one that needs you pulses). Rest the pointer on it for a moment, or click it, and it opens
+  down into the bar's pills, with the project and the rest of the counts beside the camera;
   it closes a moment after the pointer leaves, and stays open while one of its
   menus is up. The pin at the end of its right side, or Keep the notch open in its right-click
   menu, keeps it open until you unpin it, across launches. There's no peek beside a docked bar:
