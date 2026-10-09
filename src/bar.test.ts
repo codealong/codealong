@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRows, type Metrics, type NotchRow } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchDragged, notchRows, notchSizes, notchSum, plain, projectWaits, ROW_READS, waitingRows, type Metrics, type NotchRow } from './bar';
 import { inQueueOrder, placeOf } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
@@ -227,12 +227,14 @@ describe('the bar docked in the notch', () => {
     expect(session.radius).toBe(NOTCH.radius.session);
   });
 
-  it('shows the most urgent group beside the camera, in the bar’s order', () => {
-    expect(notchCount({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 2 });
-    expect(notchCount({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 3 });
-    expect(notchCount({ needs: 0, reviews: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
-    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
-    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 0 })).toBeNull();
+  it('counts everything that waits on you as one, its glyph two kinds at most', () => {
+    expect(notchSum({ needs: 3, reviews: 0, unread: 7, working: 1 })).toEqual({ kinds: ['needs', 'unread'], glyphs: ['needs', 'unread'], n: 10 });
+    expect(notchSum({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kinds: ['needs', 'reviews', 'unread'], glyphs: ['needs', 'unread'], n: 6 });
+    expect(notchSum({ needs: 2, reviews: 3, unread: 0, working: 5 })).toEqual({ kinds: ['needs', 'reviews'], glyphs: ['needs'], n: 5 });
+    expect(notchSum({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kinds: ['reviews', 'unread'], glyphs: ['reviews', 'unread'], n: 4 });
+    expect(notchSum({ needs: 2, reviews: 0, unread: 0, working: 5 })).toEqual({ kinds: ['needs'], glyphs: ['needs'], n: 2 });
+    expect(notchSum({ needs: 0, reviews: 0, unread: 1, working: 5 })).toEqual({ kinds: ['unread'], glyphs: ['unread'], n: 1 });
+    expect(notchSum({ needs: 0, reviews: 0, unread: 0, working: 5 })).toBeNull();
   });
 });
 

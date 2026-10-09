@@ -4,7 +4,7 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, WAITS, type Reads } from './queue';
+import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, WAITS, type Reads, type Waits } from './queue';
 import type { BarGroup, BarItem, BarReview } from './types';
 
 export type Group = BarGroup;
@@ -213,11 +213,25 @@ export type NotchKind = Group | 'reviews';
  *  needs you, after the sessions that do. */
 export const NOTCH_ORDER: NotchKind[] = [...WAITS, 'working'];
 
-/** What the closed notch shows beside the camera: the most urgent kind with anything in it and
- *  how many; none when nothing needs you, waits for you or runs. */
-export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind; n: number } | null {
-  const kind = NOTCH_ORDER.find((k) => counts[k] > 0);
-  return kind ? { kind, n: counts[kind] } : null;
+/** Everything that waits on you, counted as one beside the closed notch's camera. */
+export interface NotchSum {
+  /** The kinds it adds up, most urgent first. */
+  kinds: Waits[];
+  /** What it's drawn as: one kind's glyph, or two, the second tucked behind the first. */
+  glyphs: Waits[];
+  n: number;
+}
+
+/** What waits on you as one count: the sessions that need you, the PRs waiting on your review and
+ *  the turns that ended, which is what the queue goes through; none when nothing does. Its glyph
+ *  has two kinds at most, to fit beside the camera: what asks something of you (a session that
+ *  needs you, else a review) in front, and a turn that ended behind it. */
+export function notchSum(counts: Record<NotchKind, number>): NotchSum | null {
+  const kinds = WAITS.filter((k) => counts[k] > 0);
+  if (kinds.length === 0) return null;
+  const asks = kinds.find((k) => k !== 'unread');
+  const glyphs: Waits[] = [...(asks ? [asks] : []), ...(counts.unread > 0 ? ['unread' as const] : [])];
+  return { kinds, glyphs, n: kinds.reduce((sum, k) => sum + counts[k], 0) };
 }
 
 // ---- What the notch works through (NotchSession.tsx, NotchReview.tsx) ----
