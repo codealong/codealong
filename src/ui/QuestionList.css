@@ -60,6 +60,18 @@
 .ca-question-yours.is-none {
   color: var(--ink-3);
 }
+/* Several questions to answer show one at a time, under a strip of their headers that wraps in a
+   narrow card rather than running off it. */
+.ca-question-steps {
+  justify-self: start;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+/* A long question scrolls, so its choices stay in the panel. */
+.ca-composer.is-questions .ca-approval-label {
+  max-height: 30vh;
+  overflow: auto;
+}
 .ca-question-choices {
   display: flex;
   flex-wrap: wrap;

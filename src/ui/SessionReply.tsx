@@ -80,8 +80,8 @@ import type { Answers, Pending, Question, Sent, Session, StartPlace, Way } from 
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
-import { BoxText, Button, Chip, cx, Icon, Rich } from './primitives';
-import { QuestionList } from './QuestionList';
+import { BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
+import { nextQuestion, QuestionList } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
@@ -947,10 +947,17 @@ interface QuestionsProps {
 }
 
 /** Questions a session asks you (Claude Code's AskUserQuestion): pick a choice, several where a
- *  question takes more, or type your own answer; your picks go back as its answer. */
+ *  question takes more, or type your own answer; your picks go back as its answer. Several show
+ *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
+ *  between them: all at once, a few long ones ran off the bottom of the panel. */
 function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAnswer, onDecline }: QuestionsProps) {
   const [picks, setPicks] = useState<Record<string, string[]>>({});
   const [own, setOwn] = useState<Record<string, string>>({});
+  // The question showing, for the questions it was picked among: another set starts at the first.
+  const asked = questions.map((q) => q.question).join('\n');
+  const [step, setStep] = useState({ asked, at: 0 });
+  const at = step.asked === asked ? Math.min(step.at, questions.length - 1) : 0;
+  const go = (i: number) => setStep({ asked, at: i });
   const answers: Answers = {};
   for (const q of questions) {
     const words = (own[q.question] ?? '').trim();
@@ -963,14 +970,29 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
     }
   }
   const ready = Object.keys(answers).length > 0;
+  const answered = questions.map((q) => q.question in answers);
+  // Where Next goes, while another question has no answer; with none, the button answers.
+  const next = nextQuestion(answered, at);
+  // The answer box to take the keyboard once Enter there went on to the next question.
+  const ownRef = useRef<HTMLInputElement>(null);
+  const typing = useRef(false);
+  useLayoutEffect(() => {
+    if (!typing.current) return;
+    typing.current = false;
+    ownRef.current?.focus();
+  }, [at]);
   const pick = (q: Question, label: string) => {
     setPicks((all) => {
       const chosen = all[q.question] ?? [];
       const next = q.multiSelect ? (chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label]) : [label];
       return { ...all, [q.question]: next };
     });
-    // One answer to a question that takes one: a choice clears what was typed.
-    if (!q.multiSelect) setOwn((all) => ({ ...all, [q.question]: '' }));
+    // One answer to a question that takes one: a choice clears what was typed, and is all the
+    // question takes, so the next one without an answer shows.
+    if (!q.multiSelect) {
+      setOwn((all) => ({ ...all, [q.question]: '' }));
+      if (next !== null) go(next);
+    }
   };
   const type = (q: Question, text: string) => {
     setOwn((all) => ({ ...all, [q.question]: text }));
@@ -978,7 +1000,9 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
   };
   const answerRef = useRef((_on: boolean) => {});
   answerRef.current = (on) => {
-    if (ready && !busy) onAnswer(answers, on);
+    // ⌘⏎ does what the button does: on to the next question while one has no answer.
+    if (next !== null) go(next);
+    else if (ready && !busy) onAnswer(answers, on);
   };
   useEffect(() => {
     if (!keys) return;
@@ -994,6 +1018,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [keys]);
+  const q = questions[at];
   return (
     <div className="ca-composer is-approval is-questions">
       <div className="ca-approval-head">
@@ -1006,46 +1031,70 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
         )}
       </div>
       {unwritten && <p className="ca-approval-unwritten">{unwritten}</p>}
-      {questions.map((q) => (
-        <div key={q.question} className="ca-question">
-          <div className="ca-approval-label">
-            {q.header && <Chip className="ca-question-header">{q.header}</Chip>}
-            <Rich text={q.question} now={0} />
-          </div>
-          <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
-            {q.options.map((o) => {
-              const on = (picks[q.question] ?? []).includes(o.label);
-              return (
-                <Button key={o.label} size="sm" variant={on ? 'primary' : 'secondary'} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} title={o.description} disabled={busy} onClick={() => pick(q, o.label)}>
-                  {o.label}
-                </Button>
-              );
-            })}
-          </div>
-          <input
-            className="ca-question-own"
-            type="text"
-            placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'}
-            value={own[q.question] ?? ''}
-            disabled={busy}
-            onChange={(e) => type(q, e.target.value)}
-            onKeyDown={(e) => {
-              // ⌘⏎ from an answer you typed, in every window: it answers and goes on.
-              if (e.key !== 'Enter' || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.nativeEvent.isComposing) return;
+      {questions.length > 1 && (
+        <Seg
+          className="ca-question-steps"
+          label="Questions"
+          options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: answered[i] ? 'check' : undefined }))}
+          value={at}
+          onPick={go}
+        />
+      )}
+      <div key={q.question} className="ca-question">
+        <div className="ca-approval-label">
+          {/* With several, the strip above names each by its header. */}
+          {q.header && questions.length === 1 && <Chip className="ca-question-header">{q.header}</Chip>}
+          <Rich text={q.question} now={0} />
+        </div>
+        <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
+          {q.options.map((o) => {
+            const on = (picks[q.question] ?? []).includes(o.label);
+            return (
+              <Button key={o.label} size="sm" variant={on ? 'primary' : 'secondary'} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} title={o.description} disabled={busy} onClick={() => pick(q, o.label)}>
+                {o.label}
+              </Button>
+            );
+          })}
+        </div>
+        <input
+          ref={ownRef}
+          className="ca-question-own"
+          type="text"
+          placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'}
+          value={own[q.question] ?? ''}
+          disabled={busy}
+          onChange={(e) => type(q, e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || e.altKey || e.ctrlKey || e.shiftKey || e.nativeEvent.isComposing) return;
+            if (e.metaKey) {
+              // ⌘⏎ from an answer you typed, in every window: on to the next question, or, with
+              // none left, it answers and goes on.
               e.preventDefault();
               answerRef.current(true);
-            }}
-          />
-        </div>
-      ))}
+            } else if (next !== null) {
+              // Enter goes on to the next question and its box; it never answers, so a half-typed
+              // answer isn't sent.
+              e.preventDefault();
+              typing.current = true;
+              go(next);
+            }
+          }}
+        />
+      </div>
       <div className="ca-composer-foot">
-        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (questions.some((q) => q.multiSelect) ? 'Pick one or more. Decline stops the turn.' : 'Pick one, or type your own. Decline stops the turn.'))}</span>
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (q.multiSelect ? 'Pick one or more. Decline stops the turn.' : 'Pick one, or type your own. Decline stops the turn.'))}</span>
         <Button size="sm" disabled={busy} onClick={onDecline}>
           Decline
         </Button>
-        <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy || !ready} onClick={() => answerRef.current(false)}>
-          Answer
-        </Button>
+        {next !== null ? (
+          <Button variant="primary" size="sm" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy} onClick={() => go(next)}>
+            Next
+          </Button>
+        ) : (
+          <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy || !ready} onClick={() => answerRef.current(false)}>
+            Answer
+          </Button>
+        )}
       </div>
     </div>
   );

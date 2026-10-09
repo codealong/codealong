@@ -30,6 +30,18 @@ export function picksOf(q: Question, given: string[] | undefined): { picked: Set
   return { picked, own };
 }
 
+/** Where the box that answers several questions, one at a time, goes on to from the one it
+ *  shows (`at`): the next that has no answer yet, after it and then from the first. None once
+ *  every other question has one, when what's left is to answer them. */
+export function nextQuestion(answered: readonly boolean[], at: number): number | null {
+  const n = answered.length;
+  for (let k = 1; k < n; k++) {
+    const i = (at + k) % n;
+    if (!answered[i]) return i;
+  }
+  return null;
+}
+
 export function QuestionList({ questions, answers }: { questions: Question[]; answers?: Record<string, string[]> }) {
   return (
     <div className="ca-questions">
