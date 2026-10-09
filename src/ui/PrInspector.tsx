@@ -1,9 +1,9 @@
 // A PR in the right sidebar: where it lives on this Mac first (worktrees and the sessions that
-// worked on it, drawn like the sidebar's tree), then where it stands, its comments, its
-// description as GitHub renders it, and its changed files with their diffs (PrFiles.tsx), which
-// the file count under Checks and reviews goes to. `PrDetails` is that body on its own, which the
-// panel wraps with its buttons, and a PR's card (PrCard.tsx) with the strip that works through
-// what waits on you and the box that reviews it.
+// worked on it, drawn like the sidebar's tree), then where it stands, its merge box (MergeBox.tsx),
+// its comments, its description as GitHub renders it, and its changed files with their diffs
+// (PrFiles.tsx), which the file count under Checks and reviews goes to. `PrDetails` is that body
+// on its own, which the panel wraps with its buttons, and a PR's card (PrCard.tsx) with the strip
+// that works through what waits on you and the box that reviews it.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
@@ -13,6 +13,7 @@ import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
 import type { Lane, PrComment, PrDetail, Session } from '../types';
+import { MergeBox } from './MergeBox';
 import { PanelPlace } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
@@ -318,6 +319,8 @@ export function PrDetails({ item, now, actions, onMenu, onShowSession, onOpenSes
           </ul>
         )}
       </section>
+
+      <MergeBox key={pr.key} pr={pr} />
 
       {comments.length > 0 && (
         <section className="ca-insp-sec">

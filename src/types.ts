@@ -1096,6 +1096,82 @@ export interface PrAt {
 /** What a review of a PR says (github.rs `Verdict`). */
 export type Verdict = 'approve' | 'comment' | 'request-changes';
 
+/** How a PR's commits go onto its base: a merge commit, one squashed commit, or rebased (prmerge.rs
+ *  `Method`). */
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** A commit's title and message, as GitHub would write them. */
+export interface CommitText {
+  title: string;
+  body: string;
+}
+
+/** What a PR's merge box offers you, and where the PR stands for it, as GitHub's has it
+ *  (prmerge.rs `MergeBox`). */
+export interface MergeBox {
+  /** The PR's node id, which every act names it by. */
+  id: string;
+  /** The head commit the box was read at: a merge or an update names it, and GitHub refuses
+   *  one whose branch has moved since. */
+  head: string;
+  branch: string;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  draft: boolean;
+  /** `MERGEABLE`, `CONFLICTING`, or `UNKNOWN` while GitHub works it out. */
+  mergeable: string;
+  /** GitHub's `mergeStateStatus`: `CLEAN`, `HAS_HOOKS`, `UNSTABLE`, `BLOCKED`, `BEHIND`, `DIRTY`
+   *  or `UNKNOWN`. */
+  mergeState: string;
+  /** `APPROVED`, `CHANGES_REQUESTED` or `REVIEW_REQUIRED`; null where the repo needs no review. */
+  reviewDecision: string | null;
+  /** You can write to the repo, which merging needs. */
+  canMerge: boolean;
+  /** The methods the repo allows, in GitHub's order, and the one GitHub picks for you. */
+  methods: MergeMethod[];
+  defaultMethod: MergeMethod | null;
+  mergeText: CommitText;
+  squashText: CommitText;
+  /** The emails a commit you make can be under, and the one GitHub picks. */
+  emails: string[];
+  defaultEmail: string | null;
+  canReady: boolean;
+  /** You can merge it before its requirements are met, past the rules. */
+  canBypass: boolean;
+  canAuto: boolean;
+  canStopAuto: boolean;
+  /** Auto-merge, while it's on. */
+  auto: { method: MergeMethod | null; by: string | null; at: number | null } | null;
+  /** Its branch is behind its base and you can bring it up to date. */
+  canUpdateBranch: boolean;
+  /** Its base branch merges through a queue, and where it is in it. */
+  queue: boolean;
+  queued: { position: number | null; state: string | null } | null;
+  /** GitHub deletes the branch itself once it's merged. */
+  deletesBranch: boolean;
+  /** The branch's ref, while it's there and you can push to its repo: what deleting it names. */
+  branchRef: string | null;
+  mergedBy: string | null;
+}
+
+/** What a merge or auto-merge writes: for a rebase, only the method. */
+interface MergeCommit {
+  method: MergeMethod;
+  title: string | null;
+  body: string | null;
+  email: string | null;
+}
+
+/** One thing the merge box does (prmerge.rs `Op`). */
+export type MergeOp =
+  | ({ op: 'merge'; head: string; deleteBranch: string | null } & MergeCommit)
+  | ({ op: 'auto'; head: string } & MergeCommit)
+  | { op: 'stop-auto' }
+  | { op: 'enqueue'; head: string }
+  | { op: 'dequeue' }
+  | { op: 'update-branch'; rebase: boolean; head: string }
+  | { op: 'ready' }
+  | { op: 'delete-branch'; branchRef: string };
+
 export interface BarTodo {
   id: string;
   title: string;

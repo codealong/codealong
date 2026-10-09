@@ -476,11 +476,16 @@ impl GhPoll {
             dirty = true;
         }
         self.approved_here.insert((slug, number), now.at);
-        // Now, or as soon as the poll on its way returns.
+        self.on_changed(seeds, now);
+        dirty
+    }
+
+    /// Something you did changed a PR on GitHub (merged it, queued it, updated its branch):
+    /// PRs are read again in full, now or as soon as the poll on its way returns.
+    pub fn on_changed(&mut self, seeds: &[LaneSeed], now: Now) {
         if self.schedule.refetch() {
             self.poll(seeds, true, now);
         }
-        dirty
     }
 
     fn on_repo(&mut self, slug: String, result: Result<RepoPrs, Failure>, now: Now) -> bool {

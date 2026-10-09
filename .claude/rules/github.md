@@ -4,6 +4,7 @@ paths:
   - "src-tauri/src/ghpoll.rs"
   - "src-tauri/src/prlinks.rs"
   - "src-tauri/src/prasks.rs"
+  - "src-tauri/src/prmerge.rs"
 ---
 
 # GitHub
@@ -41,3 +42,17 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
 - What `mergeStateStatus` says: `src-tauri/peer/src/model.rs` (`Merge`) and `github.rs`
   (`merge_of`). It needs no preview header, and a PR approved with passing checks can still be
   `DIRTY`.
+- Merging, as GitHub's merge box does: `prmerge.rs` (module header, `QUERY`, `Op`). The box's
+  defaults are GitHub's own: `viewerMergeHeadlineText`/`viewerMergeBodyText(mergeType:)` give the
+  title and message GitHub would write for a merge commit or a squash with the repo's settings
+  applied (`Add teams (#7)`, `Merge pull request #7 from ana/teams`; empty for a rebase),
+  `viewerDefaultMergeMethod` its pick for you, `viewerPossibleCommitEmails` your emails. Asking
+  for `viewerCanDeleteHeadRef` beside `mergeStateStatus` and `viewerCanUpdateBranch` fails the
+  whole query for a PR from a fork ("Something went wrong while executing your query", every
+  time, an alias of its own no help; 2026-10-09), so it isn't asked. `viewerCanMergeAsAdmin` was
+  false for a repo's admin on its clean PRs and drafts (2026-10-09), so the box offers merging
+  past the rules only where GitHub says so. `gh pr merge --admin` is a plain `mergePullRequest`,
+  which GitHub lets through for whoever may bypass the rules. A mutation GitHub refuses makes
+  `gh api graphql` exit 1 with `gh: <message>` on stderr, and one that names a node that isn't
+  there fails on `NOT_FOUND` only after its document is checked, which is how the mutations were
+  checked without changing anything.

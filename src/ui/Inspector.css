@@ -1,5 +1,6 @@
 /* The worktree inspector (Inspector.tsx): the Open in split button and its menu, session rows
-   (.ca-srow), the pull request card. */
+   (.ca-srow), the pull request card. A PR's merge box (MergeBox.tsx) draws its Squash and merge
+   and Update branch with the same split. */
 
 .ca-openin { position: relative; display: inline-flex; flex-direction: column; }
 .ca-split { display: inline-flex; }

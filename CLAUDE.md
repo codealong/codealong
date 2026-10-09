@@ -77,7 +77,8 @@ it.
   <url>`: where a click on a web link would open it (a worktree's app opens in its preview's
   Chrome profile).
 - `--snapshot --pr <owner/name> <number>`: a PR's detail; `--snapshot --pr-card …`: a PR the
-  board doesn't list, as a link to it gets it on hover.
+  board doesn't list, as a link to it gets it on hover; `--snapshot --merge-box …`: what its
+  merge box offers you.
 - `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel.
 - `--snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
   conversation; `--snapshot --pending <session key>`: what it waits on you to allow.

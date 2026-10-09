@@ -1,0 +1,94 @@
+/* A PR's merge box (MergeBox.tsx): where it stands for merging, what you may do now, and the
+   commit written before a merge. The split button is Inspector.css's, the fields controls.css's. */
+
+.ca-merge {
+  gap: var(--space-2);
+}
+.ca-merge > .ca-label {
+  margin-bottom: 0;
+}
+
+/* Where it stands: GitHub's colors for ready, waiting, held back and merged. */
+.ca-merge-standing {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.ca-merge-standing > .ca-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ink-3);
+}
+.ca-merge-standing.is-ok > .ca-icon {
+  color: var(--pr-open);
+}
+.ca-merge-standing.is-wait > .ca-icon {
+  color: var(--attn);
+}
+.ca-merge-standing.is-bad > .ca-icon {
+  color: var(--alert);
+}
+.ca-merge-standing.is-merged > .ca-icon {
+  color: var(--pr-merged);
+}
+.ca-merge-standing > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ca-merge-standing strong {
+  font: var(--type-body-strong);
+  color: var(--ink);
+}
+.ca-merge-standing span {
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+
+.ca-merge-actions,
+.ca-merge-opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* Its long label wraps in a narrow window rather than running out of it. */
+.ca-merge-bypass {
+  white-space: normal;
+}
+.ca-merge-bypass .ca-check-box {
+  flex: none;
+}
+.ca-btn.is-bypass {
+  color: var(--alert);
+}
+
+/* The commit, before a merge. */
+.ca-merge-write {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.ca-merge-write > .ca-meta {
+  margin: 0;
+}
+.ca-merge-warn {
+  margin: 0;
+  font: var(--type-meta-strong);
+  color: var(--alert);
+}
+.ca-merge-opts .ca-check .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ca-merge-note {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-merge-note.is-error {
+  color: var(--alert);
+}

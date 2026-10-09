@@ -326,6 +326,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     time or Wake now. PRs picked together open on GitHub one after another (⌘O), pin (`p`) and
     copy their links and branch names; the ones that ask for your review are approved one after
     another with one toast, or snoozed together.
+    A PR's panel, and its card in the notch and the waiting window, has GitHub's merge box under
+    its checks and reviews: where it stands for merging (ready, blocked and why, behind its base,
+    conflicts, a draft, in the merge queue, auto-merge on) and what you may do now. Merge it with
+    a merge commit, squashed or rebased (picked from the button's caret and kept per repo,
+    GitHub's pick for you until then), the commit's title and message first, GitHub's own for
+    that way to start from, with the email it goes under and whether the branch goes too (⌘⏎
+    confirms); turn auto-merge on or off; add it to the merge queue or take it out; merge past
+    the rules where you may; bring its branch up to date by a merge or a rebase; mark a draft
+    ready for review; resolve conflicts on GitHub; delete a merged or closed PR's branch. A merge
+    names the head commit the box was read at, so GitHub refuses one whose branch has moved since.
     A PR's right-click menu, on its row here or on its number where a worktree or session shows
     it (and the worktree's panel), opens it on GitHub or in Codex and copies its link; a
     worktree's own menu copies its PR's link too. Colored pills say where

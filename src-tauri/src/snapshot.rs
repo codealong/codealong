@@ -83,6 +83,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
+    Mode { flag: "--merge-box", takes: "<owner/name> <number>", run: merge_box },
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
     Mode { flag: "--link", takes: "<url>", run: link },
 ];
@@ -104,6 +105,8 @@ const MODES: &[Mode] = &[
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --pr-card <owner/name> <number>`: a PR the board doesn't list, as a link
 /// to it in a conversation gets it.
+/// `codealong --snapshot --merge-box <owner/name> <number>`: what a PR's merge box offers you, as
+/// its panel gets it. It only reads: what the box does is GitHub's, on the PR.
 /// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
 /// sending it (asks TypeSafe; needs the key, and `[jev] quick_panel` on).
 /// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
@@ -412,6 +415,11 @@ fn pr_card(_: &Args, rest: &[String]) -> Done {
 fn pr(_: &Args, rest: &[String]) -> Done {
     let (repo, number) = repo_and_number(rest)?;
     Ok(pretty(&github::detail(repo, number).map_err(failed)?))
+}
+
+fn merge_box(_: &Args, rest: &[String]) -> Done {
+    let (repo, number) = repo_and_number(rest)?;
+    Ok(pretty(&crate::prmerge::merge_box(repo, number).map_err(failed)?))
 }
 
 fn open(_: &Args, rest: &[String]) -> Done {

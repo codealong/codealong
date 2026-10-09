@@ -73,6 +73,8 @@ pub enum Msg {
     /// Something GitHub was asked in the background came back (ghpoll.rs).
     Github(ghpoll::Event),
     RefreshGithub,
+    /// A PR changed on GitHub at your hand: PRs are read again in full now.
+    PrChanged,
     /// A PR you approved from Codealong, by its slug on the board and its number. The reply is
     /// the time of the board that shows it, published at once.
     Approved(String, u64, Sender<i64>),
@@ -197,6 +199,12 @@ impl Handle {
 
     pub fn refresh_github(&self) {
         let _ = self.tx.send(Msg::RefreshGithub);
+    }
+
+    /// A PR has just changed on GitHub at your hand (merged, queued, its branch updated): PRs are
+    /// read again now, not at the next poll.
+    pub fn pr_changed(&self) {
+        let _ = self.tx.send(Msg::PrChanged);
     }
 
     /// A PR you've just approved stops asking for your review now, not at the next poll. Returns
@@ -1427,6 +1435,7 @@ impl Engine {
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
                 Ok(Msg::Github(event)) => self.on_github(event),
                 Ok(Msg::RefreshGithub) => self.github.poll(&self.seeds, false, Now::real()),
+                Ok(Msg::PrChanged) => self.github.on_changed(&self.seeds, Now::real()),
                 Ok(Msg::Approved(slug, number, reply)) => {
                     self.dirty |= self.github.on_approved(slug, number, &self.seeds, Now::real());
                     // Now rather than on the next tick: the button waits for it.

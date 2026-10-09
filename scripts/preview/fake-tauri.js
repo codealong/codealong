@@ -299,6 +299,25 @@ window.__TAURI_INTERNALS__ = {
     }
     // A review whose text is "fail" is refused, as GitHub might, for the checks.
     if (cmd === 'review_pr') return args.body === 'fail' ? Promise.reject(new Error('GitHub said no')) : Promise.resolve(null);
+    // A PR's merge box (prmerge.rs `MergeBox`) for a PR the board lists: ready to squash and
+    // merge, with GitHub's title and message for each way, and two emails. A merge whose title is
+    // "fail" is refused, as GitHub refuses one whose branch has moved.
+    if (cmd === 'merge_box') {
+      return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
+        var want = args || {};
+        var p = (board.prs || []).find(function (x) { return x.repoSlug === want.repo && x.number === want.number; }) || { title: 'A PR', head: 'feature', author: 'you' };
+        var merged = p.state === 'merged';
+        return {
+          id: 'PR_' + want.number, head: '0ef4ed2', branch: p.head, state: merged ? 'MERGED' : p.state === 'closed' ? 'CLOSED' : 'OPEN', draft: p.state === 'draft',
+          mergeable: 'MERGEABLE', mergeState: 'CLEAN', reviewDecision: 'APPROVED', canMerge: true, methods: ['merge', 'squash', 'rebase'], defaultMethod: 'squash',
+          mergeText: { title: 'Merge pull request #' + want.number + ' from ' + (p.author || 'you') + '/' + p.head, body: p.title },
+          squashText: { title: p.title + ' (#' + want.number + ')', body: '* ' + p.title + '\n\n* Say what it does in the docs' },
+          emails: ['you@example.com', 'you@work.example'], defaultEmail: 'you@example.com', canReady: true, canBypass: false, canAuto: false, canStopAuto: false, auto: null,
+          canUpdateBranch: false, queue: false, queued: null, deletesBranch: false, branchRef: 'REF_' + want.number, mergedBy: merged ? 'you' : null,
+        };
+      });
+    }
+    if (cmd === 'merge_pr') return ((args || {}).op || {}).title === 'fail' ? Promise.reject(new Error('Couldn’t merge #' + args.number + ': Head branch was modified. Review and try the merge again.')) : Promise.resolve(null);
     // A PR the board doesn't list, as GitHub would have it: merged a while ago, no sessions here.
     if (cmd === 'pr_card') {
       var want = args || {};

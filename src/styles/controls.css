@@ -60,7 +60,8 @@
   font: var(--type-meta-strong);
   color: var(--ink-2);
 }
-.ca-field input {
+.ca-field input,
+.ca-field textarea {
   height: 30px;
   padding: 0 8px;
   box-sizing: border-box;
@@ -71,7 +72,14 @@
   font: var(--type-code);
   outline: none;
 }
-.ca-field input:focus {
+/* A field of several lines (a merge's commit message) is as tall as its rows. */
+.ca-field textarea {
+  height: auto;
+  padding: 6px 8px;
+  resize: vertical;
+}
+.ca-field input:focus,
+.ca-field textarea:focus {
   border-color: var(--focus);
   box-shadow: var(--shadow-focus);
 }

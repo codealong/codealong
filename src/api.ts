@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way } from './types';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -144,6 +144,19 @@ export async function prCommentAsks(title: string, comments: { id: string; autho
 export async function reviewPr(repo: string, number: number, verdict: Verdict, body: string): Promise<void> {
   if (!inTauri) throw new Error('Reviewing needs the app.');
   await invoke('review_pr', { repo, number, verdict, body });
+}
+
+/** What a PR's merge box offers you, as GitHub's has it. */
+export async function mergeBox(repo: string, number: number): Promise<MergeBox> {
+  if (!inTauri) throw new Error('Merging needs the app.');
+  return invoke<MergeBox>('merge_box', { repo, number });
+}
+
+/** Does what the merge box asked to PR `number` (node id `id`) as you. Resolves once GitHub has
+ *  done it, with what it couldn't do after (a branch that stayed), or null. */
+export async function mergePr(number: number, id: string, op: MergeOp): Promise<string | null> {
+  if (!inTauri) throw new Error('Merging needs the app.');
+  return invoke<string | null>('merge_pr', { number, id, op });
 }
 
 export async function reviewInCodex(url: string): Promise<void> {
