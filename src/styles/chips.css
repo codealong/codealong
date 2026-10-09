@@ -21,7 +21,6 @@
 .ca-pr--open, .ca-pr--approved { background: var(--pr-open-tint); color: var(--pr-open); }
 .ca-pr--changes, .ca-pr--closed { background: var(--alert-tint); color: var(--alert); }
 .ca-pr--merged { background: var(--pr-merged-tint); color: var(--pr-merged); }
-.ca-pr-word { font: var(--type-meta-strong); }
 .ca-pr .ca-checks { padding-left: 5px; margin-left: 1px; box-shadow: inset 1px 0 0 var(--line); }
 .ca-checks { display: inline-flex; align-items: center; gap: 2px; font: var(--type-code-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ca-checks.is-pass { color: var(--pr-open); }
@@ -60,8 +59,13 @@
 .ca-pr {
   padding: 0 8px 0 6px;
 }
+/* The state word, in the number's run of text: caption-strong's face on the number's line, in its
+   size and weight. It takes no height of that line, so the sans's taller ascent can't push the
+   line, and the number with it, below the checks' count. */
 .ca-pr-word {
-  font: var(--type-caption-strong);
+  margin-left: 5px;
+  font-family: var(--font-sans);
+  line-height: 0;
 }
 .ca-chip--more {
   padding: 0 8px;

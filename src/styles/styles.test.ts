@@ -319,6 +319,7 @@ describe('the stylesheets', () => {
   const SPECIAL_LONGHANDS: Record<string, { set: string; why: string }> = {
     '.ca-ic': { set: 'font-family: var(--font-mono); font-size: 0.9em', why: 'inline code in running text: mono at nine tenths of the text it sits in, whatever its style, on that text’s line and in its weight' },
     '.ca-code': { set: 'font-family: var(--font-mono); font-size: 11px', why: 'code in a line of text (a session’s id, a path in a key-value list): mono at 11px on the line of the text around it, meta’s or body’s, in its weight' },
+    '.ca-pr-word': { set: 'font-family: var(--font-sans); line-height: 0', why: 'a PR chip’s state, in the run of text its number starts: sans in the number’s size and weight, on the number’s baseline, taking no height of that line so the sans’s taller ascent can’t push it below the checks’ count (a pixel at 110%)' },
     '.ca-found-home': { set: 'font-size: 12px', why: 'a found account’s home folder: code’s size in place of .ca-code’s 11px (it’s both), on its row’s 18px line' },
     '.ca-nav.is-child': { set: 'font-family: var(--font-mono); font-size: 12px', why: 'a child row in the sidebar (NavItem `child`, which no view passes today): mono at code’s size on the row’s 18px line, in the row’s weight (medium for the one shown)' },
     '.ca-tree-age': { set: 'font-size: 11px', why: 'a session’s age at the end of its tree row: caption’s size on the row’s 18px line, level with the name before it' },

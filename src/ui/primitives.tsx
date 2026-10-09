@@ -598,8 +598,12 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen, inR
   return (
     <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does="open it on GitHub" act={onOpen} inRow={inRow} onMenu={onMenu}>
       <Icon name={PR_ICON[pr.state]} size={12} stroke={1.75} />
-      <span>#{pr.number}</span>
-      {!compact && <span className="ca-pr-word">{PR_WORD[pr.state]}</span>}
+      {/* One run of text, so the word sits on the number's baseline: as two pieces of the chip,
+          each centered on its own, a zoomed page put the sans word a pixel below the mono. */}
+      <span>
+        #{pr.number}
+        {!compact && <span className="ca-pr-word">{PR_WORD[pr.state]}</span>}
+      </span>
       {open && c.failed > 0 && (
         <span className="ca-checks is-fail" title={`${c.failed} failing`}>
           <Icon name="x" size={11} stroke={2.25} />
