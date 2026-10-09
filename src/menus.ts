@@ -292,8 +292,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     unread: unreadable(s) ? { label: 'Mark as unread', run: () => void unreadAhead([s.key]).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     pin: s.archived ? undefined : can.pin,
     desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
-    // Snoozes keep sessions off the floating bar, which shows this device's only.
-    snooze: s.archived || !here ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed'), chords: !!can.keys }),
+    // On the Mac it runs on, which keeps it, so it's snoozed on every device.
+    snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed'), chords: !!can.keys }),
     // Closed, it's done with for now, as one marked seen is: a window working through what
     // waits on you goes on.
     close: closable(s)

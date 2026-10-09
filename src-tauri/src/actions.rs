@@ -30,7 +30,6 @@ pub const CLOSE: &str = "session-close";
 pub const SIDE_ASK: &str = "session-side-ask";
 pub const SIDE_CLOSE: &str = "session-side-close";
 pub const OPEN: &str = "open-target";
-pub const SNOOZE: &str = "session-snooze";
 pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
 
@@ -63,14 +62,6 @@ pub mod params {
     #[serde(default)]
     pub struct Open {
         pub target: String,
-    }
-
-    /// `session-snooze`: until when (ms since the epoch), or awake with none.
-    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-    #[serde(default)]
-    pub struct Snooze {
-        pub keys: Vec<String>,
-        pub until: Option<i64>,
     }
 
     /// `worktree-preview`: what changes in its preview, and what stays.
@@ -192,6 +183,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
     Request { name: api::MARK_UNREAD, here: mark_unread, ..ANY },
+    // A snooze is kept on the session's Mac, so it's snoozed there and everywhere it shows.
+    Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
     // A search runs as you type, so a device slow to answer is left out rather than waited for.
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
@@ -220,8 +213,6 @@ const REQUESTS: &[Request] = &[
     Request { name: SIDE_CLOSE, only_here: Some("Its side conversation is on the Mac it runs on."), here: side_close, command: side_in_windows, ..ANY },
     // What a click opens is on the screen of the device it's on.
     Request { name: OPEN, only_here: Some("That's on another device: it opens there, and its sessions show in their panel here."), here: open, ..ANY },
-    // Snoozes keep sessions off the floating bar, which shows only this Mac's.
-    Request { name: SNOOZE, only_here: Some("Snooze it on the Mac it runs on."), here: snooze, ..ANY },
     // A worktree's preview and reuse mark are kept on its Mac, with its other settings.
     Request { name: PREVIEW, only_here: Some("That worktree is on another device; set its preview there."), here: set_preview, ..ANY },
     Request { name: REUSABLE, only_here: Some("That worktree is on another device; mark it there."), here: set_reusable, ..ANY },
@@ -293,9 +284,33 @@ pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, p
 /// the window hears of the change from that device's feed, and one the table keeps on the
 /// session's Mac (`only_here`) isn't sent. Returns this device's answer, if any were here.
 pub fn run_keys(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Option<Value> {
+    each_device(engine, peers, name, keys, params).and_then(|(answer, _)| answer)
+}
+
+/// `run_keys`, waiting for the other devices' answers too, for a window that says when one
+/// didn't do it: it isn't connected, or its Codealong is from before the request.
+pub fn run_keys_heard(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Result<Option<Value>, String> {
+    let (answer, there) = each_device(engine, peers, name, keys, params).ok_or_else(|| format!("Codealong doesn't know how to {name}."))?;
+    for (device, asked) in there {
+        let why = match asked.join() {
+            Ok(Ok(_)) => continue,
+            Ok(Err(why)) => why,
+            Err(_) => "That stopped partway.".to_string(),
+        };
+        return Err(if why.contains(UNKNOWN) { format!("Codealong on {} can't do that from here until it's updated.", peers.name(&device)) } else { why });
+    }
+    Ok(answer)
+}
+
+/// What another device was asked by `each_device`, by its short id: its answer, once it comes.
+type Asked = (String, std::thread::JoinHandle<Result<Value, String>>);
+
+/// `run_keys`'s requests: this device's answer, and each other device's as it comes.
+fn each_device(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Option<(Option<Value>, Vec<Asked>)> {
     let req = find(name)?;
     let params = to_value(params).ok()?;
     let mut answer = None;
+    let mut there = Vec::new();
     for (device, keys) in by_device(keys) {
         let mut params = params.clone();
         if let Value::Object(m) = &mut params {
@@ -305,14 +320,13 @@ pub fn run_keys(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, p
             None => answer = (req.here)(engine, &Call { key: "", params: &params, from: &From::Here }).ok(),
             Some(device) if elsewhere(req, &From::Here).is_ok() => {
                 let peers = peers.clone();
-                std::thread::spawn(move || {
-                    let _ = ask_there(&peers, req, &From::Here, &device, "", params);
-                });
+                let asking = device.clone();
+                there.push((device, std::thread::spawn(move || ask_there(&peers, req, &From::Here, &asking, "", params))));
             }
             Some(_) => {}
         }
     }
-    answer
+    Some((answer, there))
 }
 
 /// Sessions' keys by the device each is on (None for this one), as that device knows them.
@@ -1026,9 +1040,11 @@ mod tests {
         let spec = json!({ "spec": { "laneId": lane, "account": "claude", "place": "terminal", "prompt": "", "worktree": false, "todos": [] } });
         assert!(run(&engine, &peers, api::START, lane, spec).unwrap_err().contains("isn't linked"));
         assert!(run_on(&engine, &peers, api::START_OPTIONS, Some("a1b2c3d4e5"), json!({})).unwrap_err().contains("isn't linked"));
-        // Snoozing another device's session is left undone, and this device's answers.
-        assert_eq!(run_keys(&engine, &peers, SNOOZE, vec!["@a1b2c3d4e5:claude:claude:abc".into()], json!({ "until": 1 })), None);
-        assert_eq!(run_keys(&engine, &peers, SNOOZE, vec!["@a1b2c3d4e5:claude:claude:abc".into(), "claude:claude:def".into()], json!({ "until": 1 })), Some(Value::Null));
+        // Another device's sessions are snoozed there: with none linked, the window hears why it
+        // wasn't, and this device's own still answer.
+        let snooze = |keys: &[&str]| run_keys_heard(&engine, &peers, api::SESSION_SNOOZE, keys.iter().map(|k| k.to_string()).collect(), json!({ "until": 1 }));
+        assert!(snooze(&["@a1b2c3d4e5:claude:claude:abc"]).unwrap_err().contains("isn't linked"));
+        assert_eq!(snooze(&["claude:claude:def"]), Ok(Some(Value::Null)));
     }
 
     #[test]
@@ -1048,6 +1064,8 @@ mod tests {
         assert_eq!((seen.there)(json!({ "keys": ["claude:claude:abc"] }), "").unwrap(), json!({ "keys": ["claude:claude:abc"] }));
         let unread = find(api::MARK_UNREAD).unwrap();
         assert_eq!((unread.there)(json!({ "keys": ["claude:claude:abc"] }), "").unwrap(), json!({ "keys": ["claude:claude:abc"] }));
+        let snooze = find(api::SESSION_SNOOZE).unwrap();
+        assert_eq!((snooze.there)(json!({ "keys": ["claude:claude:abc"], "until": 1 }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "until": 1 }));
         // A start goes with the worktree as that device knows it and none of this device's todos,
         // and the session it started comes back by the key it has here.
         let start = find(api::START).unwrap();

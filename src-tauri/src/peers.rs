@@ -618,6 +618,13 @@ impl Peers {
         Err("The other device didn't answer in time.".into())
     }
 
+    /// What a linked device is called, by its short id, for words about it.
+    pub fn name(&self, short: &str) -> String {
+        let st = self.0.lock();
+        let key = st.linked.iter().find(|l| short_of(&l.key) == short).map(|l| l.key.clone()).unwrap_or_default();
+        self.0.name_of(&st, &key)
+    }
+
     /// Asks a linked device, by its short id, to run a request, and waits for its answer.
     pub fn ask(&self, short: &str, method: &str, params: Value, timeout: Duration) -> std::result::Result<Value, String> {
         let inner = &self.0;

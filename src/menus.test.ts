@@ -119,12 +119,12 @@ describe('sessionMenu', () => {
     // Done with whatever it is on this Mac: an app's session, or one that isn't running, is
     // marked seen and archived, with nothing to close.
     for (const s of [session({ surface: 'app' }), session({ live: false }), session({ hosted: true })]) expect(has(s, 'Mark as done')).toBe(true);
-    // On another device: no snooze, no closing, and new sessions only where a window starts them
-    // there. Done goes there, which closes it if it can.
+    // On another device: no closing, and new sessions only where a window starts them there.
+    // Done and Snooze go there, which closes it if it can and keeps the snooze.
     const remote = session({ key: '@ab12:claude:c:1' });
     const remoteLane = lane({ id: '@ab12:/r/api' });
     const there = labels(sessionMenu(remoteLane, remote, base));
-    expect(there).not.toContain('Snooze ›');
+    expect(there).toContain('Snooze ›');
     expect(there).not.toContain('Close terminal');
     expect(there).toContain('Mark as done');
     expect(there).not.toContain('New session here…');

@@ -732,7 +732,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   early. When the time
   comes it's back as it is then, and one with nothing new (its turn already seen, or its
   process gone) comes back as Your turn, so a snooze always brings its session back. A running
-  session stays in Working while snoozed, and sending a session a prompt ends its snooze.
+  session stays in Working while snoozed, and sending a session a prompt ends its snooze. A
+  session on another device is snoozed on its Mac, so it's snoozed there too.
   Needs you, Your turn and Working are queues, the longest first, so a new one joins the end
   instead of pushing an old one down, and the notch works through them first come, first
   served. Pills that
@@ -837,9 +838,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   whatever those devices call them, even where a checkout still has a renamed repo's old name;
   work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
   narrow the views to the ones you pick; and Worktrees can group by device. A session on another
-  device shows its whole conversation in its panel, and when that device lets its linked
-  devices act on its sessions (remote control, off by default) you can send it a message,
-  answer an approval or mark it done from here. Devices find each other on your tailnet when Tailscale runs,
+  device shows its whole conversation in its panel; you can mark it seen or snooze it from here,
+  and when that device lets its linked devices act on its sessions (remote control, off by
+  default) send it a message, answer an approval or mark it done. Devices find each other on your tailnet when Tailscale runs,
   and reach linked devices anywhere through iroh; they talk directly, encrypted end to end,
   with no server of Codealong's in between. You link a device once: on your tailnet, both show
   the same six digits and you say yes on the other one; elsewhere, with a link code made on one

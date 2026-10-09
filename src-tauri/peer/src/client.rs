@@ -392,6 +392,12 @@ impl Client {
         self.ask(device, api::MARK_UNREAD, of(params::Keys { keys: keys.to_vec() }), ACT_WAIT).map(|_| ())
     }
 
+    /// Snoozes sessions on `device` until `until` (ms since the epoch), or wakes them with none:
+    /// each leaves Needs you and Your turn there and everywhere else until then.
+    pub fn snooze(&self, device: &str, keys: &[String], until: Option<i64>) -> std::result::Result<(), String> {
+        self.ask(device, api::SESSION_SNOOZE, of(params::Snooze { keys: keys.to_vec(), until }), ACT_WAIT).map(|_| ())
+    }
+
     /// Where each of `device`'s accounts can start a session, and the models it can ask for.
     pub fn start_options(&self, device: &str) -> std::result::Result<api::StartOptions, String> {
         read(self.ask(device, api::START_OPTIONS, json!({}), READ_WAIT)?)

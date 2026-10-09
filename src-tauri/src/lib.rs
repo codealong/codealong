@@ -275,12 +275,14 @@ fn mark_unread(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>
     actions::run_keys(&engine, &peers, api::MARK_UNREAD, keys, actions::params::Keys::default()).and_then(|v| v.as_i64())
 }
 
-/// Snoozes sessions until `until` (ms since the epoch), or wakes them with none. Only this Mac's
-/// (`actions::SNOOZE`): another device's are left as they are. Returns the time of the board that
-/// shows it, as `mark_seen` does.
-#[tauri::command(async)]
-fn snooze_sessions(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
-    actions::run_keys(&engine, &peers, actions::SNOOZE, keys, actions::params::Snooze { keys: Vec::new(), until }).and_then(|v| v.as_i64())
+/// Snoozes sessions until `until` (ms since the epoch), or wakes them with none, each on the
+/// device it's on, so it's snoozed there and on every device. Returns the time of the board that
+/// shows it, as `mark_seen` does, once every device has answered: one that didn't snooze its
+/// sessions (it isn't connected, or is from before it could be asked) is the error.
+#[tauri::command]
+async fn snooze_sessions(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>, until: Option<i64>) -> Result<Option<i64>, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run_keys_heard(&engine, &peers, api::SESSION_SNOOZE, keys, actions::params::Snooze { keys: Vec::new(), until }).map(|v| v.and_then(|v| v.as_i64()))).await?
 }
 
 /// Snoozes your review of PRs (`owner/name#number`) until `until` (ms since the epoch), or wakes
