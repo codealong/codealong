@@ -19,8 +19,8 @@
   var title = function () { var t = document.querySelector('.ca-notch-session .ca-sessinsp-title, .ca-notch-session .ca-sessinsp-head h2'); return t ? t.textContent.trim() : ''; };
   var shows = function (item) { return function () { return is('session') && title().indexOf(item.title.slice(0, 20)) === 0; }; };
   var keysCalls = function () { return calls('notch_keys').map(function (a) { return a.on; }); };
-  // What the strip counts of what else waits on you: the total, then each count in words.
-  var counted = function () { var c = q('.ca-notch-session .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + all('.ca-reply-queue-count', c).map(function (x) { return x.getAttribute('aria-label'); }).join(', '); };
+  // What the strip counts of what else waits on you: the total, then its chip's words.
+  var counted = function () { var c = q('.ca-notch-session .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.getAttribute('aria-label'); };
   var lastShape = function () { var s = calls('notch_shape'); return s[s.length - 1]; };
   var fits = function () { return calls('fit_bar').map(function (a) { return a.width + 'x' + a.height; }); };
   var key = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -119,7 +119,7 @@
       check('says the shape with the session in it', Math.abs(s.h - card.bottom) < 1 && s.w >= 560, JSON.stringify(s) + ' card to ' + card.bottom);
       check('the window has room for it and its shadow', Number(windowAtStart.split('x')[1]) >= s.h + 30, windowAtStart);
       var strip = document.querySelector('.ca-notch-session .ca-reply-queue');
-      check('counts what else waits', /^2 · .*after this one/.test(counted()), counted());
+      check('counts what else waits', /^2 · Waiting on you after this one: /.test(counted()), counted());
       // At the narrowest a session gets, the counts and every button share one line, the counts whole.
       var note = strip.querySelector('.ca-reply-queue-note').getBoundingClientRect();
       var text = document.createRange();
@@ -155,7 +155,7 @@
     })
     .then(function () {
       check('⌥↓ steps along the bar, to the ones running too', true);
-      check('on one that doesn’t wait the strip counts what does, not what more', /^3 · (?!.*after this one)/.test(counted()), counted());
+      check('on one that doesn’t wait the strip counts what does, not what more', /^3 · Waiting on you: /.test(counted()), counted());
       var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
       check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Done⇧⌘E|Snooze⌃⌘1–4|' + labels[3] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[3]), labels.join('|'));
       // Nothing to mark seen on one that runs: ⌘E goes on as ⌘] does.

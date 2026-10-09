@@ -57,8 +57,8 @@
 
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return t ? t.textContent : ''; };
-  // What the strip counts of what else waits on you: the total, then each count in words.
-  var counted = function () { var c = q('.ca-sessinsp .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + all('.ca-reply-queue-count', c).map(function (x) { return x.getAttribute('aria-label'); }).join(', '); };
+  // What the strip counts of what else waits on you: the total, then its chip's words.
+  var counted = function () { var c = q('.ca-sessinsp .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.getAttribute('aria-label'); };
   var note = function () { var t = document.querySelector('.ca-sessinsp .ca-composer:not(.is-approval) .ca-composer-note'); return t ? t.textContent : ''; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
@@ -86,7 +86,7 @@
     })
     .then(function () {
       check('clicking a row puts the cursor in its box', document.activeElement === box());
-      check('a session that waits on you counts what’s left', /^4 · .*after this one/.test(counted()), counted());
+      check('a session that waits on you counts what’s left', /^4 · Waiting on you after this one: /.test(counted()), counted());
       check('the strip is one line where the counts and buttons fit', /^(one line|no room)/.test(oneLine()), oneLine());
       window.note('strip at ' + Math.round(q('.ca-sessinsp .ca-reply-queue').getBoundingClientRect().width) + ': ' + oneLine());
       check('the box says what ⌘⏎ does', /⌘⏎ send \+ next/.test(note()), note());

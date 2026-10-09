@@ -410,13 +410,17 @@ interface ChipProps {
   onMenu?: () => void;
   /** A small ✕ at its end, which takes it away: on a chip that doesn't act itself. */
   remove?: { label: string; title?: string; run: () => void };
+  /** Its name for a screen reader, where it has no tooltip to say it (a list shows instead). */
+  label?: string;
+  /** A chip whose click shows a list: whether it's up. */
+  expanded?: boolean;
   children?: ReactNode;
 }
 
 /** A chip: one shape and size wherever it shows, and one answer to clicks (`chipHandlers`). The
  *  named chips below and in TodoBits.tsx say what's in one; anything else a row labels goes
  *  through this too, with its own class for its fill. */
-export function Chip({ kind = 'chip', className, title, does, act, inRow = false, onMenu, remove, children }: ChipProps) {
+export function Chip({ kind = 'chip', className, title, does, act, inRow = false, onMenu, remove, label, expanded, children }: ChipProps) {
   const base = CHIP_CLASS[kind];
   const tip = title && act && does ? `${title}. ${inRow ? 'Double-click' : 'Click'} to ${does}.` : title;
   const onContextMenu = onMenu
@@ -444,7 +448,16 @@ export function Chip({ kind = 'chip', className, title, does, act, inRow = false
     );
   }
   return (
-    <button type="button" className={cx(base, `${base}--button`, className)} title={tip} onContextMenu={onContextMenu} {...chipHandlers(act, false)}>
+    <button
+      type="button"
+      className={cx(base, `${base}--button`, className)}
+      title={tip}
+      aria-label={label}
+      aria-haspopup={expanded === undefined ? undefined : 'menu'}
+      aria-expanded={expanded}
+      onContextMenu={onContextMenu}
+      {...chipHandlers(act, false)}
+    >
       {inner}
     </button>
   );

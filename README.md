@@ -262,9 +262,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     the panel to the whole window, the list and sidebar out of the way while you work through
     them, and stays so until you press it again; Escape in the box then leaves the keys with the
     window. A strip at the top of the panel says how many
-    more wait on you, each kind's glyph and how many, and how the last one went. Pointing at a
-    count (or clicking it) lists what it counts under it, the next first, each with where it is,
-    as a folded pill on the bar lists its sessions; a click on one shows it, as ⌘] would. It
+    more wait on you, in one chip with each kind's glyph and how many, and how the last one went.
+    Pointing at the chip (or clicking it) lists what it counts under it, kind by kind, the next
+    first, each with where it is, as a folded pill on the bar lists its sessions; a click on one
+    shows it, as ⌘] would. It
     has what's commonly done to a session as
     buttons that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its
     menu's times: 15 minutes, 1 hour, 3 hours, the next morning), Close (⌃⌘W, which closes its

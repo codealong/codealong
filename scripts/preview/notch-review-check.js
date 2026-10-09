@@ -20,8 +20,8 @@
   var showsSession = function (item) { return function () { return is('session') && sessionTitle().indexOf(item.title.slice(0, 20)) === 0; }; };
   var showsReview = function (pr) { return function () { return is('session') && prNumber() === '#' + pr.number; }; };
   var keysCalls = function () { return calls('notch_keys').map(function (a) { return a.on; }); };
-  // What the strip counts of what else waits on you: the total, then each count in words.
-  var counted = function () { var c = q('.ca-notch-session .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + all('.ca-reply-queue-count', c).map(function (x) { return x.getAttribute('aria-label'); }).join(', '); };
+  // What the strip counts of what else waits on you: the total, then its chip's words.
+  var counted = function () { var c = q('.ca-notch-session .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.getAttribute('aria-label'); };
   var key = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var escape = function () { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })); };
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
@@ -97,7 +97,7 @@
       check('takes the keyboard', keysCalls().join() === 'true', keysCalls().join());
       check('the cursor is in its box', document.activeElement && document.activeElement.tagName === 'TEXTAREA' && !!document.activeElement.closest('.ca-prreview-box'));
       check('the reviews pill is marked', reviewsPill().classList.contains('is-peeked'));
-      check('counts what else waits: the other review, the finished turn and the one skipped', /^3 · .*PRs? to review after this one/.test(counted()), counted());
+      check('counts what else waits: the other review, the finished turn and the one skipped', /^3 · Waiting on you after this one: .*PRs? to review/.test(counted()), counted());
       var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
       check('the strip has the PR’s actions with their keys', labels.join('|') === 'Approve⌘⏎|Comment⌥⌘⏎|Snooze⌃⌘1–4|Review with⌃⌘R|GitHub⌃⌘G|Back⌃-|Next⌘]|esc', labels.join('|'));
       check('the card has the details', !!document.querySelector('.ca-notch-session .ca-prreview-body .ca-insp-sec'));
@@ -126,7 +126,7 @@
     })
     .then(function () {
       check('⌥↑ steps along the bar through reviews and sessions alike', true);
-      check('on the session the strip counts the reviews among what waits', /^3 · .*PRs? to review after this one/.test(counted()), counted());
+      check('on the session the strip counts the reviews among what waits', /^3 · Waiting on you after this one: .*PRs? to review/.test(counted()), counted());
       key({ key: 'ArrowDown', altKey: true });
       return until(showsReview(prs[0]), 3000, '⌥↓ back to the review');
     })
