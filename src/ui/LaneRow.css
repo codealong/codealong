@@ -132,7 +132,8 @@
   color: var(--ink-3);
 }
 
-.ca-chip.ca-snoozechip {
+.ca-chip.ca-snoozechip,
+.ca-chip.ca-quietchip {
   padding: 0 7px 0 6px;
   font: var(--type-caption-heading);
   color: var(--ink-3);

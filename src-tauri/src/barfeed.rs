@@ -100,6 +100,9 @@ pub struct BarItem {
     pub target: Option<BarTarget>,
     /// When it's back, while it's snoozed.
     pub snoozed_until: Option<i64>,
+    /// Quieted: its turns don't wait on you (`board::apply_quiet`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
     /// Its turn is running and Codealong can stop it: its menu offers Stop.
     pub stoppable: bool,
 }
@@ -187,6 +190,7 @@ pub fn feed(board: &Board) -> BarFeed {
                 open_target: s.open_target.clone(),
                 target,
                 snoozed_until: s.snoozed_until,
+                quiet: s.quiet,
                 stoppable: s.stoppable,
             };
             match group {

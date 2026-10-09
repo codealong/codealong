@@ -98,6 +98,22 @@ describe('lanesAhead', () => {
     expect([woke.sessions[1].snoozedUntil, woke.sessions[1].status]).toEqual([undefined, 'unread']);
   });
 
+  it('quiets a finished turn out of Your turn at once, and leaves what needs you', () => {
+    const lanes = [lane([session('u', 'unread'), session('n', 'needs', { asks: true }), session('i', 'idle')])];
+    const [l] = lanesAhead(lanes, [change({ kind: 'quiet', keys: ['u', 'n'], quiet: true })]);
+    expect(l.sessions.map((s) => [s.key, s.status, !!s.quiet])).toEqual([
+      ['u', 'idle', true],
+      ['n', 'needs', true],
+      ['i', 'idle', false],
+    ]);
+    expect(l.bay).toBe('needs');
+    // Made heard again, it waits for the board to say whether there's a turn you haven't seen.
+    const [heard] = lanesAhead([lane([session('u', 'idle', { quiet: true })])], [change({ kind: 'quiet', keys: ['u'], quiet: false })]);
+    expect([heard.sessions[0].status, heard.sessions[0].quiet]).toEqual(['idle', false]);
+    const quiet = [lane([session('q', 'idle', { quiet: true })])];
+    expect(lanesAhead(quiet, [change({ kind: 'quiet', keys: ['q'], quiet: true })])).toBe(quiet);
+  });
+
   it('names a renamed session, in its headline and its lane’s', () => {
     const lanes = [lane([session('a', 'working'), session('b', 'idle')])];
     const [l] = lanesAhead(lanes, [change({ kind: 'rename', key: 'a', title: 'Fix the login redirect' })]);
@@ -140,7 +156,7 @@ describe('boardAhead', () => {
 describe('settled', () => {
   const view = (boardAt: number | null, s?: Partial<Session> & { status: Session['status'] }): View => ({
     boardAt,
-    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null } : undefined),
+    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null, quiet: s.quiet ?? false } : undefined),
   });
 
   it('keeps a seen until a board at least as new as the engine’s arrives', () => {
@@ -171,6 +187,9 @@ describe('settled', () => {
     expect(settled(a, view(NOW, { status: 'idle' }), NOW + 200)).toBe(a);
     expect(settled(a, view(NOW, { status: 'idle', archived: true }), NOW + 200)).toBeNull();
     expect(settled(a, view(NOW, { status: 'idle' }), NOW + 21_000)).toBeNull();
+    const q = change({ kind: 'quiet', keys: ['a'], quiet: true }, { doneAt: NOW + 100 });
+    expect(settled(q, view(NOW, { status: 'unread' }), NOW + 200)).toBe(q);
+    expect(settled(q, view(NOW, { status: 'idle', quiet: true }), NOW + 200)).toBeNull();
   });
 
   it('marks a message taken when the board has the prompt, and lets it go a moment later', () => {
@@ -235,6 +254,15 @@ describe('barAhead', () => {
       ['w', 'working', 'working'],
     ]);
     expect(out.snoozed.map((i) => [i.key, i.snoozedUntil])).toEqual([['n', NOW + 900_000]]);
+  });
+
+  it('takes a quieted session’s finished turn off the bar, but not what needs you', () => {
+    const f = barAhead(feed([item('n', 'needs', NOW - 50), item('u', 'unread', NOW), item('w', 'working', NOW)]), [change({ kind: 'quiet', keys: ['n', 'u', 'w'], quiet: true })]);
+    expect(f.items.map((i) => i.key)).toEqual(['n', 'w']);
+    expect(f.logoStatus).toBe('needs');
+    // Quieted and then made heard again, it stays until the engine's feed says.
+    const back = barAhead(feed([item('u', 'unread', NOW)]), [change({ kind: 'quiet', keys: ['u'], quiet: true }), change({ kind: 'quiet', keys: ['u'], quiet: false })]);
+    expect(back.items.map((i) => i.key)).toEqual(['u']);
   });
 
   it('names a renamed session’s pill wherever it is on the bar', () => {

@@ -236,6 +236,13 @@ pub struct Session {
     /// leave it out of Needs you and Your turn until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snoozed_until: Option<i64>,
+    /// Quieted from Codealong (`board::apply_quiet`): a turn it ends is idle rather than Your
+    /// turn, so it waits on you only when it needs you (asks you something, waits on a call to
+    /// allow, stops with an error). It stays quiet until you turn that off. The status already
+    /// says it, so Macs before 2026-10-09, which don't send this, and devices that don't read it
+    /// still leave its turns out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
     /// It worked in a reusable worktree before that worktree last took new work
     /// (`board::earlier`): kept in the lane's list after its current sessions, and out of the
     /// lane's status.
@@ -331,6 +338,7 @@ impl Session {
             stoppable: false,
             steerable: false,
             snoozed_until: None,
+            quiet: false,
             earlier: false,
             chrome: None,
             limit: None,
@@ -768,7 +776,7 @@ mod tests {
                 "appAccount": true, "openTarget": "s|claude:claude2:abc|focus", "visitor": "worked here", "headline": "Needs you", "detail": "now",
                 "branch": "login", "archived": true, "attachCommand": "claude attach j1", "continues": "claude:claude2:from",
                 "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
-                "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "earlier": true,
+                "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true, "earlier": true,
                 "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 }
             }"#,
         )

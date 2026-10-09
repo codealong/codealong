@@ -973,6 +973,23 @@ pub fn last_sentence(text: &str) -> String {
     truncate(t[cut..].trim(), 140)
 }
 
+/// Applies quiet from Codealong to a session, after its status and Jev's read of it and before a
+/// mark of unread or a snooze, before bays and headlines are worked out. A quiet session's turn
+/// that ended is idle rather than Your turn, so it's in no queue, on no pill and off the mark:
+/// one that loops, or wakes on a schedule, doesn't wait on you each time it stops. What needs you
+/// still does: a reply Jev reads as asking you something (Needs you by then), a call to allow, a
+/// question, an error. Your own Mark as unread, and a snooze's end, still bring it back, as they
+/// come after.
+pub fn apply_quiet(s: &mut Session, quiet: bool) {
+    if !quiet {
+        return;
+    }
+    s.quiet = true;
+    if s.status == Status::Unread {
+        s.status = Status::Idle;
+    }
+}
+
 /// Applies a snooze from Codealong to a session, after its status and Jev's read of it, before
 /// bays and headlines are worked out. Until its time the session carries `snoozed_until`, and the
 /// floating bar and the mark leave it out of Needs you and Your turn. When the time comes it's
@@ -2505,6 +2522,44 @@ mod tests {
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));
+    }
+
+    #[test]
+    fn a_quiet_session_waits_on_you_only_when_it_needs_you() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let ended = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        assert_eq!(ended.status, Status::Unread);
+        let quiet = |s: &Session| {
+            let mut s = s.clone();
+            apply_quiet(&mut s, true);
+            s
+        };
+        // A turn that ended is idle, so it's not Your turn: not its lane's bay, and not the mark.
+        let q = quiet(&ended);
+        assert_eq!((q.status, q.quiet, q.status_since), (Status::Idle, true, ended.status_since));
+        assert_eq!(bay_of(std::slice::from_ref(&q), None).0, Bay::Idle);
+        // A reply that asks you something is Needs you by then, and stays so.
+        let mut asks = ended.clone();
+        apply_insight(&mut asks, &insight(|i| i.asks_you = Some(0.9)));
+        assert_eq!(quiet(&asks).status, Status::Needs);
+        // A call to allow or a question, an error, and work under way show as they are.
+        let waiting = claude_session(&a, Some(&reg("waiting", NOW - MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        assert_eq!(quiet(&waiting).status, Status::Needs);
+        for st in [Status::Error, Status::Working, Status::Stopped] {
+            assert_eq!(quiet(&Session { status: st, ..ended.clone() }).status, st);
+        }
+        // Not quiet, it's as it was.
+        let mut heard = ended.clone();
+        apply_quiet(&mut heard, false);
+        assert_eq!((heard.status, heard.quiet), (Status::Unread, false));
+        // Your own mark of unread, and a snooze's end, come after and bring it back.
+        let mut marked = quiet(&ended);
+        apply_unread(&mut marked, Some(&UnreadMark { key: ended.key.clone(), at: NOW - 5 * MIN }), NOW - 30 * MIN);
+        assert_eq!(marked.status, Status::Unread);
+        let mut woke = quiet(&ended);
+        apply_snooze(&mut woke, Some(&Snooze { key: ended.key.clone(), at: NOW - 15 * MIN, until: NOW - MIN }), NOW - 30 * MIN, NOW);
+        assert_eq!(woke.status, Status::Unread);
     }
 
     #[test]

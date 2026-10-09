@@ -3,12 +3,12 @@
 // floating bar's pills, the peek, the quick panel's rows, cards on the desktop. A window says
 // what it can do (`SessionCan` and the others), and an item shows when the window can do it and
 // the thing allows it, always in the same order. What works the same from every window (mark
-// seen, snooze, close, mark done, archive, fork, move, pin to the desktop, copy) is done here, and
+// seen, snooze, quiet, close, mark done, archive, fork, move, pin to the desktop, copy) is done here, and
 // says how it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
-import { archiveAhead, doneAhead, seenAhead, unreadAhead } from './ahead';
+import { archiveAhead, doneAhead, quietAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -107,7 +107,7 @@ function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction |
 
 /** How a session, or a PR waiting on your review, left the list of what waits on you: the strip
  *  says it on the one gone on to (queue.ts `wentWords`). */
-export type Left = 'marked seen' | 'snoozed' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started';
+export type Left = 'marked seen' | 'snoozed' | 'quieted' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started';
 
 export interface SessionCan {
   report: Report;
@@ -182,6 +182,9 @@ export interface SessionActions {
   pin?: MenuAction;
   desktop?: MenuAction;
   snooze?: MenuGroup;
+  /** Quiet, checked while it is: its turns don't wait on you, only what needs you does, until
+   *  it's unchecked (board.rs `apply_quiet`). */
+  quiet?: MenuAction;
   close?: MenuAction;
   /** Done with it: it ends as far as Codealong can end it, and is marked seen and archived. */
   done?: MenuAction;
@@ -294,6 +297,19 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
     // On the Mac it runs on, which keeps it, so it's snoozed on every device.
     snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed'), chords: !!can.keys }),
+    // Kept on the Mac it runs on too. Quieted, a turn that ended leaves what waits on you, and a
+    // window working through that goes on; one that needs you stays.
+    quiet: s.archived
+      ? undefined
+      : {
+          label: 'Quiet',
+          checked: !!s.quiet,
+          run: () => {
+            const act = quietAhead([s.key], !s.quiet);
+            if (!s.quiet && s.status === 'unread') settle('quieted')(act);
+            else act.catch((e: unknown) => report.error(errorText(e)));
+          },
+        },
     // Closed, it's done with for now, as one marked seen is: a window working through what
     // waits on you goes on.
     close: closable(s)
@@ -375,13 +391,13 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
 
 /** The order of a session's menu, in groups with a line between: opening it (where it lives,
  *  its folder, its PR, its tabs in Chrome), showing or answering it in Codealong and starting from it; the window's
- *  todos; what it is to you (its turn, its name, seen, pinned, snoozed, closed, archived);
+ *  todos; what it is to you (its turn, its name, seen, pinned, snoozed, quiet, closed, archived);
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos'],
-  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'close', 'done', 'archive'],
+  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'quiet', 'close', 'done', 'archive'],
   ['copyId', 'copyResume', 'canvas'],
 ] as const;
 
@@ -420,6 +436,8 @@ export interface SessionsActions {
   unread?: MenuAction;
   pin?: MenuAction;
   snooze?: MenuGroup;
+  /** Checked while every one of them is quiet, which it makes heard again; else it quiets them. */
+  quiet?: MenuAction;
   close?: MenuAction;
   done?: MenuAction;
   archive?: MenuAction;
@@ -463,7 +481,8 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
   const those = (name: keyof SessionActions) => own.filter((x) => x.a[name]).map((x) => x.s);
   const keysOf = (list: Session[]) => list.map((s) => s.key);
   const all = own.map((x) => x.s);
-  const [stop, seen, unread, snooze, close, done] = (['stop', 'seen', 'unread', 'snooze', 'close', 'done'] as const).map(those);
+  const [stop, seen, unread, snooze, quiet, close, done] = (['stop', 'seen', 'unread', 'snooze', 'quiet', 'close', 'done'] as const).map(those);
+  const allQuiet = quiet.length > 0 && quiet.every((s) => s.quiet);
   const toArchive = all.filter((s) => !s.archived);
   const archive = can.archive ?? ((keys: string[], archived: boolean) => void Promise.all(keys.map((k) => archiveAhead(k, archived))).catch((e: unknown) => report.error(errorText(e))));
   const say = (said: { words: string; wrong: boolean }) => said.words && (said.wrong ? report.error(said.words) : report.info(said.words));
@@ -535,6 +554,18 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
             chords: !!can.keys,
           })
         : undefined,
+    quiet:
+      quiet.length > 0
+        ? {
+            label: `Quiet ${count(quiet.length, 'session')}`,
+            checked: allQuiet,
+            run: () => {
+              const leaving = allQuiet ? [] : quiet.filter((s) => !s.quiet && s.status === 'unread');
+              if (leaving.length > 0) can.left?.('quieted', keysOf(leaving));
+              quietAhead(keysOf(quiet), !allQuiet).catch((e: unknown) => report.error(errorText(e)));
+            },
+          }
+        : undefined,
     close:
       close.length > 0
         ? {
@@ -570,7 +601,7 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
 /** The order of the menu of several sessions picked together: what they are to you, then
  *  copying them. Opening them, and what's done to one at a time (rename, move, fork), aren't. */
 const SESSIONS_MENU = [
-  ['stop', 'seen', 'unread', 'pin', 'snooze', 'close', 'done', 'archive'],
+  ['stop', 'seen', 'unread', 'pin', 'snooze', 'quiet', 'close', 'done', 'archive'],
   ['copyId'],
 ] as const;
 

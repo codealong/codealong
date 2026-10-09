@@ -101,6 +101,14 @@ export async function snoozeSessions(keys: string[], until: number | null): Prom
   return (await invoke<number | null>('snooze_sessions', { keys, until })) ?? null;
 }
 
+/** Quiets sessions, or makes them heard again with false, each on the device it's on: a quiet
+ *  one's turns don't wait on you. Returns the time of the board that shows it, as `markSeen`
+ *  does, and rejects with why when a device didn't; windows quiet through ahead.ts. */
+export async function quietSessions(keys: string[], quiet: boolean): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('quiet_sessions', { keys, quiet })) ?? null;
+}
+
 /** Snoozes your review of PRs (`owner/name#number`) until `until`, or wakes them now with null.
  *  Returns the time of the board that shows it, as `markSeen` does; windows snooze through
  *  ahead.ts. */

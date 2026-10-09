@@ -137,7 +137,7 @@ export function CardDetail({ item, data, now, terminal, todos, homes, onOpenPr, 
           <div className="ca-cvp-status">
             {STATUS_WORD[s.status]}
             {s.statusSince ? ` · ${s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)}` : ''}
-            {s.stalledSince ? ` · quiet since ${agoPhrase(s.stalledSince, now)}` : ''}
+            {s.stalledSince ? ` · silent since ${agoPhrase(s.stalledSince, now)}` : ''}
           </div>
           {s.detail && (s.status === 'working' || s.status === 'needs' || s.status === 'error') && (
             <p className="ca-cvp-headline">

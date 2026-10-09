@@ -4,7 +4,8 @@
 //! and pinned worktrees at the top of the Worktrees view, each in your order. A snoozed session
 //! stays off the floating bar's Needs you and Your turn until its time (`board::apply_snooze`),
 //! and a PR whose review you snoozed stays out of Review requested, the bar's reviews and the
-//! mark until its time (`board::apply_review_snoozes`).
+//! mark until its time (`board::apply_review_snoozes`). A quiet session's turns don't wait on you
+//! until you make it heard again: it waits on you only when it needs you (`board::apply_quiet`).
 //! Stored in `state.json` next to the config.
 
 use std::collections::HashMap;
@@ -52,6 +53,10 @@ pub struct SeenState {
     /// Sessions you marked unread, and when: the latest mark of each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unread: Vec<UnreadMark>,
+    /// Sessions you quieted, by key, in the order you quieted them. One stays quiet until you make
+    /// it heard again, whatever it does meanwhile: answering it, or archiving it, doesn't end it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quiet: Vec<String>,
 }
 
 /// A session marked unread from Codealong.
@@ -149,6 +154,21 @@ impl SeenState {
 
     pub fn unread_of(&self, key: &str) -> Option<&UnreadMark> {
         self.unread.iter().find(|u| u.key == key)
+    }
+
+    /// Quiets a session, or makes it heard again. True when that changed anything.
+    pub fn set_quiet(&mut self, key: &str, quiet: bool) -> bool {
+        let was = self.is_quiet(key);
+        if quiet && !was {
+            self.quiet.push(key.to_string());
+        } else if !quiet && was {
+            self.quiet.retain(|k| k != key);
+        }
+        was != quiet
+    }
+
+    pub fn is_quiet(&self, key: &str) -> bool {
+        self.quiet.iter().any(|k| k == key)
     }
 
     /// Snoozes your review of a PR until `until`, in place of any snooze it had.
@@ -372,6 +392,26 @@ mod tests {
         assert!(serde_json::to_string(&s).unwrap().contains(r#""reviewSnoozes":[{"key":"o/r#12","at":20,"until":50}]"#));
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.review_snoozes.is_empty());
+    }
+
+    #[test]
+    fn a_session_stays_quiet_until_made_heard_again() {
+        let mut s = SeenState::default();
+        assert!(s.set_quiet("claude:claude:a", true));
+        assert!(!s.set_quiet("claude:claude:a", true), "once");
+        assert!(s.set_quiet("codex:codex:b", true));
+        assert_eq!(s.quiet, vec!["claude:claude:a".to_string(), "codex:codex:b".to_string()]);
+        // Archiving doesn't end it.
+        s.set_archived("claude:claude:a", true, 10);
+        assert!(s.is_quiet("claude:claude:a"));
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""quiet":["claude:claude:a","codex:codex:b"]"#));
+        assert!(s.set_quiet("claude:claude:a", false));
+        assert!(!s.set_quiet("claude:claude:a", false));
+        assert_eq!(s.quiet, vec!["codex:codex:b".to_string()]);
+        // An older file has none, and a state with none says nothing of it.
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
+        assert!(old.quiet.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("quiet"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { doneAhead } from './ahead';
+import { doneAhead, quietAhead } from './ahead';
 import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
@@ -10,7 +10,7 @@ import type { TodoOp } from './todos';
 import type { Label, Lane, PrItem, Session, Todo } from './types';
 
 // What the engine says to Mark as done: done, unless a test says otherwise.
-vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn() }));
+vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), quietAhead: vi.fn(() => Promise.resolve()) }));
 
 const report: Report = { error: () => {}, info: () => {} };
 const noop = () => {};
@@ -63,6 +63,7 @@ describe('sessionMenu', () => {
       '-',
       'Mark as seen',
       'Snooze ›',
+      'Quiet',
       'Close terminal',
       'Mark as done',
       'Archive',
@@ -115,16 +116,17 @@ describe('sessionMenu', () => {
     // Archived: only unarchiving, no pins or snoozes.
     const archived = session({ archived: true });
     expect(has(archived, 'Unarchive')).toBe(true);
-    for (const label of ['Pin session', 'Pin to desktop', 'Snooze ›', 'Mark as done']) expect(has(archived, label, { pin: { label: 'Pin session', run: noop }, desktop: new Set() })).toBe(false);
+    for (const label of ['Pin session', 'Pin to desktop', 'Snooze ›', 'Quiet', 'Mark as done']) expect(has(archived, label, { pin: { label: 'Pin session', run: noop }, desktop: new Set() })).toBe(false);
     // Done with whatever it is on this Mac: an app's session, or one that isn't running, is
     // marked seen and archived, with nothing to close.
     for (const s of [session({ surface: 'app' }), session({ live: false }), session({ hosted: true })]) expect(has(s, 'Mark as done')).toBe(true);
     // On another device: no closing, and new sessions only where a window starts them there.
-    // Done and Snooze go there, which closes it if it can and keeps the snooze.
+    // Done, Snooze and Quiet go there, which closes it if it can and keeps the snooze or quiet.
     const remote = session({ key: '@ab12:claude:c:1' });
     const remoteLane = lane({ id: '@ab12:/r/api' });
     const there = labels(sessionMenu(remoteLane, remote, base));
     expect(there).toContain('Snooze ›');
+    expect(there).toContain('Quiet');
     expect(there).not.toContain('Close terminal');
     expect(there).toContain('Mark as done');
     expect(there).not.toContain('New session here…');
@@ -175,6 +177,26 @@ describe('sessionMenu', () => {
     expect(l.join('|')).not.toContain('-|-');
   });
 
+  it('checks Quiet while it’s quiet, and goes on from a turn it takes out of what waits on you', () => {
+    const quiet = vi.mocked(quietAhead);
+    quiet.mockClear();
+    const left: string[] = [];
+    const item = (s: Session) => sessionActions(lane(), s, { ...base, left: (done) => left.push(done) }).quiet;
+    // A turn that ended leaves what waits on you as it's quieted.
+    const ended = item(session());
+    expect([ended?.label, !!ended?.checked]).toEqual(['Quiet', false]);
+    ended?.run();
+    expect(quiet).toHaveBeenLastCalledWith(['claude:c:1'], true);
+    expect(left).toEqual(['quieted']);
+    // One that needs you stays where it is, and so does one quiet already, unchecked.
+    item(session({ status: 'needs', asks: true }))?.run();
+    const already = item(session({ status: 'idle', quiet: true }));
+    expect(already?.checked).toBe(true);
+    already?.run();
+    expect(quiet).toHaveBeenLastCalledWith(['claude:c:1'], false);
+    expect(left).toEqual(['quieted']);
+  });
+
   it('names where it opens when the worktree doesn’t list it', () => {
     expect(openLabel(lane(), session(), 'Ghostty')).toBe('Respond in Ghostty');
     // In the engine's words for how it opens.
@@ -198,6 +220,7 @@ describe('several sessions picked together', () => {
       'Mark 1 session as unread',
       'Pin 2 sessions',
       'Snooze 2 sessions ›',
+      'Quiet 2 sessions',
       'Close 1 session',
       'Mark 2 sessions as done',
       'Archive 2 sessions',
@@ -220,6 +243,25 @@ describe('several sessions picked together', () => {
     const chords = sessionsMenu([a, b], { report, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
     expect(chords).toEqual(['Cmd+E', 'Ctrl+Cmd+U', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
     expect(keyed(acts, 'u', true)?.action).toBe(acts.unread);
+  });
+
+  it('quiets them all, or makes them all heard again once every one is quiet', () => {
+    const quiet = vi.mocked(quietAhead);
+    quiet.mockClear();
+    const left: [string, string[]][] = [];
+    const can: SessionsCan = { report, left: (done, keys) => left.push([done, keys]) };
+    const some = sessionsActions([a, b, c], can).quiet;
+    expect([some?.label, !!some?.checked]).toEqual(['Quiet 2 sessions', false]);
+    some?.run();
+    // The archived one is left as it is, and only the turn that ended leaves what waits on you.
+    expect(quiet).toHaveBeenLastCalledWith(['claude:c:1', 'claude:c:2'], true);
+    expect(left).toEqual([['quieted', ['claude:c:1']]]);
+    const both = [a, b].map((x) => ({ ...x, session: { ...x.session, quiet: true } }));
+    const all = sessionsActions(both, can).quiet;
+    expect(all?.checked).toBe(true);
+    all?.run();
+    expect(quiet).toHaveBeenLastCalledWith(['claude:c:1', 'claude:c:2'], false);
+    expect(left).toHaveLength(1);
   });
 
   it('archives the ones not archived yet, and says they left', () => {

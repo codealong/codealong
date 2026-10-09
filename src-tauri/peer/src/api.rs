@@ -22,6 +22,10 @@ pub const MARK_UNREAD: &str = "mark-unread";
 /// Your turn, there and everywhere, until then. Macs before 2026-10-09 refuse it as a request they
 /// don't know.
 pub const SESSION_SNOOZE: &str = "session-snooze";
+/// Quiets sessions (`keys`), or makes them heard again with `quiet` false: a quiet one's turns
+/// don't wait on you, there and everywhere, and it waits on you only when it needs you. Macs
+/// before 2026-10-09 refuse it as a request they don't know.
+pub const SESSION_QUIET: &str = "session-quiet";
 pub const SEARCH: &str = "search";
 pub const START_OPTIONS: &str = "start-options";
 pub const START: &str = "start";
@@ -204,6 +208,14 @@ pub mod params {
         pub until: Option<i64>,
     }
 
+    /// `session-quiet`: quiet, or heard again.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Quiet {
+        pub keys: Vec<String>,
+        pub quiet: bool,
+    }
+
     /// `search`: sessions whose prompts and replies have every word.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -240,7 +252,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 22] = [
+pub const REQUESTS: [(&str, Reach); 23] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -253,6 +265,7 @@ pub const REQUESTS: [(&str, Reach); 22] = [
     (MARK_SEEN, Reach::Organize),
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
+    (SESSION_QUIET, Reach::Organize),
     (SESSION_ARCHIVE, Reach::Organize),
     (SESSION_RENAME, Reach::Organize),
     (SESSION_SEND, Reach::Control),

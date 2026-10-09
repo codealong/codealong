@@ -1,11 +1,11 @@
 // Changes you make that the engine takes a moment to show: sessions marked seen or unread, snoozed,
-// archived, renamed, or sent a message, and reviews asked of you snoozed. The engine takes them in its own loop, which waits behind scans and git on a
+// quieted, archived, renamed, or sent a message, and reviews asked of you snoozed. The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
 // board that shows them. So each window shows a change at once, on top of the board it has, and
 // tells the other windows (the `ahead` event): the bar's pill goes as you mark its session seen in
 // the peek, and the main window shows the session working as you send it something from the bar.
 //
-// A seen, unread, snooze, archive or rename goes once a board at least as new as the one the engine says
+// A seen, unread, snooze, quiet, archive or rename goes once a board at least as new as the one the engine says
 // shows it arrives. Going by whether the board looks right instead would hide a session that turned unread
 // again a moment later. One the engine turns down goes at once, and the caller says why.
 //
@@ -16,7 +16,7 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, markUnread, onAhead, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
+import { archiveSession, emitAhead, markSeen, markUnread, onAhead, quietSessions, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
@@ -46,6 +46,8 @@ export type Change =
   | { kind: 'unread'; keys: string[] }
   /** Snoozed until then, or woken now with null. */
   | { kind: 'snooze'; keys: string[]; until: number | null }
+  /** Quieted, or made heard again with false: a quiet one's finished turn is idle. */
+  | { kind: 'quiet'; keys: string[]; quiet: boolean }
   /** Your review of these PRs (by PR key) snoozed until then, or woken now with null. */
   | { kind: 'review-snooze'; keys: string[]; until: number | null }
   | { kind: 'archive'; key: string; archived: boolean }
@@ -92,6 +94,7 @@ export interface Shown {
   archived: boolean;
   asks: boolean;
   snoozedUntil: number | null;
+  quiet: boolean;
 }
 
 /** What a window shows: the time of its board (null with none yet) and its sessions. */
@@ -127,7 +130,7 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   for (const a of changes) {
     // A review's snooze is a PR's, not a session's.
     if (a.change.kind === 'review-snooze') continue;
-    if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze') for (const k of a.change.keys) add(k, a);
+    if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'quiet') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
   return m;
@@ -143,6 +146,9 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
     else if (c.kind === 'unread' && unreadable(out)) out = { ...out, status: 'unread', statusSince: a.at };
     else if (c.kind === 'archive' && out.archived !== c.archived) out = { ...out, archived: c.archived };
     else if (c.kind === 'rename' && out.title !== c.title) out = { ...out, title: c.title };
+    // Quieted, a finished turn is idle (board.rs, `apply_quiet`). Made heard again, one you
+    // haven't seen is Your turn again, which only the engine knows: the board brings it.
+    else if (c.kind === 'quiet' && !!out.quiet !== c.quiet) out = { ...out, quiet: c.quiet, ...(c.quiet && out.status === 'unread' ? { status: 'idle' as const } : {}) };
     else if (c.kind === 'snooze' && !out.archived) {
       if (c.until != null) {
         if (out.snoozedUntil !== c.until) out = { ...out, snoozedUntil: c.until };
@@ -285,11 +291,17 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
     const last = (by.get(key) ?? []).filter((a) => a.change.kind === 'snooze').pop()?.change;
     return last?.kind === 'snooze' ? last.until : undefined;
   };
+  /** Quieted by the last quiet change for it: a finished turn of its leaves Your turn. */
+  const quieted = (key: string): boolean => {
+    const last = (by.get(key) ?? []).filter((a) => a.change.kind === 'quiet').pop()?.change;
+    return last?.kind === 'quiet' && last.quiet;
+  };
   const snoozing: BarSnoozed[] = [];
   let changed = false;
   const items: BarItem[] = [];
   for (const i of feed.items) {
-    if (archived(i.key) || ((by.get(i.key) ?? []).some((a) => a.change.kind === 'seen') && settledBySeen(i))) {
+    const seen = (by.get(i.key) ?? []).some((a) => a.change.kind === 'seen') && settledBySeen(i);
+    if (archived(i.key) || seen || (i.status === 'unread' && quieted(i.key))) {
       changed = true;
       continue;
     }
@@ -349,7 +361,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet };
         }
       }
       return undefined;
@@ -363,7 +375,7 @@ export function barView(feed: BarFeed): View {
     boardAt: feed.generatedAt ?? null,
     find: (key) => {
       const i = feed.items.find((x) => x.key === key) ?? feed.recent.find((x) => x.key === key) ?? (feed.snoozed ?? []).find((x) => x.key === key);
-      return i && { title: i.title, status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null };
+      return i && { title: i.title, status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null, quiet: !!i.quiet };
     },
   };
 }
@@ -396,6 +408,7 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
       if (c.kind === 'seen') return !settledBySeen(s);
       if (c.kind === 'unread') return !unreadable(s);
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
+      if (c.kind === 'quiet') return s.quiet === c.quiet;
       if (c.kind === 'rename') return s.title === c.title;
       return s.archived === c.archived;
     });
@@ -567,6 +580,20 @@ export function snoozeAhead(keys: string[], until: number | null): Promise<void>
   const a = made({ kind: 'snooze', keys, until });
   put(a, true);
   return snoozeSessions(keys, until).then(
+    (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+/** Quiets sessions, or makes them heard again with false, in every window at once. */
+export function quietAhead(keys: string[], quiet: boolean): Promise<void> {
+  if (keys.length === 0) return Promise.resolve();
+  const a = made({ kind: 'quiet', keys, quiet });
+  put(a, true);
+  return quietSessions(keys, quiet).then(
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);

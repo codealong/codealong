@@ -89,6 +89,9 @@ pub enum Msg {
     /// Reviews asked of you snoozed until then, by PR key, or woken now with none. The reply is
     /// the time of the board that shows it, published at once.
     SnoozeReviews(Vec<String>, Option<i64>, Sender<i64>),
+    /// Sessions quieted, or made heard again. The reply is the time of the board that shows it,
+    /// published at once.
+    Quiet(Vec<String>, bool, Sender<i64>),
     /// Lane path → session keys whose logs mention it, from the scan of that number
     /// (`Visitors::begin`).
     Visitors(u64, HashMap<PathBuf, Vec<String>>),
@@ -256,6 +259,14 @@ impl Handle {
     pub fn snooze_reviews(&self, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::SnoozeReviews(keys, until, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Quiets sessions, or makes them heard again (`board::apply_quiet`). Returns the time of the
+    /// board that shows it, as `mark_seen_shown` does.
+    pub fn quiet(&self, keys: Vec<String>, quiet: bool) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Quiet(keys, quiet, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -1252,15 +1263,18 @@ impl Engine {
         sessions
     }
 
-    /// Sessions with their marks of unread and their snoozes applied (board::apply_unread,
-    /// board::apply_snooze). A snooze's time coming changes nothing on disk: the 30-second
-    /// heartbeat's publish brings it back.
+    /// Sessions with quiet, their marks of unread and their snoozes applied (board::apply_quiet,
+    /// board::apply_unread, board::apply_snooze). A snooze's time coming changes nothing on disk:
+    /// the 30-second heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
-        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() {
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() {
             return sessions;
         }
         for s in &mut sessions {
-            // A mark of unread first: a snooze keeps a session marked unread off the bar too.
+            // Quiet first, so that what you do to it yourself after (a mark of unread, a snooze
+            // that ends) still brings it back.
+            board::apply_quiet(s, self.seen.is_quiet(&s.key));
+            // A mark of unread next: a snooze keeps a session marked unread off the bar too.
             board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
         }
@@ -1638,6 +1652,17 @@ impl Engine {
                     }
                     self.save_state();
                     self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Quiet(keys, quiet, reply)) => {
+                    let mut changed = false;
+                    for k in keys {
+                        changed |= self.seen.set_quiet(&k, quiet);
+                    }
+                    if changed {
+                        self.save_state();
+                        self.publish();
+                    }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Err(RecvTimeoutError::Timeout) => {}

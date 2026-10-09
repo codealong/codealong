@@ -91,6 +91,10 @@ export interface Session {
   /** Snoozed from Codealong until then: the floating bar and the mark leave it out of Needs you
    *  and Your turn until the time comes (board::apply_snooze). */
   snoozedUntil?: number;
+  /** Quieted from Codealong: a turn it ends is idle rather than Your turn, so it waits on you
+   *  only when it needs you (board::apply_quiet), until you make it heard again. Missing from
+   *  older Macs, whose statuses say nothing of it. */
+  quiet?: boolean;
   /** It worked in a reusable worktree before that worktree last took new work: listed after the
    *  current work's sessions, and out of the worktree's status (board::earlier). */
   earlier?: boolean;
@@ -1102,6 +1106,8 @@ export interface BarItem {
   target: { label: string; detail: string | null; disabled: boolean } | null;
   /** When it's back, while it's snoozed. */
   snoozedUntil: number | null;
+  /** Quieted: its turns don't wait on you. Missing from a feed an older app sent. */
+  quiet?: boolean;
   /** Its turn is running and Codealong can stop it. Missing from a feed an older app sent. */
   stoppable?: boolean;
 }

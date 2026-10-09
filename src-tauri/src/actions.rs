@@ -185,6 +185,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::MARK_UNREAD, here: mark_unread, ..ANY },
     // A snooze is kept on the session's Mac, so it's snoozed there and everywhere it shows.
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
+    // So is quiet, which is the session's for as long as it lasts.
+    Request { name: api::SESSION_QUIET, here: quiet, ..ANY },
     // A search runs as you type, so a device slow to answer is left out rather than waited for.
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
@@ -972,6 +974,12 @@ fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
     Ok(shown_at(c, engine.snooze(p.keys, p.until)))
 }
 
+/// Quiets sessions (`keys`), or makes them heard again with `quiet` false.
+fn quiet(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Quiet = c.read()?;
+    Ok(shown_at(c, engine.quiet(p.keys, p.quiet)))
+}
+
 /// Changes the worktree's preview: its URL, port and the Chrome profile it opens in
 /// (`previews::set`). Says whether that changed anything and what it's set to now, and, for a
 /// window here, the time of the board that shows it (`at`).
@@ -1066,6 +1074,8 @@ mod tests {
         assert_eq!((unread.there)(json!({ "keys": ["claude:claude:abc"] }), "").unwrap(), json!({ "keys": ["claude:claude:abc"] }));
         let snooze = find(api::SESSION_SNOOZE).unwrap();
         assert_eq!((snooze.there)(json!({ "keys": ["claude:claude:abc"], "until": 1 }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "until": 1 }));
+        let quiet = find(api::SESSION_QUIET).unwrap();
+        assert_eq!((quiet.there)(json!({ "keys": ["claude:claude:abc"], "quiet": true }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "quiet": true }));
         // A start goes with the worktree as that device knows it and none of this device's todos,
         // and the session it started comes back by the key it has here.
         let start = find(api::START).unwrap();

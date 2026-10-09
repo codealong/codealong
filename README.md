@@ -55,7 +55,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     then its account, with the worktree's PR and diff at the right. The sidebar's Rows puts
     each session on one line instead (its title, then its worktree and PR at the line's end);
     there its status says its account when you point at it. A snoozed session's row says how
-    long until it's back. Here letters alone
+    long until it's back, and a quiet one's says Quiet. Here letters alone
     do nothing, so a word typed on the list by mistake doesn't pin, archive or rename: the
     keys are the chords, and they work from the panel's box too. Sessions are pinned here,
     with ⌃⌘P or the right-click menu, and their pins show only here. Archive a session with
@@ -79,7 +79,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     terminal left open, since the session leaving their list says the rest. ⌘-click (or
     ⇧-click, ⇧↑ ⇧↓ from the list, ⌘A for all) picks several sessions: the panel lists them with
     Seen, Done, Snooze, Close and Archive for all of them at once, each saying how many it takes
-    where that's fewer, a right-click on one of them is the menu for all (Pin, Stop turn and
+    where that's fewer, a right-click on one of them is the menu for all (Pin, Quiet, Stop turn and
     Copy session IDs too), and the same chords act on all of them; Esc goes back to one. Archive
     and Mark as done have one Undo for the lot. With a search typed, Sessions' Archived fold lists
     the archived sessions it finds, so its count says how many match. Rename a session
@@ -752,6 +752,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   process gone) comes back as Your turn, so a snooze always brings its session back. A running
   session stays in Working while snoozed, and sending a session a prompt ends its snooze. A
   session on another device is snoozed on its Mac, so it's snoozed there too.
+  **Quiet** (beside Snooze, in a session's menu anywhere, or for several picked in Sessions) is
+  for a session that loops or wakes on a schedule: a turn it ends is idle rather than Your
+  turn, so it's in no queue, on no pill and off the mark, and it waits on you only when it needs
+  you (it asks you something, waits on a call to allow, or stops with an error). It stays quiet
+  until you uncheck Quiet, whatever it does meanwhile; Mark as unread, or a snooze that ends,
+  still brings it back. Its row has a Quiet chip and its header says quiet. A session on another
+  device is quieted on its Mac, as a snooze is.
   Needs you, Your turn and Working are queues, the longest first, so a new one joins the end
   instead of pushing an old one down, and the notch works through them first come, first
   served. Pills that

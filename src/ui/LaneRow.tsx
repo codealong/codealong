@@ -465,6 +465,17 @@ export function SnoozeChip({ until, now, away = 'off the floating bar' }: { unti
   );
 }
 
+/** Quiet's chip: the session's turns don't wait on you, and its tooltip says what still does. */
+export function QuietChip({ quiet }: { quiet: boolean | undefined }) {
+  if (!quiet) return null;
+  return (
+    <Chip className="ca-quietchip" title="Quiet: its turns don’t wait on you. It does when it needs you: a question, a call to allow, an error">
+      <Icon name="bell-off" size={12} />
+      Quiet
+    </Chip>
+  );
+}
+
 /**
  * One session in the Sessions view. On two lines: what it's about first (its title, what it waits
  * on you for, and what it's doing or said last), then where and why (its worktree, todo and
@@ -497,6 +508,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             <SessionText s={s} now={now} />
             <span className="ca-chips ca-agentline-tags">
               <SnoozeChip until={s.snoozedUntil} now={now} />
+              <QuietChip quiet={s.quiet} />
               <InsightChips session={s} />
               <WorktreeChip lane={lane} short />
             </span>
@@ -512,6 +524,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             <span className="ca-chips ca-lane-lead ca-agentrow-chips">
               <WorktreeChip lane={lane} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
+              <QuietChip quiet={s.quiet} />
               <TodoChips todos={todos} onShow={onShowTodo} inRow />
               <InsightChips session={s} />
               <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />

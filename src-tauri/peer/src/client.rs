@@ -398,6 +398,12 @@ impl Client {
         self.ask(device, api::SESSION_SNOOZE, of(params::Snooze { keys: keys.to_vec(), until }), ACT_WAIT).map(|_| ())
     }
 
+    /// Quiets sessions on `device`, or makes them heard again: a quiet one's turns don't wait on
+    /// you there or anywhere else, and it waits on you only when it needs you.
+    pub fn quiet(&self, device: &str, keys: &[String], quiet: bool) -> std::result::Result<(), String> {
+        self.ask(device, api::SESSION_QUIET, of(params::Quiet { keys: keys.to_vec(), quiet }), ACT_WAIT).map(|_| ())
+    }
+
     /// Where each of `device`'s accounts can start a session, and the models it can ask for.
     pub fn start_options(&self, device: &str) -> std::result::Result<api::StartOptions, String> {
         read(self.ask(device, api::START_OPTIONS, json!({}), READ_WAIT)?)
