@@ -71,6 +71,16 @@
       var needs = count('needs');
       check('each count is a button that says what it counts', !!needs && needs.tagName === 'BUTTON' && /^3 need you after this one$/.test(needs.getAttribute('aria-label')), needs && needs.getAttribute('aria-label'));
       check('the counts have no tooltip to cover their list', !q('.ca-sessinsp .ca-reply-queue-counts').title && !needs.title);
+      // Their hover is drawn past their boxes: as buttons they take no more of the strip than
+      // their glyphs and numbers did, or the strip's buttons go on a line of their own sooner.
+      var counts = q('.ca-sessinsp .ca-reply-queue-counts');
+      var buttons = all('.ca-reply-queue-count', counts);
+      var lastOne = document.createRange();
+      lastOne.selectNodeContents(buttons[buttons.length - 1]);
+      var drawn = lastOne.getBoundingClientRect().right - buttons[0].firstElementChild.getBoundingClientRect().left;
+      check('the counts take no more room than their glyphs and numbers', Math.abs(counts.getBoundingClientRect().width - drawn) < 0.5, counts.getBoundingClientRect().width.toFixed(1) + ' for ' + drawn.toFixed(1));
+      var bg = getComputedStyle(needs, '::before');
+      check('their hover reaches past them', bg.position === 'absolute' && parseFloat(bg.left) < 0, bg.position + ' ' + bg.left);
       enter(needs);
       return wait(100);
     })

@@ -67,35 +67,53 @@
   color: var(--alert);
 }
 /* What else waits on you, counted as the notch counts it: each kind's glyph and how many, a
-   button that lists what it counts (`.ca-queue-list`). */
+   button that lists what it counts (`.ca-queue-list`). The button takes no more room than its
+   glyph and number: its hover and focus are drawn around it, past its box, so the strip is as
+   wide as it was before the counts were buttons and stays one line at the same widths. The note
+   doesn't cut them off: counts take only their own width, so it has nothing to cut short. */
+.ca-reply-queue-note:not(.is-notice) {
+  overflow: visible;
+}
 .ca-reply-queue-counts {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-2);
   vertical-align: middle;
 }
 .ca-reply-queue-count {
   appearance: none;
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  height: 20px;
-  padding: 0 3px;
+  padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-2);
   font: var(--type-caption-strong);
   font-variant-numeric: tabular-nums;
   cursor: default;
 }
+.ca-reply-queue-count::before {
+  content: '';
+  position: absolute;
+  inset: -3px -4px;
+  z-index: -1;
+  border-radius: var(--radius-sm);
+}
 .ca-reply-queue-count:hover,
 .ca-reply-queue-count.is-open {
-  background: var(--surface-hover);
   color: var(--ink);
+}
+.ca-reply-queue-count:hover::before,
+.ca-reply-queue-count.is-open::before {
+  background: var(--surface-hover);
 }
 .ca-reply-queue-count:focus-visible {
   outline: none;
+}
+.ca-reply-queue-count:focus-visible::before {
   box-shadow: var(--shadow-focus);
 }
 /* What a count counts (SessionPanel.tsx `QueueList`): under it while the pointer is on either, or
