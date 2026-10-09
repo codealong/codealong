@@ -9,7 +9,19 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('reviewing'))).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', note: null });
     expect(autoReviewWords(r('posted', { comment: 'https://github.com/o/r/pull/7#issuecomment-1' })).says).toBe('Agent reviewed 309811a and commented');
     expect(autoReviewWords(r('skipped', { note: 'The diff is generated code.' }))).toEqual({ icon: 'circle-dashed', says: 'Agent passed on 309811a', note: 'The diff is generated code.' });
-    expect(autoReviewWords(r('failed', { note: 'Its session is gone.' })).says).toBe('Agent review of 309811a didn’t finish');
+    expect(autoReviewWords(r('failed', { note: 'Its session is gone.' })).says).toBe('Agent’s review of 309811a didn’t finish');
+    expect(autoReviewWords(r('drafted'))).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a', note: 'Only you see it until you submit it on GitHub.' });
+  });
+  it('says how far several reviewers have got, and when they combine their reviews', () => {
+    const parts: AutoReview['parts'] = [
+      { who: 'claude opus', session: 'claude:claude:a', state: 'done' },
+      { who: 'codex', session: 'codex:codex:b', state: 'reviewing' },
+    ];
+    expect(autoReviewWords(r('reviewing', { parts })).says).toBe('Agents reviewing 309811a: 1 of 2 done');
+    expect(autoReviewWords(r('reviewing', { parts, combining: true })).says).toBe('Agents combining their reviews of 309811a');
+    expect(autoReviewWords(r('drafted', { parts })).says).toBe('Agents drafted a review of 309811a');
+    expect(autoReviewWords(r('failed', { parts })).says).toBe('Agents’ review of 309811a didn’t finish');
+    expect(autoReviewWords(r('kept', { parts })).note).toBe('Their reviews are in their sessions: posting is off.');
   });
   it('says a round is to come, and that the PR waits on you once the agent is done', () => {
     expect(autoReviewWords(r('queued', { holds: true }))).toEqual({ icon: 'hourglass', says: 'Agent review of 309811a to come', note: 'It waits on your review once the agent’s is done.' });

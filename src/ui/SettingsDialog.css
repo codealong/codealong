@@ -84,6 +84,25 @@
   font: var(--type-code);
 }
 
+/* The agents that review pull requests (`[reviews] reviewers`): an account and a model each. */
+.ca-settings-reviewers {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-settings-reviewers li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  max-width: 560px;
+}
+.ca-settings-add {
+  justify-self: start;
+}
+
 .ca-settings-theme {
   justify-self: start;
 }

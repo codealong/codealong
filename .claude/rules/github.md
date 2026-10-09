@@ -57,14 +57,24 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `gh api graphql` exit 1 with `gh: <message>` on stderr, and one that names a node that isn't
   there fails on `NOT_FOUND` only after its document is checked, which is how the mutations were
   checked without changing anything.
-- Automatic reviews (autoreview.rs) post with REST `POST repos/<owner>/<name>/issues/<n>/comments`
-  (`github.rs` `comment`, the body as JSON on stdin), not `gh pr review --comment`: any review
-  you submit, a comment one too, takes you off the PR's requested reviewers, and the review is
-  still yours to give. What changed between two commits is REST `repos/<owner>/<name>/compare/
+- Automatic reviews (autoreview.rs) never submit a review: any review you submit, a comment one
+  too, takes you off the PR's requested reviewers, and the review is still yours to give. By
+  default they go into a pending review on your account (`github.rs` `draft_review`,
+  `add_to_draft`, `pending_review`): GraphQL `addPullRequestReview` with no `event` leaves it
+  `PENDING`, which only its author sees, its `threads` each a `path`, a `line` in the file's new
+  version and `side: RIGHT`. GitHub keeps one pending review per person and PR, found under
+  `reviews(states: PENDING)` with `viewerDidAuthor`, so a review goes into yours when you have
+  one (`addPullRequestReviewThread`, then `updatePullRequestReview` for its text). A comment
+  can only go on a line the PR's diff shows (`autoreview::commentable`); the rest are written
+  into the text. Variables go as JSON on stdin (`gh api graphql --input -`), since a list of
+  objects can't be given with `-f`. The documents were checked against GitHub's schema with
+  made-up node ids, which it answers `NOT_FOUND` only after checking them, and `commitOID` takes
+  a whole 40-character id (2026-10-09); none was run against a real PR. With `post =
+  "comment"` they post with REST `POST repos/<owner>/<name>/issues/<n>/comments` (`comment`). What changed between two commits is REST `repos/<owner>/<name>/compare/
   <a>...<b>` (`changes_since`), whose `status` is `ahead` only when the second follows from the
   first (`behind` the other way round; checked 2026-10-09, with `files[].filename` and `patch`);
   after a rebase or force push it's `diverged` and its files hold the base's changes too, so a
   review then reads the whole diff again. A posted review carries an HTML comment naming
   the PR and commit (`autoreview::marker`), which GitHub doesn't show, so a review already
   posted (from another Mac, or before a restart) is found among the PR's comments and not
-  posted twice. Neither the post nor its refusal was tried against a real PR (2026-10-09).
+  posted twice.

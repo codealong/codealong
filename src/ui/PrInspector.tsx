@@ -89,10 +89,17 @@ function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace;
 }
 
 /** Codealong's own review of the PR (autoreview.rs): where its latest round stands, with what it
- *  posted on GitHub and its session a click away. */
-function AutoReviewRow({ review, now, held, onShowSession }: { review: AutoReview; now: number; held?: { lane: Lane; session: Session }; onShowSession: (lane: Lane, session: Session) => void }) {
+ *  posted on GitHub and each reviewer's session a click away (`sessions`: the PR's own, by key,
+ *  so a session the board shows is the one opened). */
+function AutoReviewRow({ review, now, sessions, onShowSession }: { review: AutoReview; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
   const { icon, says, note } = autoReviewWords(review);
   const rounds = `${review.rounds} ${review.rounds === 1 ? 'round' : 'rounds'} so far`;
+  const parts = review.parts ?? [];
+  const held = parts.flatMap((p) => {
+    const at = sessions.find((s) => s.session.key === p.session);
+    return at ? [{ ...at, who: p.who, state: p.state }] : [];
+  });
+  const draft = review.comment?.endsWith('/files');
   return (
     <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
       <div className="ca-prinsp-auto-head">
@@ -104,15 +111,15 @@ function AutoReviewRow({ review, now, held, onShowSession }: { review: AutoRevie
           {ago(review.at, now)}
         </span>
         {review.comment && (
-          <button type="button" className="ca-linkbtn" title="Open its latest review on GitHub" onClick={() => review.comment && void openUrl(review.comment)}>
-            Comment
+          <button type="button" className="ca-linkbtn" title={draft ? 'Open its files on GitHub, where your draft review is' : 'Open its latest review on GitHub'} onClick={() => review.comment && void openUrl(review.comment)}>
+            {draft ? 'Draft' : 'Comment'}
           </button>
         )}
-        {held && (
-          <button type="button" className="ca-linkbtn" title="Show the session that reviews it" onClick={() => onShowSession(held.lane, held.session)}>
-            Session
+        {held.map((h) => (
+          <button key={h.session.key} type="button" className="ca-linkbtn" title={`Show the session ${h.who === 'auto' ? 'that reviews it' : `${h.who} reviews it in`}`} onClick={() => onShowSession(h.lane, h.session)}>
+            {held.length === 1 ? 'Session' : h.who}
           </button>
-        )}
+        ))}
       </div>
       {note && <p className="ca-prinsp-auto-note">{note}</p>}
     </div>
@@ -355,7 +362,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             ))}
           </ul>
         )}
-        {pr.autoReview && <AutoReviewRow review={pr.autoReview} now={now} held={item.sessions.find((s) => s.session.key === pr.autoReview?.session)} onShowSession={onShowSession} />}
+        {pr.autoReview && <AutoReviewRow review={pr.autoReview} now={now} sessions={item.sessions} onShowSession={onShowSession} />}
       </section>
 
       {comments.length > 0 && (

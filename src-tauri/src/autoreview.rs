@@ -1,31 +1,40 @@
 //! Reviewing the pull requests that wait on your review without being asked, when config.toml
 //! says to (`[reviews] auto`, Settings › Accounts). Every board the engine publishes is looked
-//! at for open PRs that ask for your review, aren't yours and aren't drafts. Each gets a session
-//! of its own, on `[reviews] account` (else the account Auto would start) in the background,
+//! at for open PRs that ask for your review, aren't yours and aren't drafts. Each is reviewed by
+//! the agents `[reviews] reviewers` names (an account each, and a model where it names one; none
+//! is the account Auto would start), each in a session of its own for that PR, out of sight,
 //! started in the worktree that holds the PR's branch, else the repo's main checkout, as Review
-//! with… starts one. It's handed the PR as Markdown and its whole diff, written by Codealong
-//! (`github::for_reading`), since an agent asking `gh` itself would stop on a permission prompt,
-//! and it's told to change nothing and post nothing. The session is linked to the PR
-//! (pr-links.json), so the PR's card lists it.
+//! with… starts one. Each is handed the PR as Markdown and its whole diff, written by Codealong
+//! (`github::for_reading`), since an agent asking `gh` itself would stop on a permission prompt;
+//! the diff has each line's number in the file's new version beside it (`numbered`), so a
+//! comment can name its line. Each is told to change nothing and post nothing, and is linked to
+//! the PR (pr-links.json), so the PR's card lists it.
 //!
-//! Once its turn ends, its last message is the review: Codealong posts it on the PR as a comment
-//! from your GitHub account (`[reviews] comment`), with a line saying an agent wrote it and which
-//! commit it read, and a hidden mark (`marker`) so a review already posted for that commit, from
-//! another Mac or before a restart, isn't posted twice. A comment, not a review: a review would
-//! settle the request to you, which is still yours to answer. An agent that can't review it
-//! says `SKIP:` and why, and nothing is posted.
+//! A reviewer's review is its session's last message once its turn ends: a summary, then its
+//! comments on particular lines in a `review-comments` block (`parse_reply`). With several, once
+//! all have finished, the first to finish is sent the others' reviews and asked to combine them
+//! with its own into one, checking each finding against the code (`[reviews] combine`); off, or
+//! should combining not go, each goes on the PR as it is, under its reviewer's name. Then it's
+//! posted where `[reviews] post` says: by default a review on your GitHub account left as a draft,
+//! which only you see, its comments on their lines where the PR's diff shows them
+//! (`draft_plan`), for you to finish and submit; or a comment on the PR, each line comment under
+//! a link to its line; or nowhere. Never a submitted review, which would settle the request to
+//! you. What's posted says an agent wrote it and which commit it read, with a hidden mark
+//! (`marker`) so a review already there for that commit, from another Mac or before a restart,
+//! isn't posted twice. An agent that can't review it says `SKIP:` and why.
 //!
-//! When new commits come in while the PR still waits on your review, the same session reviews it
-//! again, once the branch has held still a few minutes (an author's pushes come in runs): it's
-//! sent the PR as it is now and what changed since the commit it last reviewed, and asked what of
-//! its earlier findings is fixed, and what's new; a session that isn't running goes on in the
-//! background, and one that's gone is replaced by a new one. A review whose PR moved on before it
-//! was done isn't posted: the next round covers it.
+//! When new commits come in while the PR still waits on your review, each reviewer's session
+//! reviews it again, once the branch has held still a few minutes (an author's pushes come in
+//! runs): it's sent the PR as it is now and what changed since the commit it last reviewed, and
+//! asked what of its findings is fixed; a session that isn't running goes on in the background,
+//! and one that's gone is replaced by a new one. A review whose PR moved on before it was done
+//! isn't posted: the next round covers it.
 //!
-//! A few reviews run at once at most; a session waiting on you doesn't hold a place. A round
-//! that didn't get done isn't tried again for the same commit; the next push tries again. Where
-//! each PR stands is kept in reviews.json next to the config (`Store`), which this keeps in
-//! memory and saves whole, and the engine reads for the PRs' cards (`apply`).
+//! A few rounds run at once at most; one whose sessions wait on you doesn't hold a place. A round
+//! that didn't get done isn't tried again for the same commit; the next push tries again. Until a
+//! PR's round is done the PR is out of what waits on you (`apply`, `AutoReview::holds`). Where
+//! each PR stands is kept in reviews.json next to the config (`Store`), which this keeps in memory
+//! and saves whole, and the engine reads for the PRs' cards (`apply`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -33,9 +42,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{support_dir, Config, ReviewsCfg};
+use crate::config::{support_dir, Config, ReviewPost, ReviewerCfg, ReviewsCfg};
 use crate::engine::Handle;
-use crate::model::{AutoReview, Board, PrItem, PrState, ReviewStage, Session, Status};
+use crate::github::{LineComment, PendingReview};
+use crate::model::{AutoReview, Board, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
 use crate::prlinks::pr_key;
 use crate::start::{Place, ResumeIn, StartSpec};
 use crate::transcript::Item;
@@ -48,7 +58,7 @@ pub fn path() -> PathBuf {
 /// What the file holds, for the error when it doesn't read as that.
 const WHAT: &str = "a list of reviews";
 
-/// How many reviews run at once, at most.
+/// How many rounds run at once, at most.
 const AT_ONCE: usize = 2;
 /// New commits are reviewed once the PR's branch has held still this long.
 const QUIET_MS: i64 = 5 * 60_000;
@@ -63,28 +73,11 @@ const SHOW_MS: i64 = 10 * 60_000;
 const KEEP_MS: i64 = 30 * DAY_MS;
 /// GitHub takes comments of up to 65,536 characters.
 const COMMENT_MAX: usize = 60_000;
-/// How long a PR that waits on your review is held out of what waits on you for an agent's
-/// review that isn't done (`apply`): one that takes longer, or never starts, hands it to you.
+/// How long a PR that waits on your review is held out of what waits on you for a review that
+/// isn't done (`apply`): one that takes longer, or never starts, hands it to you.
 const HOLD_MS: i64 = 2 * 60 * 60_000;
-
-/// A round: one review of one commit of a PR.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Round {
-    /// The commit it reviews.
-    pub head: String,
-    pub stage: ReviewStage,
-    /// When it was asked for: what its session writes after this is its review.
-    pub at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ended_at: Option<i64>,
-    /// The comment it posted, by its link.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,
-    /// Why it was skipped or didn't get done, or wasn't posted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
+/// What the reviewer is called when config.toml names none: the account Auto would start.
+pub const AUTO: &str = "auto";
 
 /// A start that didn't say which session it made: the session is the next one of its account in
 /// its worktree whose first prompt names the PR (`found`).
@@ -96,15 +89,94 @@ pub struct Pending {
     pub at: i64,
 }
 
-/// One PR's reviews.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+/// A turn of a round in one session: a reviewer's review, or the combining of the reviews.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct Tracked {
-    /// The session that reviews it, once known.
+pub struct Part {
+    /// The reviewer (`ReviewerCfg::name`), or `AUTO`.
+    pub who: String,
+    /// Its session, once known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending: Option<Pending>,
+    /// When it was asked: what its session writes after this is its review.
+    pub at: i64,
+    pub state: PartState,
+    /// Its review once read: its session's last message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
+    /// Who wrote it, as what's posted says: its harness, and its model where that's known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// Why it was skipped or didn't get done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl Part {
+    pub fn asked(who: &str, session: Option<String>, pending: Option<Pending>, at: i64) -> Part {
+        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None }
+    }
+
+    pub fn failed(who: &str, why: String, at: i64) -> Part {
+        Part { state: PartState::Failed, note: Some(why), ..Part::asked(who, None, None, at) }
+    }
+
+    /// Who wrote its review, as what's posted names them.
+    fn label(&self) -> String {
+        self.agent.clone().unwrap_or_else(|| self.who.clone())
+    }
+
+    fn reviewing(&self) -> bool {
+        self.state == PartState::Reviewing
+    }
+}
+
+fn fail(p: &mut Part, why: &str) {
+    p.state = PartState::Failed;
+    p.note = Some(why.to_string());
+}
+
+/// A round: the review of one commit of a PR, by each of its reviewers.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Round {
+    /// The commit it reviews.
+    pub head: String,
+    pub stage: ReviewStage,
+    /// When it began.
+    pub at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
+    /// What it posted, by its link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    /// Why it was skipped or didn't get done, or wasn't posted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Each reviewer's part, in config.toml's order.
+    #[serde(default)]
+    pub parts: Vec<Part>,
+    /// The turn that combines the parts' reviews into one, in the first finished part's session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combine: Option<Part>,
+}
+
+impl Round {
+    fn new(head: &str, stage: ReviewStage, at: i64) -> Round {
+        let ended_at = (stage != ReviewStage::Reviewing).then_some(at);
+        Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new(), combine: None }
+    }
+}
+
+/// One PR's reviews.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Tracked {
+    /// The session each reviewer reviews it in, by the reviewer's name, for the next round.
+    #[serde(default)]
+    pub sessions: BTreeMap<String, String>,
     /// Oldest first: the last is where it stands.
     #[serde(default)]
     pub rounds: Vec<Round>,
@@ -113,7 +185,7 @@ pub struct Tracked {
 impl Tracked {
     /// The commit its last review that got done was of, for what changed since.
     fn done_head(&self) -> Option<&str> {
-        self.rounds.iter().rev().find(|r| matches!(r.stage, ReviewStage::Posted | ReviewStage::Kept)).map(|r| r.head.as_str())
+        self.rounds.iter().rev().find(|r| matches!(r.stage, ReviewStage::Posted | ReviewStage::Drafted | ReviewStage::Kept)).map(|r| r.head.as_str())
     }
 }
 
@@ -124,20 +196,47 @@ pub struct Store {
     pub prs: BTreeMap<String, Tracked>,
 }
 
+/// A reviewer a round asks, with its session for the PR when it has one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Seat {
+    pub who: String,
+    /// None: the account Auto would start.
+    pub reviewer: Option<ReviewerCfg>,
+    pub session: Option<String>,
+}
+
+/// The reviewers `cfg` names, else Auto, each with its session for the PR in `t`.
+fn seats(cfg: &ReviewsCfg, t: Option<&Tracked>) -> Vec<Seat> {
+    let named: Vec<(String, Option<ReviewerCfg>)> = if cfg.reviewers.is_empty() { vec![(AUTO.to_string(), None)] } else { cfg.reviewers.iter().map(|r| (r.name(), Some(r.clone()))).collect() };
+    named.into_iter().map(|(who, reviewer)| Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, reviewer }).collect()
+}
+
+/// Which turn of a round a read is of.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Turn {
+    Part(usize),
+    Combine,
+}
+
 /// What's due.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Job {
-    /// Review the PR at `head`: in `session` where it has one, else in a new session. `since` is
-    /// the commit its last review that got done was of.
-    Review { pr: PrItem, head: String, since: Option<String>, session: Option<String> },
-    /// The round asked for at `at` has ended its turn in `session`: read its review and post it.
-    Post { pr: PrItem, head: String, session: String, at: i64 },
+    /// Start a round at `head`, asking each of `seats`. `since`: the commit the PR's last review
+    /// that got done was of.
+    Review { pr: PrItem, head: String, since: Option<String>, seats: Vec<Seat> },
+    /// A turn of the round ended in `session`: read the review it wrote after `at`.
+    Read { pr: PrItem, head: String, turn: Turn, session: String, at: i64 },
+    /// Send `lead`, the first reviewer to finish, the others' reviews (who wrote each, and what)
+    /// to combine with its own.
+    Combine { pr: PrItem, head: String, lead: String, others: Vec<(String, String)> },
+    /// Post the round's review: `reviews`, each with who wrote it (none when there's one).
+    Post { pr: PrItem, head: String, reviews: Vec<(String, String)>, agents: Vec<String> },
 }
 
 impl Job {
     fn pr(&self) -> &PrItem {
         match self {
-            Job::Review { pr, .. } | Job::Post { pr, .. } => pr,
+            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::Combine { pr, .. } | Job::Post { pr, .. } => pr,
         }
     }
 }
@@ -145,26 +244,39 @@ impl Job {
 /// How a job went.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Went {
-    /// A round is under way, asked for at `at`: in `session`, or in the one `pending` finds.
-    Started { session: Option<String>, pending: Option<Pending>, at: i64 },
+    /// A round is under way: each reviewer's part, asked or not.
+    Started(Vec<Part>),
     /// Nothing was started, and why.
     NotStarted(String),
-    /// Nothing was started, and nothing's wrong: the PR moved on since it was due.
+    /// Nothing was done, and nothing's wrong: the PR moved on since it was due.
     Later,
+    /// A turn's review, and who wrote it.
+    Read { review: String, agent: String },
+    /// The combining turn was asked for at `at`, in `session`.
+    Combining { session: String, at: i64 },
     /// Its review was posted, at this link (by another Mac, or before a restart, for a review
     /// that found it there).
     Posted(String),
-    /// Its review is done and left in the session: posting is off, or the PR moved on or ended
-    /// before it was done (`note` says which).
+    /// Its review was put in a draft review on your account, seen at this link.
+    Drafted(String),
+    /// Its review is done and left in its sessions: posting is off, or the PR ended before it
+    /// was done (`note` says which).
     Kept(Option<String>),
-    /// Its agent said it couldn't review it, and why.
+    /// The agent said it couldn't review it, and why.
     Skipped(String),
-    /// Its session hasn't written the review yet.
+    /// The turn hasn't written its review yet.
     NotYet,
-    /// The round didn't get done, and why.
+    /// It didn't get done, and why.
     Failed(String),
     /// Posting didn't go through, and why: it's tried again a few times.
     PostFailed(String),
+}
+
+/// What's next for a round under way.
+enum Next {
+    Job(Job),
+    Changed,
+    Wait,
 }
 
 /// Where each PR's reviews stand, and what's under way.
@@ -212,6 +324,71 @@ fn found(board: &Board, p: &Pending, url: &str) -> Option<String> {
         .map(|s| s.key.clone())
 }
 
+/// What's next for a round under way on PR `pr`, which is at `head` now. A turn whose session
+/// ended it is read, one whose session is gone a while fails; once every reviewer's part is
+/// settled, one review is posted as it is, several are sent to the first to finish to combine
+/// (`combine`) and the combined one posted, or each is posted as it is when combining is off or
+/// didn't go; with none, the round ends. A round stuck while the PR moved on ends, for the next.
+fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, combine: bool, now: i64) -> Next {
+    let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
+    let turns = || r.parts.iter().chain(r.combine.iter()).filter(|p| p.reviewing());
+    if head != r.head && wants(pr) && !turns().any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
+        end(r, ReviewStage::Failed, Some("New commits came in before it was done, so it's left for the next round.".into()), now);
+        return Next::Changed;
+    }
+    let mut changed = false;
+    let job = |turn: Turn, session: String, at: i64| Next::Job(Job::Read { pr: pr.clone(), head: r.head.clone(), turn, session, at });
+    for (i, p) in r.parts.iter_mut().enumerate().filter(|(_, p)| p.reviewing()) {
+        let Some(k) = p.session.clone() else { continue };
+        match board.session(&k) {
+            Some((_, s)) if turn_ended(s, p.at) => return job(Turn::Part(i), k, p.at),
+            None if now - p.at > SHOW_MS => {
+                fail(p, "Its session is gone.");
+                changed = true;
+            }
+            _ => {}
+        }
+    }
+    if r.parts.iter().any(Part::reviewing) {
+        return if changed { Next::Changed } else { Next::Wait };
+    }
+    let done: Vec<&Part> = r.parts.iter().filter(|p| p.state == PartState::Done).collect();
+    if done.is_empty() {
+        let skip = r.parts.iter().find(|p| p.state == PartState::Skipped).and_then(|p| p.note.clone());
+        let why = r.parts.iter().filter_map(|p| p.note.as_deref()).collect::<Vec<_>>().join(" ");
+        match skip {
+            Some(s) => end(r, ReviewStage::Skipped, Some(s), now),
+            None => end(r, ReviewStage::Failed, Some(if why.is_empty() { "No review got done.".into() } else { why }), now),
+        }
+        return Next::Changed;
+    }
+    let agents: Vec<String> = done.iter().map(|p| p.label()).collect();
+    let each: Vec<(String, String)> = if done.len() == 1 { vec![(String::new(), done[0].review.clone().unwrap_or_default())] } else { done.iter().map(|p| (p.label(), p.review.clone().unwrap_or_default())).collect() };
+    let post = |reviews: Vec<(String, String)>| Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), reviews, agents: agents.clone() });
+    if done.len() == 1 || !combine {
+        return post(each);
+    }
+    let lead = done[0].session.clone().unwrap_or_default();
+    let others: Vec<(String, String)> = each[1..].to_vec();
+    match &mut r.combine {
+        None => Next::Job(Job::Combine { pr: pr.clone(), head: r.head.clone(), lead, others }),
+        Some(c) if c.reviewing() => {
+            let k = c.session.clone().unwrap_or_default();
+            match board.session(&k) {
+                Some((_, s)) if turn_ended(s, c.at) => Next::Job(Job::Read { pr: pr.clone(), head: r.head.clone(), turn: Turn::Combine, session: k, at: c.at }),
+                None if now - c.at > SHOW_MS => {
+                    fail(c, "Its session is gone.");
+                    Next::Changed
+                }
+                _ => Next::Wait,
+            }
+        }
+        Some(c) if c.state == PartState::Done => post(vec![(String::new(), c.review.clone().unwrap_or_default())]),
+        // Combining didn't go: each as it is.
+        Some(_) => post(each),
+    }
+}
+
 impl Reviewer {
     /// The reviews reviews.json holds, saved back there as they change.
     pub fn load() -> Reviewer {
@@ -226,43 +403,45 @@ impl Reviewer {
         }
     }
 
-    /// The jobs due now, at `now` (ms), with reviews on as `cfg` says. A round under way whose
-    /// session has ended its turn is to be posted; a PR that waits on your review at a commit no
-    /// round has had is to be reviewed, at once the first time and once its branch has held still
-    /// after that, while fewer than `AT_ONCE` sessions are reviewing. Nothing for a PR with a job
-    /// under way, or whose wait after a try isn't over.
+    /// The jobs due now, at `now` (ms), with reviews on as `cfg` says. A round under way goes on
+    /// (`next`); a PR that waits on your review at a commit no round has had is to be reviewed,
+    /// at once the first time and once its branch has held still after that, while fewer than
+    /// `AT_ONCE` rounds are under way. Nothing for a PR with a job under way, or whose wait after
+    /// a try isn't over.
     pub fn due(&mut self, board: &Board, cfg: &ReviewsCfg, now: i64) -> Vec<Job> {
         if !cfg.auto || board.github_login.is_none() {
             return Vec::new();
         }
         let mut changed = false;
         let listed: HashMap<String, &PrItem> = board.prs.iter().map(|p| (pr_key(&p.key), p)).collect();
-        // Sessions from starts that didn't name them, once they show; a session that never does
-        // ends its round.
+        // Sessions from starts that didn't name them, once they show; one that never does fails
+        // its part.
         for (key, t) in self.store.prs.iter_mut() {
-            let Some(p) = t.pending.clone() else { continue };
             let url = listed.get(key).map(|pr| pr.url.as_str()).unwrap_or_default();
-            if let Some(s) = found(board, &p, url).filter(|_| !url.is_empty()) {
-                t.session = Some(s);
-                t.pending = None;
-                changed = true;
-            } else if now - p.at > SHOW_MS {
-                t.pending = None;
-                if let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) {
-                    end(r, ReviewStage::Failed, Some("Its session never showed up.".into()), now);
+            let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { continue };
+            for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
+                let Some(pending) = p.pending.clone() else { continue };
+                if let Some(s) = found(board, &pending, url).filter(|_| !url.is_empty()) {
+                    t.sessions.insert(p.who.clone(), s.clone());
+                    p.session = Some(s);
+                    p.pending = None;
+                    changed = true;
+                } else if now - pending.at > SHOW_MS {
+                    p.pending = None;
+                    fail(p, "Its session never showed up.");
+                    changed = true;
                 }
-                changed = true;
             }
         }
         // PRs that no longer wait on you are forgotten a while after their last round.
         let before = self.store.prs.len();
         self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wants(p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
         changed |= self.store.prs.len() != before;
-        let working = |t: &Tracked| match &t.session {
-            Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working),
-            None => t.pending.is_some(),
+        // A round holds a place while one of its sessions works, or is starting.
+        let holds_place = |r: &Round| {
+            r.stage == ReviewStage::Reviewing && r.parts.iter().chain(r.combine.iter()).any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working), None => p.pending.is_some() })
         };
-        let mut running = self.busy.len() + self.store.prs.iter().filter(|(k, t)| !self.busy.contains(*k) && t.rounds.last().is_some_and(|r| r.stage == ReviewStage::Reviewing) && working(t)).count();
+        let mut running = self.busy.len() + self.store.prs.iter().filter(|(k, t)| !self.busy.contains(*k) && t.rounds.last().is_some_and(holds_place)).count();
         let mut jobs = Vec::new();
         let mut prs: Vec<&PrItem> = board.prs.iter().collect();
         // The longest waiting first.
@@ -278,26 +457,14 @@ impl Reviewer {
             if self.busy.contains(&key) || self.next_at.get(&key).is_some_and(|&t| now < t) {
                 continue;
             }
-            let t = self.store.prs.get_mut(&key);
-            if let Some(t) = t.filter(|t| t.rounds.last().is_some_and(|r| r.stage == ReviewStage::Reviewing)) {
-                let r = t.rounds.last_mut().expect("a round under way");
-                let Some(session) = t.session.clone() else { continue };
-                match board.session(&session) {
-                    Some((_, s)) if turn_ended(s, r.at) => {
+            if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing) {
+                match next(r, board, pr, &head, cfg.combine, now) {
+                    Next::Job(job) => {
                         self.busy.insert(key);
-                        jobs.push(Job::Post { pr: pr.clone(), head: r.head.clone(), session, at: r.at });
+                        jobs.push(job);
                     }
-                    Some((_, s)) if s.status != Status::Working && head != r.head && wants(pr) => {
-                        // Stuck while the PR moved on: the next round takes over.
-                        end(r, ReviewStage::Failed, Some("New commits came in while it waited, so it wasn't finished.".into()), now);
-                        changed = true;
-                    }
-                    Some(_) => {}
-                    None if now - r.at > SHOW_MS => {
-                        end(r, ReviewStage::Failed, Some("Its session is gone.".into()), now);
-                        changed = true;
-                    }
-                    None => {}
+                    Next::Changed => changed = true,
+                    Next::Wait => {}
                 }
                 continue;
             }
@@ -314,7 +481,7 @@ impl Reviewer {
             }
             running += 1;
             self.busy.insert(key);
-            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), session: t.and_then(|t| t.session.clone()) });
+            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), seats: seats(cfg, t) });
         }
         if changed {
             self.save();
@@ -323,8 +490,8 @@ impl Reviewer {
     }
 
     /// How a job went, at `now` (ms): kept, and saved. What should be said as a notice, for a
-    /// review that couldn't be started or posted; a review that didn't get done for its own
-    /// reasons is said on its PR's card.
+    /// review that couldn't be started or posted; one that didn't get done for its own reasons is
+    /// said on its PR's card.
     pub fn told(&mut self, job: &Job, went: Went, now: i64) -> Result<(), String> {
         let pr = job.pr();
         let key = pr_key(&pr.key);
@@ -335,23 +502,76 @@ impl Reviewer {
         let t = self.store.prs.entry(key.clone()).or_default();
         let mut said = Ok(());
         match (job, went) {
-            (Job::Review { head, .. }, Went::Started { session: None, pending: None, at }) => {
-                t.rounds.push(Round { head: head.clone(), stage: ReviewStage::Failed, at, ended_at: Some(now), comment: None, note: Some("Its session couldn't be found.".into()) });
-            }
-            (Job::Review { head, .. }, Went::Started { session, pending, at }) => {
-                t.session = session;
-                t.pending = pending;
-                t.rounds.push(Round { head: head.clone(), stage: ReviewStage::Reviewing, at, ended_at: None, comment: None, note: None });
+            (Job::Review { head, .. }, Went::Started(parts)) => {
+                for p in &parts {
+                    if let Some(s) = &p.session {
+                        t.sessions.insert(p.who.clone(), s.clone());
+                    }
+                }
+                let failed: Vec<String> = parts.iter().filter(|p| p.state == PartState::Failed).map(|p| format!("{}: {}", p.who, p.note.as_deref().unwrap_or("it didn't start"))).collect();
+                let none = failed.len() == parts.len();
+                let mut r = Round::new(head, if none { ReviewStage::Failed } else { ReviewStage::Reviewing }, now);
+                if none {
+                    r.note = Some(failed.join(" "));
+                    said = Err(format!("Codealong couldn't start a review of {}: {}", pr.key, failed.join("; ")));
+                } else if !failed.is_empty() {
+                    said = Err(format!("Codealong couldn't start every review of {}: {}", pr.key, failed.join("; ")));
+                }
+                r.parts = parts;
+                t.rounds.push(r);
             }
             (Job::Review { head, .. }, Went::NotStarted(why)) => {
-                t.rounds.push(Round { head: head.clone(), stage: ReviewStage::Failed, at: now, ended_at: Some(now), comment: None, note: Some(why.clone()) });
+                let mut r = Round::new(head, ReviewStage::Failed, now);
+                r.note = Some(why.clone());
+                t.rounds.push(r);
                 said = Err(format!("Codealong couldn't start a review of {}: {why}", pr.key));
             }
-            (Job::Review { head, .. }, Went::Posted(link)) => {
-                // Found posted already: nothing to do for that commit.
-                t.rounds.push(Round { head: head.clone(), stage: ReviewStage::Posted, at: now, ended_at: Some(now), comment: Some(link), note: None });
+            (Job::Review { head, .. }, went @ (Went::Posted(_) | Went::Drafted(_))) => {
+                // Found there already: nothing to do for that commit.
+                let (stage, link) = match went {
+                    Went::Drafted(l) => (ReviewStage::Drafted, l),
+                    Went::Posted(l) => (ReviewStage::Posted, l),
+                    _ => unreachable!(),
+                };
+                let mut r = Round::new(head, stage, now);
+                r.comment = Some(link);
+                t.rounds.push(r);
             }
             (Job::Review { .. }, _) => {}
+            (Job::Read { turn, .. }, went) => {
+                let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { return Ok(()) };
+                let p = match turn {
+                    Turn::Part(i) => r.parts.get_mut(*i),
+                    Turn::Combine => r.combine.as_mut(),
+                };
+                let Some(p) = p else { return Ok(()) };
+                match went {
+                    Went::Read { review, agent } => {
+                        p.state = PartState::Done;
+                        p.review = Some(review);
+                        p.agent = Some(agent);
+                    }
+                    Went::Skipped(why) => {
+                        p.state = PartState::Skipped;
+                        p.note = Some(why);
+                    }
+                    Went::NotYet => {
+                        self.next_at.insert(key, now + RETRY_MS);
+                        return Ok(());
+                    }
+                    Went::Failed(why) => fail(p, &why),
+                    _ => {}
+                }
+            }
+            (Job::Combine { lead, .. }, went) => {
+                let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { return Ok(()) };
+                let who = r.parts.iter().find(|p| p.session.as_deref() == Some(lead)).map_or_else(|| AUTO.to_string(), |p| p.who.clone());
+                r.combine = Some(match went {
+                    Went::Combining { session, at } => Part::asked(&who, Some(session), None, at),
+                    Went::Failed(why) | Went::NotStarted(why) => Part::failed(&who, why, now),
+                    _ => return Ok(()),
+                });
+            }
             (Job::Post { .. }, Went::NotYet) => {
                 self.next_at.insert(key, now + RETRY_MS);
                 return Ok(());
@@ -377,6 +597,10 @@ impl Reviewer {
                         r.comment = Some(link);
                         end(r, ReviewStage::Posted, None, now);
                     }
+                    Went::Drafted(link) => {
+                        r.comment = Some(link);
+                        end(r, ReviewStage::Drafted, None, now);
+                    }
                     Went::Kept(note) => end(r, ReviewStage::Kept, note, now),
                     Went::Skipped(why) => end(r, ReviewStage::Skipped, Some(why), now),
                     Went::Failed(why) | Went::NotStarted(why) => end(r, ReviewStage::Failed, Some(why), now),
@@ -384,7 +608,7 @@ impl Reviewer {
                 }
             }
         }
-        self.next_at.remove(&pr_key(&pr.key));
+        self.next_at.remove(&key);
         self.save();
         said
     }
@@ -398,7 +622,7 @@ fn end(r: &mut Round, stage: ReviewStage, note: Option<String>, now: i64) {
 
 /// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
 /// the round to come for a PR that waits on your review; whether the PR has moved on since that
-/// round, with another to come; and whether it's held out of what waits on you until the agent's
+/// round, with another to come; and whether it's held out of what waits on you until the agents'
 /// review is done. All of that only while reviews are `on`, and the PR is one they're for
 /// (`wants`). It's held while its commit has had no round yet, for `HOLD_MS` at most from when
 /// your review was asked for or the PR last changed, and while its commit's round is under way,
@@ -418,15 +642,16 @@ pub fn apply(prs: &mut [PrItem], store: &Store, on: bool, now: i64) {
             Some((t, r)) => Some(AutoReview {
                 stage: r.stage,
                 head: r.head.clone(),
-                session: t.session.clone(),
+                parts: r.parts.iter().map(|p| ReviewPart { who: p.who.clone(), session: p.session.clone(), state: p.state, note: p.note.clone() }).collect(),
+                combining: r.stage == ReviewStage::Reviewing && r.combine.as_ref().is_some_and(Part::reviewing),
                 at: r.ended_at.unwrap_or(r.at),
-                comment: r.comment.clone().or_else(|| t.rounds.iter().rev().find_map(|r| r.comment.clone()).filter(|_| r.stage != ReviewStage::Posted)),
+                comment: r.comment.clone().or_else(|| t.rounds.iter().rev().find_map(|r| r.comment.clone())),
                 note: r.note.clone(),
                 rounds: t.rounds.len(),
                 behind: wanted && head != r.head,
                 holds,
             }),
-            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, session: None, at: since, comment: None, note: None, rounds: 0, behind: false, holds }),
+            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, parts: Vec::new(), combining: false, at: since, comment: None, note: None, rounds: 0, behind: false, holds }),
             None => None,
         };
     }
@@ -454,22 +679,29 @@ pub struct Reading {
     pub changes: Option<String>,
 }
 
-/// Where the review's last message goes.
-fn last_message(login: &str, comment: bool) -> String {
-    if comment {
-        format!("Codealong posts your last message on the PR as a comment from {login}'s GitHub account, word for word, with a line saying an agent wrote it. So make that message the review and nothing else, written to the PR's author in GitHub Markdown")
-    } else {
-        format!("Your last message is the review, for {login} to read here; nothing is posted. Make it the review and nothing else, in Markdown")
+/// How the review's last message is laid out where it's posted: a summary, then the comments on
+/// particular lines in a block Codealong reads (`parse_reply`).
+const LAYOUT: &str = "So make that message the review and nothing else, in GitHub Markdown, written to the PR's author: first a line on what you make of it, then the findings that aren't about particular lines, most serious first. Then put each finding about a particular line in a fenced block tagged `review-comments` holding a JSON array of objects with `path` (the file as the diff names it), `line` (the line's number in the file's new version: the diff's left column) and `body` (the comment, saying what to do about it). Only a line the diff numbers can take a comment.";
+
+/// Where the review's last message goes, and how to lay it out for that.
+fn last_message(login: &str, post: ReviewPost) -> String {
+    match post {
+        ReviewPost::Draft => format!("Codealong puts your last message on the PR as a review on {login}'s GitHub account, left as a draft that only {login} sees until they finish it there, with each line comment on its line and a line saying an agent wrote it. {LAYOUT}"),
+        ReviewPost::Comment => format!("Codealong posts your last message on the PR as a comment from {login}'s GitHub account, with each line comment written in under a link to its line, and a line saying an agent wrote it. {LAYOUT}"),
+        ReviewPost::None => format!("Your last message is the review, for {login} to read here; nothing is posted. Make it the review and nothing else, in Markdown: a line on what you make of it, then each finding, most serious first, with its file and line and what to do about it."),
     }
 }
 
 const SKIP: &str = "If you can't review it, make your last message `SKIP: ` and why, and nothing is posted.";
 const HANDS_OFF: &str = "Don't change any files, commit, push, or post on GitHub.";
+/// What the numbered diffs (`numbered`) are, said where they're handed over.
+const NUMBERED: &str = "Each line of a diff has its number in the file's new version in a column on its left; a removed line has none.";
 
 /// The first prompt of a review's own session. `holds`: its folder has the PR's branch checked
 /// out. `since`: the commit an earlier review of it was of, by a session that's gone, with
 /// `files.changes` saying what changed since where that follows on.
-pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, login: &str, comment: bool, files: &Reading) -> String {
+#[allow(clippy::too_many_arguments)]
+pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, login: &str, post: ReviewPost, company: Option<&str>, files: &Reading) -> String {
     let base = pr.base.as_deref().unwrap_or("its base branch");
     let by = pr.author.as_deref().map(|a| format!(", by {a}")).unwrap_or_default();
     let mut out = format!(
@@ -481,7 +713,7 @@ pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, l
         pr.head,
         short(head)
     );
-    out += &format!("Its description, reviews, comments and changed files are in {}, and its whole diff is in {}. ", files.md, files.diff);
+    out += &format!("Its description, reviews, comments and changed files are in {}, and its whole diff is in {}. {NUMBERED} ", files.md, files.diff);
     out += if holds {
         "This folder has its branch checked out, so the code here is the PR's.\n\n".to_string()
     } else {
@@ -497,29 +729,40 @@ pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, l
         out += "Start with which of its findings are fixed and which aren't.\n\n";
     }
     out += &format!("Look for bugs, security and data risks, missing tests, and anything that doesn't do what the PR says it does. {HANDS_OFF}\n\n");
-    out += &format!(
-        "{}: a line on what you make of it, then each finding, most serious first, with its file and line and what to do about it. Leave out praise and a summary of the PR. If you find nothing worth raising, say so in a sentence. {SKIP}",
-        last_message(login, comment)
-    );
+    if let Some(c) = company {
+        out += &format!("{c} ");
+    }
+    out += &format!("{} Leave out praise and a summary of the PR. If you find nothing worth raising, say so in a sentence. {SKIP}", last_message(login, post));
     out
 }
 
+/// What the first reviewer to finish is sent to combine the others' reviews (`file`) with its own.
+pub fn combine_prompt(pr: &PrItem, head: &str, others: usize, file: &str, login: &str, post: ReviewPost) -> String {
+    let them = if others == 1 { "Another agent".to_string() } else { format!("{others} other agents") };
+    format!(
+        "Codealong: {them} reviewed #{} “{}” at {} too; their reviews are in {file}. Combine them with yours into one review. Check each of their findings against the code and keep the ones that hold up, each once however many of you found it; leave out the ones that don't, and don't say who found what. {HANDS_OFF} {} Leave out praise and a summary of the PR. If none of you found anything worth raising, say so in a sentence.",
+        pr.number,
+        pr.title.trim(),
+        short(head),
+        last_message(login, post)
+    )
+}
+
 /// What a review's session is sent when the PR has new commits since the one it last reviewed.
-pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, comment: bool, files: &Reading) -> String {
+pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, post: ReviewPost, files: &Reading) -> String {
     let mut out = match since {
         Some(s) => format!("Codealong: #{} “{}” has new commits since you reviewed {}: it's at {} now. ", pr.number, pr.title.trim(), short(s), short(head)),
         None => format!("Codealong: review #{} “{}” again; it's at {} now. ", pr.number, pr.title.trim(), short(head)),
     };
-    out += &format!("{} has it as it is now, with what's been said on it since, and {} its whole diff. ", files.md, files.diff);
+    out += &format!("{} has it as it is now, with what's been said on it since, and {} its whole diff. {NUMBERED} ", files.md, files.diff);
     match (since, &files.changes) {
         (Some(s), Some(c)) => out += &format!("What changed since {} is in {c}.\n\n", short(s)),
         (Some(_), None) => out += "Its branch was rewritten since then (rebased or force-pushed), so review the whole diff again.\n\n",
         (None, _) => out += "\n\n",
     }
-    let new = if comment { " as a new comment" } else { "" };
     out += &format!(
-        "Review it again. {HANDS_OFF} {}{new}: start with which of your earlier findings are fixed and which aren't, then anything new, most serious first, with its file and line. If nothing needs saying, say so in a sentence. {SKIP}",
-        last_message(login, comment)
+        "Review it again. {HANDS_OFF} Start with which of your earlier findings are fixed and which aren't, then anything new, most serious first. If nothing needs saying, say so in a sentence. {} {SKIP}",
+        last_message(login, post)
     );
     out
 }
@@ -537,6 +780,118 @@ pub fn reply_after(items: &[Item], at: i64) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+/// What a line of a diff is (`walk`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DiffLine<'a> {
+    /// A file's header, or a hunk's.
+    Header,
+    /// Removed: it's in the old version only.
+    Old,
+    /// In the new version, added or around a change: the file and its number there.
+    New(&'a str, u64),
+}
+
+/// Each line of a diff and what it is. A file is named by its `+++ b/` line, else by the part of
+/// its `diff --git` line after ` b/` (GitHub's compare files have only that); a hunk's lines are
+/// numbered from its `@@ -a,b +c,d @@` header's `c`.
+fn walk(diff: &str) -> Vec<(&str, DiffLine<'_>)> {
+    let mut out = Vec::new();
+    let mut path = "";
+    let mut next: Option<u64> = None;
+    for line in diff.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            path = rest.rsplit_once(" b/").map_or(rest, |(_, b)| b);
+            next = None;
+            out.push((line, DiffLine::Header));
+            continue;
+        }
+        if line.starts_with("@@") {
+            next = line.split_whitespace().find_map(|w| w.strip_prefix('+')).and_then(|w| w.split(',').next()).and_then(|n| n.parse().ok());
+            out.push((line, DiffLine::Header));
+            continue;
+        }
+        let Some(n) = next else {
+            if let Some(p) = line.strip_prefix("+++ ").filter(|p| *p != "/dev/null") {
+                path = p.strip_prefix("b/").unwrap_or(p);
+            }
+            out.push((line, DiffLine::Header));
+            continue;
+        };
+        match line.as_bytes().first() {
+            // An empty line in a hunk is a context line whose space was lost.
+            Some(b'+') | Some(b' ') | None => {
+                out.push((line, DiffLine::New(path, n)));
+                next = Some(n + 1);
+            }
+            _ => out.push((line, DiffLine::Old)),
+        }
+    }
+    out
+}
+
+/// A diff for an agent to read, each line with its number in the file's new version in a column
+/// on its left, so a comment can name its line without counting from a hunk's header.
+pub fn numbered(diff: &str) -> String {
+    walk(diff)
+        .into_iter()
+        .map(|(line, kind)| match kind {
+            DiffLine::Header => format!("{line}\n"),
+            DiffLine::Old => format!("      {line}\n"),
+            DiffLine::New(_, n) => format!("{n:>5} {line}\n"),
+        })
+        .collect()
+}
+
+/// The lines a review can comment on, by file: the ones the PR's diff shows in the new version.
+/// GitHub refuses a comment on any other.
+pub fn commentable(diff: &str) -> HashMap<String, HashSet<u64>> {
+    let mut lines: HashMap<String, HashSet<u64>> = HashMap::new();
+    for (_, kind) in walk(diff) {
+        if let DiffLine::New(path, n) = kind {
+            lines.entry(path.to_string()).or_default().insert(n);
+        }
+    }
+    lines
+}
+
+/// The review's text and its comments on particular lines, from its last message: the
+/// `review-comments` block taken out of it (`LAYOUT`). A block that doesn't read leaves the
+/// message whole, so nothing it says is lost.
+pub fn parse_reply(reply: &str) -> (String, Vec<LineComment>) {
+    const FENCE: &str = "```review-comments";
+    let whole = || (reply.trim().to_string(), Vec::new());
+    let Some(start) = reply.find(FENCE) else { return whole() };
+    let after = &reply[start + FENCE.len()..];
+    let Some(end) = after.find("\n```") else { return whole() };
+    let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(after[..end].trim()) else { return whole() };
+    let mut comments = Vec::new();
+    for item in &items {
+        let text = |k: &str| item.get(k).and_then(serde_json::Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+        let line = item.get("line").and_then(|l| l.as_u64().or_else(|| l.as_str()?.trim().parse().ok()));
+        let (Some(path), Some(line), Some(body)) = (text("path"), line, text("body")) else { return whole() };
+        comments.push(LineComment { path: path.trim_start_matches("b/").to_string(), line, body: body.to_string() });
+    }
+    let rest = after[end + 4..].trim_start_matches(|c| c != '\n').trim();
+    let summary = [reply[..start].trim(), rest].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
+    (summary, comments)
+}
+
+/// The text and line comments to post for a round's reviews: one as it is; several each under
+/// its writer's name, its line comments saying whose they are.
+pub fn merged(reviews: &[(String, String)]) -> (String, Vec<LineComment>) {
+    if let [(_, one)] = reviews {
+        return parse_reply(one);
+    }
+    let mut text = Vec::new();
+    let mut all = Vec::new();
+    for (who, review) in reviews {
+        let (summary, comments) = parse_reply(review);
+        text.push(format!("**{who}**\n\n{summary}"));
+        all.extend(comments.into_iter().map(|c| LineComment { body: format!("*{who}:* {}", c.body), ..c }));
+    }
+    (text.join("\n\n"), all)
+}
+
 /// Why the agent passed on a review, when its reply says `SKIP:`.
 pub fn skipped(reply: &str) -> Option<String> {
     let t = reply.trim();
@@ -544,28 +899,110 @@ pub fn skipped(reply: &str) -> Option<String> {
     Some(if rest.is_empty() { "Its agent couldn't review it.".to_string() } else { rest.to_string() })
 }
 
-/// The comment posted for a review: the reply, then a line saying an agent wrote it, of which
-/// commit, and the unseen mark (`marker`).
-pub fn comment_body(reply: &str, pr: &PrItem, head: &str, agent: &str) -> String {
-    let mut text = reply.trim().to_string();
+/// A link to a line of a file at a commit, which GitHub shows as the code itself when it's on a
+/// line of its own in a comment on the same repo.
+fn line_link(pr: &PrItem, head: &str, c: &LineComment) -> String {
+    let path: Vec<String> = c.path.split('/').map(|p| urlencoding::encode(p).into_owned()).collect();
+    format!("https://github.com/{}/blob/{head}/{}#L{}", pr.repo_slug, path.join("/"), c.line)
+}
+
+/// Comments on particular lines written into a review's text, each under a link to its line.
+fn written_in(pr: &PrItem, head: &str, comments: &[LineComment]) -> String {
+    comments.iter().map(|c| format!("**`{}` line {}**\n{}\n\n{}", c.path, c.line, line_link(pr, head, c), c.body.trim())).collect::<Vec<_>>().join("\n\n")
+}
+
+/// A review's text as it's posted: `text`, cut to what GitHub takes, then a line saying an agent
+/// wrote it, of which commit, and the unseen mark (`marker`).
+fn signed(text: &str, pr: &PrItem, head: &str, agents: &[String], how: &str) -> String {
+    let mut text = text.trim().to_string();
     if text.chars().count() > COMMENT_MAX {
         let cut = crate::util::truncate(&text, COMMENT_MAX);
-        text = format!("{}\n\n…(cut short: the whole review is longer than a comment can be)", cut.trim_end());
+        text = format!("{}\n\n…(cut short: the whole review is longer than GitHub takes)", cut.trim_end());
     }
-    format!("{text}\n\n<sub>An agent's review ({agent}) of {}, posted by Codealong.</sub>\n{}", short(head), marker(&pr.key, head))
+    let by = match agents {
+        [one] => format!("An agent's review ({one})"),
+        _ => format!("Agents' review ({})", agents.join("; ")),
+    };
+    format!("{text}\n\n<sub>{by} of {}, {how} by Codealong.</sub>\n{}", short(head), marker(&pr.key, head))
+}
+
+/// The comment posted for a review: its text, then its comments on particular lines, each under a
+/// link to its line.
+pub fn comment_body(summary: &str, comments: &[LineComment], pr: &PrItem, head: &str, agents: &[String]) -> String {
+    let lines = written_in(pr, head, comments);
+    let text = [summary.trim(), lines.as_str()].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
+    signed(&text, pr, head, agents, "posted")
+}
+
+/// What a draft review does on GitHub: begins one, or adds to the draft you have (`add_to`), with
+/// `body` as its text and `threads` on their lines.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DraftPlan {
+    pub add_to: Option<String>,
+    pub body: String,
+    pub threads: Vec<LineComment>,
+}
+
+/// How a review goes into a draft on your account. A comment goes on its line when the PR's diff
+/// shows that line (`lines`, `commentable`) and the draft is at the reviewed commit; GitHub takes
+/// no other, so the rest are written into its text under links to their lines. A draft you have
+/// already keeps what you wrote, the review's text going after it, and one begun on another
+/// commit takes every comment in its text, since its lines are numbered by that commit.
+pub fn draft_plan(summary: &str, comments: Vec<LineComment>, lines: &HashMap<String, HashSet<u64>>, pending: Option<&PendingReview>, pr: &PrItem, head: &str, agents: &[String]) -> DraftPlan {
+    let same = pending.is_none_or(|p| p.commit.as_deref() == Some(head));
+    let (threads, rest): (Vec<LineComment>, Vec<LineComment>) = comments.into_iter().partition(|c| same && lines.get(&c.path).is_some_and(|l| l.contains(&c.line)));
+    let others = written_in(pr, head, &rest);
+    let others = if others.is_empty() { others } else { format!("**On other lines**\n\n{others}") };
+    let text = [summary.trim(), others.as_str()].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
+    let mut body = signed(&text, pr, head, agents, "drafted");
+    if let Some(mine) = pending.map(|p| p.body.trim()).filter(|b| !b.is_empty()) {
+        body = format!("{mine}\n\n---\n\n{body}");
+    }
+    DraftPlan { add_to: pending.map(|p| p.id.clone()), body, threads }
+}
+
+/// Where a PR's draft review is seen: its files, beside the lines it comments on.
+fn draft_link(pr: &PrItem) -> String {
+    format!("{}/files", pr.url)
+}
+
+/// Puts a review into a draft on your account (`draft_plan`), reading the PR's diff and your draft
+/// as they are now. A draft that has the review already (its mark) is left as it is: a post tried
+/// again after adding part of it doesn't add it twice.
+fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, agents: &[String]) -> Went {
+    let diff = match crate::github::pr_diff(&pr.repo_slug, pr.number) {
+        Ok(d) => d,
+        Err(e) => return Went::PostFailed(format!("its diff couldn't be read: {e:#}")),
+    };
+    let (id, pending) = match crate::github::pending_review(&pr.repo_slug, pr.number) {
+        Ok(p) => p,
+        Err(e) => return Went::PostFailed(format!("{e:#}")),
+    };
+    if pending.as_ref().is_some_and(|p| p.body.contains(&marker(&pr.key, head))) {
+        return Went::Drafted(draft_link(pr));
+    }
+    let plan = draft_plan(summary, comments, &commentable(&diff), pending.as_ref(), pr, head, agents);
+    let done = match &plan.add_to {
+        None => crate::github::draft_review(&id, head, &plan.body, &plan.threads),
+        Some(review) => crate::github::add_to_draft(review, &plan.body, &plan.threads),
+    };
+    match done {
+        Ok(()) => Went::Drafted(draft_link(pr)),
+        Err(e) => Went::PostFailed(format!("{e:#}")),
+    }
 }
 
 // ---- Doing the jobs ----
 
-/// The account a new review runs on, and where: `[reviews] account`, else the one Auto would
-/// start, out of sight: under its harness's background service, else in Codealong, else in a
-/// terminal behind your windows (Background for a harness with no service of its own).
-fn reviewer_place(cfg: &Config, board: &Board) -> Result<(String, Place), String> {
+/// The account a new review runs on, and where: `account`, else the one Auto would start, out
+/// of sight: under its harness's background service, else in Codealong, else in a terminal
+/// behind your windows (Background for a harness with no service of its own).
+fn reviewer_place(cfg: &Config, board: &Board, account: Option<&str>) -> Result<(String, Place), String> {
     let unseen = [Place::Background, Place::Codealong];
     let home = crate::util::home();
-    let name = match cfg.reviews.account.trim() {
-        "" => crate::start::pick_account(cfg, &board.usage, &unseen, None, now_ms()).ok_or("no account can start a session in the background")?,
-        n => n.to_string(),
+    let name = match account.map(str::trim).filter(|a| !a.is_empty()) {
+        None => crate::start::pick_account(cfg, &board.usage, &unseen, None, now_ms()).ok_or("no account can start a session in the background")?,
+        Some(n) => n.to_string(),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
     let offered = crate::start::ordered_places(a, &home).unwrap_or_default();
@@ -575,7 +1012,7 @@ fn reviewer_place(cfg: &Config, board: &Board) -> Result<(String, Place), String
     Ok((name, place))
 }
 
-/// Links the review's session to its PR, so the PR's card lists it.
+/// Links a review's session to its PR, so the PR's card lists it.
 fn link(engine: &Handle, pr: &PrItem, session: &str) {
     match crate::prlinks::change(|s| s.set(&pr.key, session, true, now_ms())) {
         Ok(_) => engine.pr_links_changed(),
@@ -589,14 +1026,75 @@ fn keep_files(pr: &PrItem, head: &str, md: &str, diff: &str, changes: Option<&st
     let keep = |bytes: &str, name: String| crate::attachments::keep(bytes.as_bytes(), &name).map(|a| a.reference()).map_err(|e| format!("its diff couldn't be kept for it to read: {e:#}"));
     Ok(Reading {
         md: keep(md, format!("pr-{}.md", pr.number))?,
-        diff: keep(diff, format!("pr-{}.diff", pr.number))?,
-        changes: changes.map(|c| keep(c, format!("pr-{}-to-{}.diff", pr.number, short(head)))).transpose()?,
+        diff: keep(&numbered(diff), format!("pr-{}.diff", pr.number))?,
+        changes: changes.map(|c| keep(&numbered(c), format!("pr-{}-to-{}.diff", pr.number, short(head)))).transpose()?,
     })
 }
 
-/// Starts or asks for a round: reads the PR, then sends its session the new commits, goes on with
-/// it in the background where it isn't running, or starts a new one.
-fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, session: Option<&str>) -> Went {
+/// Sends a session that has a turn to take `text`: as a message where it runs, else by going on
+/// with it in the background where its account can. The session the turn is in, which a
+/// background job's copy changes, or where to look for it (`Pending`) when that isn't said.
+fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, text: String) -> Result<(Option<String>, Option<Pending>), String> {
+    let Some((lane, s)) = board.session(key) else { return Err("its session is gone".into()) };
+    if s.live {
+        let params = codealong_peer::api::params::Send { key: String::new(), text, now: false };
+        crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, key, params).map_err(|e| format!("its session couldn't be sent it: {e}"))?;
+        return Ok((Some(key.to_string()), None));
+    }
+    let resumes = cfg.accounts.iter().find(|a| a.name == s.account).is_some_and(|a| crate::start::resume_places(a, &crate::util::home()).contains(&Place::Background));
+    if !resumes {
+        return Err("its session isn't running, and can't go on in the background".into());
+    }
+    let at = now_ms();
+    let how = ResumeIn { place: Place::Background, model: None, effort: None };
+    let r = crate::start::resume(board, cfg, key, &how, &text, &crate::send::Sender::You).map_err(|e| format!("its session couldn't go on in the background: {e:#}"))?;
+    if let Some(k) = r.key.as_deref().filter(|k| *k != key) {
+        link(engine, pr, k);
+    }
+    let pending = r.key.is_none().then(|| Pending { lane: lane.id.clone(), account: s.account.clone(), at });
+    Ok((r.key, pending))
+}
+
+/// Asks one reviewer for its part in a round: its session for the PR is sent the new commits,
+/// else a new session starts on the first prompt.
+#[allow(clippy::too_many_arguments)]
+fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat, company: Option<&str>) -> Part {
+    let at = now_ms();
+    if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some()) {
+        match hand(engine, board, cfg, pr, key, again_prompt(pr, head, since, login, cfg.reviews.post, files)) {
+            Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
+            // A session that can't go on is replaced by a new one.
+            Err(e) => eprintln!("codealong: {}'s review of {} starts afresh: {e}", seat.who, pr.key),
+        }
+    }
+    let spec = match new_start(board, cfg, pr, head, since, login, files, seat.reviewer.as_ref(), company) {
+        Ok(s) => s,
+        Err(e) => return Part::failed(&seat.who, e, at),
+    };
+    let params = codealong_peer::api::params::Start { spec: spec.clone() };
+    match crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::START, &spec.lane_id, params).and_then(crate::actions::typed::<crate::start::Started>) {
+        Ok(started) => {
+            if let Some(k) = &started.key {
+                link(engine, pr, k);
+            }
+            let pending = started.key.is_none().then(|| Pending { lane: spec.lane_id.clone(), account: spec.account.clone(), at });
+            Part::asked(&seat.who, started.key, pending, at)
+        }
+        Err(e) => Part::failed(&seat.who, e, at),
+    }
+}
+
+/// What a reviewer is told of the others, when there are others.
+fn company(seats: usize, combine: bool) -> Option<&'static str> {
+    match (seats > 1, combine) {
+        (false, _) => None,
+        (true, true) => Some("Other agents review it too, each in a session of its own; once you've all finished, your reviews are combined into one."),
+        (true, false) => Some("Other agents review it too, each in a session of its own, and each review goes on the PR under its writer's name."),
+    }
+}
+
+/// Starts a round: reads the PR, then asks each reviewer (`ask`).
+fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seats: &[Seat]) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
         Ok(c) => c,
@@ -614,65 +1112,100 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, session
     // Reviewed already, from another Mac or before a restart.
     let mark = marker(&pr.key, head);
     if let Some(c) = detail.comments.iter().find(|c| c.mine && c.body.contains(&mark)) {
-        return Went::Posted(c.url.clone().unwrap_or_else(|| pr.url.clone()));
+        return match cfg.reviews.post {
+            ReviewPost::Draft => Went::Drafted(draft_link(pr)),
+            _ => Went::Posted(c.url.clone().unwrap_or_else(|| pr.url.clone())),
+        };
     }
     let changes = since.and_then(|s| crate::github::changes_since(&pr.repo_slug, s, head).ok().flatten());
     let files = match keep_files(pr, head, &md, &diff, changes.as_deref()) {
         Ok(f) => f,
         Err(e) => return Went::NotStarted(e),
     };
-    let comment = cfg.reviews.comment;
-    let lane_of = |key: &str| board.session(key).map(|(l, s)| (l.id.clone(), s.clone()));
-    if let Some((lane, s)) = session.and_then(lane_of) {
-        let text = again_prompt(pr, head, since, &login, comment, &files);
-        let at = now_ms();
-        if s.live {
-            let params = codealong_peer::api::params::Send { key: String::new(), text, now: false };
-            return match crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, &s.key, params) {
-                Ok(_) => Went::Started { session: Some(s.key.clone()), pending: None, at },
-                Err(e) => Went::NotStarted(format!("its session couldn't be sent the new commits: {e}")),
-            };
-        }
-        let resumes = cfg.accounts.iter().find(|a| a.name == s.account).is_some_and(|a| crate::start::resume_places(a, &crate::util::home()).contains(&Place::Background));
-        if resumes {
-            let how = ResumeIn { place: Place::Background, model: None, effort: None };
-            return match crate::start::resume(&board, &cfg, &s.key, &how, &text, &crate::send::Sender::You) {
-                Ok(r) => {
-                    if let Some(k) = r.key.as_deref().filter(|k| *k != s.key) {
-                        link(engine, pr, k);
-                    }
-                    let pending = r.key.is_none().then(|| Pending { lane, account: s.account.clone(), at });
-                    Went::Started { session: r.key, pending, at }
-                }
-                Err(e) => Went::NotStarted(format!("its session couldn't go on in the background: {e:#}")),
-            };
-        }
+    let company = company(seats.len(), cfg.reviews.combine);
+    Went::Started(seats.iter().map(|seat| ask(engine, &board, &cfg, pr, head, since, &login, &files, seat, company)).collect())
+}
+
+/// A new session's start for a review: on the reviewer's account (Auto's for none) and model,
+/// where it starts out of sight, in the worktree `side::pr_lane` picks, on the first prompt.
+#[allow(clippy::too_many_arguments)]
+fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, reviewer: Option<&ReviewerCfg>, company: Option<&str>) -> Result<StartSpec, String> {
+    let (account, place) = reviewer_place(cfg, board, reviewer.map(|r| r.account.as_str()))?;
+    let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
+    let prompt = first_prompt(pr, head, since, holds, login, cfg.reviews.post, company, files);
+    let model = reviewer.and_then(|r| r.model.as_deref()).map(str::trim).filter(|m| !m.is_empty()).map(String::from);
+    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model, effort: None, worktree: false, todos: Vec::new(), from: None })
+}
+
+/// Reads the review a turn wrote after `at`: its session's last message once the turn ended.
+fn read(engine: &Handle, session: &str, at: i64) -> Went {
+    let board = engine.board();
+    let cfg = match crate::config::current() {
+        Ok(c) => c,
+        Err(_) => return Went::NotYet,
+    };
+    let Some((_, s)) = board.session(session) else { return Went::Failed("Its session is gone.".into()) };
+    // A record that doesn't read now is read again in a moment.
+    let Ok(page) = crate::transcript::page(&board, &cfg, session, None, 60) else { return Went::NotYet };
+    let Some(review) = reply_after(&page.items, at) else {
+        return if s.live { Went::NotYet } else { Went::Failed("Its session stopped before it wrote a review.".into()) };
+    };
+    if let Some(why) = skipped(&review) {
+        return Went::Skipped(why);
     }
-    let spec = match new_start(&board, &cfg, pr, head, since, &login, &files) {
-        Ok(s) => s,
-        Err(e) => return Went::NotStarted(e),
+    let harness = crate::harness::adapter(s.harness).harness().word();
+    let agent = s.model.as_deref().map(|m| format!("{harness}, {m}")).unwrap_or_else(|| harness.to_string());
+    Went::Read { review, agent }
+}
+
+/// Sends `lead` the others' reviews, kept as a file it reads, to combine with its own.
+fn combine(engine: &Handle, pr: &PrItem, head: &str, lead: &str, others: &[(String, String)]) -> Went {
+    let board = engine.board();
+    let cfg = match crate::config::current() {
+        Ok(c) => c,
+        Err(e) => return Went::Failed(format!("{e:#}")),
+    };
+    let login = board.github_login.clone().unwrap_or_else(|| "you".into());
+    let md: String = others.iter().map(|(who, text)| format!("## The review by {who}\n\n{}\n\n", text.trim())).collect();
+    let file = match crate::attachments::keep(md.as_bytes(), &format!("pr-{}-reviews.md", pr.number)) {
+        Ok(a) => a.reference(),
+        Err(e) => return Went::Failed(format!("the other reviews couldn't be kept for it to read: {e:#}")),
     };
     let at = now_ms();
-    let params = codealong_peer::api::params::Start { spec: spec.clone() };
-    match crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::START, &spec.lane_id, params).and_then(crate::actions::typed::<crate::start::Started>) {
-        Ok(started) => {
-            if let Some(k) = &started.key {
-                link(engine, pr, k);
-            }
-            let pending = started.key.is_none().then(|| Pending { lane: spec.lane_id.clone(), account: spec.account.clone(), at });
-            Went::Started { session: started.key, pending, at }
-        }
-        Err(e) => Went::NotStarted(e),
+    match hand(engine, &board, &cfg, pr, lead, combine_prompt(pr, head, others.len(), &file, &login, cfg.reviews.post)) {
+        Ok((Some(session), _)) => Went::Combining { session, at },
+        Ok((None, _)) => Went::Failed("its session's copy couldn't be found".into()),
+        Err(e) => Went::Failed(e),
     }
 }
 
-/// A new session's start for a review: on the reviews' account, where it starts in the
-/// background, in the worktree `side::pr_lane` picks, on the first prompt.
-fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading) -> Result<StartSpec, String> {
-    let (account, place) = reviewer_place(cfg, board)?;
-    let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
-    let prompt = first_prompt(pr, head, since, holds, login, cfg.reviews.comment, files);
-    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: None, effort: None, worktree: false, todos: Vec::new(), from: None })
+/// Posts a round's review where config.toml says, unless the PR ended or moved on before it was
+/// done. Several reviews each go under their writer's name (`merged`).
+fn post(engine: &Handle, pr: &PrItem, head: &str, reviews: &[(String, String)], agents: &[String]) -> Went {
+    let board = engine.board();
+    let cfg = match crate::config::current() {
+        Ok(c) => c,
+        Err(e) => return Went::PostFailed(format!("{e:#}")),
+    };
+    let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
+    if !pr.state.is_open() {
+        return Went::Kept(Some("Not posted: the PR was closed before the review was done.".into()));
+    }
+    if pr.head_oid.as_deref().is_some_and(|h| h != head) {
+        return Went::Failed("Not posted: new commits came in before it was done.".into());
+    }
+    let (summary, comments) = merged(reviews);
+    match cfg.reviews.post {
+        ReviewPost::None => Went::Kept(None),
+        ReviewPost::Draft => draft(pr, head, &summary, comments, agents),
+        ReviewPost::Comment => match crate::github::comment(&pr.repo_slug, pr.number, &comment_body(&summary, &comments, pr, head, agents)) {
+            Ok(link) => {
+                engine.pr_changed();
+                Went::Posted(link)
+            }
+            Err(e) => Went::PostFailed(format!("{e:#}")),
+        },
+    }
 }
 
 /// What an automatic review of a PR would start now, as `--snapshot --review-plan` prints it:
@@ -687,6 +1220,15 @@ pub struct Plan {
     pub on: bool,
     /// Where its reviews stand.
     pub stands: Option<AutoReview>,
+    /// What each reviewer would start, as a new session.
+    pub starts: Vec<PlannedStart>,
+}
+
+/// One reviewer's start in a plan.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedStart {
+    pub who: String,
     pub spec: Option<StartSpec>,
     /// The start the spec comes to (start.rs `plan`).
     pub start: Option<crate::start::Plan>,
@@ -699,68 +1241,35 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
     let head = pr.head_oid.clone().ok_or_else(|| anyhow::anyhow!("GitHub didn't say which commit {key} is at."))?;
     let (md, diff, _) = crate::github::for_reading(pr)?;
     let stands = pr.auto_review.clone();
-    let since = stands.as_ref().filter(|a| a.head != head).map(|a| a.head.clone());
+    let since = stands.as_ref().filter(|a| a.head != head && a.stage != ReviewStage::Queued).map(|a| a.head.clone());
     let changes = since.as_deref().and_then(|s| crate::github::changes_since(&pr.repo_slug, s, &head).ok().flatten());
     let files = keep_files(pr, &head, &md, &diff, changes.as_deref()).map_err(anyhow::Error::msg)?;
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
-    let (spec, problem) = match new_start(board, cfg, pr, &head, since.as_deref(), &login, &files) {
-        Ok(s) => (Some(s), None),
-        Err(e) => (None, Some(e)),
-    };
-    let start = spec.as_ref().and_then(|s| {
-        let account = cfg.accounts.iter().find(|a| a.name == s.account)?;
-        let lane = board.lanes.iter().find(|l| l.id == s.lane_id)?;
-        Some(crate::start::plan(account, s.place, std::path::Path::new(&lane.path), &s.prompt, &crate::start::new_session_id(), None, None, false))
-    });
-    Ok(Plan { wanted: wants(pr), on: cfg.reviews.auto, stands, spec, start, problem })
-}
-
-/// Reads a round's review from its session and posts it, unless posting is off, the agent passed
-/// on it, or the PR moved on or ended before it was done.
-fn post(engine: &Handle, pr: &PrItem, head: &str, session: &str, at: i64) -> Went {
-    let board = engine.board();
-    let cfg = match crate::config::current() {
-        Ok(c) => c,
-        Err(e) => return Went::PostFailed(format!("{e:#}")),
-    };
-    let Some((_, s)) = board.session(session) else { return Went::Failed("Its session is gone.".into()) };
-    let items = match crate::transcript::page(&board, &cfg, session, None, 60) {
-        Ok(p) => p.items,
-        Err(e) => return Went::PostFailed(format!("its session's conversation couldn't be read: {e:#}")),
-    };
-    let Some(reply) = reply_after(&items, at) else {
-        return if s.live { Went::NotYet } else { Went::Failed("Its session stopped before it wrote a review.".into()) };
-    };
-    if let Some(why) = skipped(&reply) {
-        return Went::Skipped(why);
-    }
-    let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
-    if !pr.state.is_open() {
-        return Went::Kept(Some("Not posted: the PR was closed before the review was done.".into()));
-    }
-    if pr.head_oid.as_deref().is_some_and(|h| h != head) {
-        return Went::Failed("Not posted: new commits came in before it was done.".into());
-    }
-    if !cfg.reviews.comment {
-        return Went::Kept(None);
-    }
-    let harness = crate::harness::adapter(s.harness).harness().word();
-    let agent = s.model.as_deref().map(|m| format!("{harness}, {m}")).unwrap_or_else(|| harness.to_string());
-    match crate::github::comment(&pr.repo_slug, pr.number, &comment_body(&reply, pr, head, &agent)) {
-        Ok(link) => {
-            engine.pr_changed();
-            Went::Posted(link)
-        }
-        Err(e) => Went::PostFailed(format!("{e:#}")),
-    }
+    let seats = seats(&cfg.reviews, None);
+    let company = company(seats.len(), cfg.reviews.combine);
+    let starts = seats
+        .iter()
+        .map(|seat| match new_start(board, cfg, pr, &head, since.as_deref(), &login, &files, seat.reviewer.as_ref(), company) {
+            Ok(spec) => {
+                let account = cfg.accounts.iter().find(|a| a.name == spec.account);
+                let lane = board.lanes.iter().find(|l| l.id == spec.lane_id);
+                let start = account.zip(lane).map(|(a, l)| crate::start::plan(a, spec.place, std::path::Path::new(&l.path), &spec.prompt, &crate::start::new_session_id(), spec.model.as_deref(), None, false));
+                PlannedStart { who: seat.who.clone(), spec: Some(spec), start, problem: None }
+            }
+            Err(e) => PlannedStart { who: seat.who.clone(), spec: None, start: None, problem: Some(e) },
+        })
+        .collect();
+    Ok(Plan { wanted: wants(pr), on: cfg.reviews.auto, stands, starts })
 }
 
 /// Does a job and tells `reviewer` how it went, and the engine, which says a failure as a notice
 /// until a later job goes through.
 pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
-        Job::Review { pr, head, since, session } => review(engine, pr, head, since.as_deref(), session.as_deref()),
-        Job::Post { pr, head, session, at } => post(engine, pr, head, session, *at),
+        Job::Review { pr, head, since, seats } => review(engine, pr, head, since.as_deref(), seats),
+        Job::Read { session, at, .. } => read(engine, session, *at),
+        Job::Combine { pr, head, lead, others } => combine(engine, pr, head, lead, others),
+        Job::Post { pr, head, reviews, agents } => post(engine, pr, head, reviews, agents),
     }))
     .unwrap_or_else(|_| Went::Failed("It stopped partway.".into()));
     let said = reviewer.lock().unwrap_or_else(|e| e.into_inner()).told(&job, went, now_ms());
@@ -775,6 +1284,7 @@ mod tests {
 
     const NOW: i64 = 1_800_000_000_000;
     const S: &str = "claude:claude:rev";
+    const T: &str = "codex:codex:rev";
     const HEAD: &str = "1111111aaaa";
     const NEXT: &str = "2222222bbbb";
 
@@ -821,17 +1331,41 @@ mod tests {
         ReviewsCfg { auto: true, ..ReviewsCfg::default() }
     }
 
+    /// Reviews by Claude on Opus and by Codex, combined or not.
+    fn two(combine: bool) -> ReviewsCfg {
+        ReviewsCfg { auto: true, reviewers: vec![ReviewerCfg { account: "claude".into(), model: Some("opus".into()) }, ReviewerCfg { account: "codex".into(), model: None }], combine, post: ReviewPost::Draft }
+    }
+
+    fn at(key: &str, status: Status, last_activity: i64) -> Session {
+        Session { status, last_activity, ..fixtures::session(key) }
+    }
+
     fn session(status: Status, last_activity: i64) -> Session {
-        Session { status, last_activity, ..fixtures::session(S) }
+        at(S, status, last_activity)
+    }
+
+    fn started(who: &str, key: &str, when: i64) -> Part {
+        Part::asked(who, Some(key.into()), None, when)
     }
 
     fn kinds(jobs: &[Job]) -> Vec<String> {
         jobs.iter()
             .map(|j| match j {
-                Job::Review { pr, head, since, session } => format!("review {} {} since {:?} in {:?}", pr.number, short(head), since.as_deref().map(short), session),
-                Job::Post { pr, head, .. } => format!("post {} {}", pr.number, short(head)),
+                Job::Review { pr, head, since, seats } => {
+                    let seats: Vec<String> = seats.iter().map(|s| format!("{}{}", s.who, s.session.as_deref().map(|k| format!(" in {k}")).unwrap_or_default())).collect();
+                    format!("review {} {} since {:?} by {}", pr.number, short(head), since.as_deref().map(short), seats.join(", "))
+                }
+                Job::Read { pr, turn, session, .. } => format!("read {} {turn:?} in {session}", pr.number),
+                Job::Combine { pr, lead, others, .. } => format!("combine {} in {lead} with {}", pr.number, others.iter().map(|(w, t)| format!("{w}: {t}")).collect::<Vec<_>>().join(" | ")),
+                Job::Post { pr, reviews, agents, .. } => format!("post {} {:?} by {}", pr.number, reviews, agents.join(" + ")),
             })
             .collect()
+    }
+
+    fn read(r: &mut Reviewer, b: &Board, cfg: &ReviewsCfg, when: i64, review: &str, agent: &str) {
+        let job = r.due(b, cfg, when).pop().expect("a read");
+        assert!(matches!(job, Job::Read { .. }), "{job:?}");
+        r.told(&job, Went::Read { review: review.into(), agent: agent.into() }, when).unwrap();
     }
 
     #[test]
@@ -839,26 +1373,104 @@ mod tests {
         let mut r = Reviewer::default();
         let b = board(vec![pr(7, HEAD)], vec![]);
         let jobs = r.due(&b, &on(), NOW);
-        assert_eq!(kinds(&jobs), ["review 7 1111111 since None in None"]);
+        assert_eq!(kinds(&jobs), ["review 7 1111111 since None by auto"]);
         assert!(r.due(&b, &on(), NOW + 1).is_empty(), "under way");
-        assert_eq!(r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW + 2), Ok(()));
+        assert_eq!(r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW + 2), Ok(()));
         // Working: nothing yet.
         assert!(r.due(&board(vec![pr(7, HEAD)], vec![session(Status::Working, NOW + 5)]), &on(), NOW + 10).is_empty());
-        // Its turn ended: posted.
+        // Its turn ended: read.
         let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
         let jobs = r.due(&done, &on(), NOW + 61_000);
-        assert_eq!(kinds(&jobs), ["post 7 1111111"]);
+        assert_eq!(kinds(&jobs), [format!("read 7 Part(0) in {S}")]);
         // Not written yet: looked at again later.
         r.told(&jobs[0], Went::NotYet, NOW + 61_000).unwrap();
         assert!(r.due(&done, &on(), NOW + 62_000).is_empty());
-        let jobs = r.due(&done, &on(), NOW + 61_000 + RETRY_MS);
-        r.told(&jobs[0], Went::Posted("https://github.com/o/r/pull/7#issuecomment-1".into()), NOW + 92_000).unwrap();
+        read(&mut r, &done, &on(), NOW + 61_000 + RETRY_MS, "Two problems.", "Claude Code, claude-opus-5-5");
+        // One review: posted as it is.
+        let jobs = r.due(&done, &on(), NOW + 92_000);
+        assert_eq!(kinds(&jobs), ["post 7 [(\"\", \"Two problems.\")] by Claude Code, claude-opus-5-5"]);
+        r.told(&jobs[0], Went::Drafted("https://github.com/o/r/pull/7/files".into()), NOW + 93_000).unwrap();
         // That commit is done.
         assert!(r.due(&done, &on(), NOW + 10 * QUIET_MS).is_empty());
         let mut prs = vec![pr(7, HEAD)];
         apply(&mut prs, &r.store, true, NOW);
         let a = prs[0].auto_review.clone().unwrap();
-        assert_eq!((a.stage, a.head.as_str(), a.session.as_deref(), a.comment.as_deref(), a.rounds, a.behind), (ReviewStage::Posted, HEAD, Some(S), Some("https://github.com/o/r/pull/7#issuecomment-1"), 1, false));
+        assert_eq!((a.stage, a.head.as_str(), a.comment.as_deref(), a.rounds, a.behind), (ReviewStage::Drafted, HEAD, Some("https://github.com/o/r/pull/7/files"), 1, false));
+        assert_eq!(a.parts, [ReviewPart { who: AUTO.into(), session: Some(S.into()), state: PartState::Done, note: None }]);
+    }
+
+    #[test]
+    fn several_reviewers_each_review_and_the_first_to_finish_combines_them() {
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &two(true), NOW);
+        assert_eq!(kinds(&jobs), ["review 7 1111111 since None by claude opus, codex"]);
+        r.told(&jobs[0], Went::Started(vec![started("claude opus", S, NOW), started("codex", T, NOW)]), NOW).unwrap();
+        // Codex finishes first; Claude is still at it.
+        let b = board(vec![pr(7, HEAD)], vec![at(S, Status::Working, NOW + 1), at(T, Status::Unread, NOW + 2)]);
+        assert_eq!(kinds(&r.due(&b, &two(true), NOW + 3)), [format!("read 7 Part(1) in {T}")]);
+        r.busy.clear();
+        read(&mut r, &b, &two(true), NOW + 4, "Codex's review.", "Codex, gpt-5.5");
+        assert!(r.due(&b, &two(true), NOW + 5).is_empty(), "waiting on Claude");
+        let b = board(vec![pr(7, HEAD)], vec![at(S, Status::Unread, NOW + 6), at(T, Status::Idle, NOW + 2)]);
+        read(&mut r, &b, &two(true), NOW + 7, "Claude's review.", "Claude Code, claude-opus-5-5");
+        // Both done: the first in config.toml's order that finished combines the other's.
+        let jobs = r.due(&b, &two(true), NOW + 8);
+        assert_eq!(kinds(&jobs), [format!("combine 7 in {S} with Codex, gpt-5.5: Codex's review.")]);
+        r.told(&jobs[0], Went::Combining { session: S.into(), at: NOW + 9 }, NOW + 9).unwrap();
+        let mut prs = vec![pr(7, HEAD)];
+        apply(&mut prs, &r.store, true, NOW + 9);
+        assert!(prs[0].auto_review.as_ref().unwrap().combining);
+        assert!(prs[0].auto_review.as_ref().unwrap().holds, "held until the combined review is done");
+        // The combining turn is read once it ends after it was asked.
+        assert!(r.due(&b, &two(true), NOW + 10).is_empty(), "its last turn ended before");
+        let b = board(vec![pr(7, HEAD)], vec![at(S, Status::Unread, NOW + 20), at(T, Status::Idle, NOW + 2)]);
+        let jobs = r.due(&b, &two(true), NOW + 21);
+        assert_eq!(kinds(&jobs), [format!("read 7 Combine in {S}")]);
+        r.told(&jobs[0], Went::Read { review: "One review.".into(), agent: "Claude Code, claude-opus-5-5".into() }, NOW + 22).unwrap();
+        let jobs = r.due(&b, &two(true), NOW + 23);
+        assert_eq!(kinds(&jobs), ["post 7 [(\"\", \"One review.\")] by Claude Code, claude-opus-5-5 + Codex, gpt-5.5"]);
+        r.told(&jobs[0], Went::Drafted("link".into()), NOW + 24).unwrap();
+        // The next round goes to each reviewer's own session.
+        let moved = board(vec![pr(7, NEXT)], vec![at(S, Status::Idle, NOW + 20), at(T, Status::Idle, NOW + 2)]);
+        r.due(&moved, &two(true), NOW + 25);
+        assert_eq!(kinds(&r.due(&moved, &two(true), NOW + 26 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") by claude opus in {S}, codex in {T}")]);
+    }
+
+    #[test]
+    fn several_reviews_go_each_under_its_name_when_combining_is_off_or_doesnt_go() {
+        for combine in [false, true] {
+            let mut r = Reviewer::default();
+            let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &two(combine), NOW);
+            r.told(&jobs[0], Went::Started(vec![started("claude opus", S, NOW), started("codex", T, NOW)]), NOW).unwrap();
+            let b = board(vec![pr(7, HEAD)], vec![at(S, Status::Unread, NOW + 1), at(T, Status::Unread, NOW + 1)]);
+            read(&mut r, &b, &two(combine), NOW + 2, "A.", "Claude Code");
+            read(&mut r, &b, &two(combine), NOW + 3, "B.", "Codex");
+            if combine {
+                let job = r.due(&b, &two(true), NOW + 4).pop().unwrap();
+                r.told(&job, Went::Failed("its session couldn't be sent it".into()), NOW + 4).unwrap();
+            }
+            assert_eq!(kinds(&r.due(&b, &two(combine), NOW + 5)), ["post 7 [(\"Claude Code\", \"A.\"), (\"Codex\", \"B.\")] by Claude Code + Codex"], "combine {combine}");
+        }
+    }
+
+    #[test]
+    fn a_reviewer_that_doesnt_start_or_passes_leaves_the_others() {
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &two(true), NOW);
+        let said = r.told(&jobs[0], Went::Started(vec![started("claude opus", S, NOW), Part::failed("codex", "codex can't start a session in the background".into(), NOW)]), NOW);
+        assert!(said.unwrap_err().contains("codex: codex can't start"));
+        let b = board(vec![pr(7, HEAD)], vec![at(S, Status::Unread, NOW + 1)]);
+        read(&mut r, &b, &two(true), NOW + 2, "A.", "Claude Code");
+        assert_eq!(kinds(&r.due(&b, &two(true), NOW + 3)), ["post 7 [(\"\", \"A.\")] by Claude Code"]);
+        // Every one passing skips the round, saying why.
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let job = r.due(&b, &on(), NOW + 2).pop().unwrap();
+        r.told(&job, Went::Skipped("It's generated code.".into()), NOW + 2).unwrap();
+        assert!(r.due(&b, &on(), NOW + 3).is_empty());
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Skipped, Some("It's generated code.")));
     }
 
     #[test]
@@ -882,18 +1494,20 @@ mod tests {
         assert!(shown(&r.store, old, true, NOW).waits_on_review());
         // Under way: held, for so long at most.
         let jobs = r.due(&board(vec![fresh(HEAD)], vec![]), &on(), NOW);
-        r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW).unwrap();
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         assert!(!shown(&r.store, fresh(HEAD), true, NOW + 60_000).waits_on_review());
         assert!(shown(&r.store, fresh(HEAD), true, NOW + HOLD_MS).waits_on_review());
         // Done: it waits on you.
-        let jobs = r.due(&board(vec![fresh(HEAD)], vec![session(Status::Unread, NOW + 5)]), &on(), NOW + 6);
-        r.told(&jobs[0], Went::Posted("link".into()), NOW + 7).unwrap();
+        let b = board(vec![fresh(HEAD)], vec![session(Status::Unread, NOW + 5)]);
+        read(&mut r, &b, &on(), NOW + 6, "A.", "Claude Code");
+        let job = r.due(&b, &on(), NOW + 7).pop().unwrap();
+        r.told(&job, Went::Posted("link".into()), NOW + 7).unwrap();
         assert!(shown(&r.store, fresh(HEAD), true, NOW + 8).waits_on_review());
         // New commits: held again until they're reviewed; a round that didn't get done hands it back.
         let moved = PrItem { updated_at: NOW + 9, ..fresh(NEXT) };
         let p = shown(&r.store, moved.clone(), true, NOW + 10);
         assert_eq!(p.auto_review.as_ref().map(|a| (a.stage, a.behind, a.holds)), Some((ReviewStage::Posted, true, true)));
-        r.store.prs.get_mut("o/r#7").unwrap().rounds.push(Round { head: NEXT.into(), stage: ReviewStage::Failed, at: NOW + 11, ended_at: Some(NOW + 11), comment: None, note: None });
+        r.store.prs.get_mut("o/r#7").unwrap().rounds.push(Round::new(NEXT, ReviewStage::Failed, NOW + 11));
         assert!(shown(&r.store, moved, true, NOW + 12).waits_on_review());
     }
 
@@ -901,16 +1515,18 @@ mod tests {
     fn new_commits_are_reviewed_again_in_the_same_session_once_the_branch_holds_still() {
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
-        r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW).unwrap();
-        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![session(Status::Idle, NOW + 1)]), &on(), NOW + 2);
-        r.told(&jobs[0], Went::Posted("link".into()), NOW + 3).unwrap();
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let b = board(vec![pr(7, HEAD)], vec![session(Status::Idle, NOW + 1)]);
+        read(&mut r, &b, &on(), NOW + 2, "A.", "Claude Code");
+        let job = r.due(&b, &on(), NOW + 2).pop().unwrap();
+        r.told(&job, Went::Posted("link".into()), NOW + 3).unwrap();
         let moved = board(vec![pr(7, NEXT)], vec![session(Status::Idle, NOW + 1)]);
         assert!(r.due(&moved, &on(), NOW + 10).is_empty(), "first seen");
         let mut prs = vec![pr(7, NEXT)];
         apply(&mut prs, &r.store, true, NOW);
         assert!(prs[0].auto_review.as_ref().unwrap().behind);
         assert!(r.due(&moved, &on(), NOW + QUIET_MS).is_empty(), "still settling");
-        assert_eq!(kinds(&r.due(&moved, &on(), NOW + 10 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") in Some(\"{S}\")")]);
+        assert_eq!(kinds(&r.due(&moved, &on(), NOW + 10 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") by auto in {S}")]);
     }
 
     #[test]
@@ -925,23 +1541,23 @@ mod tests {
         assert!(r.due(&board(vec![pr(6, HEAD)], vec![]), &ReviewsCfg::default(), NOW).is_empty(), "off");
         let unread = Board { github_login: None, ..board(vec![pr(6, HEAD)], vec![]) };
         assert!(r.due(&unread, &on(), NOW).is_empty(), "GitHub not read yet");
-        assert_eq!(kinds(&r.due(&board(vec![pr(6, HEAD)], vec![]), &on(), NOW)), ["review 6 1111111 since None in None"]);
+        assert_eq!(kinds(&r.due(&board(vec![pr(6, HEAD)], vec![]), &on(), NOW)), ["review 6 1111111 since None by auto"]);
     }
 
     #[test]
-    fn a_few_run_at_once_and_one_waiting_on_you_holds_no_place() {
+    fn a_few_rounds_run_at_once_and_one_waiting_on_you_holds_no_place() {
         let mut r = Reviewer::default();
         let prs = vec![pr(3, HEAD), pr(1, HEAD), pr(2, HEAD)];
         let jobs = r.due(&board(prs.clone(), vec![]), &on(), NOW);
         // The longest waiting first.
-        assert_eq!(kinds(&jobs), ["review 1 1111111 since None in None", "review 2 1111111 since None in None"]);
-        r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW).unwrap();
-        r.told(&jobs[1], Went::Started { session: Some("claude:claude:two".into()), pending: None, at: NOW }, NOW).unwrap();
-        let two = Session { status: Status::Working, ..fixtures::session("claude:claude:two") };
+        assert_eq!(kinds(&jobs), ["review 1 1111111 since None by auto", "review 2 1111111 since None by auto"]);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        r.told(&jobs[1], Went::Started(vec![started(AUTO, "claude:claude:two", NOW)]), NOW).unwrap();
+        let two = at("claude:claude:two", Status::Working, NOW);
         assert!(r.due(&board(prs.clone(), vec![session(Status::Working, NOW), two.clone()]), &on(), NOW + 1).is_empty());
         // One waits on you to allow something: the third starts.
         let waits = Session { asks: false, ..session(Status::Needs, NOW + 5) };
-        assert_eq!(kinds(&r.due(&board(prs, vec![waits, two]), &on(), NOW + 6)), ["review 3 1111111 since None in None"]);
+        assert_eq!(kinds(&r.due(&board(prs, vec![waits, two]), &on(), NOW + 6)), ["review 3 1111111 since None by auto"]);
     }
 
     #[test]
@@ -949,19 +1565,22 @@ mod tests {
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
         let pending = Pending { lane: "/r".into(), account: "codex".into(), at: NOW };
-        r.told(&jobs[0], Went::Started { session: None, pending: Some(pending), at: NOW }, NOW).unwrap();
+        r.told(&jobs[0], Went::Started(vec![Part::asked(AUTO, None, Some(pending.clone()), NOW)]), NOW).unwrap();
         let other = Session { account: "codex".into(), started_at: Some(NOW + 1), first_prompt: Some("something else".into()), ..fixtures::session("codex:codex:x") };
         let mine = Session { account: "codex".into(), started_at: Some(NOW + 2), first_prompt: Some("Review pull request #7 in o/r, “Add teams” (https://github.com/o/r/pull/7)".into()), status: Status::Working, ..fixtures::session("codex:codex:y") };
         r.due(&board(vec![pr(7, HEAD)], vec![other.clone()]), &on(), NOW + 3);
-        assert_eq!(r.store.prs["o/r#7"].session, None);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].parts[0].session, None);
         r.due(&board(vec![pr(7, HEAD)], vec![other, mine]), &on(), NOW + 4);
-        assert_eq!(r.store.prs["o/r#7"].session.as_deref(), Some("codex:codex:y"));
-        // One that never shows ends its round.
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].parts[0].session.as_deref(), Some("codex:codex:y"));
+        assert_eq!(r.store.prs["o/r#7"].sessions[AUTO], "codex:codex:y");
+        // One that never shows fails its part, and so the round.
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
-        r.told(&jobs[0], Went::Started { session: None, pending: Some(Pending { lane: "/r".into(), account: "codex".into(), at: NOW }), at: NOW }, NOW).unwrap();
+        r.told(&jobs[0], Went::Started(vec![Part::asked(AUTO, None, Some(pending), NOW)]), NOW).unwrap();
         r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + SHOW_MS + 1);
-        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+        r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + SHOW_MS + 2);
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Failed, Some("Its session never showed up.")));
     }
 
     #[test]
@@ -969,46 +1588,51 @@ mod tests {
         let mut r = Reviewer::default();
         let b = board(vec![pr(7, HEAD)], vec![]);
         let jobs = r.due(&b, &on(), NOW);
-        assert!(r.told(&jobs[0], Went::NotStarted("claude can't start a session in the background".into()), NOW).unwrap_err().contains("in the background"));
+        assert!(r.told(&jobs[0], Went::NotStarted("GitHub: Not Found".into()), NOW).unwrap_err().contains("Not Found"));
         assert!(r.due(&b, &on(), NOW + 10 * QUIET_MS).is_empty());
+        let jobs = r.due(&board(vec![pr(8, HEAD)], vec![]), &on(), NOW);
+        assert!(r.told(&jobs[0], Went::Started(vec![Part::failed(AUTO, "claude can't start a session in the background".into(), NOW)]), NOW).unwrap_err().contains("in the background"));
+        assert_eq!(r.store.prs["o/r#8"].rounds[0].stage, ReviewStage::Failed);
         // Posting is tried a few times, waiting longer each time.
         let mut r = Reviewer::default();
         let jobs = r.due(&b, &on(), NOW);
-        r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW).unwrap();
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 1)]);
-        let mut at = NOW + 2;
+        read(&mut r, &done, &on(), NOW + 2, "A.", "Claude Code");
+        let mut when = NOW + 2;
         let mut waits = Vec::new();
         for _ in 1..POST_TRIES {
-            let job = r.due(&done, &on(), at).pop().unwrap();
-            assert!(r.told(&job, Went::PostFailed("gh: Not Found".into()), at).is_err());
-            let next = (at..).step_by(1000).find(|&t| !r.due(&done, &on(), t).is_empty()).unwrap();
-            waits.push((next - at) / 1000);
+            let job = r.due(&done, &on(), when).pop().unwrap();
+            assert!(r.told(&job, Went::PostFailed("gh: Not Found".into()), when).is_err());
+            let next = (when..).step_by(1000).find(|&t| !r.due(&done, &on(), t).is_empty()).unwrap();
+            waits.push((next - when) / 1000);
             // That due started a job: say it's still failing.
             r.busy.clear();
-            at = next;
+            when = next;
         }
         assert_eq!(waits, [30, 60, 120]);
-        let job = r.due(&done, &on(), at).pop().unwrap();
-        assert!(r.told(&job, Went::PostFailed("gh: Not Found".into()), at).unwrap_err().contains("Not Found"));
+        let job = r.due(&done, &on(), when).pop().unwrap();
+        assert!(r.told(&job, Went::PostFailed("gh: Not Found".into()), when).unwrap_err().contains("Not Found"));
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
-        assert!(r.due(&done, &on(), at + 10 * QUIET_MS).is_empty());
+        assert!(r.due(&done, &on(), when + 10 * QUIET_MS).is_empty());
     }
 
     #[test]
     fn a_round_stuck_while_the_pr_moved_on_makes_way_and_a_gone_session_ends_it() {
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
-        r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW).unwrap();
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         let stuck = board(vec![pr(7, NEXT)], vec![session(Status::Error, NOW + 1)]);
         r.due(&stuck, &on(), NOW + 2);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
-        assert_eq!(kinds(&r.due(&stuck, &on(), NOW + 3 + QUIET_MS)), [format!("review 7 2222222 since None in Some(\"{S}\")")]);
+        assert_eq!(kinds(&r.due(&stuck, &on(), NOW + 3 + QUIET_MS)), [format!("review 7 2222222 since None by auto in {S}")]);
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
-        r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW).unwrap();
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + 1);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "not showing yet");
         r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + SHOW_MS + 1);
+        r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + SHOW_MS + 2);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
     }
 
@@ -1018,14 +1642,16 @@ mod tests {
         let path = dir.join("reviews.json");
         let mut r = Reviewer { path: Some(path.clone()), ..Reviewer::default() };
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
-        r.told(&jobs[0], Went::Started { session: Some(S.into()), pending: None, at: NOW }, NOW).unwrap();
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         let mut again = Reviewer { store: crate::store::load_whole(&path, WHAT), path: Some(path), ..Reviewer::default() };
         assert_eq!(again.store, r.store);
         // Under way, it's followed: nothing new starts for that commit.
         assert!(again.due(&board(vec![pr(7, HEAD)], vec![session(Status::Working, NOW + 1)]), &on(), NOW + 2).is_empty());
         // Ended, and the PR no longer waits on you: forgotten a month on.
-        let jobs = again.due(&board(vec![pr(7, HEAD)], vec![session(Status::Idle, NOW + 3)]), &on(), NOW + 4);
-        again.told(&jobs[0], Went::Kept(None), NOW + 5).unwrap();
+        let b = board(vec![pr(7, HEAD)], vec![session(Status::Idle, NOW + 3)]);
+        read(&mut again, &b, &on(), NOW + 4, "A.", "Claude Code");
+        let job = again.due(&b, &on(), NOW + 4).pop().unwrap();
+        again.told(&job, Went::Kept(None), NOW + 5).unwrap();
         again.due(&board(vec![], vec![]), &on(), NOW + 6);
         assert!(again.store.prs.contains_key("o/r#7"));
         again.due(&board(vec![], vec![]), &on(), NOW + 6 + KEEP_MS);
@@ -1046,32 +1672,112 @@ mod tests {
         assert_eq!(reply_after(&items[..3], NOW), None);
         assert_eq!(reply_after(&[item("agent", NOW, "x"), item("you", NOW + 1, "again")], NOW), None);
         assert_eq!(reply_after(&[], NOW), None);
-        assert_eq!(skipped("SKIP: the diff is a vendored library"), Some("the diff is a vendored library".into()));
-        assert_eq!(skipped("skip:"), Some("Its agent couldn't review it.".into()));
-        assert_eq!(skipped("Skipping the tests, the rest is fine."), None);
     }
 
     #[test]
-    fn what_the_session_is_told_and_what_is_posted() {
+    fn what_the_session_is_told() {
         let files = Reading { md: "[pr-7.md](files/aa/pr-7.md)".into(), diff: "[pr-7.diff](files/bb/pr-7.diff)".into(), changes: Some("[pr-7-to-2222222.diff](files/cc/pr-7-to-2222222.diff)".into()) };
-        let first = first_prompt(&pr(7, HEAD), HEAD, None, false, "gwen", true, &files);
+        let first = first_prompt(&pr(7, HEAD), HEAD, None, false, "gwen", ReviewPost::Draft, None, &files);
         assert!(first.starts_with("Review pull request #7 in o/r, “Add teams” (https://github.com/o/r/pull/7), by ana: it merges teams into main, and is at commit 1111111."), "{first}");
-        for part in ["[pr-7.md](files/aa/pr-7.md)", "without its branch", "Don't change any files, commit, push, or post on GitHub.", "as a comment from gwen's GitHub account", "`SKIP: `"] {
+        for part in ["[pr-7.md](files/aa/pr-7.md)", NUMBERED, "without its branch", "Don't change any files, commit, push, or post on GitHub.", "left as a draft that only gwen sees", "`review-comments`", "`SKIP: `"] {
             assert!(first.contains(part), "{part}: {first}");
         }
-        assert!(!first.contains("earlier review"));
-        let later = first_prompt(&pr(7, NEXT), NEXT, Some(HEAD), true, "gwen", false, &files);
-        for part in ["has its branch checked out", "An earlier review of commit 1111111", "[pr-7-to-2222222.diff]", "for gwen to read here; nothing is posted"] {
+        assert!(!first.contains("earlier review") && !first.contains("Other agents"));
+        let later = first_prompt(&pr(7, NEXT), NEXT, Some(HEAD), true, "gwen", ReviewPost::None, company(2, true), &files);
+        for part in ["has its branch checked out", "An earlier review of commit 1111111", "[pr-7-to-2222222.diff]", "for gwen to read here; nothing is posted", "your reviews are combined into one"] {
             assert!(later.contains(part), "{part}: {later}");
         }
-        let again = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", true, &files);
+        assert!(!later.contains("review-comments"), "nothing posted, nothing to lay out: {later}");
+        let again = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", ReviewPost::Comment, &files);
         assert!(again.starts_with("Codealong: #7 “Add teams” has new commits since you reviewed 1111111: it's at 2222222 now."), "{again}");
-        assert!(again.contains("What changed since 1111111 is in [pr-7-to-2222222.diff]") && again.contains("as a new comment"), "{again}");
-        let rewritten = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", true, &Reading { changes: None, ..files });
+        assert!(again.contains("What changed since 1111111 is in [pr-7-to-2222222.diff]") && again.contains("as a comment from gwen's GitHub account"), "{again}");
+        let rewritten = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", ReviewPost::Draft, &Reading { changes: None, ..files });
         assert!(rewritten.contains("rewritten since then (rebased or force-pushed)"), "{rewritten}");
-        let body = comment_body("  Looks right.\n", &pr(7, HEAD), HEAD, "Claude Code, claude-opus-5-5");
+        let combine = combine_prompt(&pr(7, HEAD), HEAD, 1, "[pr-7-reviews.md](files/dd/pr-7-reviews.md)", "gwen", ReviewPost::Draft);
+        assert!(combine.starts_with("Codealong: Another agent reviewed #7 “Add teams” at 1111111 too; their reviews are in [pr-7-reviews.md]"), "{combine}");
+        assert!(combine.contains("keep the ones that hold up, each once") && combine.contains("`review-comments`"), "{combine}");
+    }
+
+    /// Two files: one changed in two places, one new.
+    const DIFF: &str = "diff --git a/src/a.rs b/src/a.rs\nindex 1..2 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,3 +1,4 @@\n fn a() {\n-    old();\n+    new();\n+    more();\n }\n\n@@ -10,2 +11,2 @@ fn b() {\n-    x\n+    y\n }\ndiff --git a/docs/new file.md b/docs/new file.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/new file.md\n@@ -0,0 +1,2 @@\n+# New\n++++ not a header\n";
+
+    #[test]
+    fn a_diff_is_numbered_by_each_lines_place_in_the_new_version() {
+        let n = numbered(DIFF);
+        let lines: Vec<&str> = n.lines().collect();
+        assert_eq!(lines[4], "@@ -1,3 +1,4 @@");
+        assert_eq!(&lines[5..10], ["    1  fn a() {", "      -    old();", "    2 +    new();", "    3 +    more();", "    4  }"]);
+        // An empty context line keeps its number.
+        assert_eq!(lines[10], "    5 ");
+        assert_eq!(&lines[12..15], ["      -    x", "   11 +    y", "   12  }"]);
+        assert_eq!(lines.last(), Some(&"    2 ++++ not a header"));
+        let can = commentable(DIFF);
+        let mut a: Vec<u64> = can["src/a.rs"].iter().copied().collect();
+        a.sort();
+        assert_eq!(a, [1, 2, 3, 4, 5, 11, 12]);
+        assert_eq!(can["docs/new file.md"].len(), 2);
+        // GitHub's compare files have no +++ line: the name comes from the diff line.
+        let compare = "diff --git a/b.rs b/b.rs\n@@ -5,1 +5,2 @@\n x\n+y\n";
+        assert_eq!(commentable(compare)["b.rs"], [5, 6].into_iter().collect());
+    }
+
+    #[test]
+    fn the_last_message_is_a_summary_and_comments_on_lines() {
+        let reply = "Two problems, one serious.\n\n```review-comments\n[{\"path\": \"src/a.rs\", \"line\": 2, \"body\": \"This panics on empty input.\"}, {\"path\": \"b/src/a.rs\", \"line\": \"11\", \"body\": \"Off by one.\"}]\n```\n\nOtherwise fine.";
+        let (summary, comments) = parse_reply(reply);
+        assert_eq!(summary, "Two problems, one serious.\n\nOtherwise fine.");
+        assert_eq!(comments, [c("src/a.rs", 2, "This panics on empty input."), c("src/a.rs", 11, "Off by one.")]);
+        // No block, or one that doesn't read: the message whole.
+        assert_eq!(parse_reply("Looks right."), ("Looks right.".to_string(), vec![]));
+        let broken = "Two problems.\n```review-comments\n[{\"path\": \"a.rs\"}]\n```";
+        assert_eq!(parse_reply(broken), (broken.to_string(), vec![]));
+        assert_eq!(skipped("SKIP: the diff is a vendored library"), Some("the diff is a vendored library".into()));
+        assert_eq!(skipped("skip:"), Some("Its agent couldn't review it.".into()));
+        assert_eq!(skipped("Skipping the tests, the rest is fine."), None);
+        // Several reviews: each under its writer's name, and so is each line comment.
+        let (text, comments) = merged(&[("Claude Code".into(), reply.into()), ("Codex".into(), "Fine.".into())]);
+        assert_eq!(text, "**Claude Code**\n\nTwo problems, one serious.\n\nOtherwise fine.\n\n**Codex**\n\nFine.");
+        assert_eq!(comments[0].body, "*Claude Code:* This panics on empty input.");
+        assert_eq!(merged(&[(String::new(), reply.into())]), parse_reply(reply));
+    }
+
+    fn c(path: &str, line: u64, body: &str) -> LineComment {
+        LineComment { path: path.into(), line, body: body.into() }
+    }
+
+    fn by(agent: &str) -> Vec<String> {
+        vec![agent.to_string()]
+    }
+
+    #[test]
+    fn a_draft_review_puts_each_comment_on_its_line_where_github_takes_it() {
+        let lines = commentable(DIFF);
+        let comments = vec![c("src/a.rs", 2, "This panics."), c("src/a.rs", 7, "Not in the diff."), c("docs/new file.md", 1, "Typo.")];
+        let plan = draft_plan("Two problems.", comments.clone(), &lines, None, &pr(7, HEAD), HEAD, &by("Claude Code"));
+        assert_eq!(plan.add_to, None);
+        assert_eq!(plan.threads, [c("src/a.rs", 2, "This panics."), c("docs/new file.md", 1, "Typo.")]);
+        assert!(plan.body.starts_with("Two problems.\n\n**On other lines**\n\n**`src/a.rs` line 7**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L7\n\nNot in the diff.\n\n<sub>An agent's review (Claude Code) of 1111111, drafted by Codealong.</sub>"), "{}", plan.body);
+        assert!(plan.body.ends_with(&marker("o/r#7", HEAD)));
+        // Your draft at the same commit: added to, after what you wrote.
+        let mine = PendingReview { id: "R_1".into(), body: "My notes.".into(), commit: Some(HEAD.into()) };
+        let plan = draft_plan("Two problems.", comments.clone(), &lines, Some(&mine), &pr(7, HEAD), HEAD, &by("Claude Code"));
+        assert_eq!((plan.add_to.as_deref(), plan.threads.len()), (Some("R_1"), 2));
+        assert!(plan.body.starts_with("My notes.\n\n---\n\nTwo problems."), "{}", plan.body);
+        // Begun on another commit: every comment in its text, linked at the reviewed commit.
+        let older = PendingReview { commit: Some(NEXT.into()), body: String::new(), ..mine };
+        let plan = draft_plan("Two problems.", comments, &lines, Some(&older), &pr(7, HEAD), HEAD, &["Claude Code".into(), "Codex".into()]);
+        assert!(plan.threads.is_empty());
+        assert!(plan.body.starts_with("Two problems.\n\n**On other lines**") && plan.body.contains("docs/new%20file.md#L1"), "{}", plan.body);
+        assert!(plan.body.contains("<sub>Agents' review (Claude Code; Codex) of 1111111, drafted by Codealong.</sub>"), "{}", plan.body);
+    }
+
+    #[test]
+    fn a_comment_has_its_line_comments_written_in_under_links() {
+        let body = comment_body("  Looks right.\n", &[], &pr(7, HEAD), HEAD, &by("Claude Code, claude-opus-5-5"));
         assert_eq!(body, "Looks right.\n\n<sub>An agent's review (Claude Code, claude-opus-5-5) of 1111111, posted by Codealong.</sub>\n<!-- codealong-review o/r#7 1111111aaaa -->");
-        let long = comment_body(&"x".repeat(COMMENT_MAX + 10), &pr(7, HEAD), HEAD, "Codex");
+        let body = comment_body("One thing.", &[c("src/a.rs", 2, "This panics.")], &pr(7, HEAD), HEAD, &by("Codex"));
+        assert!(body.starts_with("One thing.\n\n**`src/a.rs` line 2**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L2\n\nThis panics.\n\n<sub>"), "{body}");
+        let long = comment_body(&"x".repeat(COMMENT_MAX + 10), &[], &pr(7, HEAD), HEAD, &by("Codex"));
         assert!(long.len() < 65_536 && long.contains("cut short"));
     }
 }

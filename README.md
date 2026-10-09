@@ -254,8 +254,10 @@ checks, comments and diffs.
 - **Nudge a PR's agents**, and they're told when someone reviews, asks for changes or comments,
   or when checks fail, so they take it from there.
 - **Ask about a PR**: put questions to an agent that has read its whole diff.
-- **Automatic reviews** (optional): an agent reviews each PR that asks for your review and posts
-  what it found as a comment, so you review after it.
+- **Automatic reviews** (optional): agents of your choosing (an account and model each) review
+  each PR that asks for your review, combine what they found into one review, and leave it as a
+  draft review on your account with its comments on the lines they're about, for you to finish
+  and submit. The PR waits on you only once they're done, and new commits get reviewed again.
 
 ### Todos your agents can work
 
@@ -433,9 +435,10 @@ when_hit = "suggest"           # a session stopped at its usage limit offers a m
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Accounts)
 
 [reviews]
-auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Accounts)
-account = ""                   # the account it runs on; "" for Auto
-comment = true                 # post each review on its PR as a comment from your GitHub account
+auto = false                   # agents review each PR that waits on your review, and again on new commits (Settings › Accounts)
+reviewers = []                 # e.g. [{ account = "claude", model = "opus" }, { account = "codex" }]; none: Auto's account
+combine = true                 # with several, the first to finish combines their reviews into one
+post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the sessions
 
 [updates]
 check = true                   # look for a new version by itself (Settings › General)

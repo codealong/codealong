@@ -9,7 +9,7 @@ import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ReviewsCfg, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ReviewerCfg, ReviewPost, ReviewsCfg, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
@@ -292,7 +292,14 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
 }
 
 /** `[reviews]` when config.toml has none (config.rs `ReviewsCfg`). */
-const REVIEWS_OFF: ReviewsCfg = { auto: false, account: '', comment: true };
+const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, reviewers: [], combine: true, post: 'draft' };
+
+/** Where each review goes (config.rs `ReviewPost`), as the select offers it. */
+const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
+  { id: 'draft', name: 'A draft review for you to finish', says: 'A review on your GitHub account with its comments on the lines they’re about, left as a draft that only you see. You finish it on GitHub, approving or asking for changes, and your review is still asked for until you do.' },
+  { id: 'comment', name: 'A comment on the pull request', says: 'A comment from your GitHub account that says agents wrote it and which commit they read, each line comment under a link to its line. A comment leaves your review still asked for.' },
+  { id: 'none', name: 'Nowhere: it stays in its sessions', says: 'Each review is in its session for you to read; nothing goes on GitHub.' },
+];
 
 /** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
  *  its harness's background service, else in Codealong, else in a terminal behind your windows.
@@ -304,44 +311,74 @@ function reviewsRunIn(a: StartAccount): string | null {
   return background ? 'in a terminal behind your windows' : null;
 }
 
-/** `[reviews]`: an agent reviews the pull requests that wait on your review, on an account, and
- *  posts each review on its pull request (autoreview.rs). */
+/** `[reviews]`: agents review the pull requests that wait on your review, each in a session of
+ *  its own on an account and model of its own, their reviews combined into one and put where you
+ *  say (autoreview.rs). */
 function ReviewsField({ cfg, disabled, onSave }: PaneProps) {
   const reviews = { ...REVIEWS_OFF, ...cfg.reviews };
   const [accounts, setAccounts] = useState<StartAccount[]>([]);
   useEffect(() => {
-    // Without them only Auto and the account config.toml names are offered, which still work.
+    // Without them the accounts config.toml names are still offered, by name.
     startOptions()
       .then((o) => setAccounts(o.accounts))
       .catch(() => {});
   }, []);
-  const profiles: Profile[] = [{ id: '', name: 'Auto' }];
-  for (const a of accounts) {
-    const where = reviewsRunIn(a);
-    if (where) profiles.push({ id: a.name, name: `${a.name}, ${where}` });
-  }
   const set = (next: Partial<ReviewsCfg>) => void onSave({ ...cfg, reviews: { ...reviews, ...next } });
+  const setReviewer = (i: number, r: ReviewerCfg | null) => set({ reviewers: r ? reviews.reviewers.map((x, j) => (j === i ? r : x)) : reviews.reviewers.filter((_, j) => j !== i) });
+  const can = accounts.filter((a) => reviewsRunIn(a));
+  const accountChoices = (current: string): Profile[] => {
+    const listed = can.map((a) => ({ id: a.name, name: `${a.name}, ${reviewsRunIn(a)}` }));
+    return listed.some((p) => p.id === current) ? listed : [...listed, { id: current, name: current }];
+  };
+  const modelChoices = (account: string): Profile[] => [{ id: '', name: 'Its own model' }, ...(accounts.find((a) => a.name === account)?.models ?? []).map((m) => ({ id: m.id, name: m.label }))];
+  const add = () => {
+    const next = can.find((a) => !reviews.reviewers.some((r) => r.account === a.name)) ?? can[0];
+    if (next) set({ reviewers: [...reviews.reviewers, { account: next.name }] });
+  };
+  const post = REVIEW_POSTS.find((p) => p.id === reviews.post) ?? REVIEW_POSTS[0];
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={reviews.auto} onChange={(e) => set({ auto: e.target.checked })} />
         <span>Review pull requests that wait on your review</span>
         <small>
-          An agent reviews each open pull request that asks for your review, in a session of its own, and again when new commits come in while it still waits on you. It reads the pull request and the code around it and changes nothing. A few run at once. A pull request joins what waits on
-          you once its agent’s review is done, and its card says where that stands.
+          Agents review each open pull request that asks for your review, each in a session of its own, and again when new commits come in while it still waits on you. They read the pull request and the code around it and change nothing. A pull request joins what waits on you once their
+          review is done, and its card says where that stands.
         </small>
       </label>
       {reviews.auto && (
         <>
+          <div className="ca-field">
+            <span>Reviewers</span>
+            {reviews.reviewers.length === 0 ? (
+              <small>None listed: the account the quick panel’s Auto would start, on its own model.</small>
+            ) : (
+              <ul className="ca-settings-reviewers">
+                {reviews.reviewers.map((r, i) => (
+                  <li key={`${r.account} ${r.model ?? ''} ${i}`}>
+                    <ProfileSelect value={r.account} profiles={accountChoices(r.account)} onChange={(account) => setReviewer(i, { account })} />
+                    <ProfileSelect value={r.model ?? ''} profiles={modelChoices(r.account)} onChange={(model) => setReviewer(i, model ? { account: r.account, model } : { account: r.account })} />
+                    <Button size="sm" icon="x" title="Take this reviewer off" onClick={() => setReviewer(i, null)} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Button size="sm" icon="plus" className="ca-settings-add" disabled={can.length === 0} onClick={add}>
+              Add reviewer
+            </Button>
+            <small>Each reviews in a session of its own, kept for that pull request’s next round. These are apart from the accounts new sessions start on.</small>
+          </div>
+          {reviews.reviewers.length > 1 && (
+            <label className="ca-field ca-settings-check">
+              <input type="checkbox" checked={reviews.combine} onChange={(e) => set({ combine: e.target.checked })} />
+              <span>Combine their reviews into one</span>
+              <small>The first to finish checks the others’ findings against the code and writes one review, each finding once. Off, each review goes on the pull request under its reviewer’s name.</small>
+            </label>
+          )}
           <label className="ca-field">
-            <span>Review on</span>
-            <ProfileSelect value={reviews.account} profiles={profiles} onChange={(account) => set({ account })} />
-            <small>Auto is the account the quick panel’s Auto would start, among those that can start a session out of the way.</small>
-          </label>
-          <label className="ca-field ca-settings-check">
-            <input type="checkbox" checked={reviews.comment} onChange={(e) => set({ comment: e.target.checked })} />
-            <span>Post each review on its pull request</span>
-            <small>As a comment from your GitHub account that says an agent wrote it and which commit it read. A comment leaves your review still asked for: approving or asking for changes stays yours. Off, each review stays in its session for you to read.</small>
+            <span>Where each review goes</span>
+            <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />
+            <small>{post.says}</small>
           </label>
         </>
       )}

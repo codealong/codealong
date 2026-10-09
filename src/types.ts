@@ -370,13 +370,27 @@ export interface Config {
 
 /** `[reviews]` (config.rs `ReviewsCfg`, autoreview.rs). */
 export interface ReviewsCfg {
-  /** An agent reviews each open PR that waits on your review, and again when new commits come in. */
+  /** Agents review each open PR that waits on your review, and again when new commits come in. */
   auto: boolean;
-  /** The account the reviews run on; empty for the one Auto would start. */
-  account: string;
-  /** Each review is posted on its PR as a comment from your GitHub account. */
-  comment: boolean;
+  /** The agents that review each PR, each in a session of its own; none is the account Auto
+   *  would start. Older files have none. */
+  reviewers?: ReviewerCfg[];
+  /** With several reviewers, the first to finish combines their reviews into one. Older files
+   *  have none: on. */
+  combine?: boolean;
+  /** Where each review goes. Older files have none: a draft. */
+  post?: ReviewPost;
 }
+
+/** One of the agents that review PRs: an account, and the model it starts on (its own when none). */
+export interface ReviewerCfg {
+  account: string;
+  model?: string;
+}
+
+/** Where an automatic review goes (config.rs `ReviewPost`): a draft review on your GitHub account
+ *  for you to finish, a comment on the PR, or nowhere but its sessions. */
+export type ReviewPost = 'draft' | 'comment' | 'none';
 
 /** Where automatic updates stand (src-tauri/src/updates.rs): this copy's version, and a state. */
 export type UpdateView = { current: string } & (
@@ -856,15 +870,26 @@ export interface PrItem {
 
 /** Where a round of Codealong's automatic review of a PR stands (model.rs `ReviewStage`):
  *  `queued` is the round to come for a commit no session has started on yet. */
-export type ReviewStage = 'queued' | 'reviewing' | 'posted' | 'kept' | 'skipped' | 'failed';
+export type ReviewStage = 'queued' | 'reviewing' | 'posted' | 'drafted' | 'kept' | 'skipped' | 'failed';
+
+/** One reviewer's part in a round (model.rs `ReviewPart`). */
+export interface ReviewPart {
+  /** The reviewer, as config.toml names it (`claude opus`), or `auto`. */
+  who: string;
+  session?: string;
+  state: 'reviewing' | 'done' | 'skipped' | 'failed';
+  note?: string;
+}
 
 /** Codealong's automatic review of a PR: its latest round (model.rs `AutoReview`). */
 export interface AutoReview {
   stage: ReviewStage;
   /** The commit it reviews. */
   head: string;
-  /** The session that reviews the PR, once known. */
-  session?: string;
+  /** Each reviewer's part, in config.toml's order. */
+  parts?: ReviewPart[];
+  /** The first reviewer to finish is combining the others' reviews with its own. */
+  combining?: boolean;
   /** When the round began, or ended once it has. */
   at: number;
   /** The latest review it posted, by its link. */

@@ -233,6 +233,8 @@ pub enum ReviewStage {
     Reviewing,
     /// Reviewed, and posted on the PR as a comment.
     Posted,
+    /// Reviewed, and put in a draft review on your account, for you to finish.
+    Drafted,
     /// Reviewed, and left in its session: config.toml says not to post.
     Kept,
     /// Its agent said it couldn't review it.
@@ -248,9 +250,12 @@ pub struct AutoReview {
     pub stage: ReviewStage,
     /// The commit it reviews, as GitHub names it.
     pub head: String,
-    /// The session that reviews the PR, once known.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session: Option<String>,
+    /// Each reviewer's part in it, in config.toml's order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<ReviewPart>,
+    /// The first reviewer to finish is combining the others' reviews with its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub combining: bool,
     /// When the round began, or ended once it has.
     pub at: i64,
     /// The latest review it posted, by its link: this round's, else an earlier one's.
@@ -268,6 +273,35 @@ pub struct AutoReview {
     /// (`PrItem::waits_on_review`) until it is: you review it once the agent has.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub holds: bool,
+}
+
+/// Where one reviewer's part in a round stands (autoreview.rs).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PartState {
+    /// Its session is reviewing.
+    Reviewing,
+    /// Its review is written.
+    Done,
+    /// Its agent said it couldn't review it.
+    Skipped,
+    /// It didn't get done.
+    Failed,
+}
+
+/// One reviewer's part in a round, for a PR's card.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPart {
+    /// The reviewer, as config.toml names it (`claude opus`), or `auto`.
+    pub who: String,
+    /// Its session, once known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    pub state: PartState,
+    /// Why it was skipped or didn't get done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 impl PrItem {

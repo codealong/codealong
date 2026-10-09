@@ -993,7 +993,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
 /// the largest files, and the Markdown says so.
 pub fn for_reading(pr: &crate::model::PrItem) -> Result<(String, String, PrDetail)> {
     let (detail, diff) = std::thread::scope(|scope| {
-        let diff = scope.spawn(|| procs::run("gh", &["pr", "diff", &pr.number.to_string(), "-R", &pr.repo_slug], None, Duration::from_secs(60)));
+        let diff = scope.spawn(|| pr_diff(&pr.repo_slug, pr.number));
         (detail(&pr.repo_slug, pr.number), diff.join())
     });
     let d = detail?;
@@ -1027,6 +1027,80 @@ fn changes_of(out: &str) -> Result<Option<String>> {
         }
     }
     Ok(Some(diff))
+}
+
+/// A PR's whole diff as `gh pr diff` gives it (REST, no GraphQL points).
+pub fn pr_diff(slug: &str, number: u64) -> Result<String> {
+    procs::run("gh", &["pr", "diff", &number.to_string(), "-R", slug], None, Duration::from_secs(60)).map_err(|e| anyhow!("GitHub: {e}"))
+}
+
+/// A comment on one line of a PR's code, as a review takes it: the file as the PR's diff names
+/// it, and the line's number in the file's new version.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LineComment {
+    pub path: String,
+    pub line: u64,
+    pub body: String,
+}
+
+/// A review of yours on a PR that you haven't submitted. GitHub keeps one at most for each
+/// person and PR, and only its author sees it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingReview {
+    pub id: String,
+    pub body: String,
+    /// The commit it was begun on, which the lines of its comments are numbered by.
+    pub commit: Option<String>,
+}
+
+const PENDING_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { id reviews(states: PENDING, first: 5) { nodes { id body viewerDidAuthor commit { oid } } } } } }";
+/// A review left with no event is left pending: a draft only its author sees.
+const ADD_REVIEW: &str = "mutation($pr: ID!, $commit: GitObjectID!, $body: String!, $threads: [DraftPullRequestReviewThread]) { addPullRequestReview(input: {pullRequestId: $pr, commitOID: $commit, body: $body, threads: $threads}) { pullRequestReview { id state } } }";
+const ADD_THREAD: &str = "mutation($review: ID!, $path: String!, $line: Int!, $body: String!) { addPullRequestReviewThread(input: {pullRequestReviewId: $review, path: $path, line: $line, side: RIGHT, body: $body}) { thread { id } } }";
+const EDIT_REVIEW: &str = "mutation($review: ID!, $body: String!) { updatePullRequestReview(input: {pullRequestReviewId: $review, body: $body}) { pullRequestReview { id } } }";
+
+/// A GraphQL request through `gh`, with its variables as JSON on stdin: a list of objects, as a
+/// review's comments are, can't be given with `-f`.
+fn graphql(query: &str, variables: Value) -> Result<String> {
+    let input = serde_json::json!({ "query": query, "variables": variables }).to_string();
+    procs::run_stdin("gh", &["api", "graphql", "--input", "-"], &input, Duration::from_secs(60)).map_err(|e| anyhow!("GitHub: {e}"))
+}
+
+/// A PR's node id, and your review of it that you haven't submitted, if you have one.
+pub fn pending_review(slug: &str, number: u64) -> Result<(String, Option<PendingReview>)> {
+    let (owner, name) = slug.split_once('/').ok_or_else(|| anyhow!("bad repo {slug}"))?;
+    pending_of(&graphql(PENDING_QUERY, serde_json::json!({ "owner": owner, "name": name, "number": number }))?)
+}
+
+/// `pending_review` from GitHub's answer.
+fn pending_of(out: &str) -> Result<(String, Option<PendingReview>)> {
+    let v: Value = serde_json::from_str(out)?;
+    let pr = v.pointer("/data/repository/pullRequest").ok_or_else(|| anyhow!("GitHub didn't return the PR"))?;
+    let id = pr.get("id").and_then(Value::as_str).ok_or_else(|| anyhow!("GitHub didn't say the PR's id"))?;
+    let pending = pr.pointer("/reviews/nodes").and_then(Value::as_array).into_iter().flatten().find(|r| r.get("viewerDidAuthor").and_then(Value::as_bool) == Some(true)).and_then(|r| {
+        Some(PendingReview { id: r.get("id")?.as_str()?.to_string(), body: r.get("body").and_then(Value::as_str).unwrap_or_default().to_string(), commit: r.pointer("/commit/oid").and_then(Value::as_str).map(String::from) })
+    });
+    Ok((id.to_string(), pending))
+}
+
+/// The variables `draft_review` sends.
+fn draft_vars(pr: &str, head: &str, body: &str, comments: &[LineComment]) -> Value {
+    let threads: Vec<Value> = comments.iter().map(|c| serde_json::json!({ "path": c.path, "line": c.line, "side": "RIGHT", "body": c.body })).collect();
+    serde_json::json!({ "pr": pr, "commit": head, "body": body, "threads": threads })
+}
+
+/// Begins a review of yours on the PR whose node id is `pr`, at commit `head`, and leaves it a
+/// draft: `body`, with each comment on its line. One request, so it's all there or none of it.
+pub fn draft_review(pr: &str, head: &str, body: &str, comments: &[LineComment]) -> Result<()> {
+    graphql(ADD_REVIEW, draft_vars(pr, head, body, comments)).map(|_| ())
+}
+
+/// Adds comments to a draft review of yours, each on its line, then gives it `body`.
+pub fn add_to_draft(review: &str, body: &str, comments: &[LineComment]) -> Result<()> {
+    for c in comments {
+        graphql(ADD_THREAD, serde_json::json!({ "review": review, "path": c.path, "line": c.line, "body": c.body }))?;
+    }
+    graphql(EDIT_REVIEW, serde_json::json!({ "review": review, "body": body })).map(|_| ())
 }
 
 /// Posts `body` as a comment on PR `number`'s conversation, as you, through `gh`; its link.
@@ -1184,6 +1258,31 @@ mod tests {
         assert!(diff.contains("diff --git a/logo.png b/logo.png\n(GitHub shows no diff"), "{diff}");
         assert_eq!(changes_of(r#"{"status":"diverged","files":[]}"#).unwrap(), None);
         assert!(changes_of("not json").is_err());
+    }
+
+    #[test]
+    fn finds_your_draft_review_among_a_prs_pending_ones() {
+        let out = r#"{"data":{"repository":{"pullRequest":{"id":"PR_1","reviews":{"nodes":[{"id":"R_other","body":"x","viewerDidAuthor":false,"commit":{"oid":"aaa"}},{"id":"R_mine","body":"Started","viewerDidAuthor":true,"commit":{"oid":"bbb"}}]}}}}}"#;
+        assert_eq!(pending_of(out).unwrap(), ("PR_1".into(), Some(PendingReview { id: "R_mine".into(), body: "Started".into(), commit: Some("bbb".into()) })));
+        let none = r#"{"data":{"repository":{"pullRequest":{"id":"PR_1","reviews":{"nodes":[]}}}}}"#;
+        assert_eq!(pending_of(none).unwrap(), ("PR_1".into(), None));
+    }
+
+    #[test]
+    fn a_draft_review_goes_in_one_request_with_its_comments_on_their_lines() {
+        let vars = draft_vars("PR_1", "abc", "Two problems.", &[LineComment { path: "src/a.rs".into(), line: 42, body: "This panics.".into() }]);
+        assert_eq!(vars, serde_json::json!({ "pr": "PR_1", "commit": "abc", "body": "Two problems.", "threads": [{ "path": "src/a.rs", "line": 42, "side": "RIGHT", "body": "This panics." }] }));
+        // No event: GitHub leaves it pending.
+        assert!(!ADD_REVIEW.contains("event"));
+        procs::stand_in::set(Some(Box::new(|program, args, input, _| {
+            assert_eq!((program, args), ("gh", &["api", "graphql", "--input", "-"][..]));
+            let sent: Value = serde_json::from_str(input.unwrap()).unwrap();
+            assert_eq!(sent["query"], ADD_REVIEW);
+            Ok("{}".into())
+        })));
+        let done = draft_review("PR_1", "abc", "Two problems.", &[]);
+        procs::stand_in::set(None);
+        done.unwrap();
     }
 
     #[test]
