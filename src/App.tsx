@@ -1168,8 +1168,6 @@ export function App() {
       onAgentMenu={(s) => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : sessionMenu(r.lane, s, 'worktree'))}
       onPrMenu={() => lanePrMenu(r.lane)}
       onPrOpen={() => openLanePr(r.lane)}
-      todos={todoLinks.byLane.get(r.lane.id)}
-      worktreeTodos={todoLinks.byWorktree.get(r.lane.id)}
       todosFor={todosFor}
       onShowTodo={showTodo}
       drag={drag}
@@ -1596,7 +1594,7 @@ export function App() {
             {view === 'worktrees' &&
               shownBays.map((b) => {
                 const count = bays.find((x) => x.bay === b.bay)?.rows.length ?? b.rows.length;
-                const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => r.agents.filter((a) => a.session.status === 'unread').map((a) => a.session.key)) : [];
+                const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => r.lines.filter((a) => a.session.status === 'unread').map((a) => a.session.key)) : [];
                 return (
                   <section key={b.bay} className="ca-bayblock">
                     <BayHeader

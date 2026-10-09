@@ -117,9 +117,23 @@ describe('buildBays', () => {
       ['needs', ['/r/busy']],
       ['review', ['/r/quiet']],
     ]);
-    expect(bays[0].rows[0].agents.map((a) => a.key)).toEqual(['/r/busy::a', '/r/busy::b', '/r/busy::c']);
-    // What you can select: a worktree's agents, or the worktree when it has none.
-    expect(bays.flatMap((g) => g.rows.flatMap(rowItems)).map((r) => r.key)).toEqual(['/r/busy::a', '/r/busy::b', '/r/busy::c', '/r/quiet']);
+    expect(bays[0].rows[0].lines.map((a) => a.key)).toEqual(['/r/busy::a', '/r/busy::b', '/r/busy::c']);
+    // What you can select: a worktree's lines, and with none of its agents in those states, the
+    // one that last worked there, so every line is a session.
+    expect(bays.flatMap((g) => g.rows.flatMap(rowItems)).map((r) => r.key)).toEqual(['/r/busy::a', '/r/busy::b', '/r/busy::c', '/r/quiet::e']);
+  });
+
+  it('gives a worktree with no agent at work a line for the one that last worked there', () => {
+    const older = { ...session('older', 'idle', NOW - DAY), account: 'claude' };
+    const latest = { ...session('latest', 'stopped', NOW - 60_000), account: 'claude2' };
+    const gone = { ...session('gone', 'idle', NOW), archived: true };
+    expect(worktreeRow({ ...lane([older, latest, gone], null), id: '/r/idle' }).lines.map((a) => a.key)).toEqual(['/r/idle::latest']);
+    // With none of its own, the one that made it or worked in it.
+    const guest = { ...session('guest', 'idle', NOW - DAY), visitor: 'made this worktree' };
+    expect(worktreeRow({ ...lane([guest], null), id: '/r/made' }).lines.map((a) => a.session.key)).toEqual(['guest']);
+    // No agent at all: the worktree is what you select.
+    const empty = worktreeRow({ ...lane([], null), id: '/r/empty' });
+    expect([empty.lines, rowItems(empty).map((r) => r.key)]).toEqual([[], ['/r/empty']]);
   });
 
   it('orders by status, then by when you last sent a prompt, not by activity', () => {
@@ -128,7 +142,7 @@ describe('buildBays', () => {
     const recent = session('recent', 'working', NOW - 300_000, NOW - 600_000);
     const done = session('done', 'unread', NOW - 60_000, NOW - 60_000);
     const one = { ...lane([old, done, recent], null), id: '/r/one', lastActivity: NOW };
-    expect(buildBays([one])[0].rows[0].agents.map((a) => a.session.key)).toEqual(['recent', 'old', 'done']);
+    expect(buildBays([one])[0].rows[0].lines.map((a) => a.session.key)).toEqual(['recent', 'old', 'done']);
     const a = { ...lane([session('x', 'working', NOW, NOW - 3_600_000)], null), id: '/r/a', lastActivity: NOW };
     const b = { ...lane([session('y', 'working', NOW - 120_000, NOW - 1_800_000)], null), id: '/r/b', lastActivity: NOW - 120_000 };
     expect(buildBays([a, b])[0].rows.map((r) => r.key)).toEqual(['/r/b', '/r/a']);
@@ -213,7 +227,7 @@ describe('a reusable worktree’s earlier work', () => {
   const l = { ...lane([current], null), sessions: [current, shipped] };
 
   it('gets no line on the row, and stays out of its status and counts', () => {
-    expect(worktreeRow(l).agents).toEqual([]);
+    expect(worktreeRow(l).lines.map((a) => a.session.key)).toEqual(['current']);
     expect(relaned(l, l.sessions).bay).toBe('idle');
     expect(inboxCounts([l]).unread).toBe(0);
     expect(narrowed(l, ['unread'], '')).toBeNull();
@@ -227,7 +241,7 @@ describe('an archived session', () => {
   const l = { ...lane([current], null), id: '/r/archived', sessions: [current, gone] };
 
   it('stays out of the status filters and their counts, as it does the row and the bay', () => {
-    expect(worktreeRow(l).agents.map((a) => a.session.key)).toEqual(['current']);
+    expect(worktreeRow(l).lines.map((a) => a.session.key)).toEqual(['current']);
     expect(relaned(l, l.sessions).bay).toBe('working');
     expect(inboxCounts([l])).toEqual({ needs: 0, working: 1, unread: 0, review: 0, work: 0 });
     expect(narrowed(l, ['needs'], '')).toBeNull();

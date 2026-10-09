@@ -46,7 +46,7 @@
   min-width: 0;
   min-height: 30px;
 }
-.ca-agentline + .ca-agentline:not(.ca-agentline--foot) {
+.ca-agentline + .ca-agentline {
   border-top: 1px solid var(--line);
 }
 .ca-agentline[role='option']:hover {
@@ -58,11 +58,6 @@
 }
 .ca-board-list:focus-visible .ca-agentline.is-selected {
   box-shadow: inset 0 0 0 2px var(--focus);
-}
-.ca-agentline--foot {
-  flex: none;
-  min-height: 26px;
-  padding-bottom: var(--space-1);
 }
 
 .ca-agentline-main {
@@ -118,6 +113,11 @@
 .ca-agentline-age .ca-pinmark {
   margin-top: 0;
 }
+/* A worktree no agent has worked in says so where an agent's title would start, past the place
+   of its glyph. */
+.ca-lane.is-empty .ca-agentline-main > .ca-none {
+  margin-left: calc(10px + var(--space-2));
+}
 
 /* The row a right-click's menu is for, while the menu is up: ringed, not selected. */
 .ca-lane[data-menu],
@@ -168,6 +168,46 @@
   vertical-align: -2px;
   margin-right: var(--space-1);
   color: var(--ink-3);
+}
+
+/* The worktree's two lines (LaneRow.tsx `WorktreeCell`): its name, then where it stands and its
+   app; its repo and branch, then its PR. Each lane of chips is laid from the line's end, so apps
+   and PRs line up down the board. Short of room the name keeps its line and the chips beside it
+   give way, the app last; on the second line the repo and branch shorten to a few letters before
+   the PR gives way. */
+.ca-lane-cellline {
+  display: flex;
+  align-items: center;
+  gap: var(--chip-gap);
+  min-width: 0;
+}
+.ca-lane-cellline > .ca-lane-call {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-lane-cellline > .ca-lane-sub {
+  flex: 0 1000000 auto;
+  min-width: 3ch;
+}
+.ca-chips.ca-lane-own {
+  flex: 1 1 auto;
+  flex-direction: row-reverse;
+}
+.ca-lane-call + .ca-chips.ca-lane-own {
+  flex-shrink: 1000000;
+}
+.ca-chips.ca-lane-own:empty {
+  display: none;
+}
+/* The lane's empty first piece sits at its right end here, so the gap it takes back is on its
+   left. */
+.ca-chips.ca-lane-own::before {
+  margin-right: 0;
+  margin-left: calc(0px - var(--chip-gap));
+}
+/* The app's globe alone: about as wide as it is high. */
+.ca-chip.ca-previewchip.is-bare {
+  padding: 0 6px;
 }
 
 /* Free: a reusable worktree that holds no work, where new work can start. */

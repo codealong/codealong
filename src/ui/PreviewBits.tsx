@@ -58,13 +58,14 @@ export function ChromeProfileSelect({ value, profiles, none, onChange }: { value
 /** A worktree's app, wherever it shows (its row, a session's header, its panel): one chip that
  *  says where it opens and, by its color, whether it runs: green while a server in the worktree
  *  serves it, outlined when nothing does. On a list's row a double-click opens it, as a click
- *  selects the row; elsewhere a click does. */
-export function PreviewChip({ preview: p, now, onOpen, inRow = false }: { preview: Preview | undefined; now: number; onOpen: () => void; inRow?: boolean }) {
+ *  selects the row; elsewhere a click does. `bare` is the globe alone, where the worktree's name
+ *  beside it says whose app it is; its address is in the tooltip. */
+export function PreviewChip({ preview: p, now, onOpen, inRow = false, bare = false }: { preview: Preview | undefined; now: number; onOpen: () => void; inRow?: boolean; bare?: boolean }) {
   if (!p) return null;
   return (
-    <Chip className={cx('ca-previewchip', p.server ? 'is-up' : 'is-down')} title={`${p.url}. ${previewState(p, now)}${profileNote(p)} ${inRow ? 'Double-click' : 'Click'} to open it.`} act={onOpen} inRow={inRow}>
+    <Chip className={cx('ca-previewchip', p.server ? 'is-up' : 'is-down', bare && 'is-bare')} title={`${p.url}. ${previewState(p, now)}${profileNote(p)} ${inRow ? 'Double-click' : 'Click'} to open it.`} act={onOpen} inRow={inRow}>
       <Icon name="world" size={12} />
-      <span className="ca-previewchip-host">{previewHost(p.url)}</span>
+      {!bare && <span className="ca-previewchip-host">{previewHost(p.url)}</span>}
     </Chip>
   );
 }

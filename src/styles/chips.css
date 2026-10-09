@@ -26,6 +26,7 @@
 .ca-checks.is-pass { color: var(--pr-open); }
 .ca-checks.is-fail { color: var(--alert); }
 .ca-checks.is-pending { color: var(--ink-3); }
+.ca-checks.is-attn { color: var(--attn); }
 .ca-lane-pricon { display: inline-flex; background: none; }
 
 .ca-branch { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 100%; font: var(--type-code); color: var(--ink-2); }

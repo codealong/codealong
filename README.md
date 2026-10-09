@@ -274,12 +274,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     ⌥↑ ⌥↓ from there move along with the cursor in the next one's box, the arrows on the list
     leave the keys with the list, and Escape in the box gives them back.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
-    status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
-    line for each agent that needs you, is working or just finished, which you select, open
-    or right-click as you would a row. On its left, the worktree's name over its repo and
-    branch, and beside them where it stands against the default branch: lines added and removed
-    (a dot for uncommitted files) over commits ahead and behind, dropped on a narrow board. The
-    rest says what's happening, with its agents, todo, app and PR. An agent is listed under the worktree it's working
+    status: Needs you, Working, Your turn, In review, Idle, Merged. A row reads as where, then
+    who. On its left, shaded as one block, the worktree and what belongs to it: its name, then
+    Free when it's a reusable worktree new work can start in, and its app (a globe, green while
+    it runs); its repo and branch, then its PR; and beside them where it stands against the
+    default branch: lines added and removed (a dot for uncommitted files) over commits ahead and
+    behind, dropped on a narrow board. On its right, its agents, a line each, every line a
+    session: each one that needs you, is working or just finished, or with none of those, the
+    one that last worked there (a worktree no agent has worked in says so). You select, open or
+    right-click a line as you would a row, and its todo, Jev's read and its account are at its
+    end. The worktree's panel lists the rest of its sessions and todos. An agent is listed under the worktree it's working
     in, where most of its latest commands ran and edits landed, even if it started somewhere
     else; resuming it still happens where it started. Sessions outside your projects are
     listed under Elsewhere, in the repo or folder each ran in, and show in All projects only

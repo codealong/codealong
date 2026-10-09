@@ -37,17 +37,6 @@
 .ca-chip.ca-previewchip.ca-chip--button:focus-visible {
   box-shadow: var(--shadow-focus);
 }
-/* On a row it sits with the PR and diff on the right, and on a crowded row its address gives way
-   before the agents' chips do. */
-.ca-lane-lead ~ .ca-previewchip {
-  flex: 0 100 auto;
-  min-width: 26px;
-  max-width: 200px;
-  margin-left: auto;
-}
-.ca-previewchip + .ca-lane-right {
-  margin-left: 0;
-}
 /* In a worktree's panel, under its folder. */
 .ca-insp-preview {
   display: flex;

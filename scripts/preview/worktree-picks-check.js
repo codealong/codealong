@@ -1,17 +1,18 @@
 // Checks picking several worktrees on the Worktrees board, each whole (picks.ts,
 // WorktreePickPanel.tsx, menus.ts `lanesActions`, mainKeys.ts): three worktrees of this Mac's, one
-// with two agents whose turns ended, one with one, and one with none. ⌘-click on any line picks
-// its worktree, every line of it, and ⌘-click on the worktree's own part leaves it out again;
-// ⌘A picks every worktree; a right-click on a picked one is the menu for all of them; P pins
-// them, A does nothing to them, E marks their sessions seen and they stay picked as their lines
-// go; Esc goes back to one, and ⇧↑ ⇧↓ pick the worktree beside.
+// with two agents whose turns ended, one with one, and one with none, which shows the agent that
+// last worked there. ⌘-click on any line picks its worktree, every line of it, and ⌘-click on the
+// worktree's own part leaves it out again; ⌘A picks every worktree; a right-click on a picked one
+// is the menu for all of them; P pins them, A does nothing to them, E marks their sessions seen
+// and they stay picked as their lines go, each leaving the line of the one that last worked
+// there; Esc goes back to one, and ⇧↑ ⇧↓ pick the worktree beside.
 //   scripts/preview.sh worktrees '' scripts/preview/worktree-picks-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'worktrees');
   localStorage.removeItem('codealong.age');
   // The worktrees and sessions the check made: A and B in the first, C in the second, and a
-  // third with no agent's line.
+  // third with no agent whose turn ended.
   var lanes = [];
   var keys = {};
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -112,7 +113,8 @@
       var seen = sent('mark_seen');
       var asked = seen.length === 1 ? seen[0].keys.slice().sort() : [];
       check('E marks their sessions seen', JSON.stringify(asked) === JSON.stringify([keys.A, keys.B, keys.C].sort()), JSON.stringify(seen));
-      check('their lines go, and they stay picked', !line('A') && !line('C') && head() === '3 worktrees', head());
+      // A was the first worktree's latest and C the second's, so theirs stay as quiet lines.
+      check('their lines go, and they stay picked', !line('B') && !!line('A') && !!line('C') && head() === '3 worktrees', head());
       keyDown({ key: 'Escape', code: 'Escape' });
       return wait(100);
     })

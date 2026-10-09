@@ -1,7 +1,8 @@
 // Checks the chips on the lists' rows (LaneRow.tsx): a click on one selects its row, as a click
 // anywhere on the row does, and opens nothing; a double-click does the chip's own thing (the PR
 // on GitHub, the session where it runs, the todo in Todo, the app in Chrome) in place of the
-// row's. Sessions has PR, agent and todo chips, Worktrees the app's.
+// row's. Sessions has PR, agent and todo chips; Worktrees has agent chips on its lines, and the
+// app's and the PR's on the worktree's own part, where a click selects the row's first line.
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-clicks-check.js
 // A chip no row has is noted and skipped.
@@ -12,10 +13,16 @@
   var dbl = function (el) { click(el); fire(el, 'mousedown', 2); fire(el, 'mouseup', 2); fire(el, 'click', 2); fire(el, 'dblclick', 2); };
   var opens = function (from) { return window.__calls.slice(from).filter(function (c) { return c[0] === 'open_target' || c[0] === 'open_url'; }); };
   var said = function (cs) { return cs.map(function (c) { return c[0] + ' ' + (c[1].url || c[1].targetId); }).join(', ') || 'none'; };
+  // The row a click on a chip selects: the one it's on, or on a worktree's own part, beside its
+  // lines, the first of them.
+  var rowOf = function (c) {
+    var group = c.closest('[role="group"]');
+    return c.closest('[role="option"]') || (group && group.querySelector('[role="option"]'));
+  };
   // A chip on a row that isn't selected, so the click has something to do.
   var chipOn = function (sel) {
-    return Array.prototype.filter.call(document.querySelectorAll('[role="option"] ' + sel), function (c) {
-      var r = c.closest('[role="option"]');
+    return Array.prototype.filter.call(document.querySelectorAll('.ca-lane ' + sel), function (c) {
+      var r = rowOf(c);
       return r && !r.classList.contains('is-selected') && r.getBoundingClientRect().height > 0;
     })[0];
   };
@@ -27,7 +34,7 @@
         note(name + ': no row has one, skipped');
         return;
       }
-      var row = chip.closest('[role="option"]');
+      var row = rowOf(chip);
       var n = window.__calls.length;
       click(chip);
       return wait(300).then(function () {
@@ -63,6 +70,9 @@
       return Promise.resolve()
         .then(step('app chip', '.ca-previewchip', function (o) {
           check('app chip: a double-click opens the app, not the session', o.length === 1 && o[0][1].targetId === 'l|preview', said(o));
+        }))
+        .then(step('PR chip', '.ca-seg-call .ca-pr', function (o) {
+          check('PR chip: a double-click opens the PR, not the session', o.length === 1 && o[0][0] === 'open_url', said(o));
         }))
         .then(step('agent chip', '.ca-agentline-main .ca-chip[title*="to open in"]', function (o) {
           check('agent chip: a double-click opens the session once', o.length === 1 && o[0][0] === 'open_target', said(o));

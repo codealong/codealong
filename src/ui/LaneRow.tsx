@@ -1,6 +1,9 @@
-// One worktree as a flight strip: status; the worktree, with its repo and branch; its lines and
-// commits against the default branch; what's happening, its agents, todo, app and PR; age. Each agent that needs you, is working or just finished gets a line of its own
-// on its worktree's row, so a worktree shows once however many agents run in it.
+// One worktree as a flight strip, read left to right as where, then who. On the left, shaded as
+// one block, the worktree and everything that belongs to it: its name, its repo and branch, what
+// it holds (free for new work, its app, its PR) and its lines and commits against the default
+// branch. On the right its agents, a line each, every line a session built the same way: the
+// ones that need you, are working or just finished, else the one that last worked there. A
+// worktree shows once however many agents run in it.
 
 import { REUSE_WORDS } from '../reusable';
 import { DeviceBadge } from './DeviceBadge';
@@ -11,7 +14,7 @@ import { branchLabel, startedOf, worktreeName, type AgentItem, type WorktreeRow 
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
-import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
+import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { PreviewChip } from './PreviewBits';
@@ -20,7 +23,7 @@ import { TodoChips } from './TodoBits';
 interface LaneRowProps {
   row: WorktreeRow;
   now: number;
-  /** The selected item: one of the row's agents, or the worktree when it has none. */
+  /** The selected item: one of the row's lines, or the worktree when it has none. */
   selectedKey: string | null;
   /** Picked whole together with other worktrees (picks.ts). */
   picked?: boolean;
@@ -43,22 +46,9 @@ interface LaneRowProps {
   onPrOpen?: () => void;
   /** Dragging the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
   drag?: DragProps;
-  /** Todos the worktree or its sessions are linked to: a row without agent lines shows them. */
-  todos?: Todo[];
-  /** Todos linked to the worktree itself: a row with agent lines shows them at its foot. */
-  worktreeTodos?: Todo[];
   /** Todos a session is linked to, for its line. */
   todosFor?: (sessionKey: string) => Todo[] | undefined;
   onShowTodo?: (todo: Todo) => void;
-}
-
-const DAY = 86_400_000;
-
-/** Sessions worth showing at a glance: live ones, ones with news, and anything from the last
- *  day, but not a reusable worktree's from before its latest work. The inspector lists every
- *  session from the last 14 days. */
-export function currentSessions(lane: Lane, now: number) {
-  return lane.sessions.filter((s) => !s.earlier && (s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY));
 }
 
 /** `atlas · quarry`: the repo, and the branch when the worktree's name doesn't already say it. */
@@ -131,19 +121,45 @@ function DeltaSeg({ git: g, onMouseDown, onDoubleClick }: { git: GitInfo | null;
   );
 }
 
-/** The worktree's column: its name, and its repo and branch. `titled` gives the name a tooltip
- *  of its own, where the column has none. */
-function WorktreeCell({ lane, now, titled }: { lane: Lane; now: number; titled: boolean }) {
+interface CellProps {
+  lane: Lane;
+  now: number;
+  /** Gives the name a tooltip of its own, where the column has none. */
+  titled: boolean;
+  onOpenTarget: (lane: Lane, targetId: string) => void;
+  onPrMenu?: () => void;
+  onPrOpen?: () => void;
+}
+
+/**
+ * The worktree's column, with what belongs to the worktree at the end of each of its lines: its
+ * name, then where it stands (free for new work, or finished as Jev reads it) and its app (a
+ * globe, green while it runs); its repo and branch, then its PR. Each line is laid from its end,
+ * so apps and PRs line up down the board. Short of room, the name keeps its line and the chips
+ * beside it give way, the app last; the repo and branch shorten to a few letters before the PR
+ * gives way.
+ */
+function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrOpen }: CellProps) {
   const { sub, branch } = laneSub(lane);
   return (
     <>
-      <span className="ca-lane-call" title={titled ? (lane.origin === 'main' ? `The main worktree of ${lane.repo}` : lane.callsign) : undefined}>
-        {worktreeName(lane)}
+      <span className="ca-lane-cellline">
+        <span className="ca-lane-call" title={titled ? (lane.origin === 'main' ? `The main worktree of ${lane.repo}` : lane.callsign) : undefined}>
+          {worktreeName(lane)}
+        </span>
+        <span className="ca-chips ca-lane-own">
+          <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} inRow bare />
+          <FreeChip lane={lane} />
+          <LooksFinished lane={lane} />
+        </span>
       </span>
-      <span className="ca-lane-sub" title={branch ?? lane.path}>
-        {lane.device && <DeviceBadge device={lane.device} now={now} />}
-        <ReuseMark lane={lane} />
-        {sub}
+      <span className="ca-lane-cellline">
+        <span className="ca-lane-sub" title={branch ?? lane.path}>
+          {lane.device && <DeviceBadge device={lane.device} now={now} />}
+          <ReuseMark lane={lane} />
+          {sub}
+        </span>
+        <span className="ca-chips ca-lane-own">{lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />}</span>
       </span>
     </>
   );
@@ -170,23 +186,6 @@ function FreeChip({ lane }: { lane: Lane }) {
   );
 }
 
-/**
- * Recent sessions as chips that open them: `max` at most, one on a narrow board, then how many
- * more (the panel lists them all).
- */
-function SessionChips({ sessions, max, onOpen }: { sessions: Session[]; max: number; onOpen: (s: Session) => void }) {
-  const more = (from: number, cls: string) => <MoreChip className={cls} names={sessions.slice(from).map((s) => `${s.account} · ${s.title}`)} />;
-  return (
-    <>
-      {sessions.slice(0, max).map((s, i) => (
-        <HarnessChip key={s.key} session={s} className={i > 0 ? 'is-extra' : undefined} onOpen={() => onOpen(s)} inRow />
-      ))}
-      {more(max, 'is-wide')}
-      {max > 1 && more(1, 'is-narrow')}
-    </>
-  );
-}
-
 function PinMark() {
   return (
     <span className="ca-pinmark" title="Pinned: drag, or press ⌃⌘↑ ⌃⌘↓, to reorder. Drag it down to the list to unpin it.">
@@ -196,22 +195,22 @@ function PinMark() {
 }
 
 function LaneRowView(props: LaneRowProps) {
-  return props.row.agents.length > 0 ? <GroupRow {...props} /> : <WorktreeOnlyRow {...props} />;
+  return props.row.lines.length > 0 ? <GroupRow {...props} /> : <EmptyRow {...props} />;
 }
 
 // `domId` and `todosFor` answer while the row renders, so they're compared as values.
 export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
-/** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
-function WorktreeOnlyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: LaneRowProps) {
+/** A worktree no agent has worked in: on the right, only that it has none, and its age. You
+ *  select it whole. */
+function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag }: LaneRowProps) {
   const { lane } = row;
-  const chips = currentSessions(lane, now);
   const selected = picked || selectedKey === lane.id;
   return (
     <Row
       id={domId(lane.id)}
       selected={selected}
-      className={cx('ca-lane', 'is-worktree', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
+      className={cx('ca-lane', 'is-worktree', 'is-empty', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
       onSelect={(e) => onSelect(lane.id, selectHow(e))}
       onOpen={(e) => {
@@ -223,90 +222,44 @@ function WorktreeOnlyRow({ row, now, selectedKey, picked = false, domId, onSelec
         <LaneGlyph lane={lane} />
       </div>
       <div className="ca-seg ca-seg-call">
-        <WorktreeCell lane={lane} now={now} titled />
+        <WorktreeCell lane={lane} now={now} titled onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
       </div>
       <DeltaSeg git={lane.git} />
-      <div className="ca-seg ca-seg-main">
-        <div className="ca-lane-line1">
-          <span className="ca-lane-headline">
-            <Rich text={lane.headline} now={now} />
-          </span>
-          {lane.detail && (
-            <span className="ca-lane-detail">
-              <Rich text={lane.detail} now={now} />
+      <div className="ca-seg-lines">
+        <div className="ca-agentline">
+          <span className="ca-agentline-main">
+            <span className="ca-none" title={lane.sessions.length ? `Its ${count(lane.sessions.length, 'earlier session')}, archived or from before it last took new work, are in its panel.` : undefined}>
+              No agents
             </span>
-          )}
-        </div>
-        <div className="ca-lane-line2">
-          <span className="ca-chips ca-lane-lead">
-            <SessionChips
-              sessions={chips}
-              max={2}
-              onOpen={(s) => {
-                onSelect(lane.id, 'one');
-                onOpenTarget(lane, s.openTarget);
-              }}
-            />
-            {chips.length === 0 && lane.reuse !== 'free' && (
-              <span className="ca-none" title={lane.sessions.length ? `${count(lane.sessions.length, 'session')} before today. The panel lists them.` : undefined}>
-                {lane.sessions.length ? 'No agents today' : 'No agents'}
-              </span>
-            )}
-            <FreeChip lane={lane} />
-            <TodoChips todos={todos} onShow={onShowTodo} inRow />
-            <LooksFinished lane={lane} />
           </span>
-          <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
+          <span className="ca-agentline-age" title={lane.lastActivity ? `Last active ${absolute(lane.lastActivity)}` : undefined}>
+            {lane.lastActivity ? ago(lane.lastActivity, now) : ''}
+            {pinned && <PinMark />}
+          </span>
         </div>
-      </div>
-      <div className="ca-seg ca-seg-age" title={lane.lastActivity ? absolute(lane.lastActivity) : undefined}>
-        {lane.lastActivity ? ago(lane.lastActivity, now) : ''}
-        {pinned && <PinMark />}
       </div>
     </Row>
   );
 }
 
-/** The worktree's app and PR, at the right end of its line, after its agents and todo. */
-function LaneLinks({ lane, now, onOpenTarget, onPrMenu, onPrOpen }: { lane: Lane; now: number; onOpenTarget: (lane: Lane, targetId: string) => void; onPrMenu?: () => void; onPrOpen?: () => void }) {
-  return (
-    <>
-      <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} inRow />
-      {lane.pr && (
-        <span className="ca-lane-right">
-          <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />
-        </span>
-      )}
-    </>
-  );
-}
-
 /**
- * A worktree with agents that need you, are working or just finished: the worktree once on the
- * left, and a line for each agent, which you select, open and right-click like a row of its own.
+ * A worktree with agents: the worktree once on the left, and a line for each agent, which you
+ * select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
-  const { lane, agents } = row;
-  const listed = new Set(agents.map((a) => a.session.key));
-  // Recent sessions without a line of their own: finished a while ago, or visiting.
-  const others = currentSessions(lane, now).filter((s) => !listed.has(s.key));
+function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, todosFor, onShowTodo }: LaneRowProps) {
+  const { lane, lines } = row;
   // Picked, the worktree is selected whole: each of its lines.
   const isSelected = (key: string) => picked || key === selectedKey;
-  const hasSelection = agents.some((a) => isSelected(a.key));
-  // The worktree's own todos, less the ones its agents' lines already show.
-  const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
-  const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
-  const foot = others.length > 0 || footTodos.length > 0 || lane.pr != null || lane.preview != null || lane.reuse === 'free';
-  const selectFirst = () => onSelect(agents[0].key, 'one');
-  // The worktree's own part selects its first agent's line; with ⌘ or ⇧ it picks the worktree.
+  const hasSelection = lines.some((a) => isSelected(a.key));
+  // The worktree's own part selects its first line; with ⌘ or ⇧ it picks the worktree.
   const pressFirst = (e: ReactMouseEvent) => {
-    if (selects(e)) onSelect(agents[0].key, selectHow(e));
+    if (selects(e)) onSelect(lines[0].key, selectHow(e));
   };
   return (
     <Row
       role="group"
-      label={`${lane.callsign}, ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`}
-      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, agents.length > 1 && 'is-tall', hasSelection && 'has-selection', picked && 'is-picked', pinned && 'is-pinned', away(lane) && 'is-away')}
+      label={`${lane.callsign}, ${count(lines.length, 'agent')}`}
+      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, lines.length > 1 && 'is-tall', hasSelection && 'has-selection', picked && 'is-picked', pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
       onMenu={onContextMenu}
     >
@@ -314,11 +267,11 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
         <LaneGlyph lane={lane} />
       </div>
       <div className="ca-seg ca-seg-call" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} title={`${lane.path}. Double-click to open its most recent session.`}>
-        <WorktreeCell lane={lane} now={now} titled={false} />
+        <WorktreeCell lane={lane} now={now} titled={false} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
       </div>
       <DeltaSeg git={lane.git} onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} />
       <div className="ca-seg-lines">
-        {agents.map((a, i) => (
+        {lines.map((a, i) => (
           <AgentLine
             key={a.key}
             item={a}
@@ -333,26 +286,6 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
             onShowTodo={onShowTodo}
           />
         ))}
-        {foot && (
-          <div className="ca-agentline ca-agentline--foot" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)}>
-            <span className="ca-agentline-main">
-              <span className="ca-chips ca-lane-lead">
-                <SessionChips
-                  sessions={others}
-                  max={3}
-                  onOpen={(s) => {
-                    selectFirst();
-                    onOpenTarget(lane, s.openTarget);
-                  }}
-                />
-                <TodoChips todos={footTodos} onShow={onShowTodo} inRow />
-                <FreeChip lane={lane} />
-              </span>
-              <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
-            </span>
-            <span className="ca-agentline-age" />
-          </div>
-        )}
       </div>
     </Row>
   );
@@ -360,7 +293,8 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
 
 /**
  * A session's line: its title first, then a label for what it waits on you for, then what it's
- * doing or said last, which gives way first when the line is short.
+ * doing or said last, which gives way first when the line is short. A session another worktree
+ * has, on this one's row, says what it did here first: made it, or worked in it.
  */
 function SessionText({ s, now }: { s: Session; now: number }) {
   return (
@@ -369,9 +303,10 @@ function SessionText({ s, now }: { s: Session; now: number }) {
         <Rich text={s.title} now={now} />
       </span>
       <FlagChip session={s} />
-      {s.detail && (
+      {(s.detail || s.visitor) && (
         <span className="ca-lane-detail ca-agentline-detail">
-          <Rich text={s.detail} now={now} />
+          {s.visitor && (s.detail ? `${s.visitor} · ` : s.visitor)}
+          {s.detail && <Rich text={s.detail} now={now} />}
         </span>
       )}
     </span>

@@ -42,14 +42,12 @@
 }
 
 /* Worktree rows. On the left, shaded as one block, the worktree: its name over its repo and
-   branch, then a column of where it stands against the default branch, lines over commits, its
-   rows in step with the name's. The name's column grows with the board, so a long name shows
-   more of itself. A narrow board drops the delta column: the panel has the same counts. */
+   branch, with what belongs to the worktree at that line's end, then a column of where it stands
+   against the default branch, lines over commits, its rows in step with the name's. The name's
+   column grows with the board, so a long name shows more of itself. A narrow board drops the
+   delta column: the panel has the same counts. On the right, its agents' lines. */
 .ca-lane.is-worktree {
   grid-template-columns: 32px clamp(160px, 24%, 220px) 92px minmax(0, 1fr) 52px;
-}
-.ca-lane.is-worktree .ca-seg-main {
-  overflow: hidden;
 }
 .ca-lane.is-worktree .ca-seg-lines {
   grid-column: 4 / 6;
@@ -72,10 +70,9 @@
   }
 }
 
-/* A row's second line: its lane (the lead), then what always shows at the right (a worktree's
-   app and PR, a session's PR and diff). Short of room, the app's address gives way first, down
-   to its globe; then the lead's pieces give way from the end. A board too narrow for two
-   agents' chips shows one and counts the rest. */
+/* A row's second line: its lane (the lead), then what always shows at the right (a session's PR
+   and diff, a todo's worktrees and PR, a PR's diff). Short of room, the lead's pieces give way
+   from the end. */
 .ca-lane-lead {
   flex: 1 1 auto;
 }
@@ -84,23 +81,6 @@
 }
 .ca-lane-right {
   gap: var(--chip-gap);
-}
-.ca-lane-lead > .ca-chip--more.is-narrow {
-  display: none;
-}
-@container board (max-width: 680px) {
-  .ca-lane-lead > .ca-chip.is-extra,
-  .ca-lane-lead > .ca-chip--more.is-wide {
-    display: none;
-  }
-  .ca-lane-lead > .ca-chip--more.is-narrow {
-    display: inline-flex;
-  }
-}
-.ca-lane-lead > .ca-none {
-  flex: none;
-  margin-right: var(--space-1);
-  white-space: nowrap;
 }
 
 /* A worktree's row with a line for each agent that needs you, is working or just finished:

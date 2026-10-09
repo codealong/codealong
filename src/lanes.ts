@@ -20,18 +20,21 @@ const URGENCY: Record<Status, number> = { needs: 0, error: 1, working: 2, unread
 
 /** An agent in the worktree it runs in: a line in a worktree's row, or a row in Sessions. */
 export type AgentItem = { kind: 'agent'; key: string; lane: Lane; session: Session };
-/** A worktree with no agent that needs you, is working or just finished. */
+/** A worktree no agent has worked in, which its row selects whole. */
 export type LaneItem = { kind: 'lane'; key: string; lane: Lane };
 /** Something you can select on the Worktrees board or in Sessions. */
 export type BoardRow = AgentItem | LaneItem;
 /**
- * A worktree's row on the board: a line for each of its agents that needs you, is working or
- * just finished, or, with none, the worktree alone.
+ * A worktree's row on the board: the worktree, and a line for each of its agents that needs you,
+ * is working or just finished; with none of those, a line for the agent that last worked in it.
+ * Every line is a session, however busy the worktree is: what belongs to the worktree itself (its
+ * PR, its app, its todo) is beside its name, never a line of its own.
  */
 export interface WorktreeRow {
   key: string;
   lane: Lane;
-  agents: AgentItem[];
+  /** Empty only for a worktree no agent has worked in. */
+  lines: AgentItem[];
 }
 /** A status the sidebar narrows the board to: agents in one state, or worktrees whose PR is in
  *  review or needs work. Several narrow it to what's in any of them; none, to nothing. */
@@ -316,7 +319,7 @@ export function sessionFlag(s: Session): InsightLabel | null {
 /** An idle lane's sentence, as the engine words it: its latest own session, else the session that
  *  made it or worked in it, else what git says. */
 function idleHeadline(lane: Lane, own: Session[]): [string, string | null] {
-  const latest = own.reduce<Session | null>((a, s) => (a == null || s.lastActivity > a.lastActivity ? s : a), null);
+  const latest = latestOf(own);
   if (latest) return [sessionHeadline(latest)[0], `last turn {ago:${latest.lastActivity}}`];
   const guest = lane.sessions.find((s) => s.visitor && !s.archived);
   if (guest) return [`${guest.visitor === 'made this worktree' ? 'Made by' : 'Worked on by'} ${code(guest.account)} · ${guest.title}`, `last turn {ago:${guest.lastActivity}}`];
@@ -415,18 +418,28 @@ export function filterByAge(lanes: Lane[], cutoff: number, pinnedLanes: Set<stri
   return lanes.filter((l) => l.lastActivity >= cutoff || pinnedLanes.has(l.id)).map((l) => ageFiltered(l, cutoff, since));
 }
 
-/** A worktree's row: a line for each own agent that needs you, is working or just finished. */
-export function worktreeRow(lane: Lane): WorktreeRow {
-  const agents = lane.sessions
-    .filter((s) => inStatus(s) && AGENT_BAY[s.status])
-    .sort(bySession)
-    .map((session): AgentItem => ({ kind: 'agent', key: `${lane.id}::${session.key}`, lane, session }));
-  return { key: lane.id, lane, agents };
+/** The one most recently active. */
+function latestOf(sessions: Session[]): Session | null {
+  return sessions.reduce<Session | null>((a, s) => (a == null || s.lastActivity > a.lastActivity ? s : a), null);
 }
 
-/** What you can select in a row: its agents, or the worktree itself when it has none. */
+/**
+ * A worktree's row: a line for each own agent that needs you, is working or just finished, in
+ * the engine's order. With none, one quiet line for the agent that last worked in it, as the
+ * engine's sentence for an idle worktree names it (board.rs `headline`): its own latest (not
+ * archived, nor a reusable worktree's earlier work), else the latest that made it or worked in it.
+ */
+export function worktreeRow(lane: Lane): WorktreeRow {
+  const own = lane.sessions.filter(inStatus);
+  const agents = own.filter((s) => AGENT_BAY[s.status]).sort(bySession);
+  const quiet = agents.length > 0 ? null : (latestOf(own) ?? latestOf(lane.sessions.filter((s) => s.visitor && !s.archived)));
+  const shown = agents.length > 0 ? agents : quiet ? [quiet] : [];
+  return { key: lane.id, lane, lines: shown.map((session): AgentItem => ({ kind: 'agent', key: `${lane.id}::${session.key}`, lane, session })) };
+}
+
+/** What you can select in a row: its lines, or the worktree itself when no agent has worked in it. */
 export function rowItems(row: WorktreeRow): BoardRow[] {
-  return row.agents.length > 0 ? row.agents : [{ kind: 'lane', key: row.lane.id, lane: row.lane }];
+  return row.lines.length > 0 ? row.lines : [{ kind: 'lane', key: row.lane.id, lane: row.lane }];
 }
 
 /**

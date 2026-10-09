@@ -617,6 +617,12 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen, inR
         #{pr.number}
         {!compact && <span className="ca-pr-word">{PR_WORD[pr.state]}</span>}
       </span>
+      {/* What keeps it from merging that no state says, as the PRs view's pill says it. */}
+      {open && pr.merge === 'conflicts' && (
+        <span className="ca-checks is-attn" title="Conflicts with its base: resolve them before it can merge">
+          <Icon name="alert" size={11} stroke={2} />
+        </span>
+      )}
       {open && c.failed > 0 && (
         <span className="ca-checks is-fail" title={`${c.failed} failing`}>
           <Icon name="x" size={11} stroke={2.25} />

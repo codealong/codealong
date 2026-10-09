@@ -139,6 +139,13 @@ describe('the named chips', () => {
     expect(prChip({ onOpen: () => {} })).toMatch(/^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to open it on GitHub\.">/);
     expect(prChip({ onOpen: () => {}, inRow: true, titled: false })).toMatch(/^<span class="ca-pr ca-pr--open">/);
   });
+
+  it('marks a PR that conflicts with its base, while it is open', () => {
+    const chip = (state: 'open' | 'merged', merge: 'conflicts' | 'clean') => renderToStaticMarkup(createElement(PrChip, { pr: fx.pr({ number: 12, state, merge }), compact: true }));
+    expect(chip('open', 'conflicts')).toContain('<span class="ca-checks is-attn" title="Conflicts with its base: resolve them before it can merge">');
+    expect(chip('open', 'clean')).not.toContain('is-attn');
+    expect(chip('merged', 'conflicts')).not.toContain('is-attn');
+  });
 });
 
 describe('MoreChip', () => {
