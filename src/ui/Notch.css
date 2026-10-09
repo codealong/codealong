@@ -112,32 +112,14 @@ html.is-notch body {
 .ca-notch-side.is-left .ca-notch-side-in {
   flex-direction: row-reverse;
 }
-/* What shows closed beside the camera: the counts of what waits on you, side by side as they
-   are open, measured for the closed shape's width (Notch.tsx). */
-.ca-notch-shut {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ca-notch-shut:empty {
-  display: none;
-}
-/* What shows only open: the project beside the mark, the counts after those that wait. Hidden
-   too once it has faded, not only clear: WebKit drew a clear count that something composited
-   lay over (2026-10-09). */
+/* What shows only open: the project beside the mark, the counts after the first. */
 .ca-notch-extra {
   opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity var(--dur-fast) ease-out,
-    visibility 0s linear var(--dur-fast);
+  transition: opacity var(--dur-fast) ease-out;
 }
 .ca-notch.is-open .ca-notch-extra {
   opacity: 1;
-  visibility: visible;
-  transition:
-    opacity 0.2s ease-out var(--dur-fast),
-    visibility 0s;
+  transition: opacity 0.2s ease-out var(--dur-fast);
 }
 .ca-notch-count {
   appearance: none;

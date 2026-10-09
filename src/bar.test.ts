@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchDragged, notchRows, notchShut, notchSizes, plain, projectWaits, ROW_READS, waitingRows, type Metrics, type NotchRow } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRows, type Metrics, type NotchRow } from './bar';
 import { inQueueOrder, placeOf } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
@@ -124,15 +124,12 @@ describe('the bar docked in the notch', () => {
   const screen = { w: 1512, h: 982 };
   const sizes = (body: { w: number; h: number }, side: number, on = screen, want: { w: number; h: number } | null = null) => notchSizes(notch, body, side, room, on, want);
 
-  it('is the notch with a side on each hand while closed, each as wide as what shows there needs', () => {
+  it('is the notch with a side on each hand while closed', () => {
     expect(sizes({ w: 600, h: 24 }, 60).closed).toEqual({ w: 185 + 2 * NOTCH.wing, h: 32 });
-    expect(notchSizes(notch, { w: 600, h: 24 }, 60, room, screen, null, 1, 30).closed.w).toBe(185 + 2 * NOTCH.wing);
-    // Two counts side by side: as much wider on both hands, in whole points.
-    expect(notchSizes(notch, { w: 600, h: 24 }, 60, room, screen, null, 1, 62.4).closed.w).toBe(185 + 2 * 63);
   });
 
   it('shows its pills as wide as they or the sides need, never narrower than closed', () => {
-    // 620 across, but as much wider on each side in whole points: 621, the closed 317 and 152 a side.
+    // 620 across, but as much wider on each side in whole points: 621, the closed 273 and 174 a side.
     expect(sizes({ w: 600, h: 24 }, 60).pills).toEqual({ w: 621, h: 32 + 24 + NOTCH.pad });
     expect(sizes({ w: 601, h: 24 }, 60).pills.w).toBe(621);
     // Wide sides beside the camera: room for each on its hand.
@@ -230,12 +227,12 @@ describe('the bar docked in the notch', () => {
     expect(session.radius).toBe(NOTCH.radius.session);
   });
 
-  it('counts what waits on you beside the camera while closed, else what runs', () => {
-    expect(notchShut({ needs: 3, reviews: 0, unread: 7, working: 1 })).toEqual(['needs', 'unread']);
-    expect(notchShut({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual(['needs', 'reviews', 'unread']);
-    expect(notchShut({ needs: 0, reviews: 3, unread: 0, working: 5 })).toEqual(['reviews']);
-    expect(notchShut({ needs: 0, reviews: 0, unread: 0, working: 5 })).toEqual(['working']);
-    expect(notchShut({ needs: 0, reviews: 0, unread: 0, working: 0 })).toEqual([]);
+  it('shows the most urgent group beside the camera, in the bar’s order', () => {
+    expect(notchCount({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 2 });
+    expect(notchCount({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 3 });
+    expect(notchCount({ needs: 0, reviews: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
+    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
+    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 0 })).toBeNull();
   });
 });
 
