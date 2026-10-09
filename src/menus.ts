@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
-import { archiveAhead, doneAhead, seenAhead } from './ahead';
+import { archiveAhead, doneAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -16,7 +16,7 @@ import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
-import { closable, exitsItsOwnWay, seenable, stoppable } from './lanes';
+import { closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
 import { chordPressed, QUEUE_CHORDS } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount } from './start';
@@ -176,6 +176,8 @@ export interface SessionActions {
   stop?: MenuAction;
   rename?: MenuAction;
   seen?: MenuAction;
+  /** Your turn again, until it's seen or prompted: for one whose turn you've seen. */
+  unread?: MenuAction;
   pin?: MenuAction;
   desktop?: MenuAction;
   snooze?: MenuGroup;
@@ -285,6 +287,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
     seen: seenable(s) ? { label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) } : undefined,
+    // It joins what waits on you rather than leaving it, so a window working through that stays.
+    unread: unreadable(s) ? { label: 'Mark as unread', run: () => void unreadAhead([s.key]).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     pin: s.archived ? undefined : can.pin,
     desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
     // Snoozes keep sessions off the floating bar, which shows this device's only.
@@ -376,7 +380,7 @@ const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos'],
-  ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'done', 'archive'],
+  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'close', 'done', 'archive'],
   ['copyId', 'copyResume', 'canvas'],
 ] as const;
 
@@ -412,6 +416,7 @@ export interface SessionsCan {
 export interface SessionsActions {
   stop?: MenuAction;
   seen?: MenuAction;
+  unread?: MenuAction;
   pin?: MenuAction;
   snooze?: MenuGroup;
   close?: MenuAction;
@@ -419,7 +424,7 @@ export interface SessionsActions {
   archive?: MenuAction;
   copyId?: MenuAction;
   /** How many of them each takes. */
-  takes: Record<'stop' | 'seen' | 'snooze' | 'close' | 'done' | 'archive', number>;
+  takes: Record<'stop' | 'seen' | 'unread' | 'snooze' | 'close' | 'done' | 'archive', number>;
 }
 
 /** Their titles, as a sentence lists them. */
@@ -457,7 +462,7 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
   const those = (name: keyof SessionActions) => own.filter((x) => x.a[name]).map((x) => x.s);
   const keysOf = (list: Session[]) => list.map((s) => s.key);
   const all = own.map((x) => x.s);
-  const [stop, seen, snooze, close, done] = (['stop', 'seen', 'snooze', 'close', 'done'] as const).map(those);
+  const [stop, seen, unread, snooze, close, done] = (['stop', 'seen', 'unread', 'snooze', 'close', 'done'] as const).map(those);
   const toArchive = all.filter((s) => !s.archived);
   const archive = can.archive ?? ((keys: string[], archived: boolean) => void Promise.all(keys.map((k) => archiveAhead(k, archived))).catch((e: unknown) => report.error(errorText(e))));
   const say = (said: { words: string; wrong: boolean }) => said.words && (said.wrong ? report.error(said.words) : report.info(said.words));
@@ -514,6 +519,7 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
             },
           }
         : undefined,
+    unread: unread.length > 0 ? { label: `Mark ${count(unread.length, 'session')} as unread`, run: () => void unreadAhead(keysOf(unread)).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     pin: toArchive.length > 0 ? can.pin : undefined,
     // Wake now wakes them all, where any is snoozed.
     snooze:
@@ -556,14 +562,14 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
           ? { label: `Unarchive ${count(all.length, 'session')}`, run: () => archive(keysOf(all), false) }
           : undefined,
     copyId: copyItem('Copy session IDs', all.map((s) => s.id).join(' '), 'session IDs', report),
-    takes: { stop: stop.length, seen: seen.length, snooze: snooze.length, close: close.length, done: done.length, archive: toArchive.length || all.length },
+    takes: { stop: stop.length, seen: seen.length, unread: unread.length, snooze: snooze.length, close: close.length, done: done.length, archive: toArchive.length || all.length },
   };
 }
 
 /** The order of the menu of several sessions picked together: what they are to you, then
  *  copying them. Opening them, and what's done to one at a time (rename, move, fork), aren't. */
 const SESSIONS_MENU = [
-  ['stop', 'seen', 'pin', 'snooze', 'close', 'done', 'archive'],
+  ['stop', 'seen', 'unread', 'pin', 'snooze', 'close', 'done', 'archive'],
   ['copyId'],
 ] as const;
 
@@ -770,13 +776,13 @@ export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
 const TERMINAL_CHORD = 'Ctrl+`';
 /** The main window's keys for actions, shown beside them in its menus: a letter, or the terminal's
  *  chord, which is the same everywhere. */
-export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R', terminal: TERMINAL_CHORD };
+export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', unread: 'U', pin: 'P', archive: 'A', rename: 'R', terminal: TERMINAL_CHORD };
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
  *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
  *  the queue's key, queue.ts), ⇧⌘E marks done, beside it, and ⌃⌘ and the letter runs the rest.
  *  Closing a session's terminal and marking it done, which closes it too, have a chord and no
  *  letter of their own: they're not ones to press by mistake. */
-export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
+export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
 // Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘4 (snooze.ts `SNOOZE_CHORDS`), which its
 // menu shows beside them. The keys for getting from one session to the next are queue.ts
 // `QUEUE_CHORDS`, written the same way.

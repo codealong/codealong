@@ -53,6 +53,13 @@ describe('lanesAhead', () => {
     expect([l.bay, l.glyph, l.headline]).toEqual(['idle', 'idle', '`claude` · Task a']);
   });
 
+  it('shows a session marked unread as your turn at once, from when it was marked', () => {
+    const [l] = lanesAhead([lane([session('a', 'idle'), session('b', 'working')])], [change({ kind: 'unread', keys: ['a', 'b'] })]);
+    // One that's working shows that.
+    expect(l.sessions.map((s) => s.status)).toEqual(['unread', 'working']);
+    expect(l.sessions[0].statusSince).toBe(NOW);
+  });
+
   it('settles a reply that asks you something, but not a permission prompt', () => {
     const asks = session('a', 'needs', { asks: true });
     const prompt = session('b', 'needs');

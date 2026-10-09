@@ -85,6 +85,14 @@ export async function markSeen(keys: string[]): Promise<number | null> {
   return (await invoke<number | null>('mark_seen', { keys })) ?? null;
 }
 
+/** Marks sessions unread, each on the device it's on: each is Your turn again until it's seen or
+ *  prompted. Returns the time of the board that shows it, as `markSeen` does; windows mark unread
+ *  through ahead.ts, which shows it at once. */
+export async function markUnread(keys: string[]): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('mark_unread', { keys })) ?? null;
+}
+
 /** Snoozes sessions until `until` (ms since the epoch), or wakes them now with null. Returns the
  *  time of the board that shows it, as `markSeen` does; windows snooze through ahead.ts. */
 export async function snoozeSessions(keys: string[], until: number | null): Promise<number | null> {

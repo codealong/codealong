@@ -94,6 +94,13 @@ describe('sessionMenu', () => {
     const has = (s: Session, label: string, can: Partial<SessionCan> = {}) => labels(sessionMenu(lane(), s, { ...base, ...can })).includes(label);
     expect(has(session({ status: 'idle' }), 'Mark as seen')).toBe(false);
     expect(has(session({ status: 'needs', asks: true }), 'Mark as seen')).toBe(true);
+    // A turn you've seen can be your turn again; one that runs, waits on you or is archived can't.
+    expect(has(session({ status: 'idle' }), 'Mark as unread')).toBe(true);
+    expect(has(session({ status: 'stopped', live: false }), 'Mark as unread')).toBe(true);
+    expect(has(session({ status: 'unread' }), 'Mark as unread')).toBe(false);
+    expect(has(session({ status: 'working' }), 'Mark as unread')).toBe(false);
+    expect(has(session({ status: 'needs', asks: true }), 'Mark as unread')).toBe(false);
+    expect(has(session({ status: 'idle', archived: true }), 'Mark as unread')).toBe(false);
     expect(has(session({ attachCommand: 'claude attach 6e07c149', pid: null }), 'End background job')).toBe(true);
     expect(has(session({ live: false }), 'Close terminal')).toBe(false);
     expect(has(session({ surface: 'app' }), 'Close terminal')).toBe(false);
@@ -187,6 +194,8 @@ describe('several sessions picked together', () => {
   it('says how many each action takes, and leaves out what takes none', () => {
     expect(labels(sessionsMenu([a, b], { report, pin: { label: 'Pin 2 sessions', run: noop } }))).toEqual([
       'Mark 1 session as seen',
+      // The one whose turn you've seen; an archived one stays as it is.
+      'Mark 1 session as unread',
       'Pin 2 sessions',
       'Snooze 2 sessions ›',
       'Close 1 session',
@@ -195,7 +204,7 @@ describe('several sessions picked together', () => {
       '-',
       'Copy session IDs',
     ]);
-    expect(sessionsActions([a, b, c], { report }).takes).toEqual({ stop: 0, seen: 1, snooze: 2, close: 1, done: 2, archive: 2 });
+    expect(sessionsActions([a, b, c], { report }).takes).toEqual({ stop: 0, seen: 1, unread: 1, snooze: 2, close: 1, done: 2, archive: 2 });
     // All archived: they come out of it together, and aren't pinned, snoozed or done.
     const d = { ...c, session: { ...c.session, key: 'claude:c:4', id: 'd4' } };
     expect(labels(sessionsMenu([c, d], { report, pin: { label: 'Pin 2 sessions', run: noop } }))).toEqual(['Unarchive 2 sessions', '-', 'Copy session IDs']);
@@ -209,7 +218,8 @@ describe('several sessions picked together', () => {
     // Rename is one at a time.
     expect(keyed(acts, 'r', true)).toBeNull();
     const chords = sessionsMenu([a, b], { report, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
-    expect(chords).toEqual(['Cmd+E', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
+    expect(chords).toEqual(['Cmd+E', 'Ctrl+Cmd+U', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
+    expect(keyed(acts, 'u', true)?.action).toBe(acts.unread);
   });
 
   it('archives the ones not archived yet, and says they left', () => {

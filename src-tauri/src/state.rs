@@ -1,5 +1,6 @@
 //! What you've seen, pinned and snoozed. A finished turn is "Your turn" until you open the
-//! session from Codealong or mark it seen. Pinned sessions stay at the top of the Sessions view
+//! session from Codealong or mark it seen, and one you marked unread is Your turn again until
+//! you see it or prompt it (`board::apply_unread`). Pinned sessions stay at the top of the Sessions view
 //! and pinned worktrees at the top of the Worktrees view, each in your order. A snoozed session
 //! stays off the floating bar's Needs you and Your turn until its time (`board::apply_snooze`),
 //! and a PR whose review you snoozed stays out of Review requested, the bar's reviews and the
@@ -48,6 +49,17 @@ pub struct SeenState {
     /// latest snooze of each.
     #[serde(default)]
     pub review_snoozes: Vec<Snooze>,
+    /// Sessions you marked unread, and when: the latest mark of each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unread: Vec<UnreadMark>,
+}
+
+/// A session marked unread from Codealong.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreadMark {
+    pub key: String,
+    pub at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -100,6 +112,7 @@ impl SeenState {
         self.seen.retain(|_, at| *at >= cutoff);
         self.snoozed.retain(|z| z.until >= cutoff);
         self.review_snoozes.retain(|z| z.until >= cutoff);
+        self.unread.retain(|u| u.at >= cutoff);
         // Through a temporary file: Settings reads this while the engine writes it.
         store::save(path, self)
     }
@@ -125,6 +138,17 @@ impl SeenState {
 
     pub fn snooze_of(&self, key: &str) -> Option<&Snooze> {
         self.snoozed.iter().find(|z| z.key == key)
+    }
+
+    /// Marks a session unread at `at`, in place of any mark it had: it's Your turn again until
+    /// it's seen or prompted after that.
+    pub fn mark_unread(&mut self, key: &str, at: i64) {
+        self.unread.retain(|u| u.key != key);
+        self.unread.push(UnreadMark { key: key.to_string(), at });
+    }
+
+    pub fn unread_of(&self, key: &str) -> Option<&UnreadMark> {
+        self.unread.iter().find(|u| u.key == key)
     }
 
     /// Snoozes your review of a PR until `until`, in place of any snooze it had.

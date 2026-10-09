@@ -77,6 +77,13 @@ export function seenable(s: Pick<Session, 'status' | 'asks'>): boolean {
   return s.status === 'unread' || !!s.asks;
 }
 
+/** Whether a session can be marked unread: its turn is over and you've seen it (idle or
+ *  stopped), and it isn't archived. It's Your turn again until it's seen or prompted (board.rs
+ *  `apply_unread`). */
+export function unreadable(s: Pick<Session, 'status' | 'asks' | 'archived'>): boolean {
+  return !s.archived && !s.asks && (s.status === 'idle' || s.status === 'stopped');
+}
+
 /** Whether Codealong can close a session from its menu (idle.rs `close_one`): one running on
  *  this device in a terminal of its own, whose tab closes, or as a background job, which stops.
  *  The apps' sessions and the ones Codealong runs itself have no terminal to close. */

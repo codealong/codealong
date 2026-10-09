@@ -237,12 +237,13 @@
       var snoozes = ['For 15 minutes', 'For 1 hour', 'For 3 hours', 'Until [^=]+'].map(function (label, i) { return item(label, chords.snooze[i]) + ', '; }).join('');
       // Its folder's new terminal first, where it has a folder, by the terminal's name in the
       // Open folder in submenu, or in an item of its own when there's no editor. The first was
-      // marked seen, so its menu has no Mark as seen. Whether it's pinned, and whether it has a
-      // terminal to close, are the board's today.
+      // marked seen, so its menu has no Mark as seen, and has Mark as unread in its place. Whether
+      // it's pinned, and whether it has a terminal to close, are the board's today.
       var want = new RegExp(
         '^' +
           (picked[0].folder ? item('(Open folder in )?' + esc(terminal), chords.session.terminal) + ', ' : '') +
           item('Rename…', chords.session.rename) + ', ' +
+          item('Mark as unread', chords.session.unread) + ', ' +
           item('(Pin|Unpin) session', chords.session.pin) + ', ' +
           '(' + snoozes + ')?' +
           '(' + item('(Close terminal|End background job)', chords.session.close) + ', )?' +

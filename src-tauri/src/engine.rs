@@ -78,6 +78,8 @@ pub enum Msg {
     Approved(String, u64, Sender<i64>),
     /// Sessions marked seen. With a reply, the time of the board that shows it, published at once.
     MarkSeen(Vec<String>, Option<Sender<i64>>),
+    /// Sessions to mark unread, and where to say when the board shows it.
+    MarkUnread(Vec<String>, Option<Sender<i64>>),
     /// Sessions snoozed until then, or woken now with none. The reply is the time of the board
     /// that shows it, published at once.
     Snooze(Vec<String>, Option<i64>, Sender<i64>),
@@ -214,6 +216,18 @@ impl Handle {
     pub fn mark_seen_shown(&self, keys: Vec<String>) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::MarkSeen(keys, Some(tx))).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    pub fn mark_unread(&self, keys: Vec<String>) {
+        let _ = self.tx.send(Msg::MarkUnread(keys, None));
+    }
+
+    /// Marks sessions unread: each is Your turn again until it's seen or prompted. Returns the
+    /// time of the board that shows it, as `mark_seen_shown` does.
+    pub fn mark_unread_shown(&self, keys: Vec<String>) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::MarkUnread(keys, Some(tx))).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -1212,13 +1226,16 @@ impl Engine {
         sessions
     }
 
-    /// Sessions with their snoozes applied (board::apply_snooze). A snooze's time coming changes
-    /// nothing on disk: the 30-second heartbeat's publish brings it back.
+    /// Sessions with their marks of unread and their snoozes applied (board::apply_unread,
+    /// board::apply_snooze). A snooze's time coming changes nothing on disk: the 30-second
+    /// heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
-        if self.seen.snoozed.is_empty() {
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() {
             return sessions;
         }
         for s in &mut sessions {
+            // A mark of unread first: a snooze keeps a session marked unread off the bar too.
+            board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
         }
         sessions
@@ -1547,6 +1564,17 @@ impl Engine {
                     let now = now_ms();
                     for k in keys {
                         self.seen.mark(&k, now);
+                    }
+                    self.save_state();
+                    self.publish();
+                    if let Some(reply) = reply {
+                        let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                    }
+                }
+                Ok(Msg::MarkUnread(keys, reply)) => {
+                    let now = now_ms();
+                    for k in keys {
+                        self.seen.mark_unread(&k, now);
                     }
                     self.save_state();
                     self.publish();

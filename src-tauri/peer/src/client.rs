@@ -386,6 +386,12 @@ impl Client {
         self.ask(device, api::MARK_SEEN, of(params::Keys { keys: keys.to_vec() }), ACT_WAIT).map(|_| ())
     }
 
+    /// Marks sessions on `device` unread, so each is Your turn again there and everywhere else
+    /// until it's seen or prompted.
+    pub fn mark_unread(&self, device: &str, keys: &[String]) -> std::result::Result<(), String> {
+        self.ask(device, api::MARK_UNREAD, of(params::Keys { keys: keys.to_vec() }), ACT_WAIT).map(|_| ())
+    }
+
     /// Where each of `device`'s accounts can start a session, and the models it can ask for.
     pub fn start_options(&self, device: &str) -> std::result::Result<api::StartOptions, String> {
         read(self.ask(device, api::START_OPTIONS, json!({}), READ_WAIT)?)

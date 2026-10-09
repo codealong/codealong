@@ -12,7 +12,7 @@ use crate::opencode::{Live, SessionRow};
 use crate::config::AccountCfg;
 use crate::github::PrRaw;
 use crate::model::*;
-use crate::state::Snooze;
+use crate::state::{Snooze, UnreadMark};
 use crate::util::{code, one_line, tilde, truncate, DAY_MS};
 
 /// A Codex turn with no events for this long is treated as interrupted.
@@ -916,6 +916,21 @@ pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now:
     } else if seen_at < z.until && matches!(s.status, Status::Idle | Status::Stopped) {
         s.status = Status::Unread;
         s.status_since = Some(z.until);
+    }
+}
+
+/// Applies a mark of unread from Codealong to a session: one whose turn is over (idle or
+/// stopped) is Your turn again, from when it was marked, until you see it or send it a prompt
+/// after that, as a turn that just ended would be. One that's running or waits on you shows that
+/// instead, and an archived one stays as it is.
+pub fn apply_unread(s: &mut Session, mark: Option<&UnreadMark>, seen_at: i64) {
+    let Some(u) = mark else { return };
+    if s.archived || seen_at >= u.at || s.last_prompt_at > u.at {
+        return;
+    }
+    if matches!(s.status, Status::Idle | Status::Stopped) {
+        s.status = Status::Unread;
+        s.status_since = Some(u.at);
     }
 }
 
@@ -2409,6 +2424,38 @@ mod tests {
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));
+    }
+
+    #[test]
+    fn a_session_marked_unread_is_your_turn_until_seen_or_prompted() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let seen = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        let idle = Session { status: Status::Idle, ..seen };
+        let mark = UnreadMark { key: idle.key.clone(), at: NOW - 5 * MIN };
+        let marked = |s: &Session, seen_at: i64| {
+            let mut s = s.clone();
+            apply_unread(&mut s, Some(&mark), seen_at);
+            (s.status, s.status_since)
+        };
+        // Its turn over and seen before the mark: Your turn again, from the mark.
+        assert_eq!(marked(&idle, NOW - 10 * MIN), (Status::Unread, Some(mark.at)));
+        let stopped = Session { status: Status::Stopped, live: false, ..idle.clone() };
+        assert_eq!(marked(&stopped, NOW - 10 * MIN).0, Status::Unread);
+        // Seen since, or prompted since, it's as it was.
+        assert_eq!(marked(&idle, NOW - MIN).0, Status::Idle);
+        let prompted = Session { last_prompt_at: NOW - MIN, ..idle.clone() };
+        assert_eq!(marked(&prompted, NOW - 10 * MIN).0, Status::Idle);
+        // Running or waiting on you, it shows that; archived, it stays as it is.
+        let working = Session { status: Status::Working, ..idle.clone() };
+        assert_eq!(marked(&working, NOW - 10 * MIN).0, Status::Working);
+        let needs = Session { status: Status::Needs, ..idle.clone() };
+        assert_eq!(marked(&needs, NOW - 10 * MIN).0, Status::Needs);
+        let archived = Session { archived: true, ..idle.clone() };
+        assert_eq!(marked(&archived, NOW - 10 * MIN).0, Status::Idle);
+        let mut untouched = idle.clone();
+        apply_unread(&mut untouched, None, 0);
+        assert_eq!(untouched.status, Status::Idle);
     }
 
     #[test]

@@ -191,6 +191,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_ARCHIVE, here: archive, ..ANY },
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
+    Request { name: api::MARK_UNREAD, here: mark_unread, ..ANY },
     // A search runs as you type, so a device slow to answer is left out rather than waited for.
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
@@ -623,6 +624,19 @@ fn mark_seen(engine: &Handle, c: &Call) -> Result<Value, String> {
     })
 }
 
+/// Marks sessions unread, several at once (`keys`): each is Your turn again until it's seen or
+/// prompted (`board::apply_unread`).
+fn mark_unread(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let keys = c.read::<params::Keys>()?.keys;
+    Ok(match c.from {
+        From::Here => json!(engine.mark_unread_shown(keys)),
+        From::Device | From::Phone | From::Command(_) => {
+            engine.mark_unread(keys);
+            Value::Null
+        }
+    })
+}
+
 /// What was said in this device's sessions.
 fn search(_: &Handle, c: &Call) -> Result<Value, String> {
     to_value(crate::search::typed(&c.read::<params::Search>()?.words))
@@ -1032,6 +1046,8 @@ mod tests {
         assert_eq!((page.there)(Value::Null, "claude:claude:abc").unwrap(), json!({ "key": "claude:claude:abc" }));
         let seen = find(api::MARK_SEEN).unwrap();
         assert_eq!((seen.there)(json!({ "keys": ["claude:claude:abc"] }), "").unwrap(), json!({ "keys": ["claude:claude:abc"] }));
+        let unread = find(api::MARK_UNREAD).unwrap();
+        assert_eq!((unread.there)(json!({ "keys": ["claude:claude:abc"] }), "").unwrap(), json!({ "keys": ["claude:claude:abc"] }));
         // A start goes with the worktree as that device knows it and none of this device's todos,
         // and the session it started comes back by the key it has here.
         let start = find(api::START).unwrap();

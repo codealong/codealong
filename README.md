@@ -102,7 +102,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     elsewhere), the
     check at the top of its panel or its right-click menu. Only that marks it: a Claude Code
     turn you haven't seen stays Your turn for three days after its terminal closes or the Mac
-    restarts, and a Codex thread's until you see it. Fork in terminal, in a Claude Code,
+    restarts, and a Codex thread's until you see it. Mark as unread (⌃⌘U, `u` elsewhere, or its
+    right-click menu, for several picked sessions too, and from a linked phone) makes a turn
+    you've seen Your turn again, until you see it or send it a prompt. Fork in terminal, in a Claude Code,
     Codex or OpenCode session's right-click menu, opens a copy of its conversation in a new
     terminal while it carries on (OpenCode's copy is made by its service, so it needs OpenCode
     running). `/fork` in the box at the bottom of its panel forks it without a window coming

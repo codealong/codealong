@@ -15,6 +15,9 @@ pub const SESSION_ANSWER: &str = "session-answer";
 pub const SESSION_SEND: &str = "session-send";
 pub const SESSION_ARCHIVE: &str = "session-archive";
 pub const MARK_SEEN: &str = "mark-seen";
+/// Marks sessions unread (`keys`): each is Your turn again, there and everywhere, until it's seen
+/// or prompted. Macs before 2026-10-08 refuse it as a request they don't know.
+pub const MARK_UNREAD: &str = "mark-unread";
 pub const SEARCH: &str = "search";
 pub const START_OPTIONS: &str = "start-options";
 pub const START: &str = "start";
@@ -182,7 +185,7 @@ pub mod params {
         pub prompt: String,
     }
 
-    /// Sessions by key: `mark-seen`, `session-watch`.
+    /// Sessions by key: `mark-seen`, `mark-unread`, `session-watch`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Keys {
@@ -225,7 +228,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 20] = [
+pub const REQUESTS: [(&str, Reach); 21] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -236,6 +239,7 @@ pub const REQUESTS: [(&str, Reach); 20] = [
     (START_OPTIONS, Reach::Read),
     (ROUTE, Reach::Read),
     (MARK_SEEN, Reach::Organize),
+    (MARK_UNREAD, Reach::Organize),
     (SESSION_ARCHIVE, Reach::Organize),
     (SESSION_RENAME, Reach::Organize),
     (SESSION_SEND, Reach::Control),

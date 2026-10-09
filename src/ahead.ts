@@ -1,11 +1,11 @@
-// Changes you make that the engine takes a moment to show: sessions marked seen, snoozed,
+// Changes you make that the engine takes a moment to show: sessions marked seen or unread, snoozed,
 // archived, renamed, or sent a message, and reviews asked of you snoozed. The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
 // board that shows them. So each window shows a change at once, on top of the board it has, and
 // tells the other windows (the `ahead` event): the bar's pill goes as you mark its session seen in
 // the peek, and the main window shows the session working as you send it something from the bar.
 //
-// A seen, snooze, archive or rename goes once a board at least as new as the one the engine says
+// A seen, unread, snooze, archive or rename goes once a board at least as new as the one the engine says
 // shows it arrives. Going by whether the board looks right instead would hide a session that turned unread
 // again a moment later. One the engine turns down goes at once, and the caller says why.
 //
@@ -16,10 +16,10 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, onAhead, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
+import { archiveSession, emitAhead, markSeen, markUnread, onAhead, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
-import { relaned, sessionHeadline } from './lanes';
+import { relaned, sessionHeadline, unreadable } from './lanes';
 import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, PrItem, ResumeIn, Sent, Session, Status, TranscriptItem } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
@@ -41,6 +41,8 @@ const SEND_LONGEST_MS = 10 * 60_000;
 
 export type Change =
   | { kind: 'seen'; keys: string[] }
+  /** Marked unread: Your turn again, from when it was marked. */
+  | { kind: 'unread'; keys: string[] }
   /** Snoozed until then, or woken now with null. */
   | { kind: 'snooze'; keys: string[]; until: number | null }
   /** Your review of these PRs (by PR key) snoozed until then, or woken now with null. */
@@ -124,7 +126,7 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   for (const a of changes) {
     // A review's snooze is a PR's, not a session's.
     if (a.change.kind === 'review-snooze') continue;
-    if (a.change.kind === 'seen' || a.change.kind === 'snooze') for (const k of a.change.keys) add(k, a);
+    if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
   return m;
@@ -137,6 +139,7 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
   for (const a of changes) {
     const c = a.change;
     if (c.kind === 'seen' && settledBySeen(out)) out = { ...out, status: 'idle', asks: false };
+    else if (c.kind === 'unread' && unreadable(out)) out = { ...out, status: 'unread', statusSince: a.at };
     else if (c.kind === 'archive' && out.archived !== c.archived) out = { ...out, archived: c.archived };
     else if (c.kind === 'rename' && out.title !== c.title) out = { ...out, title: c.title };
     else if (c.kind === 'snooze' && !out.archived) {
@@ -390,6 +393,7 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
       const s = v.find(k);
       if (s === undefined) return false;
       if (c.kind === 'seen') return !settledBySeen(s);
+      if (c.kind === 'unread') return !unreadable(s);
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
       if (c.kind === 'rename') return s.title === c.title;
       return s.archived === c.archived;
@@ -529,6 +533,20 @@ function answered(id: string, shownAt: number | null): void {
 }
 
 /** Marks sessions seen, in every window at once. Rejects with why when the engine can't. */
+/** Marks sessions unread, showing it at once (`markUnread`). */
+export function unreadAhead(keys: string[]): Promise<void> {
+  if (keys.length === 0) return Promise.resolve();
+  const a = made({ kind: 'unread', keys });
+  put(a, true);
+  return markUnread(keys).then(
+    (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
 export function seenAhead(keys: string[]): Promise<void> {
   if (keys.length === 0) return Promise.resolve();
   const a = made({ kind: 'seen', keys });
