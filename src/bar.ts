@@ -4,7 +4,7 @@
 
 import { withTimes } from './format';
 import { ALL_PROJECTS, inProject } from './quick';
-import { inQueueOrder, statusWaits, WAITS, type Reads } from './queue';
+import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, WAITS, type Reads } from './queue';
 import type { BarGroup, BarItem, BarReview } from './types';
 
 export type Group = BarGroup;
@@ -233,6 +233,8 @@ export const ROW_READS: Reads<NotchRow> = {
   sinceOf: (r) => (r.kind === 'session' ? r.item.since : r.review.since),
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.item.status) : 'reviews'),
   titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
+  statusOf: (r) => (r.kind === 'session' ? r.item.status : null),
+  whereOf: (r) => (r.kind === 'session' ? sessionWhere(r.item.callsign, r.item.account) : reviewWhere(r.review.repo, r.review.requestedBy)),
 };
 
 /** A review as the strip and the queue name it. */

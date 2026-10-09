@@ -11,7 +11,7 @@ import type { Left } from './menus';
 import * as rules from './queue';
 import type { Handled, Place, QueueAction, QueueView, Reads, Shown, Step, Went } from './queue';
 import { statusTime } from './quick';
-import type { Session } from './types';
+import type { Lane, Session } from './types';
 import type { Notice, Queue } from './ui/SessionPanel';
 
 /** How long the strip says how the last one went. Why one failed stays until something else is
@@ -23,12 +23,15 @@ export function shownSession(s: Session): Shown {
   return { key: s.key, title: s.title, since: statusTime(s), seenable: seenable(s) };
 }
 
-/** How the queue reads rows that carry their session: Sessions'. */
-export const SESSION_READS: Reads<{ session: Session }> = {
+/** How the queue reads rows that carry their session, and its worktree where they have it:
+ *  Sessions'. */
+export const SESSION_READS: Reads<{ session: Session; lane?: Lane }> = {
   keyOf: (r) => r.session.key,
   sinceOf: (r) => statusTime(r.session),
   waitsOf: (r) => rules.statusWaits(r.session.status),
   titleOf: (r) => r.session.title,
+  statusOf: (r) => r.session.status,
+  whereOf: (r) => rules.sessionWhere(r.lane?.callsign, r.session.account),
 };
 
 /** What a window says of itself: its lists and the session shown (queue.ts `QueueView`), and how
@@ -142,11 +145,12 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
     setNote(null);
   }, []);
   const next = useCallback(() => void run('next'), [run]);
+  const pick = useCallback((key: string) => void take(rules.pickStep(now.current.view, handled.current, key)), [take]);
 
   const stands = rules.standing(view, handled.current);
   const after = stands?.left[0];
   const queue: Queue | undefined = stands
-    ? { counts: rules.waitCounts(stands.left, view.reads.waitsOf), next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, waiting: stands.waiting }
+    ? { counts: rules.waitCounts(stands.left, view.reads.waitsOf), left: rules.listed(stands.left, view.reads), next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, onPick: pick, waiting: stands.waiting }
     : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
   const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);

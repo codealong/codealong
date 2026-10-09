@@ -45,6 +45,7 @@
 
 /* Working through what waits on you: how the last one went, and what's left. */
 .ca-reply-queue {
+  position: relative;
   display: flex;
   flex: none;
   align-items: center;
@@ -65,20 +66,108 @@
 .ca-reply-queue-note.is-error {
   color: var(--alert);
 }
-/* What else waits on you, counted as the notch counts it: each kind's glyph and how many. */
+/* What else waits on you, counted as the notch counts it: each kind's glyph and how many, a
+   button that lists what it counts (`.ca-queue-list`). */
 .ca-reply-queue-counts {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 2px;
   vertical-align: middle;
 }
 .ca-reply-queue-count {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  height: 20px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--ink-2);
   font: var(--type-caption-strong);
   font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.ca-reply-queue-count:hover,
+.ca-reply-queue-count.is-open {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-reply-queue-count:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+/* What a count counts (SessionPanel.tsx `QueueList`): under it while the pointer is on either, or
+   once it's clicked, the next first. Placed by its script, within the session. */
+.ca-queue-list {
+  position: absolute;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(420px, calc(100% - 16px));
+  overflow: auto;
+  padding: var(--space-1);
+  box-sizing: border-box;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+}
+.ca-queue-list-head {
+  margin: 0;
+  padding: 2px var(--space-2) var(--space-1);
+  color: var(--ink-3);
+  font: var(--type-caption-strong);
+}
+.ca-queue-list-row {
+  appearance: none;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-meta);
+  text-align: left;
+  cursor: default;
+}
+.ca-queue-list-row:hover {
+  background: var(--surface-selected);
+}
+.ca-queue-list-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-queue-list-row > .ca-glyph,
+.ca-queue-list-row > .ca-icon {
+  flex: none;
+}
+.ca-queue-list-title,
+.ca-queue-list-where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-queue-list-title {
+  flex: 0 1 auto;
+}
+/* Where it is, after the title and short of room cut first: the account comes last. */
+.ca-queue-list-where {
+  flex: 0 3 auto;
+  margin-left: auto;
+  padding-left: var(--space-2);
+  color: var(--ink-3);
+  font: var(--type-caption);
 }
 .ca-reply-queue .ca-btn {
   flex: none;

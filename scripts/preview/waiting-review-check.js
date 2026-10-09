@@ -50,8 +50,8 @@
   var sessionTitle = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var prTitle = function () { var t = document.querySelector('.ca-prreview .ca-prinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-reply-queue-note'); return t ? t.textContent : ''; };
-  // What the strip counts of what else waits on you: the total, then the counts' tooltip.
-  var counted = function () { var c = q('.ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.title; };
+  // What the strip counts of what else waits on you: the total, then each count in words.
+  var counted = function () { var c = q('.ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + all('.ca-reply-queue-count', c).map(function (x) { return x.getAttribute('aria-label'); }).join(', '); };
   var onSession = function (name) { return until(function () { return sessionTitle() === name; }, 3000, name); };
   var onReview = function (name) { return until(function () { return prTitle() === name; }, 3000, name); };
 
@@ -67,7 +67,7 @@
     .then(function () {
       check('⌘] goes on to the review that waited longest', prTitle() === 'Review X', prTitle());
       check('the cursor is in the box that reviews it', document.activeElement && document.activeElement.tagName === 'TEXTAREA' && !!document.activeElement.closest('.ca-prreview-box'));
-      check('the strip counts what’s left, the skipped one included', /^3 · Waiting on you after this one: /.test(counted()), counted());
+      check('the strip counts what’s left, the skipped one included', /^3 · .*after this one/.test(counted()), counted());
       key(window, { key: ']', code: 'BracketRight', metaKey: true });
       return onReview('Review Y');
     })

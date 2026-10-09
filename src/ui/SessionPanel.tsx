@@ -11,7 +11,8 @@
 // Answered in turn, it works through what waits on you: ⌘⏎ in the box sends (or allows the call
 // the session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and
 // goes on, ⌘] skips to it, and a strip above the header says how many more there are and how the
-// last one went. Where a session is worked from the keyboard (its panel in Sessions, the notch)
+// last one went; pointing at a count there lists the ones it counts, and a click on one shows
+// it. Where a session is worked from the keyboard (its panel in Sessions, the notch)
 // the strip is always there and has what's commonly done to a session as buttons that say their
 // keys: mark seen, mark done, snooze, close its terminal, archive, back and next (`Hotkeys`). The keys it
 // says are read from where they're kept: a session's own from menus.ts `CHORDS` and snooze.ts
@@ -19,30 +20,35 @@
 // expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
 // or a row's menu shows it with its name ready to change.
 
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { sendAhead } from '../ahead';
 import { below, showContextMenu, type MenuGroup } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
 import { useLatest } from '../latest';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
-import { AWAY_CHORD, QUEUE_CHORDS, WAITS, waitCountWords, type QueueAction, type WaitCounts } from '../queue';
+import { AWAY_CHORD, QUEUE_CHORDS, WAITS, waitCountWords, type Listed, type QueueAction, type WaitCounts, type Waits } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
-import { cardZoom } from '../zoom';
-import { Button, cx, Icon, Rich, WaitsGlyph } from './primitives';
+import { cardZoom, scaleOf } from '../zoom';
+import { Button, cx, Icon, Rich, StatusGlyph, WaitsGlyph } from './primitives';
 import { runFolder, runsInSession } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply, useWay } from './SessionReply';
 import { SessionThread } from './SessionThread';
+import { useDismiss } from './useDismiss';
 
 /** Working through what waits on you: what's left after this one, and the next. */
 export interface Queue {
   /** How many of each kind wait on you besides the one shown, which the strip counts. */
   counts: WaitCounts;
+  /** Those it counts, the next first, as pointing at a count lists them (queue.ts `Listed`). */
+  left: Listed[];
   /** The next one, by its title: a row's session, or a pill on the bar. */
   next: Pick<Session, 'title'> | null;
   onNext: () => void;
+  /** Shows one of `left` in place of the one shown: a step by hand, as ⌘] is. */
+  onPick: (key: string) => void;
   /** False when the session shown isn't itself one of those waiting (it runs, say): the strip
    *  still counts them and goes to them, but sending doesn't go on. */
   waiting?: boolean;
@@ -91,29 +97,161 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   onLoaded?: () => void;
 }
 
-/** What else waits on you, as the notch counts it: each kind's glyph and how many. */
-function QueueCounts({ queue }: { queue: Queue }) {
+/** A count in words, as its button and its list say it: `2 need you after this one`. */
+function countWords(queue: Queue, w: Waits): string {
+  return `${waitCountWords(w, queue.counts[w])}${queue.waiting === false ? '' : ' after this one'}`;
+}
+
+/** How long the pointer rests on a count before its list shows, and is off both before it goes. */
+const LIST_AFTER_MS = 250;
+const LIST_GOES_MS = 200;
+/** Room kept between a count and its list, and between the list and the session's edges. */
+const LIST_GAP = 4;
+const LIST_EDGE = 8;
+
+/** Which count's list is up, and whether a click put it there (it stays until a press elsewhere or
+ *  Escape) or the pointer did (it goes when the pointer leaves, or on any key). */
+interface CountList {
+  up: { waits: Waits; clicked: boolean } | null;
+  counts: RefObject<HTMLSpanElement>;
+  point: (w: Waits) => void;
+  leave: () => void;
+  keep: () => void;
+  click: (w: Waits) => void;
+  close: () => void;
+}
+
+function useCountList(): CountList {
+  const [up, setUp] = useState<CountList['up']>(null);
+  const upNow = useLatest(up);
+  const counts = useRef<HTMLSpanElement>(null);
+  const timer = useRef(0);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const keep = () => window.clearTimeout(timer.current);
+  return {
+    up,
+    counts,
+    keep,
+    // With a list up, pointing at another count shows its list at once.
+    point: (w) => {
+      keep();
+      const was = upNow.current;
+      if (!was) timer.current = window.setTimeout(() => setUp({ waits: w, clicked: false }), LIST_AFTER_MS);
+      else if (was.waits !== w) setUp({ waits: w, clicked: false });
+    },
+    leave: () => {
+      keep();
+      if (!upNow.current?.clicked) timer.current = window.setTimeout(() => setUp(null), LIST_GOES_MS);
+    },
+    click: (w) => {
+      keep();
+      setUp((u) => (u?.waits === w && u.clicked ? null : { waits: w, clicked: true }));
+    },
+    close: () => {
+      keep();
+      setUp(null);
+    },
+  };
+}
+
+/** What else waits on you, as the notch counts it: each kind's glyph and how many. Pointing at a
+ *  count, or clicking it, lists what it counts (`QueueList`). */
+function QueueCounts({ queue, list }: { queue: Queue; list: CountList }) {
   const kinds = WAITS.filter((w) => queue.counts[w] > 0);
   if (kinds.length === 0) return null;
-  const words = kinds.map((w) => waitCountWords(w, queue.counts[w])).join(', ');
   return (
-    <span className="ca-reply-queue-counts" title={`${queue.waiting === false ? 'Waiting on you' : 'Waiting on you after this one'}: ${words}`}>
+    <span ref={list.counts} className="ca-reply-queue-counts">
       {kinds.map((w) => (
-        <span key={w} className="ca-reply-queue-count">
+        <button
+          key={w}
+          type="button"
+          className={cx('ca-reply-queue-count', list.up?.waits === w && 'is-open')}
+          data-waits={w}
+          aria-label={countWords(queue, w)}
+          aria-haspopup="menu"
+          aria-expanded={list.up?.waits === w}
+          onPointerEnter={() => list.point(w)}
+          onPointerLeave={list.leave}
+          onClick={() => list.click(w)}
+        >
           <WaitsGlyph waits={w} />
           {queue.counts[w]}
-        </span>
+        </button>
       ))}
     </span>
   );
 }
 
 /** What the strip says: how the one before went, else what else waits on you, counted. */
-function QueueNote({ queue, notice }: { queue: Queue | undefined; notice: Notice | null | undefined }) {
+function QueueNote({ queue, notice, list }: { queue: Queue | undefined; notice: Notice | null | undefined; list: CountList }) {
   return (
     <span className={cx('ca-reply-queue-note', notice && 'is-notice', notice?.error && 'is-error')} role="status" title={notice?.text}>
-      {notice ? notice.text : queue && <QueueCounts queue={queue} />}
+      {notice ? notice.text : queue && <QueueCounts queue={queue} list={list} />}
     </span>
+  );
+}
+
+/** What a count counts, under it, in the order ⌘] goes through them, as a folded pill on the
+ *  bar lists its sessions: each one's glyph, its title and where it is. A click on one shows it
+ *  here. It's drawn in the strip, so a card's zoom draws it too, and kept within the session. */
+function QueueList({ queue, list, strip }: { queue: Queue; list: CountList; strip: RefObject<HTMLDivElement> }) {
+  const pop = useRef<HTMLDivElement>(null);
+  const up = list.up;
+  const rows = up ? queue.left.filter((l) => l.waits === up.waits) : [];
+  useDismiss(pop, list.close, { when: rows.length > 0, inside: (t) => !!list.counts.current?.contains(t), keys: up?.clicked ? 'escape' : 'any', blur: true });
+  // Under its count, the rows' glyphs under the count's, as far down as the session goes;
+  // scrolling within itself past that.
+  useLayoutEffect(() => {
+    const el = pop.current;
+    const s = strip.current;
+    const count = up && list.counts.current?.querySelector(`[data-waits="${up.waits}"]`);
+    if (!el || !s || !count) return;
+    const scale = scaleOf(s);
+    const sr = s.getBoundingClientRect();
+    const cr = count.getBoundingClientRect();
+    const glyph = (count.firstElementChild ?? count).getBoundingClientRect().left;
+    const rowGlyph = el.querySelector('.ca-queue-list-row > :first-child');
+    const inset = rowGlyph ? rowGlyph.getBoundingClientRect().left - el.getBoundingClientRect().left : 0;
+    const room = (s.parentElement ?? s).getBoundingClientRect();
+    el.style.maxHeight = `${Math.max(0, (room.bottom - cr.bottom) / scale - LIST_GAP - LIST_EDGE)}px`;
+    el.style.top = `${(cr.bottom - sr.top) / scale + LIST_GAP}px`;
+    el.style.left = `${Math.max(LIST_EDGE, Math.min((glyph - inset - sr.left) / scale, s.offsetWidth - el.offsetWidth - LIST_EDGE))}px`;
+  });
+  if (!up || rows.length === 0) return null;
+  return (
+    <div
+      ref={pop}
+      className="ca-queue-list"
+      role="menu"
+      aria-label={countWords(queue, up.waits)}
+      data-tauri-drag-region="false"
+      onPointerEnter={list.keep}
+      onPointerLeave={list.leave}
+      onContextMenu={(e) => {
+        // A row is another session than the one shown, whose menu the card has.
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <p className="ca-queue-list-head">{countWords(queue, up.waits)}</p>
+      {rows.map((r) => (
+        <button
+          key={r.key}
+          type="button"
+          role="menuitem"
+          className="ca-queue-list-row"
+          title={r.where ? `${r.title} · ${r.where}` : r.title}
+          onClick={() => {
+            list.close();
+            queue.onPick(r.key);
+          }}
+        >
+          {r.status ? <StatusGlyph status={r.status} title="" /> : <WaitsGlyph waits={r.waits} />}
+          <span className="ca-queue-list-title">{r.title}</span>
+          {r.where && <span className="ca-queue-list-where">{r.where}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -167,11 +305,15 @@ interface QueueStripProps {
 export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own }: QueueStripProps) {
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
+  const strip = useRef<HTMLDivElement>(null);
+  const list = useCountList();
+  const listed = queue && !notice && <QueueList queue={queue} list={list} strip={strip} />;
   if (!hotkeys) {
     if (!notice && !next) return null;
     return (
-      <div className="ca-reply-queue">
-        <QueueNote queue={queue} notice={notice} />
+      <div ref={strip} className="ca-reply-queue">
+        <QueueNote queue={queue} notice={notice} list={list} />
+        {listed}
         {next && queue && (
           <Button variant="ghost" size="sm" kbd={[...nextKey]} title={`Next: ${next.title}`} onClick={queue.onNext}>
             Next
@@ -222,8 +364,9 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
     </div>
   );
   return (
-    <div className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
-      <QueueNote queue={queue} notice={notice} />
+    <div ref={strip} className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
+      <QueueNote queue={queue} notice={notice} list={list} />
+      {listed}
       {buttons}
     </div>
   );

@@ -34,6 +34,21 @@ export interface Reads<T> {
   sinceOf: (row: T) => number;
   waitsOf: (row: T) => Waits;
   titleOf: (row: T) => string;
+  /** A session's status, for its glyph where the strip lists what's left (`Listed`); null for a
+   *  PR waiting on your review, which has the PR's. */
+  statusOf: (row: T) => Status | null;
+  /** Where it is, said after its title there (`sessionWhere`, `reviewWhere`). */
+  whereOf: (row: T) => string;
+}
+
+/** Where a session is, after its title: its worktree, then its account, which is said last. */
+export function sessionWhere(callsign: string | null | undefined, account: string): string {
+  return [callsign, account].filter(Boolean).join(' · ');
+}
+
+/** Where a PR waiting on your review is, after its title: its repo, and who asked. */
+export function reviewWhere(repo: string, requestedBy: string | null | undefined): string {
+  return [repo, requestedBy ? `asked by ${requestedBy}` : ''].filter(Boolean).join(' · ');
 }
 
 /** Where a row stands in the queue: what it waits as, since when, and its key, for a tie. */
@@ -320,6 +335,27 @@ export function keyStep<T>(view: QueueView<T>, handled: Handled, action: QueueAc
  *  just answered that the board still shows waiting. */
 export function firstLeft<T>(view: Pick<QueueView<T>, 'waiting' | 'reads'>, handled: Handled): T | undefined {
   return leftAfter(view.waiting, '', handled, view.reads)[0];
+}
+
+/** One of what's left as the strip lists it when you point at its count (SessionPanel.tsx
+ *  `QueueStrip`), as a folded pill on the bar lists its sessions. */
+export interface Listed {
+  key: string;
+  waits: Waits;
+  title: string;
+  status: Status | null;
+  where: string;
+}
+
+export function listed<T>(rows: T[], reads: Reads<T>): Listed[] {
+  return rows.map((r) => ({ key: reads.keyOf(r), waits: reads.waitsOf(r), title: reads.titleOf(r), status: reads.statusOf(r), where: reads.whereOf(r) }));
+}
+
+/** One picked from the strip's list: a step by hand to it, as ⌘] is, so nothing is dealt with
+ *  and the strip takes back what it said. Nowhere when it no longer waits, or is the one shown. */
+export function pickStep<T>(view: Pick<QueueView<T>, 'waiting' | 'reads' | 'shown'>, handled: Handled, key: string): Step<T> {
+  const to = key === view.shown?.key ? undefined : view.waiting.find((r) => view.reads.keyOf(r) === key);
+  return to !== undefined ? { went: 'on', to, words: null, handled } : { went: 'stay', handled };
 }
 
 /** How many of each kind wait on you, as the notch counts them. */
