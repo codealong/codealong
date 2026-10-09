@@ -40,7 +40,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   is busy doesn't change the registry's `statusUpdatedAt`, nor is it a `user` line: it's written
   when the turn takes it in, as a `type: "attachment"` line whose `attachment` is `{type:
   "queued_command", prompt}` (background tasks' notifications come the same way, as
-  `<task-notification>…`; `claude/conversation.rs` `conversation_items`).
+  `<task-notification>…`; `claude/conversation.rs` `conversation_items`). It's timed when it
+  came, before lines written ahead of it, and it's your last prompt as a typed one is
+  (`claude/transcript.rs` `you_sent_while_working`): without that, a message sent while the
+  session worked stayed "Sent" at the end of its thread once the turn had taken it in (`ahead.ts`
+  `took`), whenever the page the thread read began after it.
 - Escape before the agent has written anything back, with the input box empty, takes the prompt
   back instead of interrupting the turn, and nothing in the transcript says so (2.1.285's
   `auto_restore_cancel`): `claude/conversation.rs` (the comment above `fate_of`, and `fate_of`).

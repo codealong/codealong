@@ -203,17 +203,19 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     Some((head, info, state))
 }
 
-/// When the last prompt you typed before `end` (a line start) was sent, and the folder it was
-/// sent in, reading backwards.
+/// When the last prompt you typed (or message you sent while it worked) before `end` (a line
+/// start) was sent, and the folder it was sent in, reading backwards.
 fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
     let mut at = None;
     scan_lines_back(path, 0, end, |line| {
-        // Most lines are tool calls and their results; only a prompt can pass both checks.
-        if !line.contains("\"type\":\"user\"") || line.contains("\"tool_use_id\"") {
+        // Most lines are tool calls and their results; only a prompt, or a message you sent
+        // while it worked, can pass these checks.
+        let typed = line.contains("\"type\":\"user\"") && !line.contains("\"tool_use_id\"");
+        if !typed && !line.contains("\"queued_command\"") {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
-        if !you_typed(&v) {
+        if !you_typed(&v) && !you_sent_while_working(&v) {
             return false;
         }
         at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).map(|t| (t, str_of(&v, "cwd").filter(|c| !c.is_empty())));
@@ -354,6 +356,16 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     if let Some(cwd) = str_of(&v, "cwd").filter(|c| !c.is_empty()) {
                         info.cwd = cwd;
                     }
+                }
+            }
+            // A message you sent while it worked is a new ask too. It's written once the turn
+            // takes it in, timed when it came, so lines before it can be timed after it.
+            Some("attachment") if you_sent_while_working(&v) => {
+                if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
+                    info.last_prompt_at = info.last_prompt_at.max(Some(ts));
+                }
+                if let Some(cwd) = str_of(&v, "cwd").filter(|c| !c.is_empty()) {
+                    info.cwd = cwd;
                 }
             }
             _ => {}
@@ -550,6 +562,23 @@ pub(super) fn you_typed(v: &Value) -> bool {
     match v.pointer("/origin/kind").and_then(Value::as_str) {
         Some(kind) => kind == "human",
         None => user_prompt(v).is_some(),
+    }
+}
+
+/// A message you sent while the session worked, as its turn took it in: Claude Code writes that
+/// as a `queued_command` attachment rather than a `user` line, marked as a prompt is (`human`,
+/// `peer`, a background task's notification otherwise). Older ones have no mark, and a
+/// notification is told by its tag.
+pub(super) fn you_sent_while_working(v: &Value) -> bool {
+    if v.get("type").and_then(Value::as_str) != Some("attachment") || v.pointer("/attachment/type").and_then(Value::as_str) != Some("queued_command") || v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+        return false;
+    }
+    if let Some(peer) = line_peer(v) {
+        return sent_from_codealong(&peer).is_some();
+    }
+    match v.pointer("/attachment/origin/kind").and_then(Value::as_str) {
+        Some(kind) => kind == "human",
+        None => prompt_words(&crate::transcript::text_of(v.pointer("/attachment/prompt").unwrap_or(&Value::Null))).is_some(),
     }
 }
 
@@ -889,6 +918,35 @@ mod tests {
     }
 
     #[test]
+    fn a_message_you_sent_while_it_worked_is_your_last_prompt() {
+        // Written once the turn takes it in, after a reply timed later than it (2.1.295).
+        let queued = |at: &str, prompt: &str, origin: Value| serde_json::json!({ "type": "attachment", "timestamp": at, "cwd": "/w/wt", "attachment": { "type": "queued_command", "prompt": prompt, "origin": origin } }).to_string();
+        let tail = [
+            r#"{"type":"user","timestamp":"2026-10-09T16:56:56.560Z","cwd":"/w","origin":{"kind":"human"},"message":{"content":"Change the skill"}}"#.to_string(),
+            r#"{"type":"assistant","timestamp":"2026-10-09T16:57:30.134Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"yarn test"}}]}}"#.to_string(),
+            queued("2026-10-09T16:57:21.398Z", "Also assign Wes", serde_json::json!({ "kind": "human" })),
+            queued("2026-10-09T16:57:26.574Z", "Did we apply it?", serde_json::json!({ "kind": "human" })),
+        ];
+        let info = parse_lines(HEAD, &(tail.join("\n") + "\n"));
+        assert_eq!((info.last_prompt_at, info.cwd.as_str()), (parse_rfc3339_ms("2026-10-09T16:57:26.574Z"), "/w/wt"));
+        // Yours from Codealong counts; a background task's notification, a subagent's report and
+        // another agent's message don't.
+        let others = [
+            tail[0].clone(),
+            queued("2026-10-09T16:58:00.000Z", "<task-notification>\n<task-id>b1</task-id>\n</task-notification>", serde_json::json!({ "kind": "task-notification" })),
+            queued("2026-10-09T16:59:00.000Z", "<agent-message from=\"a3c7\">\nDone.\n</agent-message>", serde_json::json!({ "kind": "peer", "from": "a3c7", "handback": true, "body": "Done." })),
+            queued("2026-10-09T17:00:00.000Z", "hi", serde_json::json!({ "kind": "peer", "from": "unknown", "name": "review", "body": "This message is from another agent, “review”.\n\nhi" })),
+        ];
+        assert_eq!(parse_lines(HEAD, &(others.join("\n") + "\n")).last_prompt_at, parse_rfc3339_ms("2026-10-09T16:56:56.560Z"));
+        let codealong = queued("2026-10-09T17:01:00.000Z", "Now the docs", serde_json::json!({ "kind": "peer", "from": "unknown", "name": "Codealong", "body": format!("{FROM_YOU}\n\nNow the docs") }));
+        assert_eq!(parse_lines(HEAD, &(codealong + "\n")).last_prompt_at, parse_rfc3339_ms("2026-10-09T17:01:00.000Z"));
+        // Older ones have no mark, and a notification is told by its tag.
+        let old = |prompt: &str| serde_json::json!({ "type": "attachment", "timestamp": "2026-10-09T17:02:00.000Z", "attachment": { "type": "queued_command", "prompt": prompt } }).to_string() + "\n";
+        assert_eq!(parse_lines(HEAD, &old("Also check the docs")).last_prompt_at, parse_rfc3339_ms("2026-10-09T17:02:00.000Z"));
+        assert_eq!(parse_lines(HEAD, &old("<task-notification>\n<status>completed</status>\n</task-notification>")).last_prompt_at, None);
+    }
+
+    #[test]
     fn finds_the_last_prompt_behind_a_long_turn() {
         let dir = crate::fixtures::scratch("prompt");
         let path = dir.join("s.jsonl");
@@ -899,6 +957,13 @@ mod tests {
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:00:00.000Z"));
+        // A message you sent while it worked, as far back, is the later one.
+        let sent = r#"{"type":"attachment","timestamp":"2026-09-23T15:02:00.000Z","attachment":{"type":"queued_command","prompt":"Keep the old API too","origin":{"kind":"human"}}}"#;
+        let mut lines = vec![HEAD.trim_end().to_string(), prompt.to_string(), output(0), sent.to_string()];
+        lines.extend((1..12).map(output));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:02:00.000Z"));
     }
 
     #[test]
