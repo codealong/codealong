@@ -139,7 +139,7 @@ export function scenes(board) {
     { name: 'worktrees-notices', view: 'worktrees', notices: all.notices, usage: all.usage, steps: [first('.ca-notice-open')] },
     { name: 'worktrees-loading', view: 'worktrees', loading: true, devices: all.devices },
     { name: 'worktrees-filtered', view: 'worktrees', insights: all.insights, steps: [first('.ca-side-chip'), `await sd.click('.ca-side-save');`] },
-    { name: 'worktrees-devices', view: 'worktrees', devices: all.devices, steps: [`const s = document.querySelector('.ca-side-switch'); if (s) s.click();`] },
+    { name: 'worktrees-devices', view: 'worktrees', devices: all.devices },
     { name: 'sessions', view: 'sessions' },
     { name: 'sessions-real', view: 'sessions', transcript: 'transcript-1', project: 'All projects' },
     { name: 'sessions-sample', view: 'sessions', setup: sampled, steps: [openTools, openTools] },

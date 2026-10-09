@@ -8,7 +8,7 @@
 // Canvas lays the project's work out in space, to be remembered by where it is (CanvasView.tsx).
 // Keyboard map: the design system's Surfaces page.
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
@@ -24,7 +24,6 @@ import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, todoAgent, todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo } from './types';
 import { shortOf, type DeviceFilter } from './devices';
-import { DeviceBadge } from './ui/DeviceBadge';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { PreviewDialog } from './ui/PreviewBits';
@@ -85,7 +84,6 @@ const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
 const DISMISSED_KEY = 'codealong.dismissedNotices';
-const GROUP_KEY = 'codealong.byDevice';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
@@ -155,11 +153,9 @@ export function App() {
   // The board, with changes you made that the engine hasn't shown yet on top (useBoard.ts).
   const { engine: engineBoard, board, ahead, loadError, loading } = useBoard();
   // Your other devices (src-tauri/src/peers.rs): their worktrees join this device's in every view,
-  // the sidebar's Devices narrow the views to one of them, and Worktrees can group by device.
+  // and the sidebar's Devices narrow the views to one of them.
   const [devices, setDevices] = useState<DevicesView | null>(null);
   const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>([]);
-  const [groupByDevice, setGroupByDevice] = useStored(GROUP_KEY, flag, false);
-  const toggleGroupByDevice = () => setGroupByDevice((on) => !on);
   // Other devices' worktrees, with your changes to their sessions too.
   const deviceLanes = useMemo(() => (devices?.enabled ? lanesAhead(devices.lanes, ahead) : []), [devices, ahead]);
   useEffect(() => observe(boardView(engineBoard?.generatedAt ?? null, [engineBoard?.lanes ?? [], devices?.lanes ?? []])), [engineBoard, devices]);
@@ -333,8 +329,8 @@ export function App() {
     pinnedLaneRows,
     bays,
     shownBays,
-    shownGroups,
     foldParked,
+    parkedCount,
     worktreeRows,
     worktreeItems,
     laneById,
@@ -362,7 +358,6 @@ export function App() {
     deviceLanes,
     devices,
     deviceFilter,
-    groupByDevice,
     project,
     loading,
     cutoff,
@@ -1366,8 +1361,6 @@ export function App() {
           onClearDevices={() => setDeviceFilter([])}
           deviceNeeds={deviceNeeds}
           deviceWorking={deviceWorking}
-          groupByDevice={view === 'worktrees' && devices?.enabled && devices.lanes.length > 0 && deviceFilter.length !== 1 ? groupByDevice : null}
-          onGroupByDevice={toggleGroupByDevice}
           ages={AGES}
           age={age}
           ageApplies={ageApplies}
@@ -1606,51 +1599,31 @@ export function App() {
             )}
             {view === 'worktrees' && laneDrag.ghost}
             {view === 'worktrees' &&
-              shownGroups.map((g) => {
-                const groupParked = g.bays.flatMap((b) => b.rows).filter((r) => r.lane.parked).length;
-                const other = g.short ? devices?.devices.find((d) => d.short === g.short) : undefined;
+              shownBays.map((b) => {
+                const count = bays.find((x) => x.bay === b.bay)?.rows.length ?? b.rows.length;
+                const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => r.agents.filter((a) => a.session.status === 'unread').map((a) => a.session.key)) : [];
                 return (
-                  <Fragment key={g.short ?? 'here'}>
-                    {g.short !== undefined && (
-                      <div className="ca-devgroup-head">
-                        {other ? (
-                          <DeviceBadge device={other} now={now} heading />
-                        ) : (
-                          <span className="ca-devgroup-here">
-                            <Icon name="device-desktop" size={13} />
-                            {devices?.me.name || 'This device'}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {g.shown.map((b) => {
-                      const count = g.bays.find((x) => x.bay === b.bay)?.rows.length ?? b.rows.length;
-                      const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => r.agents.filter((a) => a.session.status === 'unread').map((a) => a.session.key)) : [];
-                      return (
-                        <section key={b.bay} className="ca-bayblock">
-                          <BayHeader
-                            bay={b.bay}
-                            count={count}
-                            action={
-                              unreadKeys.length > 0 ? (
-                                <button type="button" className="ca-linkbtn" onClick={() => markSeen(unreadKeys)}>
-                                  Mark all seen
-                                </button>
-                              ) : undefined
-                            }
-                          />
-                          <div className="ca-bay-lanes">
-                            {b.rows.map((r) => laneRow(r, null, laneDrag.rowProps(r.lane.id, null, pinnedLaneRows.length)))}
-                            {b.bay === 'idle' && foldParked && groupParked > 0 && (
-                              <button type="button" className="ca-parked" onClick={() => setShowParked(true)}>
-                                Show {groupParked} parked {groupParked === 1 ? 'worktree' : 'worktrees'}
-                              </button>
-                            )}
-                          </div>
-                        </section>
-                      );
-                    })}
-                  </Fragment>
+                  <section key={b.bay} className="ca-bayblock">
+                    <BayHeader
+                      bay={b.bay}
+                      count={count}
+                      action={
+                        unreadKeys.length > 0 ? (
+                          <button type="button" className="ca-linkbtn" onClick={() => markSeen(unreadKeys)}>
+                            Mark all seen
+                          </button>
+                        ) : undefined
+                      }
+                    />
+                    <div className="ca-bay-lanes">
+                      {b.rows.map((r) => laneRow(r, null, laneDrag.rowProps(r.lane.id, null, pinnedLaneRows.length)))}
+                      {b.bay === 'idle' && foldParked && parkedCount > 0 && (
+                        <button type="button" className="ca-parked" onClick={() => setShowParked(true)}>
+                          Show {parkedCount} parked {parkedCount === 1 ? 'worktree' : 'worktrees'}
+                        </button>
+                      )}
+                    </div>
+                  </section>
                 );
               })}
           </div>

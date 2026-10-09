@@ -49,16 +49,3 @@ function countOn(lanes: Lane[], short: string | null, counts: (s: Session) => bo
 export function deviceLabel(name: string): string {
   return name.replace(/^[^\s’']+[’']s\s+(?=\S)/, '') || name;
 }
-
-/** Lanes split by the device they're on, for grouping: this device's first, then the others' in
- *  the order they were linked, each only when it has any. */
-export function byDevice(lanes: Lane[], devices: DevicesView | null | undefined): { short: string | null; lanes: Lane[] }[] {
-  const order: (string | null)[] = [null, ...(devices?.devices ?? []).map((d) => d.short)];
-  const groups = new Map<string | null, Lane[]>(order.map((s) => [s, []]));
-  for (const l of lanes) {
-    const short = shortOf(l.id);
-    if (!groups.has(short)) groups.set(short, []);
-    (groups.get(short) as Lane[]).push(l);
-  }
-  return [...groups].filter(([, ls]) => ls.length > 0).map(([short, ls]) => ({ short, lanes: ls }));
-}

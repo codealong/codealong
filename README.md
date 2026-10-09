@@ -854,7 +854,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Settings › Devices); other devices' worktrees go into this device's projects by their repos,
   whatever those devices call them, even where a checkout still has a renamed repo's old name;
   work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
-  narrow the views to the ones you pick; and Worktrees can group by device. A session on another
+  narrow the views to the ones you pick. A session on another
   device shows its whole conversation in its panel; you can mark it seen or snooze it from here,
   and when that device lets its linked devices act on its sessions (remote control, off by
   default) send it a message, answer an approval or mark it done. Devices find each other on your tailnet when Tailscale runs,

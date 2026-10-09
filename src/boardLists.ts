@@ -6,7 +6,7 @@
 
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
-import { byDevice, needsOn, withDevices, workingOn } from './devices';
+import { needsOn, withDevices, workingOn } from './devices';
 import { AGENT_BAY, buildBays, filterByAge, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
@@ -257,7 +257,6 @@ export interface ListsInput {
   deviceLanes: Lane[];
   devices: DevicesView | null;
   deviceFilter: DeviceFilter;
-  groupByDevice: boolean;
   /** The project picked, before it's checked against the projects there are. */
   project: string | null;
   loading: boolean;
@@ -283,7 +282,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, groupByDevice, project, loading, cutoff, since, now, query, filter, sessionPins, lanePins, prPins, sessionSort, showParked, showArchived, showDonePrs, todos, labels, labelFilter, showDoneTodos } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, filter, sessionPins, lanePins, prPins, sessionSort, showParked, showArchived, showDonePrs, todos, labels, labelFilter, showDoneTodos } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -312,18 +311,14 @@ export function useBoardLists(input: ListsInput) {
 
   // The board: pinned worktrees, then every other worktree once in its bay.
   const pinnedLaneRows = useMemo(() => pinnedLaneRowsOf(recentLanes, lanePins.keys, query, filter, since), [recentLanes, lanePins.keys, query, filter, since]);
-  const bayRows = useCallback((ls: Lane[]) => bayRowsOf(ls, query, lanePins.set, filter, since), [query, lanePins.set, filter, since]);
-  const bays = useMemo(() => bayRows(recentLanes), [bayRows, recentLanes]);
-  // Grouped by device, each device's worktrees get bays of their own: this device's first.
-  const grouped = groupByDevice && deviceFilter.length !== 1 && (devices?.enabled ?? false) && (devices?.lanes.length ?? 0) > 0;
-  const deviceGroups = useMemo(() => (grouped ? byDevice(recentLanes, devices).map((g) => ({ short: g.short, bays: bayRows(g.lanes) })) : null), [grouped, recentLanes, devices, bayRows]);
+  const bays = useMemo(() => bayRowsOf(recentLanes, query, lanePins.set, filter, since), [recentLanes, query, lanePins.set, filter, since]);
   const foldParked = !showParked && !query;
-  const fold = useCallback((bs: typeof bays) => folded(bs, foldParked), [foldParked]);
-  const shownBays = useMemo(() => fold(bays), [fold, bays]);
-  const shownGroups = useMemo(() => (deviceGroups ?? [{ short: undefined as string | null | undefined, bays }]).map((g) => ({ ...g, shown: fold(g.bays) })), [deviceGroups, bays, fold]);
+  const shownBays = useMemo(() => folded(bays, foldParked), [bays, foldParked]);
+  // How many parked worktrees Idle folds away, for its Show button.
+  const parkedCount = useMemo(() => bays.flatMap((b) => b.rows).filter((r) => r.lane.parked).length, [bays]);
   // The board's worktrees top to bottom, which are picked together whole; and what you can
   // select on it: agents' lines, and worktrees without any.
-  const worktreeRows = useMemo(() => [...pinnedLaneRows, ...shownGroups.flatMap((g) => g.shown.flatMap((b) => b.rows))], [pinnedLaneRows, shownGroups]);
+  const worktreeRows = useMemo(() => [...pinnedLaneRows, ...shownBays.flatMap((b) => b.rows)], [pinnedLaneRows, shownBays]);
   const worktreeItems = useMemo(() => worktreeRows.flatMap(rowItems), [worktreeRows]);
 
   // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
@@ -379,8 +374,8 @@ export function useBoardLists(input: ListsInput) {
     pinnedLaneRows,
     bays,
     shownBays,
-    shownGroups,
     foldParked,
+    parkedCount,
     worktreeRows,
     worktreeItems,
     laneById,

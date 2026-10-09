@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byDevice, deviceLabel, deviceOf, needsOn, shortOf, withDevices, workingOn } from './devices';
+import { deviceLabel, deviceOf, needsOn, shortOf, withDevices, workingOn } from './devices';
 import * as fx from './testing/fixtures';
 import type { Lane, Session } from './types';
 
@@ -48,16 +48,5 @@ describe('your other devices', () => {
     expect(deviceLabel("Sam's MacBook Pro")).toBe('MacBook Pro');
     expect(deviceLabel('Studio')).toBe('Studio');
     expect(deviceLabel('build-box')).toBe('build-box');
-  });
-
-  it('groups lanes by device, this one first, then in linking order', () => {
-    const view = fx.devicesView({ devices: [fx.deviceView({ short: 'm2' }), fx.deviceView({ short: 'm1' })] });
-    const groups = byDevice([lane('@m1:/b'), lane('/a'), lane('@m2:/c'), lane('@m1:/d')], view);
-    expect(groups.map((g) => [g.short, g.lanes.map((l) => l.id)])).toEqual([
-      [null, ['/a']],
-      ['m2', ['@m2:/c']],
-      ['m1', ['@m1:/b', '@m1:/d']],
-    ]);
-    expect(byDevice([lane('/a')], null).map((g) => g.short)).toEqual([null]);
   });
 });

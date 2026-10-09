@@ -59,9 +59,6 @@ interface SidebarProps {
   onClearDevices: () => void;
   deviceNeeds: Map<string | null, number>;
   deviceWorking: Map<string | null, number>;
-  /** Group by device, offered in Worktrees across devices; null where it isn't. */
-  groupByDevice: boolean | null;
-  onGroupByDevice: () => void;
   ages: SideAge[];
   age: string;
   /** Todo and Canvas show everything, whatever its age. */
@@ -153,13 +150,6 @@ function Open(p: SidebarProps) {
                 away={!d.online}
               />
             ))}
-            {p.groupByDevice !== null && (
-              <button type="button" className="ca-nav ca-side-switch" role="switch" aria-checked={p.groupByDevice} title="Group worktrees by the device they're on" onClick={p.onGroupByDevice}>
-                <Icon name="layout-grid" size={14} />
-                <span className="ca-nav-label">Group by device</span>
-                <span className={cx('ca-switch', p.groupByDevice && 'is-on')} aria-hidden="true" />
-              </button>
-            )}
           </>
         )}
         <div className="ca-label ca-side-label">Active in</div>

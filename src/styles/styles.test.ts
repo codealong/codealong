@@ -330,7 +330,6 @@ describe('the stylesheets', () => {
     '.ca-cv-tidy-rowlabel': { set: 'font-size: 13px', why: 'a row’s name in Tidy (PRs, Layout): body’s size, on the 16px line of the notes it shares the grid with' },
     '.ca-delta-row.is-lines': { set: 'line-height: 20px', why: 'a row’s lines added and removed, level with the name before it, whose line is taller' },
     '.ca-insp-actions .ca-devbadge': { set: 'font-size: 12px', why: 'a device’s badge among an inspector’s actions: a pixel over the badge’s own size, its height set by its 22px box' },
-    '.ca-devgroup-head .ca-devbadge': { set: 'font-size: 12px', why: 'a device’s badge heading its group in Settings › Devices: a pixel over the badge’s own size, its height set by its 20px box' },
     '.ca-acct-meters .ca-meter-value': { set: 'font-size: 20px; line-height: 20px', why: 'a usage meter’s figure in an account’s card: the meter’s face, smaller, on a line of its own size' },
     '.ca-side-update': { set: 'font-size: 12.5px; font-weight: 500', why: 'Restart to update, the sidebar’s one call to act: a size of its own between meta and body, on the sidebar’s line' },
     '.ca-md .ca-md-h': { set: 'font-weight: 600', why: 'a heading in an agent’s Markdown: semibold at the conversation’s size and on its 19px line, so it keeps the reading’s rhythm' },

@@ -11,17 +11,15 @@ interface DeviceBadgeProps {
   now: number;
   /** The whole name, after "On", as a panel shows it; rows show the short one. */
   full?: boolean;
-  /** The whole name alone, as a heading shows it. */
-  heading?: boolean;
 }
 
-export function DeviceBadge({ device, now, full, heading }: DeviceBadgeProps) {
+export function DeviceBadge({ device, now, full }: DeviceBadgeProps) {
   const away = !device.online;
   const title = `On ${device.name}${away ? (device.lastSeen ? `, away: as of ${agoPhrase(device.lastSeen, now)}` : ', away') : ''}`;
   return (
     <span className={away ? 'ca-devbadge is-away' : 'ca-devbadge'} title={title}>
       <i className={`ca-labeldot is-${device.color}`} aria-hidden="true" />
-      <span className="ca-devbadge-name">{heading ? device.name : full ? `On ${device.name}` : deviceLabel(device.name)}</span>
+      <span className="ca-devbadge-name">{full ? `On ${device.name}` : deviceLabel(device.name)}</span>
     </span>
   );
 }

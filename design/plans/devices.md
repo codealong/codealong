@@ -99,8 +99,9 @@ colored square and its name in a neutral chip, drawn as labels are, since the co
 device and not a status. This device's own work wears none. The color is yours to pick in
 Settings › Devices, kept with the link in `devices.json`; until you do, the device's key picks
 one, the same on every device. Work on a device that's away stays, faded, as it was when last
-seen. The sidebar lists your devices, each narrowing the views to itself, and Worktrees can
-group by device (By device), each device's worktrees in bays of their own under its name. A
+seen. The sidebar lists your devices, each narrowing the views to itself. (Worktrees could also
+group by device, each device's worktrees in bays of their own under its name, until 2026-10-09:
+it was the only view that could, so it went.) A
 session on another device says where it is in its panel instead of offering to open it here,
 and its reply box works only when that device takes remote control. Settings › Devices has the
 switches, what each transport is doing, the linked devices, the ones to link, and link codes.
