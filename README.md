@@ -745,9 +745,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   node, and turns back as the pointer leaves. With Reduce Motion on it only changes color. **In the notch**, the bar docks at the top of the screen instead:
   one black shape with the notch, dark whatever the theme, showing the mark on the camera's
   left and, on its right, everything that waits on you as one count: the sessions that need you,
-  the PRs that wait on your review and Your turn added up, drawn as what needs you (or a review)
-  with Your turn's dot tucked behind it when there are both, else what's working (a new one that
-  needs you pulses). Rest the pointer on it for a moment, or click it, and it opens down into the
+  the PRs that wait on your review and Your turn added up, drawn with the glyph of each kind in
+  it side by side, else what's working (a new one that needs you pulses); it's wide enough for all
+  three kinds and two digits. Rest the pointer on it for a moment, or click it, and it opens down into the
   bar's pills, with the project and each count on its own beside the camera;
   it closes a moment after the pointer leaves, and stays open while one of its
   menus is up. The pin at the end of its right side, or Keep the notch open in its right-click

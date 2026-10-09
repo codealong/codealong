@@ -2,7 +2,7 @@
 // screen, always dark whatever the theme. It shows one of three things. Closed, it's the notch
 // with a side on each hand: the mark on the left, and on the right everything that waits on you
 // as one count (the sessions that need you, the PRs that wait on your review and the turns that
-// ended, its glyph the kinds in it), else what's running. Pointing at it for a moment, or clicking
+// ended, drawn as the glyphs of the kinds in it), else what's running. Pointing at it for a moment, or clicking
 // it, opens it down into the bar's pills, with the project and each count on its own beside the
 // camera; it closes a moment after the pointer leaves, unless a menu is up or its pin keeps it
 // open. And a click opens it further, into a session under the pills, to read and answer
@@ -26,7 +26,7 @@ import { NOTCH, NOTCH_ORDER, notchClip, notchDragged, notchSizes, notchSum, type
 import type { Moment } from '../mark';
 import type { LogoStatus } from '../types';
 import { MarkLive } from './MarkLive';
-import { cx, Icon, StatusGlyph, WaitsGlyph, WaitsStack } from './primitives';
+import { cx, Icon, StatusGlyph, WaitsGlyph, WaitsGlyphs } from './primitives';
 import { readStored, writeStored, type Codec } from '../stored';
 import { zoomFactor } from '../zoom';
 
@@ -355,7 +355,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
             <div ref={right} className="ca-notch-side-in">
               {merged && (
                 <span key={`sum-${counts.needs}`} className={cx('ca-notch-count', 'ca-notch-sum', counts.needs > 0 && 'is-pulse')} title={merged.kinds.map((k) => countWords(k, counts[k])).join(', ')}>
-                  <WaitsStack waits={merged.glyphs} />
+                  <WaitsGlyphs waits={merged.kinds} />
                   <span>{merged.n}</span>
                 </span>
               )}

@@ -1,9 +1,8 @@
 // Checks the one count beside the closed notch's camera (Notch.tsx, bar.ts `notchSum`): what
-// waits on you of more than one kind shows closed as one count, the total, drawn as their glyphs
-// one tucked behind the other (what asks something of you in front, a turn that ended behind) and
-// saying each count in its tooltip, within the closed shape even at two digits; opening it shows
-// each count in its place; one kind alone is its own count closed, as before; and a review with
-// turns that ended draws the PR icon in front.
+// waits on you of more than one kind shows closed as one count, the total, drawn as each kind's
+// glyph side by side, none over another, and saying each count in its tooltip, within the closed
+// shape even with all three kinds and two digits; opening it shows each count in its place; and
+// one kind alone is its own count closed, as before.
 //   PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-sum-check.js
 (function () {
   var notch = function () { return document.querySelector('.ca-notch'); };
@@ -14,6 +13,7 @@
   var shown = function (el) { return el && Number(getComputedStyle(el).opacity) > 0.99; };
   var hidden = function (el) { return el && Number(getComputedStyle(el).opacity) < 0.01; };
   var lastShape = function () { var s = sent('notch_shape'); return s[s.length - 1]; };
+  var closedW = 185 + 2 * 66;
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
   var leave = function () { shape().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })); };
 
@@ -38,9 +38,17 @@
   };
   // The sum's glyphs, front first, by what they draw.
   var glyphs = function () {
-    return all('.ca-waitsstack > *', sum()).map(function (g) {
+    return all('.ca-waitsglyphs > *', sum()).map(function (g) {
       return g.classList.contains('ca-glyph-review') ? 'reviews' : (/ca-glyph--(\w+)/.exec(g.getAttribute('class')) || [])[1];
     }).join(',');
+  };
+
+  // Where each glyph is, and whether each starts after the one before it ends, give or take the
+  // point each takes of the other's room.
+  var spans = function () { return all('.ca-waitsglyphs > *', sum()).map(function (g) { var b = g.getBoundingClientRect(); return Math.round(b.left) + '–' + Math.round(b.right); }).join(' '); };
+  var apart = function () {
+    var parts = all('.ca-waitsglyphs > *', sum()).map(function (g) { return g.getBoundingClientRect(); });
+    return parts.every(function (p, i) { return i === 0 || p.left >= parts[i - 1].right - 1.5; });
   };
 
   say('notch sum check: waiting for it');
@@ -52,16 +60,13 @@
     })
     .then(function () {
       check('closed, what waits shows as one count', shown(sum()) && sum().textContent.trim() === '10', sum() && sum().textContent);
-      check('drawn as what needs you in front of a turn that ended', glyphs() === 'needs,unread', glyphs());
+      check('drawn as the glyph of each kind in it', glyphs() === 'needs,unread', glyphs());
       check('its tooltip says each', sum().title === '3 need you, 7 your turn', sum().title);
       check('the counts it adds up hide', counts().every(hidden), counts().map(function (c) { return getComputedStyle(c).opacity; }).join());
       var r = sum().getBoundingClientRect();
       var s = lastShape();
-      check('within the closed shape', s.w === 185 + 2 * 44 && r.right <= s.x + s.w - 2, Math.round(r.right) + ' of ' + (s.x + s.w));
-      // The cut-away glyph behind: masked, and set back under the one in front.
-      var parts = all('.ca-waitsstack > *', sum()).map(function (g) { return g.getBoundingClientRect(); });
-      check('the second tucked behind the first', parts[1].left < parts[0].right && parts[1].left > parts[0].left, parts.map(function (p) { return Math.round(p.left) + '–' + Math.round(p.right); }).join(' '));
-      check('cut away around the first', /radial-gradient/.test(getComputedStyle(q('.ca-waitsstack > * + *')).maskImage || getComputedStyle(q('.ca-waitsstack > * + *')).webkitMaskImage));
+      check('within the closed shape', s.w === closedW && r.right <= s.x + s.w - 2, Math.round(r.right) + ' of ' + (s.x + s.w));
+      check('none drawn over another', apart(), spans());
       enter();
       return until(isOpen, 1500, 'open').then(function () { return wait(600); });
     })
@@ -83,14 +88,15 @@
       return withCounts(0, 2, 0, 3);
     })
     .then(function () {
-      check('a review in front of turns that ended', shown(sum()) && glyphs() === 'reviews,unread' && sum().textContent.trim() === '5', glyphs() + ' ' + (sum() && sum().textContent));
+      check('a review and turns that ended', shown(sum()) && glyphs() === 'reviews,unread' && sum().textContent.trim() === '5', glyphs() + ' ' + (sum() && sum().textContent));
       check('saying the reviews first', sum().title === '3 PRs wait on your review, 2 your turn', sum().title);
-      return withCounts(12, 31, 0, 0);
+      return withCounts(12, 31, 0, 40);
     })
     .then(function () {
       var r = sum().getBoundingClientRect();
       var s = lastShape();
-      check('two digits fit the closed shape', sum().textContent.trim() === '43' && s.w === 185 + 2 * 44 && r.right <= s.x + s.w - 2, Math.round(r.right) + ' of ' + (s.x + s.w));
+      check('all three kinds, side by side', glyphs() === 'needs,reviews,unread' && apart(), glyphs() + ' ' + spans());
+      check('and two digits fit the closed shape', sum().textContent.trim() === '83' && s.w === closedW && r.right <= s.x + s.w - 4, Math.round(r.right) + ' of ' + (s.x + s.w));
     })
     .then(done)
     .catch(stopped);

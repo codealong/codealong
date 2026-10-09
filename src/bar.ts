@@ -115,8 +115,9 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
 
 // ---- The bar docked in the notch (Notch.tsx) ----
 
-/** The docked bar's measures, in points: each side beside the camera while it's closed, and how
- *  much wider it grows while the pointer is on it; the concave corners where it meets the menu
+/** The docked bar's measures, in points: each side beside the camera while it's closed, wide
+ *  enough for what waits of every kind as one count (three glyphs and two digits: `notchSum`),
+ *  and how much wider it grows while the pointer is on it; the concave corners where it meets the menu
  *  bar and its bottom corners, closed, with the pills showing and with a session under them; the
  *  padding around the pills; the session under them, `width` by `height` until you drag it to a
  *  size of your own, never narrower than `width` or shorter than `least`, nor wider than `widest`
@@ -124,7 +125,7 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
  *  the window keeps beside and under the shape for its shadow (app.css `--shadow-notch` reaches
  *  16 beside it and 30 under it). */
 export const NOTCH = {
-  wing: 44,
+  wing: 66,
   hover: 4,
   ear: { closed: 6, open: 14 },
   radius: { closed: 12, open: 22, session: 26 },
@@ -215,23 +216,17 @@ export const NOTCH_ORDER: NotchKind[] = [...WAITS, 'working'];
 
 /** Everything that waits on you, counted as one beside the closed notch's camera. */
 export interface NotchSum {
-  /** The kinds it adds up, most urgent first. */
+  /** The kinds it adds up, most urgent first, each drawn by its glyph. */
   kinds: Waits[];
-  /** What it's drawn as: one kind's glyph, or two, the second tucked behind the first. */
-  glyphs: Waits[];
   n: number;
 }
 
 /** What waits on you as one count: the sessions that need you, the PRs waiting on your review and
- *  the turns that ended, which is what the queue goes through; none when nothing does. Its glyph
- *  has two kinds at most, to fit beside the camera: what asks something of you (a session that
- *  needs you, else a review) in front, and a turn that ended behind it. */
+ *  the turns that ended, which is what the queue goes through; none when nothing does. */
 export function notchSum(counts: Record<NotchKind, number>): NotchSum | null {
   const kinds = WAITS.filter((k) => counts[k] > 0);
   if (kinds.length === 0) return null;
-  const asks = kinds.find((k) => k !== 'unread');
-  const glyphs: Waits[] = [...(asks ? [asks] : []), ...(counts.unread > 0 ? ['unread' as const] : [])];
-  return { kinds, glyphs, n: kinds.reduce((sum, k) => sum + counts[k], 0) };
+  return { kinds, n: kinds.reduce((sum, k) => sum + counts[k], 0) };
 }
 
 // ---- What the notch works through (NotchSession.tsx, NotchReview.tsx) ----

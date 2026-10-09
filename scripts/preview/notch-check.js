@@ -22,7 +22,7 @@
   };
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
   var leave = function () { shape().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })); };
-  var closedW = 185 + 2 * 44;
+  var closedW = 185 + 2 * 66;
 
   say('notch check: waiting for it');
   var windowAtStart;

@@ -129,7 +129,7 @@ describe('the bar docked in the notch', () => {
   });
 
   it('shows its pills as wide as they or the sides need, never narrower than closed', () => {
-    // 620 across, but as much wider on each side in whole points: 621, the closed 273 and 174 a side.
+    // 620 across, but as much wider on each side in whole points: 621, the closed 317 and 152 a side.
     expect(sizes({ w: 600, h: 24 }, 60).pills).toEqual({ w: 621, h: 32 + 24 + NOTCH.pad });
     expect(sizes({ w: 601, h: 24 }, 60).pills.w).toBe(621);
     // Wide sides beside the camera: room for each on its hand.
@@ -227,13 +227,11 @@ describe('the bar docked in the notch', () => {
     expect(session.radius).toBe(NOTCH.radius.session);
   });
 
-  it('counts everything that waits on you as one, its glyph two kinds at most', () => {
-    expect(notchSum({ needs: 3, reviews: 0, unread: 7, working: 1 })).toEqual({ kinds: ['needs', 'unread'], glyphs: ['needs', 'unread'], n: 10 });
-    expect(notchSum({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kinds: ['needs', 'reviews', 'unread'], glyphs: ['needs', 'unread'], n: 6 });
-    expect(notchSum({ needs: 2, reviews: 3, unread: 0, working: 5 })).toEqual({ kinds: ['needs', 'reviews'], glyphs: ['needs'], n: 5 });
-    expect(notchSum({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kinds: ['reviews', 'unread'], glyphs: ['reviews', 'unread'], n: 4 });
-    expect(notchSum({ needs: 2, reviews: 0, unread: 0, working: 5 })).toEqual({ kinds: ['needs'], glyphs: ['needs'], n: 2 });
-    expect(notchSum({ needs: 0, reviews: 0, unread: 1, working: 5 })).toEqual({ kinds: ['unread'], glyphs: ['unread'], n: 1 });
+  it('counts everything that waits on you as one, with the kinds in it', () => {
+    expect(notchSum({ needs: 3, reviews: 0, unread: 7, working: 1 })).toEqual({ kinds: ['needs', 'unread'], n: 10 });
+    expect(notchSum({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kinds: ['needs', 'reviews', 'unread'], n: 6 });
+    expect(notchSum({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kinds: ['reviews', 'unread'], n: 4 });
+    expect(notchSum({ needs: 2, reviews: 0, unread: 0, working: 5 })).toEqual({ kinds: ['needs'], n: 2 });
     expect(notchSum({ needs: 0, reviews: 0, unread: 0, working: 5 })).toBeNull();
   });
 });

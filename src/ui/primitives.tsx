@@ -117,11 +117,11 @@ export function WaitsGlyph({ waits }: { waits: Waits }) {
   return waits === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} className="ca-glyph-review" /> : <StatusGlyph status={waits} title="" />;
 }
 
-/** Waits of more than one kind counted as one (the closed notch): each kind's glyph tucked behind
- *  the one before it, cut away around it, so the first reads in front. */
-export function WaitsStack({ waits }: { waits: Waits[] }) {
+/** Waits of more than one kind counted as one (the closed notch): each kind's glyph, side by side
+ *  and closer than they are to the count, so they read as one. */
+export function WaitsGlyphs({ waits }: { waits: Waits[] }) {
   return (
-    <span className="ca-waitsstack" aria-hidden="true">
+    <span className="ca-waitsglyphs" aria-hidden="true">
       {waits.map((w) => (
         <WaitsGlyph key={w} waits={w} />
       ))}
