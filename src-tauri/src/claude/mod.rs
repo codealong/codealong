@@ -268,12 +268,10 @@ impl crate::harness::Adapter for ClaudeCode {
         if let Some((held, reg)) = waiting_hold(self, ctx, s) {
             return Some(held_pending(ctx, s, &held, &reg));
         }
-        let (call, _) = waiting_call(self, ctx, s)?;
-        let cannot = match crate::launch::terminal_kind(s.pid?) {
-            Some(k) if k.presses_keys() => None,
-            Some(k) => Some(format!("{} can't press a single key for Codealong. Open it to answer.", k.name())),
-            None => Some(format!("It isn't in a terminal Codealong can press keys in ({}).", crate::launch::presses_keys_in())),
-        };
+        let (call, reg) = waiting_call(self, ctx, s)?;
+        // A background job's prompt is answered through its account's background service, as a
+        // held message is; a terminal's, by a key pressed there.
+        let cannot = cannot_press(ctx, &reg);
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
@@ -301,7 +299,7 @@ impl crate::harness::Adapter for ClaudeCode {
         if asks::is_ask_id(id) {
             anyhow::bail!("It isn't waiting on that any more.");
         }
-        let Some((call, pid)) = waiting_call(self, ctx, s) else {
+        let Some((call, reg)) = waiting_call(self, ctx, s) else {
             anyhow::bail!("It isn't waiting on a permission prompt any more.");
         };
         if call.id.as_deref() != Some(id) {
@@ -318,10 +316,19 @@ impl crate::harness::Adapter for ClaudeCode {
             crate::harness::Answer::Deny => crate::launch::Key::Escape,
             crate::harness::Answer::Always => anyhow::bail!("Claude Code's prompt in a terminal is answered here with Allow or Deny only."),
         };
-        let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
-            anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
-        };
-        crate::launch::press_key(&host, key)?;
+        if reg.kind.as_deref() == Some("bg") {
+            // A background job has no terminal of its own: the key is typed into the one its
+            // account's background service keeps for it, as `claude attach` would.
+            let home = ctx.account.home_path();
+            let job = reg.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+            let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+            daemon_type(&socket, &home.join("daemon/control.key"), job, &[key.typed().as_bytes()])?;
+        } else {
+            let Some(host) = crate::launch::terminal_host(reg.pid, Path::new(&s.cwd))? else {
+                anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
+            };
+            crate::launch::press_key(&host, key)?;
+        }
         Ok(match answer {
             crate::harness::Answer::Allow | crate::harness::Answer::Always => format!("Allowed {}.", call.text),
             crate::harness::Answer::Deny => format!("Denied {}; it stops and waits for you.", call.text),
@@ -1241,20 +1248,92 @@ fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) 
 /// The tool call a session's permission prompt is about, with its process: only while Claude
 /// Code's own record of the session says it's waiting on a permission prompt, and the call is
 /// the last one in its transcript with no result yet.
-fn waiting_call(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<(Item, u32)> {
+fn waiting_call(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<(Item, RegistryEntry)> {
     waiting_on(a, ctx, s, PERMISSION_PROMPT)
 }
 
 /// The call a live session's prompt is up for, when its registry says it waits `for` that
-/// (a "permission prompt", or "input needed" for questions), and its process.
-fn waiting_on(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, what: &str) -> Option<(Item, u32)> {
-    let pid = s.pid?;
-    if !registry_of(&ctx.account.home_path(), pid).is_some_and(|r| r.session_id == s.id && r.waits_on(what)) {
-        return None;
-    }
+/// (a "permission prompt", or "input needed" for questions), and its registry entry, which says
+/// where it runs.
+///
+/// The call is the last in the session's transcript with no result yet; with none there, it's a
+/// background helper's (a subagent run in the background, whose prompt shows in its session once
+/// the plugin's hook has let it go), when one helper's is plainly the one (`helper_waiting`).
+fn waiting_on(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, what: &str) -> Option<(Item, RegistryEntry)> {
+    let home = ctx.account.home_path();
+    let reg = registry_of(&home, s.pid?).filter(|r| r.session_id == s.id && r.waits_on(what))?;
     let page = crate::transcript::file_page(&record(a, ctx, s).ok()?, conversation_items, None, 40).ok()?;
-    let call = crate::transcript::open_tools(&page.items).last().copied()?;
-    Some((call.clone(), pid))
+    if let Some(call) = crate::transcript::open_tools(&page.items).last() {
+        return Some(((*call).clone(), reg));
+    }
+    let call = helper_waiting(&helper_logs(&home, &s.id), reg.status_updated_at?)?;
+    Some((call, reg))
+}
+
+/// A session's helpers' logs (`<session>/subagents/agent-*.jsonl`), in whichever of its
+/// account's projects Claude Code wrote them: a helper's goes under the folder the session was
+/// working in as it started the helper, which needn't be where its own transcript is (a session
+/// that went on into a worktree).
+fn helper_logs(home: &Path, session_id: &str) -> Vec<PathBuf> {
+    let Ok(projects) = std::fs::read_dir(home.join("projects")) else { return Vec::new() };
+    projects
+        .flatten()
+        .filter_map(|p| std::fs::read_dir(p.path().join(session_id).join("subagents")).ok())
+        .flat_map(|logs| logs.flatten().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("jsonl"))
+        .collect()
+}
+
+/// How long before its session said it waits a helper's call can have been made and still be
+/// the one the prompt is for: the prompt waits a few seconds for the plugin's hook first. A call
+/// made longer before is a command still running.
+const HELPER_PROMPT_MS: i64 = 60_000;
+
+/// The call a helper's permission prompt is up for, its line saying whose: only when it's
+/// plainly the one, since a key pressed for it answers whatever prompt is up. That's when one
+/// helper's log, and only one, ends with a call that has no result, made within
+/// `HELPER_PROMPT_MS` before the session said it waits (`waiting_since`); another helper's call
+/// open then could as well be a command it's running.
+fn helper_waiting(logs: &[PathBuf], waiting_since: i64) -> Option<Item> {
+    let mut open = Vec::new();
+    for log in logs {
+        // A log not written to since well before can't hold the call.
+        let fresh = std::fs::metadata(log).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).is_some_and(|t| t.as_millis() as i64 >= waiting_since - HELPER_PROMPT_MS);
+        if !fresh {
+            continue;
+        }
+        let Ok(page) = crate::transcript::file_page(log, helper_items, None, 20) else { continue };
+        let Some(last) = page.items.last().filter(|i| i.kind == "tool") else { continue };
+        if !crate::transcript::open_tools(&page.items).iter().any(|c| c.id == last.id) {
+            continue;
+        }
+        if last.at < waiting_since - HELPER_PROMPT_MS || last.at > waiting_since {
+            continue;
+        }
+        let whose = helper_name(log).map(|n| format!(" · its helper “{n}”")).unwrap_or_else(|| " · one of its helpers".into());
+        open.push(Item { text: format!("{}{whose}", last.text), ..last.clone() });
+    }
+    (open.len() == 1).then(|| open.remove(0))
+}
+
+/// A helper's log line as conversation items. Every line of a helper's own log says it's a
+/// sidechain, which a session's transcript reading leaves out (`conversation_items`).
+fn helper_items(v: &Value, at: i64) -> Vec<Item> {
+    if v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
+        return conversation_items(v, at);
+    }
+    let mut main = v.clone();
+    if let Some(line) = main.as_object_mut() {
+        line.remove("isSidechain");
+    }
+    conversation_items(&main, at)
+}
+
+/// What a helper was started to do, from the `.meta.json` beside its log.
+fn helper_name(log: &Path) -> Option<String> {
+    let meta = log.with_extension("meta.json");
+    let v: Value = serde_json::from_slice(&std::fs::read(meta).ok()?).ok()?;
+    v.get("description").and_then(Value::as_str).filter(|d| !d.is_empty()).map(String::from)
 }
 
 /// How the id of a held message's request starts: the held line's uuid follows.
@@ -1425,6 +1504,45 @@ mod tests {
         assert!(!r.answers.contains_key("Blank"));
         registry("input needed");
         assert!(ClaudeCode.pending(&ctx, &session).is_none(), "nothing waits once it's answered");
+    }
+
+    /// A background helper's prompt shows in its session, its call only in the helper's own log,
+    /// which can be under another project's folder than the session's transcript. It's taken as
+    /// the one only when nothing else could be: a key pressed for it answers whatever is up.
+    #[test]
+    fn a_background_helpers_prompt_is_found_in_its_log_when_its_plainly_the_one() {
+        let home = crate::fixtures::scratch("claude-helpers");
+        let logs_in = |project: &str| {
+            let dir = home.join("projects").join(project).join("s1").join("subagents");
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        };
+        let (worktree, own) = (logs_in("-Users-me-app--claude-worktrees-mail"), logs_in("-Users-me-app"));
+        // Every line of a helper's log is a sidechain.
+        let call = |id: &str, at: &str, command: &str| serde_json::json!({ "type": "assistant", "isSidechain": true, "timestamp": at, "message": { "content": [{ "type": "tool_use", "id": id, "name": "Bash", "input": { "command": command } }] } }).to_string();
+        let result = |id: &str, at: &str| serde_json::json!({ "type": "user", "isSidechain": true, "timestamp": at, "message": { "content": [{ "type": "tool_result", "tool_use_id": id, "content": "ok" }] } }).to_string();
+        let write = |path: &Path, lines: &[String]| std::fs::write(path, lines.join("\n") + "\n").unwrap();
+        let cli = worktree.join("agent-a1.jsonl");
+        std::fs::write(worktree.join("agent-a1.meta.json"), r#"{"agentType":"fork","description":"Build the CLI","requestShape":"background"}"#).unwrap();
+        write(&cli, &[call("t1", "2026-10-08T23:39:40Z", "ls"), result("t1", "2026-10-08T23:39:41Z"), call("t2", "2026-10-08T23:39:53Z", "python3 edit.py")]);
+        let ui = own.join("agent-b2.jsonl");
+        write(&ui, &[call("u1", "2026-10-08T23:39:00Z", "npm test"), result("u1", "2026-10-08T23:39:30Z")]);
+        let waiting = parse_rfc3339_ms("2026-10-08T23:40:06Z").unwrap();
+        let logs = helper_logs(&home, "s1");
+        assert_eq!(logs.len(), 2, "both folders' helpers");
+        // One helper ends on a call with no result, made a moment before the prompt showed.
+        let found = helper_waiting(&logs, waiting).unwrap();
+        assert_eq!((found.id.as_deref(), found.text.as_str()), (Some("t2"), "Bash · `python3 edit.py` · its helper “Build the CLI”"));
+        // Made long before the session said it waits, it's a command still running.
+        assert!(helper_waiting(&logs, waiting + 10 * 60_000).is_none());
+        // Two helpers on calls with no result: either could be the one, so neither is.
+        write(&ui, &[call("u1", "2026-10-08T23:40:00Z", "npm test")]);
+        assert!(helper_waiting(&logs, waiting).is_none());
+        // A helper that went on after its call isn't waiting on it.
+        write(&ui, &[call("u1", "2026-10-08T23:39:00Z", "npm test"), result("u1", "2026-10-08T23:39:30Z")]);
+        write(&cli, &[call("t2", "2026-10-08T23:39:53Z", "python3 edit.py"), serde_json::json!({ "type": "assistant", "isSidechain": true, "timestamp": "2026-10-08T23:39:59Z", "message": { "content": [{ "type": "text", "text": "Done." }] } }).to_string()]);
+        assert!(helper_waiting(&logs, waiting).is_none());
+        assert!(helper_logs(&home, "s2").is_empty());
     }
 
     #[test]

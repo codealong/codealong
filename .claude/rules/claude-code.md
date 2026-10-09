@@ -27,7 +27,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   a clock and "Waiting on `<command>`" (`Session::waits_in_background`, `lanes.ts`
   `waitsInBackground`): a CI watch looked like a stuck turn behind the spinner (2026-10-07).
 - Transcripts, `<home>/projects/<encoded cwd>/<session>.jsonl`, subagents' logs,
-  `<session>/subagents/agent-*.jsonl` (the same format), the `ai-title` lines and `gitBranch`
+  `<session>/subagents/agent-*.jsonl` (the same format, every line `isSidechain: true`, with an
+  `agent-*.meta.json` beside each: `description`, `requestShape: "background"` for one run in
+  the background), the `ai-title` lines and `gitBranch`
   fields that repeat through them, and their deletion after about 30 days:
   `claude/transcript.rs` (module header, `TranscriptInfo`, `apply_tail`), `claude/mod.rs`
   (`subagent_logs`), `origins.rs` (`KEEP_MS`).
@@ -333,7 +335,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   gets `cwd` and `permission_mode`, but no tool-use id, and its process is a child of the
   session's. Answered at the prompt, the hook's process is left running until its `timeout`
   (default 600 s). The decision goes in
-  `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":…}}`; an allow shows
+  `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":…}}`. Once the hook
+  lets a background subagent's request go, its prompt shows in its session, which the registry
+  then says waits on a permission prompt, while the call is only in the subagent's own log, under
+  the project of the folder the session was in when it started the subagent (a session gone on
+  into a worktree writes them there): `claude/mod.rs` finds it there when plainly the one and
+  answers it with the same keys, a background job's typed through its daemon (`waiting_on`,
+  `helper_logs`, `helper_waiting`; reproduced and allowed in a `--bg` Haiku job, 2.1.295,
+  2026-10-08). An allow shows
   "Allowed by PermissionRequest hook", and a `setMode` suggestion in `updatedPermissions`
   switches the session's mode. A deny with `"interrupt":true` ends the turn as the prompt's No
   does; without `interrupt` the turn goes on, the message being the call's result as given: the
