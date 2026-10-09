@@ -1,15 +1,17 @@
 // The Sessions view: every session in the project in one list, pinned ones first in your order
 // and marked with a pin. The rest go by status, as the floating bar orders them, or by when they
-// started. Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder; drag any session up among them
-// to pin it there, a pinned one down to unpin it, and any out of the window to pin it to the
-// desktop (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze,
+// started, as the bar over the list picks, which also picks two lines a row or one
+// (`SessionsBar`). Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder; drag any session up
+// among them to pin it there, a pinned one down to unpin it, and any out of the window to pin it
+// to the desktop (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze,
 // close, mark done or archive together (picks.ts, SessionPickPanel.tsx).
 
+import { useId } from 'react';
 import { bySession, byStatusTime, startedOf } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { DesktopPinned, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
-import { SectionHeader } from './primitives';
+import { SectionHeader, Seg } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface SessionItem {
@@ -88,6 +90,24 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
     .filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status)))
     .sort((a, b) => day(a) - day(b) || bySession(a.session, b.session));
   return [...attention, ...snoozed, ...rest];
+}
+
+/** The bar over the list, outside its listbox: how the list is sorted and how much each row
+ *  says. It stays at the top while the list scrolls under it. */
+export function SessionsBar({ sort, onSort, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; lines: SessionRows; onLines: (lines: SessionRows) => void }) {
+  const id = useId();
+  return (
+    <div className="ca-sessionbar" role="toolbar" aria-label="How Sessions is listed">
+      <span className="ca-sessionbar-label" id={`${id}-sort`}>
+        Sort by
+      </span>
+      <Seg className="ca-sessionbar-seg" labelledBy={`${id}-sort`} options={SESSION_SORTS} value={sort} onPick={onSort} />
+      <span className="ca-sessionbar-label" id={`${id}-rows`}>
+        Rows
+      </span>
+      <Seg className="ca-sessionbar-seg" labelledBy={`${id}-rows`} options={SESSION_ROWS} value={lines} onPick={onLines} />
+    </div>
+  );
 }
 
 interface SessionsViewProps {

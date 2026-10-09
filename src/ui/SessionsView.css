@@ -1,4 +1,4 @@
-/* The Sessions view (SessionsView.tsx): archived rows, pinned rows and pin marks. */
+/* The Sessions view (SessionsView.tsx): the bar over the list, archived rows, pinned rows and pin marks. */
 
 .ca-archived .ca-lane {
   opacity: 0.8;
@@ -15,4 +15,45 @@
 }
 .ca-sessionlist .ca-pinmark path:first-child {
   fill: currentColor;
+}
+
+/* The bar over the list (`SessionsBar`): how it's sorted and how much a row says, each a group of
+   buttons after its name. It's drawn as the strip over a session's panel is, on sunken ground,
+   and stays at the top of the board while the list scrolls under it. As tall as that strip (31px
+   with its line), so the two lines meet across the window. Short of room, the second group goes
+   to a line of its own. */
+.ca-sessionbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-listbar);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: 3px var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+.ca-sessionbar-label {
+  color: var(--ink-3);
+  font: var(--type-caption);
+}
+.ca-sessionbar-seg + .ca-sessionbar-label {
+  margin-left: var(--space-3);
+}
+.ca-sessionbar .ca-segctl button {
+  height: 20px;
+  padding: 0 var(--space-2);
+  font: var(--type-caption-strong);
+}
+/* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height. */
+.ca-board:has(> .ca-sessionbar) {
+  scroll-padding-top: 31px;
+}
+/* The list starts right under the bar, whose line is its top edge. */
+.ca-bayblock.ca-sessionlist {
+  margin-top: 0;
+}
+.ca-sessionlist > .ca-bay-lanes {
+  border-top: 0;
 }

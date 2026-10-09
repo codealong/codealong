@@ -38,7 +38,7 @@ import { usePrLinks } from './ui/PrLink';
 import { mayApprove } from './prStatus';
 import { PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { SESSION_ROWS, SESSION_SORTS, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
+import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
 import { TodoComposer, TodoView } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
@@ -1365,12 +1365,6 @@ export function App() {
           age={age}
           ageApplies={ageApplies}
           onAge={(id) => setAge(id as Age)}
-          sorts={view === 'sessions' ? SESSION_SORTS : null}
-          sort={sessionSort}
-          onSort={(id) => setSessionSort(id as SessionSort)}
-          rowStyles={view === 'sessions' ? SESSION_ROWS : null}
-          rowStyle={sessionLines}
-          onRowStyle={(id) => setSessionLines(id as SessionRows)}
           statuses={sideStatuses}
           filter={bayFilter}
           onFilter={toggleBay}
@@ -1398,6 +1392,7 @@ export function App() {
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
         <main className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
+          {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
           {devices?.asks.map((a) => (
             <div key={a.key} className="ca-device-banner" role="alert">
               <Icon name="device-desktop" size={14} />

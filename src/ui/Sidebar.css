@@ -112,17 +112,12 @@
   font: var(--type-caption);
   color: var(--ink-3);
 }
-.ca-segctl.ca-side-ages,
-.ca-segctl.ca-side-sorts {
+.ca-segctl.ca-side-ages {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 2px 8px 0;
 }
-.ca-segctl.ca-side-sorts {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.ca-side-ages button,
-.ca-side-sorts button {
+.ca-side-ages button {
   justify-content: center;
   padding: 0;
 }

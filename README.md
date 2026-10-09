@@ -46,13 +46,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Sessions**: every session in one list, with no headings. Pinned ones come first in your
     order (drag or ⌃⌘↑ ⌃⌘↓), each with a pin under its age, set a little apart from the rest.
     Drag any session up among them to pin it there, and a pinned one down to the rest to unpin it.
-    The sidebar's Sort by orders the rest. Status puts Needs you, Your turn and Working first, as
-    the floating bar orders them, then the ones you snoozed, the soonest back first, then the
+    Sort by, in the bar over the list, orders the rest. Status puts Needs you, Your turn and
+    Working first, as the floating bar orders them, then the ones you snoozed, the soonest back first, then the
     rest by the day they were last active, the one you last sent a prompt first. Started puts the
     newest session first, and each row's age then says when it started. A row leads with the session's title, then what it's doing or said last; one that
     needs you has a label beside its title for what it waits on (Asks you, Needs approval,
     Message, Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
-    then its account, with the worktree's PR and diff at the right. The sidebar's Rows puts
+    then its account, with the worktree's PR and diff at the right. Rows, beside Sort by, puts
     each session on one line instead (its title, then its worktree and PR at the line's end);
     there its status says its account when you point at it. A snoozed session's row says how
     long until it's back, and a quiet one's says Quiet. Here letters alone

@@ -1,6 +1,7 @@
 // Checks the Sessions list (SessionsView.tsx, App.tsx): one list with no headings, pinned rows
-// first, each with its pin, and a drag still reorders them; the sidebar's Sort by switches
-// between status and start, remembers it, and shows only in Sessions.
+// first, each with its pin, and a drag still reorders them; Sort by, in the bar over the list,
+// switches between status and start and remembers it. The bar stays at the top as the list
+// scrolls, and shows only in Sessions; the sidebar has no Sort by.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
 // It pins three of the shown project's latest sessions itself, in place of yours.
 (function () {
@@ -26,7 +27,7 @@
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessionlist .ca-lane')); };
   var ids = function () { return rows().map(function (r) { return r.id; }).join(','); };
   var sortButton = function (label) {
-    return Array.prototype.filter.call(document.querySelectorAll('.ca-side-sorts button'), function (b) { return b.textContent === label; })[0];
+    return Array.prototype.filter.call(document.querySelectorAll('.ca-sessionbar button'), function (b) { return b.textContent === label; })[0];
   };
   var nav = function (label) {
     return Array.prototype.filter.call(document.querySelectorAll('.ca-side .ca-nav'), function (b) { var l = b.querySelector('.ca-nav-label'); return l && l.textContent === label; })[0];
@@ -37,6 +38,22 @@
   say('session sort check: waiting for the board');
   until(function () { return rows().length > 0; }, 20000)
     .then(function () {
+      var bar = document.querySelector('.ca-sessionbar');
+      check('the bar is over the list, outside it', !!bar && !bar.closest('[role="listbox"]') && bar.getBoundingClientRect().bottom <= rows()[0].getBoundingClientRect().top + 1);
+      var sideLabels = Array.prototype.map.call(document.querySelectorAll('.ca-side .ca-side-label'), function (l) { return l.textContent; });
+      check('the sidebar has no Sort by or Rows', sideLabels.indexOf('Sort by') < 0 && sideLabels.indexOf('Rows') < 0, sideLabels.join(' | '));
+      // Stuck to the top of the board as the list scrolls: layout places it, so no frame is needed.
+      var board = document.querySelector('.ca-board');
+      board.scrollTop = 400;
+      var stuck = board.scrollTop === 0 || Math.abs(bar.getBoundingClientRect().top - board.getBoundingClientRect().top) < 1;
+      check('the bar stays at the top as the list scrolls', stuck, 'scrolled ' + board.scrollTop + ', bar ' + Math.round(bar.getBoundingClientRect().top) + ', board ' + Math.round(board.getBoundingClientRect().top));
+      // A row scrolled to from below, as the keyboard's ↑ scrolls to it (App.tsx), shows whole under the bar.
+      var second = rows()[1];
+      if (board.scrollTop > 0 && second) {
+        second.scrollIntoView({ block: 'nearest' });
+        check('a row scrolled to shows under the bar, not behind it', second.getBoundingClientRect().top >= bar.getBoundingClientRect().bottom - 1, 'row ' + Math.round(second.getBoundingClientRect().top) + ', bar ends ' + Math.round(bar.getBoundingClientRect().bottom));
+      }
+      board.scrollTop = 0;
       var headings = Array.prototype.filter.call(document.querySelectorAll('.ca-board .ca-bay'), function (h) { return !h.closest('.ca-archived'); });
       check('no headings over the list', headings.length === 0, headings.map(function (h) { return h.textContent; }).join(' | '));
       var all = rows();
@@ -87,7 +104,7 @@
       return until(function () { return !document.querySelector('.ca-sessionlist'); }, 2000);
     })
     .then(function () {
-      check('Sort by shows only in Sessions', !document.querySelector('.ca-side-sorts'));
+      check('the bar shows only in Sessions', !document.querySelector('.ca-sessionbar'));
     })
     .then(done)
     .catch(stopped);

@@ -91,7 +91,7 @@
     });
   };
 
-  var rowsButton = function (label) { return all('.ca-side-rows button').filter(function (b) { return b.textContent === label; })[0]; };
+  var rowsButton = function (label) { return all('.ca-sessionbar button').filter(function (b) { return b.textContent === label; })[0]; };
   var sessionRows = function () { return all('.ca-sessionlist .ca-lane.is-agent').filter(shown); };
   var sessions = function () {
     var rows = sessionRows();
@@ -136,7 +136,7 @@
     .then(function () {
       var label = document.querySelector('[role="listbox"]').getAttribute('aria-label');
       report(label);
-      check('Rows shows only in Sessions', !!document.querySelector('.ca-side-rows') === (label === 'Sessions'));
+      check('Rows shows only in Sessions', !!document.querySelector('.ca-sessionbar') === (label === 'Sessions'));
       return label === 'Sessions' ? sessions() : rightClicks();
     })
     .catch(function (e) { check('ran', false, String(e)); })

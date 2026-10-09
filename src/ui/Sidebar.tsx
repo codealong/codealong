@@ -1,6 +1,6 @@
 // The sidebar: what the window shows and what narrows it. The view, the devices, how recently
-// things were active, how Sessions is sorted and drawn, their statuses and views you saved, above
-// Settings. Devices and statuses toggle, any number of each: none picked shows all. Collapsed
+// things were active, their statuses and views you saved, above Settings. How Sessions is sorted
+// and drawn is the bar over its list (SessionsView.tsx `SessionsBar`). Devices and statuses toggle, any number of each: none picked shows all. Collapsed
 // it's a rail of the views and devices, whose filter button carries a badge while a filter
 // narrows the view. The project stays in the switcher at top left.
 
@@ -29,9 +29,6 @@ export interface SideAge {
   label: string;
   title: string;
 }
-
-/** A way to order a view's rows. */
-export type SideSort = SideAge;
 
 export interface SideStatus {
   id: Filter;
@@ -64,14 +61,6 @@ interface SidebarProps {
   /** Todo and Canvas show everything, whatever its age. */
   ageApplies: boolean;
   onAge: (id: string) => void;
-  /** The orders the view offers (Sessions: by status or by start); null where it has one. */
-  sorts: SideSort[] | null;
-  sort: string;
-  onSort: (id: string) => void;
-  /** How the view's rows can be drawn (Sessions: on two lines or one); null where there's one way. */
-  rowStyles: SideSort[] | null;
-  rowStyle: string;
-  onRowStyle: (id: string) => void;
   statuses: SideStatus[];
   filter: readonly Filter[];
   /** Picks a status, or unpicks it. */
@@ -162,18 +151,6 @@ function Open(p: SidebarProps) {
           disabled={!p.ageApplies}
           onPick={p.onAge}
         />
-        {p.sorts && (
-          <>
-            <div className="ca-label ca-side-label">Sort by</div>
-            <Seg className="ca-side-sorts" label="Sort by" options={p.sorts} value={p.sort} onPick={p.onSort} />
-          </>
-        )}
-        {p.rowStyles && (
-          <>
-            <div className="ca-label ca-side-label">Rows</div>
-            <Seg className="ca-side-sorts ca-side-rows" label="Rows" options={p.rowStyles} value={p.rowStyle} onPick={p.onRowStyle} />
-          </>
-        )}
         <SideLabel label="Status" onClear={p.filter.length > 0 ? p.onClearFilters : undefined} />
         <div className="ca-side-chips">
           {p.statuses.map((s) => (
