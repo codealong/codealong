@@ -1,13 +1,14 @@
 // Running a command from a session's conversation: a button beside a shell block's Copy that types
 // its commands into a new terminal (runcode.rs), in the folder the session works in or the one the
-// command ran in, and says for a moment that it did. A block led by `!` is a command for the
-// session's own shell, as an agent writes one for you to run there: it goes to the session as if
-// typed in its box, where Claude Code runs it and its agent reads what it prints (send.rs
-// `shell_command`), when Codealong types into that box; otherwise it runs in a new terminal too,
-// without the `!`.
+// command ran in, and says for a moment that it did. A block with no language is a shell block
+// when each of its lines starts with a command this Mac has (`isCommandBlock`), as agents often
+// write one for you to run. A block led by `!` is a command for the session's own shell, as an
+// agent writes one for you to run there: it goes to the session as if typed in its box, where
+// Claude Code runs it and its agent reads what it prints (send.rs `shell_command`), when
+// Codealong types into that box; otherwise it runs in a new terminal too, without the `!`.
 
 import { createContext, useEffect, useState } from 'react';
-import { runInTerminal } from '../api';
+import { runInTerminal, shellCommands } from '../api';
 import { tildePath } from '../format';
 import { SHELL_IN_BOX } from '../harness';
 import type { Lane, Session, Way } from '../types';
@@ -54,6 +55,63 @@ export function sessionCommand(text: string): string {
 export function terminalCommand(text: string): string {
   const t = text.trimStart();
   return t.startsWith('!') ? t.slice(1).trimStart() : text;
+}
+
+/** A word that sets a variable for the command after it: `NODE_ENV=test npm test`. */
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/;
+/** A command's name, ended by a space, the line's end or what joins it to the next command. A
+ *  path isn't one: a block that starts with one is as often a file named as a program run. */
+const NAME = /^([A-Za-z0-9_][A-Za-z0-9._+-]*)(?=$|[\s;&|<>])/;
+/** A line the next one carries on: an escaped newline, or a pipe or `&&` left open. */
+const CARRIES_ON = /(\\|\||&&)$/;
+
+/** Whether a block that doesn't say it's shell is commands all the same: each of its lines,
+ *  past comments and blank ones and those a line before carries on into, starts with a command
+ *  in `known` (runcode.rs `commands`). Output, a path or a config file doesn't, nor a command
+ *  shown with what it printed. */
+export function isCommandBlock(text: string, known: ReadonlySet<string>): boolean {
+  let commands = 0;
+  let carried = false;
+  for (const line of text.split('\n')) {
+    const t = line.trim();
+    if (carried) {
+      carried = CARRIES_ON.test(t);
+      continue;
+    }
+    if (!t || t.startsWith('#')) continue;
+    let rest = t;
+    while (ASSIGNMENT.test(rest)) rest = rest.replace(ASSIGNMENT, '');
+    const name = NAME.exec(rest)?.[1];
+    if (!name || !known.has(name)) return false;
+    commands++;
+    carried = CARRIES_ON.test(t);
+  }
+  return commands > 0;
+}
+
+// One ask for every block in a window, again once the answer is a minute old: a program the
+// agent had you install shows up for the blocks after it.
+let asked: { at: number; known: Promise<ReadonlySet<string>> } | null = null;
+
+/** What a new terminal's shell takes as a command's first word, once the engine has said, when
+ *  `wanted`. */
+export function useShellCommands(wanted: boolean): ReadonlySet<string> | null {
+  const [known, setKnown] = useState<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    if (!wanted) return;
+    if (!asked || Date.now() - asked.at > 60_000) {
+      // A failed ask leaves such blocks with Copy alone, as they were before Run guessed at them.
+      asked = { at: Date.now(), known: shellCommands().then((names) => new Set(names), () => new Set<string>()) };
+    }
+    let live = true;
+    void asked.known.then((k) => {
+      if (live) setKnown(k);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wanted]);
+  return known;
 }
 
 export function RunButton({ text, target, onFailed }: { text: string; target: RunTarget; onFailed: (why: string | null) => void }) {

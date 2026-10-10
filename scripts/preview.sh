@@ -125,6 +125,7 @@ if [ "$prepare" != skip ]; then
   "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
   "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
   "$bin" --snapshot --editor-icons >"$dir/editor-icons.json" 2>/dev/null
+  "$bin" --snapshot --shell-commands >"$dir/shell-commands.json" 2>/dev/null
   # The skills of every worktree on the board, for the `/` lists.
   python3 -c 'import json, sys; sys.stdout.write("\0".join(sorted({l["path"] for l in json.load(open(sys.argv[1]))["lanes"] if not l.get("device")})))' "$dir/board.json" 2>/dev/null |
     xargs -0 "$bin" --snapshot --skills >"$dir/skills.json" 2>/dev/null

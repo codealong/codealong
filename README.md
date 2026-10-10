@@ -207,7 +207,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     input and output once you've opened it. Code blocks have Copy on hover, and a shell block in a
     reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
     terminal where the session works, or where the command ran, and types the commands there
-    without their comments. A block led by `!`, which an agent writes for you to run in the
+    without their comments. A block with no language counts as shell when each of its lines
+    starts with a command on your PATH (`git`, `npm`, `cd`…), so output, a path or a config file
+    keeps Copy alone. A block led by `!`, which an agent writes for you to run in the
     session itself, runs there instead: Run sends it to a Claude Code session in its terminal or
     in the background as a reply, where Claude Code runs it in its shell and its agent reads what
     it printed, and anywhere else opens a terminal for it without the `!`. A command run that
@@ -1149,7 +1151,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going: its harness's ways in tried in order, typing into its terminal and resuming it (`start::resume`), a way of the harness's own by its module (`send::Own`) |
-| `src-tauri/src/runcode.rs`, `src/ui/RunButton.tsx` | Run on a code block: the lines of a shell block to type into a new terminal (comments out, here-documents and quoted text whole), and the button |
+| `src-tauri/src/runcode.rs`, `src/ui/RunButton.tsx` | Run on a code block: the lines of a shell block to type into a new terminal (comments out, here-documents and quoted text whole), the commands on the PATH that make a block with no language one, and the button |
 | `src-tauri/src/peers.rs`, `peerfeed.rs` | Your other devices: links, connections, and the feed of worktrees and sessions sent a change at a time; `design/plans/devices.md` has the reasoning |
 | `src-tauri/peer/` | codealong-peer, what goes between devices: the protocol (each side proves its device key), link codes and iroh, feeds, the requests and their answers, the worktree and session model, and a device that only watches. The iPhone app ([codealong-ios](https://github.com/codealong/codealong-ios)) builds on it; `design/plans/ios.md` has the plan |
 | `src-tauri/src/tailnet.rs`, `devicekey.rs` | Reaching them on your tailnet through Tailscale's command (iroh is in codealong-peer), and this device's key in the keychain |

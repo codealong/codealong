@@ -189,6 +189,13 @@ export async function runInTerminal(cwd: string, text: string): Promise<void> {
   await invoke('run_in_terminal', { cwd, text });
 }
 
+/** What a new terminal's shell takes as a command's first word: the programs on its PATH and a
+ *  few of the shell's own (runcode.rs `commands`). */
+export async function shellCommands(): Promise<string[]> {
+  if (!inTauri) return [];
+  return (await invoke<string[] | null>('shell_commands')) ?? [];
+}
+
 /** Opens a project in a window of its own, or brings that window forward; with `another`
  *  (File › New window), always opens one more. */
 export async function openProjectWindow(project: string, another = false): Promise<void> {

@@ -213,12 +213,66 @@ fn heredoc(b: &[u8], at: usize, heredocs: &mut VecDeque<Heredoc>) -> usize {
     i.min(b.len())
 }
 
+/// Commands of the shell's own that a block may start with and that aren't programs on every
+/// Mac's PATH; zsh, bash and fish each take them.
+const BUILTINS: &[&str] = &["alias", "cd", "eval", "exec", "export", "popd", "pushd", "set", "source", "type", "ulimit", "umask", "unset"];
+
+/// What a new terminal's shell takes as the first word of a command: the programs on its PATH,
+/// and `BUILTINS`. A block in a reply with no language gets Run when each of its lines starts with
+/// one of these (RunButton.tsx `isCommandBlock`), so a command an agent didn't mark as shell
+/// still runs, and output, a path or a config file doesn't.
+pub fn commands() -> Vec<String> {
+    commands_on(crate::procs::login_path().unwrap_or_else(crate::procs::user_path))
+}
+
+fn commands_on(path: &str) -> Vec<String> {
+    let mut names: std::collections::BTreeSet<String> = BUILTINS.iter().map(|b| b.to_string()).collect();
+    for dir in path.split(':').filter(|d| !d.is_empty()) {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        for e in entries.flatten() {
+            let Ok(name) = e.file_name().into_string() else { continue };
+            if !name.starts_with('.') && crate::detect::is_executable(&e.path()) {
+                names.insert(name);
+            }
+        }
+    }
+    names.into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn typed(block: &str) -> String {
         input(block).unwrap_or_default()
+    }
+
+    #[test]
+    fn commands_are_the_programs_on_the_path_and_the_shells_own() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("codealong-runcode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (bin, other) = (dir.join("bin"), dir.join("other"));
+        std::fs::create_dir_all(bin.join("tools")).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let file = |p: std::path::PathBuf, mode: u32| {
+            std::fs::write(&p, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        file(bin.join("deploy"), 0o755);
+        file(bin.join("notes.txt"), 0o644);
+        file(bin.join(".hidden"), 0o755);
+        file(other.join("deploy"), 0o755);
+        file(other.join("fmt-all"), 0o700);
+        let names = commands_on(&format!("{}::{}:/no/such/folder", bin.display(), other.display()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A folder, a file that isn't executable and a hidden one aren't commands; a name on the
+        // PATH twice is listed once.
+        assert!(names.iter().filter(|n| *n == "deploy").count() == 1 && names.contains(&"fmt-all".to_string()), "{names:?}");
+        for not in ["tools", "notes.txt", ".hidden"] {
+            assert!(!names.contains(&not.to_string()), "{not} in {names:?}");
+        }
+        assert!(names.contains(&"cd".to_string()) && names.contains(&"export".to_string()));
     }
 
     #[test]

@@ -75,8 +75,10 @@ type Block =
   | { kind: 'quote'; text: string }
   /** `shell`: a finished block of shell commands, which can run in a new terminal. `session`:
    *  one written for the session's own shell, led by `!` as Claude Code's box takes one (bash
-   *  mode), which runs in the session where it can (CopyButton.tsx). */
-  | { kind: 'code'; text: string; shell: boolean; session: boolean }
+   *  mode), which runs in the session where it can (CopyButton.tsx). `bare`: a finished block
+   *  with no language, which runs as shell if each of its lines starts with a command
+   *  (RunButton.tsx `isCommandBlock`). */
+  | { kind: 'code'; text: string; shell: boolean; session: boolean; bare: boolean }
   | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] }
   | { kind: 'rule' };
 
@@ -84,9 +86,9 @@ type Align = 'left' | 'center' | 'right' | null;
 
 const ITEM = /^\s*(?:[-*+]|(\d+)[.)])\s+(.*)$/;
 /** A fence's languages for shell commands. A console session isn't one: it holds prompts and
- *  output, and a block with no language is as often output or a path as a command, unless it
- *  starts with `!`: that's a command for the session's own shell, as agents write one for you to
- *  run there. */
+ *  output. A block with no language is as often output or a path as a command, so it's shell
+ *  when it starts with `!` (a command for the session's own shell, as agents write one for you to
+ *  run there) or when each of its lines starts with a command this Mac has. */
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'fish', 'ksh', 'shell']);
 /** A table's delimiter row, under its header: `| --- | :-: |`. */
 const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
@@ -151,7 +153,7 @@ export function blocks(src: string): Block[] {
       i++;
       const text = body.join('\n');
       const session = closed && (lang === '' || SHELLS.has(lang)) && text.trimStart().startsWith('!');
-      out.push({ kind: 'code', text, shell: (closed && SHELLS.has(lang)) || session, session });
+      out.push({ kind: 'code', text, shell: (closed && SHELLS.has(lang)) || session, session, bare: closed && lang === '' && !session });
       continue;
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
@@ -291,7 +293,7 @@ function drawBlock(b: Block, i: number): ReactNode {
     case 'quote':
       return <blockquote key={i}>{inline(b.text)}</blockquote>;
     case 'code':
-      return <CodeBlock key={i} text={b.text} run={b.shell ? { session: b.session } : undefined} />;
+      return <CodeBlock key={i} text={b.text} run={b.shell ? { session: b.session } : b.bare ? { ifCommands: true } : undefined} />;
     case 'table':
       return (
         <div key={i} className="ca-md-table">

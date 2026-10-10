@@ -65,7 +65,7 @@ describe('blocks', () => {
     expect(b.map((x) => x.kind)).toEqual(['para', 'heading', 'list', 'list', 'code', 'quote', 'rule', 'para']);
     expect(b[2]).toEqual({ kind: 'list', ordered: false, items: [para('**One** thing wraps on'), para('`two`')] });
     expect(b[3]).toEqual({ kind: 'list', ordered: true, items: [para('first'), para('second')] });
-    expect(b[4]).toEqual({ kind: 'code', text: 'cargo test', shell: false, session: false });
+    expect(b[4]).toEqual({ kind: 'code', text: 'cargo test', shell: false, session: false, bare: true });
   });
 
   it('reads a code block in a list as part of its item, and the list going on after it', () => {
@@ -75,7 +75,7 @@ describe('blocks', () => {
       {
         kind: 'list',
         ordered: true,
-        items: [[{ kind: 'para', text: 'Run this:' }, { kind: 'code', text: 'cd app &&\n  npm test', shell: true, session: false }], para('Check the output.')],
+        items: [[{ kind: 'para', text: 'Run this:' }, { kind: 'code', text: 'cd app &&\n  npm test', shell: true, session: false, bare: false }], para('Check the output.')],
       },
     ]);
   });
@@ -130,7 +130,7 @@ describe('blocks', () => {
 
   it('keeps a code block whole in its item, however its lines are indented', () => {
     expect(blocks('- Run:\n  ```\nmake all\n  ```\n- Then check.')).toEqual([
-      { kind: 'list', ordered: false, items: [[{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'make all', shell: false, session: false }], para('Then check.')] },
+      { kind: 'list', ordered: false, items: [[{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'make all', shell: false, session: false, bare: true }], para('Then check.')] },
     ]);
   });
 
@@ -140,7 +140,14 @@ describe('blocks', () => {
     expect(shell('  ```sh title="build"\n  make\n  ```')).toEqual([true]);
     expect(shell('```\nnpm test\n```\n\n```ts\nconst a = 1;\n```\n\n```console\n$ ls\na.txt\n```')).toEqual([false, false, false]);
     // Still being written: the reply streams in.
-    expect(blocks('Run:\n```bash\nnpm te')).toEqual([{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'npm te', shell: false, session: false }]);
+    expect(blocks('Run:\n```bash\nnpm te')).toEqual([{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'npm te', shell: false, session: false, bare: false }]);
+  });
+
+  it('marks finished blocks with no language, which run if they hold commands', () => {
+    const bare = (src: string) => blocks(src).map((b) => b.kind === 'code' && b.bare);
+    expect(bare('```\ngit pull --ff-only\n```\n\n```bash\nnpm test\n```\n\n```toml\n[a]\n```')).toEqual([true, false, false]);
+    // A block led by ! is one already; one still being written isn't yet.
+    expect(bare('```\n! npm test\n```\n\n```\nnpm te')).toEqual([false, false]);
   });
 
   it('marks a block led by ! as a command for the shell of the session', () => {

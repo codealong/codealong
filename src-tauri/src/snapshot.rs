@@ -73,6 +73,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--rename", takes: "<session key> <name>", run: rename },
     Mode { flag: "--transcript", takes: "<session key> [--before <cursor>]", run: transcript },
     Mode { flag: "--editor-icons", takes: "", run: editor_icons },
+    Mode { flag: "--shell-commands", takes: "", run: |_, _| Ok(serde_json::to_string(&crate::runcode::commands()).unwrap_or_default()) },
     Mode { flag: "--start-options", takes: "", run: start_options },
     Mode { flag: "--skills", takes: "[folder…]", run: skills },
     Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
@@ -98,6 +99,8 @@ const MODES: &[Mode] = &[
 /// `codealong --snapshot --config`: the settings and config.toml, as Settings gets them.
 /// `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in
 /// menus get them.
+/// `codealong --snapshot --shell-commands`: what a new terminal's shell takes as a command's
+/// first word, as a conversation's code blocks get it for Run.
 /// `codealong --snapshot --skills [folder…]`: the skills a session in each folder could be asked
 /// to run by name, and each account's own, as the `/` lists get them.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.

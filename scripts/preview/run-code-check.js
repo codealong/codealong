@@ -45,7 +45,8 @@
       var inReplies = blocks('.ca-thread-agent');
       var runs = inReplies.filter(runOf);
       check('a reply has a shell block with Run', runs.length > 0, runs.length + ' of ' + inReplies.length);
-      // A block with no language, or another language's, has Copy alone.
+      // Another language's block, or one with no language that isn't commands, has Copy alone
+      // (run-untagged-check.js checks which are).
       var plain = inReplies.filter(function (b) { return !runOf(b); });
       check('other blocks have Copy alone', plain.every(function (b) { return b.querySelectorAll('.ca-codeblock-tools button').length === 1; }));
       check('Run comes before Copy', runs.every(function (b) { var bs = b.querySelectorAll('.ca-codeblock-tools button'); return bs.length === 2 && bs[0] === runOf(b) && bs[1].getAttribute('aria-label') === 'Copy'; }));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runFolder, runsInSession, sessionCommand, terminalCommand } from './RunButton';
+import { isCommandBlock, runFolder, runsInSession, sessionCommand, terminalCommand } from './RunButton';
 
 describe('runFolder', () => {
   it('runs in the worktree a session is shown in, or in its own folder when that is inside it', () => {
@@ -34,5 +34,36 @@ describe('commands led by !', () => {
     expect(terminalCommand('! cd /w && node send.mjs')).toBe('cd /w && node send.mjs');
     expect(terminalCommand('!ls')).toBe('ls');
     expect(terminalCommand('ls')).toBe('ls');
+  });
+});
+
+describe('blocks with no language', () => {
+  const known = new Set(['git', 'npm', 'cd', 'export', 'make', 'ls', 'grep', 'echo', 'zsh']);
+  const runs = (text: string) => isCommandBlock(text, known);
+
+  it('run when each line starts with a command this Mac has', () => {
+    // As an agent wrote one for you to run (2026-10-09).
+    expect(runs('git -C ~/projects/app-infra pull --ff-only')).toBe(true);
+    expect(runs('# first\ncd ~/app && npm ci\n\nnpm test   # a minute')).toBe(true);
+    expect(runs('NODE_ENV=test CI=1 npm test')).toBe(true);
+    expect(runs('make;')).toBe(true);
+    expect(runs('ls | grep x')).toBe(true);
+    // A line carried on into the next, which needn't start with a command.
+    expect(runs('git log \\\n  --oneline -5 |\n  grep fix')).toBe(true);
+  });
+
+  it("don't for output, paths, settings, code, or a command shown with what it printed", () => {
+    expect(runs('git status\nOn branch main')).toBe(false);
+    expect(runs('~/projects/app/src/main.ts')).toBe(false);
+    expect(runs('src/ui/Markdown.tsx:153')).toBe(false);
+    expect(runs('./scripts/relaunch.sh')).toBe(false);
+    expect(runs('[server]\nport = 8080')).toBe(false);
+    expect(runs('$ git status')).toBe(false);
+    expect(runs('zsh: command not found: foo')).toBe(false);
+    expect(runs('echo("hi")')).toBe(false);
+    expect(runs('Git pull')).toBe(false);
+    expect(runs('deploy --prod')).toBe(false);
+    expect(runs('# just a note')).toBe(false);
+    expect(runs('')).toBe(false);
   });
 });

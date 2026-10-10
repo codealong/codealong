@@ -91,7 +91,8 @@ it.
   (one that isn't running), `--snapshot --switch-model <key> <model>` (one that is),
   `--snapshot --side <key> <question> [follow-ups]` and `--snapshot --pr-side <owner/name>
   <number> <account> <question> [follow-ups]` (spend usage).
-- `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`.
+- `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`,
+  `--snapshot --shell-commands`.
 - `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app>
   [prompt] [--model <model>] [--effort <level>] [--worktree]`: what a start would run, without
   starting.

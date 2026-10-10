@@ -3,10 +3,10 @@
 // check can click something and assert what the app would have done. Reads come from files
 // next to the page: board.json (get_board), accounts.json (get_accounts), found.json
 // (found_accounts), config.json (get_config), start-options.json (start_options),
-// editor-icons.json (editor_icons), bar-feed.json (bar_feed, for the floating bar) and, when
-// present, pr-detail.json (pr_detail, for any PR), todos-fixture.json (todos to show in place
-// of the board's), usage-fixture.json (plan usage, likewise) and skills.json or
-// skills-fixture.json (skills, for the `/` lists).
+// editor-icons.json (editor_icons), shell-commands.json (shell_commands), bar-feed.json
+// (bar_feed, for the floating bar) and, when present, pr-detail.json (pr_detail, for any PR),
+// todos-fixture.json (todos to show in place of the board's), usage-fixture.json (plan usage,
+// likewise) and skills.json or skills-fixture.json (skills, for the `/` lists).
 //
 // Native menus aren't drawn, but they're made and "shown" as if they were, so a right-click
 // runs to the end. `window.__menu()` lists the last menu's items as [label, pick] pairs;
@@ -204,7 +204,7 @@ window.__TAURI_INTERNALS__ = {
         return feed;
       });
     }
-    var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json', editor_icons: './editor-icons.json' }[cmd];
+    var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json', editor_icons: './editor-icons.json', shell_commands: './shell-commands.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     // The `/` lists' skills: from skills-fixture.json (PREVIEW_SKILLS) where there is one, else
     // what the engine listed for every worktree on the board (skills.json), a folder inside a
