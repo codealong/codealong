@@ -886,7 +886,9 @@ above the session's box, in every window that has it (Sessions' panel, the peek,
 waiting window), under who suggested them and the note it left. A click sends one as yours, as it
 is, the way ⏎ sends what's typed, leaving what you'd typed in the box; ⌘-click sends it and goes on
 to the next that waits on you, as ⌘⏎ does; ⌥-click puts it in the box to change first; ↑ from the
-empty box goes through them, ⏎ sending the one you're on. A reply's right-click menu has the same,
+empty box goes through them, ⏎ sending the one you're on. Each shows its key, **⌃⌥1** to **⌃⌥6**,
+which sends it from anywhere in the window, Sessions' list included; **⌃⌥⌘** and its number sends
+it and goes on to the next. A reply's right-click menu has the same,
 and Dismiss takes them all away. The box stays yours to type in instead, and nothing reaches the
 session until you pick. While it waits on a call to allow, a reply denies the call and is sent
 instead, as what you type would be. Its row has a Suggested chip, whose tooltip lists them. They go

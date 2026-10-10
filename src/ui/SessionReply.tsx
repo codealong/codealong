@@ -56,7 +56,8 @@
 //
 // Replies another session suggested for this one (`codealong session suggest`) show above the box
 // (SuggestedReplies.tsx), the box's own: a click sends one as ⏎ sends what's typed, leaving what's
-// in the box where it is, and ⌥-click puts it in the box to change first. They're gone once you've
+// in the box where it is, and so does its key, ⌃⌥ and its number, from anywhere in the window;
+// ⌥-click puts it in the box to change first. They're gone once you've
 // sent the session anything, here or anywhere, and while the box is a side conversation's.
 //
 // While its turn runs, ⏎ sends as the session's own box would: Claude Code takes the message in
@@ -91,7 +92,7 @@ import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
-import { SuggestedReplies, type PickHow } from './SuggestedReplies';
+import { chordedReply, SuggestedReplies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
 
@@ -591,6 +592,25 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     last?.focus();
     return !!last;
   };
+  // Each reply's key (⌃⌥ and its number, menus.ts `SUGGESTION_CHORDS`) sends it from anywhere in
+  // the window, the list, or Sessions' list beside the panel, as well as the box: nothing else in
+  // Codealong takes them. The first box to hear one takes it, so no key ever sends two.
+  const chordsNow = useLatest({ suggested, blocked: suggestionBlocked, pick: pickSuggestion, next: !!onNext });
+  const suggesting = !!suggested;
+  useEffect(() => {
+    if (!suggesting) return;
+    const onKey = (e: KeyboardEvent) => {
+      const now = chordsNow.current;
+      if (e.defaultPrevented || e.isComposing || !now.suggested) return;
+      const chorded = chordedReply(e, now.suggested.replies, now.next);
+      if (!chorded) return;
+      e.preventDefault();
+      if (now.blocked) setNote({ text: now.blocked, error: true });
+      else now.pick(chorded.text, chorded.how);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [suggesting, chordsNow]);
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works. Not while the box is the side
   // conversation's: what's done there leaves the session's turn alone.

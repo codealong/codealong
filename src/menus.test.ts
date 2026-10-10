@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
 import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
@@ -791,5 +791,28 @@ describe('actions by name', () => {
     const away = lane({ device: { name: 'Mini', short: 'mini', color: 'blue', online: true, lastSeen: null } });
     expect(laneActions(away, { report, open }).terminal).toBeUndefined();
     expect(laneActions(away, { report, open }).open?.label).toBe('Open in Ghostty');
+  });
+});
+
+describe('suggested replies’ keys', () => {
+  const press = (code: string, over: Partial<KeyboardEvent> = {}) => ({ key: '¡', code, metaKey: false, ctrlKey: true, altKey: true, shiftKey: false, ...over });
+
+  it('sends each by ⌃⌥ and its number, by the key’s code, and with ⌘ goes on', () => {
+    expect(SUGGESTION_CHORDS.map(chordSigns)).toEqual(['⌃⌥1', '⌃⌥2', '⌃⌥3', '⌃⌥4', '⌃⌥5', '⌃⌥6']);
+    // ⌥ changes what a digit types; the key's place says which it is.
+    expect(suggestionChord(press('Digit1'))).toEqual({ index: 0, next: false });
+    expect(suggestionChord(press('Digit6', { key: '§' }))).toEqual({ index: 5, next: false });
+    expect(suggestionChord(press('Digit2', { metaKey: true }))).toEqual({ index: 1, next: true });
+  });
+
+  it('leaves every other key alone', () => {
+    expect(suggestionChord(press('Digit7'))).toBeNull();
+    expect(suggestionChord(press('Digit1', { shiftKey: true }))).toBeNull();
+    // A view's ⌃ and digit, a project's ⌥⌘, a snooze's ⌃⌘ and a row's ⌘.
+    expect(suggestionChord(press('Digit1', { altKey: false, key: '1' }))).toBeNull();
+    expect(suggestionChord(press('Digit1', { ctrlKey: false, metaKey: true }))).toBeNull();
+    expect(suggestionChord(press('Digit1', { altKey: false, metaKey: true, key: '1' }))).toBeNull();
+    expect(suggestionChord(press('Digit1', { ctrlKey: false, altKey: false, metaKey: true, key: '1' }))).toBeNull();
+    expect(chordLetter('1')).toBe(true);
   });
 });

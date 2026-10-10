@@ -17,7 +17,7 @@ import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, t
 import { HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
-import { chordPressed, QUEUE_CHORDS } from './queue';
+import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
@@ -816,6 +816,24 @@ export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, stri
  *  Closing a session's terminal and marking it done, which closes it too, have a chord and no
  *  letter of their own: they're not ones to press by mistake. */
 export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
+/** The keys that send the replies suggested for a session (SuggestedReplies.tsx), the first to
+ *  the sixth, from its box, and from anywhere in a window whose keyboard works through what waits
+ *  on you (the notch, the waiting window); each reply shows its key, and its menu too. With ⌘ as
+ *  well it's sent and the window goes on to the next that waits on you, as ⌘-click does. ⌃⌥
+ *  because ⌘ and a digit open a row's places, ⌃ alone goes to a view, ⌥⌘ switches projects and
+ *  ⌃⌘ snoozes. As many as `codealong session suggest` takes (suggestions.rs `MOST`). */
+export const SUGGESTION_CHORDS = ['Ctrl+Alt+1', 'Ctrl+Alt+2', 'Ctrl+Alt+3', 'Ctrl+Alt+4', 'Ctrl+Alt+5', 'Ctrl+Alt+6'] as const;
+
+/** Which suggested reply a key sends (its place in the list), and whether it goes on to the next
+ *  that waits on you after (⌘); none for any other key. */
+export function suggestionChord(e: Key): { index: number; next: boolean } | null {
+  for (const [index, chord] of SUGGESTION_CHORDS.entries()) {
+    if (chordPressed(chord, e)) return { index, next: false };
+    if (chordPressed(`Cmd+${chord}`, e)) return { index, next: true };
+  }
+  return null;
+}
+
 // Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘4 (snooze.ts `SNOOZE_CHORDS`), which its
 // menu shows beside them. The keys for getting from one session to the next are queue.ts
 // `QUEUE_CHORDS`, written the same way.

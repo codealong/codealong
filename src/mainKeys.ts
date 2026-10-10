@@ -250,9 +250,11 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     toggleSidebar();
     return;
   }
-  // ⌥⌘ digits switch projects. ⌥ changes the character, so they go by the key's code.
+  // ⌥⌘ digits switch projects. ⌥ changes the character, so they go by the key's code. Not with ⌃
+  // as well, as in the quick panel: ⌃⌥⌘ and a digit sends a suggested reply and goes on
+  // (menus.ts `SUGGESTION_CHORDS`).
   const digit = /^Digit(\d)$/.exec(e.code);
-  if (mod && e.altKey && !e.shiftKey && digit) {
+  if (mod && e.altKey && !e.ctrlKey && !e.shiftKey && digit) {
     e.preventDefault();
     const name = projectForDigit(Number(digit[1]), projects);
     if (name) pickProject(name);

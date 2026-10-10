@@ -366,6 +366,7 @@ In Codealong:
 | ⌘⏎ | Send your reply (or allow the call) and go on to the next agent waiting |
 | ⌘⌫ | Deny the call |
 | ⌃⏎ | Send now, into the running turn |
+| ⌃⌥1 – ⌃⌥6 | Send a suggested reply (with ⌘ too: and go on to the next agent waiting) |
 | Esc or ⌘. | Stop the turn |
 | ⌘E / ⇧⌘E | Mark seen / mark as done |
 | ⌘] / ⌘[ | Next / previous of what waits on you |

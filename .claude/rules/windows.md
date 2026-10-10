@@ -166,6 +166,13 @@ under `src-tauri/src/`.
   they'd take the keys before the app sees them. The preview shows the views changing and the
   hover's rules (`view-keys-check.js`).
 
+- Not yet checked by hand (2026-10-09): ⌃⌥1 to ⌃⌥6 in the real app, which send a session's
+  suggested replies (`src/menus.ts` `SUGGESTION_CHORDS`). That WKWebView hands ⌃⌥ and a digit to
+  the page, from its box and from Sessions' list, as a keydown whose `code` is the digit's, in the
+  main window and the floating panels; that ⌃⌥⌘ and a digit isn't taken as a key equivalent
+  first; and that a reply's native menu shows its key. The preview shows the keys sending
+  (`suggest-check.js`).
+
 - Not yet checked by hand (2026-10-06): the waiting window in the real app. Whether ⌥⌘. from
   another app brings only it forward or Codealong's other windows too (`set_focus` is tao's
   `makeKeyAndOrderFront` and `activateIgnoringOtherApps`); that ⌥⌘. again gives the keyboard back

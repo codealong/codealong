@@ -3,8 +3,9 @@
 // lists them, and its panel shows them above the box, with who suggested them and the note. A
 // click sends one as it is, leaving the draft in the box, and they go at once; ⌥-click puts one in
 // the box after the draft and sends nothing; ↑ in the empty box goes to the nearest one and ⏎
-// there sends it; a reply's menu has Send, Change before sending and Dismiss suggestions; and
-// Dismiss asks the engine to take them away, and they go at once.
+// there sends it; each shows its key, ⌃⌥ and its number, which sends it from the box and from
+// Sessions' list too; a reply's menu has Send (with its key), Change before sending and Dismiss
+// suggestions; and Dismiss asks the engine to take them away, and they go at once.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/suggest-check.js
 (function () {
   // This runs before the app's script: the board it gets has one turn that ended, made from a
@@ -121,9 +122,37 @@
       check('⏎ on one sends it', sends()[1].text === replies[2], JSON.stringify(sends()[1]));
       return again();
     })
+    .then(function () {
+      var shown = rows().map(function (r) { var k = r.querySelector('.ca-kbds'); return k ? k.textContent : ''; });
+      check('each reply shows its key', shown.join(' ') === '⌃⌥1 ⌃⌥2 ⌃⌥3', shown.join(' '));
+      box().focus();
+      key(box(), { key: '™', code: 'Digit2', ctrlKey: true, altKey: true });
+      return until(function () { return sends().length === 3; }, 3000, '⌃⌥2 sending it');
+    })
+    .then(function () {
+      check('⌃⌥2 in the box sends the second', sends()[2].text === replies[1], JSON.stringify(sends()[2]));
+      return again();
+    })
+    .then(function () {
+      var list = q('.ca-board-list') || row();
+      list.focus();
+      key(list, { key: '£', code: 'Digit3', ctrlKey: true, altKey: true });
+      return until(function () { return sends().length === 4; }, 3000, '⌃⌥3 from the list sending it');
+    })
+    .then(function () {
+      check('⌃⌥3 from Sessions’ list sends the third', sends()[3].text === replies[2] && sends()[3].key === picked.key, JSON.stringify(sends()[3]));
+      key(document.body, { key: '¢', code: 'Digit4', ctrlKey: true, altKey: true });
+      return wait(300);
+    })
+    .then(function () {
+      check('a key past the last sends nothing', sends().length === 4, sends().length + ' sends');
+      return again();
+    })
     .then(function () { return menuOf(rows()[0]); })
     .then(function (labels) {
       check('a reply’s menu has Send, Change before sending and Dismiss', labels.indexOf('Send') >= 0 && labels.indexOf('Change before sending') >= 0 && labels.indexOf('Dismiss suggestions') >= 0, labels.join(' | '));
+      var item = lastMenu().filter(function (i) { return i.text === 'Send'; })[0];
+      check('with its key beside Send', !!item && item.accelerator === 'Ctrl+Alt+1', JSON.stringify(item && item.accelerator));
       q('.ca-sessinsp .ca-suggest-head .ca-linkbtn').click();
       return until(function () { return sent('dismiss_suggestions').length === 1; }, 3000, 'Dismiss asking the engine');
     })

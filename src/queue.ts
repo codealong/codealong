@@ -126,7 +126,7 @@ export const QUEUE_CHORDS: Record<QueueAction, readonly string[]> = {
  *  not a step through the queue; the strip's × says it from here. */
 export const AWAY_CHORD = 'Esc';
 
-type Key = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>;
+export type Key = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>;
 
 /** Whether a key event is the chord, with exactly its modifiers. */
 export function chordPressed(chord: string, e: Key): boolean {
@@ -145,6 +145,8 @@ export function chordPressed(chord: string, e: Key): boolean {
   if (key === '`') return e.key === '`' || e.code === 'Backquote';
   if (key === 'Up' || key === 'Down') return e.key === `Arrow${key}`;
   if (key === 'Enter') return e.key === 'Enter';
+  // A digit goes by its key's code: ⌥ changes what it types (⌥1 is ¡).
+  if (/^[0-9]$/.test(key)) return e.code === `Digit${key}`;
   return e.key.toUpperCase() === key;
 }
 
