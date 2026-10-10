@@ -19,16 +19,18 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { mergeAhead } from '../ahead';
 import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
-import { commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, standing, type Tone } from '../merge';
+import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, rereads, standing, type Tone } from '../merge';
 import { errorText } from '../report';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
 import { Button, cx, Icon } from './primitives';
 
-/** Boxes already read, by PR and last update, so going back to a PR shows it at once. */
+/** Boxes already read, by what they were read for (merge.ts `boxKey`), so going back to a PR
+ *  shows it at once. */
 const cache = new Map<string, Box>();
 
-/** How often, and how many times, it's read again while GitHub works out whether it can merge. */
+/** How often, and how many times, it's read again while GitHub works out whether it can merge, or
+ *  says otherwise than the board. */
 const RECHECK_MS = 3000;
 const RECHECKS = 3;
 
@@ -71,10 +73,13 @@ function Actions({ lead, trail, children }: Row & { children?: ReactNode }) {
 
 /** One PR's box: its details give each PR one of its own (`key`). */
 export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
-  const key = `${pr.key}@${pr.updatedAt}`;
+  // Read again as the board's word on where the PR stands changes, as when its checks finish,
+  // which doesn't update the PR: else it said blocked while its pills said ready to merge.
+  const key = boxKey(pr);
   const [read, setRead] = useState<{ key: string; box?: Box; error?: string }>({ key: '' });
   const [again, setAgain] = useState(0);
-  const rechecks = useRef(0);
+  const rechecks = useRef({ key, n: 0 });
+  if (rechecks.current.key !== key) rechecks.current = { key, n: 0 };
   // Kept here, so what was done stays said once the PR it merged has nothing left to offer.
   const [note, setNote] = useState<Note>(null);
 
@@ -91,26 +96,28 @@ export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
         if (live) setRead({ key, box: b });
       })
       .catch((e: unknown) => {
-        if (live) setRead((was) => ({ key, box: was.key === key ? was.box : undefined, error: errorText(e) }));
+        if (live) setRead((was) => ({ key, box: was.box, error: errorText(e) }));
       });
     return () => {
       live = false;
     };
   }, [key, again, pr.repoSlug, pr.number]);
 
-  const box = read.key === key ? read.box : undefined;
+  // The box last read for this PR shows while it's read again, so its buttons hold still.
+  const box = read.box;
   const error = read.key === key ? read.error : undefined;
 
-  // GitHub works out whether a PR can merge when it's first asked: read again a few times.
-  const unknown = box?.state === 'OPEN' && box.mergeState === 'UNKNOWN';
+  // GitHub works out whether a PR can merge when it's first asked, and can take a moment to agree
+  // with what the board read: read again a few times.
+  const unsure = !!box && read.key === key && rereads(box, pr);
   useEffect(() => {
-    if (!unknown || rechecks.current >= RECHECKS) return;
+    if (!unsure || rechecks.current.n >= RECHECKS) return;
     const t = window.setTimeout(() => {
-      rechecks.current += 1;
+      rechecks.current.n += 1;
       setAgain((n) => n + 1);
     }, RECHECK_MS);
     return () => window.clearTimeout(t);
-  }, [unknown, box]);
+  }, [unsure, box]);
 
   // A merged or closed PR has nothing left to do here but delete its branch.
   if (!box || (box.state !== 'OPEN' && !offers(box).deleteBranch && !note)) {

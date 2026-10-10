@@ -171,6 +171,21 @@ export function confirmLabel(mode: MergeMode, method: MergeMethod): string {
   return mode === 'auto' ? 'Confirm auto-merge' : METHOD[method].confirm;
 }
 
+/** What a PR's box is read for: the PR as last updated, and what the board says of where it stands
+ *  for merging, its state (its review in it), GitHub's merge status and its checks, which change
+ *  without the PR being updated, as when its checks finish. A box read for another is read again. */
+export function boxKey(pr: Pick<PrItem, 'key' | 'updatedAt' | 'state' | 'merge' | 'checks'>): string {
+  const c = pr.checks;
+  return `${pr.key}@${pr.updatedAt}:${pr.state}:${pr.merge}:${c.passed}/${c.failed}/${c.pending}`;
+}
+
+/** Whether a box just read is worth reading again in a moment: GitHub hasn't worked out yet whether
+ *  the PR can merge, or doesn't yet say what the board read, that it's ready. */
+export function rereads(box: Pick<MergeBox, 'state' | 'mergeState'>, pr: Pick<PrItem, 'merge'>): boolean {
+  if (box.state !== 'OPEN') return false;
+  return box.mergeState === 'UNKNOWN' || (pr.merge === 'clean' && box.mergeState !== 'CLEAN' && box.mergeState !== 'HAS_HOOKS');
+}
+
 /** The method the box starts on: the one you picked in this repo before, else GitHub's pick for
  *  you, either only while the repo still allows it. */
 export function pickMethod(box: Pick<MergeBox, 'methods' | 'defaultMethod'>, picked?: MergeMethod | null): MergeMethod | null {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { commitText, confirmLabel, deletesWith, doneWords, mainMode, methodsByRepo, modeLabel, offers, opFor, pickMethod, standing, type MergeForm } from './merge';
+import { boxKey, commitText, confirmLabel, deletesWith, doneWords, mainMode, methodsByRepo, modeLabel, offers, opFor, pickMethod, rereads, standing, type MergeForm } from './merge';
+import * as fx from './testing/fixtures';
 import type { Checks, MergeBox } from './types';
 
 const box = (over: Partial<MergeBox> = {}): MergeBox => ({
@@ -113,6 +114,25 @@ describe('offers', () => {
 
   it('offers nothing to press on a blocked PR you can do nothing about', () => {
     expect(mainMode(offers(box({ mergeState: 'BLOCKED' })), true)).toBeNull();
+  });
+});
+
+describe('reading it again', () => {
+  it('reads it again as the board’s word on it changes, though the PR wasn’t updated', () => {
+    const running = fx.prItem({ updatedAt: 5, state: 'approved', merge: 'blocked', checks: checks({ passed: 9, pending: 2 }) });
+    const passed = { ...running, merge: 'clean' as const, checks: checks({ passed: 11 }) };
+    expect(boxKey(passed)).not.toBe(boxKey(running));
+    expect(boxKey({ ...running, checks: checks({ passed: 10, pending: 1 }) })).not.toBe(boxKey(running));
+    expect(boxKey({ ...running, state: 'merged' })).not.toBe(boxKey(running));
+    expect(boxKey({ ...running })).toBe(boxKey(running));
+  });
+
+  it('reads again while GitHub hasn’t worked it out, or says blocked where the board read ready', () => {
+    expect(rereads(box({ mergeState: 'UNKNOWN' }), { merge: 'unknown' })).toBe(true);
+    expect(rereads(box({ mergeState: 'BLOCKED' }), { merge: 'clean' })).toBe(true);
+    expect(rereads(box({ mergeState: 'BLOCKED' }), { merge: 'blocked' })).toBe(false);
+    expect(rereads(box({ mergeState: 'CLEAN' }), { merge: 'clean' })).toBe(false);
+    expect(rereads(box({ state: 'MERGED', mergeState: 'UNKNOWN' }), { merge: 'unknown' })).toBe(false);
   });
 });
 
