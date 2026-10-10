@@ -89,6 +89,18 @@ pub const PR_MERGE: &str = "pr-merge";
 /// Snoozes your review of PRs (`keys`, `owner/name#number`) until `until`, or wakes it with none:
 /// out of what waits on you there and everywhere until then. Kept on the device asked.
 pub const PR_SNOOZE: &str = "pr-snooze";
+/// Keeps an image you'll send a session or start one with (`name`, `data`: its bytes in base64),
+/// as a paste into the Mac's reply box does, answering `Kept`: how a prompt refers to it
+/// (`![name](images/<hash>.<ext>)`), which the device asked turns into the agent's way to the
+/// image as the prompt goes, whatever the harness. Macs before 2026-10-10 refuse it as a request
+/// they don't know.
+pub const IMAGE_KEEP: &str = "image-keep";
+/// The biggest image `image-keep` takes, and `image-read` answers: in base64, in a request or an
+/// answer, it stays well inside a line (`proto::MAX_LINE`).
+pub const IMAGE_MAX_BYTES: usize = 20 * 1024 * 1024;
+/// An image a prompt refers to (`path`, `images/<hash>.<ext>`), answering `Image`. Only images
+/// Codealong kept are read.
+pub const IMAGE_READ: &str = "image-read";
 
 /// What each request carries, as its makers write it (the engine's windows and command, and a
 /// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
@@ -253,6 +265,21 @@ pub mod params {
         pub keys: Vec<String>,
     }
 
+    /// `image-keep`: the image's name, and its bytes in base64.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct ImageKeep {
+        pub name: String,
+        pub data: String,
+    }
+
+    /// `image-read`: how a prompt refers to it, `images/<hash>.<ext>`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct ImageRead {
+        pub path: String,
+    }
+
     /// A PR, by its repo (`owner/name`) and number: `pr-detail`, `pr-merge-box`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -345,7 +372,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 30] = [
+pub const REQUESTS: [(&str, Reach); 32] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -357,6 +384,7 @@ pub const REQUESTS: [(&str, Reach); 30] = [
     (ROUTE, Reach::Read),
     (PR_DETAIL, Reach::Read),
     (PR_MERGE_BOX, Reach::Read),
+    (IMAGE_READ, Reach::Read),
     (MARK_SEEN, Reach::Organize),
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
@@ -376,6 +404,7 @@ pub const REQUESTS: [(&str, Reach); 30] = [
     (SESSION_DONE, Reach::Control),
     (PR_REVIEW, Reach::Control),
     (PR_MERGE, Reach::Control),
+    (IMAGE_KEEP, Reach::Control),
 ];
 
 /// Who may make `method` of a device; None for a request this crate doesn't know.
@@ -550,6 +579,26 @@ pub struct Sent {
     /// Missing from devices that don't know it yet.
     #[serde(default)]
     pub fell_back: bool,
+}
+
+/// An image kept for a prompt (`image-keep`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Kept {
+    /// How a prompt refers to it: `![name](images/<hash>.<ext>)`, on a line of its own.
+    pub reference: String,
+    /// `images/<hash>.<ext>`, named by its bytes, so the same image twice is kept once.
+    pub path: String,
+}
+
+/// An image a prompt refers to (`image-read`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Image {
+    /// Its bytes, in base64.
+    pub data: String,
+    /// `image/png`, `image/jpeg`, `image/gif` or `image/webp`.
+    pub mime: String,
 }
 
 /// What being done with a session came to (`session-done`).

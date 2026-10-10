@@ -71,6 +71,9 @@ const STREAM_EVERY: Duration = Duration::from_millis(150);
 /// How many messages may wait to go out on a connection. A device that keeps asking and stops
 /// reading the answers is cut off once this many wait, rather than having them kept for it.
 const QUEUE_MAX: usize = 512;
+/// How many bytes of answers may wait to go out on a connection, the same way: an answer can be
+/// an image of megabytes (`api::IMAGE_READ`), and a few hundred of those waiting is gigabytes.
+const QUEUE_BYTES_MAX: usize = 64 * 1024 * 1024;
 /// How many of a linked device's requests may run here at once, each on a thread of its own:
 /// more than any device's windows ask for together. One that asks for more is cut off.
 const REQUESTS_MAX: usize = 32;
@@ -241,18 +244,49 @@ struct Me {
     short: String,
 }
 
-/// What goes out on one connection, waiting for its writer: at most `QUEUE_MAX` messages. A
-/// message that finds it full closes the connection, which is how a device that doesn't read
-/// is let go.
+/// What goes out on one connection, waiting for its writer: at most `QUEUE_MAX` messages, and
+/// answers of at most `QUEUE_BYTES_MAX` bytes. A message that finds it full closes the
+/// connection, which is how a device that doesn't read is let go.
 #[derive(Clone)]
 struct Out {
-    tx: SyncSender<Msg>,
+    tx: SyncSender<Going>,
     close: Arc<dyn Fn() + Send + Sync>,
+    /// The bytes of answers waiting (`Going::Line`).
+    waiting: Arc<AtomicUsize>,
+}
+
+/// A message on its way out: most as they are, for the writer to put in words; an answer already
+/// in words, so what waits is counted in bytes.
+enum Going {
+    Msg(Msg),
+    Line(String),
 }
 
 impl Out {
+    fn new(tx: SyncSender<Going>, close: Arc<dyn Fn() + Send + Sync>) -> Out {
+        Out { tx, close, waiting: Arc::new(AtomicUsize::new(0)) }
+    }
+
     fn send(&self, msg: Msg) -> std::result::Result<(), &'static str> {
-        match self.tx.try_send(msg) {
+        self.push(Going::Msg(msg))
+    }
+
+    /// An answer to a request, put in words here, on the request's thread.
+    fn answer(&self, msg: Msg) -> std::result::Result<(), &'static str> {
+        let line = msg.line();
+        let n = line.len();
+        if self.waiting.fetch_add(n, Ordering::SeqCst) + n > QUEUE_BYTES_MAX {
+            self.waiting.fetch_sub(n, Ordering::SeqCst);
+            (self.close)();
+            return Err("the connection was too far behind, and is closed");
+        }
+        self.push(Going::Line(line)).inspect_err(|_| {
+            self.waiting.fetch_sub(n, Ordering::SeqCst);
+        })
+    }
+
+    fn push(&self, going: Going) -> std::result::Result<(), &'static str> {
+        match self.tx.try_send(going) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => {
                 (self.close)();
@@ -1044,22 +1078,29 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         close();
         return;
     };
-    let (queue, rx) = sync_channel::<Msg>(QUEUE_MAX);
-    let tx = Out { tx: queue, close: close.clone() };
+    let (queue, rx) = sync_channel::<Going>(QUEUE_MAX);
+    let tx = Out::new(queue, close.clone());
     // This connection's requests running now (`REQUESTS_MAX`).
     let running = Arc::new(AtomicUsize::new(0));
     {
         let close = close.clone();
+        let waiting = tx.waiting.clone();
         std::thread::Builder::new()
             .name("peer-writer".into())
             .spawn(move || {
                 loop {
-                    let msg = match rx.recv_timeout(PING_EVERY) {
-                        Ok(m) => m,
-                        Err(RecvTimeoutError::Timeout) => Msg::Ping,
+                    let (line, counted) = match rx.recv_timeout(PING_EVERY) {
+                        Ok(Going::Msg(m)) => (m.line(), false),
+                        Ok(Going::Line(line)) => (line, true),
+                        Err(RecvTimeoutError::Timeout) => (Msg::Ping.line(), false),
                         Err(RecvTimeoutError::Disconnected) => break,
                     };
-                    if writer.write_all(msg.line().as_bytes()).and_then(|_| writer.flush()).is_err() {
+                    let written = writer.write_all(line.as_bytes()).and_then(|_| writer.flush());
+                    // An answer's bytes stop waiting once it's written.
+                    if counted {
+                        waiting.fetch_sub(line.len(), Ordering::SeqCst);
+                    }
+                    if written.is_err() {
                         break;
                     }
                 }
@@ -1230,8 +1271,10 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
                     Ok(v) => Msg::Res { id, ok: true, result: Some(v), error: None },
                     Err(e) => Msg::Res { id, ok: false, result: None, error: Some(e) },
                 };
+                // Its place is kept until the answer is in words and counted (`Out::answer`), so
+                // no more requests run than may while big answers are being written.
+                let _ = out.answer(reply);
                 drop(place);
-                let _ = out.send(reply);
             });
             if started.is_err() {
                 let _ = tx.send(Msg::Res { id, ok: false, result: None, error: Some("This device is too busy to answer; try again in a moment.".into()) });
@@ -1600,6 +1643,24 @@ mod tests {
     use crate::model::{Session, Status};
     use serde_json::json;
     use std::net::TcpListener;
+
+    #[test]
+    fn a_device_that_leaves_big_answers_waiting_is_let_go() {
+        let (tx, rx) = sync_channel::<Going>(QUEUE_MAX);
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shut = closed.clone();
+        let out = Out::new(tx, Arc::new(move || shut.store(true, Ordering::SeqCst)));
+        let big = |id| Msg::Res { id, ok: true, result: Some(json!("x".repeat(QUEUE_BYTES_MAX / 2))), error: None };
+        out.answer(big(1)).unwrap();
+        assert!(out.waiting.load(Ordering::SeqCst) > QUEUE_BYTES_MAX / 2);
+        out.send(Msg::Ping).unwrap();
+        assert!(!closed.load(Ordering::SeqCst), "half the bytes, and a message that isn't an answer");
+        assert!(out.answer(big(2)).is_err());
+        assert!(closed.load(Ordering::SeqCst));
+        // What was refused isn't counted as waiting.
+        assert!(out.waiting.load(Ordering::SeqCst) < QUEUE_BYTES_MAX);
+        assert!(matches!(rx.try_recv(), Ok(Going::Line(_))));
+    }
 
     fn session(key: &str, status: Status) -> Session {
         Session { status, pid: Some(7), status_since: Some(1), last_activity: 1, last_prompt_at: 1, open_target: String::new(), ..crate::fixtures::session(key) }

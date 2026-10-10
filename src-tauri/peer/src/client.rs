@@ -54,6 +54,9 @@ const DONE_WAIT: Duration = Duration::from_secs(75);
 /// another (a merge and then its branch's deletion, a review after looking for your draft), each
 /// allowed a minute there.
 const PR_WAIT: Duration = Duration::from_secs(150);
+/// How long an image is given to go one way or the other: a few megabytes, over whatever
+/// connection the phone has.
+const IMAGE_WAIT: Duration = Duration::from_secs(60);
 
 /// A device this one is linked with, as `devices.json` keeps it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -141,6 +144,9 @@ struct Inner {
     gen: AtomicU64,
     ids: AtomicU64,
     iroh: Mutex<Option<Arc<Iroh>>>,
+    /// Held while an image goes to a Mac (`keep_image`): one at a time, since one whose answer
+    /// doesn't come in time stays queued on its connection, and they'd pile up.
+    sending_image: std::sync::Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -153,7 +159,7 @@ impl Client {
     pub fn new(dir: PathBuf, secret: SecretKey, name: String, app: String, kind: &str, on_change: Box<dyn Fn() + Send + Sync>) -> Client {
         let key = secret.public();
         let st = State { linked: load_linked(&dir), replicas: load_cache(&dir), ..Default::default() };
-        Client(Arc::new(Inner { hex: proto::key_hex(&key), key, secret, name, app, kind: kind.to_string(), dir, on_change, st: Mutex::new(st), gen: AtomicU64::new(0), ids: AtomicU64::new(1), iroh: Mutex::new(None) }))
+        Client(Arc::new(Inner { hex: proto::key_hex(&key), key, secret, name, app, kind: kind.to_string(), dir, on_change, st: Mutex::new(st), gen: AtomicU64::new(0), ids: AtomicU64::new(1), iroh: Mutex::new(None), sending_image: std::sync::Mutex::new(()) }))
     }
 
     /// This device's key, as hex.
@@ -436,6 +442,24 @@ impl Client {
     /// Does what a PR's merge box does, as you on GitHub, through `device`'s `gh`.
     pub fn pr_merge(&self, device: &str, repo: &str, number: u64, id: &str, op: crate::pr::Op) -> std::result::Result<crate::pr::Merged, String> {
         read(self.ask(device, api::PR_MERGE, of(params::PrMerge { repo: repo.into(), number, id: id.into(), op }), PR_WAIT)?)
+    }
+
+    /// Keeps an image on `device` for a prompt to it (`api::IMAGE_KEEP`): how the prompt refers
+    /// to it.
+    pub fn keep_image(&self, device: &str, name: &str, bytes: &[u8]) -> std::result::Result<api::Kept, String> {
+        // Refused here: one past the line's length would close the connection, and with it
+        // everything else under way on it.
+        if bytes.len() > api::IMAGE_MAX_BYTES {
+            return Err(format!("That image is over {} MB.", api::IMAGE_MAX_BYTES / (1024 * 1024)));
+        }
+        let _one_at_a_time = self.0.sending_image.lock().unwrap_or_else(|e| e.into_inner());
+        read(self.ask(device, api::IMAGE_KEEP, of(params::ImageKeep { name: name.into(), data: data_encoding::BASE64.encode(bytes) }), IMAGE_WAIT)?)
+    }
+
+    /// An image a prompt on `device` refers to (`images/<hash>.<ext>`): its bytes.
+    pub fn read_image(&self, device: &str, path: &str) -> std::result::Result<Vec<u8>, String> {
+        let image: api::Image = read(self.ask(device, api::IMAGE_READ, of(params::ImageRead { path: path.into() }), IMAGE_WAIT)?)?;
+        data_encoding::BASE64.decode(image.data.as_bytes()).map_err(|_| "The image didn't arrive whole.".to_string())
     }
 
     /// Snoozes your review of PRs on `device` (`owner/name#number`) until `until`, or wakes it.

@@ -199,6 +199,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::PR_MERGE, here: pr_merge, ..ANY },
     // A review's snooze is kept here, as a session's is.
     Request { name: api::PR_SNOOZE, here: pr_snooze, ..ANY },
+    Request { name: api::IMAGE_KEEP, here: image_keep, ..ANY },
+    Request { name: api::IMAGE_READ, here: image_read, ..ANY },
     // A search runs as you type, so a device slow to answer is left out rather than waited for.
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
@@ -1201,6 +1203,55 @@ fn pr_snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
     Ok(shown_at(c, engine.snooze_reviews(p.keys, p.until)))
 }
 
+/// Keeps an image another device will send a session or start one with, as a paste into the
+/// reply box does (lib.rs `save_attachment`): only an image, which the prompt refers to and
+/// every harness's send turns into its way to the file (`attachments::expand`).
+fn image_keep(_engine: &Handle, c: &Call) -> Result<Value, String> {
+    use crate::attachments;
+    let p: params::ImageKeep = c.read()?;
+    let bytes = data_encoding::BASE64.decode(p.data.as_bytes()).map_err(|_| "The image didn't arrive whole.".to_string())?;
+    if attachments::image_kind(&bytes).is_none() {
+        return Err("That isn't an image an agent can be sent: PNG, JPEG, GIF or WebP.".into());
+    }
+    if bytes.len() > api::IMAGE_MAX_BYTES.min(attachments::MAX_IMAGE_BYTES) {
+        return Err(format!("That image is over {} MB.", api::IMAGE_MAX_BYTES / (1024 * 1024)));
+    }
+    let kept = attachments::keep(&bytes, &p.name).map_err(words)?;
+    serde_json::to_value(api::Kept { reference: kept.reference(), path: kept.path }).map_err(words)
+}
+
+/// An image a prompt refers to, for another device to show in the conversation: only one
+/// Codealong kept (`attachments::locate`), so nothing else on this Mac can be read.
+fn image_read(_engine: &Handle, c: &Call) -> Result<Value, String> {
+    use crate::attachments;
+    let p: params::ImageRead = c.read()?;
+    let file = p.path.starts_with(attachments::IMAGES).then(|| attachments::locate(&p.path)).flatten().ok_or("That isn't one of Codealong's images.")?;
+    let bytes = kept_image(&file, api::IMAGE_MAX_BYTES)?;
+    serde_json::to_value(api::Image { data: data_encoding::BASE64.encode(&bytes), mime: attachments::mime(&p.path).into() }).map_err(words)
+}
+
+/// An image file's bytes, when it's a file of its own (not a link, which could lead anywhere)
+/// and no bigger than `most`.
+fn kept_image(file: &std::path::Path, most: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let gone = || "That image is gone from this Mac.".to_string();
+    let f = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(file).map_err(|_| gone())?;
+    let meta = f.metadata().map_err(|_| gone())?;
+    if !meta.is_file() {
+        return Err(gone());
+    }
+    if meta.len() > most as u64 {
+        return Err(format!("That image is over {} MB, too big to send.", most / (1024 * 1024)));
+    }
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    f.take(most as u64 + 1).read_to_end(&mut bytes).map_err(|_| gone())?;
+    if bytes.len() > most {
+        return Err(format!("That image is over {} MB, too big to send.", most / (1024 * 1024)));
+    }
+    Ok(bytes)
+}
+
 /// Quiets sessions (`keys`), or makes them heard again with `quiet` false.
 fn quiet(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Quiet = c.read()?;
@@ -1244,6 +1295,25 @@ mod tests {
         assert!(draft_shown(found("cd", 3), Some("ab"), 7).unwrap_err().contains("changed since it was shown"));
         // More comments than were read: one past them could have changed unseen.
         assert!(draft_shown(Some(("ab".into(), 101, 100)), Some("ab"), 7).unwrap_err().contains("101 comments, more than"));
+    }
+
+    #[test]
+    fn an_image_is_read_only_from_a_file_of_its_own_and_not_too_big() {
+        let dir = std::env::temp_dir().join(format!("codealong-kept-image-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("0123456789abcdef.png");
+        std::fs::write(&image, b"\x89PNG\r\n\x1a\n1234").unwrap();
+        assert_eq!(kept_image(&image, 100).unwrap().len(), 12);
+        assert!(kept_image(&image, 8).unwrap_err().contains("too big"));
+        // A link where an image would be, leading out of the folder, isn't followed.
+        let secret = dir.join("secret.txt");
+        std::fs::write(&secret, b"secret").unwrap();
+        let link = dir.join("fedcba9876543210.png");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        assert!(kept_image(&link, 100).is_err());
+        assert!(kept_image(&dir, 100).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
