@@ -56,8 +56,8 @@
 //
 // Replies another session suggested for this one (`codealong session suggest`) show above the box
 // (SuggestedReplies.tsx), the box's own: a click sends one as ⏎ sends what's typed, leaving what's
-// in the box where it is, and so does its key, ⌃⌥ and its number, from anywhere in the window;
-// ⌥-click puts it in the box to change first. They're gone once you've
+// in the box where it is, and so does its key, ⌘ and its number, from the box (from anywhere in the
+// notch and the waiting window); ⌥-click puts it in the box to change first. They're gone once you've
 // sent the session anything, here or anywhere, and while the box is a side conversation's.
 //
 // While its turn runs, ⏎ sends as the session's own box would: Claude Code takes the message in
@@ -163,6 +163,9 @@ interface ComposerProps {
   onFailed?: (why: string) => void;
   /** ⌘⏎ sends, then goes on to the next session that waits on you, saying what was done. */
   onNext?: (done: string) => void;
+  /** The window's keyboard works through what waits on you (the notch, the waiting window): the
+   *  keys of the replies suggested for it work from anywhere in it, not only from the box. */
+  keyed?: boolean;
   /** ⌘⏎ with nothing written allows the call the session waits on, then goes on where there's a
    *  next. */
   onAllow?: () => void;
@@ -219,7 +222,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, onAllow, onDeny, onDenySaying }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -246,6 +249,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // dismissed here: they go at once, the board saying so a moment later.
   const [answered, setAnswered] = useState<number | null>(null);
   const suggestionList = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
 
   // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
   // its account offers a choice; without one, a send resumes it in a terminal. The place and the
@@ -592,24 +596,28 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     last?.focus();
     return !!last;
   };
-  // Each reply's key (⌃⌥ and its number, menus.ts `SUGGESTION_CHORDS`) sends it from anywhere in
-  // the window, the list, or Sessions' list beside the panel, as well as the box: nothing else in
-  // Codealong takes them. The first box to hear one takes it, so no key ever sends two.
-  const chordsNow = useLatest({ suggested, blocked: suggestionBlocked, pick: pickSuggestion, next: !!onNext });
+  // Each reply's key (⌘ and its number, menus.ts `SUGGESTION_CHORDS`) sends it from the box or the
+  // list, and from anywhere in a window whose keys work through what waits (`keyed`). Heard before
+  // anything else in the window, so the main window's ⌘ and a digit, which open its list's row's
+  // places, never also run; from that list they still do. The first box to hear one takes it, so
+  // no key ever sends two.
+  const chordsNow = useLatest({ suggested, blocked: suggestionBlocked, pick: pickSuggestion, keyed });
   const suggesting = !!suggested;
   useEffect(() => {
     if (!suggesting) return;
     const onKey = (e: KeyboardEvent) => {
       const now = chordsNow.current;
       if (e.defaultPrevented || e.isComposing || !now.suggested) return;
-      const chorded = chordedReply(e, now.suggested.replies, now.next);
-      if (!chorded) return;
+      if (!now.keyed && !(e.target instanceof Node && root.current?.contains(e.target))) return;
+      const reply = chordedReply(e, now.suggested.replies);
+      if (reply === null) return;
       e.preventDefault();
+      e.stopPropagation();
       if (now.blocked) setNote({ text: now.blocked, error: true });
-      else now.pick(chorded.text, chorded.how);
+      else now.pick(reply, 'send');
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [suggesting, chordsNow]);
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works. Not while the box is the side
@@ -635,7 +643,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ? `/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`
           : (note?.text ?? (stopping ? 'Stopping…' : onlyAside ? SESSION_SIDES.open : aside ? `To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying, !empty, !!suggested && !text)));
   return (
-    <div className={cx('ca-composer', aside && 'is-aside')}>
+    <div ref={root} className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
       {suggested && (
         <SuggestedReplies
@@ -646,6 +654,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           blocked={suggestionBlocked}
           denies={waiting && !!onDenySaying}
           next={!!onNext}
+          keyed={keyed}
           onLeave={() => box.current?.focus()}
         />
       )}
@@ -1242,7 +1251,7 @@ export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, o
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} />
     </>
   );
 }

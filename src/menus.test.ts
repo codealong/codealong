@@ -795,24 +795,23 @@ describe('actions by name', () => {
 });
 
 describe('suggested replies’ keys', () => {
-  const press = (code: string, over: Partial<KeyboardEvent> = {}) => ({ key: '¡', code, metaKey: false, ctrlKey: true, altKey: true, shiftKey: false, ...over });
+  const press = (code: string, over: Partial<KeyboardEvent> = {}) => ({ key: code.slice(-1), code, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...over });
 
-  it('sends each by ⌃⌥ and its number, by the key’s code, and with ⌘ goes on', () => {
-    expect(SUGGESTION_CHORDS.map(chordSigns)).toEqual(['⌃⌥1', '⌃⌥2', '⌃⌥3', '⌃⌥4', '⌃⌥5', '⌃⌥6']);
-    // ⌥ changes what a digit types; the key's place says which it is.
-    expect(suggestionChord(press('Digit1'))).toEqual({ index: 0, next: false });
-    expect(suggestionChord(press('Digit6', { key: '§' }))).toEqual({ index: 5, next: false });
-    expect(suggestionChord(press('Digit2', { metaKey: true }))).toEqual({ index: 1, next: true });
+  it('sends each by ⌘ and its number, by the key’s place', () => {
+    expect(SUGGESTION_CHORDS.map(chordSigns)).toEqual(['⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6']);
+    expect(suggestionChord(press('Digit1'))).toBe(0);
+    expect(suggestionChord(press('Digit6'))).toBe(5);
+    // A layout that types another character there still has it there.
+    expect(suggestionChord(press('Digit2', { key: 'é' }))).toBe(1);
   });
 
   it('leaves every other key alone', () => {
     expect(suggestionChord(press('Digit7'))).toBeNull();
-    expect(suggestionChord(press('Digit1', { shiftKey: true }))).toBeNull();
-    // A view's ⌃ and digit, a project's ⌥⌘, a snooze's ⌃⌘ and a row's ⌘.
-    expect(suggestionChord(press('Digit1', { altKey: false, key: '1' }))).toBeNull();
-    expect(suggestionChord(press('Digit1', { ctrlKey: false, metaKey: true }))).toBeNull();
-    expect(suggestionChord(press('Digit1', { altKey: false, metaKey: true, key: '1' }))).toBeNull();
-    expect(suggestionChord(press('Digit1', { ctrlKey: false, altKey: false, metaKey: true, key: '1' }))).toBeNull();
-    expect(chordLetter('1')).toBe(true);
+    expect(suggestionChord(press('Digit1', { metaKey: false }))).toBeNull();
+    // A view's ⌃ and digit, a project's ⌥⌘, a snooze's ⌃⌘ and the screenshots' ⇧⌘.
+    expect(suggestionChord(press('Digit1', { metaKey: false, ctrlKey: true }))).toBeNull();
+    expect(suggestionChord(press('Digit1', { altKey: true }))).toBeNull();
+    expect(suggestionChord(press('Digit1', { ctrlKey: true }))).toBeNull();
+    expect(suggestionChord(press('Digit3', { shiftKey: true }))).toBeNull();
   });
 });

@@ -4,19 +4,20 @@
 // own message, the way ⏎ sends what's typed; ⌘-click sends it and goes on to the next session that
 // waits on you, as ⌘⏎ does, where there's one; ⌥-click puts it in the box to change first. The box
 // is still yours: type anything instead. ↑ from the empty box goes into the list, ↑ ↓ move through
-// it, ⏎ sends (⌘⏎, ⌥⏎ as the clicks), and ↓ past the last or Escape goes back to the box. Each
-// reply has a key of its own, ⌃⌥ and its number (menus.ts `SUGGESTION_CHORDS`), shown at its end,
-// which sends it from anywhere in the window (⌃⌥⌘ and its number sends it and goes on to the next);
-// the box listens for them (SessionReply.tsx). A reply's right-click menu has the same, and Dismiss
-// takes them all away on the session's Mac. They go by themselves once something is sent to the
-// session or a turn of its starts (board::suggestions_hold).
+// it, ⏎ sends (⌘⏎, ⌥⏎ as the clicks), its number alone sends that one, and ↓ past the last or
+// Escape goes back to the box. ⌘ and its number (menus.ts `SUGGESTION_CHORDS`) sends one from the
+// box too, and from anywhere in a window that works through what waits on you; the box listens
+// for them (SessionReply.tsx), and each reply shows its key at its end while it works there, its
+// arrow otherwise. A reply's right-click menu has the same, and Dismiss takes them all away on the
+// session's Mac. They go by themselves once something is sent to the session or a turn of its
+// starts (board::suggestions_hold).
 
 import { forwardRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { showContextMenu } from '../contextMenu';
 import { chordKeys, SUGGESTION_CHORDS, suggestionChord } from '../menus';
 import type { Key } from '../queue';
 import type { Suggestions } from '../types';
-import { Icon, Kbd } from './primitives';
+import { cx, Icon, Kbd } from './primitives';
 
 /** How a pick goes: sent as it is, sent and then on to the next that waits on you, or put in the
  *  box to change first. */
@@ -36,6 +37,9 @@ interface Props {
   next?: boolean;
   /** Gives the box the keyboard back. */
   onLeave: () => void;
+  /** Their keys work from anywhere in the window, not only from the box and the list (the notch,
+   *  the waiting window), so they show whatever has the keyboard. */
+  keyed?: boolean;
 }
 
 /** The way a click or a key with these modifiers picks a reply. */
@@ -44,16 +48,13 @@ function how(e: { metaKey: boolean; altKey: boolean }, next: boolean): PickHow {
   return e.metaKey && next ? 'next' : 'send';
 }
 
-/** The reply a key sends, and how, when it's one of their keys (`SUGGESTION_CHORDS`): with ⌘ too,
- *  it goes on to the next that waits on you, where there's one. */
-export function chordedReply(e: Key, replies: string[], next: boolean): { text: string; how: PickHow } | null {
-  const chord = suggestionChord(e);
-  const text = chord ? replies[chord.index] : undefined;
-  if (!chord || text === undefined) return null;
-  return { text, how: chord.next && next ? 'next' : 'send' };
+/** The reply a key sends, when it's one of their keys (`SUGGESTION_CHORDS`). */
+export function chordedReply(e: Key, replies: string[]): string | null {
+  const index = suggestionChord(e);
+  return index === null ? null : (replies[index] ?? null);
 }
 
-export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function SuggestedReplies({ suggestions: g, onPick, onDismiss, blocked, denies, next = false, onLeave }, ref) {
+export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function SuggestedReplies({ suggestions: g, onPick, onDismiss, blocked, denies, next = false, onLeave, keyed = false }, ref) {
   const sends = denies ? 'Deny the call it waits on, and send this instead' : 'Send this as your reply';
   const title = blocked ?? `${sends} · ⌥-click to change it first${next ? ' · ⌘-click sends and goes on to the next' : ''}`;
   const pick = (text: string, h: PickHow) => {
@@ -76,7 +77,12 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
     const all = [...(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('.ca-suggest-reply') ?? [])];
     const at = all.indexOf(e.currentTarget);
     const plain = !e.shiftKey && !e.ctrlKey;
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && plain && !e.metaKey && !e.altKey) {
+    // Its number alone, by the key's place: some layouts type digits with ⇧.
+    const number = /^Digit([1-9])$/.exec(e.code);
+    const chosen = number && !e.metaKey && !e.ctrlKey && !e.altKey ? g.replies[Number(number[1]) - 1] : undefined;
+    if (chosen !== undefined) {
+      pick(chosen, 'send');
+    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && plain && !e.metaKey && !e.altKey) {
       const to = at + (e.key === 'ArrowUp' ? -1 : 1);
       if (to >= all.length) onLeave();
       else all[Math.max(0, to)]?.focus();
@@ -92,7 +98,7 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
   };
   const by = g.byTitle ? `Suggested by ${g.byTitle}` : 'Suggested replies';
   return (
-    <div ref={ref} className="ca-suggest" role="group" aria-label="Suggested replies">
+    <div ref={ref} className={cx('ca-suggest', keyed && 'is-keyed')} role="group" aria-label="Suggested replies">
       <div className="ca-suggest-head">
         <Icon name="sparkles" size={13} />
         <span className="ca-suggest-by" title={g.by ? `${by} (${g.by})` : by}>
@@ -113,13 +119,15 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
               className="ca-suggest-reply"
               title={chord ? `${title} · ${chordKeys(chord).join('')}` : title}
               aria-disabled={!!blocked}
-              aria-keyshortcuts={chord?.replace('Ctrl', 'Control')}
+              aria-keyshortcuts={chord?.replace('Cmd', 'Meta')}
               onClick={(e) => pick(text, how(e, next))}
               onKeyDown={(e) => keys(e, text)}
               onContextMenu={(e) => menu(e, text, chord)}
             >
               <span className="ca-suggest-text">{text}</span>
-              {chord ? <Kbd keys={chordKeys(chord)} /> : <Icon name="arrow-up" size={13} />}
+              {/* Its key while it works (SuggestedReplies.css), its arrow otherwise. */}
+              {chord && <Kbd keys={chordKeys(chord)} />}
+              <Icon name="arrow-up" size={13} />
             </button>
           );
         })}

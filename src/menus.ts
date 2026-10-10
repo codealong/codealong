@@ -817,21 +817,18 @@ export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, stri
  *  letter of their own: they're not ones to press by mistake. */
 export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
 /** The keys that send the replies suggested for a session (SuggestedReplies.tsx), the first to
- *  the sixth, from its box, and from anywhere in a window whose keyboard works through what waits
- *  on you (the notch, the waiting window); each reply shows its key, and its menu too. With ⌘ as
- *  well it's sent and the window goes on to the next that waits on you, as ⌘-click does. ⌃⌥
- *  because ⌘ and a digit open a row's places, ⌃ alone goes to a view, ⌥⌘ switches projects and
- *  ⌃⌘ snoozes. As many as `codealong session suggest` takes (suggestions.rs `MOST`). */
-export const SUGGESTION_CHORDS = ['Ctrl+Alt+1', 'Ctrl+Alt+2', 'Ctrl+Alt+3', 'Ctrl+Alt+4', 'Ctrl+Alt+5', 'Ctrl+Alt+6'] as const;
+ *  the sixth, as the quick panel's ⌘1 to ⌘9 do its rows: from the session's box or the list of
+ *  them, and from anywhere in a window whose keyboard works through what waits on you (the notch,
+ *  the waiting window). Each reply shows its key while it works, and its menu too. From the main
+ *  window's list, ⌘ and a digit still open the selected row's places (mainKeys.ts); a box takes
+ *  no ⌘ and a digit of its own. As many as `codealong session suggest` takes (suggestions.rs
+ *  `MOST`). */
+export const SUGGESTION_CHORDS = ['Cmd+1', 'Cmd+2', 'Cmd+3', 'Cmd+4', 'Cmd+5', 'Cmd+6'] as const;
 
-/** Which suggested reply a key sends (its place in the list), and whether it goes on to the next
- *  that waits on you after (⌘); none for any other key. */
-export function suggestionChord(e: Key): { index: number; next: boolean } | null {
-  for (const [index, chord] of SUGGESTION_CHORDS.entries()) {
-    if (chordPressed(chord, e)) return { index, next: false };
-    if (chordPressed(`Cmd+${chord}`, e)) return { index, next: true };
-  }
-  return null;
+/** Which suggested reply a key sends (its place in the list), or none for any other key. */
+export function suggestionChord(e: Key): number | null {
+  const index = SUGGESTION_CHORDS.findIndex((chord) => chordPressed(chord, e));
+  return index >= 0 ? index : null;
 }
 
 // Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘4 (snooze.ts `SNOOZE_CHORDS`), which its

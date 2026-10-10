@@ -3,13 +3,16 @@
 // lists them, and its panel shows them above the box, with who suggested them and the note. A
 // click sends one as it is, leaving the draft in the box, and they go at once; ⌥-click puts one in
 // the box after the draft and sends nothing; ↑ in the empty box goes to the nearest one and ⏎
-// there sends it; each shows its key, ⌃⌥ and its number, which sends it from the box and from
-// Sessions' list too; a reply's menu has Send (with its key), Change before sending and Dismiss
-// suggestions; and Dismiss asks the engine to take them away, and they go at once.
+// there sends it, and so does its number alone; each shows its key, ⌘ and its number, while the
+// box has the keyboard, which sends it from there, where from Sessions' list ⌘ and a digit still
+// open the row's places and the replies show their arrows; a reply's menu has Send (with its key),
+// Change before sending and Dismiss suggestions; and Dismiss asks the engine to take them away,
+// and they go at once.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/suggest-check.js
 (function () {
   // This runs before the app's script: the board it gets has one turn that ended, made from a
-  // real session on this device, with three suggested replies, and nothing else waiting.
+  // real session on this device that runs (a send to one that does not resumes it instead), with
+  // three suggested replies, and nothing else waiting.
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
   localStorage.removeItem('codealong.sessionPanelMax');
@@ -27,7 +30,7 @@
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
           s.suggestions = undefined;
-          if (l.hidden || l.device || s.visitor || s.archived || s.hosted || (picked && picked.key !== s.key)) return;
+          if (l.hidden || l.device || s.visitor || s.archived || s.hosted || !s.live || (picked && picked.key !== s.key)) return;
           picked = picked || { key: s.key, lane: l.id };
           localStorage.removeItem('codealong.draft.' + s.key);
           s.status = 'unread';
@@ -123,25 +126,44 @@
       return again();
     })
     .then(function () {
-      var shown = rows().map(function (r) { var k = r.querySelector('.ca-kbds'); return k ? k.textContent : ''; });
-      check('each reply shows its key', shown.join(' ') === '⌃⌥1 ⌃⌥2 ⌃⌥3', shown.join(' '));
       box().focus();
-      key(box(), { key: '™', code: 'Digit2', ctrlKey: true, altKey: true });
-      return until(function () { return sends().length === 3; }, 3000, '⌃⌥2 sending it');
+      return wait(50);
     })
     .then(function () {
-      check('⌃⌥2 in the box sends the second', sends()[2].text === replies[1], JSON.stringify(sends()[2]));
+      var shown = rows().map(function (r) { var k = r.querySelector('.ca-kbds'); return k && getComputedStyle(k).display !== 'none' ? k.textContent : ''; });
+      check('with the box’s keyboard each reply shows its key', shown.join(' ') === '⌘1 ⌘2 ⌘3', shown.join(' '));
+      key(box(), { key: '2', code: 'Digit2', metaKey: true });
+      return until(function () { return sends().length === 3; }, 3000, '⌘2 sending it');
+    })
+    .then(function () {
+      check('⌘2 in the box sends the second', sends()[2].text === replies[1], JSON.stringify(sends()[2]));
+      return again();
+    })
+    .then(function () {
+      key(box(), { key: 'ArrowUp' });
+      key(rows()[2], { key: '1', code: 'Digit1' });
+      return until(function () { return sends().length === 4; }, 3000, '1 in the list sending it');
+    })
+    .then(function () {
+      check('its number alone in the list sends it', sends()[3].text === replies[0], JSON.stringify(sends()[3]));
       return again();
     })
     .then(function () {
       var list = q('.ca-board-list') || row();
       list.focus();
-      key(list, { key: '£', code: 'Digit3', ctrlKey: true, altKey: true });
-      return until(function () { return sends().length === 4; }, 3000, '⌃⌥3 from the list sending it');
+      return wait(50);
     })
     .then(function () {
-      check('⌃⌥3 from Sessions’ list sends the third', sends()[3].text === replies[2] && sends()[3].key === picked.key, JSON.stringify(sends()[3]));
-      key(document.body, { key: '¢', code: 'Digit4', ctrlKey: true, altKey: true });
+      var hidden = rows().every(function (r) { var k = r.querySelector('.ca-kbds'); return !k || getComputedStyle(k).display === 'none'; });
+      check('from Sessions’ list the replies show their arrows, not keys', hidden);
+      var list = q('.ca-board-list') || row();
+      key(list, { key: '3', code: 'Digit3', metaKey: true });
+      return wait(300);
+    })
+    .then(function () {
+      check('⌘3 from Sessions’ list sends nothing (it opens the row’s place)', sends().length === 4, sends().length + ' sends');
+      box().focus();
+      key(box(), { key: '4', code: 'Digit4', metaKey: true });
       return wait(300);
     })
     .then(function () {
@@ -152,7 +174,7 @@
     .then(function (labels) {
       check('a reply’s menu has Send, Change before sending and Dismiss', labels.indexOf('Send') >= 0 && labels.indexOf('Change before sending') >= 0 && labels.indexOf('Dismiss suggestions') >= 0, labels.join(' | '));
       var item = lastMenu().filter(function (i) { return i.text === 'Send'; })[0];
-      check('with its key beside Send', !!item && item.accelerator === 'Ctrl+Alt+1', JSON.stringify(item && item.accelerator));
+      check('with its key beside Send', !!item && item.accelerator === 'Cmd+1', JSON.stringify(item && item.accelerator));
       q('.ca-sessinsp .ca-suggest-head .ca-linkbtn').click();
       return until(function () { return sent('dismiss_suggestions').length === 1; }, 3000, 'Dismiss asking the engine');
     })

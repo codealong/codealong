@@ -166,11 +166,12 @@ under `src-tauri/src/`.
   they'd take the keys before the app sees them. The preview shows the views changing and the
   hover's rules (`view-keys-check.js`).
 
-- Not yet checked by hand (2026-10-09): ⌃⌥1 to ⌃⌥6 in the real app, which send a session's
-  suggested replies (`src/menus.ts` `SUGGESTION_CHORDS`). That WKWebView hands ⌃⌥ and a digit to
-  the page, from its box and from Sessions' list, as a keydown whose `code` is the digit's, in the
-  main window and the floating panels; that ⌃⌥⌘ and a digit isn't taken as a key equivalent
-  first; and that a reply's native menu shows its key. The preview shows the keys sending
+- Not yet checked by hand (2026-10-09): ⌘1 to ⌘6 in the real app, which send a session's
+  suggested replies from its box (`src/menus.ts` `SUGGESTION_CHORDS`). That WKWebView hands ⌘ and
+  a digit to the page before any menu, in the main window and the floating panels (the notch and
+  the waiting window from anywhere in them); that `:focus-within` on the box shows the keys in
+  WKWebView as in Chrome; and that a reply's native menu shows its key. The preview shows the keys
+  sending, and ⌘ and a digit from Sessions' list still opening the row's places
   (`suggest-check.js`).
 
 - Not yet checked by hand (2026-10-06): the waiting window in the real app. Whether ⌥⌘. from

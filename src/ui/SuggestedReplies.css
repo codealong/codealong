@@ -55,6 +55,21 @@
   flex: none;
   color: var(--ink-3);
 }
+/* Its key shows while it works: the keyboard is in the session's box or the list (anywhere in the
+   composer), or anywhere in a window whose keys work through what waits (`is-keyed`). The arrow
+   takes its place otherwise, as from the main window's list, where ⌘ and a digit open the row's
+   places. */
+.ca-suggest-reply > .ca-kbds {
+  display: none;
+}
+.ca-composer:focus-within .ca-suggest-reply > .ca-kbds,
+.ca-suggest.is-keyed .ca-suggest-reply > .ca-kbds {
+  display: inline-flex;
+}
+.ca-composer:focus-within .ca-suggest-reply > .ca-kbds + .ca-icon,
+.ca-suggest.is-keyed .ca-suggest-reply > .ca-kbds + .ca-icon {
+  display: none;
+}
 .ca-suggest-reply:hover:not([aria-disabled='true']),
 .ca-suggest-reply:focus-visible {
   border-color: var(--line-strong);
