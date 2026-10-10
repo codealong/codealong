@@ -1,7 +1,7 @@
 // One worktree as a flight strip, read left to right as where, then who. On the left, shaded as
 // one block, the worktree and everything that belongs to it: its name, its repo and branch, what
-// it holds (free for new work, its app, its PR) and its lines and commits against the default
-// branch. On the right its agents, a line each, every line a session built the same way: the
+// it holds (its app, its PR, and whether new work can start there) and its lines and commits
+// against the default branch. On the right its agents, a line each, every line a session built the same way: the
 // ones that need you, are working or just finished, else the one that last worked there. A
 // worktree shows once however many agents run in it.
 
@@ -133,8 +133,8 @@ interface CellProps {
 
 /**
  * The worktree's column, with what belongs to the worktree at the end of each of its lines: its
- * name, then where it stands (free for new work, or finished as Jev reads it) and its app (a
- * globe, green while it runs); its repo and branch, then its PR. Each line is laid from its end,
+ * name, then finished as Jev reads it and its app (a globe, green while it runs); its repo and
+ * branch, after its reuse mark (green when new work can start there), then its PR. Each line is laid from its end,
  * so apps and PRs line up down the board. Short of room, the name keeps its line and the chips
  * beside it give way, the app last; the repo and branch give way before the PR does.
  */
@@ -148,7 +148,6 @@ function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrOpen }: C
         </span>
         <span className="ca-chips ca-lane-own">
           <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} inRow bare />
-          <FreeChip lane={lane} />
           <LooksFinished lane={lane} />
         </span>
       </span>
@@ -165,23 +164,14 @@ function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrOpen }: C
 }
 
 /** A reusable worktree's mark, before its repo and branch: it takes one piece of work after
- *  another. Its tooltip says what it holds now. */
+ *  another. Green while it's ready for new work, as an app that runs is; its tooltip says what it
+ *  holds now. */
 export function ReuseMark({ lane }: { lane: Lane }) {
   if (!lane.reuse) return null;
   return (
-    <span className="ca-reusemark" title={`Reusable. ${REUSE_WORDS[lane.reuse]}`}>
+    <span className={cx('ca-reusemark', lane.reuse === 'free' && 'is-ready')} title={`Reusable. ${REUSE_WORDS[lane.reuse]}`}>
       <Icon name="repeat" size={11} />
     </span>
-  );
-}
-
-/** Free, on a reusable worktree that holds no work: new work can start there. */
-function FreeChip({ lane }: { lane: Lane }) {
-  if (lane.reuse !== 'free') return null;
-  return (
-    <Chip className="ca-reusechip" title={REUSE_WORDS.free}>
-      Free
-    </Chip>
   );
 }
 

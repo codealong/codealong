@@ -6,7 +6,7 @@ import type { Lane, Reuse, RoutePick } from './types';
 
 /** What a reusable worktree holds, in a sentence for its mark's tooltip. */
 export const REUSE_WORDS: Record<Reuse, string> = {
-  free: 'Free: nothing uncommitted or unlanded, and no agent at work. New work can start here.',
+  free: 'Ready for new work: nothing uncommitted or unlanded, and no agent at work.',
   open: 'Work under way. New work that belongs with it can join it.',
   review: 'Its PR is in review.',
   landed: 'Its work landed. New work can start here once it’s back on the default branch.',

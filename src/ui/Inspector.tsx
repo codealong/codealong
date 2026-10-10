@@ -203,8 +203,9 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
           </span>
           <span className="ca-tag">{ORIGIN_WORD[lane.origin]}</span>
           {lane.reuse && (
-            <span className="ca-tag" title={REUSE_WORDS[lane.reuse]}>
-              {lane.reuse === 'free' ? 'Reusable · free' : 'Reusable'}
+            <span className={cx('ca-tag', 'ca-insp-reuse', lane.reuse === 'free' && 'is-ready')} title={REUSE_WORDS[lane.reuse]}>
+              <Icon name="repeat" size={11} />
+              Reusable
             </span>
           )}
         </div>

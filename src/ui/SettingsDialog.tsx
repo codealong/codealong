@@ -876,7 +876,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes }: PaneProp
   );
 }
 
-const REUSE_STATE: Record<Reuse, string> = { free: 'Free', open: 'Work under way', review: 'In review', landed: 'Landed' };
+const REUSE_STATE: Record<Reuse, string> = { free: 'Ready for new work', open: 'Work under way', review: 'In review', landed: 'Landed' };
 
 /**
  * Worktrees that take one piece of work after another, by project, and ones whose branch has

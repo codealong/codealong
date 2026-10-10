@@ -167,16 +167,20 @@
   margin-top: 0;
 }
 
-/* A reusable worktree's mark, before its repo and branch (LaneRow.tsx). */
+/* A reusable worktree's mark, before its repo and branch (LaneRow.tsx): green, as an app that
+   runs is, while new work can start there. */
 .ca-reusemark {
   display: inline-flex;
   vertical-align: -2px;
   margin-right: var(--space-1);
   color: var(--ink-3);
 }
+.ca-reusemark.is-ready {
+  color: var(--pr-open);
+}
 
-/* The worktree's two lines (LaneRow.tsx `WorktreeCell`): its name, then where it stands and its
-   app; its repo and branch, then its PR. Each lane of chips is laid from the line's end, so apps
+/* The worktree's two lines (LaneRow.tsx `WorktreeCell`): its name, then Jev's read and its app;
+   its repo and branch, then its PR. Each lane of chips is laid from the line's end, so apps
    and PRs line up down the board. Short of room the name keeps its line and the chips beside it
    give way, the app last; on the second line the repo and branch shorten, all the way on a narrow
    board, before the PR gives way. */
@@ -216,10 +220,3 @@
   padding: 0 6px;
 }
 
-/* Free: a reusable worktree that holds no work, where new work can start. */
-.ca-chip.ca-reusechip {
-  padding: 0 7px;
-  font: var(--type-caption-heading);
-  background: var(--pr-open-tint);
-  color: var(--pr-open);
-}

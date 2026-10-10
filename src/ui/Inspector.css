@@ -1,6 +1,6 @@
 /* The worktree inspector (Inspector.tsx): the Open in split button and its menu, session rows
-   (.ca-srow), the pull request card. A PR's merge box (MergeBox.tsx) draws its Squash and merge
-   and Update branch with the same split. */
+   (.ca-srow), the pull request card, the reusable tag. A PR's merge box (MergeBox.tsx) draws its
+   Squash and merge and Update branch with the same split. */
 
 .ca-openin { position: relative; display: inline-flex; flex-direction: column; }
 .ca-split { display: inline-flex; }
@@ -93,4 +93,10 @@
 }
 .ca-srows-divider + .ca-srow {
   border-top: none;
+}
+
+/* A reusable worktree's tag, with its mark: green, as on its row, while new work can start there. */
+.ca-tag.ca-insp-reuse.is-ready {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
 }
