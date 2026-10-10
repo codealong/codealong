@@ -1,6 +1,6 @@
 # Plan: Codealong for agents (CLI + skills)
 
-Status: built 2026-09-24 (phases 1 to 3). README's *For agents* and CLAUDE.md have the result;
+Status: built 2026-09-24 (phases 1 to 3). The guide's (`docs/guide.md`) *For agents* and CLAUDE.md have the result;
 this is the reasoning. Decided against: an MCP server (a skill plus the command reaches every
 harness here, and an MCP server would add tool schemas to every prompt for the same
 operations), a follow mode (an agent asks when it needs to know), and transcript search (Claude

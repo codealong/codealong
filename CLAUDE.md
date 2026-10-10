@@ -3,7 +3,9 @@
 A Mac app (Tauri 2: Rust engine, React UI) that tracks every coding agent running on this Mac,
 across Claude Code accounts, Codex, OpenCode, Antigravity and Cursor, organized by project → repo →
 worktree → branch → PR. It shows what each agent is doing, opens any session where it lives,
-and shows plan usage. README.md has the feature list, settings and code map. The design
+and shows plan usage. README.md introduces it to people trying it and annotates config.toml;
+`docs/guide.md` has every feature in detail (a feature's behavior goes there), and
+`docs/development.md` building, the code map and how the skill and plugin are packaged. The design
 system (tokens, components, the model and build plan) is the artifact
 https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc; the app has moved past it in places.
 

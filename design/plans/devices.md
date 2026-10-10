@@ -1,8 +1,8 @@
 # Plan: your devices, peer to peer
 
 Status: built 2026-09-27 (fa29006, 92e20d6, 1d2147d, and the badges and grouping after), and
-checked between two real devices over Tailscale and iroh; what's next is at the end. README's
-*Your other devices* and CLAUDE.md's Tailscale and iroh notes have the result; this is the
+checked between two real devices over Tailscale and iroh; what's next is at the end. The guide's
+(`docs/guide.md`) *Your other devices* and CLAUDE.md's Tailscale and iroh notes have the result; this is the
 reasoning.
 
 This replaced a plan with a hosted service in the middle: a gateway every device kept a socket
