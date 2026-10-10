@@ -779,6 +779,16 @@ export function SectionHeader({ icon, label, count, hint }: { icon?: string; lab
   );
 }
 
+/** A section header's hint for rows in your order (Pinned, a todo section): each chord on one
+ *  cap, as the hotkey strip says its keys. */
+export function ReorderHint() {
+  return (
+    <>
+      Drag or <Kbd keys={['⌃⌘↑']} /> <Kbd keys={['⌃⌘↓']} /> to reorder
+    </>
+  );
+}
+
 interface NavItemProps {
   label: string;
   icon?: string;

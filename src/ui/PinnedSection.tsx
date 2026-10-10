@@ -3,7 +3,7 @@
 // to the list to unpin it (useRowDrag.tsx).
 
 import type { ReactNode } from 'react';
-import { Kbd, SectionHeader } from './primitives';
+import { ReorderHint, SectionHeader } from './primitives';
 
 interface PinnedSectionProps<T> {
   items: T[];
@@ -14,16 +14,7 @@ interface PinnedSectionProps<T> {
 export function PinnedSection<T>({ items, row }: PinnedSectionProps<T>) {
   return (
     <section className="ca-bayblock ca-pinned">
-      <SectionHeader
-        icon="pinned"
-        label="Pinned"
-        count={items.length}
-        hint={
-          <>
-            Drag or <Kbd keys={['⌃', '⌘', '↑']} /> <Kbd keys={['⌃', '⌘', '↓']} /> to reorder
-          </>
-        }
-      />
+      <SectionHeader icon="pinned" label="Pinned" count={items.length} hint={<ReorderHint />} />
       <div className="ca-bay-lanes">{items.map((item, index) => row(item, index))}</div>
     </section>
   );

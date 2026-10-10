@@ -12,7 +12,7 @@ import { absolute, ago, middleTruncate } from '../format';
 import { selectHow, type SelectHow } from '../picks';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
-import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, Row, WorktreeChip } from './primitives';
+import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, WorktreeChip } from './primitives';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
@@ -236,13 +236,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
       <SectionHead
         id={section.id}
         count={section.rows.length}
-        hint={
-          draggable && selectedKey && picked.size === 0 && section.rows.some((r) => r.key === selectedKey) ? (
-            <>
-              Drag or <Kbd keys={['⌃', '⌘', '↑']} /> <Kbd keys={['⌃', '⌘', '↓']} /> to reorder
-            </>
-          ) : undefined
-        }
+        hint={draggable && selectedKey && picked.size === 0 && section.rows.some((r) => r.key === selectedKey) ? <ReorderHint /> : undefined}
       />
       <div className="ca-bay-lanes" data-drag-list>
         {section.rows.map((r, i) => (
