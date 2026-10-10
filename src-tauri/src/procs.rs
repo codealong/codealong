@@ -431,16 +431,44 @@ pub fn run_background(program: &str, args: &[&str], cwd: Option<&Path>, timeout:
 
 /// Puts the calling thread in macOS's utility class, for the same reason.
 pub fn utility_thread() {
+    thread_qos(0x11);
+}
+
+/// Puts the calling thread in macOS's user-initiated class, for work a person is waiting on from
+/// another device (their phone opening a session, a Mac asking for a page): it goes ahead of the
+/// agents' builds rather than behind them, as the engine's own scanning does.
+pub fn user_initiated_thread() {
+    thread_qos(0x19);
+}
+
+fn thread_qos(class: u32) {
     #[cfg(target_os = "macos")]
     {
         extern "C" {
             fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
         }
-        const QOS_CLASS_UTILITY: u32 = 0x11;
         // SAFETY: affects the calling thread only, with constant arguments.
         unsafe {
-            pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+            pthread_set_qos_class_self_np(class, 0);
         }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = class;
+}
+
+/// Keeps macOS from napping the app for as long as it runs. App Nap takes an app whose windows
+/// aren't in front for one that's idle: every thread of it ran at the lowest priority there is
+/// (4, where the agents' work runs at 31 and up) and its timers were put off, so a phone or
+/// another Mac waited on it whenever this Mac was busy, and the bar's one-second timers ran a
+/// second late. The Mac can still sleep when idle.
+pub fn no_app_nap() {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+        let reason = NSString::from_str("Codealong keeps your board live and answers your other devices");
+        let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(NSActivityOptions::UserInitiatedAllowingIdleSystemSleep, &reason);
+        // Held until the app quits: ending it lets macOS nap the app again.
+        std::mem::forget(activity);
     }
 }
 

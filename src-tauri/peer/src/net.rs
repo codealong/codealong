@@ -33,7 +33,7 @@ pub struct Iroh {
 impl Iroh {
     /// Starts this device's endpoint, on number 0's relays and address lookup.
     pub fn start(key: SecretKey) -> Result<Iroh> {
-        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_name("iroh").enable_all().build()?;
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_name("iroh").on_thread_start(user_initiated).enable_all().build()?;
         let ep = rt.block_on(Endpoint::builder(presets::N0).secret_key(key).alpns(vec![ALPN.to_vec()]).bind()).map_err(|e| anyhow!("iroh didn't start: {e}"))?;
         Ok(Iroh { rt: Arc::new(rt), ep })
     }
@@ -79,6 +79,21 @@ impl Iroh {
 
 /// A connection as peers.rs takes it. The reader and writer hold the runtime, so it lives as
 /// long as a connection does.
+/// The endpoint's threads carry what a person on the other device waits on: in Apple's
+/// user-initiated class they go ahead of builds and other background work on a busy Mac.
+fn user_initiated() {
+    #[cfg(target_vendor = "apple")]
+    {
+        extern "C" {
+            fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+        }
+        // SAFETY: affects the calling thread only, with constant arguments.
+        unsafe {
+            pthread_set_qos_class_self_np(0x19, 0);
+        }
+    }
+}
+
 fn wire(rt: Arc<Runtime>, conn: Connection, send: SendStream, recv: RecvStream) -> Wire {
     let timeout = Arc::new(Mutex::new(None::<Duration>));
     let closer = conn.clone();

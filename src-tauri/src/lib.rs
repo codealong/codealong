@@ -1588,6 +1588,7 @@ pub fn run() {
     }
     tauri::Builder::default()
         .setup(|app| {
+            procs::no_app_nap();
             // Set before the page loads, so a window never opens in the wrong theme.
             let theme = config::theme();
             app.set_theme(native_theme(theme));
