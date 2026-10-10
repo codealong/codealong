@@ -2,6 +2,12 @@
 // with what they gave back, read from the session's own record a page at a time (transcript.rs).
 // It opens at the newest and loads older pages as you scroll up, holding your place; new steps
 // come in at the bottom as the session goes on, and the view follows them if you're at the end.
+// Who said a message and when heads a run of them, not each one: your prompt, then the agent's
+// reply, whose later messages (between its tool calls) go on under that heading. A heading comes
+// again where the speaker changes, after a note, or after a pause (`headingsOf`). A right-click on
+// a message copies it as it was written, markdown and all, or what you'd selected in it; in a
+// card the session's own menu follows.
+//
 // A tool call is a line; click it for its input and output. A run of calls folds into one line
 // that keeps its latest call in view. Questions it asks you (Claude Code's AskUserQuestion) open
 // as questions with their choices rather than the call's input, marked with your picks once
@@ -41,7 +47,8 @@ import { putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
 import type { HostedStream, Question, Session, Status, TranscriptItem, TranscriptPage } from '../types';
-import { CodeBlock, CopyButton } from './CopyButton';
+import { selectedForMenu, type MenuSpec } from '../contextMenu';
+import { CodeBlock } from './CopyButton';
 import { DescriptionView } from './DescriptionEditor';
 import { Link, linked, Markdown } from './Markdown';
 import { cx, Icon, Rich, StatusGlyph } from './primitives';
@@ -59,6 +66,9 @@ const NEAR_TOP = 240;
 const FOLD_AT = 3;
 /** Pages read back past the first, looking for the prompt behind it, before giving up. */
 const LOOK_BACK = 16;
+/** A message this long after the step before it heads itself again, though the same speaker said
+ *  the one before: the agent woken by a background job's report long after it went quiet. */
+const PAUSE = 10 * 60_000;
 /** What ⌘F searches: your prompts, the replies, notes, the calls' lines, a call's input and output
  *  once it's open, the commands you ran with what they printed, and the page a call made. */
 const FIND_IN = '.ca-thread-you, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle';
@@ -97,6 +107,41 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
   }
   flush();
   return rows;
+}
+
+/** Who spoke last, and when the last step was (0 when its record didn't say). */
+export interface Speaker {
+  kind: 'you' | 'agent' | null;
+  at: number;
+}
+
+/** Whether a message heads itself, after `last`: where the speaker changes, or after a pause. */
+export function heads(last: Speaker, kind: 'you' | 'agent', at: number): boolean {
+  return kind !== last.kind || (at > 0 && last.at > 0 && at - last.at >= PAUSE);
+}
+
+/** The messages that show who said them and when, and who spoke last, for one streaming in after
+ *  them. A note between two messages (a message from another session, the conversation
+ *  compacted) starts afresh, and a prompt the session took back always heads itself, to say so.
+ *  The agent's tool calls are its own, so they don't. */
+export function headingsOf(items: TranscriptItem[]): { headed: Set<string>; last: Speaker } {
+  const headed = new Set<string>();
+  const last: Speaker = { kind: null, at: 0 };
+  for (const it of items) {
+    if (it.kind === 'you' || it.kind === 'agent') {
+      if (heads(last, it.kind, it.at) || it.withdrawn) headed.add(keyOf(it));
+      last.kind = it.kind;
+    } else if (it.kind === 'note') last.kind = null;
+    if (it.at > 0) last.at = it.at;
+  }
+  return { headed, last };
+}
+
+/** Marks an element for a moment with a class whose animation shows it, again if it's marked. */
+function flash(el: HTMLElement, mark: string) {
+  el.classList.remove(mark);
+  void el.offsetWidth;
+  el.classList.add(mark);
 }
 
 /** The icon for a tool, by the start of its label. */
@@ -208,18 +253,46 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
   );
 }
 
-/** Something said: yours or the agent's. A command you ran in the session's shell with `!`
- *  shows as the command, which can run again, and what it printed (`result`). */
-function Said({ item, result, now, label, onPutBack }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; onPutBack?: () => void }) {
+/** Something said: yours or the agent's, under who said it and when where it `heads` a run of
+ *  them. A command you ran in the session's shell with `!` shows as the command, which can run
+ *  again, and what it printed (`result`). A right-click gives `onMenu` Copy for what you'd
+ *  selected and Copy message for the message as it was written, markdown and all, which marks
+ *  the message for a moment once it's copied. A command has its own Copy. */
+function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; head: boolean; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void }) {
   const ran = item.kind === 'you' && item.input != null;
+  // Copying it went wrong: said under it for a moment, where it was asked for.
+  const [unCopied, setUnCopied] = useState(false);
+  useEffect(() => {
+    if (!unCopied) return;
+    const id = window.setTimeout(() => setUnCopied(false), 4000);
+    return () => window.clearTimeout(id);
+  }, [unCopied]);
+  const menu = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onMenu || e.defaultPrevented) return;
+    const el = e.currentTarget;
+    const copy = (text: string, mark: boolean) =>
+      void navigator.clipboard.writeText(text).then(
+        () => mark && flash(el, 'is-copied'),
+        () => setUnCopied(true),
+      );
+    const selected = selectedForMenu();
+    const items: MenuSpec = [];
+    if (selected) items.push({ label: 'Copy', accelerator: 'Cmd+C', run: () => copy(selected, false) });
+    if (item.text.trim() && !ran) items.push({ label: 'Copy message', run: () => copy(item.text, true) });
+    if (items.length === 0) return;
+    e.preventDefault();
+    onMenu(items);
+  };
   return (
-    <div className={cx('ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined}>
-      <div className="ca-thread-meta">
-        <span>{label}</span>
-        <span className="ca-meta" title={absolute(item.at)}>
-          {item.withdrawn ? `Taken back · ${agoPhrase(item.at, now)}` : agoPhrase(item.at, now)}
-        </span>
-      </div>
+    <div className={cx('ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
+      {head && (
+        <div className="ca-thread-meta">
+          <span>{label}</span>
+          <span className="ca-meta" title={absolute(item.at)}>
+            {item.withdrawn ? `Taken back · ${agoPhrase(item.at, now)}` : agoPhrase(item.at, now)}
+          </span>
+        </div>
+      )}
       {ran ? (
         <div className="ca-thread-ran">
           {/* As typed in the session's box, led by its `!`. */}
@@ -235,12 +308,10 @@ function Said({ item, result, now, label, onPutBack }: { item: TranscriptItem; r
       ) : (
         <Markdown text={item.text} className="ca-thread-agent" />
       )}
-      {/* The message as it was written, markdown and all, for pasting elsewhere without selecting
-          it. A command has its own Copy. */}
-      {item.text.trim() && !ran && (
-        <div className="ca-thread-acts">
-          <CopyButton text={item.text} title="Copy message" className="ca-thread-copy" />
-        </div>
+      {unCopied && (
+        <p className="ca-thread-uncopied" role="alert">
+          Couldn’t copy it.
+        </p>
       )}
       {item.withdrawn && (
         <div className="ca-thread-askrow">
@@ -308,9 +379,12 @@ interface SessionThreadProps {
   answeredBelow?: boolean;
   /** Where its shell commands run, for a session on this Mac: its blocks get a Run button. */
   run?: RunPlace;
+  /** Shows the menu a right-click on a message asks for, the window's way (SessionPanel.tsx
+   *  `onThreadMenu`). Without it a message has none. */
+  onMenu?: (items: MenuSpec) => void;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   // `before` as soon as it's set, for laying out pages that must begin where the last ones did.
@@ -558,9 +632,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     el.scrollTop = to.at - padOf(el);
     jumped.current = { key: to.key, offset: to.at - el.scrollTop };
     // Marked, since one near the end can't come all the way up.
-    to.el.classList.remove('is-landed');
-    void to.el.offsetWidth;
-    to.el.classList.add('is-landed');
+    flash(to.el, 'is-landed');
   };
 
   /** Brings one of your prompts to the top, reading back to it when it's before the pages read. */
@@ -638,6 +710,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
 
 
   const rows = useMemo(() => rowsOf(items), [items]);
+  const headings = useMemo(() => headingsOf(items), [items]);
   // Your messages to it still on their way, less the ones its record has now.
   const ahead = useAhead();
   const sends = useMemo(() => ahead.filter((a) => a.change.kind === 'send' && a.change.key === s.key), [ahead, s.key]);
@@ -726,12 +799,21 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
               );
             }
             const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-            return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={it.kind === 'you' ? 'You' : s.account} onPutBack={again} />;
+            return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={it.kind === 'you' ? 'You' : s.account} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} />;
           })}
           {showing.map((a) => (
             <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
           ))}
-          {streaming?.text && <Said item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }} now={now} label={`${s.account} · writing`} />}
+          {streaming?.text && (
+            <Said
+              item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }}
+              now={now}
+              label={`${s.account} · writing`}
+              // Yours on their way are above it.
+              head={showing.length > 0 || heads(headings.last, 'agent', now)}
+              onMenu={onMenu}
+            />
+          )}
           {streaming && !streaming.text && streaming.tool && !pending && (
             <div className="ca-thread-note">
               <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />

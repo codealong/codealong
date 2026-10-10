@@ -127,6 +127,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       onOpen={(target) => can.open(lane, target)}
       actions={actions}
       onMenu={(at) => show(menus.sessionMenu(lane, session, mine), at)}
+      onThreadMenu={(items) => show([...items, 'separator', ...menus.sessionMenu(lane, session, mine)])}
       onShowLane={onShowLane}
       prs={context.prs}
       onOpenPr={(pr) => open(pr.url)}

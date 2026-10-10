@@ -221,6 +221,7 @@ export function MainPanel(props: MainPanelProps) {
         onShowSession={showSessionFromPanel}
         onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
         onMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
+        onThreadMenu={(items) => void showContextMenu(items).catch((err: unknown) => setToast(String(err)))}
         // The keyboard stays where it was: the next one's box doesn't take the cursor.
         onSeen={() => (queued ? void runQueue('seen', false) : markSeen([session.key]))}
         device={deviceOf(devices, session.key)}

@@ -5,8 +5,9 @@
 // floating bar's peek, a session kept on the desktop and the waiting window show it as a
 // card of their own (SessionCard.tsx, which wires it the same for all three), for the pill under
 // the pointer, the session kept and the one picked there, and a right-click anywhere on the card
-// but the box gives the session's menu. In a panel the header gives it (SessionHeader.tsx): the
-// conversation under it keeps a right-click for what's in it.
+// but the box gives the session's menu, under a message's Copy message where it's on one. In a
+// panel the header gives it (SessionHeader.tsx): the conversation under it keeps a right-click for
+// what's in it.
 //
 // Answered in turn, it works through what waits on you: ⌘⏎ in the box sends (or allows the call
 // the session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and
@@ -22,7 +23,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { sendAhead } from '../ahead';
-import { below, showContextMenu, type MenuGroup } from '../contextMenu';
+import { below, showContextMenu, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
 import { useLatest } from '../latest';
@@ -95,6 +96,10 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   onDone?: (done: string) => void;
   /** Once the conversation's first page is laid out. */
   onLoaded?: () => void;
+  /** Shows the menu a right-click on a message in the conversation asks for (Copy message), the
+   *  window's way: a card puts the session's own under it, as a right-click anywhere else on it
+   *  gives the session's menu. */
+  onThreadMenu?: (items: MenuSpec) => void;
 }
 
 /** What else waits on you in words, as the chip says it to a screen reader and the list it shows
@@ -370,7 +375,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
 }
 
-export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, ...header }: SessionPanelProps) {
+export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
   const terminal = apps.terminal;
   const openIt = () => onOpen(s.openTarget);
@@ -397,6 +402,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             onLoaded={onLoaded}
             answeredBelow={!device || (device.online && device.remoteControl)}
             run={run}
+            onMenu={onThreadMenu}
             fallback={
               s.excerpt ? (
                 <p className="ca-sessinsp-now">

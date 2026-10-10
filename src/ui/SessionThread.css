@@ -115,35 +115,22 @@
   font: var(--type-reading);
   overflow-wrap: anywhere;
 }
-/* Under each message, a button that copies it as written, markdown and all (CopyButton.tsx):
-   faint until you point at the message, under a reply's left edge and your message's right one. */
-.ca-thread-acts {
-  display: flex;
-  margin: -2px -4px 0;
+/* A message copied from its menu, marked for a moment (SessionThread.tsx), and the line under it
+   when it couldn't be. */
+.ca-thread-said.is-copied {
+  border-radius: var(--radius-md);
+  animation: ca-thread-copied var(--dur-sweep) ease-out;
 }
-.ca-thread-said.is-you .ca-thread-acts {
-  justify-content: flex-end;
+@keyframes ca-thread-copied {
+  from {
+    background: var(--neutral-tint);
+    box-shadow: 0 0 0 6px var(--neutral-tint);
+  }
 }
-.ca-thread-acts .ca-thread-copy {
-  height: 20px;
-  padding: 0 4px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--ink-3);
-  opacity: 0.6;
-  transition: opacity var(--dur-fast);
-}
-.ca-thread-said:hover .ca-thread-acts .ca-thread-copy,
-.ca-thread-acts .ca-thread-copy:focus-visible,
-.ca-thread-acts .ca-thread-copy.is-copied {
-  opacity: 1;
-}
-.ca-thread-acts .ca-thread-copy:hover {
-  background: var(--neutral-tint);
-  color: var(--ink);
-}
-.ca-thread-acts .ca-thread-copy.is-copied {
-  color: var(--pr-open);
+.ca-thread-uncopied {
+  margin: 0;
+  color: var(--alert);
+  font: var(--type-caption);
 }
 .ca-thread-tool {
   display: grid;

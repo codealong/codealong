@@ -214,7 +214,9 @@ its worktree's), each a chip that opens on GitHub and shows the PR's card on hov
 it's on and +N for the rest. Below is its whole conversation, read from the session's own record
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the agent's replies
 as Markdown, and every tool call, which opens to its input and output; runs of calls fold into one
-line. An artifact Claude Code published shows under its call as its title, a link that opens it,
+line. Who said what and when heads a run of messages, not each one: your prompt, then the agent's
+reply, whose later messages between its calls go on under that heading; it heads one again after a
+note in the conversation or a pause of ten minutes (the agent woken by a background job's report). An artifact Claude Code published shows under its call as its title, a link that opens it,
 with what the call did (Published · version 3), and stays out of a fold; web links in a tool's
 output open too. A prompt shows the images you sent with it in place, whether you sent them from
 Codealong, pasted them into the session's terminal or attached them in the Claude or Codex app;
@@ -244,7 +246,9 @@ and the calls' lines, and a call's input and output once you've opened it.
 
 #### Copy and Run
 
-Code blocks have Copy on hover, and a shell block in a reply (`bash`, `sh`, `zsh`…) or a command the
+A right-click on a message has Copy message, which copies it as it was written, Markdown and all,
+and Copy for what you'd selected in it; in the peek, the notch, the waiting window and a kept
+session, the session's own menu follows. Code blocks have Copy on hover, and a shell block in a reply (`bash`, `sh`, `zsh`…) or a command the
 agent ran has Run beside it: that opens a new terminal where the session works, or where the command
 ran, and types the commands there without their comments. A block with no language counts as shell
 when each of its lines starts with a command on your PATH (`git`, `npm`, `cd`…), so output, a path or

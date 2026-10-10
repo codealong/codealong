@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { rowsOf } from './SessionThread';
+import { headingsOf, rowsOf } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });
@@ -33,5 +33,35 @@ describe('rowsOf', () => {
     expect(shape(items)).toEqual([3, 'b1', 'agent']);
     const row = rowsOf(items)[1];
     expect(row.kind === 'item' && row.result?.output).toBe('a.txt');
+  });
+});
+
+describe('headingsOf', () => {
+  const MIN = 60_000;
+  /** Each message as its kind, upper case where it shows who said it. */
+  const heads = (items: TranscriptItem[]) => {
+    const { headed } = headingsOf(items);
+    return items.filter((it) => it.kind === 'you' || it.kind === 'agent').map((it) => (headed.has(`${it.cursor}:${it.n}`) ? it.kind.toUpperCase() : it.kind));
+  };
+
+  it('heads the reply to a prompt once, the calls between its messages being its own', () => {
+    const items = [step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a'), step('result', { id: 'a', at: 3 * MIN }), step('agent', { at: 4 * MIN }), call('b'), step('agent', { at: 5 * MIN }), step('you', { at: 6 * MIN }), step('agent', { at: 7 * MIN })];
+    expect(heads(items)).toEqual(['YOU', 'AGENT', 'agent', 'agent', 'YOU', 'AGENT']);
+  });
+
+  it('heads a message again after a pause, a note, or a prompt taken back', () => {
+    // Woken by a background job's report long after its last call finished.
+    expect(heads([step('agent', { at: MIN }), call('a', undefined), step('result', { id: 'a', at: 2 * MIN }), step('agent', { at: 13 * MIN })])).toEqual(['AGENT', 'AGENT']);
+    // A long call isn't a pause: what it gave back came just before.
+    expect(heads([step('agent', { at: MIN }), step('result', { id: 'a', at: 30 * MIN }), step('agent', { at: 31 * MIN })])).toEqual(['AGENT', 'agent']);
+    expect(heads([step('agent', { at: MIN }), step('note', { at: 2 * MIN }), step('agent', { at: 3 * MIN })])).toEqual(['AGENT', 'AGENT']);
+    expect(heads([step('you', { at: MIN }), step('you', { at: 2 * MIN, withdrawn: true }), step('you', { at: 3 * MIN })])).toEqual(['YOU', 'YOU', 'you']);
+    // A step whose record gave no time doesn't make one.
+    expect(heads([step('agent', { at: 0 }), step('agent', { at: 20 * MIN })])).toEqual(['AGENT', 'agent']);
+  });
+
+  it('says who spoke last, for a message streaming in', () => {
+    expect(headingsOf([step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a', undefined)]).last).toEqual({ kind: 'agent', at: 2 * MIN });
+    expect(headingsOf([]).last).toEqual({ kind: null, at: 0 });
   });
 });

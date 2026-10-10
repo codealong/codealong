@@ -43,6 +43,9 @@ let pressed: Element | null = null;
 // the time a right-click's menu event comes, a text field under it can have the keyboard, and on
 // macOS a word in it selected.
 let focusAtPress: Element | null = null;
+// What was selected on the page then: a right-click outside a selection selects the word under it
+// on macOS before the menu event comes, so what you'd selected is read from here.
+let selectedAtPress = '';
 if (typeof document !== 'undefined') {
   document.addEventListener(
     'contextmenu',
@@ -59,6 +62,7 @@ if (typeof document !== 'undefined') {
     'mousedown',
     () => {
       focusAtPress = document.activeElement;
+      selectedAtPress = window.getSelection()?.toString() ?? '';
     },
     true,
   );
@@ -76,6 +80,17 @@ export function fieldAt(target: EventTarget | null): HTMLElement | null {
 export function typingIn(target: EventTarget | null): boolean {
   const field = fieldAt(target);
   return !!field && field === focusAtPress;
+}
+
+/** The text you'd selected before the right-click whose menu is being built, for its Copy: none
+ *  when the click selected a word of its own, as a right-click outside a selection does on macOS.
+ *  That word is let go, so the menu reads as being for what was clicked, not for the word. */
+export function selectedForMenu(): string {
+  const selection = window.getSelection();
+  const now = selection?.toString() ?? '';
+  if (now && now === selectedAtPress) return now;
+  if (now) selection?.removeAllRanges();
+  return '';
 }
 
 function options(items: MenuSpec, path: string): Items {

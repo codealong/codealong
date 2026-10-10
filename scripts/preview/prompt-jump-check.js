@@ -53,8 +53,8 @@
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread' || s.status === 'working') s.status = 'idle';
           if (pickedB || l.hidden || s.visitor || s.archived) return;
           s.status = 'unread';
-          // A's turn ended last, so the waiting window opens on it first.
-          s.statusSince = now - (picked ? 120e3 : 60e3);
+          // A has waited longest, so the waiting window, first come first served, opens on it first.
+          s.statusSince = now - (picked ? 60e3 : 120e3);
           s.lastActivity = s.statusSince;
           s.hosted = false;
           s.stoppable = false;

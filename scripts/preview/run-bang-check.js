@@ -98,7 +98,12 @@
       check('with what it printed', !!out && out.textContent.trim().length > 0, out ? out.textContent.slice(0, 60) : 'none');
       check('its command can run again in the session', !!runOf(cmd.parentElement) && /this session/.test(runOf(cmd.parentElement).title));
       check('its output has Copy alone', !!out && out.parentElement.querySelectorAll('.ca-codeblock-tools button').length === 1);
-      check('no Copy message beside its own Copy', !last.closest('.ca-thread-said').querySelector('.ca-thread-copy'));
+      // Its own Copy is the one: a right-click on it has no Copy message.
+      var menusBefore = menus();
+      rightClick(cmd);
+      return wait(200).then(function () {
+        check('no Copy message beside its own Copy', menus() === menusBefore || menuLabels().indexOf('Copy message') < 0, menuLabels().join(' | '));
+      });
     })
     .then(function () {
       // A session Codealong can only message: the block runs in a new terminal, without its `!`.
