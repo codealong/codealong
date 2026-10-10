@@ -620,7 +620,9 @@ fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
     let filled = |v: Option<String>| v.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
     let suggested = (n > 0).then(|| crate::model::Suggestions { replies, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms() });
     let changed = crate::suggestions::set(key, suggested).map_err(words)?;
-    let at = if changed { engine.suggested(*c.from == From::Here) } else { None };
+    // Waited for whoever asked, so that what they read next (an agent's `codealong sessions`)
+    // has them.
+    let at = if changed { engine.suggested(true) } else { None };
     if *c.from == From::Here {
         return Ok(json!(at));
     }
