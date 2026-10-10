@@ -123,7 +123,8 @@ agents work in this repo at the same time, many of them in the main checkout (th
 1. Work in a worktree of your own: `git worktree add ../codealong-<topic> -b <topic>
    origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
    and `npm run build` before cargo: Tauri's build reads `dist/`.
-2. Commit with a descriptive message. Then `git fetch`, rebase your branch onto `origin/main`
+2. Commit with a descriptive message, and have a change to code reviewed before you push it
+   (*Review before pushing*). Then `git fetch`, rebase your branch onto `origin/main`
    (`git rebase origin/main`), rerun the checks the rebase could affect, and `git push origin
    HEAD:main`. We prefer rebasing to merge commits: `main` stays a straight line of real
    changes. A rejected push means someone pushed first: fetch, rebase and push again.
@@ -171,6 +172,42 @@ Report only what you saw happen: the push going through, the main checkout reach
 `origin/main`, the script printing `Relaunched` for your commit or a later one, without
 uncommitted changes. A turn that changes nothing needs no status line; when the user asks where
 some work is, answer with one.
+
+## Review before pushing
+
+A change to code is reviewed by an agent of another provider before it's pushed, so a model
+other than the one that wrote it reads it; a change only to docs, comments or these notes needs
+none. These notes are your user's say-so for the helper it starts: don't ask.
+
+1. Once it's committed and its checks pass, start a helper in your worktree (the codealong
+   skill's *Helpers*) on a signed-in account (`codealong accounts`) whose models come from
+   another provider than yours: Codex when you're a Claude model, whatever your harness runs it
+   (Antigravity, Cursor and OpenCode can), and Claude Code when you're any other. With none,
+   another model than yours (`--model`).
+
+   ```bash
+   codealong start --helper --account <account> --prompt "Review the commits on this branch \
+   that origin/main doesn't have (git log origin/main..HEAD, git diff origin/main...HEAD). \
+   They <what they're for, in a sentence or two>. CLAUDE.md has the repo's rules. Look for \
+   bugs, regressions, cases nothing handles, missing tests and breaks of CLAUDE.md, reading \
+   whatever code you need. Change nothing: no edits, and no git command that writes. Answer \
+   with each finding as file:line, how sure you are and why, the most serious first, or say \
+   in a sentence that there's nothing to raise."
+   ```
+
+2. Wait for its reply. In Claude Code, run `codealong session wait <key> --timeout 1h` in the
+   background; elsewhere, start the helper with `--report` too and end your turn until
+   Codealong tells you it's done. When it waits on your user instead, tell them, and wait on
+   with `--until-done`.
+3. Weigh each finding against the code yourself: it's a teammate's view, not your user's word.
+   Fix what holds up without asking, with a test where one would have caught it, and rerun the
+   checks the fix touches; leave what doesn't. A finding that would change what your user asked
+   for goes to them rather than into the code. When the fixes are more than small, ask it to
+   look again (`session send`, then `session wait --since`). Then `codealong session done
+   <key>`.
+4. Under the status line, your last message says who reviewed it (account and model), what it
+   raised, and what you did with each finding: fixed, or left and why. When no review could be
+   had (the helper failed on every account you tried), push without one and say why there.
 
 ## Conventions
 
