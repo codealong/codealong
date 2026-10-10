@@ -568,9 +568,10 @@ main window before its first read of your sessions, the waiting window and the q
 launch, a conversation or a PR's description that takes a moment to come. Each place has tips of
 its own (the waiting window's are about its keys, the quick panel's about its own), with the keys
 as they are now and the shortcuts as Settings has them; a tip about a shortcut that's off doesn't
-show. A wait that ends quickly shows none. Another comes every 12 seconds while the wait goes on,
-and Next tip brings one at once. They come in turn, the ones you haven't seen first, wherever you
-saw the last.
+show. At launch the tip comes with the line over it; a conversation or a description gets one only
+once it has taken a moment, since they often come at once. Another comes every 12 seconds while the
+wait goes on, and Next tip brings one at once. They come in turn, the ones you haven't seen first,
+wherever you saw the last.
 
 ### Light or dark
 

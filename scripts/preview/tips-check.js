@@ -25,6 +25,9 @@
       check('a tip comes under the reading line', first.length > 20, first);
       check('it says it is a tip', tip().querySelector('.ca-label').textContent === 'Tip');
       check('and is kept as shown', shown()[shown().length - 1] === id(), JSON.stringify(shown()) + ' / ' + id());
+      // At launch the first tip comes with no delay, but once the shortcuts are known, or the
+      // ones that name them, first in the list, would be passed over.
+      if (shown().length === 1) check('the first is the list’s first here, a shortcut’s', id() === (quick ? 'waiting-window' : 'quick-panel'), id());
       // Through every tip of this place, with Next tip: each once, then round again.
       var ids = [id()];
       var texts = [first];
