@@ -1025,13 +1025,22 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
 }
 
 /// What a session helps (`Session::helper`): the session whose agent started it as a helper
-/// (origins.json), while the board has that session, or the PR whose automatic review it is
-/// (reviews.json). A helper whose session is gone is one of your own again, so nothing it does
-/// is left where nobody looks.
-pub fn helper_of(parent: Option<&str>, on_board: impl Fn(&str) -> bool, reviews: Option<&str>) -> Option<Helper> {
-    let parent = parent.filter(|p| on_board(p)).map(String::from);
+/// (origins.json, with whether that session is told what it does), while the board has that
+/// session, or the PR whose automatic review it is (reviews.json). A helper whose session is gone
+/// is one of your own again, so nothing it does is left where nobody looks.
+pub fn helper_of(parent: Option<(&str, bool)>, on_board: impl Fn(&str) -> bool, reviews: Option<&str>) -> Option<Helper> {
+    let (parent, report) = match parent.filter(|(p, _)| on_board(p)) {
+        Some((p, report)) => (Some(p.to_string()), report),
+        None => (None, false),
+    };
     let pr = reviews.map(String::from);
-    (parent.is_some() || pr.is_some()).then_some(Helper { parent, pr })
+    (parent.is_some() || pr.is_some()).then_some(Helper { parent, pr, report })
+}
+
+/// A session's helpers on the board (`Session::helper`): the sessions its agent started as
+/// helpers, each once, from the lane it runs in, the archived ones left out.
+pub fn helpers_of<'a>(lanes: &'a [Lane], key: &str) -> Vec<&'a Session> {
+    lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none() && !s.archived && s.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(key)).collect()
 }
 
 /// Applies a helper's rule to it, where quiet is applied (`apply_quiet`): a turn it ends is idle
@@ -3277,7 +3286,7 @@ mod tests {
         assert_eq!(boss.status, Status::Idle);
         let helper = |status: &str| {
             let mut s = session("rev", status, 0);
-            s.helper = helper_of(Some(&boss.key), |k| k == boss.key, None);
+            s.helper = helper_of(Some((&boss.key, false)), |k| k == boss.key, None);
             apply_helper(&mut s);
             s
         };
@@ -3301,10 +3310,10 @@ mod tests {
     #[test]
     fn a_helper_helps_a_session_still_on_the_board_or_a_pr() {
         let here = |k: &str| k == "claude:claude:boss";
-        assert_eq!(helper_of(Some("claude:claude:boss"), here, None), Some(Helper { parent: Some("claude:claude:boss".into()), pr: None }));
+        assert_eq!(helper_of(Some(("claude:claude:boss", true)), here, None), Some(Helper { parent: Some("claude:claude:boss".into()), pr: None, report: true }));
         // The session that started it is gone: it's yours again.
-        assert_eq!(helper_of(Some("claude:claude:gone"), here, None), None);
-        assert_eq!(helper_of(None, here, Some("o/r#7")), Some(Helper { parent: None, pr: Some("o/r#7".into()) }));
+        assert_eq!(helper_of(Some(("claude:claude:gone", true)), here, None), None);
+        assert_eq!(helper_of(None, here, Some("o/r#7")), Some(Helper { parent: None, pr: Some("o/r#7".into()), report: false }));
         assert_eq!(helper_of(None, here, None), None);
         // A helper's ended turn is idle; anyone else's, and its other statuses, are as they were.
         let ended = Session { status: Status::Unread, ..Session::new(Harness::Claude, "claude", "rev") };
@@ -3316,6 +3325,19 @@ mod tests {
             apply_helper(&mut h);
             assert_eq!((h.status, h.helping()), (want, !matches!(want, Status::Needs | Status::Error)));
         }
+    }
+
+    #[test]
+    fn a_sessions_helpers_are_the_ones_it_started_as_helpers_each_once() {
+        let of = |id: &str, parent: Option<&str>| Session { helper: parent.map(|p| Helper { parent: Some(p.into()), pr: None, report: false }), ..Session::new(Harness::Claude, "claude", id) };
+        let visiting = Session { visitor: Some("worked here".into()), ..of("a", Some("claude:claude:boss")) };
+        let archived = Session { archived: true, ..of("old", Some("claude:claude:boss")) };
+        let lanes = [
+            Lane { sessions: vec![of("boss", None), of("a", Some("claude:claude:boss")), of("b", Some("claude:claude:other")), archived], ..Lane::new("/r/app", "P", "app") },
+            Lane { sessions: vec![visiting, of("c", Some("claude:claude:boss"))], ..Lane::new("/r/app-two", "P", "app") },
+        ];
+        let ids: Vec<&str> = helpers_of(&lanes, "claude:claude:boss").iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["a", "c"]);
     }
 
     #[test]

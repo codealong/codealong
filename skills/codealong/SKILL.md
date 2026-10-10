@@ -260,10 +260,14 @@ on them; it shows to them only when it needs them (a call to allow, a question, 
   the turn's end. In Claude Code, run the wait in the background
   so you're told when it's done. To ask it more, `session send <key>` and wait again with
   `--since` the time you sent.
+- Or start it with `--report` too and end your turn: Codealong sends you a message when its
+  turn ends or it waits on your user, naming it and the command that prints its reply. Use
+  one or the other, not both, or you'll hear of it twice.
 - Give it everything it needs in the prompt (paths, the diff, what to look for, what to
   answer with), and tell it to change nothing it wasn't asked to: nobody reads it as it goes.
   A call it can't make without asking stops it until your user answers.
-- Once you have what you need from it, `codealong session done <key>` ends it.
+- Once you have what you need from it, `codealong session done <key>` ends it. Your user
+  marking your session done ends its helpers too, and they can make one a session of their own.
 - Your harness's own subagents (Claude Code's Agent tool) are lighter for work inside your
   session; a helper is for work on another account or harness, or that should be a session of
   its own. It still spends your user's usage: start one when their task or instructions call

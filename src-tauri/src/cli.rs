@@ -658,6 +658,9 @@ struct StartArgs {
     /// Start it as a helper of the session running this command: work for that session's agent, not for your user (a review, a check, a second opinion on another account or model). Its finished turns don't wait on your user: the app lists it under this session, out of their lists and queues, and shows it to them only when it needs them (a call to allow, a question, an error). Without --in it runs out of sight: Claude Code's background service, else in Codealong, else a terminal behind their windows. `session wait <key>` waits for its turn to end and prints its reply; `session done <key>` once you have what you need from it.
     #[arg(long, conflicts_with_all = ["todo", "take"])]
     helper: bool,
+    /// With --helper: this session is sent a message when the helper's turn ends, or when it waits on your user, saying so and how to read its reply (`session wait <key>`), so you can end your turn meanwhile. It's sent while this session runs and isn't itself waiting on your user. Without it, wait for the helper with `session wait`.
+    #[arg(long, requires = "helper")]
+    report: bool,
     /// Print what the start would do (the command and environment, or the link) without starting anything.
     #[arg(long)]
     dry_run: bool,
@@ -3547,7 +3550,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             hidden.or(places.first().copied()).ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper };
+    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
     if a.dry_run {
         let cfg = c.cfg()?.clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
@@ -3949,6 +3952,10 @@ mod tests {
         assert!(s.helper && s.place.is_none());
         // A helper works for an agent: no todo of its user's, none taken over.
         assert!(Cli::try_parse_from(["codealong", "start", "--helper", "--todo", "t-a"]).is_err());
+        // Being told what it does is for helpers.
+        let Cmd::Start(s) = Cli::try_parse_from(["codealong", "start", "--helper", "--report", "--prompt", "Review it"]).unwrap().cmd else { panic!() };
+        assert!(s.helper && s.report);
+        assert!(Cli::try_parse_from(["codealong", "start", "--report", "--prompt", "Review it"]).is_err());
         let cli = Cli::try_parse_from(["codealong", "session", "wait", "abc", "--timeout", "2h", "--since", "5"]).unwrap();
         let Cmd::Session { cmd: SessionCmd::Wait(w) } = cli.cmd else { panic!() };
         assert_eq!((w.key.as_str(), w.timeout.as_str(), w.since), ("abc", "2h", Some(5)));

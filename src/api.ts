@@ -109,6 +109,13 @@ export async function quietSessions(keys: string[], quiet: boolean): Promise<num
   return (await invoke<number | null>('quiet_sessions', { keys, quiet })) ?? null;
 }
 
+/** Makes helpers sessions of your own, for good, each on the device it's on (Session.helper).
+ *  Returns the time of the board that shows it, and rejects with why when a device didn't. */
+export async function ownSessions(keys: string[]): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('own_sessions', { keys })) ?? null;
+}
+
 /** Snoozes your review of PRs (`owner/name#number`) until `until`, or wakes them now with null.
  *  Returns the time of the board that shows it, as `markSeen` does; windows snooze through
  *  ahead.ts. */

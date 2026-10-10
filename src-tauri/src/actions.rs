@@ -185,8 +185,9 @@ const REQUESTS: &[Request] = &[
     Request { name: api::MARK_UNREAD, here: mark_unread, ..ANY },
     // A snooze is kept on the session's Mac, so it's snoozed there and everywhere it shows.
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
-    // So is quiet, which is the session's for as long as it lasts.
+    // So is quiet, which is the session's for as long as it lasts, and a helper made your own.
     Request { name: api::SESSION_QUIET, here: quiet, ..ANY },
+    Request { name: api::SESSION_OWN, here: make_own, ..ANY },
     // Replies suggested for a session are kept on its Mac too, and only shown: nothing reaches the
     // session until someone picks one, so an agent may suggest them through the command.
     Request { name: api::SESSION_SUGGEST, here: suggest, ..ANY },
@@ -762,7 +763,7 @@ fn spec_of(params: &Value) -> Result<crate::start::StartSpec, String> {
 /// A start in another device's worktree, as that device knows it, with none of the todos: they
 /// are this device's, and it has its own list.
 fn start_there(params: Value, lane: &str) -> Result<Value, String> {
-    let spec = crate::start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), from: None, helper: false, ..spec_of(&params)? };
+    let spec = crate::start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), from: None, helper: false, report: false, ..spec_of(&params)? };
     to_value(params::Start { spec })
 }
 
@@ -917,8 +918,9 @@ fn done_for_agent(engine: &Handle, c: &Call, by: Option<&str>, key: &str) -> Res
     }
 }
 
-/// Ends `key` as far as `idle::ending` says, marks it seen and archives it (`done`). `by` names
-/// the session that asked for it from the command, which the message says.
+/// Ends `key` as far as `idle::ending` says, marks it seen and archives it (`done`), and its
+/// helpers with it (`finish_helpers`). `by` names the session that asked for it from the
+/// command, which the message says.
 fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) -> Result<Value, String> {
     let cfg = cfg()?;
     let board = engine.board();
@@ -942,9 +944,57 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     if let Some(note) = &note {
         message = format!("{message} {note}");
     }
+    let (helped, later) = finish_helpers(engine, &board, &cfg, key, stop);
+    let at = later.or(at);
+    if let Some(words) = &helped {
+        message = format!("{message} {words}");
+    }
     let mut answer = to_value(api::Done { done: true, message, noted: note.is_some() })?;
     answer["at"] = shown_at(c, at);
     Ok(answer)
+}
+
+/// Marks done the helpers of `key`, a session just marked done: the work they did was for it.
+/// Each ends as Mark as done ends a session and is archived, but one at work (or waiting on its
+/// turn to end) is left to finish unless `stop` ends that too, as it did for `key`. What to say of
+/// them, and the time of the board that shows the last one archived.
+fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Config, key: &str, stop: bool) -> (Option<String>, Option<i64>) {
+    let (mut done, mut left, mut at) = (0, 0, None);
+    for h in crate::board::helpers_of(&board.lanes, key) {
+        let Some(account) = cfg.accounts.iter().find(|a| a.name == h.account) else { continue };
+        match crate::idle::ending(board, h, stop) {
+            Ok(ends) => {
+                // What didn't go for a helper is left unsaid: it's archived either way, and
+                // its own panel says how it stands.
+                let _ = end(h, account, ends);
+                engine.mark_seen(vec![h.key.clone()]);
+                if let Ok(shown) = engine.archive(&h.key, true) {
+                    done += 1;
+                    at = shown.or(at);
+                }
+            }
+            Err(_) => left += 1,
+        }
+    }
+    (helpers_done_words(done, left), at)
+}
+
+/// What Mark as done says of a session's helpers: the ones marked done with it, and the ones it
+/// left at work.
+fn helpers_done_words(done: usize, left: usize) -> Option<String> {
+    let done_words = match done {
+        0 => None,
+        1 => Some("Its helper is done too".to_string()),
+        n => Some(format!("Its {n} helpers are done too")),
+    };
+    match (done_words, left) {
+        (None, 0) => None,
+        (Some(d), 0) => Some(format!("{d}.")),
+        (Some(d), 1) => Some(format!("{d}; one still at work is left to finish.")),
+        (Some(d), n) => Some(format!("{d}; {n} still at work are left to finish.")),
+        (None, 1) => Some("Its helper still at work is left to finish.".into()),
+        (None, n) => Some(format!("Its {n} helpers still at work are left to finish.")),
+    }
 }
 
 /// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
@@ -1049,6 +1099,12 @@ fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
 fn quiet(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Quiet = c.read()?;
     Ok(shown_at(c, engine.quiet(p.keys, p.quiet)))
+}
+
+/// Makes helpers (`keys`) sessions of your own, for good.
+fn make_own(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Own = c.read()?;
+    Ok(shown_at(c, engine.make_own(p.keys)))
 }
 
 /// Changes the worktree's preview: its URL, port and the Chrome profile it opens in
@@ -1250,5 +1306,16 @@ mod tests {
         assert_eq!(sender_of(&From::Phone), send::Sender::You);
         assert_eq!(sender_of(&From::Device), send::Sender::Elsewhere);
         assert_eq!(sender_of(&From::Command(None)), send::Sender::Agent(None));
+    }
+
+    #[test]
+    fn mark_as_done_says_what_became_of_its_helpers() {
+        assert_eq!(helpers_done_words(0, 0), None);
+        assert_eq!(helpers_done_words(1, 0).as_deref(), Some("Its helper is done too."));
+        assert_eq!(helpers_done_words(3, 0).as_deref(), Some("Its 3 helpers are done too."));
+        assert_eq!(helpers_done_words(2, 1).as_deref(), Some("Its 2 helpers are done too; one still at work is left to finish."));
+        assert_eq!(helpers_done_words(1, 2).as_deref(), Some("Its helper is done too; 2 still at work are left to finish."));
+        assert_eq!(helpers_done_words(0, 1).as_deref(), Some("Its helper still at work is left to finish."));
+        assert_eq!(helpers_done_words(0, 2).as_deref(), Some("Its 2 helpers still at work are left to finish."));
     }
 }

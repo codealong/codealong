@@ -109,6 +109,12 @@ describe('sessionMenu', () => {
     expect(has(session({ resumeCommand: null }), 'Fork in terminal')).toBe(false);
     expect(has(session({ status: 'working', stoppable: true }), 'Stop turn')).toBe(true);
     expect(has(session(), 'Stop turn')).toBe(false);
+    // A helper can be made your own, after Quiet; any other session is yours already.
+    const helper = labels(sessionMenu(lane(), session({ helper: { parent: 'claude:c:boss' } }), base));
+    expect(helper.slice(helper.indexOf('Quiet'), helper.indexOf('Quiet') + 2)).toEqual(['Quiet', 'Make it my own']);
+    expect(has(session({ helper: { pr: 'acme/api#7' } }), 'Make it my own')).toBe(true);
+    expect(has(session(), 'Make it my own')).toBe(false);
+    expect(has(session({ helper: { parent: 'claude:c:boss' }, archived: true }), 'Make it my own')).toBe(false);
     // Renaming, where the window asks for a name and the harness keeps one.
     expect(has(session(), 'Rename…')).toBe(false);
     expect(has(session(), 'Rename…', { rename: noop })).toBe(true);

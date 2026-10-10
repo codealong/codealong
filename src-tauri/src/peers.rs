@@ -1775,7 +1775,7 @@ mod tests {
         // Where it could start a session reads without remote control; starting one needs it.
         let options = phone.start_options(&d.short).unwrap();
         assert_eq!((options.accounts[0].name.as_str(), options.accounts[0].places[0].place), ("claude", codealong_peer::api::Place::Background));
-        let spec = codealong_peer::api::StartSpec { lane_id: "/Users/sam/app".into(), account: "claude".into(), place: codealong_peer::api::Place::Background, prompt: "Fix the build".into(), model: None, effort: None, worktree: false, todos: vec![], from: None, helper: false };
+        let spec = codealong_peer::api::StartSpec { lane_id: "/Users/sam/app".into(), account: "claude".into(), place: codealong_peer::api::Place::Background, prompt: "Fix the build".into(), model: None, effort: None, worktree: false, todos: vec![], from: None, helper: false, report: false };
         assert!(phone.start_session(&d.short, &spec).unwrap_err().contains("Remote control is off on Mini"));
         // A phone has nothing to search, so a search on the Mac doesn't ask it.
         assert!(mac.peers.search(&["webhook".into()]).is_empty());

@@ -26,6 +26,10 @@ pub const SESSION_SNOOZE: &str = "session-snooze";
 /// don't wait on you, there and everywhere, and it waits on you only when it needs you. Macs
 /// before 2026-10-09 refuse it as a request they don't know.
 pub const SESSION_QUIET: &str = "session-quiet";
+/// Makes helpers (`keys`, `Session::helper`) sessions of your own: listed, waiting on you and
+/// counted as any of yours, there and everywhere, for good. Macs before 2026-10-10 refuse it as a
+/// request they don't know.
+pub const SESSION_OWN: &str = "session-own";
 pub const SEARCH: &str = "search";
 pub const START_OPTIONS: &str = "start-options";
 pub const START: &str = "start";
@@ -241,6 +245,13 @@ pub mod params {
         pub quiet: bool,
     }
 
+    /// `session-own`: the helpers to make sessions of your own.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Own {
+        pub keys: Vec<String>,
+    }
+
     /// `search`: sessions whose prompts and replies have every word.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -277,7 +288,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 24] = [
+pub const REQUESTS: [(&str, Reach); 25] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -291,6 +302,7 @@ pub const REQUESTS: [(&str, Reach); 24] = [
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
     (SESSION_QUIET, Reach::Organize),
+    (SESSION_OWN, Reach::Organize),
     (SESSION_ARCHIVE, Reach::Organize),
     (SESSION_RENAME, Reach::Organize),
     (SESSION_SUGGEST, Reach::Organize),
@@ -667,6 +679,10 @@ pub struct StartSpec {
     /// not for you (`Session::helper`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub helper: bool,
+    /// A helper whose `from` is told when its turn ends or it waits on its user
+    /// (`codealong start --helper --report`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub report: bool,
 }
 
 /// A list of todo ids, or the one id (or null) that `todo` held.
@@ -767,7 +783,7 @@ mod tests {
         assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));
         assert_eq!(v(&params::Search { words: vec!["webhook".into()] }), json!({ "words": ["webhook"] }));
         assert_eq!(v(&params::Route { project: "All projects".into(), text: "fix it".into() }), json!({ "project": "All projects", "text": "fix it" }));
-        let spec = StartSpec { lane_id: "/r/app".into(), account: "claude".into(), place: Place::Terminal, prompt: String::new(), model: None, effort: None, worktree: false, todos: vec![], from: None, helper: false };
+        let spec = StartSpec { lane_id: "/r/app".into(), account: "claude".into(), place: Place::Terminal, prompt: String::new(), model: None, effort: None, worktree: false, todos: vec![], from: None, helper: false, report: false };
         assert_eq!(v(&params::Start { spec }), json!({ "spec": { "laneId": "/r/app", "account": "claude", "place": "terminal", "prompt": "", "model": null, "effort": null, "worktree": false, "todos": [] } }));
         // What an older device leaves out reads as empty, an archive as one.
         let read = |j: serde_json::Value| (serde_json::from_value::<params::Answer>(j.clone()).unwrap(), serde_json::from_value::<params::Archive>(j).unwrap());

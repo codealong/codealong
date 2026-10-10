@@ -7,7 +7,7 @@
 // says how it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, doneAhead, quietAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -185,6 +185,9 @@ export interface SessionActions {
   /** Quiet, checked while it is: its turns don't wait on you, only what needs you does, until
    *  it's unchecked (board.rs `apply_quiet`). */
   quiet?: MenuAction;
+  /** A helper (Session.helper) made a session of your own, for good: listed and waiting on you
+   *  as any of yours. */
+  own?: MenuAction;
   close?: MenuAction;
   /** Done with it: it ends as far as Codealong can end it, and is marked seen and archived. */
   done?: MenuAction;
@@ -310,6 +313,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
             else act.catch((e: unknown) => report.error(errorText(e)));
           },
         },
+    // Kept on the Mac it runs on too, for good: its agent can still read it and send to it.
+    own: s.helper && !s.archived ? { label: 'Make it my own', run: () => void said(`Making ${s.title} your own…`, ownSessions([s.key]).then(() => `“${s.title}” is a session of your own now.`)) } : undefined,
     // Closed, it's done with for now, as one marked seen is: a window working through what
     // waits on you goes on.
     close: closable(s)
@@ -397,7 +402,7 @@ const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos'],
-  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'quiet', 'close', 'done', 'archive'],
+  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'quiet', 'own', 'close', 'done', 'archive'],
   ['copyId', 'copyResume', 'canvas'],
 ] as const;
 

@@ -57,6 +57,10 @@ pub struct SeenState {
     /// it heard again, whatever it does meanwhile: answering it, or archiving it, doesn't end it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quiet: Vec<String>,
+    /// Helpers you made sessions of your own (Make it my own), by key: no longer helpers
+    /// (`Session::helper`), for good.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own: Vec<String>,
 }
 
 /// A session marked unread from Codealong.
@@ -169,6 +173,19 @@ impl SeenState {
 
     pub fn is_quiet(&self, key: &str) -> bool {
         self.quiet.iter().any(|k| k == key)
+    }
+
+    /// Makes a helper a session of your own. True when it wasn't already.
+    pub fn make_own(&mut self, key: &str) -> bool {
+        if self.is_own(key) {
+            return false;
+        }
+        self.own.push(key.to_string());
+        true
+    }
+
+    pub fn is_own(&self, key: &str) -> bool {
+        self.own.iter().any(|k| k == key)
     }
 
     /// Snoozes your review of a PR until `until`, in place of any snooze it had.
@@ -412,6 +429,17 @@ mod tests {
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.quiet.is_empty());
         assert!(!serde_json::to_string(&old).unwrap().contains("quiet"));
+    }
+
+    #[test]
+    fn a_helper_made_your_own_stays_yours() {
+        let mut s = SeenState::default();
+        assert!(s.make_own("codex:codex:h"));
+        assert!(!s.make_own("codex:codex:h"), "once");
+        assert!(s.is_own("codex:codex:h") && !s.is_own("codex:codex:other"));
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""own":["codex:codex:h"]"#));
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
+        assert!(old.own.is_empty() && !serde_json::to_string(&old).unwrap().contains("\"own\""));
     }
 
     #[test]

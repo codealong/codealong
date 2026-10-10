@@ -1091,6 +1091,8 @@ export interface Helper {
   parent?: string;
   /** The PR's key as reviews.json has it, which ignores case (`owner/name#7`, lowercased). */
   pr?: string;
+  /** Its session is told when its turn ends or it waits on you (`start --helper --report`). */
+  report?: boolean;
 }
 
 /** Where a session came from: a fork of another session (its conversation copied as far as it
@@ -1115,8 +1117,9 @@ export interface StartSpec {
   todos: string[];
   /** The session that asked for the start, by key: the new one is marked as started by it. */
   from?: string | null;
-  /** A helper of `from` (`codealong start --helper`). */
+  /** A helper of `from` (`codealong start --helper`), which `report` says `from` is told of. */
   helper?: boolean;
+  report?: boolean;
 }
 
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */

@@ -296,6 +296,10 @@ pub struct Helper {
     /// (`owner/name#7`, lowercased).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr: Option<String>,
+    /// Its session is told when its turn ends or it waits on you (`codealong start --helper
+    /// --report`), on the Mac they run on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub report: bool,
 }
 
 /// A session's id as lists show it: its first seven characters.

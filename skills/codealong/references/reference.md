@@ -2033,6 +2033,13 @@ Options:
           for its turn to end and prints its reply; `session done <key>` once you have
           what you need from it
 
+      --report
+          With --helper: this session is sent a message when the helper's turn ends, or
+          when it waits on your user, saying so and how to read its reply (`session wait
+          <key>`), so you can end your turn meanwhile. It's sent while this session runs
+          and isn't itself waiting on your user. Without it, wait for the helper with
+          `session wait`
+
       --dry-run
           Print what the start would do (the command and environment, or the link)
           without starting anything

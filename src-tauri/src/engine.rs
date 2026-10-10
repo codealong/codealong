@@ -96,6 +96,9 @@ pub enum Msg {
     /// Sessions quieted, or made heard again. The reply is the time of the board that shows it,
     /// published at once.
     Quiet(Vec<String>, bool, Sender<i64>),
+    /// Helpers made sessions of your own. The reply is the time of the board that shows it,
+    /// published at once.
+    Own(Vec<String>, Sender<i64>),
     /// suggestions.json just changed at a request here: the board is published again at once.
     /// The reply is the time of the board that shows it.
     Suggested(Sender<i64>),
@@ -119,6 +122,8 @@ pub enum Msg {
     /// Sessions told to carry on after a lost connection (reconnect.rs), and which weren't and
     /// why if any.
     Continued(Option<String>),
+    /// Sessions told what their helpers did (helpers.rs), and which weren't and why if any.
+    Reported(Option<String>),
     /// A job of the automatic reviews went (autoreview.rs), and why it didn't if it didn't:
     /// reviews.json is read again at once.
     Reviewed(Option<String>),
@@ -286,6 +291,14 @@ impl Handle {
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
+    /// Makes helpers sessions of your own, for good (`SeenState::own`). Returns the time of the
+    /// board that shows it, as `quiet` does.
+    pub fn make_own(&self, keys: Vec<String>) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Own(keys, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
     /// suggestions.json was just changed here (suggestions.rs): the board shows it now rather than
     /// with the next change it hears of. Returns the time of the board that shows it, as
     /// `mark_seen_shown` does, waiting for it only with `wait`.
@@ -325,6 +338,12 @@ impl Handle {
     /// is a notice until a later one works.
     pub fn continued(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Continued(result.err()));
+    }
+
+    /// How telling sessions what their helpers did went (helpers.rs): a failure is a notice
+    /// until a later one works.
+    pub fn reported(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::Reported(result.err()));
     }
 
     /// How a job of the automatic reviews went (autoreview.rs): a failure is a notice until a
@@ -917,6 +936,7 @@ struct Engine {
     /// Why a session wasn't told its PR was approved, when Codealong sends that itself.
     nudge_warning: Option<String>,
     continue_warning: Option<String>,
+    report_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
     /// why (`store::problems`), as of the last board.
     store_warnings: Vec<(String, String)>,
@@ -1031,6 +1051,7 @@ impl Engine {
             limit_move_warning: None,
             nudge_warning: None,
             continue_warning: None,
+            report_warning: None,
             store_warnings: Vec::new(),
             servers: None,
             git: HashMap::new(),
@@ -1278,7 +1299,7 @@ impl Engine {
     /// `codealong start`, or forked from Codealong where the harness doesn't say. What the
     /// harness recorded comes first. With it, what each helper helps (`board::helper_of`): the
     /// session that started it as one (origins.json), or the PR whose automatic review it is
-    /// (reviews.json).
+    /// (reviews.json), unless you made it your own (`SeenState::own`).
     fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let store = origins::current();
         let reviewers = autoreview::reviewers(&self.reviews);
@@ -1290,7 +1311,9 @@ impl Engine {
             if s.origin.is_none() {
                 s.origin = store.origin_of(&s.key);
             }
-            s.helper = board::helper_of(store.helper_of(&s.key), |k| keys.contains(k), reviewers.get(s.key.as_str()).copied());
+            if !self.seen.is_own(&s.key) {
+                s.helper = board::helper_of(store.helper_of(&s.key), |k| keys.contains(k), reviewers.get(s.key.as_str()).copied());
+            }
         }
         sessions
     }
@@ -1591,6 +1614,10 @@ impl Engine {
                     self.continue_warning = why;
                     self.dirty = true;
                 }
+                Ok(Msg::Reported(why)) => {
+                    self.report_warning = why;
+                    self.dirty = true;
+                }
                 Ok(Msg::Reviewed(why)) => {
                     self.review_warning = why;
                     self.load_reviews();
@@ -1738,6 +1765,17 @@ impl Engine {
                     let mut changed = false;
                     for k in keys {
                         changed |= self.seen.set_quiet(&k, quiet);
+                    }
+                    if changed {
+                        self.save_state();
+                        self.publish();
+                    }
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Own(keys, reply)) => {
+                    let mut changed = false;
+                    for k in keys {
+                        changed |= self.seen.make_own(&k);
                     }
                     if changed {
                         self.save_state();
@@ -2060,6 +2098,7 @@ impl Engine {
             said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
             said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
             said("reconnect", "A session didn't carry on after its connection came back", self.continue_warning.as_ref()),
+            said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", self.review_warning.as_ref()),
 
         ]

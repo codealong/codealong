@@ -1085,7 +1085,7 @@ fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option
     let (account, place) = reviewer_place(cfg, board, seat.account.as_deref())?;
     let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
     let prompt = first_prompt(pr, head, since, holds, login, cfg.reviews.post, instructions(&cfg.reviews), files);
-    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: seat.model.clone(), effort: None, worktree: false, todos: Vec::new(), from: None, helper: false })
+    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: seat.model.clone(), effort: None, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }
 
 /// Reads the review a turn wrote after `at`: its session's last message once the turn ended.

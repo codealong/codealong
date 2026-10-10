@@ -1119,9 +1119,19 @@ under that session's. The session's row says how many of its helpers wait on you
 The agent that started it reads its reply with `codealong session wait <key>`, which waits for
 its turn to end, or comes back as soon as it waits on you so the agent can say so (`--until-done`
 waits through that, for after it has), and ends it with `codealong session done <key>` once it
-has what it needs. A helper whose session is gone from
-the board is a session of your own again. Macs from before helpers show another Mac's helpers as
-sessions of their own.
+has what it needs. Started with `--report` as well, its session is sent a message from Codealong
+when the helper's turn ends or it starts waiting on you, so the agent can end its turn meanwhile:
+the message names the helper and the command that prints its reply, not the reply itself, so
+nothing the helper wrote is typed in as if you'd written it. It's sent while the session runs on
+this Mac and isn't waiting on you to answer a prompt, several helpers' news in one message, and a
+send that doesn't go is tried again a few times, then said in a notice.
+
+Mark as done on a session marks its helpers done too, as their work was for it: each ends as far
+as Codealong can end it and is archived, and one still at work is left to finish, unless you
+chose to stop the session's work too. *Make it my own* in a helper's menu makes it a session of
+yours for good: listed, counted and waiting on you as any of yours, and no longer told of to the
+session that started it. A helper whose session is gone from the board is a session of your own
+again. Macs from before helpers show another Mac's helpers as sessions of their own.
 
 ### Usage
 
@@ -1187,7 +1197,7 @@ for you to read, and a session it started, never one working or waiting on you, 
 window says which session did it, with an Undo; `codealong start --todo <id>` starts a session the
 way New session does (`--todo` again for several todos in one session), and `codealong start
 --helper --prompt …` a helper of the session running it (see *Helpers*), whose reply `codealong
-session wait <key>` waits for; `codealong config
+session wait <key>` waits for, or which `--report` has Codealong tell the session of; `codealong config
 show|check` prints the settings and checks an edited config.toml. With the app running, answers come
 from it over a socket and todo changes go through its engine; with it closed, the command reads the
 files (sessions then show without git or PRs). Output is JSON when piped, tables in a terminal.

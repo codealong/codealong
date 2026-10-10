@@ -438,7 +438,7 @@ mod tests {
         let mut archived = session("c:a", "Archived one", Status::Idle, false, NOW);
         archived.archived = true;
         let mut helper = session("c:h", "Review the diff", Status::Working, true, NOW);
-        helper.helper = Some(crate::model::Helper { parent: Some("c:1".into()), pr: None });
+        helper.helper = Some(crate::model::Helper { parent: Some("c:1".into()), pr: None, report: false });
         let mut elsewhere = lane("/tmp/x", ELSEWHERE, "x", vec![session("c:x", "Scratch", Status::Idle, true, NOW)], NOW);
         elsewhere.hidden = true;
         Board {

@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn windows_get_keys_that_name_their_mac() {
         let mut replica = Replica::default();
-        let helper = Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:9f".into()), pr: None }), ..session("codex:codex:h1", Status::Working) };
+        let helper = Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:9f".into()), pr: None, report: false }), ..session("codex:codex:h1", Status::Working) };
         replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/Users/sam/app", vec![session("claude:claude:9f", Status::Needs), helper])], ..Default::default() });
         let tag = DeviceTag { name: "Mac mini".into(), short: "a1b2c3d4e5".into(), color: "teal".into(), online: true, last_seen: None };
         let lanes = for_windows("a1b2c3d4e5", &tag, &replica);

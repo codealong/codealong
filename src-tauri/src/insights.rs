@@ -342,7 +342,7 @@ mod tests {
         no_reply.reply_tail = None;
         assert_eq!(ask(&no_reply, NOW), None);
         // A helper's turn is its agent's to read; what it waits on you to allow is still asked.
-        let helper = |status| Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:boss".into()), pr: None }), ..session(status) };
+        let helper = |status| Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:boss".into()), pr: None, report: false }), ..session(status) };
         assert_eq!(ask(&helper(Status::Unread), NOW), None);
         assert_eq!(ask(&helper(Status::Needs), NOW).map(|a| a.0), Some(Kind::Approval));
     }
