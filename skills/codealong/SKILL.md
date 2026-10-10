@@ -256,7 +256,8 @@ on them; it shows to them only when it needs them (a call to allow, a question, 
 
 - `codealong session wait <key>` waits for its turn to end and prints its reply (`reply`), or
   comes back early when it waits on your user (`waitsOnUser`, with what it waits on in
-  `excerpt`): tell your user, then wait again. In Claude Code, run the wait in the background
+  `excerpt`): tell your user, then wait again with `--until-done`, which waits through it to
+  the turn's end. In Claude Code, run the wait in the background
   so you're told when it's done. To ask it more, `session send <key>` and wait again with
   `--since` the time you sent.
 - Give it everything it needs in the prompt (paths, the diff, what to look for, what to

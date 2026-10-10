@@ -418,7 +418,7 @@ enum SessionCmd {
     },
     /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`) or a note (a message from another session, compaction). Oldest first; `before` is the cursor for the part before, null at the start; `lastPromptAt` is the session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
     Transcript(TranscriptArgs),
-    /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; wait again after. `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
+    /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; then wait again with --until-done. `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
     Wait(SessionWaitArgs),
     /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
@@ -480,6 +480,9 @@ struct SessionWaitArgs {
     /// How long to wait at most: 30m (the default), 2h.
     #[arg(long, default_value = "30m")]
     timeout: String,
+    /// Wait on while it waits on your user to allow a call or answer a question, until its turn ends: for after you've told them. It still comes back on an error.
+    #[arg(long)]
+    until_done: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1918,6 +1921,8 @@ enum Seen {
 /// What `session wait` saw of the session over its looks.
 #[derive(Debug, Default)]
 struct Watch {
+    /// `--until-done`: a call to allow or a question is part of the turn, waited through.
+    through_user: bool,
     was_working: bool,
     /// Its last prompt when a look first found it still, and when.
     still: Option<(i64, i64)>,
@@ -1933,6 +1938,12 @@ impl Watch {
     fn look(&mut self, s: &Session, now: i64, replied: impl FnOnce() -> bool) -> Seen {
         match waited(s) {
             Waited::Working => {
+                self.was_working = true;
+                self.still = None;
+                Seen::Going
+            }
+            // An error ends the turn, so it comes back whatever was asked.
+            Waited::OnUser if self.through_user && s.status == Status::Needs => {
                 self.was_working = true;
                 self.still = None;
                 Seen::Going
@@ -1970,7 +1981,7 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
     let started = now_ms();
     let mut since = a.since;
     let mut seen = false;
-    let mut watch = Watch::default();
+    let mut watch = Watch { through_user: a.until_done, ..Watch::default() };
     let page = |c: &mut Client| -> Result<Vec<api::Item>> {
         let got = c.act(api::SESSION_PAGE, &key, params::Page::default(), None)?;
         Ok(serde_json::from_value::<api::Page>(got).context("The conversation didn't read")?.items)
@@ -3966,8 +3977,13 @@ mod tests {
         let mut w = Watch::default();
         assert_eq!(w.look(&s(Status::Working, 1), 0, never), Seen::Going);
         assert_eq!(w.look(&s(Status::Unread, 1), 3_000, never), Seen::Ended);
-        // Waiting on its user comes back at once.
+        // Waiting on its user comes back at once; with --until-done, a call to allow is waited
+        // through to the turn's end, and only an error comes back.
         assert_eq!(Watch::default().look(&s(Status::Needs, 1), 0, never), Seen::OnUser);
+        let mut w = Watch { through_user: true, ..Watch::default() };
+        assert_eq!(w.look(&s(Status::Needs, 1), 0, never), Seen::Going);
+        assert_eq!(w.look(&s(Status::Idle, 1), 3_000, never), Seen::Ended);
+        assert_eq!(Watch { through_user: true, ..Watch::default() }.look(&s(Status::Error, 1), 0, never), Seen::OnUser);
         // Never seen working: a reply after the prompt counts on the second still look, not the first.
         let mut w = Watch::default();
         assert_eq!(w.look(&s(Status::Idle, 1), 0, never), Seen::Going);

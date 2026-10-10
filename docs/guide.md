@@ -1117,8 +1117,9 @@ in the queues, and in Sessions it takes the session it works for into Needs you 
 under that session's. The session's row says how many of its helpers wait on you.
 
 The agent that started it reads its reply with `codealong session wait <key>`, which waits for
-its turn to end, or comes back as soon as it waits on you so the agent can say so, and ends it
-with `codealong session done <key>` once it has what it needs. A helper whose session is gone from
+its turn to end, or comes back as soon as it waits on you so the agent can say so (`--until-done`
+waits through that, for after it has), and ends it with `codealong session done <key>` once it
+has what it needs. A helper whose session is gone from
 the board is a session of your own again. Macs from before helpers show another Mac's helpers as
 sessions of their own.
 

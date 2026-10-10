@@ -999,11 +999,12 @@ Commands:
               started (`codealong start --helper`), or a session you sent a message. It
               also comes back when the session waits on your user (a call to allow, a
               question, an error: `waitsOnUser`, with what it waits on in `excerpt`),
-              since they answer it in Codealong and you may want to tell them; wait
-              again after. `ended` says the turn is over, `reply` is its last reply, and
-              `lastPromptAt` the session's as read, for `--since` next time. Fails once
-              --timeout passes with it still working, or if the session is gone. A
-              Claude Code agent can run it in the background and be told when it's done
+              since they answer it in Codealong and you may want to tell them; then wait
+              again with --until-done. `ended` says the turn is over, `reply` is its
+              last reply, and `lastPromptAt` the session's as read, for `--since` next
+              time. Fails once --timeout passes with it still working, or if the session
+              is gone. A Claude Code agent can run it in the background and be told when
+              it's done
   suggest     Suggest replies to a session for its user to send with one click: what
               they might answer it, written by an agent that read it (a supervisor going
               over the sessions that wait on its user: `codealong sessions --waiting`,
@@ -1313,10 +1314,10 @@ Wait for a session's turn to end, and print its reply: for a helper you started
 (`codealong start --helper`), or a session you sent a message. It also comes back when
 the session waits on your user (a call to allow, a question, an error: `waitsOnUser`,
 with what it waits on in `excerpt`), since they answer it in Codealong and you may want
-to tell them; wait again after. `ended` says the turn is over, `reply` is its last
-reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once
---timeout passes with it still working, or if the session is gone. A Claude Code agent
-can run it in the background and be told when it's done
+to tell them; then wait again with --until-done. `ended` says the turn is over, `reply`
+is its last reply, and `lastPromptAt` the session's as read, for `--since` next time.
+Fails once --timeout passes with it still working, or if the session is gone. A Claude
+Code agent can run it in the background and be told when it's done
 
 Usage: codealong session wait [OPTIONS] <KEY>
 
@@ -1339,6 +1340,11 @@ Options:
           How long to wait at most: 30m (the default), 2h
           
           [default: 30m]
+
+      --until-done
+          Wait on while it waits on your user to allow a call or answer a question,
+          until its turn ends: for after you've told them. It still comes back on an
+          error
 
       --verbose
           Say on stderr whether the app or the files answered
