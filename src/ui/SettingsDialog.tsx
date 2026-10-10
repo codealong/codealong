@@ -397,7 +397,7 @@ function NudgeField({ cfg, disabled, onSave }: PaneProps) {
         <input type="checkbox" checked={on} onChange={(e) => void onSave({ ...cfg, pull_requests: { nudge_by_default: e.target.checked } })} />
         <span>Nudge the session that opened a pull request</span>
         <small>
-          For every open pull request of yours, the session that opened it is sent a message, as one of yours, when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail, so it takes it from there. Its other sessions aren’t told. A pull
+          For every open pull request of yours, the session that opened it is sent a message, as one of yours, when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail, so it takes it from there. The message never asks it to merge: it merges only if you asked it to. Its other sessions aren’t told. A pull
           request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
         </small>
       </label>

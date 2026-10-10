@@ -215,9 +215,13 @@ fn excerpt(body: &str) -> String {
     format!("{}…", cut.trim_end())
 }
 
+/// What an open PR's message ends with: the news is no go-ahead to merge.
+const NOT_A_MERGE: &str = "This message doesn't ask you to merge it: merge it only if you were asked to.";
+
 /// What the session is told: the PR, each new thing on it, where it stands, and that it's the
-/// session's to take on. None when nothing new was by someone else (the PR's own agent pushed,
-/// say). `detail` is the PR as GitHub has it now, read when `why.since` says to; `login` is who
+/// session's to take on, but not to merge: a message that came by itself, as one of yours, must
+/// never read as your go-ahead to merge (asked 2026-10-09), so an open PR's always says it
+/// doesn't ask that. None when nothing new was by someone else (the PR's own agent pushed, say). `detail` is the PR as GitHub has it now, read when `why.since` says to; `login` is who
 /// `gh` is signed in as, whose reviews aren't news.
 pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>) -> Option<String> {
     let mut items: Vec<String> = Vec::new();
@@ -275,11 +279,11 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     let whose = if pr.mine { "your PR" } else { "PR" };
     let standing = if pr.state.is_open() { standing(pr) } else { "" };
     let next = if why.ended.is_some() {
-        "Nothing more is wanted on it, unless you were told otherwise."
-    } else if pr.state == PrState::Approved && !changes_said && !why.changes {
-        "Do what this repo does next with an approved PR, such as merging it, unless you were told to leave that to someone else."
+        "Nothing more is wanted on it, unless you were told otherwise.".to_string()
+    } else if pr.state == PrState::Approved && !changes_said && !why.changes && why.failed.is_empty() {
+        NOT_A_MERGE.to_string()
     } else {
-        "Take it from there, unless you were told to leave it to someone else."
+        format!("Take it from there, unless you were told to leave it to someone else. {NOT_A_MERGE}")
     };
     let list: Vec<String> = items.iter().map(|i| format!("- {i}")).collect();
     Some(format!("Codealong: on {whose} #{} “{}” ({}):\n{}\n{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
@@ -603,7 +607,7 @@ mod tests {
         let text = words(&p, &why, Some(&d), Some("me")).unwrap();
         assert_eq!(
             text,
-            "Codealong: on your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ana asked for changes: “Please add a test.”\n- ana commented on src/a.ts: “This can be a map.”\nTake it from there, unless you were told to leave it to someone else."
+            "Codealong: on your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ana asked for changes: “Please add a test.”\n- ana commented on src/a.ts: “This can be a map.”\nTake it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."
         );
         // Only your own push moved it: nothing to say.
         assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me")), None);
@@ -616,7 +620,8 @@ mod tests {
         let approved = PrItem { merge: Merge::Clean, ..pr("o/r#1", PrState::Approved, &[A]) };
         let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
         let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me")).unwrap();
-        assert_eq!(text, "Codealong: on your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. Do what this repo does next with an approved PR, such as merging it, unless you were told to leave that to someone else.");
+        // The approval is news, never a go-ahead to merge.
+        assert_eq!(text, "Codealong: on your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
         // Turned on for one approved already, with nothing read: said in the board's words.
         assert!(words(&approved, &Why { approved: true, ..Why::default() }, None, None).unwrap().contains("- It was approved.\n"));
         let merged = off(PrItem { state: PrState::Merged, mine: false, ..pr("o/r#1", PrState::Open, &[A]) });
@@ -627,6 +632,12 @@ mod tests {
         let failing = PrItem { checks: Checks { failed: 2, failing: vec!["lint".into(), "test".into()], ..Checks::default() }, ..pr("o/r#1", PrState::Open, &[A]) };
         let text = words(&failing, &Why { failed: vec!["lint".into(), "test".into()], ..Why::default() }, None, None).unwrap();
         assert!(text.contains("- Its checks failed: lint, test.\nSome of its checks failed. Take it from there"), "{text}");
+        // No open PR's message reads as a go-ahead to merge, whatever came in.
+        let open = PrItem { merge: Merge::Clean, ..pr("o/r#1", PrState::Approved, &[A]) };
+        for why in [Why { approved: true, ..Why::default() }, Why { changes: true, ..Why::default() }, Why { failed: vec!["lint".into()], ..Why::default() }] {
+            let text = words(&open, &why, None, None).unwrap();
+            assert!(text.ends_with(NOT_A_MERGE) && !text.contains("merging it"), "{text}");
+        }
     }
 
     #[test]

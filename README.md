@@ -252,8 +252,8 @@ checks, comments and diffs.
   auto-merge, the merge queue, updating the branch. A merge shows everywhere as you confirm it,
   and comes back with why if GitHub refuses it.
 - **Snooze** a review request until later.
-- **Nudge a PR's agents**, and they're told when someone reviews, asks for changes or comments,
-  or when checks fail, so they take it from there.
+- **Nudge a PR's agent**, the session that opened it, and it's told when someone reviews, asks for
+  changes or comments, or when checks fail, so it takes it from there; it's never told to merge.
 - **Ask about a PR**: put questions to an agent that has read its whole diff.
 - **Automatic reviews** (optional): agents of your choosing (an account and model each) review
   each PR that asks for your review, combine what they found into one review, and leave it as a

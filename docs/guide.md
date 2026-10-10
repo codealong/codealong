@@ -388,12 +388,13 @@ nudge_by_default`), and a PR's own switch wins over that either way.
 The primary session, while it runs, is then sent a message, as one of yours, when someone else
 reviews the PR, asks for changes or comments (with what they wrote, read from GitHub as the PR
 changes), when it's approved, merged or closed, and when its checks fail, with where it stands
-(ready to merge, its checks are still running), so it takes it from there. The PR's other sessions
-(helpers, reviewers, ones that came to its branch) aren't told, nor is anyone while the primary
-isn't running, and what you did to it yourself, which is what its agent did through `gh`, isn't
-told back. Turned on for a PR that's approved already, it's told that at once (not when the setting
-turns it on for every PR); what happened while Codealong wasn't running isn't told, and a session
-that has stopped isn't resumed for it.
+(ready to merge, its checks are still running), so it takes it from there. The message never asks
+it to merge, an approval included: it says so, and the agent merges only if you asked it to. The
+PR's other sessions (helpers, reviewers, ones that came to its branch) aren't told, nor is anyone
+while the primary isn't running, and what you did to it yourself, which is what its agent did
+through `gh`, isn't told back. Turned on for a PR that's approved already, it's told that at once
+(not when the setting turns it on for every PR); what happened while Codealong wasn't running
+isn't told, and a session that has stopped isn't resumed for it.
 
 #### Automatic reviews
 

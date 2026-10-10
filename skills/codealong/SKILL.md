@@ -217,8 +217,10 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   over, then add `--take`. It's off for a PR until turned on for it (the user can also turn it
   on from the PR's card in the app), unless the user turned it on for every PR of theirs in
   Settings. Turn it on right after you open a PR, when you'd otherwise sit polling GitHub for
-  its review or its checks: then stop, and take it from there when the message comes. Don't
-  when the user wants to handle its review themselves. `--off` turns it off;
+  its review or its checks: then stop, and take it from there when the message comes. The
+  message is news, never a go-ahead to merge, though it comes as the user's: an approval in it
+  doesn't mean merge, so merge only if the user asked you to. Don't turn it on when the user
+  wants to handle its review themselves. `--off` turns it off;
   `codealong pr show <pr>` says whether it's on (`nudge`) and which session is told
   (`primary`).
 
