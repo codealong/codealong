@@ -81,6 +81,14 @@ impl Replica {
         self.lanes.iter().filter_map(|l| self.hashes.get(&l.id).map(|h| (l.id.clone(), *h))).collect()
     }
 
+    /// The sender connected again, saying what it knows: a sender that doesn't know PRs sends no PR
+    /// list, and a resumed feed (`have`) starts with none, so the one kept from before goes.
+    pub fn heard_from(&mut self, knows: &[String]) {
+        if !knows.iter().any(|k| k == crate::proto::PRS) {
+            self.prs.clear();
+        }
+    }
+
     pub fn apply(&mut self, msg: FeedMsg) {
         if msg.full {
             *self = Replica::default();
@@ -210,8 +218,17 @@ mod tests {
         assert_eq!(replica.prs.iter().map(|p| p.number).collect::<Vec<_>>(), [1, 2]);
         replica.apply(FeedMsg { rev: 3, prs: Some(vec![card(2)]), ..Default::default() });
         assert_eq!(replica.prs.iter().map(|p| p.number).collect::<Vec<_>>(), [2]);
+        // The sender comes back as a build that doesn't know PRs: the list kept goes, though the
+        // feed that resumes is no full one.
+        replica.heard_from(&["have".to_string(), "watch".into(), "cursor".into()]);
+        replica.apply(FeedMsg { rev: 4, lanes: vec![lane("/a")], ..Default::default() });
+        assert!(replica.prs.is_empty());
+        // One that knows them keeps it until its feed says otherwise.
+        replica.apply(FeedMsg { rev: 5, prs: Some(vec![card(3)]), ..Default::default() });
+        replica.heard_from(&crate::proto::KNOWS.map(String::from));
+        assert_eq!(replica.prs.len(), 1);
         // A feed from a device that sends none leaves none behind.
-        let old: FeedMsg = serde_json::from_str(r#"{"rev":4,"full":true}"#).unwrap();
+        let old: FeedMsg = serde_json::from_str(r#"{"rev":6,"full":true}"#).unwrap();
         replica.apply(old);
         assert!(replica.prs.is_empty());
     }

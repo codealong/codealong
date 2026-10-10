@@ -102,12 +102,15 @@ pub const TABLET: &str = "tablet";
 /// Cursor's sessions and accounts (`Harness::Cursor`), which a build from before can't read: one
 /// in a message would lose it the whole message, so a device that doesn't say it gets none; and
 /// the sender's PR list in its feed (`FeedMsg::prs`, `pr::PrCard`), sent only to a device that
-/// says `PRS`.
+/// says `PRS`. `PR_DRAFTS` is a Mac's word that a review asked of it submits your draft review
+/// only when it's the one the asking device showed (`params::PrReview::draft`); a device asks a
+/// Mac to review only when it says so, since one from before submits whatever draft is there.
 pub const HAVE: &str = "have";
 pub const WATCH: &str = "watch";
 pub const CURSOR: &str = "cursor";
 pub const PRS: &str = "prs";
-pub const KNOWS: [&str; 4] = [HAVE, WATCH, CURSOR, PRS];
+pub const PR_DRAFTS: &str = "pr-drafts";
+pub const KNOWS: [&str; 5] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {

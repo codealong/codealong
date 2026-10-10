@@ -79,7 +79,8 @@ pub const PR_DETAIL: &str = "pr-detail";
 /// What a PR's merge box offers you (`repo`, `number`), answering `pr::MergeBox`.
 pub const PR_MERGE_BOX: &str = "pr-merge-box";
 /// Reviews a PR as you on GitHub (`repo`, `number`, `verdict`, `body`): approves it, comments on
-/// it, or asks for changes.
+/// it, or asks for changes, submitting your draft review of it when there's one and it's the one
+/// the asking device showed (`draft`), answering `pr::Reviewed`.
 pub const PR_REVIEW: &str = "pr-review";
 /// Does one thing the merge box does to a PR as you on GitHub (`repo`, `number`, `id`, `op`):
 /// merges it, turns auto-merge on or off, queues it, updates its branch, takes it out of draft or
@@ -260,7 +261,10 @@ pub mod params {
         pub number: u64,
     }
 
-    /// `pr-review`: what the review says, and what it writes (optional for an approval).
+    /// `pr-review`: what the review says, and what it writes (optional for an approval). `draft`
+    /// is the stamp of the draft review the asking device showed (`pr::Draft::stamp`), none for
+    /// none shown: a review submits your draft, so the device asked refuses one whose draft isn't
+    /// the one shown, rather than publish what nobody read.
     #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
     pub struct PrReview {
         pub repo: String,
@@ -268,6 +272,8 @@ pub mod params {
         pub verdict: crate::pr::Verdict,
         #[serde(default)]
         pub body: String,
+        #[serde(default)]
+        pub draft: Option<String>,
     }
 
     /// `pr-merge`: the PR's node id, as its merge box gave it, and what to do.

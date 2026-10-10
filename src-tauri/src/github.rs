@@ -901,6 +901,7 @@ impl PrDetail {
             comments: self.comments.into_iter().map(|c| pr::Comment { id: c.id, author: c.author, body: c.body, at: c.at, url: c.url, path: c.path, resolved: c.resolved, mine: c.mine }).collect(),
             files: self.files.into_iter().map(|f| pr::File { path: f.path, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }).collect(),
             more_files: self.more_files,
+            draft: None,
         }
     }
 }
@@ -1149,6 +1150,42 @@ pub struct Draft {
     pub whole: String,
 }
 
+impl Draft {
+    /// The draft as another device reads it (codealong-peer's `pr::Draft`).
+    pub fn for_devices(&self) -> codealong_peer::pr::Draft {
+        use codealong_peer::pr;
+        pr::Draft {
+            body: self.body.clone(),
+            url: self.url.clone(),
+            comments: self.comments.iter().map(|c| pr::DraftComment { path: c.path.clone(), line: c.line, outdated: c.outdated, body: c.body.clone() }).collect(),
+            count: self.count as u64,
+            stamp: self.stamp(),
+        }
+    }
+
+    /// The draft as it is now, in a word: which draft it is, its whole text and every comment
+    /// read, so an edit that leaves as many comments as before changes it too. Only comments
+    /// past the first hundred (`DRAFT_QUERY`) can change without changing it.
+    pub fn stamp(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        let mut put = |s: &str| {
+            h.update((s.len() as u64).to_le_bytes());
+            h.update(s.as_bytes());
+        };
+        put(&self.id);
+        put(&self.whole);
+        put(&self.count.to_string());
+        for c in &self.comments {
+            put(&c.id);
+            put(&c.path);
+            put(&c.line.map(|l| l.to_string()).unwrap_or_default());
+            put(&c.body);
+        }
+        h.finalize().iter().take(12).map(|b| format!("{b:02x}")).collect()
+    }
+}
+
 /// A comment of your draft review.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1358,8 +1395,15 @@ pub fn review_args(number: u64, verdict: Verdict, body: &str, slug: &str) -> Res
 /// before the draft's text, and nothing written keeps it as it is. Without one it's `gh pr
 /// review`, and so it is when your draft can't be looked for.
 pub fn review(slug: &str, number: u64, verdict: Verdict, body: &str) -> Result<Reviewed> {
+    review_with(slug, number, verdict, body, your_review(slug, number).ok().and_then(|y| y.draft).as_ref())
+}
+
+/// `review` with your draft already looked for (`draft`, none for none found): submitted as it
+/// was read, so what's checked before is what goes, without a second look that could find
+/// another.
+pub fn review_with(slug: &str, number: u64, verdict: Verdict, body: &str, draft: Option<&Draft>) -> Result<Reviewed> {
     let failed = |e: anyhow::Error| anyhow!("Couldn't {} #{number}: {e:#}", verdict.verb());
-    if let Some(draft) = your_review(slug, number).ok().and_then(|y| y.draft) {
+    if let Some(draft) = draft {
         if verdict != Verdict::Approve && body.trim().is_empty() && draft.body.trim().is_empty() && draft.count == 0 {
             return Err(anyhow!("Write what to say first: your draft review of #{number} has nothing in it."));
         }
@@ -1479,6 +1523,25 @@ mod tests {
     }
 
     #[test]
+    fn a_drafts_stamp_changes_with_any_edit_even_one_that_keeps_its_count() {
+        let d = your_review_of(&draft_answer(true, "null")).unwrap().draft.unwrap();
+        let stamp = d.stamp();
+        assert_eq!(stamp.len(), 24);
+        assert_eq!(d.for_devices().stamp, stamp);
+        assert_eq!(your_review_of(&draft_answer(true, "null")).unwrap().draft.unwrap().stamp(), stamp, "the same draft read again");
+        let edited = |f: &dyn Fn(&mut Draft)| {
+            let mut e = d.clone();
+            f(&mut e);
+            e.stamp()
+        };
+        assert_ne!(edited(&|e| e.whole.push_str(" More.")), stamp, "its text");
+        assert_ne!(edited(&|e| e.comments[0].body.push('!')), stamp, "a comment's text, as many comments as before");
+        assert_ne!(edited(&|e| e.comments[1].line = Some(3)), stamp, "a comment's line");
+        assert_ne!(edited(&|e| e.id = "PRR_2".into()), stamp, "another draft");
+        assert_ne!(edited(&|e| e.count = 4), stamp, "a comment past the ones read");
+    }
+
+    #[test]
     fn what_you_write_goes_before_your_drafts_text_and_nothing_keeps_it() {
         assert_eq!(submit_body("  ", "Hold it."), Some("Hold it.".into()));
         assert_eq!(submit_body(" LGTM ", "Hold it.\n<!-- m -->"), Some("LGTM\n\n---\n\nHold it.\n<!-- m -->".into()));
@@ -1530,6 +1593,17 @@ mod tests {
         assert_eq!(done.unwrap(), Reviewed { draft: None });
         let calls = std::mem::take(&mut *sent.lock().unwrap());
         assert_eq!(calls[1].0.join(" "), "pr review 7 --comment -R o/r --body A thought");
+
+        // A draft already looked for (another device's review, checked against the one it
+        // showed) is the one submitted: GitHub isn't asked again, where another could turn up.
+        let draft = your_review_of(&draft_answer(true, "null")).unwrap().draft.unwrap();
+        with(false);
+        let done = review_with("o/r", 7, Verdict::Approve, "", Some(&draft));
+        procs::stand_in::set(None);
+        assert_eq!(done.unwrap(), Reviewed { draft: Some(3) });
+        let calls = std::mem::take(&mut *sent.lock().unwrap());
+        assert_eq!(calls.len(), 1);
+        assert_eq!((calls[0].1["query"].as_str(), calls[0].1["variables"]["review"].as_str()), (Some(SUBMIT_REVIEW), Some("PRR_1")));
     }
 
     #[test]

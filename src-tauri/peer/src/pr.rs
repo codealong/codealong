@@ -95,6 +95,46 @@ pub struct Detail {
     pub files: Vec<File>,
     /// More files than the first page holds.
     pub more_files: bool,
+    /// Your review of it that you began and haven't submitted (an agent's, or one you started on
+    /// GitHub). A review submits it, its comments and all, as GitHub's Finish your review does, so
+    /// it's shown before one, and the review says which it showed (`params::PrReview::draft`).
+    /// None when there's none, or GitHub couldn't say.
+    pub draft: Option<Draft>,
+}
+
+/// Your review of a PR that you began and haven't submitted.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Draft {
+    /// Its text, without Codealong's hidden marks.
+    pub body: String,
+    pub url: Option<String>,
+    /// Its comments on lines, the first hundred.
+    pub comments: Vec<DraftComment>,
+    /// How many comments it has in all.
+    pub count: u64,
+    /// The draft as it is now, in a word: a review sends it back, and the Mac submits the draft
+    /// only while it's still this one, so nothing written or edited since goes unseen.
+    pub stamp: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DraftComment {
+    pub path: String,
+    /// Its line in the file's new version; none for one on the file as a whole.
+    pub line: Option<u64>,
+    /// The PR's changes since have moved or changed its line.
+    pub outdated: bool,
+    pub body: String,
+}
+
+/// What a review did (`api::PR_REVIEW`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Reviewed {
+    /// It submitted your draft review, with this many comments.
+    pub draft: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

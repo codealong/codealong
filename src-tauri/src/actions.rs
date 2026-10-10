@@ -1130,10 +1130,17 @@ fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// A PR's description, reviews, comments and changed files, as this device's `gh` reads them.
+/// With it, your draft review of it, which a review would submit: the device shows it first.
 fn pr_detail(_engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Pr = c.read()?;
-    let detail = crate::github::detail(&p.repo, p.number).map_err(words)?;
-    serde_json::to_value(detail.for_devices()).map_err(words)
+    let (detail, yours) = std::thread::scope(|scope| {
+        let detail = scope.spawn(|| crate::github::detail(&p.repo, p.number));
+        let yours = scope.spawn(|| crate::github::your_review(&p.repo, p.number));
+        (detail.join(), yours.join())
+    });
+    let mut detail = detail.map_err(|_| "GitHub request failed".to_string())?.map_err(words)?.for_devices();
+    detail.draft = yours.ok().and_then(Result::ok).and_then(|y| y.draft).map(|d| d.for_devices());
+    serde_json::to_value(detail).map_err(words)
 }
 
 /// What a PR's merge box offers you: the engine's own box, in the shape codealong-peer's
@@ -1152,8 +1159,26 @@ fn pr_review(engine: &Handle, c: &Call) -> Result<Value, String> {
         Verdict::Comment => crate::github::Verdict::Comment,
         Verdict::RequestChanges => crate::github::Verdict::RequestChanges,
     };
-    crate::github::review(&p.repo, p.number, verdict, &p.body).map_err(words)?;
-    Ok(shown_at(c, engine.approved(&p.repo, p.number)))
+    // It submits your draft review, comments and all: only the one the asking device showed, as
+    // it was read here.
+    let found = crate::github::your_review(&p.repo, p.number).map_err(|e| format!("Couldn't look for a draft review of yours on #{}, which a review would submit: {}", p.number, words(e)))?.draft;
+    draft_shown(found.as_ref().map(|d| (d.stamp(), d.count as u64, d.comments.len() as u64)), p.draft.as_deref(), p.number)?;
+    let reviewed = crate::github::review_with(&p.repo, p.number, verdict, &p.body, found.as_ref()).map_err(words)?;
+    engine.approved(&p.repo, p.number);
+    serde_json::to_value(codealong_peer::pr::Reviewed { draft: reviewed.draft.map(|n| n as u64) }).map_err(words)
+}
+
+/// Whether a review may go: it submits your draft review of the PR (`found`: its stamp, how many
+/// comments it has and how many of them were read), so only when that's the one the asking device
+/// showed (`shown`, its stamp), unchanged, and it was shown whole: the stamp can't see comments
+/// past the ones read. A draft gone since is no matter: the review goes alone.
+fn draft_shown(found: Option<(String, u64, u64)>, shown: Option<&str>, number: u64) -> Result<(), String> {
+    match (found, shown) {
+        (Some((_, n, _)), None) => Err(format!("You have a draft review of #{number} on GitHub with {n} {}, which this would submit. Open the PR again to read it first.", if n == 1 { "comment" } else { "comments" })),
+        (Some((stamp, _, _)), Some(shown)) if stamp != shown => Err(format!("Your draft review of #{number} has changed since it was shown. Open the PR again to read it first.")),
+        (Some((_, n, read)), Some(_)) if n > read => Err(format!("Your draft review of #{number} has {n} comments, more than another device is shown: finish it on GitHub.")),
+        _ => Ok(()),
+    }
 }
 
 /// Does what the merge box does, as you (lib.rs `merge_pr`). The op crosses in codealong-peer's
@@ -1206,6 +1231,20 @@ fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_review_from_another_device_submits_only_the_draft_it_showed() {
+        let found = |stamp: &str, n: u64| Some((stamp.to_string(), n, n));
+        assert!(draft_shown(None, None, 7).is_ok());
+        assert!(draft_shown(found("ab", 3), Some("ab"), 7).is_ok());
+        // Gone since it was shown: the review goes alone.
+        assert!(draft_shown(None, Some("ab"), 7).is_ok());
+        assert!(draft_shown(found("ab", 1), None, 7).unwrap_err().contains("with 1 comment,"));
+        // Edited since, as many comments as before.
+        assert!(draft_shown(found("cd", 3), Some("ab"), 7).unwrap_err().contains("changed since it was shown"));
+        // More comments than were read: one past them could have changed unseen.
+        assert!(draft_shown(Some(("ab".into(), 101, 100)), Some("ab"), 7).unwrap_err().contains("101 comments, more than"));
+    }
 
     #[test]
     fn every_request_a_device_can_make_is_answered_here() {

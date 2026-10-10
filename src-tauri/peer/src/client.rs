@@ -50,6 +50,10 @@ const ACT_WAIT: Duration = Duration::from_secs(40);
 /// How long being done with a session is given: removing a worktree its harness made can take
 /// most of a minute there, as the engine's actions.rs waits for it.
 const DONE_WAIT: Duration = Duration::from_secs(75);
+/// How long a PR's detail, review or merge is given: each is GitHub requests on the Mac, one after
+/// another (a merge and then its branch's deletion, a review after looking for your draft), each
+/// allowed a minute there.
+const PR_WAIT: Duration = Duration::from_secs(150);
 
 /// A device this one is linked with, as `devices.json` keeps it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -407,7 +411,7 @@ impl Client {
     /// A PR's description, reviews, comments and changed files, as `device`'s `gh` reads them
     /// from GitHub: two GitHub requests there, so it's given as long as an act.
     pub fn pr_detail(&self, device: &str, repo: &str, number: u64) -> std::result::Result<crate::pr::Detail, String> {
-        read(self.ask(device, api::PR_DETAIL, of(params::Pr { repo: repo.into(), number }), ACT_WAIT)?)
+        read(self.ask(device, api::PR_DETAIL, of(params::Pr { repo: repo.into(), number }), PR_WAIT)?)
     }
 
     /// What a PR's merge box offers you, as `device`'s `gh` reads it.
@@ -415,14 +419,23 @@ impl Client {
         read(self.ask(device, api::PR_MERGE_BOX, of(params::Pr { repo: repo.into(), number }), ACT_WAIT)?)
     }
 
-    /// Reviews a PR as you on GitHub, through `device`'s `gh`.
-    pub fn pr_review(&self, device: &str, repo: &str, number: u64, verdict: crate::pr::Verdict, body: &str) -> std::result::Result<(), String> {
-        self.ask(device, api::PR_REVIEW, of(params::PrReview { repo: repo.into(), number, verdict, body: body.into() }), ACT_WAIT).map(|_| ())
+    /// Reviews a PR as you on GitHub, through `device`'s `gh`. `draft` is the stamp of the draft
+    /// review shown with it (`pr::Draft::stamp`), none for none shown. Only a Mac that checks it
+    /// (`proto::PR_DRAFTS`) is asked: one from before would submit any draft of yours unseen.
+    pub fn pr_review(&self, device: &str, repo: &str, number: u64, verdict: crate::pr::Verdict, body: &str, draft: Option<&str>) -> std::result::Result<crate::pr::Reviewed, String> {
+        let hex = self.key_of(device).ok_or("That device isn't linked.")?;
+        let checks = self.0.lock().conns.get(&hex).map(|c| (c.name.clone(), c.knows.iter().any(|k| k == proto::PR_DRAFTS)));
+        if let Some((name, false)) = checks {
+            return Err(format!("Update Codealong on {name} to review from here: its version would submit a draft review of yours without checking it's the one shown."));
+        }
+        let asked = self.ask(device, api::PR_REVIEW, of(params::PrReview { repo: repo.into(), number, verdict, body: body.into(), draft: draft.map(String::from) }), PR_WAIT)?;
+        // Macs before the draft was said answer the time the board showed it.
+        Ok(serde_json::from_value(asked).unwrap_or_default())
     }
 
     /// Does what a PR's merge box does, as you on GitHub, through `device`'s `gh`.
     pub fn pr_merge(&self, device: &str, repo: &str, number: u64, id: &str, op: crate::pr::Op) -> std::result::Result<crate::pr::Merged, String> {
-        read(self.ask(device, api::PR_MERGE, of(params::PrMerge { repo: repo.into(), number, id: id.into(), op }), ACT_WAIT)?)
+        read(self.ask(device, api::PR_MERGE, of(params::PrMerge { repo: repo.into(), number, id: id.into(), op }), PR_WAIT)?)
     }
 
     /// Snoozes your review of PRs on `device` (`owner/name#number`) until `until`, or wakes it.
@@ -715,6 +728,11 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
         }
         // What this device still has of the other's last feed, so only what changed since comes.
         let resume = (linked && knows.iter().any(|k| k == proto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
+        // A feed that resumes sends no PR list, so one kept from a build that sent one is let go
+        // when this one won't send any: its reviews would show and fail to act.
+        if let Some(c) = st.replicas.get_mut(&hex) {
+            c.replica.heard_from(&knows);
+        }
         st.conns.insert(hex.clone(), Conn { serial, knows, tx: tx.clone(), close: close.clone(), name: name.clone(), app, linked_there: false, since: now_ms() });
         // Before the standing, which the other side's first feed waits for.
         if let Some(lanes) = resume {
