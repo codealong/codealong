@@ -87,6 +87,21 @@ pub fn ordered_places(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Pl
     Ok(places)
 }
 
+/// The places a session starts in out of sight: under its harness's background service, or in
+/// Codealong.
+pub const OUT_OF_SIGHT: [Place; 2] = [Place::Background, Place::Codealong];
+
+/// Where one of `a`'s sessions starts out of sight: under its harness's background service, else
+/// in Codealong, else in a terminal behind your windows (Background, for a harness with no
+/// service of its own). Automatic reviews start there (autoreview.rs), and helpers
+/// (`codealong start --helper`) unless told where.
+pub fn out_of_sight(a: &AccountCfg, home: &Path) -> Option<Place> {
+    let offered = ordered_places(a, home).unwrap_or_default();
+    let service = crate::harness::of(a).is_some_and(|h| h.runs_in_background());
+    let order = if service { OUT_OF_SIGHT } else { [Place::Codealong, Place::Background] };
+    order.into_iter().find(|p| offered.contains(p))
+}
+
 /// Where one of an account's sessions that isn't running can go on (`resume`): the places it
 /// starts sessions in that its harness can take a session up again in (`Adapter::resumes_in`),
 /// in the same order.
@@ -694,7 +709,7 @@ fn linked(spec: &StartSpec, started: &Started, harness: &str, now: i64) -> Optio
 /// when the app is closed.
 pub fn start_and_link(board: &Board, cfg: &Config, spec: &StartSpec, record: impl FnOnce(Linked) -> Result<()>) -> Result<Started> {
     let started = start(board, cfg, spec)?;
-    crate::origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account);
+    crate::origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account, spec.helper);
     // `start` found the account, or it would have failed.
     let harness = cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.as_str());
     if let Some(link) = harness.and_then(|h| linked(spec, &started, h, now_ms())) {
@@ -996,7 +1011,7 @@ mod tests {
 
     #[test]
     fn a_start_from_todos_links_them_to_its_session_or_waits_for_it() {
-        let spec = |place: Place, worktree: bool, todos: &[&str]| StartSpec { lane_id: "/r/app".into(), account: "codex".into(), place, prompt: String::new(), model: None, effort: None, worktree, todos: todos.iter().map(|t| t.to_string()).collect(), from: None };
+        let spec = |place: Place, worktree: bool, todos: &[&str]| StartSpec { lane_id: "/r/app".into(), account: "codex".into(), place, prompt: String::new(), model: None, effort: None, worktree, todos: todos.iter().map(|t| t.to_string()).collect(), from: None, helper: false };
         let known = Started { key: Some("claude:claude:abc".into()), message: None };
         let unknown = Started { key: None, message: None };
         // No todo, nothing to link.

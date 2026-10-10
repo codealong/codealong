@@ -685,7 +685,8 @@ fn sort_sessions(sessions: &mut [Session]) {
 /// When you last sent a prompt to one of a lane's own sessions; for a lane with none, when
 /// anything last happened in it.
 fn lane_prompt_at(sessions: &[Session], last_activity: i64) -> i64 {
-    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).map(|s| s.last_prompt_at).max().unwrap_or(last_activity)
+    // A helper's prompts are its agent's, not yours.
+    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.helping()).map(|s| s.last_prompt_at).max().unwrap_or(last_activity)
 }
 
 /// How long a lane in Needs you has waited: since the longest wait of its own agents that need
@@ -1023,6 +1024,25 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
     }
 }
 
+/// What a session helps (`Session::helper`): the session whose agent started it as a helper
+/// (origins.json), while the board has that session, or the PR whose automatic review it is
+/// (reviews.json). A helper whose session is gone is one of your own again, so nothing it does
+/// is left where nobody looks.
+pub fn helper_of(parent: Option<&str>, on_board: impl Fn(&str) -> bool, reviews: Option<&str>) -> Option<Helper> {
+    let parent = parent.filter(|p| on_board(p)).map(String::from);
+    let pr = reviews.map(String::from);
+    (parent.is_some() || pr.is_some()).then_some(Helper { parent, pr })
+}
+
+/// Applies a helper's rule to it, where quiet is applied (`apply_quiet`): a turn it ends is idle
+/// rather than Your turn, as its agent reads what it wrote, not you. One that needs you (a call
+/// to allow, a question, an error) still does, and your own Mark as unread still brings it back.
+pub fn apply_helper(s: &mut Session) {
+    if s.helper.is_some() && s.status == Status::Unread {
+        s.status = Status::Idle;
+    }
+}
+
 /// Whether replies suggested for a session still answer where it stands: it's been sent nothing
 /// since the prompt whose reply the suggester read (`prompt_at`; a prompt of yours, from Codealong
 /// or where it runs), and no turn of its has started since they were suggested. A turn that
@@ -1220,7 +1240,7 @@ pub fn looks_finished(origin: Origin, pr: Option<&Pr>, sessions: &[Session]) -> 
     if matches!(origin, Origin::Main | Origin::Folder) || pr.is_some_and(|p| !p.state.is_open()) {
         return false;
     }
-    let own: Vec<&Session> = sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).collect();
+    let own: Vec<&Session> = sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.helping()).collect();
     !own.is_empty()
         && own.iter().all(|s| !matches!(s.status, Status::Working | Status::Needs) && s.insight.as_ref().and_then(|i| i.finished).is_some_and(|f| f >= FINISHED))
 }
@@ -1518,7 +1538,8 @@ pub fn compose(inp: Inputs) -> Board {
         let g = git.get(&seed.path).cloned();
         let reuse_on = reusable(seed, marks, g.as_ref());
         // Archived sessions stay in the lane's list, last, and out of its status. In a reusable
-        // worktree so do the ones from before its latest work, ahead of the archived ones.
+        // worktree so do the ones from before its latest work, ahead of the archived ones; and
+        // helpers that don't need you, ahead of those (`Session::helping`).
         let (mut sessions, archived): (Vec<Session>, Vec<Session>) = sessions.into_iter().partition(|s| !s.archived);
         sort_sessions(&mut sessions);
         let reset = g.as_ref().and_then(|g| g.reset_at).filter(|_| reuse_on);
@@ -1526,14 +1547,14 @@ pub fn compose(inp: Inputs) -> Board {
             s.earlier = earlier(s, reset);
         }
         // Stable: each part keeps its order.
-        sessions.sort_by_key(|s| s.earlier);
+        sessions.sort_by_key(|s| (s.earlier, s.helping()));
         let mut kept = 0;
         sessions.retain(|s| {
             let keep = kept < MAX_SESSIONS_PER_LANE || pinned.contains(&s.key);
             kept += keep as usize;
             keep
         });
-        let current = sessions.iter().take_while(|s| !s.earlier).count();
+        let current = sessions.iter().take_while(|s| !s.earlier && !s.helping()).count();
         let pr = find_pr(seed, prs, now);
         // The bay and headline come from the lane's own current sessions; the maker is shown
         // after them.
@@ -1548,7 +1569,8 @@ pub fn compose(inp: Inputs) -> Board {
         // A lane outside your projects shows while it needs you; an app's chats while there are
         // any you haven't archived.
         let hidden = seed.elsewhere && bay != Bay::Needs && !(seed.chats && !sessions.is_empty());
-        // Visitors after the current work's sessions, and the earlier work's after them.
+        // Visitors after the current work's sessions, and the helpers and the earlier work's
+        // after them.
         let earlier_ones = sessions.split_off(current);
         sessions.extend(guests);
         sessions.extend(earlier_ones);
@@ -1660,11 +1682,12 @@ pub fn compose(inp: Inputs) -> Board {
 
 pub use codealong_peer::model::ELSEWHERE;
 
-/// Match the floating bar's scope: all visible projects, without archived sessions or
-/// duplicate visitors. An open review request you haven't snoozed also needs the user's attention.
+/// Match the floating bar's scope: all visible projects, without archived sessions, duplicate
+/// visitors or helpers that don't need you. An open review request you haven't snoozed also
+/// needs the user's attention.
 pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
     let sessions = lanes.iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
-        .filter(|s| !s.archived && s.visitor.is_none())
+        .filter(|s| !s.archived && s.visitor.is_none() && !s.helping())
         .map(|s| match s.status {
             Status::Working => LogoStatus::Working,
             // Snoozed, it's off the bar's Needs you and Your turn, so off the mark too.
@@ -3234,6 +3257,65 @@ mod tests {
         assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
         assert_eq!(lane("/r/codealong").bay, Bay::Idle);
         assert!(lane("/r/codealong").sessions.is_empty());
+    }
+
+    #[test]
+    fn a_helper_is_out_of_its_worktrees_status_until_it_needs_you() {
+        const MIN: i64 = 60_000;
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/codealong", "main")];
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Spruce".to_string()];
+        let a = acct("claude");
+        let session = |id: &str, status: &str, seen_at: i64| {
+            let mut s = claude_session(&a, Some(&reg(status, NOW - 20 * MIN)), Some(&tr()), seen_at, NOW, &Quiet::default()).unwrap();
+            (s.id, s.key, s.cwd) = (id.into(), Session::key_for(Harness::Claude, "claude", id), "/r/codealong".into());
+            s
+        };
+        // You've seen what the session that started it last said.
+        let boss = session("boss", "idle", NOW);
+        assert_eq!(boss.status, Status::Idle);
+        let helper = |status: &str| {
+            let mut s = session("rev", status, 0);
+            s.helper = helper_of(Some(&boss.key), |k| k == boss.key, None);
+            apply_helper(&mut s);
+            s
+        };
+        let board = |h: Session| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![h, boss.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], auto_reviews: (&Default::default(), false) });
+        // Working, it's its agent's work: the worktree stands as its own sessions do, and the mark
+        // doesn't spin for it. It's listed after them.
+        let working = board(helper("busy"));
+        let lane = &working.lanes[0];
+        assert_eq!((lane.bay, lane.sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>()), (Bay::Idle, vec!["boss", "rev"]));
+        assert_eq!(working.logo_status, LogoStatus::Idle);
+        // A turn it ended is its agent's to read, not Your turn.
+        let ended = helper("idle");
+        assert_eq!(ended.status, Status::Idle);
+        assert_eq!(board(ended).lanes[0].bay, Bay::Idle);
+        // Waiting on you to allow something, it's in Needs you like any session, saying so.
+        let waiting = board(helper("waiting"));
+        assert_eq!((waiting.lanes[0].bay, waiting.lanes[0].sessions[0].id.as_str()), (Bay::Needs, "rev"));
+        assert_eq!(waiting.logo_status, LogoStatus::Needs);
+    }
+
+    #[test]
+    fn a_helper_helps_a_session_still_on_the_board_or_a_pr() {
+        let here = |k: &str| k == "claude:claude:boss";
+        assert_eq!(helper_of(Some("claude:claude:boss"), here, None), Some(Helper { parent: Some("claude:claude:boss".into()), pr: None }));
+        // The session that started it is gone: it's yours again.
+        assert_eq!(helper_of(Some("claude:claude:gone"), here, None), None);
+        assert_eq!(helper_of(None, here, Some("o/r#7")), Some(Helper { parent: None, pr: Some("o/r#7".into()) }));
+        assert_eq!(helper_of(None, here, None), None);
+        // A helper's ended turn is idle; anyone else's, and its other statuses, are as they were.
+        let ended = Session { status: Status::Unread, ..Session::new(Harness::Claude, "claude", "rev") };
+        let mut theirs = ended.clone();
+        apply_helper(&mut theirs);
+        assert_eq!(theirs.status, Status::Unread);
+        for (st, want) in [(Status::Unread, Status::Idle), (Status::Needs, Status::Needs), (Status::Error, Status::Error), (Status::Working, Status::Working)] {
+            let mut h = Session { status: st, helper: helper_of(None, here, Some("o/r#7")), ..ended.clone() };
+            apply_helper(&mut h);
+            assert_eq!((h.status, h.helping()), (want, !matches!(want, Status::Needs | Status::Error)));
+        }
     }
 
     #[test]

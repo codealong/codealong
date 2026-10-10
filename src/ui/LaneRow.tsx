@@ -13,6 +13,7 @@ import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../
 import { branchLabel, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
+import type { HelperCount } from '../boardLists';
 import type { GitInfo, Lane, Session, Suggestions, Todo } from '../types';
 import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
@@ -314,6 +315,10 @@ interface SessionLinesProps {
   onShowTodo?: (todo: Todo) => void;
   /** Opens it where it lives: a double-click on its account's chip. */
   onOpen: () => void;
+  /** The helpers its agent started, in Sessions. */
+  helpers?: HelperCount;
+  /** A helper listed under the session it works for, which says what it is. */
+  nested?: boolean;
 }
 
 /**
@@ -321,7 +326,7 @@ interface SessionLinesProps {
  * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
  * quiet, todo and Jev's read, then its account), with `end` at the second line's end.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, nested }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
@@ -330,6 +335,8 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen }: Session
       <div className="ca-lane-line2">
         <span className="ca-chips ca-lane-lead ca-agentrow-chips">
           {where}
+          <HelperChip session={s} nested={nested} />
+          <HelpersChip helpers={helpers} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
           <SuggestedChip suggestions={s.suggestions} />
@@ -413,6 +420,10 @@ interface AgentRowProps {
   /** Todos the session is linked to. */
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
+  /** The helpers its agent started (boardLists.ts `helperCounts`). */
+  helpers?: HelperCount;
+  /** A helper listed under the session it works for: set in from the left. */
+  nested?: boolean;
 }
 
 /** A snooze's chip: how long until it's back, as short as the age beside it, and the time and
@@ -439,6 +450,36 @@ export function QuietChip({ quiet }: { quiet: boolean | undefined }) {
   );
 }
 
+/** A helper's chip, where it isn't under the session it works for (SessionsView.tsx): what it
+ *  helps, and in its tooltip why it's out of your lists. */
+export function HelperChip({ session: s, nested }: { session: Session; nested?: boolean }) {
+  if (!s.helper || nested) return null;
+  const pr = s.helper.pr?.split('#')[1];
+  const [label, title] = pr
+    ? [`Review of #${pr}`, `An automatic review of #${pr}: its turns are for Codealong to post, not for you, so it's listed on the PR. It shows here when it needs you.`]
+    : ['Helper', 'A helper another session’s agent started: its turns are for that agent, not for you, so it’s listed under that session. It shows here when it needs you.'];
+  return (
+    <Chip className="ca-helperchip" title={title}>
+      <Icon name="subtask" size={12} />
+      {label}
+    </Chip>
+  );
+}
+
+/** The chip on a session's row for the helpers its agent started: how many, and how many of them
+ *  wait on you, which it says in the attention color. */
+export function HelpersChip({ helpers: h }: { helpers: HelperCount | undefined }) {
+  if (!h || h.count === 0) return null;
+  const parts = [h.working > 0 && `${h.working} working`, h.waiting > 0 && `${h.waiting} waiting on you`].filter(Boolean).join(', ');
+  const title = `${h.count === 1 ? 'A helper' : `${h.count} helpers`} its agent started${parts ? `: ${parts}` : ''}. They're listed under it while they work or wait on you; its panel lists them all.`;
+  return (
+    <Chip className={cx('ca-helperschip', h.waiting > 0 && 'is-waiting')} title={title}>
+      <Icon name="subtask" size={12} />
+      {h.waiting > 0 ? `${h.waiting} waiting` : h.count === 1 ? '1 helper' : `${h.count} helpers`}
+    </Chip>
+  );
+}
+
 /** A chip for the replies another session suggested you send it, which its box shows: its tooltip
  *  says who suggested them and what they are. */
 export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | undefined }) {
@@ -458,14 +499,14 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * insights, its account, and the worktree's PR and diff). On one line (`slim`): what it's about,
  * then its worktree and PR at the line's end.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo, helpers, nested }: AgentRowProps) {
   const started = age === 'started';
   const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />;
   return (
     <Row
       id={domId}
       selected={selected}
-      className={cx('ca-lane', 'is-agent', slim && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away')}
+      className={cx('ca-lane', 'is-agent', slim && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested')}
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}
@@ -483,6 +524,8 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
           <div className="ca-agentrow-line1">
             <SessionText s={s} now={now} />
             <span className="ca-chips ca-agentline-tags">
+              <HelperChip session={s} nested={nested} />
+              <HelpersChip helpers={helpers} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />
@@ -507,6 +550,8 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             todos={todos}
             onShowTodo={onShowTodo}
             onOpen={onOpen}
+            helpers={helpers}
+            nested={nested}
           />
         </div>
       )}

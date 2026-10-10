@@ -52,6 +52,14 @@ describe('attentionRows', () => {
     expect(counts).toEqual({ needs: 2, reviews: 0, unread: 2, working: 1 });
   });
 
+  it('lists a helper only while it waits on you, as the floating bar does', () => {
+    const helps = { helper: { parent: 'boss' } };
+    const b = board([lane('app2', [session('boss', 'idle', NOW, { startedAt: NOW }), session('busy', 'working', NOW, { startedAt: NOW, ...helps }), session('asks', 'needs', NOW - 5, { startedAt: NOW, ...helps })])]);
+    expect(attentionRows(b, ALL_PROJECTS).rows.map((r) => r.key)).toEqual(['asks']);
+    expect(attentionRows(b, ALL_PROJECTS).counts.working).toBe(0);
+    expect(recentRows(b, ALL_PROJECTS, new Set(), NOW).rows.map((r) => r.key)).toEqual(['boss', 'asks']);
+  });
+
   it('lists the working sessions when nothing waits on you, the longest running first', () => {
     const b = board([lane('app2', [session('w2', 'working', NOW), session('w1', 'working', NOW - 5), session('i', 'idle', NOW)])]);
     expect(attentionRows(b, ALL_PROJECTS).rows.map((r) => r.key)).toEqual(['w1', 'w2']);

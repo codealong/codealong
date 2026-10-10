@@ -663,6 +663,10 @@ pub struct StartSpec {
     /// is marked as started by it (`Session::origin`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
+    /// It's a helper of `from` (`codealong start --helper`): it works for that session's agent,
+    /// not for you (`Session::helper`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub helper: bool,
 }
 
 /// A list of todo ids, or the one id (or null) that `todo` held.
@@ -763,7 +767,7 @@ mod tests {
         assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));
         assert_eq!(v(&params::Search { words: vec!["webhook".into()] }), json!({ "words": ["webhook"] }));
         assert_eq!(v(&params::Route { project: "All projects".into(), text: "fix it".into() }), json!({ "project": "All projects", "text": "fix it" }));
-        let spec = StartSpec { lane_id: "/r/app".into(), account: "claude".into(), place: Place::Terminal, prompt: String::new(), model: None, effort: None, worktree: false, todos: vec![], from: None };
+        let spec = StartSpec { lane_id: "/r/app".into(), account: "claude".into(), place: Place::Terminal, prompt: String::new(), model: None, effort: None, worktree: false, todos: vec![], from: None, helper: false };
         assert_eq!(v(&params::Start { spec }), json!({ "spec": { "laneId": "/r/app", "account": "claude", "place": "terminal", "prompt": "", "model": null, "effort": null, "worktree": false, "todos": [] } }));
         // What an older device leaves out reads as empty, an archive as one.
         let read = |j: serde_json::Value| (serde_json::from_value::<params::Answer>(j.clone()).unwrap(), serde_json::from_value::<params::Archive>(j).unwrap());

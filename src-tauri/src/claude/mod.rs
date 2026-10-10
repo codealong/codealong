@@ -1672,7 +1672,7 @@ mod tests {
         let look = Look { seen: &seen, since: 0, now, ps: Default::default() };
         let mut reader = Reader::default();
         reader.apply(&from, std::slice::from_ref(&transcript), &look);
-        let noted = |key: &str, from: &str, how| (key.to_string(), Entry { from: from.into(), how, at: 0 });
+        let noted = |key: &str, from: &str, how| (key.to_string(), Entry { from: from.into(), how, at: 0, helper: false });
         let origins = Store {
             sessions: [noted("claude:claude2:c0", "claude:claude:s1", OriginHow::Fork), noted("claude:claude:f1", "claude:claude:s1", OriginHow::Fork), noted("claude:claude2:b1", "claude:claude:s1", OriginHow::Started)].into(),
             pending: Vec::new(),

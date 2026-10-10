@@ -186,9 +186,12 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
             l.device = Some(tag.clone());
             for s in &mut l.sessions {
                 s.key = remote_key(short, &s.key);
-                // It came from a session on that device too.
+                // It came from a session on that device too, and a helper helps one there.
                 if let Some(o) = &mut s.origin {
                     o.key = remote_key(short, &o.key);
+                }
+                if let Some(p) = s.helper.as_mut().and_then(|h| h.parent.as_mut()) {
+                    *p = remote_key(short, p);
                 }
             }
             l
@@ -328,11 +331,14 @@ mod tests {
     #[test]
     fn windows_get_keys_that_name_their_mac() {
         let mut replica = Replica::default();
-        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/Users/sam/app", vec![session("claude:claude:9f", Status::Needs)])], ..Default::default() });
+        let helper = Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:9f".into()), pr: None }), ..session("codex:codex:h1", Status::Working) };
+        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/Users/sam/app", vec![session("claude:claude:9f", Status::Needs), helper])], ..Default::default() });
         let tag = DeviceTag { name: "Mac mini".into(), short: "a1b2c3d4e5".into(), color: "teal".into(), online: true, last_seen: None };
         let lanes = for_windows("a1b2c3d4e5", &tag, &replica);
         assert_eq!(lanes[0].id, "@a1b2c3d4e5:/Users/sam/app");
         assert_eq!(lanes[0].sessions[0].key, "@a1b2c3d4e5:claude:claude:9f");
+        // A helper helps the session on that Mac, by the key it has here.
+        assert_eq!(lanes[0].sessions[1].helper.as_ref().and_then(|h| h.parent.as_deref()), Some("@a1b2c3d4e5:claude:claude:9f"));
         assert_eq!(lanes[0].path, "/Users/sam/app");
         assert_eq!(lanes[0].device.as_ref(), Some(&tag));
         assert_eq!(split_remote(&lanes[0].sessions[0].key), Some(("a1b2c3d4e5", "claude:claude:9f")));

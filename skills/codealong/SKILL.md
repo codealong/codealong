@@ -245,6 +245,29 @@ session to be started. A todo's primary session starts others on it to work alon
 any other session, a start on a todo whose primary session runs is turned down, as `todo start`
 is, and `--take` starts one that takes the todo over.
 
+### Helpers
+
+A helper is a session that works for you, not for your user: a review of your diff, a check, a
+second opinion from another account, harness or model. `codealong start --helper --prompt
+"<what to do>"` starts one from your session (it's turned down outside one), out of sight
+unless `--in` says where (Claude Code's background service, else in Codealong). Codealong
+lists it under your session rather than among your user's, and its finished turns don't wait
+on them; it shows to them only when it needs them (a call to allow, a question, an error).
+
+- `codealong session wait <key>` waits for its turn to end and prints its reply (`reply`), or
+  comes back early when it waits on your user (`waitsOnUser`, with what it waits on in
+  `excerpt`): tell your user, then wait again. In Claude Code, run the wait in the background
+  so you're told when it's done. To ask it more, `session send <key>` and wait again with
+  `--since` the time you sent.
+- Give it everything it needs in the prompt (paths, the diff, what to look for, what to
+  answer with), and tell it to change nothing it wasn't asked to: nobody reads it as it goes.
+  A call it can't make without asking stops it until your user answers.
+- Once you have what you need from it, `codealong session done <key>` ends it.
+- Your harness's own subagents (Claude Code's Agent tool) are lighter for work inside your
+  session; a helper is for work on another account or harness, or that should be a session of
+  its own. It still spends your user's usage: start one when their task or instructions call
+  for it, as with any start.
+
 ## Configuring Codealong
 
 Codealong's settings are one TOML file, `config.toml`, whose path `codealong status` prints.

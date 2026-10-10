@@ -285,6 +285,11 @@
   background: var(--surface-hover);
   color: var(--ink);
 }
+/* A PR the board doesn't list, which an automatic review's line can't open. */
+.ca-sessinsp-kin:disabled:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
 .ca-sessinsp-kin:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--focus);

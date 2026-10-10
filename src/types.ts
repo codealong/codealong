@@ -133,6 +133,10 @@ export interface Session {
    *  which the harness removes as the session exits its own way: Mark as done exits it so
    *  (idle.rs `ending`). Missing where it has none, and from older Macs. */
   ownWorktree?: string;
+  /** It works for an agent, not for you: a helper another session's agent started (`codealong
+   *  start --helper`), or an automatic review's session. While it doesn't need you it's out of
+   *  the lists and queues, under what it helps (lanes.ts `helping`). Missing from older Macs. */
+  helper?: Helper;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -1082,6 +1086,13 @@ export interface StartOptions {
   claudeEfforts?: { id: string; label: string }[];
 }
 
+/** What a helper session works for: the session whose agent started it, or the PR it reviews. */
+export interface Helper {
+  parent?: string;
+  /** The PR's key as reviews.json has it, which ignores case (`owner/name#7`, lowercased). */
+  pr?: string;
+}
+
 /** Where a session came from: a fork of another session (its conversation copied as far as it
  *  went), or started by another session's agent (`codealong start`, Codex's `create_thread`). */
 export interface SessionOrigin {
@@ -1104,6 +1115,8 @@ export interface StartSpec {
   todos: string[];
   /** The session that asked for the start, by key: the new one is marked as started by it. */
   from?: string | null;
+  /** A helper of `from` (`codealong start --helper`). */
+  helper?: boolean;
 }
 
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */

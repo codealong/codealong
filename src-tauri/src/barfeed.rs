@@ -150,14 +150,17 @@ pub struct BarTodo {
 }
 
 /// The bar's feed. Status times don't move while a status lasts, so ordering by them keeps pills
-/// in place while agents work. Visitors and archived sessions are left out, as on the board.
+/// in place while agents work. Visitors, archived sessions and helpers that don't need you are
+/// left out, as on the board.
 pub fn feed(board: &Board) -> BarFeed {
     let mut items: Vec<(i64, BarItem)> = Vec::new();
     let mut recent: Vec<(i64, BarItem)> = Vec::new();
     let mut snoozed: Vec<(i64, BarItem)> = Vec::new();
     for lane in &board.lanes {
         for s in &lane.sessions {
-            if s.visitor.is_some() || s.archived {
+            // A helper is on the bar only while it needs you (`Session::helping`): its agent waits
+            // on it, not you.
+            if s.visitor.is_some() || s.archived || s.helping() {
                 continue;
             }
             let group = match group_of(s.status) {
@@ -307,6 +310,17 @@ mod tests {
         let b = board(vec![lane("/a", vec![visitor, archived], false), elsewhere, lane("/b", vec![session("ok", Status::Working, NOW)], false)], vec![]);
         let got: Vec<(String, String, bool)> = feed(&b).items.into_iter().map(|i| (i.key, i.project, i.hidden)).collect();
         assert_eq!(got, vec![("h".to_string(), "Elsewhere".to_string(), true), ("ok".to_string(), "P".to_string(), false)]);
+    }
+
+    #[test]
+    fn lists_a_helper_only_while_it_needs_you() {
+        let helper = |key: &str, status: Status| Session { helper: Some(crate::model::Helper { parent: Some("parent".into()), pr: None }), ..session(key, status, NOW - 10) };
+        let b = board(vec![lane("/a", vec![session("parent", Status::Working, NOW - 20), helper("busy", Status::Working), helper("done", Status::Idle), helper("asks", Status::Needs), helper("failed", Status::Error)], false)], vec![]);
+        let f = feed(&b);
+        let got: Vec<(String, Group)> = f.items.into_iter().map(|i| (i.key, i.group)).collect();
+        assert_eq!(got, vec![("asks".to_string(), Group::Needs), ("failed".to_string(), Group::Needs), ("parent".to_string(), Group::Working)]);
+        // Nor among the last day's sessions.
+        assert!(f.recent.iter().all(|i| i.key != "done"));
     }
 
     #[test]

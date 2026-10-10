@@ -271,6 +271,7 @@ function Kin({ session: s, homes, line }: { session: Session; homes: Map<string,
       {came('fork')}
       {came('moved')}
       {came('started')}
+      {group('Helpers', to.filter((k) => k.how === 'helper'))}
     </div>
   );
 }

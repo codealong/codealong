@@ -88,7 +88,8 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
         let excerpt = s.excerpt.as_deref()?;
         (Kind::Approval, vec![command_in(excerpt).unwrap_or(excerpt)])
     } else if matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) {
-        if now - s.last_activity > RECENT_MS {
+        // A helper's last reply is for its agent to read: what it asks isn't asked of you.
+        if now - s.last_activity > RECENT_MS || s.helper.is_some() {
             return None;
         }
         (Kind::Turn, vec![s.reply_tail.as_deref().filter(|t| !t.trim().is_empty())?])
@@ -340,6 +341,10 @@ mod tests {
         let mut no_reply = session(Status::Unread);
         no_reply.reply_tail = None;
         assert_eq!(ask(&no_reply, NOW), None);
+        // A helper's turn is its agent's to read; what it waits on you to allow is still asked.
+        let helper = |status| Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:boss".into()), pr: None }), ..session(status) };
+        assert_eq!(ask(&helper(Status::Unread), NOW), None);
+        assert_eq!(ask(&helper(Status::Needs), NOW).map(|a| a.0), Some(Kind::Approval));
     }
 
     #[test]

@@ -1276,14 +1276,21 @@ impl Engine {
 
     /// Where sessions came from by Codealong's own record (origins.rs): started by an agent's
     /// `codealong start`, or forked from Codealong where the harness doesn't say. What the
-    /// harness recorded comes first.
+    /// harness recorded comes first. With it, what each helper helps (`board::helper_of`): the
+    /// session that started it as one (origins.json), or the PR whose automatic review it is
+    /// (reviews.json).
     fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let store = origins::current();
-        if store.sessions.is_empty() {
+        let reviewers = autoreview::reviewers(&self.reviews);
+        if store.sessions.is_empty() && reviewers.is_empty() {
             return sessions;
         }
-        for s in sessions.iter_mut().filter(|s| s.origin.is_none()) {
-            s.origin = store.origin_of(&s.key);
+        let keys: HashSet<String> = sessions.iter().map(|s| s.key.clone()).collect();
+        for s in sessions.iter_mut() {
+            if s.origin.is_none() {
+                s.origin = store.origin_of(&s.key);
+            }
+            s.helper = board::helper_of(store.helper_of(&s.key), |k| keys.contains(k), reviewers.get(s.key.as_str()).copied());
         }
         sessions
     }
@@ -1323,17 +1330,20 @@ impl Engine {
         sessions
     }
 
-    /// Sessions with quiet, their marks of unread and their snoozes applied (board::apply_quiet,
-    /// board::apply_unread, board::apply_snooze). A snooze's time coming changes nothing on disk:
-    /// the 30-second heartbeat's publish brings it back.
+    /// Sessions with quiet and helpers' rule, their marks of unread and their snoozes applied
+    /// (board::apply_quiet, board::apply_helper, board::apply_unread, board::apply_snooze). A
+    /// snooze's time coming changes nothing on disk: the 30-second heartbeat's publish brings it
+    /// back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
-        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() {
+        let helpers = sessions.iter().any(|s| s.helper.is_some());
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && !helpers {
             return sessions;
         }
         for s in &mut sessions {
-            // Quiet first, so that what you do to it yourself after (a mark of unread, a snooze
-            // that ends) still brings it back.
+            // Quiet and a helper's rule first, so that what you do to it yourself after (a mark
+            // of unread, a snooze that ends) still brings it back.
             board::apply_quiet(s, self.seen.is_quiet(&s.key));
+            board::apply_helper(s);
             // A mark of unread next: a snooze keeps a session marked unread off the bar too.
             board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);

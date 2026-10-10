@@ -418,6 +418,8 @@ enum SessionCmd {
     },
     /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`) or a note (a message from another session, compaction). Oldest first; `before` is the cursor for the part before, null at the start; `lastPromptAt` is the session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
     Transcript(TranscriptArgs),
+    /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; wait again after. `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
+    Wait(SessionWaitArgs),
     /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
@@ -466,6 +468,18 @@ struct TranscriptArgs {
     /// Tool calls' inputs and outputs whole, not cut short.
     #[arg(long)]
     full: bool,
+}
+
+#[derive(Args, Debug)]
+struct SessionWaitArgs {
+    /// The session: its key, its id, or a unique start of its id.
+    key: String,
+    /// Only a reply written after this (epoch ms): when you sent it the message to wait on. Without it, a reply after its last prompt as the first look finds it.
+    #[arg(long, value_name = "MS")]
+    since: Option<i64>,
+    /// How long to wait at most: 30m (the default), 2h.
+    #[arg(long, default_value = "30m")]
+    timeout: String,
 }
 
 #[derive(Args, Debug)]
@@ -638,6 +652,9 @@ struct StartArgs {
     /// How hard Claude Code thinks (`claude --effort`); without it, the account's own setting. xhigh is what Claude Code's picker calls Extra.
     #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(start::effort_levels()))]
     effort: Option<String>,
+    /// Start it as a helper of the session running this command: work for that session's agent, not for your user (a review, a check, a second opinion on another account or model). Its finished turns don't wait on your user: the app lists it under this session, out of their lists and queues, and shows it to them only when it needs them (a call to allow, a question, an error). Without --in it runs out of sight: Claude Code's background service, else in Codealong, else a terminal behind their windows. `session wait <key>` waits for its turn to end and prints its reply; `session done <key>` once you have what you need from it.
+    #[arg(long, conflicts_with_all = ["todo", "take"])]
+    helper: bool,
     /// Print what the start would do (the command and environment, or the link) without starting anything.
     #[arg(long)]
     dry_run: bool,
@@ -940,6 +957,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, params::Session::default(), json),
         Cmd::Session { cmd: SessionCmd::Done { key } } => session_done(c, &key, json),
         Cmd::Session { cmd: SessionCmd::Transcript(a) } => session_transcript(c, &a, json),
+        Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
@@ -1350,6 +1368,11 @@ struct SessionRow {
     /// Replies suggested for its user to send (`session suggest`), while it has them.
     #[serde(skip_serializing_if = "Option::is_none")]
     suggestions: Option<crate::model::Suggestions>,
+    /// What it helps, when it's a helper (`start --helper`, or an automatic review): `parent`,
+    /// the session whose agent started it, or `pr`, the PR it reviews. Its turns are for that
+    /// agent, not its user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    helper: Option<crate::model::Helper>,
     /// Where a search found the words in what was said, when it did: a line of the message.
     #[serde(skip_serializing_if = "Option::is_none")]
     said: Option<String>,
@@ -1379,6 +1402,7 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
         attach_command: s.attach_command.clone(),
         todos: todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| t.id.clone()).collect(),
         suggestions: s.suggestions.clone(),
+        helper: s.helper.clone(),
         said: None,
     }
 }
@@ -1820,6 +1844,187 @@ fn session_transcript(c: &mut Client, a: &TranscriptArgs, json: bool) -> Result<
     }
     if let Some(at) = prompt_at {
         println!("Suggest replies to this with --prompt-at {at}");
+    }
+    Ok(())
+}
+
+/// How often `session wait` looks at the session again.
+const WAIT_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
+/// How long `session wait` waits for a session the board doesn't have yet to show up: one just
+/// started can take a moment.
+const WAIT_TO_SHOW_MS: i64 = 2 * 60_000;
+
+/// Where a session `session wait` waits on stands.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Waited {
+    /// Its turn is running.
+    Working,
+    /// It waits on its user: a call to allow, a question, an error.
+    OnUser,
+    /// Not in a turn: its turn ended, or it hasn't started one yet.
+    Still,
+}
+
+fn waited(s: &Session) -> Waited {
+    match s.status {
+        Status::Working => Waited::Working,
+        Status::Needs | Status::Error => Waited::OnUser,
+        Status::Unread | Status::Idle | Status::Stopped => Waited::Still,
+    }
+}
+
+/// A turn's last reply: its last run of replies, once that run came after `since`. None while the
+/// turn hasn't written one, or ended on something else (a call, a prompt).
+fn reply_since(items: &[api::Item], since: i64) -> Option<String> {
+    let end = items.iter().rposition(|i| i.kind != "note")?;
+    let start = items[..=end].iter().rposition(|i| i.kind != "agent").map_or(0, |i| i + 1);
+    let run = &items[start..=end];
+    if run.is_empty() || run.iter().any(|i| i.kind != "agent" || i.at < since) {
+        return None;
+    }
+    let text = run.iter().map(|i| i.text.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
+    (!text.is_empty()).then_some(text)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WaitOut {
+    session: String,
+    status: Status,
+    /// Its turn is over.
+    ended: bool,
+    /// It waits on its user, who answers it in Codealong.
+    waits_on_user: bool,
+    reply: Option<String>,
+    /// What it's doing or waits on, as the board says.
+    excerpt: Option<String>,
+    last_prompt_at: i64,
+}
+
+/// How long a session `session wait` never saw working has to sit still, with no new prompt, for
+/// its turn to count as over without a reply after what's waited on: one that ended on a call, or
+/// was stopped, never writes one.
+const WAIT_STILL_MS: i64 = 60_000;
+
+/// What `session wait` makes of a look at the session.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Seen {
+    /// Its turn runs, or hasn't started.
+    Going,
+    Ended,
+    OnUser,
+}
+
+/// What `session wait` saw of the session over its looks.
+#[derive(Debug, Default)]
+struct Watch {
+    was_working: bool,
+    /// Its last prompt when a look first found it still, and when.
+    still: Option<(i64, i64)>,
+}
+
+impl Watch {
+    /// One look at `s` at `now`. A turn ends once it's been seen working and has stopped; when it
+    /// was never seen working (it was quick, or this ran late), once it holds still across two
+    /// looks with no new prompt between and `replied` (asked only then) says its record has a
+    /// reply after what's waited on, or once it has held still a minute. The first look can come
+    /// before a message just sent reaches the board, and the reply it finds then is the turn
+    /// before's.
+    fn look(&mut self, s: &Session, now: i64, replied: impl FnOnce() -> bool) -> Seen {
+        match waited(s) {
+            Waited::Working => {
+                self.was_working = true;
+                self.still = None;
+                Seen::Going
+            }
+            Waited::OnUser => Seen::OnUser,
+            Waited::Still if self.was_working => Seen::Ended,
+            Waited::Still => match self.still {
+                Some((prompt, at)) if prompt == s.last_prompt_at => {
+                    if now - at >= WAIT_STILL_MS || replied() {
+                        Seen::Ended
+                    } else {
+                        Seen::Going
+                    }
+                }
+                _ => {
+                    self.still = Some((s.last_prompt_at, now));
+                    Seen::Going
+                }
+            },
+        }
+    }
+}
+
+/// `session wait`: looks at the session every few seconds until its turn ends or it waits on its
+/// user (`Watch::look`), and prints its reply.
+fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
+    // A helper just started may not be on the board yet: its whole key, as `start` printed it, is
+    // waited for until it shows up.
+    let key = match resolve_session(c, &a.key) {
+        Ok(k) => k,
+        Err(_) if a.key.matches(':').count() >= 2 => a.key.clone(),
+        Err(e) => return Err(e),
+    };
+    let timeout = crate::idle::parse_after(&a.timeout).ok_or_else(|| anyhow!("--timeout is like 30m or 2h, not {}.", a.timeout))?;
+    let started = now_ms();
+    let mut since = a.since;
+    let mut seen = false;
+    let mut watch = Watch::default();
+    let page = |c: &mut Client| -> Result<Vec<api::Item>> {
+        let got = c.act(api::SESSION_PAGE, &key, params::Page::default(), None)?;
+        Ok(serde_json::from_value::<api::Page>(got).context("The conversation didn't read")?.items)
+    };
+    loop {
+        let found = c.board()?.session(&key).map(|(_, s)| s.clone());
+        match found {
+            None if seen => bail!("{key} is gone from the board."),
+            None if now_ms() - started > WAIT_TO_SHOW_MS => bail!("There's no session {key}."),
+            None => {}
+            Some(s) => {
+                seen = true;
+                let since = *since.get_or_insert(s.last_prompt_at);
+                // The record is read at most once a look, and kept for the reply.
+                let mut items: Option<Vec<api::Item>> = None;
+                let seen_now = watch.look(&s, now_ms(), || match page(c) {
+                    Ok(got) => reply_since(&items.insert(got)[..], since).is_some(),
+                    Err(_) => false,
+                });
+                let out = |ended: bool, reply: Option<String>| WaitOut { session: key.clone(), status: s.status, ended, waits_on_user: seen_now == Seen::OnUser, reply, excerpt: s.excerpt.clone(), last_prompt_at: s.last_prompt_at };
+                match seen_now {
+                    Seen::Going => {}
+                    Seen::OnUser => return print_wait(&s, out(false, None), json),
+                    Seen::Ended => {
+                        let items = match items {
+                            Some(i) => i,
+                            None => page(c)?,
+                        };
+                        let reply = reply_since(&items, since).or_else(|| reply_since(&items, 0));
+                        return print_wait(&s, out(true, reply), json);
+                    }
+                }
+            }
+        }
+        if now_ms() - started > timeout {
+            bail!("{key} is still at it after {}: `codealong session wait {key}` waits on.", a.timeout);
+        }
+        std::thread::sleep(WAIT_EVERY);
+        c.board = None;
+    }
+}
+
+fn print_wait(s: &Session, out: WaitOut, json: bool) -> Result<()> {
+    if json {
+        return print_json(&out);
+    }
+    if out.waits_on_user {
+        let what = s.excerpt.as_deref().map(|e| format!(": {e}")).unwrap_or_default();
+        println!("“{}” waits on your user{what}. They answer it in Codealong; wait again after.", s.title);
+        return Ok(());
+    }
+    match &out.reply {
+        Some(r) => println!("{}", r.trim_end()),
+        None => println!("“{}” ended its turn without a reply.", s.title),
     }
     Ok(())
 }
@@ -3252,6 +3457,9 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     let lane_id = if a.chat { crate::config::chats_dir().to_string_lossy().into_owned() } else { resolve_worktree(c, &a.worktree)? };
     // Run by an agent, the new session was started by that agent's.
     let from = find_me(c)?.0;
+    if a.helper && from.is_none() {
+        bail!("--helper starts a helper of the session running this command, and this command isn't running in one. Start it without --helper: it's then a session of your own.");
+    }
     // The todos whose primary session runs, which --take takes them from.
     let mut taken: Vec<(String, todos::Primary)> = Vec::new();
     let (prompt, todo_ids) = match (a.todo.as_slice(), &a.prompt) {
@@ -3306,21 +3514,29 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
                 true => c.board()?.usage.clone(),
                 false => Vec::new(),
             };
-            start::pick_account(&cfg, &usages, &place.into_iter().collect::<Vec<_>>(), a.model.as_deref(), now_ms()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
+            // A helper without --in goes where it starts out of sight.
+            let places = match (place, a.helper) {
+                (Some(p), _) => vec![p],
+                (None, true) => start::OUT_OF_SIGHT.to_vec(),
+                (None, false) => Vec::new(),
+            };
+            start::pick_account(&cfg, &usages, &places, a.model.as_deref(), now_ms()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
         }
         name => name.to_string(),
     };
-    // Without --in, the account's own first place: the one its `start` names, else the usual.
+    // Without --in, the account's own first place: the one its `start` names, else the usual; a
+    // helper's, out of sight.
     let place = match place {
         Some(p) => p,
         None => {
             let cfg = c.cfg()?.clone();
             let acct = cfg.accounts.iter().find(|x| x.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
             let places = start::ordered_places(acct, &crate::util::home()).map_err(|why| anyhow!(why))?;
-            places.first().copied().ok_or_else(|| anyhow!("{account} can't start a session from here."))?
+            let hidden = a.helper.then(|| start::out_of_sight(acct, &crate::util::home())).flatten();
+            hidden.or(places.first().copied()).ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from };
+    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper };
     if a.dry_run {
         let cfg = c.cfg()?.clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
@@ -3713,6 +3929,56 @@ mod tests {
         // Taking a todo over is for starts on todos.
         assert!(Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--take"]).is_ok());
         assert!(Cli::try_parse_from(["codealong", "start", "--prompt", "Fix it", "--take"]).is_err());
+    }
+
+    #[test]
+    fn a_helper_starts_on_a_prompt_and_is_waited_for() {
+        let cli = Cli::try_parse_from(["codealong", "start", "--helper", "--prompt", "Review the diff", "--account", "codex"]).unwrap();
+        let Cmd::Start(s) = cli.cmd else { panic!() };
+        assert!(s.helper && s.place.is_none());
+        // A helper works for an agent: no todo of its user's, none taken over.
+        assert!(Cli::try_parse_from(["codealong", "start", "--helper", "--todo", "t-a"]).is_err());
+        let cli = Cli::try_parse_from(["codealong", "session", "wait", "abc", "--timeout", "2h", "--since", "5"]).unwrap();
+        let Cmd::Session { cmd: SessionCmd::Wait(w) } = cli.cmd else { panic!() };
+        assert_eq!((w.key.as_str(), w.timeout.as_str(), w.since), ("abc", "2h", Some(5)));
+        let Cmd::Session { cmd: SessionCmd::Wait(w) } = Cli::try_parse_from(["codealong", "session", "wait", "abc"]).unwrap().cmd else { panic!() };
+        assert_eq!((w.timeout.as_str(), w.since), ("30m", None));
+    }
+
+    #[test]
+    fn a_wait_ends_on_the_reply_after_the_prompt_it_waits_on() {
+        let item = |kind: &str, at: i64, text: &str| -> api::Item { serde_json::from_value(json!({ "at": at, "kind": kind, "text": text, "cursor": 0, "n": 0 })).unwrap() };
+        let items = [item("you", 10, "Review it"), item("agent", 20, "Two problems."), item("agent", 21, "Both in src/a.rs."), item("note", 22, "compacted")];
+        assert_eq!(reply_since(&items, 10).as_deref(), Some("Two problems.\n\nBoth in src/a.rs."));
+        // A reply from before the message it waits on is the turn before's.
+        assert_eq!(reply_since(&items, 21), None);
+        // A turn that ended on a call has no reply to give.
+        assert_eq!(reply_since(&[item("you", 10, "Go"), item("tool", 20, "Bash · `ls`")], 0), None);
+        let s = |status| Session { status, ..Session::new(crate::model::Harness::Claude, "claude", "rev") };
+        assert_eq!([Status::Working, Status::Needs, Status::Error, Status::Unread, Status::Idle, Status::Stopped].map(|st| waited(&s(st))), [Waited::Working, Waited::OnUser, Waited::OnUser, Waited::Still, Waited::Still, Waited::Still]);
+    }
+
+    #[test]
+    fn a_wait_ends_once_the_turn_it_saw_stops_or_a_reply_holds_still() {
+        let s = |status, prompt| Session { status, last_prompt_at: prompt, ..Session::new(crate::model::Harness::Claude, "claude", "rev") };
+        let never = || -> bool { panic!("the record isn't read while the board says enough") };
+        // Seen working, then stopped: over, without reading the record to decide.
+        let mut w = Watch::default();
+        assert_eq!(w.look(&s(Status::Working, 1), 0, never), Seen::Going);
+        assert_eq!(w.look(&s(Status::Unread, 1), 3_000, never), Seen::Ended);
+        // Waiting on its user comes back at once.
+        assert_eq!(Watch::default().look(&s(Status::Needs, 1), 0, never), Seen::OnUser);
+        // Never seen working: a reply after the prompt counts on the second still look, not the first.
+        let mut w = Watch::default();
+        assert_eq!(w.look(&s(Status::Idle, 1), 0, never), Seen::Going);
+        assert_eq!(w.look(&s(Status::Idle, 1), 3_000, || true), Seen::Ended);
+        // A message sent meanwhile is a new prompt: it starts again from there.
+        let mut w = Watch::default();
+        w.look(&s(Status::Idle, 1), 0, never);
+        assert_eq!(w.look(&s(Status::Idle, 2), 3_000, never), Seen::Going);
+        assert_eq!(w.look(&s(Status::Idle, 2), 6_000, || false), Seen::Going);
+        // No reply after it (a turn that ended on a call): over once it has held still a minute.
+        assert_eq!(w.look(&s(Status::Idle, 2), 3_000 + WAIT_STILL_MS, || false), Seen::Ended);
     }
 
     #[test]

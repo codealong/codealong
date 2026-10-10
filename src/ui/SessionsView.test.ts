@@ -113,6 +113,38 @@ describe('sessionSections', () => {
   });
 });
 
+describe('helpers in Sessions', () => {
+  const now = new Date(2026, 8, 24, 15, 0).getTime();
+  const at = (h: number) => new Date(2026, 8, 24, h, 0).getTime();
+  const helper = (r: SessionItem, parent: string): SessionItem => ({ ...r, session: { ...r.session, helper: { parent } } });
+  const rows = (s: SessionSection[]) => s.flatMap((x) => x.rows.map((r) => `${x.id} ${r.nested ? '  ' : ''}${r.session.key}`));
+
+  it('lists each helper under the session it works for, in the engine’s order, where that session goes', () => {
+    const list = [
+      item('boss', at(13), 'idle', at(13)),
+      helper(item('slow', at(14), 'working', at(10), at(10)), 'boss'),
+      helper(item('quick', at(14), 'working', at(12), at(12)), 'boss'),
+      item('other', at(12), 'working', at(11), at(11)),
+    ];
+    expect(rows(sessionSections(list, 'status', now))).toEqual(['working other', 'today boss', 'today   quick', 'today   slow']);
+    // By start too, under the day the session started.
+    expect(rows(sessionSections(list, 'started', now)).filter((r) => r.includes('boss') || r.includes('  '))).toEqual(['today boss', 'today   quick', 'today   slow']);
+  });
+
+  it('takes the session into Needs you with a helper that waits on you, by the helper’s wait', () => {
+    const list = [item('blocked', at(12), 'needs', at(11), at(12)), item('boss', at(13), 'idle', at(13)), helper(item('asks', at(14), 'needs', at(10), at(11)), 'boss')];
+    expect(rows(sessionSections(list, 'status', now))).toEqual(['needs boss', 'needs   asks', 'needs blocked']);
+    // One that waits on you itself goes by its own wait.
+    const waiting = [item('boss', at(13), 'needs', at(12), at(13)), helper(item('asks', at(14), 'needs', at(10), at(10)), 'boss'), item('blocked', at(12), 'needs', at(11), at(12))];
+    expect(rows(sessionSections(waiting, 'status', now))).toEqual(['needs blocked', 'needs boss', 'needs   asks']);
+  });
+
+  it('lists a helper whose session isn’t listed, and a helper’s helper under the session at the top', () => {
+    const list = [helper(item('alone', at(14), 'needs', at(10), at(11)), 'gone'), item('boss', at(13), 'idle', at(13)), helper(item('kid', at(14), 'working', at(12), at(12)), 'boss'), helper(item('grandkid', at(14), 'needs', at(12), at(12)), 'kid')];
+    expect(rows(sessionSections(list, 'status', now))).toEqual(['needs alone', 'needs boss', 'needs   grandkid', 'needs   kid']);
+  });
+});
+
 describe('waitingQueue', () => {
   it('lists what waits on you in the status order, pinned ones too, and leaves snoozed ones to wait', () => {
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();

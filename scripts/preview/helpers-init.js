@@ -1,0 +1,41 @@
+// Gives the board the preview shows some helpers (Session.helper), for a screenshot of Sessions
+// with them and for helpers-check.js: across every project, the most recent session is made idle,
+// and the next three its helpers (started by it as helpers), one working, one waiting on you to
+// allow a call and one finished, which Sessions counts on its row but doesn't list. What was
+// picked is in window.__helpers: the session's key and title, and each helper's.
+//   PREVIEW_INIT=scripts/preview/helpers-init.js scripts/preview.sh sessions
+(function () {
+  localStorage.setItem('codealong.project', 'All projects');
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    var p = real(cmd, args, options);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (board) {
+      var own = [];
+      board.lanes.forEach(function (l) {
+        if (!l.hidden) l.sessions.forEach(function (s) { if (!s.visitor && !s.archived) own.push(s); });
+      });
+      // The same four on every read of the board, picked by the first.
+      var keys = window.__helpers ? [window.__helpers.boss.key].concat(window.__helpers.kids.map(function (k) { return k.key; })) : own.sort(function (a, b) { return b.lastActivity - a.lastActivity; }).slice(0, 4).map(function (s) { return s.key; });
+      var find = function (key) { return own.filter(function (s) { return s.key === key; })[0]; };
+      var boss = find(keys[0]);
+      if (!boss || keys.length < 4) return board;
+      var now = Date.now();
+      var min = 60000;
+      Object.assign(boss, { status: 'idle', statusSince: now - 20 * min, lastActivity: now - 10 * min, asks: false, snoozedUntil: null, stalledSince: null, background: undefined });
+      var helper = function (key, over) {
+        var s = find(key);
+        Object.assign(s, { helper: { parent: boss.key }, origin: { key: boss.key, how: 'started' }, snoozedUntil: null, stalledSince: null, background: undefined, asks: false, quiet: false }, over);
+        return s;
+      };
+      var kids = [
+        helper(keys[1], { status: 'working', statusSince: now - 3 * min, lastActivity: now - min, lastPromptAt: now - 3 * min, title: 'Review the diff for races' }),
+        helper(keys[2], { status: 'needs', statusSince: now - 2 * min, lastActivity: now - 2 * min, lastPromptAt: now - 4 * min, excerpt: 'Bash · `gh pr diff 12`', title: 'Check the migration on staging' }),
+        helper(keys[3], { status: 'idle', statusSince: now - 5 * min, lastActivity: now - 5 * min, lastPromptAt: now - 8 * min, title: 'Second opinion on the API shape' }),
+      ];
+      window.__helpers = { boss: { key: boss.key, title: boss.title }, kids: kids.map(function (s) { return { key: s.key, title: s.title, status: s.status }; }) };
+      board.pinned = [];
+      return board;
+    });
+  };
+})();

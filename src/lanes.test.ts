@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -231,6 +231,32 @@ describe('a reusable worktree’s earlier work', () => {
     expect(relaned(l, l.sessions).bay).toBe('idle');
     expect(inboxCounts([l]).unread).toBe(0);
     expect(narrowed(l, ['unread'], '')).toBeNull();
+  });
+});
+
+describe('a helper', () => {
+  const boss = session('boss', 'idle', NOW - 60_000);
+  const helper = (status: Session['status']) => ({ ...session('rev', status, NOW, NOW), helper: { parent: 'boss' } });
+
+  it('stays out of its worktree’s row, status and counts while it doesn’t need you, as board.rs has it', () => {
+    const busy = helper('working');
+    const l = { ...lane([boss], null), sessions: [boss, busy] };
+    expect(helping(busy)).toBe(true);
+    expect(worktreeRow(l).lines.map((a) => a.session.key)).toEqual(['boss']);
+    expect(relaned(l, l.sessions).bay).toBe('idle');
+    expect(inboxCounts([l]).working).toBe(0);
+    expect(narrowed(l, ['working'], '')).toBeNull();
+  });
+
+  it('is in Needs you like any session once it waits on you', () => {
+    for (const st of ['needs', 'error'] as const) {
+      const asks = helper(st);
+      const l = { ...lane([boss], null), sessions: [boss, asks] };
+      expect(helping(asks)).toBe(false);
+      expect(relaned(l, l.sessions).bay).toBe('needs');
+      expect(worktreeRow(l).lines.map((a) => a.session.key)).toEqual(['rev']);
+      expect(inboxCounts([l]).needs).toBe(1);
+    }
   });
 });
 

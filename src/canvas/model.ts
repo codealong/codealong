@@ -12,7 +12,7 @@
 // itself; what's on stays, drawn as gone once the board no longer has it, until a tidy or you take
 // it off.
 
-import { sessionHomes, type Placed } from '../lanes';
+import { helping, sessionHomes, type Placed } from '../lanes';
 import type { Board, Lane, LabelColor, PrItem, Session, Todo } from '../types';
 
 export type RefKind = 'worktree' | 'session' | 'todo' | 'pr';
@@ -352,8 +352,10 @@ export function recentRefs(e: Entities, now: number, pinned: Set<string> = new S
 }
 
 /** A finished session that was never archived is still "unread" or idle, often still open in a
- *  terminal tab, so being open doesn't count: only busy ones (working, or waiting on you) outlast the age. */
+ *  terminal tab, so being open doesn't count: only busy ones (working, or waiting on you) outlast the age.
+ *  A helper comes on by itself only once it needs you: the rest of the time it's its agent's. */
 function sessionIn(s: Session, since: number): boolean {
+  if (helping(s)) return false;
   return s.status === 'working' || s.status === 'needs' || s.status === 'error' || s.lastActivity >= since;
 }
 

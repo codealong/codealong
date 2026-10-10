@@ -995,6 +995,15 @@ Commands:
               `lastPromptAt` is the session's as it was read, for `session suggest
               --prompt-at`. Inputs and outputs are cut short unless --full. Any harness,
               and sessions on your other devices
+  wait        Wait for a session's turn to end, and print its reply: for a helper you
+              started (`codealong start --helper`), or a session you sent a message. It
+              also comes back when the session waits on your user (a call to allow, a
+              question, an error: `waitsOnUser`, with what it waits on in `excerpt`),
+              since they answer it in Codealong and you may want to tell them; wait
+              again after. `ended` says the turn is over, `reply` is its last reply, and
+              `lastPromptAt` the session's as read, for `--since` next time. Fails once
+              --timeout passes with it still working, or if the session is gone. A
+              Claude Code agent can run it in the background and be told when it's done
   suggest     Suggest replies to a session for its user to send with one click: what
               they might answer it, written by an agent that read it (a supervisor going
               over the sessions that wait on its user: `codealong sessions --waiting`,
@@ -1289,6 +1298,47 @@ Options:
 
       --table
           Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session wait
+
+```
+Wait for a session's turn to end, and print its reply: for a helper you started
+(`codealong start --helper`), or a session you sent a message. It also comes back when
+the session waits on your user (a call to allow, a question, an error: `waitsOnUser`,
+with what it waits on in `excerpt`), since they answer it in Codealong and you may want
+to tell them; wait again after. `ended` says the turn is over, `reply` is its last
+reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once
+--timeout passes with it still working, or if the session is gone. A Claude Code agent
+can run it in the background and be told when it's done
+
+Usage: codealong session wait [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: its key, its id, or a unique start of its id
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --since <MS>
+          Only a reply written after this (epoch ms): when you sent it the message to
+          wait on. Without it, a reply after its last prompt as the first look finds it
+
+      --table
+          Tables, even when piped
+
+      --timeout <TIMEOUT>
+          How long to wait at most: 30m (the default), 2h
+          
+          [default: 30m]
 
       --verbose
           Say on stderr whether the app or the files answered
@@ -1965,6 +2015,17 @@ Options:
           setting. xhigh is what Claude Code's picker calls Extra
           
           [possible values: low, medium, high, xhigh, max]
+
+      --helper
+          Start it as a helper of the session running this command: work for that
+          session's agent, not for your user (a review, a check, a second opinion on
+          another account or model). Its finished turns don't wait on your user: the app
+          lists it under this session, out of their lists and queues, and shows it to
+          them only when it needs them (a call to allow, a question, an error). Without
+          --in it runs out of sight: Claude Code's background service, else in
+          Codealong, else a terminal behind their windows. `session wait <key>` waits
+          for its turn to end and prints its reply; `session done <key>` once you have
+          what you need from it
 
       --dry-run
           Print what the start would do (the command and environment, or the link)

@@ -87,4 +87,14 @@ describe('lineageOf', () => {
     // The original lists the move apart from a fork in its own account.
     expect(lineageOf(all[0].session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toEqual(['Moved to claude:claude2:b', 'Forked into claude:claude:c']);
   });
+
+  it('tells a helper its agent started as its helper', () => {
+    const lane = fx.lane();
+    const boss = { lane, session: fx.session({ key: 'claude:claude:boss' }) };
+    const helper = { lane, session: fx.session({ key: 'codex:codex:rev', origin: { key: 'claude:claude:boss', how: 'started' }, helper: { parent: 'claude:claude:boss' } }) };
+    const started = { lane, session: fx.session({ key: 'codex:codex:other', origin: { key: 'claude:claude:boss', how: 'started' } }) };
+    const homes = new Map([boss, helper, started].map((p) => [p.session.key, p]));
+    expect(originWord(lineageOf(helper.session, homes).from!.how)).toBe('Helper of');
+    expect(lineageOf(boss.session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toEqual(['Its helper codex:codex:rev', 'Started codex:codex:other']);
+  });
 });

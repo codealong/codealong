@@ -88,22 +88,24 @@ export function pathOf(c: Curve): string {
 
 /** How a session came of another, as the windows tell it. A fork into another account of its
  *  harness is a move (start.rs `move_to`), told by the accounts alone: the shared model has no
- *  word for it, so devices on older builds still read the origin. */
-export type KinHow = SessionOrigin['how'] | 'moved';
+ *  word for it, so devices on older builds still read the origin. A session another's agent
+ *  started as its helper (`Session.helper`) is that one's helper. */
+export type KinHow = SessionOrigin['how'] | 'moved' | 'helper';
 
 /** How `to` came of `from`, its origin saying `how`. */
 export function kinHow(how: SessionOrigin['how'], from: Session, to: Session): KinHow {
+  if (to.helper?.parent === from.key) return 'helper';
   return how === 'fork' && from.account !== to.account ? 'moved' : how;
 }
 
 /** How a session came of another, as a phrase before that one's title. */
 export function originWord(how: KinHow): string {
-  return how === 'fork' ? 'Forked from' : how === 'moved' ? 'Moved from' : 'Started by';
+  return how === 'fork' ? 'Forked from' : how === 'moved' ? 'Moved from' : how === 'helper' ? 'Helper of' : 'Started by';
 }
 
 /** What came of a session, as a phrase before that one's title. */
 export function cameWord(how: KinHow): string {
-  return how === 'fork' ? 'Forked into' : how === 'moved' ? 'Moved to' : 'Started';
+  return how === 'fork' ? 'Forked into' : how === 'moved' ? 'Moved to' : how === 'helper' ? 'Its helper' : 'Started';
 }
 
 /** A session on the board and how it came of another, or that one of it. */

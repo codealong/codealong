@@ -7,8 +7,9 @@
 // (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze, close,
 // mark done or archive together (picks.ts, SessionPickPanel.tsx).
 
-import { bySession, byStatusTime, startedOf } from '../lanes';
+import { bySession, byStatusTime, startedOf, waitingSince } from '../lanes';
 import type { SelectHow } from '../picks';
+import type { HelperCount } from '../boardLists';
 import type { Bay, DesktopPinned, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
@@ -20,6 +21,8 @@ export interface SessionItem {
   key: string;
   lane: Lane;
   session: Session;
+  /** A helper listed under the session that started it (`sessionSections`). */
+  nested?: boolean;
 }
 
 /** How the sessions that aren't pinned are ordered. */
@@ -104,17 +107,60 @@ function byDay(rows: SessionItem[], at: (r: SessionItem) => number, now: number)
  * first), then Snoozed, the soonest back first, then the rest under the local day they were last
  * active, each day the one you last sent a prompt first. By start: under the day each started,
  * the newest first.
+ *
+ * A helper listed with the session that started it goes under that session (`nested`), its own
+ * the most urgent first. The two go where the session would, unless the helper waits on you and
+ * the session doesn't: then they're in Needs you, by the helper's wait, so what it asks is seen
+ * beside the work it's for.
  */
 export function sessionSections(rows: SessionItem[], sort: SessionSort, now: number): SessionSection[] {
+  const { top, under } = families(rows);
+  // What a session's place goes by: itself, or the helper under it that has waited on you longest.
+  const lead = (r: SessionItem): Session => {
+    if (waitingSince(r.session) != null) return r.session;
+    const waiting = (under.get(r.session.key) ?? []).filter((k) => waitingSince(k.session) != null && k.session.snoozedUntil == null).sort(byGroupTime);
+    return waiting[0]?.session ?? r.session;
+  };
+  const withHelpers = (s: SessionSection): SessionSection => ({ ...s, rows: s.rows.flatMap((r) => [r, ...(under.get(r.session.key) ?? [])]) });
   if (sort === 'started') {
-    const newest = [...rows].sort((a, b) => startedOf(b.session) - startedOf(a.session) || a.key.localeCompare(b.key));
-    return byDay(newest, (r) => startedOf(r.session), now).filter((s) => s.rows.length > 0);
+    const newest = [...top].sort((a, b) => startedOf(b.session) - startedOf(a.session) || a.key.localeCompare(b.key));
+    return byDay(newest, (r) => startedOf(r.session), now)
+      .filter((s) => s.rows.length > 0)
+      .map(withHelpers);
   }
-  const attention = ATTENTION.map(({ bay, statuses }) => ({ id: bay, label: BAY_WORD[bay], bay, rows: rows.filter(inGroup(statuses)).sort(byGroupTime) }));
+  const ranked = top.map((r) => ({ ...r, session: lead(r), row: r }));
+  const rowsOf = (rs: typeof ranked) => rs.map((r) => r.row);
+  const attention = ATTENTION.map(({ bay, statuses }) => ({ id: bay, label: BAY_WORD[bay], bay, rows: rowsOf(ranked.filter(inGroup(statuses)).sort(byGroupTime)) }));
   const until = (r: SessionItem) => r.session.snoozedUntil ?? 0;
-  const snoozed = { id: 'snoozed', label: 'Snoozed', icon: 'zzz', rows: rows.filter((r) => snoozedApart(r.session)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key)) };
-  const rest = rows.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status))).sort((a, b) => bySession(a.session, b.session));
-  return [...attention, snoozed, ...byDay(rest, (r) => r.session.lastActivity, now)].filter((s) => s.rows.length > 0);
+  const snoozed = { id: 'snoozed', label: 'Snoozed', icon: 'zzz', rows: rowsOf(ranked.filter((r) => snoozedApart(r.session)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key))) };
+  const rest = rowsOf(ranked.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status))).sort((a, b) => bySession(a.session, b.session)));
+  return [...attention, snoozed, ...byDay(rest, (r) => r.session.lastActivity, now)].filter((s) => s.rows.length > 0).map(withHelpers);
+}
+
+/** The rows that lead, and under each session's key the helpers listed with it, the most urgent
+ *  first. Only one deep: a helper's own helpers go under the session at the top. */
+function families(rows: SessionItem[]): { top: SessionItem[]; under: Map<string, SessionItem[]> } {
+  const under = new Map<string, SessionItem[]>();
+  if (!rows.some((r) => r.session.helper?.parent)) return { top: rows, under };
+  const byKey = new Map(rows.map((r) => [r.session.key, r]));
+  // The listed session a row goes under, climbing past helpers to the one at the top.
+  const headOf = (r: SessionItem): SessionItem | null => {
+    let at = r;
+    for (let i = 0; i < 4; i++) {
+      const parent = at.session.helper?.parent ? byKey.get(at.session.helper.parent) : undefined;
+      if (!parent || parent === r) return at === r ? null : at;
+      at = parent;
+    }
+    return at === r ? null : at;
+  };
+  const top: SessionItem[] = [];
+  for (const r of rows) {
+    const head = headOf(r);
+    if (!head) top.push(r);
+    else under.set(head.session.key, [...(under.get(head.session.key) ?? []), { ...r, nested: true }]);
+  }
+  for (const kids of under.values()) kids.sort((a, b) => bySession(a.session, b.session));
+  return { top, under };
 }
 
 /** The sessions in `sort`'s order, as their headings list them: the order the keyboard goes in. */
@@ -170,11 +216,13 @@ interface SessionsViewProps {
   onToggleArchived: () => void;
   /** Todos a session is linked to, for its chip. */
   todosFor?: (sessionKey: string) => Todo[] | undefined;
+  /** A session's helpers, for their chip on its row. */
+  helpersOf?: (sessionKey: string) => HelperCount | undefined;
   onShowTodo?: (todo: Todo) => void;
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
+  const { pinned, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, onShowTodo } = props;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
@@ -206,6 +254,8 @@ export function SessionsView(props: SessionsViewProps) {
       onPrMenu={() => onPrMenu(r)}
       onPrOpen={() => onPrOpen(r)}
       todos={todosFor?.(r.session.key)}
+      helpers={helpersOf?.(r.session.key)}
+      nested={r.nested}
       onShowTodo={onShowTodo}
       drag={held}
     />

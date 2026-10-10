@@ -7,7 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, filterByAge, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, filterByAge, helping, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
@@ -134,6 +134,42 @@ export function archivedIn(lanes: Lane[], project: string, query = ''): SessionI
 /** Each session once, in the worktree it runs in: the Sessions view's rows. */
 export function sessionItemsOf(lanes: Lane[]): SessionItem[] {
   return lanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s })));
+}
+
+/** A session's helpers on the board, for the chip on its row: how many, and how many of them work
+ *  or wait on you. */
+export interface HelperCount {
+  count: number;
+  working: number;
+  waiting: number;
+}
+
+/** Each session's helpers (`Session.helper`), by the session's key: the ones not archived. */
+export function helperCounts(items: SessionItem[]): Map<string, HelperCount> {
+  const out = new Map<string, HelperCount>();
+  for (const { session: s } of items) {
+    const parent = s.helper?.parent;
+    if (!parent || s.archived) continue;
+    const c = out.get(parent) ?? { count: 0, working: 0, waiting: 0 };
+    out.set(parent, { count: c.count + 1, working: c.working + (s.status === 'working' ? 1 : 0), waiting: c.waiting + (s.status === 'needs' || s.status === 'error' ? 1 : 0) });
+  }
+  return out;
+}
+
+/**
+ * The helpers Sessions lists (lanes.ts `helping`): under the session that started one, when that's
+ * listed, while the helper works or waits on you (SessionsView.tsx `sessionSections` puts it
+ * there); the rest of a session's helpers are counted on its row (`helperCounts`). Otherwise a
+ * helper is listed on its own only while it waits on you: one whose session isn't listed, and an
+ * automatic review's, which its PR lists. A search lists every helper it finds.
+ */
+export function placeHelpers(rows: SessionItem[], searching: boolean): SessionItem[] {
+  if (!rows.some((r) => r.session.helper)) return rows;
+  const listed = new Set(rows.filter((r) => !r.session.helper).map((r) => r.session.key));
+  return rows.filter(({ session: s }) => {
+    if (!s.helper || searching || !helping(s)) return true;
+    return !!s.helper.parent && listed.has(s.helper.parent) && AGENT_BAY[s.status] != null;
+  });
 }
 
 /** What the age filter lets through: sessions active since the cutoff, and pinned ones. */
@@ -301,7 +337,10 @@ export function useBoardLists(input: ListsInput) {
 
   // The Sessions view: each session once, in the worktree it runs in, pinned ones first.
   const sessionItems = useMemo(() => sessionItemsOf(projectLanes), [projectLanes]);
-  const shownSessions = useMemo(() => shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter), [sessionItems, cutoff, sessionPins.set, query, filter]);
+  // Helpers under the sessions that started them, or out of sight while they don't need you.
+  const shownSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter), !!query), [sessionItems, cutoff, sessionPins.set, query, filter]);
+  const helpers = useMemo(() => helperCounts(sessionItems), [sessionItems]);
+  const helpersOf = useCallback((k: string) => helpers.get(k), [helpers]);
   const shownSessionCount = useMemo(() => recentSessionCount(sessionItems, cutoff, sessionPins.set), [sessionItems, cutoff, sessionPins.set]);
   const pinnedRows = useMemo(() => inPinOrder(shownSessions, sessionPins.keys, (r) => r.session.key), [shownSessions, sessionPins.keys]);
   const sessionSecs = useMemo(() => sessionSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), sessionSort, now), [shownSessions, sessionPins.set, sessionSort, now]);
@@ -396,6 +435,7 @@ export function useBoardLists(input: ListsInput) {
     openTodoCount,
     todoLinks,
     todosFor,
+    helpersOf,
     counts,
     totalLanes,
     actions,

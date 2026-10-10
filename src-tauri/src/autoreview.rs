@@ -583,6 +583,20 @@ fn end(r: &mut Round, stage: ReviewStage, note: Option<String>, now: i64) {
 /// (`wants`). It's held while its commit has had no round yet, for `HOLD_MS` at most from when
 /// your review was asked for or the PR last changed, and while its commit's round is under way,
 /// for as long from when that began; a round that's done, or didn't get done, hands it to you.
+/// The PR each session reviews, by the session's key: every session a round of a PR's reviews
+/// asked, and the one kept for its next round. Each is a helper of that PR (`Session::helper`),
+/// out of your lists and queues while it doesn't need you, and listed on the PR's card.
+pub fn reviewers(store: &Store) -> HashMap<&str, &str> {
+    let mut out = HashMap::new();
+    for (pr, t) in &store.prs {
+        let asked = t.rounds.iter().flat_map(|r| &r.parts).filter_map(|p| p.session.as_deref());
+        for key in t.sessions.values().map(String::as_str).chain(asked) {
+            out.insert(key, pr.as_str());
+        }
+    }
+    out
+}
+
 pub fn apply(prs: &mut [PrItem], store: &Store, on: bool, now: i64) {
     for pr in prs {
         let wanted = on && wants(pr);
@@ -949,20 +963,14 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
 // ---- Doing the jobs ----
 
 /// The account a new review runs on, and where: `account`, else the one Auto would start, out
-/// of sight: under its harness's background service, else in Codealong, else in a terminal
-/// behind your windows (Background for a harness with no service of its own).
+/// of sight (`start::out_of_sight`).
 fn reviewer_place(cfg: &Config, board: &Board, account: Option<&str>) -> Result<(String, Place), String> {
-    let unseen = [Place::Background, Place::Codealong];
-    let home = crate::util::home();
     let name = match account.map(str::trim).filter(|a| !a.is_empty()) {
-        None => crate::start::pick_account(cfg, &board.usage, &unseen, None, now_ms()).ok_or("no account can start a session in the background")?,
+        None => crate::start::pick_account(cfg, &board.usage, &crate::start::OUT_OF_SIGHT, None, now_ms()).ok_or("no account can start a session in the background")?,
         Some(n) => n.to_string(),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
-    let offered = crate::start::ordered_places(a, &home).unwrap_or_default();
-    let service = crate::harness::of(a).is_some_and(|h| h.runs_in_background());
-    let order = if service { unseen } else { [Place::Codealong, Place::Background] };
-    let place = order.into_iter().find(|p| offered.contains(p)).ok_or_else(|| format!("{name} can't start a session in the background"))?;
+    let place = crate::start::out_of_sight(a, &crate::util::home()).ok_or_else(|| format!("{name} can't start a session in the background"))?;
     Ok((name, place))
 }
 
@@ -1077,7 +1085,7 @@ fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option
     let (account, place) = reviewer_place(cfg, board, seat.account.as_deref())?;
     let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
     let prompt = first_prompt(pr, head, since, holds, login, cfg.reviews.post, instructions(&cfg.reviews), files);
-    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: seat.model.clone(), effort: None, worktree: false, todos: Vec::new(), from: None })
+    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: seat.model.clone(), effort: None, worktree: false, todos: Vec::new(), from: None, helper: false })
 }
 
 /// Reads the review a turn wrote after `at`: its session's last message once the turn ended.
@@ -1667,5 +1675,19 @@ mod tests {
         assert!(body.starts_with("One thing.\n\n**`src/a.rs` line 2**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L2\n\nThis panics.\n\n<sub>"), "{body}");
         let long = comment_body(&"x".repeat(COMMENT_MAX + 10), &[], &pr(7, HEAD), HEAD, "Codex");
         assert!(long.len() < 65_536 && long.contains("cut short"));
+    }
+
+    #[test]
+    fn every_session_a_review_asked_is_a_helper_of_its_pr() {
+        let mut round = Round::new(HEAD, ReviewStage::Posted, NOW);
+        // The first round's session, gone on in a copy the next round asked.
+        round.parts = vec![started(AUTO, "claude:claude:first", NOW)];
+        let mut next = Round::new(NEXT, ReviewStage::Reviewing, NOW + 1);
+        next.parts = vec![started(AUTO, S, NOW + 1), Part::failed(AUTO, "no account".into(), NOW + 1)];
+        let tracked = Tracked { sessions: [(AUTO.to_string(), S.to_string())].into(), rounds: vec![round, next] };
+        let store = Store { prs: [("o/r#7".to_string(), tracked), ("o/r#8".to_string(), Tracked::default())].into() };
+        let got = reviewers(&store);
+        assert_eq!(got.len(), 2);
+        assert_eq!((got.get("claude:claude:first"), got.get(S)), (Some(&"o/r#7"), Some(&"o/r#7")));
     }
 }

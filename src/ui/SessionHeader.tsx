@@ -166,8 +166,29 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
       {parent ? <span className="ca-sessinsp-kin-phrase">{phrase}</span> : <span className="ca-sessinsp-elbow" aria-hidden="true" />}
       <SessionGlyph s={t} size={11} />
       <span className="ca-sessinsp-kin-title">{t.title}</span>
-      {kin.how !== 'started' && !parent && <Icon name={kin.how === 'fork' ? 'git-fork' : 'user'} size={11} />}
+      {kin.how !== 'started' && !parent && <Icon name={kin.how === 'fork' ? 'git-fork' : kin.how === 'helper' ? 'subtask' : 'user'} size={11} />}
       <span className="ca-sessinsp-kin-age">{t.status === 'working' && t.statusSince ? duration(t.statusSince, now) : ago(t.lastActivity, now)}</span>
+    </button>
+  );
+}
+
+/** The PR an automatic review's session reviews (`Session.helper`), over its title where a
+ *  helper's session names the one it works for (`KinRow`): a click opens the PR on GitHub. */
+function ReviewOf({ pr, prs, onOpenPr }: { pr: string; prs: Pr[]; onOpenPr?: (pr: Pr) => void }) {
+  const [slug, number] = pr.split('#');
+  // reviews.json keys a PR in lower case, as GitHub's names compare.
+  const found = prs.find((p) => p.url.toLowerCase().includes(`github.com/${slug}/pull/${number}`));
+  return (
+    <button
+      type="button"
+      className="ca-sessinsp-kin is-parent"
+      title={`An automatic review of #${number}: Codealong posts what it writes. Its turns don't wait on you; it shows when it needs you.${found && onOpenPr ? ' Click to open the PR.' : ''}`}
+      disabled={!found || !onOpenPr}
+      onClick={() => found && onOpenPr?.(found)}
+    >
+      <span className="ca-sessinsp-kin-phrase">Review of</span>
+      <Icon name="pr" size={11} />
+      <span className="ca-sessinsp-kin-title">{found ? `#${number} ${found.title}` : `#${number}`}</span>
     </button>
   );
 }
@@ -210,6 +231,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         </button>
       )}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
+      {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} prs={prs} onOpenPr={onOpenPr} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />
         {naming ? (

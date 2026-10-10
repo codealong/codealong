@@ -50,6 +50,13 @@ export function waitingSince(s: Session): number | null {
 /** When a session's status began. */
 const statusAt = (s: Session) => s.statusSince ?? s.lastActivity;
 
+/** A helper that doesn't need you: out of its worktree's status, the bar, the mark and the
+ *  queues, and listed under what it helps. One that needs you (a call to allow, a question, an
+ *  error) waits on you as any session does. The engine's `Session::helping` says the same. */
+export function helping(s: Pick<Session, 'helper' | 'status'>): boolean {
+  return s.helper != null && s.status !== 'needs' && s.status !== 'error';
+}
+
 /**
  * Two sessions of one of the floating bar's groups, in its order (barfeed.rs): each is a queue,
  * the longest first, so a new one joins the end, and what waits on you is worked through first
@@ -162,7 +169,8 @@ export function worktreeName(lane: Lane): string {
 
 /** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */
 export function lanePromptAt(lane: Lane): number {
-  const own = lane.sessions.filter((s) => !s.visitor && !s.archived);
+  // A helper's prompts are its agent's, not yours.
+  const own = lane.sessions.filter((s) => !s.visitor && !s.archived && !helping(s));
   return own.length > 0 ? Math.max(...own.map((s) => s.lastPromptAt)) : lane.lastActivity;
 }
 
@@ -333,10 +341,10 @@ function idleHeadline(lane: Lane, own: Session[]): [string, string | null] {
 }
 
 /** Whether a session counts toward its worktree's status, as board.rs has it: the worktree's own
- *  (not a visitor's), not archived, and not a reusable worktree's earlier work. The bays, the
- *  rows' lines, the status filters and their counts all go by it. */
+ *  (not a visitor's), not archived, not a reusable worktree's earlier work, and not a helper that
+ *  doesn't need you. The bays, the rows' lines, the status filters and their counts all go by it. */
 function inStatus(s: Session): boolean {
-  return !s.visitor && !s.archived && !s.earlier;
+  return !s.visitor && !s.archived && !s.earlier && !helping(s);
 }
 
 /**

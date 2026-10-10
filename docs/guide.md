@@ -413,7 +413,8 @@ with Codealong's own instructions until you change it: what to look for and how,
 to start subagents of its own (in Claude Code, ask for the Task tool and name each one's model) and
 combine what they find. Either way Codealong tells it which PR, where it's written out, to change
 and post nothing, and how to lay out its last message: a summary, then its comments on particular
-lines. The session is linked to the PR.
+lines. The session is linked to the PR, and is a helper of it (see *Helpers*): out of Sessions,
+the bar and the queues while it doesn't need you, its turns never Your turn.
 
 When its turn ends, its review goes where `[reviews] post` says. By default (`"draft"`) it's a
 review on your GitHub account left as a draft that only you see, each comment on its line where the
@@ -1094,6 +1095,33 @@ its card's popover on the canvas lists them too. On the canvas, hovering or sele
 draws a line from the session it came from and to the ones that came of it, and a session's card on
 the desktop does the same to the cards of those sessions pinned on the same screen.
 
+### Helpers
+
+A helper is a session that works for an agent rather than for you: one an agent started with
+`codealong start --helper` (a review of its diff, a check, a second opinion on another account or
+model), and an automatic review's session, which helps its PR. Nobody is expected to talk to it,
+so a turn it ends is idle rather than Your turn, and while it doesn't need you it's out of its
+worktree's status, the floating bar, the notch, the waiting window, the quick panel's lists and the
+mark. Started without `--in`, it runs out of sight, as automatic reviews do.
+
+In Sessions a helper is listed under the session that started it, set in with an elbow, while it
+works or waits on you; the rest are counted on that session's row (*2 helpers*), and its panel
+lists them all under its title, as *Its helper*. The helper's own panel says *Helper of* that
+session over its title, and an automatic review's says *Review of* its PR. A helper whose session
+isn't listed (filtered out, or an automatic review) is listed on its own only while it waits on
+you, with a *Helper* or *Review of #N* chip; a search finds every one.
+
+A helper that needs you (a call to allow, a question, an error) waits on you as any session does,
+so its agent isn't left waiting on it unseen: its worktree goes to Needs you, it's on the bar and
+in the queues, and in Sessions it takes the session it works for into Needs you with it, its row
+under that session's. The session's row says how many of its helpers wait on you.
+
+The agent that started it reads its reply with `codealong session wait <key>`, which waits for
+its turn to end, or comes back as soon as it waits on you so the agent can say so, and ends it
+with `codealong session done <key>` once it has what it needs. A helper whose session is gone from
+the board is a session of your own again. Macs from before helpers show another Mac's helpers as
+sessions of their own.
+
 ### Usage
 
 **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model limits such
@@ -1156,7 +1184,9 @@ answering its questions, which is its user's to do; `codealong session done` is 
 what's the agent's own: its own session (`me`), which ends once its turn does and stays in Your turn
 for you to read, and a session it started, never one working or waiting on you, while the main
 window says which session did it, with an Undo; `codealong start --todo <id>` starts a session the
-way New session does (`--todo` again for several todos in one session); `codealong config
+way New session does (`--todo` again for several todos in one session), and `codealong start
+--helper --prompt …` a helper of the session running it (see *Helpers*), whose reply `codealong
+session wait <key>` waits for; `codealong config
 show|check` prints the settings and checks an edited config.toml. With the app running, answers come
 from it over a socket and todo changes go through its engine; with it closed, the command reads the
 files (sessions then show without git or PRs). Output is JSON when piped, tables in a terminal.
@@ -1175,9 +1205,9 @@ What you've seen (for Your turn), what you've pinned, snoozed and archived in Co
 `state.json` next to it; whether the bar is on, floating or in the notch, and where you left it
 floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in
 `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`;
-each project's canvas in `canvas.json`; which session started or was forked into which, where the
-harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went
-into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, the
+each project's canvas in `canvas.json`; which session started or was forked into which (and which
+started ones are its helpers), where the harness doesn't say, in `origins.json`; whether your
+latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, the
 PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked
 reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
 replies suggested for sessions, until the sessions move on, in `suggestions.json`.

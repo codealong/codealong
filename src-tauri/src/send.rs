@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn a_moved_session_is_neither_sent_to_nor_resumed() {
         let mut origins = crate::origins::Store::default();
-        origins.sessions.insert("claude:claude2:copy".into(), crate::origins::Entry { from: "claude:claude:abc".into(), how: crate::model::OriginHow::Fork, at: 1 });
+        origins.sessions.insert("claude:claude2:copy".into(), crate::origins::Entry { from: "claude:claude:abc".into(), how: crate::model::OriginHow::Fork, at: 1, helper: false });
         let moved = session(Harness::Claude, Surface::Cli, Status::Stopped, false, None);
         let copy = Session { key: "claude:claude2:copy".into(), account: "claude2".into(), ..moved.clone() };
         let board = Board { lanes: vec![crate::fixtures::lane("/w", vec![moved.clone(), copy])], ..Board::default() };

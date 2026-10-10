@@ -276,6 +276,26 @@ pub struct Session {
     /// harness doesn't say, and from Macs before 2026-10-07.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub own_worktree: Option<String>,
+    /// It works for an agent, not for you: started by another session's agent with `codealong
+    /// start --helper`, or by an automatic review of a PR. A turn it ends is idle rather than
+    /// Your turn, and while it doesn't need you it's out of its worktree's status, the bar and
+    /// the mark, listed under what it helps (`Session::helping`). None from Macs before
+    /// 2026-10-10, whose helpers show as sessions of their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper: Option<Helper>,
+}
+
+/// What a helper session works for: the session whose agent started it, or the PR it reviews.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Helper {
+    /// The session whose agent started it, by its key: the one its origin names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// The PR whose automatic review it is, by its key as reviews.json has it, which ignores case
+    /// (`owner/name#7`, lowercased).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<String>,
 }
 
 /// A session's id as lists show it: its first seven characters.
@@ -295,6 +315,14 @@ impl Session {
     /// says the same for the windows.
     pub fn waits_in_background(&self) -> bool {
         self.status == Status::Working && self.background.is_some()
+    }
+
+    /// A helper that doesn't need you: out of its worktree's status, the bar, the mark and the
+    /// queue, and listed under what it helps. One that needs you (a call to allow, a question, an
+    /// error) waits on you as any session does, so its agent isn't left waiting on it unseen.
+    /// `src/lanes.ts` `helping` says the same for the windows.
+    pub fn helping(&self) -> bool {
+        self.helper.is_some() && !matches!(self.status, Status::Needs | Status::Error)
     }
 
     /// A session of which only whose it is is known: in a terminal, idle, not running, with no
@@ -351,6 +379,7 @@ impl Session {
             connection_lost: None,
             model: None,
             own_worktree: None,
+            helper: None,
         }
     }
 }
@@ -813,7 +842,8 @@ mod tests {
                 "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true,
                 "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
                 "earlier": true,
-                "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 }
+                "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 },
+                "helper": { "parent": "claude:claude2:from", "pr": "acme/app#7" }
             }"#,
         )
         .unwrap();

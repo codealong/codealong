@@ -138,10 +138,51 @@
 
 .ca-chip.ca-snoozechip,
 .ca-chip.ca-quietchip,
-.ca-chip.ca-suggestedchip {
+.ca-chip.ca-suggestedchip,
+.ca-chip.ca-helperchip,
+.ca-chip.ca-helperschip {
   padding: 0 7px 0 6px;
   font: var(--type-caption-heading);
   color: var(--ink-3);
+}
+/* A helper of the session that waits on you: in the attention color, as the row it's under
+   would be. */
+.ca-chip.ca-helperschip.is-waiting {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-chip.ca-helperschip.is-waiting .ca-icon {
+  color: var(--attn);
+}
+
+/* A helper under the session it works for (SessionsView.tsx): set in by its status column, with
+   an elbow hanging from the row above, as the panel's header hangs what came of a session. */
+.ca-lane.is-agent.is-nested {
+  grid-template-columns: 56px minmax(0, 1fr) 52px;
+}
+.ca-lane.is-agent.is-slim.is-nested {
+  grid-template-columns: 56px minmax(0, 1fr) 64px;
+}
+/* Its status where the session's would be, a column in; the elbow runs from under the session's
+   status to its own, at its middle. */
+.ca-lane.is-agent.is-nested .ca-seg-glyph {
+  position: relative;
+  padding-left: var(--space-6);
+}
+.ca-lane.is-agent.is-nested .ca-seg-glyph::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 15px;
+  width: 13px;
+  height: 17px;
+  border-left: 1.5px solid var(--line-strong);
+  border-bottom: 1.5px solid var(--line-strong);
+  border-bottom-left-radius: 4px;
+  pointer-events: none;
+}
+.ca-lane.is-agent.is-slim.is-nested .ca-seg-glyph::before {
+  height: 16px;
 }
 .ca-agentrow-line1 {
   display: flex;

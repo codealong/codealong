@@ -762,7 +762,7 @@ fn spec_of(params: &Value) -> Result<crate::start::StartSpec, String> {
 /// A start in another device's worktree, as that device knows it, with none of the todos: they
 /// are this device's, and it has its own list.
 fn start_there(params: Value, lane: &str) -> Result<Value, String> {
-    let spec = crate::start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), from: None, ..spec_of(&params)? };
+    let spec = crate::start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), from: None, helper: false, ..spec_of(&params)? };
     to_value(params::Start { spec })
 }
 

@@ -7,9 +7,11 @@ import {
   currentProject,
   deviceCountsOf,
   folded,
+  helperCounts,
   inPinOrder,
   laneInQuery,
   pinnedLaneRowsOf,
+  placeHelpers,
   prIn,
   prInDone,
   prInFilter,
@@ -214,6 +216,34 @@ describe('the Sessions view’s lists', () => {
   it('puts the pinned rows in the pins’ order, leaving out pins not shown', () => {
     const rows = [{ k: 'a' }, { k: 'b' }, { k: 'c' }];
     expect(inPinOrder(rows, ['c', 'x', 'a'], (r) => r.k)).toEqual([{ k: 'c' }, { k: 'a' }]);
+  });
+
+  describe('helpers', () => {
+    const boss = session('claude:claude:boss', { status: 'idle' });
+    const helper = (key: string, status: Session['status'], helps: Session['helper'] = { parent: boss.key }) => session(key, { status, helper: helps });
+    const busy = helper('codex:codex:busy', 'working');
+    const done = helper('codex:codex:done', 'idle');
+    const asks = helper('codex:codex:asks', 'needs');
+    const review = helper('claude:claude:review', 'idle', { pr: 'acme/app#7' });
+    const reviewAsks = helper('claude:claude:review2', 'error', { pr: 'acme/app#7' });
+    const keysOf = (rows: { session: Session }[]) => rows.map((r) => r.session.key);
+
+    it('lists a helper with the session it works for while it works or waits on you, and counts the rest there', () => {
+      const items = sessionItemsOf([lane('/r/a', [boss, busy, done, asks])]);
+      expect(keysOf(placeHelpers(items, false))).toEqual([boss.key, busy.key, asks.key]);
+      expect(helperCounts(items).get(boss.key)).toEqual({ count: 3, working: 1, waiting: 1 });
+    });
+
+    it('leaves a helper out while it doesn’t need you when its session isn’t listed, and a review always, unless a search finds it', () => {
+      const items = sessionItemsOf([lane('/r/a', [busy, done, asks, review, reviewAsks])]);
+      expect(keysOf(placeHelpers(items, false))).toEqual([asks.key, reviewAsks.key]);
+      expect(keysOf(placeHelpers(items, true))).toEqual(keysOf(items));
+      // Nothing to place: the same list back.
+      const plain = sessionItemsOf([lane('/r/a', [boss])]);
+      expect(placeHelpers(plain, false)).toBe(plain);
+      // Archived helpers aren't counted.
+      expect(helperCounts(sessionItemsOf([lane('/r/a', [boss, { ...done, archived: true }])])).size).toBe(0);
+    });
   });
 });
 

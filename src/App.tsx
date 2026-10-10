@@ -351,6 +351,7 @@ export function App() {
     openTodoCount,
     todoLinks,
     todosFor,
+    helpersOf,
     counts,
     totalLanes,
     actions,
@@ -1600,6 +1601,7 @@ export function App() {
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived(!showArchived)}
                 todosFor={todosFor}
+                helpersOf={helpersOf}
                 onShowTodo={showTodo}
               />
             )}
