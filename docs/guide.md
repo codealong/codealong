@@ -155,7 +155,7 @@ A session whose turn its account's usage limit stopped says so (Limit, with whic
 lifts, from what Claude Code wrote), and its panel offers to move it to the account with room: one
 of its harness's other accounts, chosen as Auto chooses, that isn't near a limit by its meters and
 whose own sessions weren't refused since they last got through (a spend limit shows on no meter).
-Moved, it's told to carry on where it stopped. `[limits] when_hit = "move"` (Settings › Accounts)
+Moved, it's told to carry on where it stopped. `[limits] when_hit = "move"` (Settings › Automation)
 moves it there by itself, as soon as it stops; a session moved there that stops again is offered a
 move rather than moved back.
 
@@ -165,7 +165,7 @@ A Claude Code session whose turn ended because it couldn't reach its API says so
 with the lid closed the Mac wakes for a few seconds every minute or two without DNS, and Claude
 Code's retries run out there. Codealong tells it to carry on once the API can be reached again, once
 for each time, and leaves it for you (with a notice) when it loses the connection again straight
-after a few times running; `[sessions] continue_after_network_error = false` (Settings › Accounts)
+after a few times running; `[sessions] continue_after_network_error = false` (Settings › Automation)
 turns that off.
 
 #### Move to another worktree
@@ -384,7 +384,7 @@ A PR's primary session can be nudged with what happens on it. It's off for a PR 
 for it, with the switch on the PR's card (hover its chip in a session's header, or a link to it in
 a conversation), Nudge its session on updates in its menu, or by an agent: `codealong pr nudge
 <pr>` makes the agent's own session the one told, unless another running session is the PR's
-primary (`--take` takes it over, `--off` stops it). Settings › Accounts › Nudge the session that
+primary (`--take` takes it over, `--off` stops it). Settings › Automation › Nudge the session that
 opened a pull request turns it on for every open PR of yours (`[pull_requests]
 nudge_by_default`), and a PR's own switch wins over that either way.
 
@@ -401,7 +401,7 @@ isn't told, and a session that has stopped isn't resumed for it.
 
 #### Automatic reviews
 
-With `[reviews] auto = true` (Settings › Accounts), an agent reviews each open PR that asks for your
+With `[reviews] auto = true` (Settings › Automation), an agent reviews each open PR that asks for your
 review, isn't yours and isn't a draft, in a session of its own on `[reviews] account` and `model`
 (else the account Auto would start, on its own model), apart from the account new sessions start
 on. It runs out of sight: under Claude Code's background service, else in Codealong, else in a
@@ -629,7 +629,11 @@ A form for everything in config.toml. General has the folders searched for repos
 shortcut, the terminal and editor, and the theme; Jev has the TypeSafe key (kept in the keychain)
 and a switch per feature, each saying what it sends; Accounts adds, edits, removes and signs in
 accounts, and under Found on this Mac lists the ones Codealong could read but doesn't, to add with a
-click (with the agent skill, unless you untick it); Projects groups repos by pattern; Advanced turns
+click (with the agent skill, unless you untick it); Automation has what Codealong does by itself:
+the agent that reviews the pull requests that wait on your review (the account and model it runs on
+and what it's told, in a box like a session's, and where its review goes), nudging the session that
+opened a pull request, moving a session that hits its usage limit, and telling one a lost connection
+stopped to carry on; Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are. Each change is saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.

@@ -1,6 +1,6 @@
 // Checks the switch that has a PR's primary session told of what happens on it (PrLink.tsx,
 // nudges.rs), on the card of a session's PR chip, and the setting that turns it on for every PR of
-// yours (Settings › Accounts, `[pull_requests] nudge_by_default`). The first session a PR lists has
+// yours (Settings › Automation, `[pull_requests] nudge_by_default`). The first session a PR lists has
 // that PR made an open one with the nudge off, that session its primary, and another session listed
 // on it too: hovering its chip in the session's header shows the card with the primary session
 // first, tagged, and the switch off, naming it; a click turns it on for that PR alone (set_pr_nudge
@@ -16,6 +16,14 @@
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
+    // Settings as a config.toml without [pull_requests] has them, whatever this Mac's says.
+    if (cmd === 'get_config') {
+      return p.then(function (view) {
+        var config = Object.assign({}, view.config);
+        delete config.pull_requests;
+        return Object.assign({}, view, { config: config });
+      });
+    }
     if (cmd !== 'get_board') return p;
     return p.then(function (b) {
       b.lanes.forEach(function (l) {
@@ -122,12 +130,12 @@
       if (card()) leave(card());
 
       q('.ca-side-config').click();
-      await until(function () { return !!nav('Accounts'); }, 3000, 'no Accounts in Settings');
-      nav('Accounts').click();
+      await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
+      nav('Automation').click();
       var setting = /Nudge the session that opened a pull request/;
-      await until(function () { return !!box(setting); }, 5000, 'no nudge setting in Settings › Accounts');
+      await until(function () { return !!box(setting); }, 5000, 'no nudge setting in Settings › Automation');
       var input = box(setting).querySelector('input');
-      check('Settings › Accounts has the setting, off by default', !input.checked, String(input.checked));
+      check('Settings › Automation has the setting, off by default', !input.checked, String(input.checked));
       input.click();
       await until(function () { return calls('save_config').length > 0; }, 3000, 'turning it on saved nothing');
       var cfg = calls('save_config')[0][1].config;

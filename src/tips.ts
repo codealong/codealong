@@ -92,7 +92,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'pr-ask', places: ['waiting', 'pr'], says: says`In the waiting window, Ask beside Review puts questions about a PR to an agent that reads the whole diff. No one on GitHub sees them.` },
   { id: 'pr-files', places: ['pr'], says: says`${key('Cmd+F')} filters a PR's files: words keep the ones that mention them, and ${code('-word')} leaves some out.` },
   { id: 'pr-merge', places: ['pr'], says: says`A PR's merge box has GitHub's choices: how to merge, auto-merge and the merge queue.` },
-  { id: 'auto-review', places: ['pr', 'waiting'], says: says`Settings › Accounts can have agents review each PR that waits on your review. By default their review is a draft only you see.` },
+  { id: 'auto-review', places: ['pr', 'waiting'], says: says`Settings › Automation can have an agent review each PR that waits on your review. By default its review is a draft only you see.` },
   { id: 'pr-links', places: ['session', 'pr'], says: says`Point at a PR linked in a conversation to see where it stands: its review, checks and the sessions that worked on it.` },
   { id: 'quick-tab', places: QUICK_PANEL, says: says`${key('Tab')} on a session answers it in the waiting window; ${key('Alt+Enter')} opens it where it runs.` },
   { id: 'quick-start', places: QUICK_PANEL, says: says`${key('Cmd+Enter')} always starts a new session, with what you typed as its prompt.` },

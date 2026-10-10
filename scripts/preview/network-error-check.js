@@ -1,7 +1,7 @@
 // Checks a session whose turn a lost connection ended (Session.connectionLost,
 // claude/transcript.rs `connection_lost_at`) in the Sessions view: its row says Network error, and
 // that Codealong carries it on, in place of Jev's Blocked, which read Claude Code's error; and that
-// Settings › Accounts has the setting that turns carrying on off (`[sessions]
+// Settings › Automation has the setting that turns carrying on off (`[sessions]
 // continue_after_network_error`), on by default, saved as config.toml has it. The loss is put on a
 // real Claude Code session, since a board rarely has one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/network-error-check.js
@@ -49,11 +49,11 @@
       check('not Jev’s Blocked, which read the error', chips.indexOf('Blocked') < 0, chips.join(', '));
 
       q('.ca-side-config').click();
-      await until(function () { return !!nav('Accounts'); }, 3000, 'no Accounts in Settings');
-      nav('Accounts').click();
-      await until(function () { return !!box(); }, 5000, 'no carry-on setting in Settings › Accounts');
+      await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
+      nav('Automation').click();
+      await until(function () { return !!box(); }, 5000, 'no carry-on setting in Settings › Automation');
       var input = box().querySelector('input');
-      check('Settings › Accounts has it, on by default', input.checked, String(input.checked));
+      check('Settings › Automation has it, on by default', input.checked, String(input.checked));
       input.click();
       await until(function () { return calls('save_config').length > 0; }, 3000, 'unchecking it saved nothing');
       var cfg = calls('save_config')[0][1].config;

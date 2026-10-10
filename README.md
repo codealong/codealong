@@ -432,20 +432,20 @@ iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
 
 [limits]
-when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Accounts)
+when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Automation)
 
 [sessions]
-continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Accounts)
+continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Automation)
 
 [reviews]
-auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Accounts)
+auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Automation)
 account = ""                   # the account it runs on; "" for the one Auto would start
 model = ""                     # the model it starts on; "" for the account's own
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
 
 [pull_requests]
-nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Accounts)
+nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)
 
 [updates]
 check = true                   # look for a new version by itself (Settings › General)

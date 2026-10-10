@@ -59,6 +59,15 @@
   width: min(440px, 100%);
   max-height: min(360px, var(--ca-menu-room, 60vh));
 }
+/* Under the box, where what scrolls cuts off the room above it (AgentPromptBox.tsx in Settings). */
+.ca-modelmenu .ca-picker.is-down {
+  top: calc(100% + 6px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+  width: min(440px, 100%);
+  max-height: 360px;
+}
 /* The places are a few short lines. */
 .ca-placemenu .ca-picker.is-up {
   width: min(300px, 100%);

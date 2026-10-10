@@ -11,6 +11,7 @@ import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
+import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
 import { ChromeProfileSelect } from './PreviewBits';
@@ -19,11 +20,12 @@ import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
 
-export type SettingsSection = 'general' | 'accounts' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
+export type SettingsSection = 'general' | 'accounts' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
+  { id: 'automation', label: 'Automation', icon: 'bolt' },
   { id: 'agents', label: 'Agents', icon: 'terminal' },
   { id: 'devices', label: 'Devices', icon: 'device-desktop' },
   { id: 'projects', label: 'Projects', icon: 'folder' },
@@ -116,9 +118,6 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
     pane = (
       <>
         <AccountsSection focus={focus} usage={usage} terminal={apps.terminal} now={now} onSaved={() => void load()} />
-        {cfg && <LimitsField cfg={cfg} disabled={!!broken} onSave={save} />}
-        {cfg && <ReviewsField cfg={cfg} disabled={!!broken} onSave={save} defaultPrompt={view?.reviewPrompt ?? ''} />}
-        {cfg && <NudgeField cfg={cfg} disabled={!!broken} onSave={save} />}
       </>
     );
   } else if (section === 'agents') {
@@ -127,6 +126,15 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
     pane = error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
   } else if (section === 'general' && cfg) {
     pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
+  } else if (section === 'automation' && cfg) {
+    pane = (
+      <>
+        <p className="ca-settings-lede">What Codealong does by itself: for your sessions when something stops them, and for your pull requests.</p>
+        <ReviewsField cfg={cfg} disabled={!!broken} onSave={save} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} />
+        <NudgeField cfg={cfg} disabled={!!broken} onSave={save} />
+        <LimitsField cfg={cfg} disabled={!!broken} onSave={save} />
+      </>
+    );
   } else if (section === 'devices' && cfg) {
     pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'projects' && cfg) {
@@ -312,31 +320,21 @@ function reviewsRunIn(a: StartAccount): string | null {
   return background ? 'in a terminal behind your windows' : null;
 }
 
-/** `[reviews]`: an agent reviews the pull requests that wait on your review, on an account and
- *  model of their own, told what to do by instructions you can edit (Codealong's own until you
- *  do: `defaultPrompt`), its review put where you say (autoreview.rs). */
-function ReviewsField({ cfg, disabled, onSave, defaultPrompt }: PaneProps & { defaultPrompt: string }) {
+/** `[reviews]`: an agent reviews the pull requests that wait on your review, on the account and
+ *  model picked, told what to do in the box under them (AgentPromptBox.tsx; Codealong's own
+ *  instructions until you change them: `defaultPrompt`), its review put where you say
+ *  (autoreview.rs). Only accounts that can start a session out of the way are offered. */
+function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: PaneProps & { defaultPrompt: string; usage: Usage[]; now: number }) {
   const reviews = { ...REVIEWS_OFF, ...cfg.reviews };
   const [accounts, setAccounts] = useState<StartAccount[]>([]);
   useEffect(() => {
-    // Without them Auto and the account config.toml names are still offered, by name.
+    // Without them the box says there are no accounts, and config.toml's choice stays as it is.
     startOptions()
-      .then((o) => setAccounts(o.accounts))
+      .then((o) => setAccounts(o.accounts.filter((a) => reviewsRunIn(a))))
       .catch(() => {});
   }, []);
   const set = (next: Partial<ReviewsCfg>) => void onSave({ ...cfg, reviews: { ...reviews, ...next } });
-  const accountChoices: Profile[] = [{ id: '', name: 'Auto' }, ...accounts.flatMap((a) => (reviewsRunIn(a) ? [{ id: a.name, name: `${a.name}, ${reviewsRunIn(a)}` }] : []))];
-  if (!accountChoices.some((p) => p.id === reviews.account)) accountChoices.push({ id: reviews.account, name: reviews.account });
-  const models = accounts.find((a) => a.name === reviews.account)?.models ?? [];
-  const modelChoices: Profile[] = [{ id: '', name: 'Its own model' }, ...models.map((m) => ({ id: m.id, name: m.label }))];
-  if (!modelChoices.some((p) => p.id === reviews.model)) modelChoices.push({ id: reviews.model, name: reviews.model });
-  // The box shows what the reviewer is told; Codealong's own text is saved as no text at all, so a
-  // later Codealong's own goes on applying.
-  const shown = reviews.prompt.trim() || defaultPrompt;
-  const keep = (text: string) => {
-    const prompt = text.trim() === defaultPrompt.trim() ? '' : text.trim();
-    if (prompt !== reviews.prompt.trim()) set({ prompt });
-  };
+  const runsIn = accounts.find((a) => a.name === reviews.account);
   const post = REVIEW_POSTS.find((p) => p.id === reviews.post) ?? REVIEW_POSTS[0];
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
@@ -351,26 +349,28 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt }: PaneProps & { de
       {reviews.auto && (
         <>
           <div className="ca-field">
-            <span>Review on</span>
-            <div className="ca-settings-reviewer">
-              <ProfileSelect value={reviews.account} profiles={accountChoices} onChange={(account) => set({ account, model: '' })} />
-              <ProfileSelect value={reviews.model} profiles={modelChoices} onChange={(model) => set({ model })} />
-            </div>
-            <small>Auto is the account the quick panel’s Auto would start, among those that can start a session out of the way. This is apart from the account new sessions start on.</small>
-          </div>
-          <label className="ca-field">
-            <span>What the reviewer is told</span>
-            <textarea key={shown} className="ca-settings-prompt" rows={5} defaultValue={shown} spellCheck={false} onBlur={(e) => keep(e.target.value)} />
+            <span>The reviewer</span>
+            <AgentPromptBox
+              accounts={accounts}
+              usage={usage}
+              now={now}
+              account={reviews.account}
+              model={reviews.model}
+              prompt={reviews.prompt}
+              defaultPrompt={defaultPrompt}
+              label="What the reviewer is told"
+              hint="What to look for, and how"
+              autoTitle="The account the quick panel’s Auto would start, picked again for each pull request: a preferred one with room, the one whose week resets soonest. Reviews keep to accounts that can start a session out of the way."
+              defaultLabel="Use Codealong’s instructions"
+              disabled={disabled}
+              onAgent={(account, model) => set({ account, model })}
+              onPrompt={(prompt) => set({ prompt })}
+            />
             <small>
-              What to look for and how. It can start subagents of its own and combine what they find: in Claude Code, ask for the Task tool and name each subagent’s model. Codealong still tells it which pull request, where it’s written out, to change nothing, and how to lay out its last
-              message so the review can be posted.
+              What it’s told: what to look for and how. It can start subagents of its own and combine what they find; in Claude Code, ask for the Task tool and name each one’s model. Codealong still tells it which pull request, where it’s written out, to change nothing, and how to lay out
+              its last message so the review can be posted. {runsIn ? `It runs ${reviewsRunIn(runsIn)}.` : 'Auto picks an account that can start a session out of the way.'} This is apart from the account new sessions start on.
             </small>
-            {reviews.prompt.trim() && (
-              <Button size="sm" className="ca-settings-add" onClick={() => set({ prompt: '' })}>
-                Use Codealong’s instructions
-              </Button>
-            )}
-          </label>
+          </div>
           <label className="ca-field">
             <span>Where each review goes</span>
             <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />

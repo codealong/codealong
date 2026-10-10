@@ -1,12 +1,15 @@
 // The controls for where a session goes and on what, wherever one is started or goes on: the
-// quick panel's start row, and the box of a session that isn't running (ResumeBar.tsx). The
-// rules for what they offer are start.ts's; these only draw them.
+// quick panel's start row, the box of a session that isn't running (ResumeBar.tsx), and the box an
+// automation's agent is picked and told what to do in (AgentPromptBox.tsx). The rules for what
+// they offer are start.ts's; these only draw them.
 
-import type { AgentOption, ModelOption } from '../start';
-import { agentOptionWords, effortNote, placeNote } from '../start';
-import type { Harness, StartAccount, StartPlace } from '../types';
+import { usageNote } from '../harness';
+import type { AgentOption, AutoPick, ModelOption } from '../start';
+import { accountHeadWords, agentOptionWords, autoOptionWords, effortNote, isAuto, placeNote } from '../start';
+import type { Harness, Meter, StartAccount, StartPlace, Usage } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, Kbd, Seg } from './primitives';
+import { UsageMeter } from './UsageBar';
 
 export function placeIcon(place: StartPlace): string {
   return place === 'terminal' ? 'terminal' : place === 'background' ? 'stack' : 'app';
@@ -59,4 +62,43 @@ export function EffortFoot({ efforts, value, onPick, harness, model }: { efforts
       <span className="ca-picker-foot-note">{effortNote(harness, model) ?? <Kbd keys={['←', '→']} />}</span>
     </>
   );
+}
+
+/** An account's heading in an agent menu: its name, what it is, and its meters, or why there are
+ *  none. */
+export function AccountHead({ name, detail, meters, note, now }: { name: string; detail: string; meters: Meter[] | null; note: string; now: number }) {
+  return (
+    <span className="ca-quick-acct">
+      <span className="ca-quick-acct-name">{name}</span>
+      <span className="ca-quick-acct-detail">{detail}</span>
+      <span className="ca-quick-acct-meters">{meters && meters.length > 0 ? meters.map((m) => <UsageMeter key={m.key} meter={m} now={now} />) : <span className="ca-pick-note">{note}</span>}</span>
+    </span>
+  );
+}
+
+/**
+ * The agent menu, as the quick panel starts a session with it and an automation picks its agent:
+ * Auto first where it's offered, saying whom it would start now (`autoTitle` says what it means
+ * there), then each account under its heading with its usage, each with its own model and its
+ * models, `chosen` checked.
+ */
+export function agentMenuSections(agents: AgentOption[], accounts: StartAccount[], pick: AutoPick | null, usage: Usage[], models: ModelOption[], now: number, chosen: string | null, autoTitle: string): PickerSection[] {
+  const out: PickerSection[] = [];
+  const auto = agents.find((o) => isAuto(o.choice));
+  if (auto && pick) {
+    const said = autoOptionWords(pick, accounts, usage, models, now);
+    out.push({ key: 'auto', options: [{ id: auto.id, text: said.text, label: 'Auto', detail: said.detail, lead: <Icon name="sparkles" size={14} />, title: autoTitle }] });
+  }
+  for (const a of accounts) {
+    const u = usage.find((x) => x.account === a.name);
+    const mine = agents.filter((o) => !isAuto(o.choice) && o.choice === a.name);
+    const cant = a.places.length === 0;
+    const head = accountHeadWords(a, u, usageNote(u));
+    out.push({
+      key: a.name,
+      head: <AccountHead name={a.name} detail={head.detail} meters={cant ? null : (u?.meters ?? [])} note={head.note} now={now} />,
+      options: mine.map((o) => agentLine(o, a, models, chosen)),
+    });
+  }
+  return out;
 }

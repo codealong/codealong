@@ -57,16 +57,12 @@ import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { prRefOf } from '../prLinks';
 import { ago, tildePath } from '../format';
-import { usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
 import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
-  accountHeadWords,
   agentChipWords,
-  autoOptionWords,
-  isAuto,
   keepPlaceFailed,
   keepPlaceFor,
   KEEP_PLACE_NOTICE,
@@ -88,10 +84,10 @@ import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, su
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, primaryHolds, snippet, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { agentLine, EffortFoot, placeIcon, placeSections } from './StartControls';
+import { agentMenuSections, EffortFoot, placeIcon, placeSections } from './StartControls';
 import { Chip, cx, Icon, Kbd, Mark, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
@@ -99,7 +95,6 @@ import { PrGlyph } from './PrsView';
 import { useTheme } from './ThemeSwitch';
 import { Tip } from './Tip';
 import { TodoGlyph } from './TodoBits';
-import { UsageMeter } from './UsageBar';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
@@ -219,6 +214,12 @@ function Marked({ text, marks }: { text: string; marks: [number, number][] }) {
   if (at < text.length) out.push(text.slice(at));
   return <>{out}</>;
 }
+
+/** What Auto does when it starts a session, on its line in the agent menu. */
+const AUTO_STARTS =
+  `Starts a preferred account (starred in Settings › Accounts) while one has room, else another. Among them, the one whose weekly limit resets soonest, so its room isn't lost, ` +
+  `else the one whose fullest limit is least full, on its own default model; when that model's own limit is nearly used, on the next best. ` +
+  `An account at 90% of a limit has no room. Decided when you start.`;
 
 export function Quick() {
   const [engineBoard, setBoard] = useState<Board | null>(null);
@@ -1261,41 +1262,7 @@ export function Quick() {
     })),
   ];
 
-  const agentSections: PickerSection[] = useMemo(() => {
-    const out: PickerSection[] = [];
-    const auto = agents.find((o) => isAuto(o.choice));
-    if (auto && pick) {
-      const said = autoOptionWords(pick, accounts, usage, models, now);
-      out.push({
-        key: 'auto',
-        options: [
-          {
-            id: auto.id,
-            text: said.text,
-            label: 'Auto',
-            detail: said.detail,
-            lead: <Icon name="sparkles" size={14} />,
-            title:
-              `Starts a preferred account (starred in Settings › Accounts) while one has room, else another. Among them, the one whose weekly limit resets soonest, so its room isn't lost, ` +
-              `else the one whose fullest limit is least full, on its own default model; when that model's own limit is nearly used, on the next best. ` +
-              `An account at 90% of a limit has no room. Decided when you start.`,
-          },
-        ],
-      });
-    }
-    for (const a of accounts) {
-      const u = usage.find((x) => x.account === a.name);
-      const mine = agents.filter((o) => !isAuto(o.choice) && o.choice === a.name);
-      const cant = a.places.length === 0;
-      const head = accountHeadWords(a, u, usageNote(u));
-      out.push({
-        key: a.name,
-        head: <AccountHead name={a.name} detail={head.detail} meters={cant ? null : (u?.meters ?? [])} note={head.note} now={now} />,
-        options: mine.map((o) => agentLine(o, a, models, agentNow)),
-      });
-    }
-    return out;
-  }, [agents, accounts, pick, usage, models, now, agentNow]);
+  const agentSections: PickerSection[] = useMemo(() => agentMenuSections(agents, accounts, pick, usage, models, now, agentNow, AUTO_STARTS), [agents, accounts, pick, usage, models, now, agentNow]);
 
   const pickAgent = (id: string) => {
     pickAgentLine(id);
@@ -1830,16 +1797,6 @@ function ProjectCounts({ needs, unread }: { needs: number; unread: number }) {
           {unread}
         </span>
       )}
-    </span>
-  );
-}
-
-function AccountHead({ name, detail, meters, note, now }: { name: string; detail: string; meters: Meter[] | null; note: string; now: number }) {
-  return (
-    <span className="ca-quick-acct">
-      <span className="ca-quick-acct-name">{name}</span>
-      <span className="ca-quick-acct-detail">{detail}</span>
-      <span className="ca-quick-acct-meters">{meters && meters.length > 0 ? meters.map((m) => <UsageMeter key={m.key} meter={m} now={now} />) : <span className="ca-pick-note">{note}</span>}</span>
     </span>
   );
 }

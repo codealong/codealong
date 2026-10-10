@@ -81,7 +81,7 @@ function Standing({ review, now, sessions, onShowSession }: { review: AutoReview
     <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
       <div className="ca-prinsp-auto-head">
         <Icon name={icon} size={12} />
-        <span className="ca-prinsp-auto-says" title={`Codealong has an agent review the pull requests that wait on your review (Settings › Accounts): ${rounds}.`}>
+        <span className="ca-prinsp-auto-says" title={`Codealong has an agent review the pull requests that wait on your review (Settings › Automation): ${rounds}.`}>
           {says}
         </span>
         <span className="ca-meta" title={absolute(review.at)}>
@@ -112,7 +112,8 @@ export function AgentReview({ pr, detail, now, sessions, onShowSession }: AgentR
   useEffect(() => {
     let live = true;
     prAgentReviews(pr.key)
-      .then((reviews) => live && setWritten({ key: pr.key, reviews }))
+      // An engine that doesn't know the request answers nothing: no reviews to show.
+      .then((reviews) => live && setWritten({ key: pr.key, reviews: reviews ?? [] }))
       // Without them the PR says where its review stands, which is what it had before.
       .catch(() => {});
     return () => {

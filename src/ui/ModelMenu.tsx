@@ -60,10 +60,14 @@ interface BoxMenuProps {
   onStep?: (delta: -1 | 1) => void;
   onPick: (id: string) => void;
   onDone: () => void;
+  /** Opens under the box rather than over it: a box near the top of what scrolls (Settings),
+   *  where the room above is cut off. */
+  down?: boolean;
 }
 
-/** A quiet chip beside Send that opens its menu above the box, against the box's right edge. */
-export function BoxMenu({ kind, sections, value, icon, label, detail, title, disabled, placeholder, foot, onStep, onPick, onDone }: BoxMenuProps) {
+/** A quiet chip beside Send that opens its menu above the box, against the box's right edge, or
+ *  under it (`down`). */
+export function BoxMenu({ kind, sections, value, icon, label, detail, title, disabled, placeholder, foot, onStep, onPick, onDone, down }: BoxMenuProps) {
   const [open, setOpen] = useState(false);
   // The room above the box, as the menu opens: a window sized to what it shows (the peek) has no
   // more than its conversation's height to open the menu into.
@@ -74,7 +78,7 @@ export function BoxMenu({ kind, sections, value, icon, label, detail, title, dis
     // On the screen's scale; the menu's height is in the card's own pixels, which a zoom makes
     // bigger (zoom.ts `scaleOf`).
     const top = field ? field.getBoundingClientRect().top / scaleOf(field) : null;
-    setRoom(top == null ? null : Math.max(MENU_MIN, top - MENU_MARGIN));
+    setRoom(top == null || down ? null : Math.max(MENU_MIN, top - MENU_MARGIN));
     setOpen(true);
   };
   const close = () => {
@@ -91,7 +95,7 @@ export function BoxMenu({ kind, sections, value, icon, label, detail, title, dis
       </button>
       {open && (
         <Picker
-          className="is-up"
+          className={down ? 'is-down' : 'is-up'}
           sections={sections}
           value={value}
           placeholder={placeholder}

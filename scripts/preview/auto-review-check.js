@@ -11,11 +11,13 @@
 // PR's review didn't finish, and says why in red. The third is still being reviewed, so it's
 // held out of what waits on you (prStatus.ts `heldForAgent`): its row says Agent reviewing in
 // place of Awaiting review, and its panel that it waits on you once that's done. Then Settings ›
-// Accounts has the switch, off by default; turned on it saves `[reviews]` as config.toml has it
-// and offers the account to review on, Auto first, then each that can review out of the way,
-// saying where; shows what the reviewer is told, Codealong's own instructions until you change
-// them, saves what you write there, and goes back to Codealong's; and offers where each review
-// goes, a draft first.
+// Automation (no longer Accounts) has the switch, off by default, with the PR nudge, the usage
+// limit and the network error; turned on it saves `[reviews]` as config.toml has it, and the
+// reviewer is a box drawn as a session's (AgentPromptBox.tsx): what it's told, Codealong's own
+// instructions until you change them, and the agent chip at its foot, whose menu is the quick
+// panel's (Auto, then each account that can review out of the way with its models). Picking an
+// account saves it; what you write is saved as the box loses the keyboard, and going back to
+// Codealong's saves none. Each review goes to a draft first.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/auto-review-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -164,37 +166,60 @@
       }
 
       q('.ca-side-config').click();
-      await until(function () { return !!nav('Accounts'); }, 3000, 'no Accounts in Settings');
-      nav('Accounts').click();
+      await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       var on = /Review pull requests that wait on your review/;
-      await until(function () { return !!box(on); }, 5000, 'no reviews setting in Settings › Accounts');
+      nav('Accounts').click();
+      await until(function () { return !!q('.ca-settings-pane .ca-acct, .ca-settings-pane .ca-accounts, .ca-settings-pane fieldset, .ca-settings-pane section'); }, 5000, 'Settings › Accounts shows nothing');
+      check('Settings › Accounts no longer has what Codealong does by itself', !box(on) && !box(/Carry on after a network error/) && !box(/Nudge the session that opened/), '');
+      nav('Automation').click();
+      await until(function () { return !!box(on); }, 5000, 'no reviews setting in Settings › Automation');
+      check('Settings › Automation has it, with the nudge, the usage limit and the network error', !!box(/Nudge the session that opened/) && !!box(/Carry on after a network error/) && /When a session hits its usage limit/.test(q('.ca-settings-pane').textContent), '');
       var input = box(on).querySelector('input');
-      check('Settings › Accounts has it, off by default', !input.checked, String(input.checked));
+      check('reviews are off by default', !input.checked, String(input.checked));
       var field = function (words) { return all('.ca-field').filter(function (f) { return words.test((q('span', f) || {}).textContent || ''); })[0]; };
-      check('with nothing more while it’s off', !field(/^Review on$/) && !field(/^Where each review goes$/), '');
+      check('with nothing more while they’re off', !field(/^The reviewer$/) && !field(/^Where each review goes$/), '');
       input.click();
       await until(function () { return calls('save_config').length > 0; }, 3000, 'turning it on saved nothing');
       var cfg = calls('save_config')[0][1].config;
       check('turned on, it saves [reviews] as config.toml has it', cfg && cfg.reviews && cfg.reviews.auto === true && cfg.reviews.account === '' && cfg.reviews.model === '' && cfg.reviews.prompt === '' && cfg.reviews.post === 'draft', JSON.stringify(cfg && cfg.reviews));
-      await until(function () { return !!field(/^Review on$/); }, 3000, 'no account to review on once it’s on');
+      await until(function () { return !!field(/^The reviewer$/); }, 3000, 'no reviewer once it’s on');
       var where = all('option', field(/^Where each review goes$/)).map(function (o) { return o.textContent; });
       check('each review goes to a draft first, else a comment or nowhere', where.join(' | ') === 'A draft review for you to finish | A comment on the pull request | Nowhere: it stays in its session', where.join(' | '));
+      // The reviewer is a box drawn as a session's: what it's told, and the agent chip at its foot.
+      var agentBox = function () { return q('.ca-agentbox', field(/^The reviewer$/)); };
+      var told = function () { return q('textarea', agentBox()); };
+      var chip = function () { return q('.ca-modelmenu-chip', agentBox()); };
+      check('the reviewer is a box with its instructions and the agent chip, as a session’s is', !!agentBox() && !!q('.ca-composer-field', agentBox()) && !!told() && !!chip(), '');
+      check('it shows what the reviewer is told: Codealong’s instructions', told().value === DEFAULT, told().value);
       // Accounts come from start_options, which this Mac's snapshot answers.
-      var accounts = function () { var sel = q('.ca-settings-reviewer select', field(/^Review on$/)); return sel ? all('option', sel).map(function (o) { return o.textContent; }) : []; };
-      await until(function () { return accounts().length > 1; }, 5000, 'only Auto is offered');
-      check('Auto first, then each account that can review out of the way, saying where', accounts()[0] === 'Auto' && accounts().slice(1).every(function (o) { return /, in (the background|Codealong|a terminal behind your windows)$/.test(o); }), accounts().join(' | '));
-      note('accounts offered: ' + accounts().join(' | '));
-      var told = function () { return q('textarea', field(/^What the reviewer is told$/)); };
-      check('it shows what the reviewer is told: Codealong’s instructions', told() && told().value === DEFAULT, told() ? told().value : 'no box');
-      check('with nothing to go back to yet', !all('.ca-settings-add').some(function (b) { return /Codealong’s instructions/.test(b.textContent); }), '');
-      var mine = 'Start two subagents, one on Opus and one on Sonnet, and combine what they find.';
+      await until(function () { return !chip().disabled; }, 5000, 'the agent chip stays off: no account can review out of the way');
+      check('the chip says Auto, and whom it would start', /^Auto/.test(chip().textContent), chip().textContent);
+      chip().click();
+      await until(function () { return !!q('.ca-picker', agentBox()); }, 3000, 'the chip opens no menu');
+      var opts = all('.ca-picker-opt', agentBox());
+      var heads = all('.ca-picker-head .ca-quick-acct-name', agentBox()).map(function (h) { return h.textContent; });
+      check('its menu is the quick panel’s: Auto, then each account with its models', /Auto/.test(opts[0].textContent) && heads.length > 0 && opts.length > heads.length, heads.join(', '));
+      note('accounts in the menu: ' + heads.join(', '));
+      var picked = opts[1];
       var saves = calls('save_config').length;
-      told().value = mine;
-      told().dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      told().dispatchEvent(new FocusEvent('blur'));
+      picked.click();
+      await until(function () { return calls('save_config').length > saves; }, 3000, 'picking an account saved nothing');
+      var chosen = calls('save_config')[saves][1].config.reviews;
+      check('picking an account saves it as the reviewer, on the line’s model', chosen.account === heads[0] && typeof chosen.model === 'string', JSON.stringify(chosen));
+      // What's typed goes in as React takes typing, and is kept as the box loses the keyboard.
+      var mine = 'Start two subagents, one on Opus and one on Sonnet, and combine what they find.';
+      var type = function (el, text) {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      check('with nothing to go back to yet', !all('.ca-linkbtn', agentBox()).some(function (b) { return /Codealong’s instructions/.test(b.textContent); }), '');
+      saves = calls('save_config').length;
+      told().focus();
+      type(told(), mine);
+      told().blur();
       await until(function () { return calls('save_config').length > saves; }, 3000, 'writing instructions saved nothing');
       check('instructions of your own are saved', calls('save_config')[saves][1].config.reviews.prompt === mine, JSON.stringify(calls('save_config')[saves][1].config.reviews));
-      var back = function () { return all('.ca-settings-add').filter(function (b) { return /Codealong’s instructions/.test(b.textContent); })[0]; };
+      var back = function () { return all('.ca-linkbtn', agentBox()).filter(function (b) { return /Codealong’s instructions/.test(b.textContent); })[0]; };
       await until(function () { return !!back(); }, 3000, 'no way back to Codealong’s instructions');
       saves = calls('save_config').length;
       back().click();

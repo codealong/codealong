@@ -1,5 +1,5 @@
 //! Reviewing the pull requests that wait on your review without being asked, when config.toml
-//! says to (`[reviews] auto`, Settings › Accounts). Every board the engine publishes is looked
+//! says to (`[reviews] auto`, Settings › Automation). Every board the engine publishes is looked
 //! at for open PRs that ask for your review, aren't yours and aren't drafts. Each is reviewed in a
 //! session of its own for that PR, on `[reviews] account` and `model` (else the account Auto would
 //! start, on its own model), out of sight, started in the worktree that holds the PR's branch,
