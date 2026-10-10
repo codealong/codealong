@@ -49,7 +49,13 @@ const PING_EVERY: Duration = Duration::from_secs(25);
 /// Feeds go out at most this often, and a board is read this long after it changed, when the
 /// engine has put it where `Hooks::board` reads.
 const FEED_EVERY: Duration = Duration::from_secs(1);
+/// A phone's or a tablet's go out this often: it's open while someone looks at it, waiting to see
+/// a message they sent taken, and it's sent only what changed. About as often as the engine
+/// publishes.
+const WATCHER_FEED_EVERY: Duration = Duration::from_millis(250);
 const SETTLE: Duration = Duration::from_millis(150);
+/// The feeder looks at least this often for streams, the view and the cache.
+const FEEDER_WAIT: Duration = Duration::from_millis(200);
 const VIEW_EVERY: Duration = Duration::from_millis(300);
 const CACHE_EVERY: Duration = Duration::from_secs(60);
 const TAILNET_EVERY: Duration = Duration::from_secs(20);
@@ -290,6 +296,9 @@ struct Conn {
     outbox: Outbox,
     /// What it knows beyond version 1, from its hello (`peerproto::KNOWS`).
     knows: Vec<String>,
+    /// The board (`State::boards`) its last feed was cut from, and when a feed last went to it.
+    fed_board: u64,
+    fed_at: Option<Instant>,
 }
 
 struct Ask {
@@ -306,9 +315,10 @@ struct State {
     /// The project this device's own worktrees of each repo are in (`repos_here`).
     repos_here: HashMap<String, String>,
     error: Option<String>,
-    board_dirty: bool,
+    /// Goes up with every board the engine publishes, and whenever every device should be sent
+    /// what changed; a connection whose last feed is from an earlier one is behind.
+    boards: u64,
     board_at: Option<Instant>,
-    fed_at: Option<Instant>,
     linked: Vec<Linked>,
     conns: HashMap<String, Conn>,
     replicas: HashMap<String, Cached>,
@@ -398,7 +408,7 @@ impl Peers {
         }
         let here = repos_here(&board.lanes);
         let mut st = self.0.lock();
-        st.board_dirty = true;
+        st.boards += 1;
         st.board_at = Some(Instant::now());
         if st.projects != board.project_rules || st.repos_here != here {
             st.projects = board.project_rules.clone();
@@ -415,7 +425,7 @@ impl Peers {
         let mut st = inner.lock();
         let before = std::mem::replace(&mut st.cfg, cfg.clone());
         st.view_dirty = true;
-        st.board_dirty = true;
+        st.boards += 1;
         let transports = |c: &DevicesCfg| (c.enabled, c.tailscale, c.iroh, c.port);
         if transports(&before) == transports(cfg) && st.error.is_none() {
             drop(st);
@@ -756,7 +766,7 @@ impl Inner {
             c.outbox.restart();
         }
         // The new device gets a whole feed at once.
-        st.board_dirty = true;
+        st.boards += 1;
         st.board_at = None;
         st.view_dirty = true;
         Ok(())
@@ -926,24 +936,23 @@ fn repos_here(lanes: &[Lane]) -> HashMap<String, String> {
     here
 }
 
-/// Turns board changes into feeds, at most once a second, and hands the windows the view.
+/// Turns board changes into feeds, at most once a second for a Mac and more often for a phone
+/// (`feed_every`), and hands the windows the view.
 fn feed_loop(inner: Arc<Inner>) {
     let mut st = inner.lock();
+    let mut wait = FEEDER_WAIT;
     loop {
-        st = inner.wake.wait_timeout(st, Duration::from_millis(200)).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
+        st = inner.wake.wait_timeout(st, wait).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
         let now = Instant::now();
 
-        let wants_feed = st.cfg.enabled && st.conns.keys().any(|k| Inner::is_linked(&st, k));
-        let settled = st.board_at.is_none_or(|t| now.duration_since(t) >= SETTLE);
-        let spaced = st.fed_at.is_none_or(|t| now.duration_since(t) >= FEED_EVERY);
-        if st.board_dirty && wants_feed && settled && spaced {
-            st.board_dirty = false;
-            st.fed_at = Some(now);
+        let due: Vec<String> = if st.cfg.enabled { feeds_behind(&st).into_iter().filter(|(_, at)| at.is_none_or(|t| t <= now)).map(|(k, _)| k).collect() } else { Vec::new() };
+        if !due.is_empty() {
+            let boards = st.boards;
             drop(st);
             let board = (inner.hooks.board)();
             st = inner.lock();
             let snap = peerfeed::snapshot(&board, inner.device_info(&st, &board));
-            send_feeds(&mut st, &snap);
+            send_feeds(&mut st, &snap, &due, boards, now);
         }
 
         if !st.streams.is_empty() && st.streamed_at.is_none_or(|t| now.duration_since(t) >= STREAM_EVERY) {
@@ -977,16 +986,48 @@ fn feed_loop(inner: Arc<Inner>) {
             save_cache(&inner.dir, &cache);
             st = inner.lock();
         }
+
+        // Woken when the next feed is due, rather than at the next look after it.
+        let next = if st.cfg.enabled { feeds_behind(&st).into_iter().filter_map(|(_, at)| at).min() } else { None };
+        wait = next.map_or(FEEDER_WAIT, |t| t.saturating_duration_since(Instant::now()).clamp(Duration::from_millis(5), FEEDER_WAIT));
     }
 }
 
-fn send_feeds(st: &mut State, snap: &Snapshot) {
+/// The linked devices that heard back and whose last feed is from an earlier board, each with
+/// when its next may go (None: now).
+fn feeds_behind(st: &State) -> Vec<(String, Option<Instant>)> {
+    st.conns
+        .iter()
+        .filter(|(k, c)| c.heard && c.fed_board != st.boards && Inner::is_linked(st, k))
+        .map(|(k, c)| (k.clone(), feed_due(st.board_at, c.fed_at, feed_every(c.kind.as_deref()))))
+        .collect()
+}
+
+/// When a device's next feed may go, None for now: once the board has settled, and `every`
+/// after the last one that went to it.
+fn feed_due(board_at: Option<Instant>, fed_at: Option<Instant>, every: Duration) -> Option<Instant> {
+    board_at.map(|t| t + SETTLE).max(fed_at.map(|t| t + every))
+}
+
+/// How often a device of this kind, as its hello said, is sent a feed.
+fn feed_every(kind: Option<&str>) -> Duration {
+    if peerproto::watches(kind) {
+        WATCHER_FEED_EVERY
+    } else {
+        FEED_EVERY
+    }
+}
+
+/// Sends `snap`, cut from board `boards`, to the devices in `to`: each what changed since its
+/// last feed. One that had nothing new can have the next one as soon as it's due.
+fn send_feeds(st: &mut State, snap: &Snapshot, to: &[String], boards: u64, now: Instant) {
     let linked: HashSet<String> = st.linked.iter().map(|l| l.key.clone()).collect();
-    for (key, conn) in st.conns.iter_mut() {
-        if linked.contains(key) && conn.heard {
-            if let Some(msg) = conn.outbox.next(snap) {
-                let _ = conn.tx.send(Msg::Feed(msg));
-            }
+    for key in to {
+        let Some(conn) = st.conns.get_mut(key).filter(|c| c.heard && linked.contains(key)) else { continue };
+        conn.fed_board = boards;
+        if let Some(msg) = conn.outbox.next(snap) {
+            let _ = conn.tx.send(Msg::Feed(msg));
+            conn.fed_at = Some(now);
         }
     }
 }
@@ -1083,12 +1124,12 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
                     }
                 });
             }
-            st.board_dirty = true;
+            st.boards += 1;
             st.board_at = None;
         }
         // A device that knows how gets only what changed since its copy of this one's last feed.
         let resume = (linked && knows.iter().any(|k| k == peerproto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
-        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows });
+        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });
         st.view_dirty = true;
         if let Some(lanes) = resume {
             let _ = tx.send(Msg::Have { lanes });
@@ -1211,7 +1252,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
             }
             // Its first feed was waiting for this.
             if Inner::is_linked(&st, key) {
-                st.board_dirty = true;
+                st.boards += 1;
                 st.board_at = None;
             }
             st.view_dirty = true;
@@ -1672,6 +1713,23 @@ mod tests {
         let (accepted, _) = l.accept().unwrap();
         mac.peers.attach(Wire::tcp(accepted).unwrap(), Via::Test, false, None, None, None);
         Wire::tcp(dialer).unwrap()
+    }
+
+    #[test]
+    fn a_phone_is_fed_sooner_than_a_mac_once_the_board_settles() {
+        let t = Instant::now();
+        // Nothing went to it yet: once the board settles, or at once when a feed was asked for
+        // (a device just linked).
+        assert_eq!(feed_due(Some(t), None, FEED_EVERY), Some(t + SETTLE));
+        assert_eq!(feed_due(None, None, FEED_EVERY), None);
+        // A feed went to it just before the board changed: a Mac waits a second after that one,
+        // a phone or a tablet a quarter.
+        let fed = t - Duration::from_millis(50);
+        assert_eq!(feed_due(Some(t), Some(fed), feed_every(Some(peerproto::MAC))), Some(fed + FEED_EVERY));
+        assert_eq!(feed_due(Some(t), Some(fed), feed_every(Some(peerproto::PHONE))), Some(fed + WATCHER_FEED_EVERY));
+        assert_eq!(feed_every(Some(peerproto::TABLET)), WATCHER_FEED_EVERY);
+        // A device from before hellos said what it is is a Mac.
+        assert_eq!(feed_every(None), FEED_EVERY);
     }
 
     #[test]
