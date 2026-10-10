@@ -91,7 +91,7 @@
     });
   };
 
-  var rowsButton = function (label) { return all('.ca-sessionbar button').filter(function (b) { return b.textContent === label; })[0]; };
+  var rowsButton = function (label) { return document.querySelector('.ca-sessionbar button[aria-label="' + label + '"]'); };
   var sessionRows = function () { return all('.ca-sessionlist .ca-lane.is-agent').filter(shown); };
   var sessions = function () {
     var rows = sessionRows();

@@ -50,17 +50,18 @@ chip, and the last chips drop out whole.
 
 ### Sessions
 
-Every session in one list, with no headings. Pinned ones come first in your order (drag or ⌃⌘↑ ⌃⌘↓),
-each with a pin under its age, set a little apart from the rest. Drag any session up among them to
-pin it there, and a pinned one down to the rest to unpin it. Sort by, in the bar over the list,
-orders the rest. Status puts Needs you, Your turn and Working first, as the floating bar orders
-them, then the ones you snoozed, the soonest back first, then the rest by the day they were last
-active, the one you last sent a prompt first. Started puts the newest session first, and each row's
-age then says when it started. A row leads with the session's title, then what it's doing or said
-last; one that needs you has a label beside its title for what it waits on (Asks you, Needs
-approval, Message, Stuck, Error). Its second line says where and why: its worktree, its todo and
-Jev's read, then its account, with the worktree's PR and diff at the right. Rows, beside Sort by,
-puts each session on one line instead (its title, then its worktree and PR at the line's end); there
+Every session, under headings as the other views have them. Pinned ones come first in your order
+(drag or ⌃⌘↑ ⌃⌘↓), each with a pin under its age. Drag any session up among them to pin it there,
+and a pinned one down to the rest to unpin it. The bar over the list has two groups of icon buttons,
+each named in its tooltip. Sort by orders the rest: Status puts Needs you, Your turn and Working
+first, as the floating bar orders them, then Snoozed, the soonest back first, then the rest under
+the day they were last active (Today, Yesterday, Last 7 days, Older), the one you last sent a prompt
+first. Started puts the newest session first, under the day it started, and each row's age then
+says when it started. A row leads with the session's title, then what it's doing or said last; one
+that needs you has a label beside its title for what it waits on (Asks you, Needs approval,
+Message, Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
+then its account, with the worktree's PR and diff at the right. Rows, after Sort by, puts each
+session on one line instead (its title, then its worktree and PR at the line's end); there
 its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box

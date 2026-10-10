@@ -1,27 +1,17 @@
-/* The Sessions view (SessionsView.tsx): the bar over the list, archived rows, pinned rows and pin marks. */
+/* The Sessions view (SessionsView.tsx): the bar over the list, archived rows and pin marks. Its
+   headings are the other views' (`.ca-bay`, `.ca-bayblock` in styles/rows.css). */
 
 .ca-archived .ca-lane {
   opacity: 0.8;
 }
 
-/* Sessions is one list with no headings: a strip of ground sets the pinned rows at its top
-   apart from the rest, and each carries a solid pin, where no Pinned heading says so. */
-.ca-sessionlist .ca-lane.is-pinned + .ca-lane:not(.is-pinned) {
-  margin-top: var(--space-1);
-  border-top: 1px solid var(--line);
-}
-.ca-sessionlist .ca-pinmark {
-  color: var(--ink-2);
-}
-.ca-sessionlist .ca-pinmark path:first-child {
-  fill: currentColor;
-}
-
-/* The bar over the list (`SessionsBar`): how it's sorted and how much a row says, each a group of
-   buttons after its name. It's drawn as the strip over a session's panel is, on sunken ground,
-   and stays at the top of the board while the list scrolls under it. As tall as that strip (31px
-   with its line), so the two lines meet across the window. Short of room, the second group goes
-   to a line of its own. */
+/* The bar over the list (`SessionsBar`): how it's sorted and how much a row says, two groups of
+   icon buttons. It's drawn as the strip over a session's panel is, on sunken ground, and stays
+   at the top of the board while the list scrolls under it. As tall as that strip (31px with its
+   line), so the two lines meet across the window. Its ground reaches 2px above it: stuck, WebKit
+   places it on its own layer, and at a zoom like 110% the board's top edge falls between device
+   pixels, so a row could show through a pixel above it. Unstuck, the board's edge clips that
+   off. */
 .ca-sessionbar {
   position: sticky;
   top: 0;
@@ -33,27 +23,15 @@
   padding: 3px var(--space-3);
   border-bottom: 1px solid var(--line);
   background: var(--surface-sunken);
-}
-.ca-sessionbar-label {
-  color: var(--ink-3);
-  font: var(--type-caption);
-}
-.ca-sessionbar-seg + .ca-sessionbar-label {
-  margin-left: var(--space-3);
+  box-shadow: 0 -2px 0 var(--surface-sunken);
 }
 .ca-sessionbar .ca-segctl button {
+  justify-content: center;
+  width: 28px;
   height: 20px;
-  padding: 0 var(--space-2);
-  font: var(--type-caption-strong);
+  padding: 0;
 }
 /* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height. */
 .ca-board:has(> .ca-sessionbar) {
   scroll-padding-top: 31px;
-}
-/* The list starts right under the bar, whose line is its top edge. */
-.ca-bayblock.ca-sessionlist {
-  margin-top: 0;
-}
-.ca-sessionlist > .ca-bay-lanes {
-  border-top: 0;
 }

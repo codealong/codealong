@@ -418,6 +418,30 @@ export const ICONS: Record<string, string[]> = {
   "M12 8l0 4l2 2",
   "M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"
  ],
+ "sort-descending-shapes": [
+  "M4 15l3 3l3 -3",
+  "M7 6v12",
+  "M14 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-4",
+  "M17 4l-3.5 6h7l-3.5 -6"
+ ],
+ "sort-descending-numbers": [
+  "M4 15l3 3l3 -3",
+  "M7 6v12",
+  "M17 14a2 2 0 0 1 2 2v3a2 2 0 1 1 -4 0v-3a2 2 0 0 1 2 -2",
+  "M15 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+  "M19 5v3a2 2 0 0 1 -2 2h-1.5"
+ ],
+ "baseline-density-medium": [
+  "M4 20h16",
+  "M4 12h16",
+  "M4 4h16"
+ ],
+ "baseline-density-small": [
+  "M4 3h16",
+  "M4 9h16",
+  "M4 15h16",
+  "M4 21h16"
+ ],
  "picture-in-picture-on": [
   "M11 19h-6a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v4",
   "M14 15a1 1 0 0 1 1 -1h5a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-5a1 1 0 0 1 -1 -1l0 -3",

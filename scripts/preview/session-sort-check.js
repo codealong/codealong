@@ -1,7 +1,8 @@
-// Checks the Sessions list (SessionsView.tsx, App.tsx): one list with no headings, pinned rows
-// first, each with its pin, and a drag still reorders them; Sort by, in the bar over the list,
-// switches between status and start and remembers it. The bar stays at the top as the list
-// scrolls, and shows only in Sessions; the sidebar has no Sort by.
+// Checks the Sessions list (SessionsView.tsx, App.tsx): Pinned first, each with its pin, and a
+// drag still reorders them; the rest under the headings the other views have, by status or by
+// the day they started. Sort by, icon buttons in the bar over the list, switches between status
+// and start and remembers it. The bar stays at the top as the list scrolls, and shows only in
+// Sessions; the sidebar has no Sort by.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
 // It pins three of the shown project's latest sessions itself, in place of yours.
 (function () {
@@ -27,7 +28,18 @@
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessionlist .ca-lane')); };
   var ids = function () { return rows().map(function (r) { return r.id; }).join(','); };
   var sortButton = function (label) {
-    return Array.prototype.filter.call(document.querySelectorAll('.ca-sessionbar button'), function (b) { return b.textContent === label; })[0];
+    return document.querySelector('.ca-sessionbar button[aria-label="' + label + '"]');
+  };
+  // Each heading's words without its count, in the list's order.
+  var headings = function () {
+    return Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bay'), function (h) { return h.querySelector('span').textContent; });
+  };
+  var STATUS_HEADS = ['Pinned', 'Needs you', 'Your turn', 'Working', 'Snoozed', 'Today', 'Yesterday', 'Last 7 days', 'Older'];
+  var DAY_HEADS = ['Pinned', 'Today', 'Yesterday', 'Last 7 days', 'Older'];
+  // In that order, each once, none left out but those with nothing under them.
+  var inOrderOf = function (heads, order) {
+    var at = heads.map(function (h) { return order.indexOf(h); });
+    return at.every(function (i, n) { return i >= 0 && (n === 0 || i > at[n - 1]); });
   };
   var nav = function (label) {
     return Array.prototype.filter.call(document.querySelectorAll('.ca-side .ca-nav'), function (b) { var l = b.querySelector('.ca-nav-label'); return l && l.textContent === label; })[0];
@@ -54,14 +66,17 @@
         check('a row scrolled to shows under the bar, not behind it', second.getBoundingClientRect().top >= bar.getBoundingClientRect().bottom - 1, 'row ' + Math.round(second.getBoundingClientRect().top) + ', bar ends ' + Math.round(bar.getBoundingClientRect().bottom));
       }
       board.scrollTop = 0;
-      var headings = Array.prototype.filter.call(document.querySelectorAll('.ca-board .ca-bay'), function (h) { return !h.closest('.ca-archived'); });
-      check('no headings over the list', headings.length === 0, headings.map(function (h) { return h.textContent; }).join(' | '));
+      var sortIcons = Array.prototype.map.call(document.querySelectorAll('.ca-sessionbar button'), function (b) { return !!b.querySelector('svg') && !b.textContent.trim() && !!b.getAttribute('aria-label') && !!b.title; });
+      check('the bar’s buttons are icons, each named and with a tooltip', sortIcons.length === 4 && sortIcons.every(Boolean), sortIcons.join(','));
+      check('headings by status, Pinned first, as the other views head them', headings()[0] === 'Pinned' && inOrderOf(headings(), STATUS_HEADS), headings().join(' | '));
+      var counts = Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bayblock'), function (b) { return Number(b.querySelector('.ca-bay-count').textContent) === b.querySelectorAll('.ca-lane').length; });
+      check('each heading counts the rows under it', counts.length > 1 && counts.every(Boolean));
       var all = rows();
       var pinned = all.filter(function (r) { return r.classList.contains('is-pinned'); });
       check('pinned rows first', pinned.length >= 2 && pinned.every(function (r, i) { return all[i] === r; }), pinned.length + ' pinned');
       check('each pinned row has its pin', pinned.every(function (r) { return !!r.querySelector('.ca-pinmark'); }) && all.slice(pinned.length).every(function (r) { return !r.querySelector('.ca-pinmark'); }));
       var after = all[pinned.length];
-      check('the rest start a little apart', !after || parseFloat(getComputedStyle(after).marginTop) > 0);
+      check('the rest are under headings of their own', !after || after.closest('.ca-bayblock') !== pinned[0].closest('.ca-bayblock'));
 
       // Drag the first pinned row below the last: it becomes the last pin.
       var first = pinned[0];
@@ -92,6 +107,7 @@
       sortButton('Started').click();
       return until(function () { return ids() !== before; }, 2000).then(function () {
         check('Started reorders the list', true);
+        check('under the days they started', inOrderOf(headings(), DAY_HEADS), headings().join(' | '));
         check('and is remembered', localStorage.getItem('codealong.sessionSort') === 'started');
         var nowPinned = rows().filter(function (r) { return r.classList.contains('is-pinned'); });
         check('pinned rows stay first', nowPinned.every(function (r, i) { return rows()[i] === r; }));

@@ -323,7 +323,7 @@ export function App() {
     recentLanes,
     shownSessionCount,
     pinnedRows,
-    sessionList,
+    sessionSecs,
     sessionRows,
     waitingRows,
     pinnedLaneRows,
@@ -1562,7 +1562,7 @@ export function App() {
             {view === 'sessions' && (
               <SessionsView
                 pinned={pinnedRows}
-                rows={sessionList}
+                sections={sessionSecs}
                 sort={sessionSort}
                 lines={sessionLines}
                 now={now}

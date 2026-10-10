@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { Session } from '../types';
-import { sortSessions, waitingQueue, type SessionItem } from './SessionsView';
+import { sessionSections, sortSessions, waitingQueue, type SessionItem, type SessionSection } from './SessionsView';
 
 const item = (key: string, lastActivity: number, status: Session['status'] = 'idle', lastPromptAt = lastActivity, statusSince: number | null = null, startedAt: number | null = null): SessionItem => ({
   kind: 'agent',
@@ -78,6 +78,38 @@ describe('sortSessions by start', () => {
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
     const rows = [item('known', at(24, 14), 'idle', at(24, 14), null, at(22, 9)), item('unknown', at(24, 10), 'idle', at(23, 9))];
     expect(keys(sortSessions(rows, 'started', now))).toEqual(['unknown', 'known']);
+  });
+});
+
+describe('sessionSections', () => {
+  const now = new Date(2026, 8, 24, 15, 0).getTime();
+  const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+  const heads = (sections: SessionSection[]) => sections.map((s) => `${s.label} ${keys(s.rows).join(',')}`);
+
+  it('heads the status order as the other views do, leaving out headings with nothing under them', () => {
+    const later = item('later', at(24, 12), 'needs', at(24, 11), at(24, 12));
+    const rows = [
+      item('old', at(10, 9)),
+      item('busy', at(24, 14), 'working', at(24, 14), at(24, 14)),
+      item('blocked', at(24, 12), 'needs', at(24, 11), at(24, 12)),
+      { ...later, session: { ...later.session, snoozedUntil: at(24, 18) } },
+      item('today', at(24, 14)),
+    ];
+    const sections = sessionSections(rows, 'status', now);
+    expect(heads(sections)).toEqual(['Needs you blocked', 'Working busy', 'Snoozed later', 'Today today', 'Older old']);
+    // What wants you or runs heads as a bay does; the rest as a section.
+    expect(sections.map((s) => s.bay ?? s.icon ?? null)).toEqual(['needs', 'working', 'zzz', null, null]);
+    expect(keys(sortSessions(rows, 'status', now))).toEqual(sections.flatMap((s) => keys(s.rows)));
+  });
+
+  it('heads the start order by the day each started, whatever its status', () => {
+    const rows = [
+      item('old-busy', at(24, 14), 'working', at(24, 14), at(24, 14), at(20, 9)),
+      item('new-idle', at(24, 13), 'idle', at(24, 13), null, at(24, 13)),
+      item('yday', at(24, 12), 'needs', at(24, 11), at(24, 12), at(23, 9)),
+      item('long-ago', at(24, 10), 'idle', at(24, 10), null, at(2, 9)),
+    ];
+    expect(heads(sessionSections(rows, 'started', now))).toEqual(['Today new-idle', 'Yesterday yday', 'Last 7 days old-busy', 'Older long-ago']);
   });
 });
 

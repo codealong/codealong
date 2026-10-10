@@ -14,7 +14,7 @@ import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type Todo
 import type { Bay, Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem } from './ui/PrsView';
-import { sortSessions, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
 
 const ELSEWHERE = 'Elsewhere';
 
@@ -304,7 +304,8 @@ export function useBoardLists(input: ListsInput) {
   const shownSessions = useMemo(() => shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter), [sessionItems, cutoff, sessionPins.set, query, filter]);
   const shownSessionCount = useMemo(() => recentSessionCount(sessionItems, cutoff, sessionPins.set), [sessionItems, cutoff, sessionPins.set]);
   const pinnedRows = useMemo(() => inPinOrder(shownSessions, sessionPins.keys, (r) => r.session.key), [shownSessions, sessionPins.keys]);
-  const sessionList = useMemo(() => sortSessions(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), sessionSort, now), [shownSessions, sessionPins.set, sessionSort, now]);
+  const sessionSecs = useMemo(() => sessionSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), sessionSort, now), [shownSessions, sessionPins.set, sessionSort, now]);
+  const sessionList = useMemo(() => sessionSecs.flatMap((s) => s.rows), [sessionSecs]);
   const sessionRows = useMemo<ListRow[]>(() => [...pinnedRows, ...sessionList, ...(showArchived ? archivedItems : [])], [pinnedRows, sessionList, showArchived, archivedItems]);
   // What waits on you, for working through it from a session's panel (useWaitingQueue.ts).
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
@@ -368,7 +369,7 @@ export function useBoardLists(input: ListsInput) {
     shownSessions,
     shownSessionCount,
     pinnedRows,
-    sessionList,
+    sessionSecs,
     sessionRows,
     waitingRows,
     pinnedLaneRows,

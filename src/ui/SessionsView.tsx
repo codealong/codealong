@@ -1,17 +1,18 @@
-// The Sessions view: every session in the project in one list, pinned ones first in your order
-// and marked with a pin. The rest go by status, as the floating bar orders them, or by when they
-// started, as the bar over the list picks, which also picks two lines a row or one
-// (`SessionsBar`). Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder; drag any session up
-// among them to pin it there, a pinned one down to unpin it, and any out of the window to pin it
-// to the desktop (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze,
-// close, mark done or archive together (picks.ts, SessionPickPanel.tsx).
+// The Sessions view: every session in the project, Pinned first in your order, each with a pin.
+// The rest go by status under the headings the other views have (Needs you, Your turn, Working,
+// Snoozed, then the days they were last active), or by when they started, under the days they
+// started; the bar over the list picks which, and two lines a row or one (`SessionsBar`). Drag a
+// pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder; drag any session up among them to pin it there,
+// a pinned one down to unpin it, and any out of the window to pin it to the desktop
+// (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze, close,
+// mark done or archive together (picks.ts, SessionPickPanel.tsx).
 
-import { useId } from 'react';
 import { bySession, byStatusTime, startedOf } from '../lanes';
 import type { SelectHow } from '../picks';
-import type { DesktopPinned, Lane, Session, Status, Todo } from '../types';
+import type { Bay, DesktopPinned, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
-import { SectionHeader, Seg } from './primitives';
+import { PinnedSection } from './PinnedSection';
+import { BAY_WORD, BayHeader, SectionHeader, Seg } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface SessionItem {
@@ -24,25 +25,35 @@ export interface SessionItem {
 /** How the sessions that aren't pinned are ordered. */
 export type SessionSort = 'status' | 'started';
 
-export const SESSION_SORTS: { id: SessionSort; label: string; title: string }[] = [
-  { id: 'status', label: 'Status', title: 'What needs you first, then your turns, working agents and snoozed ones, then the rest by when they were last active' },
-  { id: 'started', label: 'Started', title: 'The newest session first' },
+export const SESSION_SORTS: { id: SessionSort; label: string; icon: string; title: string }[] = [
+  { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: what needs you first, then your turns, working agents and snoozed ones, then the rest by the day they were last active' },
+  { id: 'started', label: 'Started', icon: 'sort-descending-numbers', title: 'Sort by start: the newest session first, under the day it started' },
 ];
 
 /** How much each session's row says: where it runs, its todo and its account on a second line,
  *  or one line with its worktree and PR at the end. */
 export type SessionRows = 'two' | 'one';
 
-export const SESSION_ROWS: { id: SessionRows; label: string; title: string }[] = [
-  { id: 'two', label: 'Two lines', title: 'Under each session: its worktree, todo, account, PR and diff' },
-  { id: 'one', label: 'One line', title: 'Each session on one line, with its worktree and PR at the end' },
+export const SESSION_ROWS: { id: SessionRows; label: string; icon: string; title: string }[] = [
+  { id: 'two', label: 'Two lines', icon: 'baseline-density-medium', title: 'Two lines: under each session, its worktree, todo, account, PR and diff' },
+  { id: 'one', label: 'One line', icon: 'baseline-density-small', title: 'One line: each session with its worktree and PR at the end' },
 ];
 
+/** A heading in the list and the sessions under it. The ones for what wants you or is running
+ *  head as the Worktrees view's bays do; the rest as its other sections. */
+export interface SessionSection {
+  id: string;
+  label: string;
+  bay?: Bay;
+  icon?: string;
+  rows: SessionItem[];
+}
+
 /** The bar's groups, most urgent first: what needs you, turns that ended, then running agents. */
-const ATTENTION: { statuses: Status[]; queue: boolean }[] = [
-  { statuses: ['needs', 'error'], queue: true },
-  { statuses: ['unread'], queue: true },
-  { statuses: ['working'], queue: false },
+const ATTENTION: { bay: Bay; statuses: Status[]; queue: boolean }[] = [
+  { bay: 'needs', statuses: ['needs', 'error'], queue: true },
+  { bay: 'unread', statuses: ['unread'], queue: true },
+  { bay: 'working', statuses: ['working'], queue: false },
 ];
 
 /** Snoozed and not running: it waits apart until its time, as on the floating bar. A running
@@ -63,16 +74,15 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
   return ATTENTION.filter((g) => g.queue).flatMap(({ statuses }) => rows.filter(inGroup(statuses)).sort(byGroupTime));
 }
 
-/**
- * The sessions in `sort`'s order. By status: Needs you, Your turn and Working first, in the
- * floating bar's order (each the longest first), then Snoozed, the soonest back first, then the rest by the local day they were last
- * active, each day the one you last sent a prompt first. By start: the newest first.
- */
-export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number): SessionItem[] {
-  if (sort === 'started') return [...rows].sort((a, b) => startedOf(b.session) - startedOf(a.session) || a.key.localeCompare(b.key));
-  const attention = ATTENTION.flatMap(({ statuses }) => rows.filter(inGroup(statuses)).sort(byGroupTime));
-  const until = (r: SessionItem) => r.session.snoozedUntil ?? 0;
-  const snoozed = rows.filter((r) => snoozedApart(r.session)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key));
+const DAYS = [
+  { id: 'today', label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: 'week', label: 'Last 7 days' },
+  { id: 'older', label: 'Older' },
+];
+
+/** `rows`, already in order, under Today, Yesterday, Last 7 days and Older, by `at` in local time. */
+function byDay(rows: SessionItem[], at: (r: SessionItem) => number, now: number): SessionSection[] {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const daysBack = (n: number) => {
@@ -80,40 +90,54 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
     d.setDate(d.getDate() - n);
     return d.getTime();
   };
-  // Today, yesterday, the last 7 days, older.
   const [t0, t1, t6] = [today.getTime(), daysBack(1), daysBack(6)];
   const day = (r: SessionItem) => {
-    const t = r.session.lastActivity;
+    const t = at(r);
     return t >= t0 ? 0 : t >= t1 ? 1 : t >= t6 ? 2 : 3;
   };
-  const rest = rows
-    .filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status)))
-    .sort((a, b) => day(a) - day(b) || bySession(a.session, b.session));
-  return [...attention, ...snoozed, ...rest];
+  return DAYS.map((d, i) => ({ ...d, rows: rows.filter((r) => day(r) === i) }));
+}
+
+/**
+ * The sessions under their headings, in `sort`'s order; a heading with none under it is left out.
+ * By status: Needs you, Your turn and Working first, in the floating bar's order (each the longest
+ * first), then Snoozed, the soonest back first, then the rest under the local day they were last
+ * active, each day the one you last sent a prompt first. By start: under the day each started,
+ * the newest first.
+ */
+export function sessionSections(rows: SessionItem[], sort: SessionSort, now: number): SessionSection[] {
+  if (sort === 'started') {
+    const newest = [...rows].sort((a, b) => startedOf(b.session) - startedOf(a.session) || a.key.localeCompare(b.key));
+    return byDay(newest, (r) => startedOf(r.session), now).filter((s) => s.rows.length > 0);
+  }
+  const attention = ATTENTION.map(({ bay, statuses }) => ({ id: bay, label: BAY_WORD[bay], bay, rows: rows.filter(inGroup(statuses)).sort(byGroupTime) }));
+  const until = (r: SessionItem) => r.session.snoozedUntil ?? 0;
+  const snoozed = { id: 'snoozed', label: 'Snoozed', icon: 'zzz', rows: rows.filter((r) => snoozedApart(r.session)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key)) };
+  const rest = rows.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status))).sort((a, b) => bySession(a.session, b.session));
+  return [...attention, snoozed, ...byDay(rest, (r) => r.session.lastActivity, now)].filter((s) => s.rows.length > 0);
+}
+
+/** The sessions in `sort`'s order, as their headings list them: the order the keyboard goes in. */
+export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number): SessionItem[] {
+  return sessionSections(rows, sort, now).flatMap((s) => s.rows);
 }
 
 /** The bar over the list, outside its listbox: how the list is sorted and how much each row
- *  says. It stays at the top while the list scrolls under it. */
+ *  says, as two groups of icon buttons, each named by its tooltip. It stays at the top while the
+ *  list scrolls under it. */
 export function SessionsBar({ sort, onSort, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; lines: SessionRows; onLines: (lines: SessionRows) => void }) {
-  const id = useId();
   return (
     <div className="ca-sessionbar" role="toolbar" aria-label="How Sessions is listed">
-      <span className="ca-sessionbar-label" id={`${id}-sort`}>
-        Sort by
-      </span>
-      <Seg className="ca-sessionbar-seg" labelledBy={`${id}-sort`} options={SESSION_SORTS} value={sort} onPick={onSort} />
-      <span className="ca-sessionbar-label" id={`${id}-rows`}>
-        Rows
-      </span>
-      <Seg className="ca-sessionbar-seg" labelledBy={`${id}-rows`} options={SESSION_ROWS} value={lines} onPick={onLines} />
+      <Seg className="ca-sessionbar-seg" label="Sort by" look="icon" iconSize={16} options={SESSION_SORTS} value={sort} onPick={onSort} />
+      <Seg className="ca-sessionbar-seg" label="Rows" look="icon" iconSize={16} options={SESSION_ROWS} value={lines} onPick={onLines} />
     </div>
   );
 }
 
 interface SessionsViewProps {
   pinned: SessionItem[];
-  /** The rest, in `sort`'s order. */
-  rows: SessionItem[];
+  /** The rest under their headings, in `sort`'s order. */
+  sections: SessionSection[];
   /** Sorted by start, the rows show when each started where they'd show when it was last active. */
   sort: SessionSort;
   /** Two lines a session, or one. */
@@ -150,8 +174,8 @@ interface SessionsViewProps {
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, rows, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
-  const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? rows.find((r) => r.session.key === key);
+  const { pinned, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
+  const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -189,15 +213,18 @@ export function SessionsView(props: SessionsViewProps) {
 
   return (
     <>
-      {pinned.length + rows.length > 0 && (
-        <section className="ca-bayblock ca-sessionlist">
-          <div className="ca-bay-lanes" data-drag-list>
-            {/* The first pin lands at the top of the list. */}
-            {pinned.length === 0 && drag.dropIndex === 0 && <div className="ca-dropline" />}
-            {pinned.map((r, i) => row(r, i, drag.rowProps(r.session.key, i, pinned.length)))}
-            {rows.map((r) => row(r, null, drag.rowProps(r.session.key, null, pinned.length)))}
-          </div>
-        </section>
+      {pinned.length + sections.length > 0 && (
+        <div className="ca-sessionlist" data-drag-list>
+          {/* The first pin lands at the top of the list. */}
+          {pinned.length === 0 && drag.dropIndex === 0 && <div className="ca-dropline" />}
+          {pinned.length > 0 && <PinnedSection items={pinned} row={(r, i) => row(r, i, drag.rowProps(r.session.key, i, pinned.length))} />}
+          {sections.map((s) => (
+            <section key={s.id} className="ca-bayblock">
+              {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} /> : <SectionHeader icon={s.icon} label={s.label} count={s.rows.length} />}
+              <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null, drag.rowProps(r.session.key, null, pinned.length)))}</div>
+            </section>
+          ))}
+        </div>
       )}
       {archived.length > 0 && (
         <section className="ca-bayblock ca-archived">

@@ -1,6 +1,6 @@
-// The Pinned section at the top of the Worktrees and PRs views: rows in your order. Drag one, or
-// press ⌃⌘↑ ⌃⌘↓, to move it; drag any other row up here to pin it, and one of these down to the
-// list to unpin it (useRowDrag.tsx). Sessions has no headings: its pinned rows lead its one list.
+// The Pinned section at the top of the Sessions, Worktrees and PRs views: rows in your order. Drag
+// one, or press ⌃⌘↑ ⌃⌘↓, to move it; drag any other row up here to pin it, and one of these down
+// to the list to unpin it (useRowDrag.tsx).
 
 import type { ReactNode } from 'react';
 import { Kbd, SectionHeader } from './primitives';

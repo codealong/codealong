@@ -146,7 +146,7 @@ export function scenes(board) {
     { name: 'sessions-allow', view: 'sessions', setup: sampled + needy('allow'), steps: [first('.ca-lane.is-agent:has(.ca-glyph--needs)'), openTools, openTools] },
     { name: 'sessions-questions', view: 'sessions', setup: sampled + needy('questions'), steps: [first('.ca-lane.is-agent:has(.ca-glyph--needs)'), `const o = await sd.waitFor('.ca-question-choices button, .ca-question-choices label, .ca-question input'); o.click();`] },
     { name: 'sessions-insights', view: 'sessions', insights: all.insights, todos: all.todos, devices: all.devices },
-    { name: 'sessions-oneline', view: 'sessions', steps: [`await sd.click(sd.byText('.ca-sessionbar button', 'One line'));`, `await sd.click(sd.byText('.ca-sessionbar button', 'Started'));`] },
+    { name: 'sessions-oneline', view: 'sessions', steps: [`await sd.click('.ca-sessionbar button[aria-label="One line"]');`, `await sd.click('.ca-sessionbar button[aria-label="Started"]');`] },
     { name: 'sessions-max', view: 'sessions', setup: sampled, steps: [first('.ca-sessinsp-max')] },
     { name: 'sessions-details', view: 'sessions', setup: sampled, todos: all.todos, steps: [first('.ca-sessinsp-detailsbtn')] },
     { name: 'sessions-side', view: 'sessions', setup: sampled, init: S + 'side-open.js' },
