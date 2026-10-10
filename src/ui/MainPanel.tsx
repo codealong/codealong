@@ -5,7 +5,8 @@
 // panel can show one of its sessions in its place, with the way back (`drill`). The window
 // passes what the panels show and what their clicks do.
 
-import { dismissTodoHint, openUrl } from '../api';
+import { dismissTodoHint, openUrl, reviewPr } from '../api';
+import { reviewedWords } from '../prDraft';
 import type { Entities } from '../canvas/model';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { deviceOf } from '../devices';
@@ -170,6 +171,12 @@ export function MainPanel(props: MainPanelProps) {
       now={now}
       approving={approving.has(item.pr.key)}
       onApprove={() => approve(item.pr)}
+      onVerdict={(verdict, body) =>
+        reviewPr(item.pr.repoSlug, item.pr.number, verdict, body).then((done) => {
+          setToast(reviewedWords(verdict, item.pr.number, done));
+          return done;
+        })
+      }
       onReview={(el) => reviewMenuFrom(item.pr, el)}
       onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
       onMenu={() => prMenu(item)}

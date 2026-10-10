@@ -82,3 +82,17 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   the PR and commit (`autoreview::marker`), which GitHub doesn't show, so a review already
   posted (from another Mac, or before a restart) is found among the PR's comments and not
   posted twice.
+- Your draft review, read for a PR's Review tab, and submitting it: `github.rs` (`DRAFT_QUERY`,
+  `your_review`, `review`, `edit_draft`). The query asks the pending review's
+  `comments(first: 100) { totalCount nodes { id path line outdated body } }` and the PR's
+  `viewerLatestReview { state body submittedAt url }`, which was `null` before any review of
+  yours; it cost 1 point (atlas #1182, 2026-10-10, which read the agent's draft with its four
+  comments, `line` the file's new version's as drafted). A verdict on a PR you have a draft of is
+  `submitPullRequestReview(pullRequestReviewId, event: APPROVE | COMMENT | REQUEST_CHANGES, body)`,
+  whose `body` sets the review's text: it's always given, the draft's own when you wrote nothing,
+  since what GitHub does with none wasn't seen. A comment is changed with
+  `updatePullRequestReviewComment(pullRequestReviewCommentId, body)` and taken out with
+  `deletePullRequestReviewComment(id)`. These and the query were checked against GitHub's schema
+  with made-up ids (`NOT_FOUND` after the document's checked; a made-up field is refused first),
+  not run for real: submitting would reach the PR's people. Codealong's hidden mark is kept through
+  an edit of the draft's text (`unmarked`), since the next round looks for it.

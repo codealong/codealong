@@ -12,7 +12,9 @@
 //
 // Any review settles GitHub's request to you, so each of those is how the PR left what waits on
 // you (`can.left`), and the window goes on to the next at once, as it does from a session's
-// message on its way: the review goes to GitHub behind it. One GitHub refuses comes back round
+// message on its way: the review goes to GitHub behind it. With a draft review of yours on the PR
+// (an agent's, prDraft.ts), a verdict submits it, comments and all, what's written going before
+// its text, and the box and the line under it say so; its Review tab shows what's in it. One GitHub refuses comes back round
 // (`can.failed`): the PR is back in what waits on you with what you wrote, and the strip says
 // why. A merge from the merge box under its title (MergeBox.tsx `goesOn`) leaves the same way.
 // What you wrote stays with the PR until it goes, so skipping to the next and coming back loses
@@ -38,6 +40,7 @@ import { useLatest } from '../latest';
 import * as menus from '../menus';
 import { errorText, type Report } from '../report';
 import { mayApprove } from '../prStatus';
+import { commentsWord, reviewedWords, saysSomething, useYourReview, verdictWords } from '../prDraft';
 import { askAccount, askAccounts, reviewItems } from '../review';
 import { notAsked, showSides, startingSide, useKept, useSide, useSideView } from '../side';
 import { reviewSnoozeMenu } from '../snooze';
@@ -106,12 +109,8 @@ const ASK_ACCOUNT = 'codealong.prask.account';
 /** `/side` or `/btw` at the start of what's written, and the question after it. */
 const SIDE_COMMAND = /^\/(?:side|btw)(?:\s+([\s\S]*))?$/;
 
-/** How the box says each verdict went. */
-const DONE: Record<Verdict, { past: string; left: menus.Left }> = {
-  approve: { past: 'Approved', left: 'approved' },
-  comment: { past: 'Commented on', left: 'commented on' },
-  'request-changes': { past: 'Requested changes on', left: 'changes requested' },
-};
+/** How the window says the PR left with each verdict. */
+const LEFT: Record<Verdict, menus.Left> = { approve: 'approved', comment: 'commented on', 'request-changes': 'changes requested' };
 
 export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom }: PrCardProps) {
   const { pr } = item;
@@ -131,7 +130,8 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   // Any open PR but your own takes a review, asked for or not; anything open takes a comment.
   const reviewable = mayApprove(pr);
   const stillOpen = prIsOpen(pr);
-  const written = reviewText.trim().length > 0;
+  // Your draft review on GitHub, which a verdict submits.
+  const draft = useYourReview(pr, stillOpen)?.review?.draft ?? null;
 
   useEffect(() => {
     drafts.set(pr.key, reviewText);
@@ -169,7 +169,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   const review = (verdict: Verdict) => {
     if (sent.current) return;
     const body = reviewText.trim();
-    if (!body && verdict !== 'approve') {
+    if (!saysSomething(verdict, body, draft)) {
       setSide('review');
       setNote({ text: verdict === 'comment' ? 'Write the comment first.' : 'Say what to change first.', error: true });
       box.current?.focus();
@@ -178,9 +178,9 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     sent.current = true;
     setNote(null);
     drafts.delete(pr.key);
-    can.left?.(DONE[verdict].left);
+    can.left?.(LEFT[verdict]);
     reviewPr(pr.repoSlug, pr.number, verdict, body).then(
-      () => report.info(`${DONE[verdict].past} #${pr.number}.`),
+      (done) => report.info(reviewedWords(verdict, pr.number, done)),
       (e: unknown) => {
         drafts.set(pr.key, reviewText);
         const why = `Didn’t ${verdict === 'approve' ? 'approve' : verdict === 'comment' ? 'comment on' : 'request changes on'} #${pr.number}: ${errorText(e)}`;
@@ -304,7 +304,8 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     </>
   );
 
-  const verdicts = reviewable ? `${sign('approve')} approves and goes on · ${sign('comment')} comments` : stillOpen ? `${notReviewable}; ${sign('comment')} comments` : 'It’s closed; a comment still goes to the PR';
+  const withDraft = draft ? ` with your draft review${draft.count > 0 ? ` and its ${commentsWord(draft.count)}` : ''}` : '';
+  const verdicts = reviewable ? `${sign('approve')} approves${withDraft} and goes on · ${sign('comment')} comments` : stillOpen ? `${notReviewable}; ${sign('comment')} comments${withDraft}` : 'It’s closed; a comment still goes to the PR';
   const answering = conversation?.running && !asking ? `${conversation.account ?? 'Ask'} is answering on Ask · ` : '';
   const said = note?.text ?? (starting ? 'Reading the PR…' : asking ? [`⏎ asks${answerer ? ` ${answerer}` : ''}`, reviewable && `${sign('approve')} approves and goes on`].filter(Boolean).join(' · ') : answering + verdicts);
   // Ask's earlier questions, while nothing about them shows above the box.
@@ -341,7 +342,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
             ref={box}
             value={text}
             lines={6}
-            hint={asking ? `Ask about #${pr.number}: ${answerer ?? 'an agent'} reads it and its code to answer` : reviewable ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
+            hint={asking ? `Ask about #${pr.number}: ${answerer ?? 'an agent'} reads it and its code to answer` : draft ? 'Your words, before your draft review’s text (optional)' : reviewable ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
             onChange={(e) => {
               setText(e.target.value);
               if (note?.error) setNote(null);
@@ -396,15 +397,15 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
           ) : (
             <div className="ca-composer-buttons ca-prreview-buttons">
               {actions.changes && (
-                <Button size="sm" disabled={!written} title="Ask for changes, with what’s written" onClick={() => actions.changes?.run()}>
+                <Button size="sm" disabled={!saysSomething('request-changes', reviewText, draft)} title={verdictWords('request-changes', draft) ?? 'Ask for changes, with what’s written'} onClick={() => actions.changes?.run()}>
                   Request changes
                 </Button>
               )}
-              <Button size="sm" disabled={!written} title={actions.comment ? `Comment with what’s written (${sign('comment')})` : 'Comment on the PR'} onClick={() => review('comment')}>
+              <Button size="sm" disabled={!saysSomething('comment', reviewText, draft)} title={`${verdictWords('comment', draft) ?? (actions.comment ? 'Comment with what’s written' : 'Comment on the PR')} (${sign('comment')})`} onClick={() => review('comment')}>
                 Comment
               </Button>
               {actions.approve && (
-                <Button variant="primary" size="sm" icon="check" title={`Approve (${sign('approve')})`} onClick={() => actions.approve?.run()}>
+                <Button variant="primary" size="sm" icon="check" title={`${verdictWords('approve', draft) ?? 'Approve'} (${sign('approve')})`} onClick={() => actions.approve?.run()}>
                   Approve
                 </Button>
               )}

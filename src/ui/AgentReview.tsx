@@ -1,23 +1,38 @@
-// Codealong's own review of a PR (autoreview.rs, `[reviews]`), as the PR's details show it in its
-// panel and its cards (PrInspector.tsx `PrDetails`): where its latest round stands, then the
-// review its agent wrote, read whole from reviews.json when the PR shows (`pr_agent_reviews`), so
-// the board carries none of it. The review's text, then each comment on a line of the code with
-// the lines around it from the PR's diff, its file and line opening that line on GitHub at the
-// commit it reviewed. The session that wrote it and where it went on GitHub (your draft, or the
-// comment) are a click away, and the reviews of earlier commits too.
+// A PR's Review tab (PrInspector.tsx `PrDetails`), in its panel and its cards: your review of it.
+// First where Codealong's own review of it stands (autoreview.rs, `[reviews]`), with the session
+// that wrote it a click away. Then your draft review on GitHub, when you have one (prDraft.ts),
+// the agent's or one you began there, as it will go: its text and each comment on a line of the
+// code, with the lines around it from the PR's diff, its file and line opening that line on
+// GitHub. The text and each comment can be changed and a comment taken out, on GitHub at once,
+// where only you see them. A verdict submits it, comments and all, as GitHub's Finish your review
+// does (github.rs `review`): the panel's box under it here (`onVerdict`), or a card's own box
+// (PrCard.tsx). Without a draft, the review the agent wrote is read whole from reviews.json
+// (`pr_agent_reviews`), so the board carries none of it: its text, then each comment on a line,
+// and the reviews of earlier commits a click away. Once you've submitted a draft the agent wrote,
+// it says so.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { excerptAt, lineLink, type ExcerptLine } from '../agentReview';
-import { openUrl, prAgentReviews } from '../api';
+import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews } from '../api';
 import { absolute, ago } from '../format';
+import { changeDraft, commentsWord, draftShown, readAgain, saysSomething, submittedWord, verdictWords, type Held } from '../prDraft';
 import { splitPath } from '../prFiles';
+import { mayApprove } from '../prStatus';
+import { errorText } from '../report';
 import { autoReviewWords } from '../review';
-import type { AutoReview, Lane, LineComment, PrDetail, PrItem, Session, WrittenReview } from '../types';
+import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Reviewed, Session, Verdict, WrittenReview } from '../types';
 import { Markdown } from './Markdown';
-import { cx, Icon, Seg } from './primitives';
+import { BoxText, Button, cx, Icon, Seg } from './primitives';
+import { prIsOpen } from './PrsView';
 
 /** A commit as people read it. */
 const short = (sha: string) => sha.slice(0, 7);
+
+/** What's written in each PR's box, kept while the panel goes from one PR to the next. */
+const written = new Map<string, string>();
+
+/** How long a Remove waits for the click that does it. */
+const ARMED_MS = 4000;
 
 /** The way to a review's session and to where it went on GitHub. */
 function Links({ link, session, sessions, onShowSession }: { link: string | null | undefined; session: string | null | undefined; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
@@ -55,18 +70,31 @@ function Excerpt({ lines }: { lines: ExcerptLine[] }) {
   );
 }
 
-/** A comment on a line: where it is, which opens it on GitHub, the lines around it, and what it says. */
+/** Where a comment is, which opens that line on GitHub as it was at `commit`. */
+function Where({ pr, commit, path, line }: { pr: PrItem; commit: string; path: string; line: number | null }) {
+  const { dir, name } = splitPath(path);
+  const url = line != null ? lineLink(pr.repoSlug, commit, path, line) : `https://github.com/${pr.repoSlug}/blob/${commit}/${path.split('/').map(encodeURIComponent).join('/')}`;
+  return (
+    <button type="button" className="ca-agentrev-where" title={line != null ? `Open ${path} at line ${line} on GitHub, as it was at ${short(commit)}` : `Open ${path} on GitHub, as it was at ${short(commit)}`} onClick={() => void openUrl(url)}>
+      <span className="ca-agentrev-file">{name}</span>
+      {dir && <span className="ca-agentrev-dir">{dir}</span>}
+      <span className="ca-agentrev-line">{line != null ? `line ${line}` : 'the file'}</span>
+    </button>
+  );
+}
+
+/** The lines around a comment's line, from the PR's diff as it is now. */
+function around(detail: PrDetail | undefined, path: string, line: number | null): ExcerptLine[] {
+  const patch = detail?.files.find((f) => f.path === path)?.patch;
+  return patch && line != null ? excerptAt(patch, line) : [];
+}
+
+/** A comment on a line the agent wrote: where it is, the lines around it, and what it says. */
 function LineNote({ comment, pr, head, detail }: { comment: LineComment; pr: PrItem; head: string; detail?: PrDetail }) {
-  const { dir, name } = splitPath(comment.path);
-  const patch = detail?.files.find((f) => f.path === comment.path)?.patch;
-  const lines = patch ? excerptAt(patch, comment.line) : [];
+  const lines = around(detail, comment.path, comment.line);
   return (
     <li className="ca-agentrev-comment">
-      <button type="button" className="ca-agentrev-where" title={`Open ${comment.path} at line ${comment.line} on GitHub, as it was at ${short(head)}`} onClick={() => void openUrl(lineLink(pr.repoSlug, head, comment.path, comment.line))}>
-        <span className="ca-agentrev-file">{name}</span>
-        {dir && <span className="ca-agentrev-dir">{dir}</span>}
-        <span className="ca-agentrev-line">line {comment.line}</span>
-      </button>
+      <Where pr={pr} commit={head} path={comment.path} line={comment.line} />
       {lines.length > 0 && <Excerpt lines={lines} />}
       <Markdown className="ca-agentrev-text" text={comment.body} />
     </li>
@@ -74,8 +102,8 @@ function LineNote({ comment, pr, head, detail }: { comment: LineComment; pr: PrI
 }
 
 /** Where the PR's latest round stands, with its draft or comment and its session a click away. */
-function Standing({ review, now, sessions, onShowSession }: { review: AutoReview; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
-  const { icon, says, note } = autoReviewWords(review);
+function Standing({ review, now, onGitHub, sessions, onShowSession }: { review: AutoReview; now: number; onGitHub?: { draft: boolean; submitted: string | null }; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
+  const { icon, says, note } = autoReviewWords(review, onGitHub);
   const rounds = `${review.rounds} ${review.rounds === 1 ? 'round' : 'rounds'} so far`;
   return (
     <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
@@ -87,69 +115,332 @@ function Standing({ review, now, sessions, onShowSession }: { review: AutoReview
         <span className="ca-meta" title={absolute(review.at)}>
           {ago(review.at, now)}
         </span>
-        <Links link={review.comment} session={review.parts?.find((p) => p.session)?.session} sessions={sessions} onShowSession={onShowSession} />
+        {/* A draft read from GitHub has its own way there, or is gone. */}
+        <Links link={review.stage === 'drafted' && onGitHub ? null : review.comment} session={review.parts?.find((p) => p.session)?.session} sessions={sessions} onShowSession={onShowSession} />
       </div>
       {note && <p className="ca-prinsp-auto-note">{note}</p>}
     </div>
   );
 }
 
-export interface AgentReviewProps {
-  pr: PrItem & { autoReview: AutoReview };
-  /** The PR's detail, once read: its files' diffs, for the lines around each comment. */
-  detail?: PrDetail;
-  now: number;
-  /** The PR's sessions, each with its worktree, for showing the one that reviewed it. */
-  sessions: { lane: Lane; session: Session }[];
-  onShowSession: (lane: Lane, session: Session) => void;
+/** Text being changed: a box with Save and Cancel. ⌘⏎ saves, Escape cancels. */
+function Editing({ text, label, saving, onText, onSave, onCancel }: { text: string; label: string; saving: boolean; onText: (t: string) => void; onSave: () => void; onCancel: () => void }) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => box.current?.focus(), []);
+  return (
+    <div className="ca-composer ca-agentrev-edit">
+      <div className="ca-composer-field">
+        <BoxText
+          ref={box}
+          value={text}
+          lines={10}
+          hint=""
+          aria-label={label}
+          spellCheck={false}
+          disabled={saving}
+          onChange={(e) => onText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === 'Enter' && e.metaKey) {
+              e.preventDefault();
+              onSave();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              onCancel();
+            }
+          }}
+        />
+      </div>
+      <div className="ca-agentrev-actions">
+        <Button size="sm" variant="primary" disabled={saving} title="Save it on GitHub (⌘⏎)" onClick={onSave}>
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={saving} title="Leave it as it was (Escape)" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
 }
 
-export function AgentReview({ pr, detail, now, sessions, onShowSession }: AgentReviewProps) {
-  const review = pr.autoReview;
+/** What's being changed in a draft: its text, or one of its comments, by id. */
+type Change = { what: 'text' | string; text: string };
+
+/** Your draft review as it will go: its text, then its comments, each of which can be changed or
+ *  taken out, on GitHub at once. */
+function DraftReview({ pr, draft, detail, verdicts }: { pr: PrItem; draft: Draft; detail?: PrDetail; verdicts: string }) {
+  const [change, setChange] = useState<Change | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [armed, setArmed] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const commit = draft.commit ?? pr.headOid ?? pr.head;
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), ARMED_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  /** Does `act` on GitHub, shows `shown` at once once it's done, and reads the draft again. */
+  const run = (act: Promise<void>, shown: (d: Draft) => Draft) => {
+    setSaving(true);
+    setError(null);
+    act
+      .then(() => {
+        changeDraft(pr.key, shown);
+        setChange(null);
+        readAgain(pr);
+      })
+      .catch((e: unknown) => setError(errorText(e)))
+      .finally(() => setSaving(false));
+  };
+  const save = () => {
+    if (!change) return;
+    const text = change.text.trim();
+    if (change.what === 'text') run(editDraft(pr.repoSlug, pr.number, text), (d) => ({ ...d, body: text }));
+    else if (!text) setError('A comment needs text: remove it instead.');
+    else run(editDraftComment(change.what, text), (d) => ({ ...d, comments: d.comments.map((c) => (c.id === change.what ? { ...c, body: text } : c)) }));
+  };
+  const remove = (c: DraftComment) => {
+    if (armed !== c.id) {
+      setArmed(c.id);
+      return;
+    }
+    setArmed(null);
+    run(dropDraftComment(c.id), (d) => ({ ...d, comments: d.comments.filter((x) => x.id !== c.id), count: Math.max(0, d.count - 1) }));
+  };
+  const editing = (what: string) => change?.what === what;
+  const edit = (what: string, text: string) => {
+    setError(null);
+    setChange({ what, text });
+  };
+
+  return (
+    <div className="ca-agentrev-draft">
+      <div className="ca-agentrev-drafthead">
+        <span className="ca-agentrev-drafttitle">Your draft review{draft.count > 0 ? ` · ${commentsWord(draft.count)}` : ''}</span>
+        <button type="button" className="ca-linkbtn" title="Open its files on GitHub, where your draft review is" onClick={() => void openUrl(`${pr.url}/files`)}>
+          On GitHub
+        </button>
+      </div>
+      <p className="ca-agentrev-draftnote">Only you see it. {verdicts}</p>
+      {error && <p className="ca-form-error">{error}</p>}
+      {editing('text') && change ? (
+        <Editing text={change.text} label="Your draft review’s text" saving={saving} onText={(t) => setChange({ what: 'text', text: t })} onSave={save} onCancel={() => setChange(null)} />
+      ) : (
+        <div className="ca-agentrev-drafttext">
+          {draft.body.trim() ? <Markdown className="ca-agentrev-text" text={draftShown(draft.body)} /> : <p className="ca-empty">No text: only its comments.</p>}
+          <div className="ca-agentrev-actions">
+            <button type="button" className="ca-linkbtn" disabled={saving} title="Change its text, on GitHub" onClick={() => edit('text', draft.body)}>
+              Edit text
+            </button>
+          </div>
+        </div>
+      )}
+      {draft.comments.length > 0 && (
+        <ol className="ca-agentrev-comments">
+          {draft.comments.map((c) => {
+            const lines = c.outdated ? [] : around(detail, c.path, c.line);
+            return (
+              <li key={c.id} className="ca-agentrev-comment">
+                <Where pr={pr} commit={commit} path={c.path} line={c.line} />
+                {c.outdated && <span className="ca-tag" title="The PR’s changes since moved or changed its line">Outdated</span>}
+                {lines.length > 0 && <Excerpt lines={lines} />}
+                {editing(c.id) && change ? (
+                  <Editing text={change.text} label={`Your comment on ${c.path}`} saving={saving} onText={(t) => setChange({ what: c.id, text: t })} onSave={save} onCancel={() => setChange(null)} />
+                ) : (
+                  <>
+                    <Markdown className="ca-agentrev-text" text={c.body} />
+                    <div className="ca-agentrev-actions">
+                      <button type="button" className="ca-linkbtn" disabled={saving} title="Change what it says, on GitHub" onClick={() => edit(c.id, c.body)}>
+                        Edit
+                      </button>
+                      <button type="button" className={cx('ca-linkbtn', armed === c.id && 'is-armed')} disabled={saving} title="Take it out of your draft review, on GitHub" onClick={() => remove(c)}>
+                        {armed === c.id ? 'Click again to remove' : 'Remove'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {draft.count > draft.comments.length && <p className="ca-meta">And {commentsWord(draft.count - draft.comments.length)} more, which go with it: GitHub lists them.</p>}
+    </div>
+  );
+}
+
+/** The panel's box for a verdict: what you write, which goes before a draft's text, and Request
+ *  changes, Comment and Approve, which submit the draft when there is one. ⌘⏎ approves where
+ *  that's yours to do, else comments; ⌥⌘⏎ comments. */
+function Verdicts({ pr, draft, onVerdict }: { pr: PrItem; draft: Draft | null; onVerdict: (verdict: Verdict, body: string) => Promise<Reviewed> }) {
+  const [text, setText] = useState(() => written.get(pr.key) ?? '');
+  const [sending, setSending] = useState<Verdict | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    written.set(pr.key, text);
+  }, [pr.key, text]);
+  const reviewable = mayApprove(pr);
+  const go = (verdict: Verdict) => {
+    if (sending) return;
+    if (!saysSomething(verdict, text, draft)) {
+      setError(verdict === 'comment' ? 'Write the comment first.' : 'Say what to change first.');
+      box.current?.focus();
+      return;
+    }
+    setSending(verdict);
+    setError(null);
+    onVerdict(verdict, text.trim())
+      .then(() => {
+        setText('');
+        written.delete(pr.key);
+        readAgain(pr);
+      })
+      .catch((e: unknown) => setError(errorText(e)))
+      .finally(() => setSending(null));
+  };
+  const hint = draft ? 'Your words, before the draft’s text (optional)' : reviewable ? 'Your review, if it says anything' : `Comment on #${pr.number}`;
+  return (
+    <div className="ca-composer ca-prverdict">
+      <div
+        className="ca-composer-field"
+        onMouseDown={(e) => {
+          if ((e.target as Element).closest('button, textarea')) return;
+          e.preventDefault();
+          box.current?.focus();
+        }}
+      >
+        <BoxText
+          ref={box}
+          value={text}
+          lines={4}
+          hint={hint}
+          aria-label={`Your review of #${pr.number}`}
+          disabled={!!sending}
+          onChange={(e) => {
+            setText(e.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !e.metaKey || e.ctrlKey || e.shiftKey || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            go(reviewable && !e.altKey ? 'approve' : 'comment');
+          }}
+        />
+        <div className="ca-composer-buttons ca-prreview-buttons">
+          {reviewable && (
+            <Button size="sm" disabled={!!sending} title={verdictWords('request-changes', draft) ?? 'Ask for changes, with what’s written'} onClick={() => go('request-changes')}>
+              {sending === 'request-changes' ? 'Sending…' : 'Request changes'}
+            </Button>
+          )}
+          <Button size="sm" disabled={!!sending} title={`${verdictWords('comment', draft) ?? 'Comment, with what’s written'} (${reviewable ? '⌥⌘⏎' : '⌘⏎'})`} onClick={() => go('comment')}>
+            {sending === 'comment' ? 'Sending…' : 'Comment'}
+          </Button>
+          {reviewable && (
+            <Button variant="primary" size="sm" icon="check" disabled={!!sending} title={`${verdictWords('approve', draft) ?? 'Approve it'} (⌘⏎)`} onClick={() => go('approve')}>
+              {sending === 'approve' ? 'Approving…' : 'Approve'}
+            </Button>
+          )}
+        </div>
+      </div>
+      {error && <p className="ca-form-error">{error}</p>}
+    </div>
+  );
+}
+
+/** The review the agent wrote, from reviews.json: its text and comments on lines, each earlier
+ *  commit's a click away. */
+function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrItem; review: AutoReview; detail?: PrDetail; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
   // Read again as a round ends or begins; what was read stays up meanwhile.
   const asked = `${pr.key}@${review.stage}:${review.at}:${review.rounds}`;
-  const [written, setWritten] = useState<{ key: string; reviews: WrittenReview[] }>({ key: '', reviews: [] });
+  const [read, setRead] = useState<{ key: string; reviews: WrittenReview[] }>({ key: '', reviews: [] });
   useEffect(() => {
     let live = true;
     prAgentReviews(pr.key)
       // An engine that doesn't know the request answers nothing: no reviews to show.
-      .then((reviews) => live && setWritten({ key: pr.key, reviews: reviews ?? [] }))
+      .then((reviews) => live && setRead({ key: pr.key, reviews: reviews ?? [] }))
       // Without them the PR says where its review stands, which is what it had before.
       .catch(() => {});
     return () => {
       live = false;
     };
   }, [asked, pr.key]);
-  const reviews = written.key === pr.key ? written.reviews : [];
+  const reviews = read.key === pr.key ? read.reviews : [];
   const [picked, setPicked] = useState<string | null>(null);
   const shown = reviews.find((w) => w.head === picked) ?? reviews[0];
-  const latest = shown && shown === reviews[0];
-  const count = shown?.comments.length ?? 0;
+  if (!shown) return null;
+  const latest = shown === reviews[0];
   return (
-    <section className="ca-insp-sec ca-agentrev">
-      <h4 className="ca-label">Agent review{count > 0 ? ` · ${count} ${count === 1 ? 'comment' : 'comments'} on lines` : ''}</h4>
-      <Standing review={review} now={now} sessions={sessions} onShowSession={onShowSession} />
-      {reviews.length > 1 && <Seg className="ca-agentrev-rounds" label="The review of which commit" look="text" options={reviews.map((w, i) => ({ id: w.head, label: i === 0 ? `${short(w.head)}, the latest` : short(w.head) }))} value={shown?.head ?? null} onPick={setPicked} />}
-      {shown && (
-        <div className="ca-agentrev-body">
-          {!latest && (
-            <div className="ca-agentrev-byline">
-              <span>
-                Of {short(shown.head)}, {ago(shown.at, now)} ago{shown.agent ? `, by ${shown.agent}` : ''}
-              </span>
-              <Links link={shown.link} session={shown.session} sessions={sessions} onShowSession={onShowSession} />
-            </div>
-          )}
-          {shown.summary && <Markdown className="ca-agentrev-text" text={shown.summary} />}
-          {shown.comments.length > 0 && (
-            <ol className="ca-agentrev-comments">
-              {shown.comments.map((c, i) => (
-                <LineNote key={`${c.path}:${c.line}:${i}`} comment={c} pr={pr} head={shown.head} detail={detail} />
-              ))}
-            </ol>
-          )}
+    <>
+      {reviews.length > 1 && <Seg className="ca-agentrev-rounds" label="The review of which commit" look="text" options={reviews.map((w, i) => ({ id: w.head, label: i === 0 ? `${short(w.head)}, the latest` : short(w.head) }))} value={shown.head} onPick={setPicked} />}
+      <div className="ca-agentrev-body">
+        <div className="ca-agentrev-byline">
+          <span>
+            {latest ? `The agent’s review${shown.agent ? ` (${shown.agent})` : ''}` : `Of ${short(shown.head)}, ${ago(shown.at, now)} ago${shown.agent ? `, by ${shown.agent}` : ''}`}
+            {shown.comments.length > 0 ? ` · ${commentsWord(shown.comments.length)} on lines` : ''}
+          </span>
+          {!latest && <Links link={shown.link} session={shown.session} sessions={sessions} onShowSession={onShowSession} />}
         </div>
+        {shown.summary && <Markdown className="ca-agentrev-text" text={shown.summary} />}
+        {shown.comments.length > 0 && (
+          <ol className="ca-agentrev-comments">
+            {shown.comments.map((c, i) => (
+              <LineNote key={`${c.path}:${c.line}:${i}`} comment={c} pr={pr} head={shown.head} detail={detail} />
+            ))}
+          </ol>
+        )}
+      </div>
+    </>
+  );
+}
+
+export interface PrReviewProps {
+  pr: PrItem;
+  /** The PR's detail, once read: its files' diffs, for the lines around each comment. */
+  detail?: PrDetail;
+  now: number;
+  /** Your review of it on GitHub, as read (prDraft.ts `useYourReview`). */
+  yours?: Held;
+  /** The PR's sessions, each with its worktree, for showing the one that reviewed it. */
+  sessions: { lane: Lane; session: Session }[];
+  onShowSession: (lane: Lane, session: Session) => void;
+  /** Gives a verdict as you with what's written, from a box under the review. A card's box is
+   *  its own (PrCard.tsx), so it passes none. */
+  onVerdict?: (verdict: Verdict, body: string) => Promise<Reviewed>;
+}
+
+export function PrReview({ pr, detail, now, yours, sessions, onShowSession, onVerdict }: PrReviewProps) {
+  const review = pr.autoReview;
+  const read = yours?.review;
+  const draft = read?.draft ?? null;
+  const onGitHub = read ? { draft: !!draft, submitted: read.submitted?.state ?? null } : undefined;
+  const open = prIsOpen(pr);
+  // What a verdict does with the draft, as the box that gives one is here or below.
+  const verdicts = !open ? 'The PR is closed, so it can’t be submitted.' : onVerdict ? 'A verdict below submits it, with its comments.' : 'Approve, Comment or Request changes submits it, with its comments.';
+  return (
+    <section className="ca-insp-sec ca-agentrev" aria-label="Review">
+      {review && <Standing review={review} now={now} onGitHub={onGitHub} sessions={sessions} onShowSession={onShowSession} />}
+      {read?.submitted && !draft && (
+        <p className="ca-agentrev-submitted">
+          <Icon name="check" size={12} />
+          <span>
+            You submitted the agent’s review, {submittedWord(read.submitted.state)}
+            {read.submitted.at ? `, ${ago(read.submitted.at, now)} ago` : ''}.
+          </span>
+          {read.submitted.url && (
+            <button type="button" className="ca-linkbtn" title="Open your review on GitHub" onClick={() => void openUrl(read.submitted?.url ?? pr.url)}>
+              On GitHub
+            </button>
+          )}
+        </p>
       )}
+      {yours?.error && <p className="ca-form-error">Couldn’t read your review on GitHub: {yours.error}</p>}
+      {draft ? <DraftReview pr={pr} draft={draft} detail={detail} verdicts={verdicts} /> : review && <Written pr={pr} review={review} detail={detail} now={now} sessions={sessions} onShowSession={onShowSession} />}
+      {!draft && !review && !yours?.loading && <p className="ca-empty">{pr.mine ? 'It’s your PR: who reviewed it is under Checks and reviews, what they said under Description.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
+      {!draft && !review && yours?.loading && <p className="ca-empty">Reading your review on GitHub…</p>}
+      {onVerdict && open && <Verdicts pr={pr} draft={draft} onVerdict={onVerdict} />}
     </section>
   );
 }

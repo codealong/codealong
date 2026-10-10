@@ -1103,6 +1103,132 @@ pub fn add_to_draft(review: &str, body: &str, comments: &[LineComment]) -> Resul
     graphql(EDIT_REVIEW, serde_json::json!({ "review": review, "body": body })).map(|_| ())
 }
 
+/// How the hidden mark that names the PR and commit an agent's review was of begins
+/// (`autoreview::marker`). GitHub doesn't show it; Codealong keeps it through edits.
+pub const REVIEW_MARK: &str = "<!-- codealong-review ";
+
+/// A review's text without Codealong's hidden marks, and the marks.
+fn unmarked(body: &str) -> (String, Vec<String>) {
+    let (marks, text): (Vec<&str>, Vec<&str>) = body.lines().partition(|l| l.trim_start().starts_with(REVIEW_MARK) && l.trim_end().ends_with("-->"));
+    (text.join("\n").trim_end().to_string(), marks.into_iter().map(|m| m.trim().to_string()).collect())
+}
+
+/// Your draft review of a PR as GitHub has it, for the PR's Review tab to show, trim and submit:
+/// its text, without Codealong's hidden marks, and its comments on lines.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Draft {
+    pub id: String,
+    pub body: String,
+    /// The commit it was begun on, which its comments' lines are numbered by.
+    pub commit: Option<String>,
+    pub url: Option<String>,
+    pub comments: Vec<DraftComment>,
+    /// How many comments it has, of which `comments` are the first hundred (`DRAFT_QUERY`).
+    pub count: usize,
+    /// Its text whole, marks and all, which submitting it with words of yours goes after.
+    #[serde(skip)]
+    pub whole: String,
+}
+
+/// A comment of your draft review.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftComment {
+    pub id: String,
+    pub path: String,
+    /// Its line in the file's new version; none for one on the file as a whole.
+    pub line: Option<u64>,
+    /// The PR's changes since have moved or changed its line.
+    pub outdated: bool,
+    pub body: String,
+}
+
+/// The review you last submitted, when it held an agent's review (its mark): it was submitted.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Submitted {
+    /// GitHub's word: `APPROVED`, `COMMENTED`, `CHANGES_REQUESTED`.
+    pub state: String,
+    pub at: Option<i64>,
+    pub url: Option<String>,
+}
+
+/// Your review of a PR on GitHub: the draft you haven't submitted, and the agent's you did.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YourReview {
+    pub draft: Option<Draft>,
+    pub submitted: Option<Submitted>,
+}
+
+/// Reads the first hundred comments of a draft: GitHub keeps the rest, and submits them too.
+const DRAFT_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { viewerLatestReview { state body submittedAt url } reviews(states: PENDING, first: 5) { nodes { id body viewerDidAuthor url commit { oid } comments(first: 100) { totalCount nodes { id path line outdated body } } } } } } }";
+const SUBMIT_REVIEW: &str = "mutation($review: ID!, $event: PullRequestReviewEvent!, $body: String) { submitPullRequestReview(input: {pullRequestReviewId: $review, event: $event, body: $body}) { pullRequestReview { id state } } }";
+const EDIT_COMMENT: &str = "mutation($id: ID!, $body: String!) { updatePullRequestReviewComment(input: {pullRequestReviewCommentId: $id, body: $body}) { pullRequestReviewComment { id } } }";
+const DROP_COMMENT: &str = "mutation($id: ID!) { deletePullRequestReviewComment(input: {id: $id}) { pullRequestReview { id } } }";
+
+/// Your review of PR `number` on GitHub (one query, a point).
+pub fn your_review(slug: &str, number: u64) -> Result<YourReview> {
+    let (owner, name) = slug.split_once('/').ok_or_else(|| anyhow!("bad repo {slug}"))?;
+    your_review_of(&graphql(DRAFT_QUERY, serde_json::json!({ "owner": owner, "name": name, "number": number }))?)
+}
+
+/// `your_review` from GitHub's answer.
+fn your_review_of(out: &str) -> Result<YourReview> {
+    let v: Value = serde_json::from_str(out)?;
+    let pr = v.pointer("/data/repository/pullRequest").filter(|p| !p.is_null()).ok_or_else(|| anyhow!("GitHub didn't return the PR"))?;
+    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(String::from);
+    let draft = pr.pointer("/reviews/nodes").and_then(Value::as_array).into_iter().flatten().find(|r| r.get("viewerDidAuthor").and_then(Value::as_bool) == Some(true)).and_then(|r| {
+        let whole = s(r, "body").unwrap_or_default();
+        let comments: Vec<DraftComment> = r
+            .pointer("/comments/nodes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|c| Some(DraftComment { id: s(c, "id")?, path: s(c, "path")?, line: c.get("line").and_then(Value::as_u64), outdated: c.get("outdated").and_then(Value::as_bool).unwrap_or(false), body: s(c, "body").unwrap_or_default() }))
+            .collect();
+        let count = r.pointer("/comments/totalCount").and_then(Value::as_u64).map_or(comments.len(), |n| n as usize);
+        Some(Draft { id: s(r, "id")?, body: unmarked(&whole).0, commit: r.pointer("/commit/oid").and_then(Value::as_str).map(String::from), url: s(r, "url"), comments, count, whole })
+    });
+    let submitted = pr.get("viewerLatestReview").filter(|r| s(r, "body").is_some_and(|b| b.contains(REVIEW_MARK))).and_then(|r| Some(Submitted { state: s(r, "state")?, at: r.get("submittedAt").and_then(Value::as_str).and_then(parse_rfc3339_ms), url: s(r, "url") }));
+    Ok(YourReview { draft, submitted })
+}
+
+/// Gives your draft review of PR `number` the text `text`, keeping Codealong's hidden marks.
+pub fn edit_draft(slug: &str, number: u64, text: &str) -> Result<()> {
+    let draft = your_review(slug, number)?.draft.ok_or_else(|| anyhow!("You have no draft review of #{number} on GitHub any more."))?;
+    let marks = unmarked(&draft.whole).1;
+    let body = [text.trim().to_string(), marks.join("\n")].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
+    graphql(EDIT_REVIEW, serde_json::json!({ "review": draft.id, "body": body })).map(|_| ())
+}
+
+/// Gives a comment of your draft review the text `body`.
+pub fn edit_draft_comment(id: &str, body: &str) -> Result<()> {
+    if body.trim().is_empty() {
+        return Err(anyhow!("A comment needs text: remove it instead."));
+    }
+    graphql(EDIT_COMMENT, serde_json::json!({ "id": id, "body": body.trim() })).map(|_| ())
+}
+
+/// Takes a comment out of your draft review.
+pub fn drop_draft_comment(id: &str) -> Result<()> {
+    graphql(DROP_COMMENT, serde_json::json!({ "id": id })).map(|_| ())
+}
+
+/// What submitting a draft review is told its text is: what you wrote, then the draft's own
+/// text, which goes alone when you wrote nothing. Given always, so whether GitHub would keep the
+/// draft's text without one doesn't matter; none when there's nothing at all.
+fn submit_body(written: &str, draft: &str) -> Option<String> {
+    let (written, draft) = (written.trim(), draft.trim());
+    match (written.is_empty(), draft.is_empty()) {
+        (true, true) => None,
+        (true, false) => Some(draft.to_string()),
+        (false, true) => Some(written.to_string()),
+        (false, false) => Some(format!("{written}\n\n---\n\n{draft}")),
+    }
+}
+
 /// Posts `body` as a comment on PR `number`'s conversation, as you, through `gh`; its link.
 pub fn comment(slug: &str, number: u64, body: &str) -> Result<String> {
     let input = serde_json::json!({ "body": body }).to_string();
@@ -1174,6 +1300,23 @@ impl Verdict {
             Verdict::RequestChanges => "request changes on",
         }
     }
+
+    /// GraphQL's `PullRequestReviewEvent` for it.
+    fn event(self) -> &'static str {
+        match self {
+            Verdict::Approve => "APPROVE",
+            Verdict::Comment => "COMMENT",
+            Verdict::RequestChanges => "REQUEST_CHANGES",
+        }
+    }
+}
+
+/// What a review did: submitted your draft review, with this many comments, or a review of its
+/// own.
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reviewed {
+    pub draft: Option<usize>,
 }
 
 /// The arguments `gh pr review` is given for a verdict with its text, as `review` runs it.
@@ -1190,14 +1333,29 @@ pub fn review_args(number: u64, verdict: Verdict, body: &str, slug: &str) -> Res
     Ok(args)
 }
 
-/// Reviews a PR as you, through `gh`: approves it, comments on it or asks for changes, with what
-/// you wrote as the review's text.
-pub fn review(slug: &str, number: u64, verdict: Verdict, body: &str) -> Result<()> {
+/// Reviews a PR as you: approves it, comments on it or asks for changes, with what you wrote as
+/// the review's text. With a draft review of yours on it (an agent's, or one you began on
+/// GitHub), that's what's submitted, its comments and all, as GitHub's own Finish your review
+/// does, rather than a review beside it that would leave the draft behind: what you wrote goes
+/// before the draft's text, and nothing written keeps it as it is. Without one it's `gh pr
+/// review`, and so it is when your draft can't be looked for.
+pub fn review(slug: &str, number: u64, verdict: Verdict, body: &str) -> Result<Reviewed> {
+    let failed = |e: anyhow::Error| anyhow!("Couldn't {} #{number}: {e:#}", verdict.verb());
+    if let Some(draft) = your_review(slug, number).ok().and_then(|y| y.draft) {
+        if verdict != Verdict::Approve && body.trim().is_empty() && draft.body.trim().is_empty() && draft.count == 0 {
+            return Err(anyhow!("Write what to say first: your draft review of #{number} has nothing in it."));
+        }
+        let mut sent = serde_json::json!({ "review": draft.id, "event": verdict.event() });
+        if let Some(text) = submit_body(body, &draft.whole) {
+            sent["body"] = text.into();
+        }
+        graphql(SUBMIT_REVIEW, sent).map_err(failed)?;
+        return Ok(Reviewed { draft: Some(draft.count) });
+    }
     let args = review_args(number, verdict, body, slug)?;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    procs::run("gh", &args, None, Duration::from_secs(30))
-        .map(|_| ())
-        .map_err(|e| anyhow!("Couldn't {} #{number}: {e}", verdict.verb()))
+    procs::run("gh", &args, None, Duration::from_secs(30)).map_err(|e| anyhow!("Couldn't {} #{number}: {e}", verdict.verb()))?;
+    Ok(Reviewed::default())
 }
 
 /// GitHub's `mergeStateStatus`. `HAS_HOOKS` is clean with server-side hooks to run on merge.
@@ -1266,6 +1424,113 @@ mod tests {
         assert_eq!(pending_of(out).unwrap(), ("PR_1".into(), Some(PendingReview { id: "R_mine".into(), body: "Started".into(), commit: Some("bbb".into()) })));
         let none = r#"{"data":{"repository":{"pullRequest":{"id":"PR_1","reviews":{"nodes":[]}}}}}"#;
         assert_eq!(pending_of(none).unwrap(), ("PR_1".into(), None));
+    }
+
+    /// GitHub's answer to `DRAFT_QUERY` for a PR with a draft of yours (as it answered for a real
+    /// one, 2026-10-10, cut down), or none, and the review you last submitted.
+    fn draft_answer(draft: bool, latest: &str) -> String {
+        let draft = if draft {
+            r#"{"id":"PRR_1","body":"Hold it.\n\n<sub>An agent's review (Claude Code) of 322941c, drafted by Codealong.</sub>\n<!-- codealong-review o/r#7 322941c630688648510901d3a5b2e77bfc2c7ae8 -->","viewerDidAuthor":true,"url":"https://github.com/o/r/pull/7#pullrequestreview-5","commit":{"oid":"322941c630688648510901d3a5b2e77bfc2c7ae8"},"comments":{"totalCount":3,"nodes":[{"id":"PRRC_1","path":"src/a.ts","line":218,"outdated":false,"body":"`canUpdate` too."},{"id":"PRRC_2","path":"src/b.ts","line":null,"outdated":true,"body":"Moved."}]}}"#
+        } else {
+            ""
+        };
+        format!(r#"{{"data":{{"repository":{{"pullRequest":{{"viewerLatestReview":{latest},"reviews":{{"nodes":[{draft}]}}}}}}}}}}"#)
+    }
+
+    #[test]
+    fn your_draft_review_is_read_with_its_comments_and_without_codealongs_marks() {
+        let y = your_review_of(&draft_answer(true, "null")).unwrap();
+        let d = y.draft.unwrap();
+        assert_eq!((d.id.as_str(), d.commit.as_deref(), d.count, d.comments.len()), ("PRR_1", Some("322941c630688648510901d3a5b2e77bfc2c7ae8"), 3, 2));
+        assert_eq!(d.body, "Hold it.\n\n<sub>An agent's review (Claude Code) of 322941c, drafted by Codealong.</sub>");
+        assert!(d.whole.ends_with("322941c630688648510901d3a5b2e77bfc2c7ae8 -->"));
+        assert_eq!(d.comments[0], DraftComment { id: "PRRC_1".into(), path: "src/a.ts".into(), line: Some(218), outdated: false, body: "`canUpdate` too.".into() });
+        assert_eq!((d.comments[1].line, d.comments[1].outdated), (None, true));
+        // What the window gets has no hidden marks to show.
+        assert!(!serde_json::to_string(&d).unwrap().contains("codealong-review"));
+        assert_eq!(y.submitted, None);
+
+        // Submitted, it's the review you last gave, when that held an agent's.
+        let theirs = r#"{"state":"APPROVED","body":"LGTM\n\n---\n\nHold it.\n<!-- codealong-review o/r#7 abc -->","submittedAt":"2026-10-10T18:00:00Z","url":"https://github.com/o/r/pull/7#pullrequestreview-6"}"#;
+        let y = your_review_of(&draft_answer(false, theirs)).unwrap();
+        assert_eq!(y.draft, None);
+        assert_eq!(y.submitted, Some(Submitted { state: "APPROVED".into(), at: parse_rfc3339_ms("2026-10-10T18:00:00Z"), url: Some("https://github.com/o/r/pull/7#pullrequestreview-6".into()) }));
+        let mine = r#"{"state":"APPROVED","body":"LGTM","submittedAt":"2026-10-10T18:00:00Z","url":null}"#;
+        assert_eq!(your_review_of(&draft_answer(false, mine)).unwrap().submitted, None);
+        assert!(your_review_of(r#"{"data":{"repository":{"pullRequest":null}}}"#).is_err());
+    }
+
+    #[test]
+    fn what_you_write_goes_before_your_drafts_text_and_nothing_keeps_it() {
+        assert_eq!(submit_body("  ", "Hold it."), Some("Hold it.".into()));
+        assert_eq!(submit_body(" LGTM ", "Hold it.\n<!-- m -->"), Some("LGTM\n\n---\n\nHold it.\n<!-- m -->".into()));
+        assert_eq!(submit_body("LGTM", " "), Some("LGTM".into()));
+        assert_eq!(submit_body(" ", ""), None);
+        assert_eq!(unmarked("A\n<!-- codealong-review o/r#7 abc -->\n"), ("A".into(), vec!["<!-- codealong-review o/r#7 abc -->".to_string()]));
+        assert_eq!(unmarked("A <!-- codealong-review o/r#7 abc --> B"), ("A <!-- codealong-review o/r#7 abc --> B".into(), vec![]));
+    }
+
+    #[test]
+    fn a_review_submits_your_draft_when_you_have_one() {
+        let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(Vec<String>, Value)>::new()));
+        let with = |draft: bool| {
+            let sent = sent.clone();
+            procs::stand_in::set(Some(Box::new(move |_, args, input, _| {
+                let input: Value = input.map(|i| serde_json::from_str(i).unwrap()).unwrap_or(Value::Null);
+                let asked = input["query"] == DRAFT_QUERY;
+                sent.lock().unwrap().push((args.iter().map(|a| a.to_string()).collect(), input));
+                Ok(if asked { draft_answer(draft, "null") } else { "{}".into() })
+            })));
+        };
+        with(true);
+        let done = review("o/r", 7, Verdict::Approve, "LGTM");
+        procs::stand_in::set(None);
+        assert_eq!(done.unwrap(), Reviewed { draft: Some(3) });
+        let calls = std::mem::take(&mut *sent.lock().unwrap());
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].1["query"], SUBMIT_REVIEW);
+        assert_eq!(calls[1].1["variables"]["review"], "PRR_1");
+        assert_eq!(calls[1].1["variables"]["event"], "APPROVE");
+        let body = calls[1].1["variables"]["body"].as_str().unwrap();
+        assert!(body.starts_with("LGTM\n\n---\n\nHold it.") && body.ends_with("322941c630688648510901d3a5b2e77bfc2c7ae8 -->"), "{body}");
+
+        // Nothing written sends the draft's own text, marks and all; a comment needs nothing
+        // written, since the draft has some.
+        with(true);
+        let done = review("o/r", 7, Verdict::Comment, "");
+        procs::stand_in::set(None);
+        done.unwrap();
+        let calls = std::mem::take(&mut *sent.lock().unwrap());
+        assert_eq!(calls[1].1["variables"]["event"], "COMMENT");
+        let body = calls[1].1["variables"]["body"].as_str().unwrap();
+        assert!(body.starts_with("Hold it.") && body.ends_with("322941c630688648510901d3a5b2e77bfc2c7ae8 -->"), "{body}");
+
+        // Without a draft it's `gh pr review`.
+        with(false);
+        let done = review("o/r", 7, Verdict::Comment, "A thought");
+        procs::stand_in::set(None);
+        assert_eq!(done.unwrap(), Reviewed { draft: None });
+        let calls = std::mem::take(&mut *sent.lock().unwrap());
+        assert_eq!(calls[1].0.join(" "), "pr review 7 --comment -R o/r --body A thought");
+    }
+
+    #[test]
+    fn editing_your_drafts_text_keeps_codealongs_marks() {
+        let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let kept = sent.clone();
+        procs::stand_in::set(Some(Box::new(move |_, _, input, _| {
+            let input: Value = serde_json::from_str(input.unwrap()).unwrap();
+            let asked = input["query"] == DRAFT_QUERY;
+            kept.lock().unwrap().push(input);
+            Ok(if asked { draft_answer(true, "null") } else { "{}".into() })
+        })));
+        let done = edit_draft("o/r", 7, " Shorter. ");
+        procs::stand_in::set(None);
+        done.unwrap();
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls[1]["query"], EDIT_REVIEW);
+        assert_eq!(calls[1]["variables"]["body"], "Shorter.\n\n<!-- codealong-review o/r#7 322941c630688648510901d3a5b2e77bfc2c7ae8 -->");
+        assert!(edit_draft_comment("PRRC_1", "  ").is_err());
     }
 
     #[test]

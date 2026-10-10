@@ -83,6 +83,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--accounts", takes: "", run: accounts },
     Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
+    Mode { flag: "--pr-draft", takes: "<owner/name> <number>", run: |_, rest| { let (repo, number) = repo_and_number(rest)?; Ok(pretty(&crate::github::your_review(repo, number).map_err(failed)?)) } },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
     Mode { flag: "--merge-box", takes: "<owner/name> <number>", run: merge_box },
     Mode { flag: "--review-plan", takes: "<owner/name> <number>", run: review_plan },
@@ -111,6 +112,8 @@ const MODES: &[Mode] = &[
 /// to it in a conversation gets it.
 /// `codealong --snapshot --merge-box <owner/name> <number>`: what a PR's merge box offers you, as
 /// its panel gets it. It only reads: what the box does is GitHub's, on the PR.
+/// `codealong --snapshot --pr-draft <owner/name> <number>`: your draft review of a PR with its
+/// comments, and an agent's review of yours you submitted, as its Review tab gets them.
 /// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
 /// sending it (asks TypeSafe; needs the key, and `[jev] quick_panel` on).
 /// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's

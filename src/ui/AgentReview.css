@@ -1,4 +1,4 @@
-/* Codealong's own review of a PR (AgentReview.tsx). First where its latest round stands, and why
+/* A PR's Review tab (AgentReview.tsx). First where Codealong's own review of it stands, and why
    when it didn't go. */
 .ca-prinsp-auto {
   margin: 0;
@@ -30,15 +30,17 @@
   margin: 2px 0 0 calc(12px + var(--space-2));
   color: var(--ink-3);
 }
+/* The Review tab: its parts one under another. */
+.ca-agentrev {
+  row-gap: var(--space-3);
+}
 /* Which commit's review shows, when it has had more than one. */
 .ca-agentrev-rounds {
   justify-self: start;
-  margin: var(--space-2) 0 0;
 }
 .ca-agentrev-body {
   display: grid;
   gap: var(--space-3);
-  margin: var(--space-3) 0 0;
 }
 /* An earlier commit's review says whose and when, with its own draft and session. */
 .ca-agentrev-byline {
@@ -115,4 +117,72 @@
   color: var(--ink-3);
   text-align: right;
   user-select: none;
+}
+
+/* An agent's review you submitted. */
+.ca-agentrev-submitted {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-agentrev-submitted > svg {
+  flex: none;
+  color: var(--pr-open);
+}
+
+/* Your draft review on GitHub: a heading with the way to it there, that only you see it, its
+   text, then its comments, each with what can be done to it. */
+.ca-agentrev-draft {
+  display: grid;
+  gap: var(--space-3);
+}
+.ca-agentrev-drafthead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.ca-agentrev-drafttitle {
+  flex: 1;
+  min-width: 0;
+  font: var(--type-body-strong);
+  color: var(--ink);
+}
+.ca-agentrev-draftnote {
+  margin: calc(-1 * var(--space-2)) 0 0;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-agentrev-drafttext {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.ca-agentrev-comment > .ca-tag {
+  justify-self: start;
+}
+.ca-agentrev-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* Remove waits for a second click, and says so in the alert's color. */
+.ca-agentrev-actions .ca-linkbtn.is-armed {
+  color: var(--alert);
+}
+
+/* A box where the text or a comment is changed, and the panel's box for a verdict under the
+   review: a reply box, without the rule and ground it has at a panel's foot. */
+.ca-composer.ca-agentrev-edit,
+.ca-composer.ca-prverdict {
+  padding: 0;
+  border-top: 0;
+  background: transparent;
 }

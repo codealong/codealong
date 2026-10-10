@@ -366,6 +366,66 @@ export function Seg<T extends string | number | null>({ options, value, onPick, 
   );
 }
 
+/** One tab of a tab bar. */
+export interface TabOption<T extends string> {
+  id: T;
+  label: string;
+  /** How many it holds, quieter after the label; none says nothing. */
+  count?: number | null;
+  /** Something in it is under way (an agent reviewing): a dot after the label. */
+  busy?: boolean;
+  title?: string;
+}
+
+interface TabsProps<T extends string> {
+  tabs: readonly TabOption<T>[];
+  value: T;
+  onPick: (id: T) => void;
+  /** What the tabs are of, for a screen reader. */
+  label: string;
+  /** Ids the tabs' panels are named by: `${idBase}-${tab}`, a panel's tab `${idBase}-${tab}-tab`. */
+  idBase: string;
+  className?: string;
+}
+
+/** A tab bar: the parts of one thing, one shown at a time under it (a PR's description, changes
+ *  and review). ← → go from tab to tab, as a tab bar's do. Its panels are the caller's, each
+ *  `role="tabpanel"` with the id `${idBase}-${tab}`. */
+export function Tabs<T extends string>({ tabs, value, onPick, label, idBase, className }: TabsProps<T>) {
+  const bar = useRef<HTMLDivElement>(null);
+  const step = (by: number) => {
+    const at = tabs.findIndex((t) => t.id === value);
+    const next = tabs[(at + by + tabs.length) % tabs.length];
+    if (!next) return;
+    onPick(next.id);
+    bar.current?.querySelector<HTMLElement>(`#${CSS.escape(`${idBase}-${next.id}-tab`)}`)?.focus();
+  };
+  return (
+    <div
+      ref={bar}
+      className={cx('ca-tabs', className)}
+      role="tablist"
+      aria-label={label}
+      onKeyDown={(e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        e.preventDefault();
+        step(e.key === 'ArrowRight' ? 1 : -1);
+      }}
+    >
+      {tabs.map((t) => {
+        const on = t.id === value;
+        return (
+          <button key={t.id} id={`${idBase}-${t.id}-tab`} type="button" role="tab" aria-selected={on} aria-controls={`${idBase}-${t.id}`} tabIndex={on ? 0 : -1} className={cx('ca-tab', on && 'is-on')} title={t.title} onClick={() => onPick(t.id)}>
+            {t.label}
+            {t.count != null && <span className="ca-tab-count">{t.count.toLocaleString('en-US')}</span>}
+            {t.busy && <span className="ca-tab-busy" aria-hidden />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** What a chip that does something answers to, by where it is. On a list's row (`inRow`) a
  *  click is the row's, which it selects, so a double-click does the chip's thing, in place of
  *  the row's own. Anywhere else the chip is a button: a click does its thing and nothing of

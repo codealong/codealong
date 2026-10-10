@@ -35,6 +35,7 @@ import { BayHeader, Button, cx, Icon, Kbd, Seg, StatusGlyph } from './ui/primiti
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
+import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
@@ -627,7 +628,7 @@ export function App() {
   const approve = useCallback((pr: PrItem) => {
     setApproving((a) => new Set(a).add(pr.key));
     reviewPr(pr.repoSlug, pr.number, 'approve', '')
-      .then(() => setToast(`Approved #${pr.number}.`))
+      .then((done) => setToast(reviewedWords('approve', pr.number, done)))
       .catch((e: unknown) => setToast(errorText(e)))
       .finally(() =>
         setApproving((a) => {

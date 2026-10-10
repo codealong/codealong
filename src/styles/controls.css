@@ -27,6 +27,53 @@
 .ca-segctl button { height: 24px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-2); font: var(--type-meta-strong); cursor: pointer; }
 .ca-segctl button.is-on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-lift); }
 
+/* A tab bar (primitives.tsx `Tabs`): the tabs as words along a line, the one shown underlined,
+   what each holds counted after it. */
+.ca-tabs {
+  display: flex;
+  gap: var(--space-4);
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+}
+.ca-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  margin-bottom: -1px;
+  padding: 0 1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-3);
+  font: var(--type-meta-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-tab:hover {
+  color: var(--ink);
+}
+.ca-tab.is-on {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+}
+.ca-tab:focus-visible {
+  outline: none;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  box-shadow: var(--shadow-focus);
+}
+.ca-tab-count {
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+/* Something in it is under way. */
+.ca-tab-busy {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--logo-working);
+}
+
 .ca-linkbtn {
   padding: 0;
   border: 0;

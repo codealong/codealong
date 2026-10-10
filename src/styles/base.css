@@ -30,7 +30,8 @@ body {
   user-select: none;
   cursor: default;
 }
-input {
+input,
+textarea {
   -webkit-user-select: text;
   user-select: text;
 }

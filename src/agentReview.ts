@@ -2,6 +2,8 @@
 // (ui/AgentReview.tsx): each comment on a line of the code with the lines around it from the PR's
 // diff, and a link to that line on GitHub at the commit it reviewed.
 
+import type { PrItem } from './types';
+
 /** A line of a diff around a comment's line, as `excerptAt` gives it. */
 export interface ExcerptLine {
   /** Its number in the file's new version; none for a removed line. */
@@ -48,4 +50,15 @@ export function excerptAt(patch: string, line: number, around = 2): ExcerptLine[
 /** A line of a file at a commit on GitHub. */
 export function lineLink(repoSlug: string, commit: string, path: string, line: number): string {
   return `https://github.com/${repoSlug}/blob/${commit}/${path.split('/').map(encodeURIComponent).join('/')}#L${line}`;
+}
+
+/** The parts of a PR its details show one at a time (PrInspector.tsx `PrDetails`). */
+export type PrTab = 'description' | 'changes' | 'review';
+
+/** The tab a PR's details open on, when it hasn't shown one yet: its review, when the agent's
+ *  is there to read and the PR still waits on yours, else its description. */
+export function openingTab(pr: Pick<PrItem, 'reviewRequested' | 'state' | 'autoReview'>): PrTab {
+  const stage = pr.autoReview?.stage;
+  const open = pr.state !== 'merged' && pr.state !== 'closed';
+  return open && pr.reviewRequested && (stage === 'drafted' || stage === 'posted' || stage === 'kept') ? 'review' : 'description';
 }

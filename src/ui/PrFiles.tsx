@@ -1,4 +1,4 @@
-// A PR's changed files, at the foot of its details (PrInspector.tsx `PrDetails`): a row each, its
+// A PR's changed files, its details' Changes tab (PrInspector.tsx `PrDetails`): a row each, its
 // name first and its folder after it, quieter, opening to its diff. Once there are enough to look
 // for one, a filter sits beside the heading and stays at the top while the list scrolls under
 // it: what's typed narrows the list to the paths that hold every word (prFiles.ts), `-word`
@@ -7,9 +7,11 @@
 // diffs. ↑ ↓ pick a file, ⏎ opens or closes it, Escape clears the filter, then leaves it; while
 // it filters, the files it lists open and close together. ⌘F goes to the filter where the
 // window says so (`keys`), and so does a click on the file count over the details
-// (`FilesFinder`). What's typed is kept for each PR while the window shows another.
+// (`FilesFinder`), each showing the tab first (`onShow`). What's typed is kept for each PR while
+// the window shows another.
 
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useLatest } from '../latest';
 import { filterFiles, fileQuery, marks, pieces, splitPath, type FileHit } from '../prFiles';
 import type { PrFile } from '../types';
@@ -128,9 +130,11 @@ interface PrFilesProps {
   more: boolean;
   /** ⌘F goes to the filter. */
   keys?: boolean;
+  /** Shows the tab the files are on, before the filter's gone to. */
+  onShow?: () => void;
 }
 
-export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ prKey, files, total, more, keys = false }, ref) {
+export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ prKey, files, total, more, keys = false, onShow }, ref) {
   const [query, setQuery] = useState(() => queries.get(prKey) ?? '');
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [active, setActive] = useState(-1);
@@ -150,6 +154,8 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
 
   const section = useRef<HTMLElement>(null);
   const find = () => {
+    // Shown at once, so what follows finds the list where it's drawn.
+    if (onShow) flushSync(onShow);
     // The list comes into view at its heading, unless the heading's in view already: stuck at
     // the top over the files, it stays where you'd scrolled to.
     const at = top.current?.getBoundingClientRect();

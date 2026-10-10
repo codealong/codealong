@@ -919,6 +919,41 @@ export interface WrittenReview {
   comments: LineComment[];
 }
 
+/** Your draft review of a PR as GitHub has it (github.rs `Draft`): its text, without
+ *  Codealong's hidden marks, and its comments. Only you see it until it's submitted. */
+export interface Draft {
+  id: string;
+  body: string;
+  /** The commit it was begun on, which its comments' lines are numbered by. */
+  commit: string | null;
+  url: string | null;
+  comments: DraftComment[];
+  /** How many comments it has, of which `comments` are the first hundred. */
+  count: number;
+}
+
+/** A comment of your draft review: on its line of the file's new version, or on the file. */
+export interface DraftComment {
+  id: string;
+  path: string;
+  line: number | null;
+  /** The PR's changes since moved or changed its line. */
+  outdated: boolean;
+  body: string;
+}
+
+/** Your review of a PR on GitHub (github.rs `YourReview`): the draft you haven't submitted, and
+ *  the agent's review you did submit, when that's the review you last gave. */
+export interface YourReview {
+  draft: Draft | null;
+  submitted: { state: string; at: number | null; url: string | null } | null;
+}
+
+/** What a review did (github.rs `Reviewed`): submitted your draft, with this many comments. */
+export interface Reviewed {
+  draft: number | null;
+}
+
 /** A comment on one line of a PR's code: the file, and the line's number in its new version. */
 export interface LineComment {
   path: string;

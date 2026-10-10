@@ -1,5 +1,42 @@
 /* The PR panel (PrInspector.tsx): status, reviews, comments, and the description as GitHub
-   renders it (.ca-prbody). Its files are PrFiles.css's. */
+   renders it (.ca-prbody). Its files are PrFiles.css's, its review AgentReview.css's. */
+
+/* Its tabs stay at the top of what scrolls, over what's under them, where the files' filter sticks
+   under them (PrFiles.css). A tab picked there shows from its start, under them. What's stuck is
+   held below the scroller's padding (`--prtabs-inset`, the panel's or a card's), so the bar
+   reaches up over it, its ground hiding what scrolls there. */
+.ca-prinsp {
+  --prtabs-h: 33px;
+  --prtabs-inset: var(--space-4);
+}
+.ca-prreview-body.ca-prinsp {
+  --prtabs-inset: 10px;
+}
+.ca-prtabs {
+  position: sticky;
+  top: calc(-1 * var(--prtabs-inset));
+  z-index: 2;
+  flex: none;
+  margin: calc(-1 * var(--prtabs-inset)) 0 calc(-1 * var(--space-2));
+  padding-top: var(--prtabs-inset);
+  background: var(--prfiles-ground, var(--surface));
+}
+.ca-prtab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  scroll-margin-top: calc(var(--prtabs-inset) + var(--prtabs-h) + var(--space-2));
+}
+.ca-prtab-panel[hidden] {
+  display: none;
+}
+.ca-prtab-panel .ca-prfiles-top.is-filterable {
+  top: var(--prtabs-h);
+}
+.ca-prtab-panel .ca-prfiles-sec {
+  scroll-margin-top: calc(var(--prtabs-inset) + var(--prtabs-h));
+}
 
 .ca-prinsp .ca-insp-actions {
   flex-wrap: wrap;

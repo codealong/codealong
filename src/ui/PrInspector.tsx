@@ -1,26 +1,32 @@
 // A PR in the right sidebar: where it lives on this Mac first (worktrees and the sessions that
-// worked on it, drawn like the sidebar's tree), then where it stands, its comments, its
-// description as GitHub renders it, and its changed files with their diffs (PrFiles.tsx), which
-// the file count under Checks and reviews goes to. Under the header is a row of buttons: the
-// panel's (Approve, Snooze, GitHub, Review with) with the merge box's (MergeBox.tsx) after
-// Approve, so merging is where approving is. `PrDetails` is that body on its own, which the panel
-// wraps with its buttons, and a PR's card (PrCard.tsx) with the strip that works through what
-// waits on you and the box that reviews it.
+// worked on it, drawn like the sidebar's tree), then where it stands, then its parts as tabs, one
+// shown at a time: Description (its description as GitHub renders it, then its comments), Changes
+// (its changed files with their diffs, PrFiles.tsx, which the file count under Checks and reviews
+// and ⌘F go to) and Review (your review: the agent's, your draft on GitHub, AgentReview.tsx). The
+// tabs stay at the top as what's under them scrolls. A PR opens on the tab it showed last, else on
+// its review when the agent's is there to read and the PR waits on yours (agentReview.ts
+// `openingTab`), else its description. Under the header is a row of buttons: the panel's
+// (Approve, Snooze, GitHub, Review with) with the merge box's (MergeBox.tsx) after Approve, so
+// merging is where approving is. `PrDetails` is that body on its own, which the panel wraps with
+// its buttons and a box for a verdict under its review, and a PR's card (PrCard.tsx) with the
+// strip that works through what waits on you and the box that reviews it.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
 
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { openingTab, type PrTab } from '../agentReview';
 import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
-import type { Lane, PrComment, PrDetail, Session } from '../types';
-import { AgentReview } from './AgentReview';
+import { useYourReview, verdictWords } from '../prDraft';
+import type { Lane, PrComment, PrDetail, Reviewed, Session, Verdict } from '../types';
+import { PrReview } from './AgentReview';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { PanelPlace, PR_PRIMARY } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
-import { Button, headerMenu, Icon } from './primitives';
+import { Button, headerMenu, Icon, Tabs } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
@@ -35,6 +41,9 @@ const COMMENTS_SHOWN = 6;
 
 /** Jev's word on comments already asked about, by comment id, across PRs. */
 const askCache = new Map<string, Record<string, number>>();
+
+/** The tab each PR showed last, kept while the window goes from one PR to the next. */
+const tabsShown = new Map<string, PrTab>();
 
 /** A PR's comments, newest first, the ones asking for a change marked. */
 function Comments({ comments, asks, now }: { comments: PrComment[]; asks: Set<string>; now: number }) {
@@ -114,6 +123,9 @@ export interface PrDetailsProps {
   keys?: boolean;
   /** A window that goes on to the next PR as one is merged (MergeBox.tsx). */
   goesOn?: MergeGoesOn;
+  /** Gives a verdict as you with what's written, from a box under its review (AgentReview.tsx).
+   *  A card has its own box (PrCard.tsx), so it passes none. */
+  onVerdict?: (verdict: Verdict, body: string) => Promise<Reviewed>;
 }
 
 interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail'> {
@@ -128,9 +140,11 @@ interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail'> {
 export function PrInspector({ approving, onApprove, onReview, onSnooze, ...details }: PrInspectorProps) {
   const { pr } = details.item;
   const requested = pr.reviewRequested && prIsOpen(pr);
+  // What's read of your draft by the details below: approving submits it.
+  const draft = useYourReview(pr, false)?.review?.draft;
   // Approve is for any open PR but yours, asked for or not; it's filled when it's asked of you.
   const lead = mayApprove(pr) && (
-    <Button variant={requested ? 'primary' : 'secondary'} icon="check" disabled={approving} title={requested ? undefined : 'Approve it as you, though your review wasn’t asked for'} onClick={onApprove}>
+    <Button variant={requested ? 'primary' : 'secondary'} icon="check" disabled={approving} title={verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for')} onClick={onApprove}>
       {approving ? 'Approving…' : 'Approve'}
     </Button>
   );
@@ -158,9 +172,33 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, ...detai
 
 /** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
  *  comments, its description and its files. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn }: PrDetailsProps) {
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, onVerdict }: PrDetailsProps) {
   const { pr } = item;
   const files = useRef<FilesFinder>(null);
+  const idBase = `prtab${useId().replace(/:/g, '')}`;
+
+  // The tab shown: the one picked for this PR, else the one it showed last, else where it opens.
+  const [picked, setPicked] = useState<{ key: string; tab: PrTab } | null>(null);
+  const tab = picked?.key === pr.key ? picked.tab : (tabsShown.get(pr.key) ?? openingTab(pr));
+  const bar = useRef<HTMLDivElement>(null);
+  const panels = useRef<Record<PrTab, HTMLDivElement | null>>({ description: null, changes: null, review: null });
+  // A tab picked while the tabs are stuck at the top shows from its start, under them.
+  const fromTop = useRef(false);
+  const pick = (to: PrTab) => {
+    const at = bar.current?.getBoundingClientRect();
+    const view = bar.current?.parentElement?.getBoundingClientRect();
+    fromTop.current = !!at && !!view && at.top - view.top < 2 && (bar.current?.parentElement?.scrollTop ?? 0) > 0;
+    tabsShown.set(pr.key, to);
+    setPicked({ key: pr.key, tab: to });
+  };
+  useLayoutEffect(() => {
+    if (!fromTop.current) return;
+    fromTop.current = false;
+    panels.current[tab]?.scrollIntoView({ block: 'start' });
+  }, [tab]);
+  // Your review on GitHub, read while its tab shows, and for a draft the agent made.
+  const yours = useYourReview(pr, tab === 'review' || pr.autoReview?.stage === 'drafted');
+  const draft = yours?.review?.draft;
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
 
@@ -293,7 +331,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
           <span className="ca-meta">
             +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in{' '}
             {detail ? (
-              <button type="button" className="ca-linkbtn ca-prinsp-files" title="Go to the files" onClick={() => files.current?.find()}>
+              <button type="button" className="ca-linkbtn ca-prinsp-files" title="Go to the files, under Changes" onClick={() => files.current?.find()}>
                 {pr.changedFiles} {pr.changedFiles === 1 ? 'file' : 'files'}
               </button>
             ) : (
@@ -330,32 +368,60 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
         )}
       </section>
 
-      {pr.autoReview && <AgentReview pr={{ ...pr, autoReview: pr.autoReview }} detail={detail} now={now} sessions={item.sessions} onShowSession={onShowSession} />}
+      <div ref={bar} className="ca-prtabs">
+        <Tabs
+          label={`#${pr.number}`}
+          idBase={idBase}
+          value={tab}
+          onPick={pick}
+          tabs={[
+            { id: 'description', label: 'Description', title: comments.length > 0 ? `Its description, then its ${comments.length === 1 ? 'comment' : `${comments.length} comments`}` : 'Its description' },
+            { id: 'changes', label: 'Changes', count: pr.changedFiles, title: 'The files it changes, with their diffs (⌘F filters them)' },
+            {
+              id: 'review',
+              label: 'Review',
+              count: draft ? draft.count : null,
+              busy: pr.autoReview?.stage === 'reviewing',
+              title: draft ? 'Your draft review, to submit' : pr.autoReview?.stage === 'reviewing' ? 'An agent is reviewing it' : 'Your review of it',
+            },
+          ]}
+        />
+      </div>
 
-      {comments.length > 0 && (
-        <section className="ca-insp-sec">
-          <h4 className="ca-label">
-            Comments · {comments.length}
-            {asking.size > 0 && <span className="ca-prcomments-asks"> · {asking.size} {asking.size === 1 ? 'asks' : 'ask'} for a change</span>}
-          </h4>
-          <Comments comments={comments} asks={asking} now={now} />
+      <div ref={(el) => void (panels.current.description = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-description`} aria-labelledby={`${idBase}-description-tab`} hidden={tab !== 'description'}>
+        <section className="ca-insp-sec" aria-label="Description">
+          {error && <p className="ca-form-error">{error}</p>}
+          {!detail && !error && <p className="ca-empty">Loading…</p>}
+          {!detail && !error && <Tip place="pr" />}
+          {detail &&
+            (detail.bodyHtml.trim() ? (
+              <div className="ca-prbody" onClick={onBodyClick} dangerouslySetInnerHTML={{ __html: detail.bodyHtml }} />
+            ) : (
+              <p className="ca-empty">No description.</p>
+            ))}
         </section>
-      )}
+        {comments.length > 0 && (
+          <section className="ca-insp-sec">
+            <h4 className="ca-label">
+              Comments · {comments.length}
+              {asking.size > 0 && <span className="ca-prcomments-asks"> · {asking.size} {asking.size === 1 ? 'asks' : 'ask'} for a change</span>}
+            </h4>
+            <Comments comments={comments} asks={asking} now={now} />
+          </section>
+        )}
+      </div>
 
-      <section className="ca-insp-sec">
-        <h4 className="ca-label">Description</h4>
-        {error && <p className="ca-form-error">{error}</p>}
-        {!detail && !error && <p className="ca-empty">Loading…</p>}
-        {!detail && !error && <Tip place="pr" />}
-        {detail &&
-          (detail.bodyHtml.trim() ? (
-            <div className="ca-prbody" onClick={onBodyClick} dangerouslySetInnerHTML={{ __html: detail.bodyHtml }} />
-          ) : (
-            <p className="ca-empty">No description.</p>
-          ))}
-      </section>
+      <div ref={(el) => void (panels.current.changes = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-changes`} aria-labelledby={`${idBase}-changes-tab`} hidden={tab !== 'changes'}>
+        {detail ? (
+          <PrFiles key={pr.key} ref={files} prKey={pr.key} files={detail.files} total={pr.changedFiles} more={detail.moreFiles} keys={keys} onShow={() => pick('changes')} />
+        ) : (
+          <section className="ca-insp-sec">{error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Loading…</p>}</section>
+        )}
+      </div>
 
-      {detail && <PrFiles key={pr.key} ref={files} prKey={pr.key} files={detail.files} total={pr.changedFiles} more={detail.moreFiles} keys={keys} />}
+      <div ref={(el) => void (panels.current.review = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-review`} aria-labelledby={`${idBase}-review-tab`} hidden={tab !== 'review'}>
+        <PrReview pr={pr} detail={detail} now={now} yours={yours} sessions={item.sessions} onShowSession={onShowSession} onVerdict={onVerdict} />
+      </div>
     </>
   );
 }

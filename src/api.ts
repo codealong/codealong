@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way, WrittenReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -162,10 +162,36 @@ export async function prCommentAsks(title: string, comments: { id: string; autho
 }
 
 /** Reviews a PR as you: approves it, comments on it or asks for changes, with `body` as the
- *  review's text (a comment or a request for changes needs some). */
-export async function reviewPr(repo: string, number: number, verdict: Verdict, body: string): Promise<void> {
+ *  review's text (a comment or a request for changes needs some). With a draft review of yours
+ *  on it, that's what's submitted, `body` going before its text. */
+export async function reviewPr(repo: string, number: number, verdict: Verdict, body: string): Promise<Reviewed> {
   if (!inTauri) throw new Error('Reviewing needs the app.');
-  await invoke('review_pr', { repo, number, verdict, body });
+  // An engine from before drafts were submitted answers nothing.
+  return (await invoke<Reviewed | null>('review_pr', { repo, number, verdict, body })) ?? { draft: null };
+}
+
+/** Your review of a PR on GitHub: your draft with its comments, and the agent's you submitted. */
+export async function prDraft(repo: string, number: number): Promise<YourReview> {
+  if (!inTauri) return { draft: null, submitted: null };
+  return (await invoke<YourReview | null>('pr_draft', { repo, number })) ?? { draft: null, submitted: null };
+}
+
+/** Gives your draft review of a PR the text `text`. */
+export async function editDraft(repo: string, number: number, text: string): Promise<void> {
+  if (!inTauri) throw new Error('Editing a review needs the app.');
+  await invoke('edit_draft', { repo, number, text });
+}
+
+/** Gives a comment of your draft review the text `body`. */
+export async function editDraftComment(id: string, body: string): Promise<void> {
+  if (!inTauri) throw new Error('Editing a review needs the app.');
+  await invoke('edit_draft_comment', { id, body });
+}
+
+/** Takes a comment out of your draft review. */
+export async function dropDraftComment(id: string): Promise<void> {
+  if (!inTauri) throw new Error('Editing a review needs the app.');
+  await invoke('drop_draft_comment', { id });
 }
 
 /** What a PR's merge box offers you, as GitHub's has it. */

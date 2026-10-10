@@ -669,7 +669,7 @@ fn short(sha: &str) -> &str {
 
 /// The mark a posted review carries, unseen on GitHub: which PR and commit it's of.
 pub fn marker(pr_key_: &str, head: &str) -> String {
-    format!("<!-- codealong-review {} {head} -->", pr_key(pr_key_))
+    format!("{}{} {head} -->", crate::github::REVIEW_MARK, pr_key(pr_key_))
 }
 
 /// What's handed to a review to read, as text refers to kept files (attachments.rs).

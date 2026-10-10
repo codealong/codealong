@@ -1,16 +1,24 @@
-// Checks what's shown of Codealong's automatic reviews (autoreview.rs, `[reviews]`). A PR panel
-// in the PRs view says where the PR's latest round stands (PrInspector.tsx `AutoReviewRow`, the
-// words from review.ts `autoReviewWords`): the latest open PR is made one that waits on your
-// review, whose agent reviewed an earlier commit into a draft review of yours, with new commits
-// since; its row links to the draft (the PR's files, open_url) and, when the PR lists a session,
-// shows the session. Its Agent review section (AgentReview.tsx) shows the review the agent wrote
-// (pr_agent_reviews, stubbed): its text, then each comment on a line with the lines around it from
-// the PR's diff (pr_detail, stubbed), the line marked, its place opening that line on GitHub at
-// the commit reviewed; a comment on a line the diff doesn't show has no lines; and the review of
-// an earlier commit is a click away, saying whose and when. The next
-// PR's review didn't finish, and says why in red. The third is still being reviewed, so it's
-// held out of what waits on you (prStatus.ts `heldForAgent`): its row says Agent reviewing in
-// place of Awaiting review, and its panel that it waits on you once that's done. Then Settings ›
+// Checks what's shown of Codealong's automatic reviews (autoreview.rs, `[reviews]`) and your draft
+// review, in a PR panel's tabs (PrInspector.tsx `PrDetails`). The latest open PR is made one that
+// waits on your review, whose agent reviewed an earlier commit into a draft review of yours, with
+// new commits since: its panel opens on its Review tab (agentReview.ts `openingTab`), which counts
+// the draft's comments, beside Description and Changes, which counts its files. The tab says
+// where the latest round stands (review.ts `autoReviewWords`), its Draft link the PR's files
+// (open_url) and, when the PR lists a session, the session. Then your draft as GitHub has it
+// (pr_draft, stubbed; AgentReview.tsx `DraftReview`): its text as Markdown, the line saying an
+// agent wrote it in italics, then each comment with its file, folder and line, the lines around
+// it from the PR's diff (pr_detail, stubbed) with its own marked, its place opening that line on
+// GitHub at the draft's commit; an outdated one says so and has no lines. A comment is changed
+// (edit_draft_comment) and shows what it says now; Remove asks for a second click, then takes it
+// out (drop_draft_comment), and the counts drop; the text is changed (edit_draft). The box under
+// it submits it: Approve with your words sends review_pr, the toast says the draft went with its
+// comment, and once GitHub has no draft but your approval of the agent's review, the tab says you
+// submitted it and shows what the agent wrote (pr_agent_reviews, stubbed), the review of an
+// earlier commit a click away, saying whose and when. The file count goes to Changes. The next
+// PR's review didn't finish: it opens on Description, and its Review tab says why in red. The
+// third is still being reviewed, so it's held out of what waits on you (prStatus.ts
+// `heldForAgent`): its row says Agent reviewing in place of Awaiting review, its Review tab has a
+// dot, and says it waits on you once that's done. Then Settings ›
 // Automation (no longer Accounts) has the switch, off by default, with the PR nudge, the usage
 // limit and the network error; turned on it saves `[reviews]` as config.toml has it, and the
 // reviewer is a box drawn as a session's (AgentPromptBox.tsx): what it's told, Codealong's own
@@ -47,6 +55,20 @@
     { head: '1111111aaaa', stage: 'posted', at: Date.now() - 3 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: 'https://github.com/o/r/pull/1#issuecomment-9', summary: 'An earlier review.', comments: [] },
   ];
   var DEFAULT = 'Look for bugs, security and data risks, missing tests, and anything that doesn’t do what the PR says it does.';
+  // Your draft on GitHub, as pr_draft has it, until it's submitted.
+  var DRAFT = {
+    id: 'PRR_1',
+    body: 'I’d hold this until the **first** finding is fixed.\n\n<sub>An agent’s review (Claude Code, claude-opus-5-5) of 309811a, drafted by Codealong.</sub>',
+    commit: '309811aaaabbbbcccc',
+    url: null,
+    count: 2,
+    comments: [
+      { id: 'PRRC_1', path: 'src/a.rs', line: 2, outdated: false, body: 'This panics on empty input: check `len` first.' },
+      { id: 'PRRC_2', path: 'docs/guide.md', line: 40, outdated: true, body: 'Say what changed here too.' },
+    ],
+  };
+  var submitted = null;
+  var prUrl = null;
   var posted = null;
   var failed = null;
   var held = null;
@@ -58,6 +80,27 @@
     var p = real(cmd, args, options);
     if (cmd === 'pr_agent_reviews') {
       return Promise.resolve(args.key === drafted ? WRITTEN : []);
+    }
+    if (cmd === 'pr_draft') {
+      var ours = args.number === draftedNumber;
+      return Promise.resolve({ draft: ours && !submitted ? JSON.parse(JSON.stringify(DRAFT)) : null, submitted: ours ? submitted : null });
+    }
+    if (cmd === 'edit_draft_comment') {
+      DRAFT.comments.forEach(function (c) { if (c.id === args.id) c.body = args.body; });
+      return Promise.resolve(null);
+    }
+    if (cmd === 'drop_draft_comment') {
+      DRAFT.comments = DRAFT.comments.filter(function (c) { return c.id !== args.id; });
+      DRAFT.count = DRAFT.comments.length;
+      return Promise.resolve(null);
+    }
+    if (cmd === 'edit_draft') {
+      DRAFT.body = args.text;
+      return Promise.resolve(null);
+    }
+    if (cmd === 'review_pr' && args.number === draftedNumber) {
+      submitted = { state: 'APPROVED', at: Date.now(), url: 'https://github.com/o/r/pull/1#pullrequestreview-7' };
+      return Promise.resolve({ draft: DRAFT.count });
     }
     if (cmd === 'pr_detail' && args.number === draftedNumber) {
       return Promise.resolve({ bodyHtml: '', mergeable: null, commits: 1, reviews: [], requested: [], comments: [], files: [{ path: 'src/a.rs', status: 'modified', additions: 2, deletions: 1, patch: PATCH }], moreFiles: false });
@@ -89,6 +132,7 @@
         Object.assign(pr, { state: 'open', mine: false, author: 'ana', reviewRequested: true, snoozedUntil: null, headOid: '2222222bbbbcccc' });
         pr.autoReview = { stage: 'drafted', head: '309811aaaabbbb', parts: session ? [{ who: 'auto', session: session, state: 'done' }] : [], at: now - 5 * 60000, comment: LINK, rounds: 2, behind: true };
         posted = '#' + pr.number;
+        prUrl = pr.url;
       }
       if (open[1]) {
         Object.assign(open[1], { state: 'open', mine: false, reviewRequested: true, snoozedUntil: null });
@@ -107,6 +151,16 @@
   var number = function (row) { return (q('.ca-prrow-num', row) || {}).textContent; };
   var row = function (n) { return all('.ca-prrow').filter(function (r) { return number(r) === n; })[0]; };
   var auto = function () { return q('.ca-prinsp .ca-prinsp-auto'); };
+  var tab = function (label) { return all('.ca-prinsp .ca-tab').filter(function (t) { return t.firstChild && t.firstChild.textContent === label; })[0]; };
+  var shownTab = function () { var t = q('.ca-prinsp .ca-tab.is-on'); return t && t.firstChild.textContent; };
+  var tabCount = function (label) { var c = q('.ca-tab-count', tab(label)); return c ? c.textContent : null; };
+  var hidden = function (el) { return !el || !!el.closest('[hidden]'); };
+  var type = function (el, text) {
+    var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  var button = function (label, within) { return all('button', within).filter(function (b) { return b.textContent.trim() === label; })[0]; };
   var linkbtn = function (label) { return all('.ca-prinsp-auto .ca-linkbtn').filter(function (b) { return b.textContent === label; })[0]; };
   var nav = function (label) { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
   var box = function (words) { return all('.ca-settings-check').filter(function (l) { return words.test(l.textContent); })[0]; };
@@ -115,38 +169,99 @@
     try {
       await until(function () { return posted && row(posted); }, 20000, 'no open PR to give a review');
       press(row(posted));
-      await until(function () { return !!auto(); }, 5000, 'the PR panel shows no automatic review');
+      await until(function () { return !!auto() && !!tab('Review'); }, 5000, 'the PR panel shows no automatic review');
+      var labels = all('.ca-prinsp .ca-tab').map(function (t) { return t.firstChild.textContent; });
+      check('the PR’s parts are tabs: Description, Changes and Review', labels.join(' | ') === 'Description | Changes | Review', labels.join(' | '));
+      check('it opens on Review, as the agent’s review waits there', shownTab() === 'Review' && !hidden(auto()) && hidden(q('.ca-prinsp [aria-label="Description"]')), shownTab());
+      var fileCount = q('.ca-prinsp .ca-prinsp-files') || q('.ca-prinsp-checks .ca-meta');
+      check('Changes counts its files', !!tabCount('Changes') && fileCount.textContent.indexOf(tabCount('Changes') + ' file') >= 0, tabCount('Changes') + ' / ' + fileCount.textContent);
       var says = q('.ca-prinsp-auto-says').textContent;
       check('it says the round and its commit', says === 'Agent drafted a review of 309811a', says);
+      await until(function () { return !!q('.ca-agentrev-draft'); }, 5000, 'your draft on GitHub never showed');
+      check('once the draft shows, its own On GitHub is the way there, not Draft', !linkbtn('Draft') && !!button('On GitHub', q('.ca-agentrev-drafthead')), all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
+      press(button('On GitHub', q('.ca-agentrev-drafthead')));
+      check('which opens the PR’s files, where your draft is', calls('open_url').some(function (c) { return c[1].url === prUrl + '/files'; }), JSON.stringify(calls('open_url')));
       var next = (q('.ca-prinsp-auto-note') || {}).textContent;
-      check('that only you see it, and that new commits get another', next === 'Only you see it until you submit it on GitHub. New commits since: it reviews them again once they settle.', next);
-      check('it sits in a section of its own, Agent review', !!auto().closest('.ca-agentrev'), '');
-      press(linkbtn('Draft'));
-      check('Draft opens the PR’s files, where your draft is', calls('open_url').some(function (c) { return c[1].url === LINK; }), JSON.stringify(calls('open_url')));
+      check('that new commits get another, the draft saying that only you see it', next === 'New commits since: it reviews them again once they settle.', next);
+      check('Review counts the draft’s comments', tabCount('Review') === '2', tabCount('Review'));
       if (session) {
         check('Session is there for the PR’s session', !!linkbtn('Session'), all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
       } else {
         note('no PR lists a session, so Session isn’t checked');
       }
-      await until(function () { return all('.ca-agentrev-comment').length === 2; }, 5000, 'the review’s comments never showed');
-      var section = q('.ca-prinsp .ca-agentrev');
-      check('whose heading counts its comments on lines', /^Agent review · 2 comments on lines/.test(q('.ca-label', section).textContent), q('.ca-label', section).textContent);
-      check('the review’s text, as Markdown', /I’d hold this until the first finding is fixed\./.test(q('.ca-agentrev-body > .ca-agentrev-text').textContent) && !!q('.ca-agentrev-body > .ca-agentrev-text strong'), q('.ca-agentrev-body').textContent.slice(0, 120));
+      var draft = q('.ca-agentrev-draft');
+      check('your draft says its comments, and that only you see it', q('.ca-agentrev-drafttitle', draft).textContent === 'Your draft review · 2 comments' && /^Only you see it\. A verdict below submits it/.test(q('.ca-agentrev-draftnote', draft).textContent), q('.ca-agentrev-drafthead', draft).textContent);
+      var text = q('.ca-agentrev-drafttext .ca-agentrev-text', draft);
+      check('its text, as Markdown, the line saying an agent wrote it in italics', !!q('strong', text) && /drafted by Codealong\.$/.test((q('em', text) || {}).textContent || '') && !/<sub>/.test(text.textContent), text.innerHTML.slice(0, 160));
+      await until(function () { return all('.ca-agentrev-comment').length === 2; }, 5000, 'the draft’s comments never showed');
       var first = all('.ca-agentrev-comment')[0];
       check('each comment says its file, folder and line', q('.ca-agentrev-file', first).textContent === 'a.rs' && q('.ca-agentrev-dir', first).textContent === 'src' && q('.ca-agentrev-line', first).textContent === 'line 2', first.textContent.slice(0, 60));
       await until(function () { return !!q('.ca-agentrev-code', first); }, 5000, 'no lines around the first comment');
       var at = q('.ca-agentrev-code .is-at', first);
       check('with the lines around it, its own marked', all('.ca-agentrev-code > span', first).length === 5 && !!at && /\+    new\(\);/.test(at.textContent), q('.ca-agentrev-code', first).textContent);
       press(q('.ca-agentrev-where', first));
-      check('its place opens that line on GitHub at the commit reviewed', calls('open_url').some(function (c) { return /\/blob\/309811aaaabbbb\/src\/a\.rs#L2$/.test(c[1].url); }), JSON.stringify(calls('open_url').slice(-1)));
-      check('a comment on a line the diff doesn’t show has no lines', !q('.ca-agentrev-code', all('.ca-agentrev-comment')[1]), '');
+      check('its place opens that line on GitHub at the draft’s commit', calls('open_url').some(function (c) { return /\/blob\/309811aaaabbbbcccc\/src\/a\.rs#L2$/.test(c[1].url); }), JSON.stringify(calls('open_url').slice(-1)));
+      var second = all('.ca-agentrev-comment')[1];
+      check('an outdated comment says so, and has no lines', !q('.ca-agentrev-code', second) && (q('.ca-tag', second) || {}).textContent === 'Outdated', second.textContent.slice(0, 80));
+
+      // A comment changed, on GitHub.
+      press(button('Edit', first));
+      await until(function () { return !!q('textarea', first); }, 3000, 'Edit opened no box');
+      check('Edit opens a box with what it says', q('textarea', first).value === 'This panics on empty input: check `len` first.', q('textarea', first).value);
+      type(q('textarea', first), 'This panics on an empty list.');
+      press(button('Save', first));
+      await until(function () { return calls('edit_draft_comment').length === 1 && !q('textarea', all('.ca-agentrev-comment')[0]); }, 3000, 'Save sent nothing');
+      check('Save changes it on GitHub', JSON.stringify(calls('edit_draft_comment')[0][1]) === JSON.stringify({ id: 'PRRC_1', body: 'This panics on an empty list.' }), JSON.stringify(calls('edit_draft_comment')[0][1]));
+      await until(function () { return /This panics on an empty list\./.test(all('.ca-agentrev-comment')[0].textContent); }, 3000, 'the comment doesn’t say what it says now');
+      // One taken out, after a second click.
+      second = all('.ca-agentrev-comment')[1];
+      press(button('Remove', second));
+      await until(function () { return !!button('Click again to remove', second); }, 2000, 'Remove asked for no second click');
+      check('Remove asks for a second click first', !!button('Click again to remove', second) && calls('drop_draft_comment').length === 0, second.textContent.slice(-40));
+      press(button('Click again to remove', second));
+      await until(function () { return calls('drop_draft_comment').length === 1 && all('.ca-agentrev-comment').length === 1; }, 3000, 'the comment wasn’t taken out');
+      check('the second takes it out, on GitHub', calls('drop_draft_comment')[0][1].id === 'PRRC_2', JSON.stringify(calls('drop_draft_comment')[0][1]));
+      await until(function () { return tabCount('Review') === '1'; }, 3000, 'Review still counts 2');
+      check('and the counts drop', q('.ca-agentrev-drafttitle').textContent === 'Your draft review · 1 comment', q('.ca-agentrev-drafttitle').textContent);
+      // Its text changed.
+      press(button('Edit text'));
+      await until(function () { return !!q('.ca-agentrev-draft .ca-agentrev-edit textarea'); }, 3000, 'Edit text opened no box');
+      var textBox = q('.ca-agentrev-draft .ca-agentrev-edit textarea');
+      check('Edit text opens a box with its text as it goes, signed', /^I’d hold this/.test(textBox.value) && /<sub>An agent’s review/.test(textBox.value), textBox.value.slice(0, 80));
+      type(textBox, 'Hold it for the first one.');
+      press(button('Save', q('.ca-agentrev-draft .ca-agentrev-edit')));
+      await until(function () { return calls('edit_draft').length === 1; }, 3000, 'Save sent no text');
+      check('Save gives the draft its text on GitHub', calls('edit_draft')[0][1].text === 'Hold it for the first one.' && calls('edit_draft')[0][1].number === draftedNumber, JSON.stringify(calls('edit_draft')[0][1]));
+      // Submitted from the box under it.
+      var verdict = q('.ca-prinsp .ca-prverdict');
+      check('a box under it gives your verdict, which submits the draft', !!verdict && /submitting your draft review and its 1 comment/.test(button('Approve', verdict).title), verdict ? button('Approve', verdict).title : 'no box');
+      type(q('textarea', verdict), 'LGTM once that’s fixed.');
+      press(button('Approve', verdict));
+      await until(function () { return calls('review_pr').length === 1; }, 3000, 'Approve sent nothing');
+      var sent = calls('review_pr')[0][1];
+      check('Approve sends your words, which go before the draft’s text', sent.verdict === 'approve' && sent.body === 'LGTM once that’s fixed.' && sent.number === draftedNumber, JSON.stringify(sent));
+      await until(function () { return /submitting your draft review and its 1 comment/.test(document.body.textContent); }, 3000, 'no toast says the draft went');
+      await until(function () { return !!q('.ca-agentrev-submitted'); }, 5000, 'the tab doesn’t say it was submitted');
+      check('then the tab says you submitted it', /^You submitted the agent’s review, approving it/.test(q('.ca-agentrev-submitted').textContent) && q('.ca-prinsp-auto-note').textContent.indexOf('You submitted it, approving it.') === 0, q('.ca-agentrev-submitted').textContent + ' / ' + q('.ca-prinsp-auto-note').textContent);
+      await until(function () { return !!q('.ca-agentrev-body'); }, 5000, 'what the agent wrote never showed');
+      check('and what the agent wrote', /The agent’s review \(Claude Code, claude-opus-5-5\) · 2 comments on lines/.test(q('.ca-agentrev-byline').textContent) && /I’d hold this until the first finding is fixed\./.test(q('.ca-agentrev-body > .ca-agentrev-text').textContent), q('.ca-agentrev-byline').textContent);
       var rounds = all('.ca-agentrev-rounds button').map(function (b) { return b.textContent; });
       check('the review of each commit is a click away, the latest first', rounds.join(' | ') === '309811a, the latest | 1111111', rounds.join(' | '));
       press(all('.ca-agentrev-rounds button')[1]);
       await until(function () { return !!q('.ca-agentrev-byline'); }, 3000, 'the earlier review never showed');
+      await until(function () { return /^Of 1111111/.test(q('.ca-agentrev-byline').textContent); }, 3000, 'the earlier review never showed');
       check('an earlier review says whose and when', /^Of 1111111, 3h ago, by Codex, gpt-5\.5/.test(q('.ca-agentrev-byline').textContent) && all('.ca-agentrev-comment').length === 0, q('.ca-agentrev-byline').textContent);
+      press(q('.ca-prinsp .ca-prinsp-files'));
+      await until(function () { return shownTab() === 'Changes'; }, 3000, 'the file count didn’t go to Changes');
+      check('the file count goes to Changes, and its files show', !hidden(q('.ca-prinsp .ca-prfiles-sec')) && hidden(auto()), shownTab());
+      press(tab('Description'));
+      await until(function () { return shownTab() === 'Description'; }, 2000, 'Description never showed');
+      check('Description shows its description', shownTab() === 'Description' && !hidden(q('.ca-prinsp [aria-label="Description"]')), shownTab());
       if (failed && row(failed)) {
         press(row(failed));
+        await until(function () { return !!tab('Review') && q('.ca-prinsp .ca-insp-call').textContent === failed; }, 5000, 'the second PR never showed');
+        check('a PR whose review didn’t finish opens on its description', shownTab() === 'Description', shownTab());
+        press(tab('Review'));
         await until(function () { return auto() && /didn’t finish/.test(auto().textContent); }, 5000, 'the second PR shows no failed review');
         var red = getComputedStyle(q('.ca-prinsp-auto-says')).color;
         var alert = getComputedStyle(document.documentElement).getPropertyValue('--alert').trim();
@@ -158,6 +273,9 @@
         var pills = all('.ca-prpill-text', row(held)).map(function (p) { return p.textContent.trim(); });
         check('a PR the agent is still on says so on its row', pills.some(function (t) { return t === 'Agent reviewing'; }), pills.join(', '));
         press(row(held));
+        await until(function () { return !!tab('Review') && q('.ca-prinsp .ca-insp-call').textContent === held; }, 5000, 'the third PR never showed');
+        check('its Review tab has a dot while the agent reviews it', !!q('.ca-tab-busy', tab('Review')), '');
+        press(tab('Review'));
         await until(function () { return auto() && /Agent reviewing 5555555/.test(auto().textContent); }, 5000, 'the held PR shows no review under way');
         var why = q('.ca-prinsp-auto-note').textContent;
         check('and its panel that it waits on your review once that’s done', why === 'It waits on your review once the agent’s is done.', why);
@@ -208,10 +326,6 @@
       check('picking an account saves it as the reviewer, on the line’s model', chosen.account === heads[0] && typeof chosen.model === 'string', JSON.stringify(chosen));
       // What's typed goes in as React takes typing, and is kept as the box loses the keyboard.
       var mine = 'Start two subagents, one on Opus and one on Sonnet, and combine what they find.';
-      var type = function (el, text) {
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      };
       check('with nothing to go back to yet', !all('.ca-linkbtn', agentBox()).some(function (b) { return /Codealong’s instructions/.test(b.textContent); }), '');
       saves = calls('save_config').length;
       told().focus();
