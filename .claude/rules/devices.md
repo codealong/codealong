@@ -31,6 +31,6 @@ net.rs use them, and how devices are tested, moved from CLAUDE.md. Paths are und
   remote control's refusal). By hand, `cargo test iroh_connects -- --ignored` connects two
   iroh endpoints on this device through the relays (it needs the internet), and `cargo test
   tailnet_here -- --ignored --nocapture` reads this device's tailnet and listens on it.
-- Don't turn remote control on to test sends against real sessions;
+- Sends from another device to real sessions are fine to test, with remote control on.
   `CODEALONG_DEVICE_KEY=<hex>` gives a second copy of the app a device key of its own
   (`src/devicekey.rs`).

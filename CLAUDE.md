@@ -68,9 +68,8 @@ After changing `cli.rs`, run `scripts/skill-reference.sh`, which rewrites `refer
 
 `codealong --snapshot` checks behavior without a window (snapshot.rs, whose `MODES` has each
 mode's arguments). A session's modes are the app's own actions over a board read once, asked as
-another device asks them. The ones marked real act for real: use them only on a scratch session
-of your own. Claude usage is read only with `--usage`, and its endpoint rate-limits: don't loop
-it.
+another device asks them. The ones marked real act for real, and real sessions are fine for
+them. Claude usage is read only with `--usage`, and its endpoint rate-limits: don't loop it.
 
 - `--snapshot [--table] [--no-github] [--usage]`: the board; `--snapshot --bar`: the floating bar's feed.
 - `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
@@ -282,8 +281,9 @@ its adapter, and add what you find to it, not here.
 
 ## Testing against real data
 
-Don't use real data to test actions that reach outside the Mac or can't be undone: approving
-PRs, archiving threads, typing into sessions. Starting sessions is checked without starting one:
+Real sessions are fine to test with, actions included: typing into them, sending prompts,
+answering approvals, archiving. What reaches other people isn't: don't approve or merge PRs to
+test. Starting sessions is checked without starting one:
 `--snapshot --start-plan` prints the launch. The opt-in tests that open real windows or reach
 real accounts say so in their own docs and in their area's rules file (terminals, devices;
 Codex's archive round trip is in `codex/appserver.rs`); don't type on the Mac while one types
