@@ -92,37 +92,6 @@
 .ca-prinsp-reviews li.is-requested > span:nth-child(2) {
   color: var(--attn);
 }
-/* Codealong's own review of the PR (autoreview.rs): its latest round, and why when it didn't go. */
-.ca-prinsp-auto {
-  margin: 10px 0 0;
-  font: var(--type-meta);
-  color: var(--ink-2);
-}
-.ca-prinsp-auto-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-}
-.ca-prinsp-auto-head > svg {
-  flex: none;
-  color: var(--ink-3);
-}
-.ca-prinsp-auto-says {
-  font: var(--type-meta-strong);
-  color: var(--ink);
-}
-.ca-prinsp-auto.is-posted .ca-prinsp-auto-head > svg {
-  color: var(--pr-open);
-}
-.ca-prinsp-auto.is-failed .ca-prinsp-auto-head > svg,
-.ca-prinsp-auto.is-failed .ca-prinsp-auto-says {
-  color: var(--alert);
-}
-.ca-prinsp-auto-note {
-  margin: 2px 0 0 calc(12px + var(--space-2));
-  color: var(--ink-3);
-}
 /* A PR's comments; the ones asking for a change are marked (Jev, when it's on). */
 .ca-prcomments {
   display: grid;

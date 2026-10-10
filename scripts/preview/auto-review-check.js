@@ -3,7 +3,11 @@
 // words from review.ts `autoReviewWords`): the latest open PR is made one that waits on your
 // review, whose agent reviewed an earlier commit into a draft review of yours, with new commits
 // since; its row links to the draft (the PR's files, open_url) and, when the PR lists a session,
-// shows the session. The next
+// shows the session. Its Agent review section (AgentReview.tsx) shows the review the agent wrote
+// (pr_agent_reviews, stubbed): its text, then each comment on a line with the lines around it from
+// the PR's diff (pr_detail, stubbed), the line marked, its place opening that line on GitHub at
+// the commit reviewed; a comment on a line the diff doesn't show has no lines; and the review of
+// an earlier commit is a click away, saying whose and when. The next
 // PR's review didn't finish, and says why in red. The third is still being reviewed, so it's
 // held out of what waits on you (prStatus.ts `heldForAgent`): its row says Agent reviewing in
 // place of Awaiting review, and its panel that it waits on you once that's done. Then Settings ›
@@ -21,6 +25,25 @@
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
   };
   var LINK = 'https://github.com/o/r/pull/1/files';
+  var drafted = null;
+  var draftedNumber = null;
+  var PATCH = '@@ -1,4 +1,5 @@\n fn a() {\n-    old();\n+    new();\n+    more();\n }';
+  var WRITTEN = [
+    {
+      head: '309811aaaabbbb',
+      stage: 'drafted',
+      at: Date.now() - 5 * 60000,
+      session: null,
+      agent: 'Claude Code, claude-opus-5-5',
+      link: LINK,
+      summary: 'I’d hold this until the **first** finding is fixed.',
+      comments: [
+        { path: 'src/a.rs', line: 2, body: 'This panics on empty input: check `len` first.' },
+        { path: 'docs/guide.md', line: 40, body: 'Say what changed here too.' },
+      ],
+    },
+    { head: '1111111aaaa', stage: 'posted', at: Date.now() - 3 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: 'https://github.com/o/r/pull/1#issuecomment-9', summary: 'An earlier review.', comments: [] },
+  ];
   var DEFAULT = 'Look for bugs, security and data risks, missing tests, and anything that doesn’t do what the PR says it does.';
   var posted = null;
   var failed = null;
@@ -31,6 +54,12 @@
   var saved = null;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
+    if (cmd === 'pr_agent_reviews') {
+      return Promise.resolve(args.key === drafted ? WRITTEN : []);
+    }
+    if (cmd === 'pr_detail' && args.number === draftedNumber) {
+      return Promise.resolve({ bodyHtml: '', mergeable: null, commits: 1, reviews: [], requested: [], comments: [], files: [{ path: 'src/a.rs', status: 'modified', additions: 2, deletions: 1, patch: PATCH }], moreFiles: false });
+    }
     if (cmd === 'save_config') {
       saved = args.config;
       return Promise.resolve(null);
@@ -41,7 +70,8 @@
       return p.then(function (view) {
         var config = Object.assign({}, view.config);
         delete config.reviews;
-        return Object.assign({}, view, { reviewPrompt: view.reviewPrompt || DEFAULT, config: saved || config });
+        DEFAULT = view.reviewPrompt || DEFAULT;
+        return Object.assign({}, view, { reviewPrompt: DEFAULT, config: saved || config });
       });
     }
     if (cmd !== 'get_board') return p;
@@ -51,6 +81,9 @@
       if (open[0]) {
         var pr = open[0];
         session = pr.sessions[0] ? pr.sessions[0].key : null;
+        drafted = pr.key;
+        draftedNumber = pr.number;
+        WRITTEN[0].session = session;
         Object.assign(pr, { state: 'open', mine: false, author: 'ana', reviewRequested: true, snoozedUntil: null, headOid: '2222222bbbbcccc' });
         pr.autoReview = { stage: 'drafted', head: '309811aaaabbbb', parts: session ? [{ who: 'auto', session: session, state: 'done' }] : [], at: now - 5 * 60000, comment: LINK, rounds: 2, behind: true };
         posted = '#' + pr.number;
@@ -85,7 +118,7 @@
       check('it says the round and its commit', says === 'Agent drafted a review of 309811a', says);
       var next = (q('.ca-prinsp-auto-note') || {}).textContent;
       check('that only you see it, and that new commits get another', next === 'Only you see it until you submit it on GitHub. New commits since: it reviews them again once they settle.', next);
-      check('it sits under Checks and reviews', !!auto().closest('.ca-insp-sec') && /Checks and reviews/.test(auto().closest('.ca-insp-sec').textContent), '');
+      check('it sits in a section of its own, Agent review', !!auto().closest('.ca-agentrev'), '');
       press(linkbtn('Draft'));
       check('Draft opens the PR’s files, where your draft is', calls('open_url').some(function (c) { return c[1].url === LINK; }), JSON.stringify(calls('open_url')));
       if (session) {
@@ -93,6 +126,23 @@
       } else {
         note('no PR lists a session, so Session isn’t checked');
       }
+      await until(function () { return all('.ca-agentrev-comment').length === 2; }, 5000, 'the review’s comments never showed');
+      var section = q('.ca-prinsp .ca-agentrev');
+      check('whose heading counts its comments on lines', /^Agent review · 2 comments on lines/.test(q('.ca-label', section).textContent), q('.ca-label', section).textContent);
+      check('the review’s text, as Markdown', /I’d hold this until the first finding is fixed\./.test(q('.ca-agentrev-body > .ca-agentrev-text').textContent) && !!q('.ca-agentrev-body > .ca-agentrev-text strong'), q('.ca-agentrev-body').textContent.slice(0, 120));
+      var first = all('.ca-agentrev-comment')[0];
+      check('each comment says its file, folder and line', q('.ca-agentrev-file', first).textContent === 'a.rs' && q('.ca-agentrev-dir', first).textContent === 'src' && q('.ca-agentrev-line', first).textContent === 'line 2', first.textContent.slice(0, 60));
+      await until(function () { return !!q('.ca-agentrev-code', first); }, 5000, 'no lines around the first comment');
+      var at = q('.ca-agentrev-code .is-at', first);
+      check('with the lines around it, its own marked', all('.ca-agentrev-code > span', first).length === 5 && !!at && /\+    new\(\);/.test(at.textContent), q('.ca-agentrev-code', first).textContent);
+      press(q('.ca-agentrev-where', first));
+      check('its place opens that line on GitHub at the commit reviewed', calls('open_url').some(function (c) { return /\/blob\/309811aaaabbbb\/src\/a\.rs#L2$/.test(c[1].url); }), JSON.stringify(calls('open_url').slice(-1)));
+      check('a comment on a line the diff doesn’t show has no lines', !q('.ca-agentrev-code', all('.ca-agentrev-comment')[1]), '');
+      var rounds = all('.ca-agentrev-rounds button').map(function (b) { return b.textContent; });
+      check('the review of each commit is a click away, the latest first', rounds.join(' | ') === '309811a, the latest | 1111111', rounds.join(' | '));
+      press(all('.ca-agentrev-rounds button')[1]);
+      await until(function () { return !!q('.ca-agentrev-byline'); }, 3000, 'the earlier review never showed');
+      check('an earlier review says whose and when', /^Of 1111111, 3h ago, by Codex, gpt-5\.5/.test(q('.ca-agentrev-byline').textContent) && all('.ca-agentrev-comment').length === 0, q('.ca-agentrev-byline').textContent);
       if (failed && row(failed)) {
         press(row(failed));
         await until(function () { return auto() && /didn’t finish/.test(auto().textContent); }, 5000, 'the second PR shows no failed review');

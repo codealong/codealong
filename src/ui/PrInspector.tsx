@@ -14,13 +14,13 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type R
 import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
-import { autoReviewWords } from '../review';
-import type { AutoReview, Lane, PrComment, PrDetail, Session } from '../types';
+import type { Lane, PrComment, PrDetail, Session } from '../types';
+import { AgentReview } from './AgentReview';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { PanelPlace, PR_PRIMARY } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
-import { Button, cx, headerMenu, Icon } from './primitives';
+import { Button, headerMenu, Icon } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
@@ -87,44 +87,6 @@ function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace;
     );
   }
   return null;
-}
-
-/** Codealong's own review of the PR (autoreview.rs): where its latest round stands, with what it
- *  posted on GitHub and each reviewer's session a click away (`sessions`: the PR's own, by key,
- *  so a session the board shows is the one opened). */
-function AutoReviewRow({ review, now, sessions, onShowSession }: { review: AutoReview; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
-  const { icon, says, note } = autoReviewWords(review);
-  const rounds = `${review.rounds} ${review.rounds === 1 ? 'round' : 'rounds'} so far`;
-  const parts = review.parts ?? [];
-  const held = parts.flatMap((p) => {
-    const at = sessions.find((s) => s.session.key === p.session);
-    return at ? [{ ...at, who: p.who, state: p.state }] : [];
-  });
-  const draft = review.comment?.endsWith('/files');
-  return (
-    <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
-      <div className="ca-prinsp-auto-head">
-        <Icon name={icon} size={12} />
-        <span className="ca-prinsp-auto-says" title={`Codealong has an agent review the pull requests that wait on your review (Settings › Accounts): ${rounds}.`}>
-          {says}
-        </span>
-        <span className="ca-meta" title={absolute(review.at)}>
-          {ago(review.at, now)}
-        </span>
-        {review.comment && (
-          <button type="button" className="ca-linkbtn" title={draft ? 'Open its files on GitHub, where your draft review is' : 'Open its latest review on GitHub'} onClick={() => review.comment && void openUrl(review.comment)}>
-            {draft ? 'Draft' : 'Comment'}
-          </button>
-        )}
-        {held.map((h) => (
-          <button key={h.session.key} type="button" className="ca-linkbtn" title={`Show the session ${h.who === 'auto' ? 'that reviews it' : `${h.who} reviews it in`}`} onClick={() => onShowSession(h.lane, h.session)}>
-            {held.length === 1 ? 'Session' : h.who}
-          </button>
-        ))}
-      </div>
-      {note && <p className="ca-prinsp-auto-note">{note}</p>}
-    </div>
-  );
 }
 
 /** What the details need: the PR with where it lives, and what a click on a worktree or session
@@ -366,8 +328,9 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             ))}
           </ul>
         )}
-        {pr.autoReview && <AutoReviewRow review={pr.autoReview} now={now} sessions={item.sessions} onShowSession={onShowSession} />}
       </section>
+
+      {pr.autoReview && <AgentReview pr={{ ...pr, autoReview: pr.autoReview }} detail={detail} now={now} sessions={item.sessions} onShowSession={onShowSession} />}
 
       {comments.length > 0 && (
         <section className="ca-insp-sec">

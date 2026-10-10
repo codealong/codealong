@@ -1036,7 +1036,7 @@ pub fn pr_diff(slug: &str, number: u64) -> Result<String> {
 
 /// A comment on one line of a PR's code, as a review takes it: the file as the PR's diff names
 /// it, and the line's number in the file's new version.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LineComment {
     pub path: String,
     pub line: u64,

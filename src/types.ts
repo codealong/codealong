@@ -899,6 +899,29 @@ export interface PrItem {
  *  `queued` is the round to come for a commit no session has started on yet. */
 export type ReviewStage = 'queued' | 'reviewing' | 'posted' | 'drafted' | 'kept' | 'skipped' | 'failed';
 
+/** A round's review as its agent wrote it (autoreview.rs `WrittenReview`), for the PR's panel. */
+export interface WrittenReview {
+  /** The commit it reviewed. */
+  head: string;
+  stage: ReviewStage;
+  /** When it was done. */
+  at: number;
+  session: string | null;
+  /** Who wrote it: its harness, and its model where that's known. */
+  agent: string | null;
+  /** Where it went on GitHub: the PR's files, beside a draft of yours, or the comment. */
+  link: string | null;
+  summary: string;
+  comments: LineComment[];
+}
+
+/** A comment on one line of a PR's code: the file, and the line's number in its new version. */
+export interface LineComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
 /** The reviewer's part in a round (model.rs `ReviewPart`). */
 export interface ReviewPart {
   /** The reviewer, by its account and model (`claude opus`), or `auto`. */

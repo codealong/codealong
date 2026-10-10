@@ -612,6 +612,40 @@ pub fn apply(prs: &mut [PrItem], store: &Store, on: bool, now: i64) {
     }
 }
 
+/// A round's review as its agent wrote it, for the PR's panel to show whole: its text, and its
+/// comments on particular lines (`parse_reply`), with where it went and the session that wrote it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WrittenReview {
+    /// The commit it reviewed.
+    pub head: String,
+    pub stage: ReviewStage,
+    /// When it was done, or asked for while it isn't.
+    pub at: i64,
+    pub session: Option<String>,
+    /// Who wrote it: its harness, and its model where that's known.
+    pub agent: Option<String>,
+    /// Where it went on GitHub: the PR's files, beside a draft of yours, or the comment.
+    pub link: Option<String>,
+    pub summary: String,
+    pub comments: Vec<LineComment>,
+}
+
+/// The reviews a PR's rounds wrote, the latest first; a round whose agent wrote none (it's under
+/// way, passed or didn't get done) has none here.
+pub fn written(store: &Store, key: &str) -> Vec<WrittenReview> {
+    let Some(t) = store.prs.get(&pr_key(key)) else { return Vec::new() };
+    t.rounds
+        .iter()
+        .rev()
+        .filter_map(|r| {
+            let p = r.parts.iter().find(|p| p.review.is_some())?;
+            let (summary, comments) = parse_reply(p.review.as_deref().unwrap_or_default());
+            Some(WrittenReview { head: r.head.clone(), stage: r.stage, at: r.ended_at.unwrap_or(r.at), session: p.session.clone(), agent: p.agent.clone(), link: r.comment.clone(), summary, comments })
+        })
+        .collect()
+}
+
 // ---- What the session is told, and what's posted ----
 
 /// A commit as people read it.
@@ -1498,6 +1532,32 @@ mod tests {
 
     fn item(kind: &'static str, at: i64, text: &str) -> Item {
         crate::transcript::item(at, kind, text)
+    }
+
+    #[test]
+    fn a_prs_written_reviews_are_listed_latest_first_with_their_comments() {
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        assert!(written(&r.store, "o/r#7").is_empty(), "under way: nothing written yet");
+        let b = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 1)]);
+        let review = "Two problems.\n\n```review-comments\n[{\"path\": \"src/a.rs\", \"line\": 2, \"body\": \"This panics.\"}]\n```";
+        read(&mut r, &b, &on(), NOW + 2, review, "Claude Code, claude-opus-5-5");
+        let job = r.due(&b, &on(), NOW + 3).pop().unwrap();
+        r.told(&job, Went::Drafted("https://github.com/o/r/pull/7/files".into()), NOW + 4).unwrap();
+        let got = written(&r.store, "O/R#7");
+        assert_eq!(got.len(), 1);
+        let w = &got[0];
+        assert_eq!((w.head.as_str(), w.stage, w.at, w.session.as_deref(), w.agent.as_deref(), w.link.as_deref()), (HEAD, ReviewStage::Drafted, NOW + 4, Some(S), Some("Claude Code, claude-opus-5-5"), Some("https://github.com/o/r/pull/7/files")));
+        assert_eq!((w.summary.as_str(), w.comments.clone()), ("Two problems.", vec![LineComment { path: "src/a.rs".into(), line: 2, body: "This panics.".into() }]));
+        // A later round comes first; one that wrote nothing isn't listed.
+        r.store.prs.get_mut("o/r#7").unwrap().rounds.push(Round::new(NEXT, ReviewStage::Failed, NOW + 5));
+        let mut later = Round::new("3333333cccc", ReviewStage::Posted, NOW + 6);
+        later.parts = vec![Part { state: PartState::Done, review: Some("All fixed.".into()), ..started(AUTO, S, NOW + 5) }];
+        r.store.prs.get_mut("o/r#7").unwrap().rounds.push(later);
+        let heads: Vec<String> = written(&r.store, "o/r#7").into_iter().map(|w| w.head).collect();
+        assert_eq!(heads, ["3333333cccc", HEAD]);
+        assert!(written(&r.store, "o/r#8").is_empty());
     }
 
     #[test]

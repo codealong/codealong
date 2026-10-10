@@ -1,0 +1,118 @@
+/* Codealong's own review of a PR (AgentReview.tsx). First where its latest round stands, and why
+   when it didn't go. */
+.ca-prinsp-auto {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-prinsp-auto-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.ca-prinsp-auto-head > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-prinsp-auto-says {
+  font: var(--type-meta-strong);
+  color: var(--ink);
+}
+.ca-prinsp-auto.is-posted .ca-prinsp-auto-head > svg {
+  color: var(--pr-open);
+}
+.ca-prinsp-auto.is-failed .ca-prinsp-auto-head > svg,
+.ca-prinsp-auto.is-failed .ca-prinsp-auto-says {
+  color: var(--alert);
+}
+.ca-prinsp-auto-note {
+  margin: 2px 0 0 calc(12px + var(--space-2));
+  color: var(--ink-3);
+}
+/* Which commit's review shows, when it has had more than one. */
+.ca-agentrev-rounds {
+  justify-self: start;
+  margin: var(--space-2) 0 0;
+}
+.ca-agentrev-body {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+}
+/* An earlier commit's review says whose and when, with its own draft and session. */
+.ca-agentrev-byline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-agentrev-comments {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* A comment on a line: where it is, the lines around it, what it says. */
+.ca-agentrev-comment {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.ca-agentrev-where {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-agentrev-file {
+  flex: none;
+  font: var(--type-code-strong);
+}
+.ca-agentrev-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--type-code-sm);
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+}
+.ca-agentrev-line {
+  flex: none;
+  margin-left: auto;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-agentrev-where:hover .ca-agentrev-file {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* The lines around it, numbered by the file's new version; its own line marked. */
+.ca-agentrev-code {
+  margin: 0;
+}
+.ca-agentrev-code > .is-at {
+  box-shadow: inset 2px 0 var(--attn);
+}
+.ca-agentrev-n {
+  display: inline-block;
+  min-width: 4ch;
+  margin-right: var(--space-2);
+  color: var(--ink-3);
+  text-align: right;
+  user-select: none;
+}

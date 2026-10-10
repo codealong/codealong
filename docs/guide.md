@@ -428,9 +428,13 @@ minutes, told what changed since and asked what of its findings is fixed. Two ru
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
-it stays under Review requested, saying Agent reviewing. The PR's panel says where its latest round
-stands, with the draft or comment and the session a click away; `codealong --snapshot
---review-plan <owner/name> <number>` prints what a review would start, without starting it.
+it stays under Review requested, saying Agent reviewing. The PR's Agent review section, in its
+panel and in its card in the notch and the waiting window, says where its latest round stands and
+shows the review the agent wrote: its text, then each comment on a line of the code with the lines
+around it from the PR's diff, its file and line opening that line on GitHub at the commit it read,
+with the draft or comment and the session that wrote it a click away, and the reviews of earlier
+commits too. `codealong --snapshot --review-plan <owner/name> <number>` prints what a review would
+start, without starting it.
 
 #### Pins, approvals and snoozes
 
