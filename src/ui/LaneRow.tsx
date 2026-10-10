@@ -8,7 +8,7 @@
 import { REUSE_WORDS } from '../reusable';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
 import { branchLabel, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
@@ -105,7 +105,7 @@ function DeltaSeg({ git: g, onMouseDown, onDoubleClick }: { git: GitInfo | null;
     <div className="ca-seg ca-seg-call ca-seg-delta" title={words.length ? `${words.join('. ')}.` : undefined} onMouseDown={onMouseDown} onDoubleClick={onDoubleClick}>
       {words.length > 0 && (
         <>
-          <span className="ca-delta-row is-lines">
+          <span className="ca-delta-row">
             <span className="is-gain">{added > 0 ? `+${shortCount(added)}` : ''}</span>
             <span>{removed > 0 ? `−${shortCount(removed)}` : ''}</span>
             <span>{dirty > 0 ? '●' : ''}</span>
@@ -136,8 +136,7 @@ interface CellProps {
  * name, then where it stands (free for new work, or finished as Jev reads it) and its app (a
  * globe, green while it runs); its repo and branch, then its PR. Each line is laid from its end,
  * so apps and PRs line up down the board. Short of room, the name keeps its line and the chips
- * beside it give way, the app last; the repo and branch shorten to a few letters before the PR
- * gives way.
+ * beside it give way, the app last; the repo and branch give way before the PR does.
  */
 function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrOpen }: CellProps) {
   const { sub, branch } = laneSub(lane);
@@ -227,6 +226,7 @@ function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
       <DeltaSeg git={lane.git} />
       <div className="ca-seg-lines">
         <div className="ca-agentline">
+          <span className="ca-agentline-glyph" />
           <span className="ca-agentline-main">
             <span className="ca-none" title={lane.sessions.length ? `Its ${count(lane.sessions.length, 'earlier session')}, archived or from before it last took new work, are in its panel.` : undefined}>
               No agents
@@ -259,7 +259,7 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
     <Row
       role="group"
       label={`${lane.callsign}, ${count(lines.length, 'agent')}`}
-      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, lines.length > 1 && 'is-tall', hasSelection && 'has-selection', picked && 'is-picked', pinned && 'is-pinned', away(lane) && 'is-away')}
+      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, hasSelection && 'has-selection', picked && 'is-picked', pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
       onMenu={onContextMenu}
     >
@@ -313,6 +313,45 @@ function SessionText({ s, now }: { s: Session; now: number }) {
   );
 }
 
+interface SessionLinesProps {
+  s: Session;
+  now: number;
+  /** Where it is, first on the second line: its worktree in Sessions; nothing on its worktree's row. */
+  where?: ReactNode;
+  /** What shows at the second line's end: in Sessions, its worktree's PR and diff. */
+  end?: ReactNode;
+  todos?: Todo[];
+  onShowTodo?: (todo: Todo) => void;
+  /** Opens it where it lives: a double-click on its account's chip. */
+  onOpen: () => void;
+}
+
+/**
+ * A session on two lines, wherever a list gives it two: what it's about first (its title, what it
+ * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
+ * quiet, todo and Jev's read, then its account), with `end` at the second line's end.
+ */
+function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen }: SessionLinesProps) {
+  return (
+    <>
+      <div className="ca-agentrow-line1">
+        <SessionText s={s} now={now} />
+      </div>
+      <div className="ca-lane-line2">
+        <span className="ca-chips ca-lane-lead ca-agentrow-chips">
+          {where}
+          <SnoozeChip until={s.snoozedUntil} now={now} />
+          <QuietChip quiet={s.quiet} />
+          <TodoChips todos={todos} onShow={onShowTodo} inRow />
+          <InsightChips session={s} />
+          <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
+        </span>
+        {end && <span className="ca-lane-right">{end}</span>}
+      </div>
+    </>
+  );
+}
+
 interface AgentLineProps {
   item: AgentItem;
   now: number;
@@ -328,8 +367,9 @@ interface AgentLineProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** One agent on its worktree's row: its status, its title and what it's doing, then its todo,
- *  Jev's read and its account's chip (double-click to open) at the end of the line, and its age. */
+/** One agent on its worktree's row, on the two lines Sessions gives it (`SessionLines`) less its
+ *  worktree, which the row has on its left: its status, its title and what it's doing, then its
+ *  todo, Jev's read and its account's chip (double-click to open); and its age. */
 function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
   return (
@@ -343,14 +383,11 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
       }}
       onMenu={onContextMenu}
     >
-      <span className="ca-agentline-main">
+      <span className="ca-agentline-glyph">
         <SessionGlyph s={s} size={10} />
-        <SessionText s={s} now={now} />
-        <span className="ca-chips ca-agentline-tags">
-          <TodoChips todos={todos} onShow={onShowTodo} inRow />
-          <InsightChips session={s} />
-          <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
-        </span>
+      </span>
+      <span className="ca-agentline-main">
+        <SessionLines s={s} now={now} todos={todos} onShowTodo={onShowTodo} onOpen={onOpen} />
       </span>
       <span className="ca-agentline-age" title={`Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`}>
         {ago(s.lastActivity, now)}
@@ -452,23 +489,20 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
         </div>
       ) : (
         <div className="ca-seg ca-seg-main">
-          <div className="ca-agentrow-line1">
-            <SessionText s={s} now={now} />
-          </div>
-          <div className="ca-lane-line2">
-            <span className="ca-chips ca-lane-lead ca-agentrow-chips">
-              <WorktreeChip lane={lane} />
-              <SnoozeChip until={s.snoozedUntil} now={now} />
-              <QuietChip quiet={s.quiet} />
-              <TodoChips todos={todos} onShow={onShowTodo} inRow />
-              <InsightChips session={s} />
-              <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
-            </span>
-            <span className="ca-lane-right">
-              {pr}
-              <Diff git={lane.git} />
-            </span>
-          </div>
+          <SessionLines
+            s={s}
+            now={now}
+            where={<WorktreeChip lane={lane} />}
+            end={
+              <>
+                {pr}
+                <Diff git={lane.git} />
+              </>
+            }
+            todos={todos}
+            onShowTodo={onShowTodo}
+            onOpen={onOpen}
+          />
         </div>
       )}
       <div

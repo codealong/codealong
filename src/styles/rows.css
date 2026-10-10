@@ -52,6 +52,19 @@
 .ca-lane.is-worktree .ca-seg-lines {
   grid-column: 4 / 6;
 }
+/* The worktree's two lines sit level with its first agent's two (LaneRow.css .ca-agentline): its
+   name with the agent's title, its repo and PR with the agent's chips, and its status with the
+   agent's. */
+.ca-lane.is-worktree .ca-seg-glyph {
+  justify-content: flex-start;
+  padding-top: 11px;
+}
+.ca-lane.is-worktree .ca-seg-call {
+  justify-content: flex-start;
+  gap: var(--space-1);
+  padding-top: 6px;
+  padding-bottom: 7px;
+}
 .ca-seg-delta {
   align-items: flex-end;
   padding-left: 0;
@@ -92,20 +105,11 @@
 .ca-lane.is-group.has-selection .ca-seg-glyph {
   background: var(--surface-selected);
 }
-/* Picked whole with other worktrees (picks.ts): the whole row reads as selected, its name, its
-   lines and the chips at its foot. */
+/* Picked whole with other worktrees (picks.ts): the whole row reads as selected, its name and its
+   lines. */
 .ca-lane.is-group.is-picked,
 .ca-lane.is-group.is-picked:hover {
   background: var(--surface-selected);
-}
-.ca-lane.is-group.is-tall .ca-seg-glyph {
-  justify-content: flex-start;
-  padding-top: 9px;
-}
-.ca-lane.is-group.is-tall .ca-seg-call {
-  justify-content: flex-start;
-  padding-top: 5px;
-  padding-bottom: var(--space-2);
 }
 .ca-seg-lines {
   grid-column: 3 / 5;

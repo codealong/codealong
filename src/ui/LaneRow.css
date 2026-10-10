@@ -1,33 +1,29 @@
 /* Worktree and session rows (LaneRow.tsx): the delta, agent lines, pin marks, reuse marks, and
    the slim one-line session row. */
 
+/* Each row as high as the name's line and the repo's beside it, so it sits level with them. */
 .ca-delta-row {
   display: grid;
   grid-template-columns: 5ch 5ch 6px;
   column-gap: 5px;
   justify-items: end;
   font: var(--type-code-sm);
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--ink-3);
-}
-/* Level with the name, whose line is taller. */
-.ca-delta-row.is-lines {
-  line-height: 20px;
 }
 /* What only this branch has reads stronger than what it lacks. */
 .ca-delta-row > .is-gain {
   color: var(--ink-2);
 }
 
-/* On an agent's line, what it's doing or said last gives way first (it only takes the room that's
-   left), then its lane (its todo, Jev's read and its account), then its title. The text's own
-   box would count what it's doing as room the title needs, so its pieces sit on the line itself.
-   The lane gives way a million times as fast as the title: at a hundred the title still lost a
-   pixel or two of a shortfall, enough to end in an ellipsis beside room the lane had left. */
-.ca-agentline-main > .ca-agentline-text {
-  display: contents;
-}
+/* On a session's one line (Sessions' One line), what it's doing or said last gives way first (it
+   only takes the room that's left), then its lane (Jev's read, its worktree), then its title. The
+   text's own box would count what it's doing as room the title needs, so its pieces sit on the
+   line itself. The lane gives way a million times as fast as the title: at a hundred the title
+   still lost a pixel or two of a shortfall, enough to end in an ellipsis beside room the lane had
+   left. */
 .ca-agentline-tags {
   flex: 0 1000000 auto;
   margin-left: auto;
@@ -35,16 +31,13 @@
 .ca-agentline-tags:empty {
   display: none;
 }
-/* The line's own status, where the agent's chip used to lead it. */
-.ca-agentline-main > .ca-glyph {
-  flex: none;
-}
 
+/* An agent on its worktree's row: its status, its two lines as Sessions has them, and its age,
+   each level with its first line. Several stack, each as tall as one alone. */
 .ca-agentline {
   display: flex;
   flex: 1 0 auto;
   min-width: 0;
-  min-height: 30px;
 }
 .ca-agentline + .ca-agentline {
   border-top: 1px solid var(--line);
@@ -60,13 +53,21 @@
   box-shadow: inset 0 0 0 2px var(--focus);
 }
 
+.ca-agentline-glyph {
+  display: flex;
+  flex: none;
+  padding: 11px 0 0 var(--space-3);
+}
+.ca-agentline-glyph > .ca-glyph {
+  flex: none;
+}
 .ca-agentline-main {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: 5px;
   flex: 1;
   min-width: 0;
-  padding: 0 var(--space-3);
+  padding: 7px var(--space-3) 7px var(--space-2);
 }
 /* A session's title, the label for what it waits on you for, and what it's doing or said last.
    The line fills what's left and pushes a worktree line's todo and insight to its end; the
@@ -100,11 +101,11 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  justify-content: center;
+  justify-content: flex-start;
   flex: none;
   width: 52px;
   box-sizing: border-box;
-  padding: 0 var(--space-3);
+  padding: var(--space-2) var(--space-3) 0;
   border-left: 1px solid var(--line);
   font: var(--type-meta);
   color: var(--ink-3);
@@ -114,9 +115,12 @@
   margin-top: 0;
 }
 /* A worktree no agent has worked in says so where an agent's title would start, past the place
-   of its glyph. */
+   of its glyph, and on its line. */
+.ca-lane.is-empty .ca-agentline-glyph {
+  width: 10px;
+}
 .ca-lane.is-empty .ca-agentline-main > .ca-none {
-  margin-left: calc(10px + var(--space-2));
+  font: var(--type-body);
 }
 
 /* The row a right-click's menu is for, while the menu is up: ringed, not selected. */
@@ -173,13 +177,14 @@
 /* The worktree's two lines (LaneRow.tsx `WorktreeCell`): its name, then where it stands and its
    app; its repo and branch, then its PR. Each lane of chips is laid from the line's end, so apps
    and PRs line up down the board. Short of room the name keeps its line and the chips beside it
-   give way, the app last; on the second line the repo and branch shorten to a few letters before
-   the PR gives way. */
+   give way, the app last; on the second line the repo and branch shorten, all the way on a narrow
+   board, before the PR gives way. */
 .ca-lane-cellline {
   display: flex;
   align-items: center;
   gap: var(--chip-gap);
   min-width: 0;
+  min-height: 20px;
 }
 .ca-lane-cellline > .ca-lane-call {
   flex: 0 1 auto;
@@ -187,7 +192,7 @@
 }
 .ca-lane-cellline > .ca-lane-sub {
   flex: 0 1000000 auto;
-  min-width: 3ch;
+  min-width: 0;
 }
 .ca-chips.ca-lane-own {
   flex: 1 1 auto;
