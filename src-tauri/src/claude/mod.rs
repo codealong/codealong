@@ -1059,6 +1059,7 @@ impl crate::harness::Reader for Reader {
         let (a, now) = (account, look.now);
         let mut out = Vec::new();
         let app_archived = self.app_records.archived();
+        let app_origins = self.app_records.origins();
         let mut by_id: HashMap<&str, (Option<&RegistryEntry>, Option<(&Path, &TranscriptInfo)>)> = HashMap::new();
         for r in self.registry.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]) {
             by_id.entry(r.session_id.as_str()).or_default().0 = Some(r);
@@ -1080,6 +1081,7 @@ impl crate::harness::Reader for Reader {
                 continue;
             }
             let key = Session::key_for(Harness::Claude, &a.name, id);
+            let copied_from = tr.and_then(|(_, t)| t.copied_from.as_deref());
             // A job that hasn't written its own transcript yet shows the one it goes on
             // from: a window's conversation it took over, or one it's a fork of.
             let resumes = reg.and_then(|r| r.resumes.as_ref()).filter(|_| tr.is_none());
@@ -1117,9 +1119,13 @@ impl crate::harness::Reader for Reader {
                 s.archived = look.archived_here(&key, s.last_activity) || app_archived.contains(id);
                 s.continues = from.map(|f| f.id);
                 // A job's record says what it's a fork of; the roster says for a
-                // running one whose record hasn't been read yet.
-                let parent = self.forks.get(&a.name).and_then(|f| f.parent_of(id)).or(reg.and_then(|r| r.resumes.as_deref()));
-                s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: self.parent_key(&a.name, by_id.contains_key(p), p), how: OriginHow::Fork });
+                // running one whose record hasn't been read yet. The Claude app's record says
+                // what it forked one of its sessions from, or whose agent started it, and a fork
+                // it made starts with the lines it copied.
+                let job = self.forks.get(&a.name).and_then(|f| f.parent_of(id)).or(reg.and_then(|r| r.resumes.as_deref()));
+                let app = app_origins.get(id).map(|(p, how)| (p.as_str(), *how));
+                let parent = job.map(|p| (p, OriginHow::Fork)).or(app).or(copied_from.map(|p| (p, OriginHow::Fork)));
+                s.origin = parent.filter(|(p, _)| *p != id).map(|(p, how)| SessionOrigin { key: self.parent_key(&a.name, by_id.contains_key(p), p), how });
                 out.push(s);
             }
         }
@@ -1602,6 +1608,48 @@ mod tests {
         // A job in its own account whose conversation is gone has none.
         let job = Session { origin: moved("claude:claude2:s0", OriginHow::Fork), continues: Some("s0".into()), ..copy.clone() };
         assert!(records_in(&to, &job, home_of).is_empty());
+    }
+
+    #[test]
+    fn the_claude_apps_forks_and_the_tasks_it_starts_come_from_their_sessions() {
+        use crate::harness::Reader as _;
+        let home = crate::fixtures::scratch("app-forks");
+        let account = AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
+        let project = home.join("projects/-Users-me-app");
+        std::fs::create_dir_all(&project).unwrap();
+        let line = |session: &str, at: &str, text: &str| serde_json::json!({ "type": "user", "sessionId": session, "cwd": "/Users/me/app", "entrypoint": "claude-desktop", "timestamp": at, "origin": { "kind": "human" }, "message": { "role": "user", "content": text } }).to_string() + "\n";
+        let title = |session: &str, title: &str| serde_json::json!({ "type": "custom-title", "customTitle": title, "sessionId": session }).to_string() + "\n";
+        let parent = line("p1", "2026-10-09T10:00:00.000Z", "Plan the coordinator") + &title("p1", "Coordinator");
+        // A btw copies the conversation as it was, then goes on, later than the session it copied.
+        let btw = parent.clone() + &title("f1", "btw: who keeps the drawings?") + &line("f1", "2026-10-09T11:00:00.000Z", "who keeps the drawings?");
+        let task = line("t1", "2026-10-09T10:30:00.000Z", "Write the spec");
+        let paths = [("p1", parent), ("f1", btw), ("t1", task)].map(|(id, text)| {
+            let path = project.join(format!("{id}.jsonl"));
+            std::fs::write(&path, text).unwrap();
+            path
+        });
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-09T12:00:00.000Z").unwrap(), ps: Default::default() };
+        let mut reader = Reader::default();
+        reader.apply(&account, &paths, &look);
+        let board = |reader: &Reader| reader.sessions(&account, &look).into_iter().map(|s| (s.id.clone(), (s.title.clone(), s.origin.map(|o| (o.key, o.how))))).collect::<HashMap<_, _>>();
+        let sessions = board(&reader);
+        // The fork's transcript is its own, and the session it copied keeps its own too.
+        assert_eq!(sessions["p1"], ("Coordinator".to_string(), None));
+        assert_eq!(sessions["f1"], ("btw: who keeps the drawings?".to_string(), Some(("claude:claude:p1".to_string(), OriginHow::Fork))));
+        assert_eq!(sessions["t1"].1, None);
+
+        // The app's records say so too, and which session's agent offered a task you started.
+        let records = home.join("records/acct/org");
+        std::fs::create_dir_all(&records).unwrap();
+        std::fs::write(records.join("local_p.json"), r#"{"sessionId":"local_p","cliSessionId":"p1"}"#).unwrap();
+        std::fs::write(records.join("local_f.json"), r#"{"sessionId":"local_f","cliSessionId":"f1","forkedFromSessionId":"local_p","spawnedFrom":{"sessionId":"local_p","btw":true}}"#).unwrap();
+        std::fs::write(records.join("local_t.json"), r#"{"sessionId":"local_t","cliSessionId":"t1","spawnedFrom":{"sessionId":"local_p","taskId":"task_1"}}"#).unwrap();
+        reader.app_records.refresh(&home.join("records"));
+        let sessions = board(&reader);
+        assert_eq!(sessions["f1"].1, Some(("claude:claude:p1".to_string(), OriginHow::Fork)));
+        assert_eq!(sessions["t1"].1, Some(("claude:claude:p1".to_string(), OriginHow::Started)));
+        assert_eq!(sessions["p1"].1, None);
     }
 
     #[test]

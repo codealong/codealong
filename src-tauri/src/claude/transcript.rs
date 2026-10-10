@@ -17,6 +17,10 @@ use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, p
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HeadInfo {
     pub session_id: String,
+    /// The session whose lines the transcript starts with, when that's another one: a fork
+    /// the Claude app made (its Fork, and a `btw`) copies its session's lines as they were,
+    /// that session's ID on them included (2.1.293), where Claude Code's own forks rewrite it.
+    pub copied_from: Option<String>,
     pub cwd: String,
     pub git_branch: Option<String>,
     pub entrypoint: Option<String>,
@@ -35,6 +39,8 @@ pub struct TailState {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TranscriptInfo {
     pub session_id: String,
+    /// `HeadInfo::copied_from`.
+    pub copied_from: Option<String>,
     /// The folder it runs in: where the latest prompt you sent it was taken, else where it
     /// started. A session resumed in another folder keeps writing this transcript, in the
     /// first folder's project, and its lines say the new folder (checked on 2.1.289).
@@ -176,8 +182,10 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
         }
         None => {
             let mut head = read_head_info(path)?;
-            if head.session_id.is_empty() {
-                head.session_id = file_name(path).trim_end_matches(".jsonl").to_string();
+            // The file is named for its session; the first lines may be another's, copied.
+            let own = file_name(path).trim_end_matches(".jsonl").to_string();
+            if head.session_id != own {
+                head.copied_from = Some(std::mem::replace(&mut head.session_id, own)).filter(|s| !s.is_empty());
             }
             let tail = read_tail(path, len.saturating_sub(FRESH_TAIL)).ok()?;
             let info = from_head(&head);
@@ -227,6 +235,7 @@ fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
 fn from_head(head: &HeadInfo) -> TranscriptInfo {
     TranscriptInfo {
         session_id: head.session_id.clone(),
+        copied_from: head.copied_from.clone(),
         cwd: head.cwd.clone(),
         git_branch: head.git_branch.clone(),
         entrypoint: head.entrypoint.clone(),
@@ -832,7 +841,7 @@ mod tests {
     #[test]
     fn finds_the_first_prompt_past_huge_lines() {
         let dir = crate::fixtures::scratch("head");
-        let path = dir.join("s.jsonl");
+        let path = dir.join("25b09e0e.jsonl");
         let big = format!("{{\"type\":\"attachment\",\"blob\":\"{}\"}}\n", "x".repeat(600_000));
         let text = format!("{big}{HEAD}");
         std::fs::write(&path, text).unwrap();
@@ -840,7 +849,7 @@ mod tests {
         assert_eq!(head.cwd, "/Users/me/projects/sparkhq/spark-portal");
         assert_eq!(head.first_prompt.as_deref(), Some("Can you make a photo write tool?"));
         let (head, info, state) = parse_transcript(&path, 1, None).unwrap();
-        assert_eq!(info.session_id, "25b09e0e");
+        assert_eq!((info.session_id.as_str(), info.copied_from.as_deref()), ("25b09e0e", None));
         assert_eq!(head.first_prompt.as_deref(), Some("Can you make a photo write tool?"));
 
         // Appending reads only the new lines, including a line finished later.
@@ -856,6 +865,22 @@ mod tests {
         drop(f);
         let (_, info, _) = parse_transcript(&path, 3, Some((head, info, state))).unwrap();
         assert_eq!(info.pending_tool.as_deref(), Some("Bash · `yarn test`"));
+    }
+
+    #[test]
+    fn a_fork_the_claude_app_made_is_its_own_session_and_names_the_one_it_copied() {
+        // As 2.1.293 wrote a `btw`: the conversation it copied, with that session's ID on its
+        // lines, then its own.
+        let dir = crate::fixtures::scratch("app-fork");
+        let path = dir.join("f5f4b31f.jsonl");
+        let own = r#"{"type":"custom-title","customTitle":"btw: who keeps the drawings?","sessionId":"f5f4b31f"}
+{"type":"user","cwd":"/Users/me/projects/sparkhq/spark-portal","sessionId":"f5f4b31f","origin":{"kind":"human"},"timestamp":"2026-09-23T16:00:00.000Z","message":{"role":"user","content":"who keeps the drawings?"}}
+"#;
+        std::fs::write(&path, format!("{HEAD}{own}")).unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!((info.session_id.as_str(), info.copied_from.as_deref()), ("f5f4b31f", Some("25b09e0e")));
+        assert_eq!(info.title.as_deref(), Some("btw: who keeps the drawings?"));
+        assert_eq!(info.first_prompt.as_deref(), Some("Can you make a photo write tool?"), "the conversation it copied begins it");
     }
 
     #[test]

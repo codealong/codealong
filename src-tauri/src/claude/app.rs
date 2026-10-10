@@ -1,9 +1,9 @@
 //! The Claude app's records of its Code sessions: one `local_<id>.json` per session under
 //! `claude-code-sessions/<account>/<org>/`, naming the CLI session it runs (`cliSessionId`),
-//! whether you archived it there (`isArchived`) and the permission mode you run it in
-//! (`permissionMode`). The app has no way for another program to archive a session, so
-//! Codealong reads these to hide what you archived in the app, and to open a session there by
-//! the app's own id.
+//! whether you archived it there (`isArchived`), the permission mode you run it in
+//! (`permissionMode`) and the session it came from (`came_from`). The app has no way for another
+//! program to archive a session, so Codealong reads these to hide what you archived in the app,
+//! to open a session there by the app's own id, and to link a fork to the session it copied.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::attachments::{self, Style};
+use crate::model::OriginHow;
 use crate::send::{copy, opened, Delivery, Own, Sent, Way};
 use crate::util::{file_name, home, mtime_ms};
 
@@ -34,6 +35,8 @@ pub struct Record {
     pub local_id: String,
     pub cli_session_id: String,
     pub archived: bool,
+    /// The session this one came from, by the app's ID, and how.
+    pub came_from: Option<(String, OriginHow)>,
 }
 
 fn subdirs(p: &Path) -> Vec<PathBuf> {
@@ -81,7 +84,18 @@ pub fn parse_record(text: &str, path: &Path) -> Option<Record> {
         local_id,
         cli_session_id: v.get("cliSessionId").and_then(Value::as_str)?.to_string(),
         archived: v.get("isArchived").and_then(Value::as_bool).unwrap_or(false),
+        came_from: came_from(&v),
     })
+}
+
+/// Where a session of the app's came from, as its record says. `forkedFromSessionId` names
+/// the session it forked: the app's Fork, and its `btw`, a side question asked in a fork of the
+/// conversation (`spawnedFrom.btw`, with `sideSession` and `userFork`, and a "btw: " title).
+/// `spawnedFrom.sessionId` alone names the session whose agent offered it as a task to start
+/// (the `spawn_task` tool's chip), and `spawnedFrom.taskId` that task (2.31226, 2026-10-09).
+fn came_from(v: &Value) -> Option<(String, OriginHow)> {
+    let id = |p: &str| v.pointer(p).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+    id("/forkedFromSessionId").map(|f| (f, OriginHow::Fork)).or_else(|| id("/spawnedFrom/sessionId").map(|s| (s, OriginHow::Started)))
 }
 
 /// The records, re-read only when a file changes.
@@ -114,6 +128,20 @@ impl Records {
     /// CLI session IDs you archived in the Claude app.
     pub fn archived(&self) -> HashSet<String> {
         self.cache.values().filter_map(|(_, r)| r.as_ref()).filter(|r| r.archived).map(|r| r.cli_session_id.clone()).collect()
+    }
+
+    /// By CLI session ID, the CLI session each of the app's sessions came from and how, for the
+    /// ones whose record says and whose source the app still has a record of.
+    pub fn origins(&self) -> HashMap<String, (String, OriginHow)> {
+        let records = || self.cache.values().filter_map(|(_, r)| r.as_ref());
+        let cli_of: HashMap<&str, &str> = records().map(|r| (r.local_id.as_str(), r.cli_session_id.as_str())).collect();
+        records()
+            .filter_map(|r| {
+                let (from, how) = r.came_from.as_ref()?;
+                let from = cli_of.get(from.as_str()).filter(|f| **f != r.cli_session_id)?;
+                Some((r.cli_session_id.clone(), (from.to_string(), *how)))
+            })
+            .collect()
     }
 }
 
@@ -202,6 +230,25 @@ mod tests {
         // Only the app's own IDs name a file: nothing reaches outside the records.
         assert_eq!(permission_mode(&root, "local_../../x"), None);
         assert_eq!(permission_mode(&root, "7a-b2"), None);
+    }
+
+    #[test]
+    fn reads_what_a_session_was_forked_from_or_started_by() {
+        let root = crate::fixtures::scratch("app-origins");
+        let org = root.join("acct").join("org");
+        std::fs::create_dir_all(&org).unwrap();
+        let write = |id: &str, rest: &str| std::fs::write(org.join(format!("local_{id}.json")), format!(r#"{{"sessionId":"local_{id}","cliSessionId":"cli-{id}"{rest}}}"#)).unwrap();
+        write("p", "");
+        // As the app (2.31226) records a btw: a fork that's also a side session.
+        write("btw", r#","forkedFromSessionId":"local_p","spawnedFrom":{"sessionId":"local_p","taskId":"task_1","sideSession":true,"userFork":true,"btw":true}"#);
+        write("task", r#","forkedFromSessionId":null,"spawnedFrom":{"sessionId":"local_p","taskId":"task_2","title":"Write the spec"}"#);
+        write("gone", r#","forkedFromSessionId":"local_removed""#);
+        let mut records = Records::default();
+        records.refresh(&root);
+        let origins = records.origins();
+        assert_eq!(origins.get("cli-btw"), Some(&("cli-p".to_string(), OriginHow::Fork)));
+        assert_eq!(origins.get("cli-task"), Some(&("cli-p".to_string(), OriginHow::Started)));
+        assert_eq!(origins.len(), 2, "one the app has no record of left out: {origins:?}");
     }
 
     #[test]

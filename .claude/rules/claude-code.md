@@ -411,6 +411,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/`), and no way for
   another program to archive a session: `claude/app.rs` (module header, `parse_record`). A
   record also has `sessionId` and `title`.
+- The app's Fork, and its `btw` (a side question asked in a fork of the conversation, titled
+  "btw: <question>", that goes on as a session of its own), name the session they copied in
+  their record (`forkedFromSessionId`, the app's ID; a `btw`'s `spawnedFrom` also says `btw`,
+  `sideSession` and `userFork`). Their transcripts start with that session's lines as they
+  were, its `sessionId` on them included, where Claude Code's own forks rewrite it, so a
+  transcript's session is the one its file is named for: `claude/app.rs` (`came_from`),
+  `claude/transcript.rs` (`HeadInfo::copied_from`). A session started from a task another
+  session's agent offered (the `spawn_task` tool's chip) has `spawnedFrom` alone, with that
+  session and the `taskId` (app 2.31226, Claude Code 2.1.293 to 2.1.295, 2026-10-09).
 - Opening a session: `claude://code/continue?session=` takes only the app's own `local_…` IDs,
   and `claude://resume?session=<uuid>` imports a CLI session and opens it: `claude/app.rs`
   (`claude_app_url`). `continue` also takes `last`. Rejected links are logged as

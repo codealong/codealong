@@ -396,11 +396,12 @@ pub struct SessionOrigin {
 #[serde(rename_all = "lowercase")]
 pub enum OriginHow {
     /// A copy of that session's conversation as far as it went, going on by itself: Claude
-    /// Code's `/fork` and `/background` (a job's `forkParentSessionId`), Codex's `fork`
-    /// (`forked_from_id`), OpenCode's (`fork_session_id`), and Codealong's Fork.
+    /// Code's `/fork` and `/background` (a job's `forkParentSessionId`), the Claude app's Fork
+    /// and `btw` (`forkedFromSessionId`), Codex's `fork` (`forked_from_id`), OpenCode's
+    /// (`fork_session_id`), and Codealong's Fork.
     Fork,
-    /// That session's agent started it: `codealong start` run from it, or a thread the Codex app
-    /// made for it (`create_thread`).
+    /// That session's agent started it: `codealong start` run from it, a thread the Codex app
+    /// made for it (`create_thread`), or a task it offered in the Claude app (`spawn_task`).
     Started,
 }
 
