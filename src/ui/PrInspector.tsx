@@ -22,6 +22,7 @@ import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
 import { Button, cx, headerMenu, Icon } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
@@ -379,6 +380,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
         <h4 className="ca-label">Description</h4>
         {error && <p className="ca-form-error">{error}</p>}
         {!detail && !error && <p className="ca-empty">Loading…</p>}
+        {!detail && !error && <Tip place="pr" />}
         {detail &&
           (detail.bodyHtml.trim() ? (
             <div className="ca-prbody" onClick={onBodyClick} dangerouslySetInnerHTML={{ __html: detail.bodyHtml }} />

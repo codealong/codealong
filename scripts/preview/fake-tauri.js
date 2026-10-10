@@ -578,6 +578,13 @@ window.__TAURI_INTERNALS__ = {
       var name = cmd === 'import_attachment' ? String(args.path).split('/').pop() : decodeURIComponent(((options || {}).headers || {})['x-name'] || 'file');
       return Promise.resolve(png ? { kind: 'image', path: 'images/0123456789abcdef.png', name: name } : { kind: 'file', path: 'files/fedcba9876543210/' + name.replace(/[^\w.-]+/g, '-'), name: name });
     }
+    // The shortcuts that work in every app, as Settings and the tips (Tip.tsx) ask for them: the
+    // defaults, or what a check put in `window.__SHORTCUTS__` ({ quick, waiting }, '' for off).
+    if (cmd === 'quick_shortcut') {
+      var which = (args && args.which) || 'quick';
+      var set = window.__SHORTCUTS__ || {};
+      return Promise.resolve({ which: which, shortcut: which in set ? set[which] : which === 'quick' ? 'Option+Cmd+/' : 'Option+Cmd+.', error: null });
+    }
     if (window.__unknown.indexOf(cmd) < 0) window.__unknown.push(cmd);
     return Promise.resolve(null);
   },

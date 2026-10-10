@@ -178,8 +178,9 @@
   padding: var(--space-8) var(--space-6);
   color: var(--ink-3);
 }
-/* Until the engine has read this Mac's board once: the working glyph with what it's reading. */
-.ca-board-loading {
+/* Until the engine has read this Mac's board once: the working glyph with what it's reading, and
+   a tip under it (Tip.tsx). */
+.ca-board-reading {
   display: flex;
   align-items: center;
   gap: var(--space-2);

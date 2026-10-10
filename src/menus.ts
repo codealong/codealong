@@ -852,7 +852,7 @@ export function chordSigns(chord: string): string {
 
 /** A chord's signs one key at a time, as a list of places to open says its keys (`Target.kbd`). */
 export function chordKeys(chord: string): string[] {
-  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Enter: '⏎', Esc: 'esc' };
+  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Enter: '⏎', Esc: 'esc', Backspace: '⌫', Tab: '⇥' };
   return chord.split('+').map((k) => signs[k] ?? k);
 }
 

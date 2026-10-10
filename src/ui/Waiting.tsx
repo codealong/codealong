@@ -43,6 +43,7 @@ import { usePrLinks } from './PrLink';
 import { prPlaces, type PrRowItem } from './PrsView';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
+import { Tip } from './Tip';
 import { useNow } from './useNow';
 
 /** Where the sessions looked at here are kept, for ⌃- and ⌃⇧- (history.ts), apart from the other
@@ -351,7 +352,10 @@ export function Waiting() {
       ) : (
         <div className="ca-waiting-empty" role="status">
           {!board || board.loading ? (
-            <p>Reading sessions…</p>
+            <>
+              <p>Reading sessions…</p>
+              <Tip place="waiting" />
+            </>
           ) : (
             <>
               <h1>Nothing waits on you</h1>

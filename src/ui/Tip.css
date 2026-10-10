@@ -1,0 +1,45 @@
+/* A tip on using Codealong under what a window is reading (Tip.tsx): a quiet box, its keys as
+   caps, that fades in, since it comes a moment after the line over it. */
+
+.ca-tip {
+  max-width: 420px;
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-2);
+  text-align: left;
+  animation: ca-tip-in var(--dur-base) ease-out;
+}
+.ca-tip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  color: var(--ink-3);
+}
+.ca-tip-next {
+  margin-left: auto;
+}
+.ca-tip-text {
+  margin: 0;
+  font: var(--type-reading);
+  animation: ca-tip-in var(--dur-base) ease-out;
+}
+/* Caps sit on the line's text, as they do in an empty note. */
+.ca-tip-text .ca-kbds {
+  margin: 0 1px;
+  vertical-align: -3px;
+}
+@keyframes ca-tip-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-tip,
+  .ca-tip-text {
+    animation: none;
+  }
+}

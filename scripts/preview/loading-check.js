@@ -1,7 +1,8 @@
 // Checks what the windows show at launch, before the engine's first scan has finished: the main
 // window says it's reading rather than listing nothing, or only other devices' worktrees, selects
-// none of those, keeps its project and gives no counts, until the board comes; the floating bar
-// says it's reading until its feed comes.
+// none of those, keeps its project and gives no counts, until the board comes, with a tip under
+// it meanwhile (tips-check.js has more of those); the floating bar says it's reading until its
+// feed comes.
 //   PREVIEW_LOADING=1 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/loading-check.js
 //   PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/loading-check.js
 (function () {
@@ -41,8 +42,13 @@
       return until(function () { return mac().length > 0; }, 5000).catch(function () {});
     })
     .then(function () {
-      check('the list says it is reading', text('.ca-board-loading') === 'Reading sessions…', text('.ca-board-loading'));
-      check('with the working glyph', !!document.querySelector('.ca-board-loading .ca-g-arc'));
+      // The tip comes a moment after the line (Tip.tsx `TIP_AFTER_MS`).
+      return until(function () { return !!document.querySelector('.ca-tip'); }, 5000).catch(function () {});
+    })
+    .then(function () {
+      check('the list says it is reading', text('.ca-board-reading') === 'Reading sessions…', text('.ca-board-reading'));
+      check('with the working glyph', !!document.querySelector('.ca-board-reading .ca-g-arc'));
+      check('and a tip under it', !!document.querySelector('.ca-board-loading .ca-tip'));
       check('and lists nothing yet, other devices included', !document.querySelector('.ca-board-list') && all('[role="option"]').length === 0, String(all('[role="option"]').length));
       check('nor selects any of theirs', !!document.querySelector('.ca-insp--empty'));
       var stored = localStorage.getItem('codealong.project');
@@ -55,6 +61,7 @@
         window.__emit('board', board);
         return until(function () { return !document.querySelector('.ca-board-loading') && all('[role="option"]').length > 0; }, 10000).then(function () {
           check('the board comes in once read', true, all('[role="option"]').length + ' rows');
+          check('and the tip goes with the line over it', !document.querySelector('.ca-tip'));
           check('with its counts', all('.ca-side-chip-count').length > 0, String(all('.ca-side-chip-count').length));
           check('and this Mac working', mac() === '' || / working/.test(mac()), mac());
         });

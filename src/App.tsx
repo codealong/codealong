@@ -44,6 +44,7 @@ import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
+import { Tip } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
 import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
@@ -1422,9 +1423,12 @@ export function App() {
           )}
           {loadError && <div className="ca-board-empty">{loadError}</div>}
           {loading && (
-            <div className="ca-board-empty ca-board-loading" role="status">
-              <StatusGlyph status="working" size={12} title="" />
-              <span>{READING[view]}</span>
+            <div className="ca-board-empty ca-board-loading">
+              <div className="ca-board-reading" role="status">
+                <StatusGlyph status="working" size={12} title="" />
+                <span>{READING[view]}</span>
+              </div>
+              <Tip place="board" />
             </div>
           )}
           {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (

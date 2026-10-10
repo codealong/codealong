@@ -97,6 +97,7 @@ import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
 import { useTheme } from './ThemeSwitch';
+import { Tip } from './Tip';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
 import { useNow } from './useNow';
@@ -1445,7 +1446,10 @@ export function Quick() {
         <div ref={list} className="ca-quick-list" role="listbox" aria-label="What to do next">
           <div ref={scroller} className="ca-quick-scroll">
             {!board || board.loading ? (
-              <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
+              <>
+                <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
+                {!error && <Tip place="quick" />}
+              </>
             ) : (
               <>
                 {nothingWaits && (
