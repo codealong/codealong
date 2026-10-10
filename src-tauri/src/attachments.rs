@@ -304,6 +304,12 @@ fn markdown_span(text: &str, start: usize, end: usize) -> Option<(usize, usize)>
     Some((open, end + 1))
 }
 
+/// Whether the text opens with an attachment written as an image or a link (`![…](images/…)`,
+/// `[…](files/…)`), whose `!` is the image's, not one typed to lead a shell command.
+pub fn leads_with_link(text: &str) -> bool {
+    references(text).iter().any(|r| markdown_span(text, r.0, r.1).is_some_and(|(from, _)| from == 0))
+}
+
 /// The text with each attachment as the agent should get it.
 pub fn expand_in(text: &str, images: &Path, files: &Path, style: Style) -> String {
     let mut out = String::with_capacity(text.len());

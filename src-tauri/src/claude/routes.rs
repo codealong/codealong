@@ -109,6 +109,10 @@ mod tests {
     fn runs_a_shell_command_only_where_its_typed_into_the_box() {
         use crate::send::{shell_command, typed_routes};
         assert!(shell_command("! make test") && shell_command("  !ls") && !shell_command("Run `! ls` for me"));
+        // An image the prompt opens with is a mention in the box, not bash mode, so a session
+        // that isn't running is resumed on it.
+        assert!(!shell_command("![image](images/0123456789abcdef.png) why no Run here?"));
+        assert!(shell_command("![image] ls") && shell_command("![x](elsewhere/a.png)"));
         // A terminal session's terminal; never its socket, where the agent would get the words.
         let s = session(Surface::Cli, Status::Idle, true, Some(42));
         assert_eq!(typed_routes(claude_routes(&s, Some(&registry(json!({}))), Path::new("/h"), None, None)), vec![Route::Type { pid: 42 }]);

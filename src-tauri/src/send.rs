@@ -463,9 +463,11 @@ pub(crate) fn ensure_may_resume(sender: &Sender, title: &str) -> Result<()> {
 
 /// Whether a prompt is a command for the session's own shell: it starts with `!`, which Claude
 /// Code's box takes as one (bash mode), running it in the session and handing the agent what it
-/// prints.
+/// prints. A prompt that opens with an image isn't one: the `!` is the image's, which Claude
+/// Code's box gets as a mention (`Adapter::typed_attachments`), so it goes any way a prompt does.
 pub fn shell_command(text: &str) -> bool {
-    text.trim_start().starts_with('!')
+    let text = text.trim_start();
+    text.starts_with('!') && !attachments::leads_with_link(text)
 }
 
 /// The ways in a command for the session's shell may take (`shell_command`): those that put it
