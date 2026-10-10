@@ -10,6 +10,16 @@
 .ca-win-body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--inspector-w); min-height: 0; }
 
 .ca-board { min-width: 0; min-height: 0; overflow: auto; padding-bottom: var(--space-6); background: var(--ground); }
+/* The board is a stacking context of its own. Its rows are positioned (rows.css), and in a scroller
+   that isn't one, WebKit gives each row it composites a layer outside the scroller's, which a
+   proxy moves by the scroller's scroll position. Near the top of Sessions that was every row and
+   every row's grip, each with a clip layer of its own: 1,180 layers for 155 rows, against 43
+   isolated (counted in a WKWebView on 2026-10-10). The rows came in and out of those layers as
+   the list scrolled and changed, and in One line hover and clicks were reported, now and then, to
+   land on another row than the one drawn under the pointer. Isolated, the rows draw in the
+   scroller's own layer. Nothing in the board stacks over what's beside it: dialogs and toasts
+   are mounted outside it, and hover cards and the drag's ghost are portalled to the body. */
+.ca-board { isolation: isolate; }
 
 /* Native window: no rounded corners or shadow of our own; room for the traffic lights. */
 .ca-win--app {

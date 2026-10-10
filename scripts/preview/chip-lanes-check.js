@@ -1,9 +1,10 @@
 // Checks the lanes of chips on the lists' rows (LaneRow.tsx, PrsView.tsx, TodoView.tsx, and
 // .ca-chips in src/styles/chips.css): every chip is one height and shape, and none is cut off,
 // each showing whole or not at all. In Sessions it also checks that a session's account is on
-// the second line, not the first; that Rows in the sidebar puts each session on one line and
-// remembers it; and in every list that a right-click (or ⌃-click) opens a row's menu without
-// selecting it.
+// the second line, not the first; that Rows in the bar over the list puts each session on one
+// line and remembers it, and that a point on a one-line row finds that row, in a board that's a
+// stacking context of its own; and in every list that a right-click (or ⌃-click) opens a row's
+// menu without selecting it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/chip-lanes-check.js
@@ -121,6 +122,24 @@
         };
         var titles = slim.filter(function (r) { var t = r.querySelector('.ca-agentline-title'); return t.scrollWidth > t.clientWidth + 1 && onLine(r); });
         check('a title gives way only after the chips have', titles.length === 0, titles.length + ' rows');
+        // Rows hit where they're drawn: the board is a stacking context, so WebKit draws its
+        // positioned rows in its scroller's layer, not each in a layer of its own (App.css).
+        var board = document.querySelector('.ca-board');
+        check('the board is a stacking context of its own', board && getComputedStyle(board).isolation === 'isolate');
+        var hits = 0;
+        var off = [];
+        slim.forEach(function (r) {
+          var b = r.getBoundingClientRect();
+          if (b.top < 0 || b.bottom > innerHeight) return;
+          [b.top + 2, (b.top + b.bottom) / 2, b.bottom - 2].forEach(function (y) {
+            var el = document.elementFromPoint((b.left + b.right) / 2, y);
+            var row = el && el.closest('.ca-lane');
+            if (!row) return;
+            hits++;
+            if (row !== r) off.push(r.querySelector('.ca-agentline-title').textContent.slice(0, 20) + ' @' + Math.round(y - b.top));
+          });
+        });
+        check('a point in a row finds that row', hits > 0 && off.length === 0, hits + ' points' + (off.length ? ', ' + off.slice(0, 4).join(' | ') : ''));
         report('one line');
         return rightClicks();
       })

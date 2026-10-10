@@ -94,6 +94,15 @@ under `src-tauri/src/`.
   whole `<svg>`: `src/styles/glyphs.css` (`.ca-glyph--working`).
 - WebKit slows a visible page's timers and drawing while its app isn't frontmost, and every
   panel opts out: `panel.rs` (`builder`, `background_throttling`).
+- A scroller that isn't a stacking context, with positioned rows in it, gets a composited layer
+  per row WebKit composites, each outside the scroller's own layer, wrapped in a clip layer, and
+  moved by an "overflow scroll proxy" node from the scroll position; which rows those are
+  changes as the list scrolls and changes. The board was 1,180 layers for Sessions' 155 rows, 43
+  isolated (`src/App.css`, `.ca-board`). To count: a WKWebView in a small Swift program, on
+  `preview.sh`'s page served from `.preview/`, and its testing SPI `_scrollingTreeAsText` (proxy
+  nodes, and each scroll node's position on the drawing side) and `_caLayerTreeAsText` (layers),
+  called with `perform`. Synthesized `NSEvent` clicks reach the page there; hover doesn't, with
+  the window hidden (checked 2026-10-10).
 - The bar listens for `bar-feed`, never `board`, so Tauri doesn't send it the board:
   `barfeed.rs` (module header).
 - The quick panel takes the keyboard without activating Codealong: `orderFrontRegardless`,
