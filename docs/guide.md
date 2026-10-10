@@ -287,7 +287,10 @@ or typed into its background job; with several held, it opens where it runs, whi
 a time. Others open where they run to be answered. The box stays meanwhile, keeping what you'd
 written. Where the call can be answered here, sending what you wrote (⏎) denies it and tells the
 agent that instead, as Claude Code's own "No, and tell Claude what to do differently" does, and the
-panel shows your words as a message of yours; nothing is typed at a prompt that's up. Elsewhere Send
+panel shows your words as a message of yours; nothing is typed at a prompt that's up. Questions are
+declined the same way, so you can write back in your own words rather than pick an answer: the
+agent's turn goes on with what you wrote (an answer of your own to one question still goes in that
+question's box, and Answer sends it). Elsewhere Send
 works again once the session isn't waiting (a session run In Codealong takes it at once, after its
 current turn).
 
@@ -907,7 +910,8 @@ window; once ↑ has taken you into them, a number alone does. Each shows its ke
 Sessions' list, where ⌘ and a digit open the row's places, they show their arrows instead. A reply's right-click menu has the same,
 and Dismiss takes them all away. The box stays yours to type in instead, and nothing reaches the
 session until you pick. While it waits on a call to allow, a reply denies the call and is sent
-instead, as what you type would be. Its row has a Suggested chip, whose tooltip lists them. They answer the reply the agent read: one
+instead, as what you type would be, and while it asks you questions, a reply declines them the same
+way. Its row has a Suggested chip, whose tooltip lists them. They answer the reply the agent read: one
 written after you'd replied since is turned down, as is one while the session takes a turn, so a
 suggestion for the turn before never appears after your answer. They go once anything is sent to
 the session or a turn of its starts, and suggesting again replaces them. A

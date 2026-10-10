@@ -23,6 +23,10 @@ import { cx, Icon, Kbd } from './primitives';
  *  box to change first. */
 export type PickHow = 'send' | 'next' | 'edit';
 
+/** What a send refuses while the session waits on you: the call it wants to make, or the
+ *  questions it asks. */
+export type Denies = 'call' | 'question';
+
 interface Props {
   suggestions: Suggestions;
   onPick: (text: string, how: PickHow) => void;
@@ -30,9 +34,9 @@ interface Props {
   /** Why they can't be sent now, when they can't: the session waits on something that can't be
    *  answered from here. They can still be put in the box. */
   blocked?: string;
-  /** What sending one does when it isn't only sent: it denies the call the session waits on and
-   *  tells it this instead. */
-  denies?: boolean;
+  /** What sending one does when it isn't only sent: it denies the call the session waits on, or
+   *  declines the questions it asks, and tells it this instead. */
+  denies?: Denies;
   /** There's a next session waiting on you to go on to. */
   next?: boolean;
   /** Gives the box the keyboard back. */
@@ -55,7 +59,7 @@ export function chordedReply(e: Key, replies: string[]): string | null {
 }
 
 export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function SuggestedReplies({ suggestions: g, onPick, onDismiss, blocked, denies, next = false, onLeave, keyed = false }, ref) {
-  const sends = denies ? 'Deny the call it waits on, and send this instead' : 'Send this as your reply';
+  const sends = denies === 'question' ? 'Decline the question it asks, and send this instead' : denies ? 'Deny the call it waits on, and send this instead' : 'Send this as your reply';
   const title = blocked ?? `${sends} · ⌥-click to change it first${next ? ' · ⌘-click sends and goes on to the next' : ''}`;
   const pick = (text: string, h: PickHow) => {
     if (blocked && h !== 'edit') return;
@@ -64,7 +68,7 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
   const menu = (e: MouseEvent, text: string, chord: string | undefined) => {
     e.preventDefault();
     void showContextMenu([
-      { label: denies ? 'Deny and send this' : 'Send', run: () => pick(text, 'send'), enabled: !blocked, accelerator: chord },
+      { label: denies === 'question' ? 'Decline and send this' : denies ? 'Deny and send this' : 'Send', run: () => pick(text, 'send'), enabled: !blocked, accelerator: chord },
       ...(next ? [{ label: 'Send and go on to the next', run: () => pick(text, 'next'), enabled: !blocked, accelerator: chord && `Cmd+${chord}` }] : []),
       { label: 'Change before sending', run: () => pick(text, 'edit') },
       'separator',

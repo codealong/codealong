@@ -8,9 +8,11 @@
 // The box stays while the session waits on you, so a session that starts waiting as you type
 // doesn't take what you wrote away. While it waits on a call Codealong can answer, sending what
 // you wrote denies the call and tells it that instead, as Claude Code's own "No, and tell Claude
-// what to do differently" does (actions.rs `answer_call`); otherwise you can send it once the
-// session is no longer waiting. Nothing is ever typed at a prompt that's up, where a Return would
-// answer it. What you wrote is kept per session, for every window (drafts.ts), until you send it.
+// what to do differently" does (actions.rs `answer_call`). Questions it asks that can be answered
+// here are declined the same way, so you can say something other than an answer: the turn goes on
+// with your words. Otherwise you can send it once the session is no longer waiting. Nothing is
+// ever typed at a prompt that's up, where a Return would answer it. What you wrote is kept per
+// session, for every window (drafts.ts), until you send it.
 //
 // Sending clears the box at once and the thread shows the message on its way (ahead.ts), so you
 // can go on writing the next; messages to one session go in the order you sent them. One that
@@ -22,6 +24,7 @@
 // Where there's a next session waiting on you (the Sessions view's panel), ⌘⏎ sends and goes on to
 // it. While the session waits on a call that can be answered here, ⌘⏎ answers it and goes on: with
 // words in the box it denies the call and sends them instead, as ⏎ does, and with none it allows it.
+// With words, it declines questions the same way and goes on.
 //
 // The box is laid out as chat apps' are: the send button sits inside it, at its corner, and the
 // placeholder says how a message gets there (typed into its Ghostty tab, a message from
@@ -92,7 +95,7 @@ import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
-import { chordedReply, SuggestedReplies, type PickHow } from './SuggestedReplies';
+import { chordedReply, SuggestedReplies, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
 
@@ -174,6 +177,9 @@ interface ComposerProps {
   /** Sending while it waits denies the call and tells it what you wrote instead, then with `next`
    *  goes on as ⌘⏎ does. Resolves with why it didn't go, or null once it did. */
   onDenySaying?: (words: string, next: boolean) => Promise<string | null>;
+  /** What it waits on is questions it asks, which a send declines rather than denies: for the
+   *  box's words. */
+  asked?: boolean;
 }
 
 type Note = { text: string; error: boolean };
@@ -222,7 +228,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -413,9 +419,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     return true;
   };
 
-  /** While it waits on a call that can be answered here: denies it with `t` as what to do
-   *  instead. The box clears at once, and has what you wrote back, with why, if it doesn't go. A
-   *  suggested reply that was `chosen` leaves the box as it is, and is put in it if it doesn't go. */
+  /** While it waits on a call or questions that can be answered here: denies or declines it with
+   *  `t` as what to do instead. The box clears at once, and has what you wrote back, with why, if
+   *  it doesn't go. A suggested reply that was `chosen` leaves the box as it is, and is put in it
+   *  if it doesn't go. */
   const denySaying = (t: string, next: boolean, chosen = false): boolean => {
     if (!onDenySaying) return false;
     const key = s.key;
@@ -565,6 +572,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const suggested = s.suggestions && s.suggestions.replies.length > 0 && !aside && !going && !listing && answered !== s.suggestions.at ? s.suggestions : null;
   // While it waits on a call that can't be answered here, a reply can only go in the box.
   const suggestionBlocked = waiting && !onDenySaying ? 'It waits on you for something that can’t be answered from here, so this can go once it doesn’t' : undefined;
+  // What a send does to what it waits on, where it does something.
+  const denies: Denies | undefined = waiting && onDenySaying ? (asked ? 'question' : 'call') : undefined;
   const pickSuggestion = (reply: string, how: PickHow) => {
     if (how === 'edit') {
       const now = latest.current.trim() ? `${latest.current.trimEnd()}\n\n${reply}` : reply;
@@ -641,7 +650,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
           : skill
           ? `/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`
-          : (note?.text ?? (stopping ? 'Stopping…' : onlyAside ? SESSION_SIDES.open : aside ? `To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying, !empty, !!suggested && !text)));
+          : (note?.text ?? (stopping ? 'Stopping…' : onlyAside ? SESSION_SIDES.open : aside ? `To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, denies, !empty, !!suggested && !text)));
   return (
     <div ref={root} className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
@@ -652,7 +661,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           onPick={pickSuggestion}
           onDismiss={dismissSuggested}
           blocked={suggestionBlocked}
-          denies={waiting && !!onDenySaying}
+          denies={denies}
           next={!!onNext}
           keyed={keyed}
           onLeave={() => box.current?.focus()}
@@ -672,7 +681,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ref={box}
           value={text}
           lines={LINES}
-          hint={aside ? 'Ask on the side' : waiting && onDenySaying ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? ' · esc stops its turn' : '')}
+          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? ' · esc stops its turn' : '')}
           onChange={(e) => {
             setText(e.target.value);
             setCaret(e.target.selectionStart);
@@ -739,7 +748,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               return;
             }
             // While it waits on a call answered here, ⌘⏎ answers it and goes on: what you wrote
-            // denies it and is sent instead, as with ⏎, and an empty box allows it.
+            // denies it and is sent instead, as with ⏎, and an empty box allows it. Questions are
+            // declined with what you wrote the same way.
             if (e.metaKey && waiting && onDenySaying && text.trim()) {
               e.preventDefault();
               send(false, true);
@@ -777,7 +787,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               type="button"
               className="ca-composer-send"
               aria-label={command ? `Run /${command.command.name}` : aside ? 'Ask on the side' : 'Send'}
-              title={command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (onDenySaying ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)'}
+              title={command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (denies === 'question' ? 'Decline it, and send this instead (⏎)' : denies ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)'}
               disabled={empty || (waiting && !command && !aside && !onDenySaying) || ((!!command || aside) && (forking || asking))}
               onClick={submit}
             >
@@ -798,14 +808,15 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
  *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape stops a
  *  turn while it can. */
-function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denySaying = false, written = false, suggested = false): string {
-  const keys = hintKeys(waiting, next, allow, sendNow, denySaying, written);
+function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denies?: Denies, written = false, suggested = false): string {
+  const keys = hintKeys(waiting, next, allow, sendNow, denies, written);
   return suggested ? [keys, '↑ suggested replies'].filter(Boolean).join(' · ') : keys;
 }
 
-function hintKeys(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow: boolean, denySaying: boolean, written: boolean): string {
-  if (waiting && denySaying && written) return `⏎ denies it and sends this instead${next ? ' · ⌘⏎ + next' : ''}`;
-  if (waiting && denySaying) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · ⏎ denies it and sends what you write instead` : '⏎ denies it and sends what you write instead';
+function hintKeys(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow: boolean, denies: Denies | undefined, written: boolean): string {
+  const does = denies === 'question' ? 'declines' : 'denies';
+  if (waiting && denies && written) return `⏎ ${does} it and sends this instead${next ? ' · ⌘⏎ + next' : ''}`;
+  if (waiting && denies) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · ⏎ ${does} it and sends what you write instead` : `⏎ ${does} it and sends what you write instead`;
   if (waiting) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · send this once it isn’t waiting on you` : 'Send this once it isn’t waiting on you';
   return [next && '⌘⏎ send + next', sendNow && '⌃⏎ send now, into the turn it’s taking'].filter(Boolean).join(' · ');
 }
@@ -820,19 +831,24 @@ interface ApprovalProps {
    *  (the waiting window, the notch). */
   keys?: boolean;
   /** Hands the box the call's keys (null while there's nothing to answer here): ⌘⏎ allows,
-   *  then goes on to the next with `onNext` where there is one, and ⌘⌫ denies. */
+   *  then goes on to the next with `onNext` where there is one, and ⌘⌫ denies. Questions hand it
+   *  only `denySaying`. */
   onKeys?: (keys: CallKeys | null) => void;
   onNext?: (done: string) => void;
 }
 
-/** What the box's keys do to the call a session waits on. */
+/** What the box's keys do to the call a session waits on, or the questions it asks. */
 interface CallKeys {
-  /** None for a call that can't be allowed just this once (`Pending.noOnce`). */
+  /** None for a call that can't be allowed just this once (`Pending.noOnce`), and for questions,
+   *  which take picks. */
   allow?: () => void;
-  deny: () => void;
-  /** Denies it, telling it `words` instead, then with `next` goes on as an allow does: why that
-   *  didn't go, or null once it did. */
+  /** None for questions: declining them without words is their Decline button's. */
+  deny?: () => void;
+  /** Denies it, or declines the questions, telling it `words` instead, then with `next` goes on
+   *  as an allow does: why that didn't go, or null once it did. */
   denySaying: (words: string, next: boolean) => Promise<string | null>;
+  /** It's questions it asks, not a call. */
+  asked?: boolean;
 }
 
 /** Whether a key press is someone editing words, which ⌘⌫ deletes there. */
@@ -907,11 +923,15 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [keys, answerable, allowable]);
+  // Questions take only words from the box, which decline them: what you write there may be
+  // something other than an answer, and your own answer to a question goes in its own box.
+  const declinable = !!pending && !pending.cannot && asks;
   useEffect(() => {
     if (!onKeys) return;
-    onKeys(answerable ? { allow: allowable ? () => void allowRef.current('allow', andNext) : undefined, deny: () => void allowRef.current('deny'), denySaying: (words, next) => allowRef.current('deny', next ? andNext : undefined, undefined, words) } : null);
+    const denySaying = (words: string, next: boolean) => allowRef.current('deny', next ? andNext : undefined, undefined, words);
+    onKeys(answerable ? { allow: allowable ? () => void allowRef.current('allow', andNext) : undefined, deny: () => void allowRef.current('deny'), denySaying } : declinable ? { denySaying, asked: true } : null);
     return () => onKeys(null);
-  }, [onKeys, answerable, allowable]);
+  }, [onKeys, answerable, allowable, declinable]);
 
   const where = sessionPlace(s, terminal);
   // Questions that can only be answered where it runs still show here, to read before you go.
@@ -1191,7 +1211,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
         />
       </div>
       <div className="ca-composer-foot">
-        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (q.multiSelect ? 'Pick one or more. Decline stops the turn.' : 'Pick one, or type your own. Decline stops the turn.'))}</span>
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? `${q.multiSelect ? 'Pick one or more.' : 'Pick one, or type your own.'} Decline stops the turn, or write below to say something else.`)}</span>
         <Button size="sm" disabled={busy} onClick={onDecline}>
           Decline
         </Button>
@@ -1251,7 +1271,7 @@ export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, o
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} />
     </>
   );
 }
