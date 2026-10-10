@@ -1155,17 +1155,19 @@ the desktop does the same to the cards of those sessions pinned on the same scre
 
 A helper is a session that works for an agent rather than for you: one an agent started with
 `codealong start --helper` (a review of its diff, a check, a second opinion on another account or
-model), and an automatic review's session, which helps its PR. Nobody is expected to talk to it,
+model), and an automatic review's session, which helps its PR, and for a PR one of your sessions
+opened, that session too, as the review goes back to it. Nobody is expected to talk to it,
 so a turn it ends is idle rather than Your turn, and while it doesn't need you it's out of its
 worktree's status, the floating bar, the notch, the waiting window, the quick panel's lists and the
 mark. Started without `--in`, it runs out of sight, as automatic reviews do.
 
-In Sessions a helper is listed under the session that started it, set in with an elbow, while it
+In Sessions a helper is listed under the session it works for, set in with an elbow, while it
 works or waits on you; the rest are counted on that session's row (*2 helpers*), and its panel
 lists them all under its title, as *Its helper*. The helper's own panel says *Helper of* that
 session over its title, and an automatic review's says *Review of* its PR. A helper whose session
-isn't listed (filtered out, or an automatic review) is listed on its own only while it waits on
-you, with a *Helper* or *Review of #N* chip; a search finds every one.
+isn't listed (filtered out, or a review of a PR that waits on your review, which has no session of
+yours) is listed on its own only while it waits on you, with a *Helper* or *Review of #N* chip; a
+search finds every one.
 
 A helper that needs you (a call to allow, a question, an error) waits on you as any session does,
 so its agent isn't left waiting on it unseen: its worktree goes to Needs you, it's on the bar and

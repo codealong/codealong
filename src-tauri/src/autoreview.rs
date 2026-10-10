@@ -45,7 +45,9 @@
 //! wait on you (`Job::Send`), as a file it's told to read (`review_file`, `back_message`), so the
 //! other agent's words never reach it typed in as yours. A review that found nothing to raise
 //! (`clean`) isn't sent, nor one of a commit the PR has moved on from: the next round's is. The
-//! PR's Review tab sends one by hand (`send_now`).
+//! PR's Review tab sends one by hand (`send_now`). A review's session is a helper of its PR
+//! (`reviewers`), and of a PR of yours that session's as well (`nest_own`), so it's listed under
+//! the session it goes back to.
 //!
 //! Every review ends on what its agent would do with the PR, a `Verdict:` line (`verdict_of`):
 //! approve, ask for changes, or comment, which the PR's windows suggest beside its verdicts. With
@@ -809,14 +811,6 @@ fn end(r: &mut Round, stage: ReviewStage, note: Option<String>, now: i64) {
     r.ended_at = Some(now);
 }
 
-/// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
-/// the round to come for a PR that reviews are on for (`wanted`); whether the PR has moved on
-/// since that round, with another to come; and whether it's held out of what waits on you until
-/// the agent's review is done. It's held while its commit has had no round yet, for `HOLD_MS` at
-/// most from when your review was asked for or the PR last changed, and while its commit's round
-/// is under way, for as long from when that began; a round that's done, or didn't get done, hands
-/// it to you. A PR of yours is never held: it says where its review went back to, or why it
-/// hasn't, and whether the session that opened it can be sent it now.
 /// The PR each session reviews, by the session's key: every session a round of a PR's reviews
 /// asked, and the one kept for its next round. Each is a helper of that PR (`Session::helper`),
 /// out of your lists and queues while it doesn't need you, and listed on the PR's card.
@@ -831,6 +825,33 @@ pub fn reviewers(store: &Store) -> HashMap<&str, &str> {
     out
 }
 
+/// Puts each review of a PR of yours under the session it goes back to (`origin`), as a helper
+/// of that session as well as of the PR (`Helper::parent`): Sessions lists it under that session,
+/// whose panel lists it with its other helpers, and Mark as done on that session marks it done
+/// too. A review of a PR that waits on your review has no session of yours to go under, and stays
+/// the PR's alone.
+pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
+    let back_to: HashMap<String, String> = prs.iter().filter(|p| p.mine).filter_map(|p| origin(lanes, p).map(|(_, s)| (pr_key(&p.key), s.key.clone()))).collect();
+    if back_to.is_empty() {
+        return;
+    }
+    for s in lanes.iter_mut().flat_map(|l| l.sessions.iter_mut()) {
+        let key = s.key.clone();
+        let Some(h) = s.helper.as_mut().filter(|h| h.parent.is_none()) else { continue };
+        if let Some(parent) = h.pr.as_deref().and_then(|pr| back_to.get(pr)).filter(|p| **p != key) {
+            h.parent = Some(parent.clone());
+        }
+    }
+}
+
+/// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
+/// the round to come for a PR that reviews are on for (`wanted`); whether the PR has moved on
+/// since that round, with another to come; and whether it's held out of what waits on you until
+/// the agent's review is done. It's held while its commit has had no round yet, for `HOLD_MS` at
+/// most from when your review was asked for or the PR last changed, and while its commit's round
+/// is under way, for as long from when that began; a round that's done, or didn't get done, hands
+/// it to you. A PR of yours is never held: it says where its review went back to, or why it
+/// hasn't, and whether the session that opened it can be sent it now.
 pub fn apply(prs: &mut [PrItem], store: &Store, cfg: &ReviewsCfg, lanes: &[Lane], now: i64) {
     for pr in prs {
         let wanted = wanted(cfg, lanes, pr);
@@ -2314,6 +2335,23 @@ mod tests {
         assert!(body.starts_with("One thing.\n\n**`src/a.rs` line 2**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L2\n\nThis panics.\n\n<sub>"), "{body}");
         let long = comment_body(&"x".repeat(COMMENT_MAX + 10), &[], &pr(7, HEAD), HEAD, "Codex");
         assert!(long.len() < 65_536 && long.contains("cut short"));
+    }
+
+    #[test]
+    fn a_review_of_your_pr_goes_under_the_session_it_goes_back_to() {
+        let review = |key: &str, pr: &str| Session { helper: Some(crate::model::Helper { pr: Some(pr.into()), ..Default::default() }), ..fixtures::session(key) };
+        let lanes_with = |opener: Session| vec![fixtures::lane("/r", vec![opener, review("codex:codex:own", "o/r#7"), review("codex:codex:theirs", "o/r#8")])];
+        let prs = [PrItem { mine: true, primary: Some("claude:claude:opener".into()), ..pr(7, HEAD) }, pr(8, HEAD)];
+        let parent = |lanes: &[Lane], k: &str| lanes[0].sessions.iter().find(|s| s.key == k).and_then(|s| s.helper.as_ref()?.parent.clone());
+        let mut lanes = lanes_with(fixtures::session("claude:claude:opener"));
+        nest_own(&mut lanes, &prs);
+        assert_eq!(parent(&lanes, "codex:codex:own").as_deref(), Some("claude:claude:opener"));
+        // A PR that waits on your review has no session of yours to go under.
+        assert_eq!(parent(&lanes, "codex:codex:theirs"), None);
+        // Nor one whose session is done with.
+        let mut lanes = lanes_with(Session { archived: true, ..fixtures::session("claude:claude:opener") });
+        nest_own(&mut lanes, &prs);
+        assert_eq!(parent(&lanes, "codex:codex:own"), None);
     }
 
     #[test]

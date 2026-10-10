@@ -126,9 +126,10 @@ export function lineageOf(session: Session, homes: Map<string, Placed>): Lineage
   };
 }
 
-/** The sessions that came of `key`, among `sessions`: forks of it and ones its agent started. */
+/** The sessions that came of `key`, among `sessions`: forks of it, ones its agent started, and its
+ *  helpers, which include the automatic reviews of a PR it opened (autoreview.rs `nest_own`). */
 export function cameOf<T extends { session: Session }>(key: string, sessions: Iterable<T>): T[] {
   const out: T[] = [];
-  for (const x of sessions) if (x.session.origin?.key === key) out.push(x);
+  for (const x of sessions) if (x.session.origin?.key === key || x.session.helper?.parent === key) out.push(x);
   return out;
 }

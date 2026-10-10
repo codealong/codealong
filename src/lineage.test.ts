@@ -96,5 +96,10 @@ describe('lineageOf', () => {
     const homes = new Map([boss, helper, started].map((p) => [p.session.key, p]));
     expect(originWord(lineageOf(helper.session, homes).from!.how)).toBe('Helper of');
     expect(lineageOf(boss.session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toEqual(['Its helper codex:codex:rev', 'Started codex:codex:other']);
+    // An automatic review of a PR it opened is its helper too, though nothing started it from there.
+    const review = { lane, session: fx.session({ key: 'codex:codex:review', helper: { parent: 'claude:claude:boss', pr: 'acme/app#7' } }) };
+    homes.set(review.session.key, review);
+    expect(lineageOf(boss.session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toContain('Its helper codex:codex:review');
+    expect(lineageOf(review.session, homes).from).toBeNull();
   });
 });
