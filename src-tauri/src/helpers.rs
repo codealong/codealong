@@ -1,8 +1,8 @@
 //! Telling a session what its helpers do, for the helpers it started with `codealong start
 //! --helper --report` (origins.json, `Helper::report`): when a helper's turn ends, and when it
 //! starts waiting on its user (a call to allow, a question, an error), its session is sent a
-//! message saying so, as a message of yours from a window is (actions.rs `session-send`), on a
-//! thread of its own, as PR nudges are (nudges.rs). The message says which helper it is and how to
+//! message saying so, as Codealong's own and not yours (send.rs `tell`), on a thread of its own,
+//! as PR nudges are (nudges.rs). The message says which helper it is and how to
 //! read what it wrote (`codealong session wait`), and not what it wrote: a helper's words reach
 //! its session as that command's output, never typed in as if you'd written them, and a session
 //! that skips permission prompts takes a message from Codealong without holding it for you.
