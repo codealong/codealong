@@ -531,12 +531,16 @@ export function App() {
   }, [selected?.key]);
 
   // The floating bar, the quick panel or a card on the desktop asks to show a session, worktree,
-  // PR or todo here: in its project, with no search hiding it.
+  // PR or todo here: in its project, with no search hiding it, nor one of its sessions shown in
+  // its panel's place (`drill`), which selecting what's selected already would leave.
   const reveal = useLatest((r: Reveal) => {
     // A todo the quick panel found: the Todo view, in its project.
     if (r.kind === 'todo') {
       const t = todoStore.todos.find((x) => x.id === r.id);
-      if (t) showTodo(t);
+      if (t) {
+        setDrill(null);
+        showTodo(t);
+      }
       return;
     }
     const lane = r.kind === 'session' || r.kind === 'worktree' ? lanes.find((l) => l.id === r.laneId) : undefined;
@@ -550,6 +554,7 @@ export function App() {
     if (!home) return;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
     setQuery('');
+    setDrill(null);
     if (lane && r.kind === 'worktree') {
       focusLane(lane);
     } else if (archivedLane && archived) {
@@ -1139,7 +1144,11 @@ export function App() {
   };
   const showTodoFromPanel = (t: Todo) => {
     if (view === 'canvas' && canvas.has('todo', t.id)) setCanvasFocus((f) => ({ id: refId('todo', t.id), n: (f?.n ?? 0) + 1 }));
-    else showTodo(t);
+    else {
+      // From a session shown in this todo's own panel: back to the todo.
+      setDrill(null);
+      showTodo(t);
+    }
   };
 
   // The canvas's selected card, which the panel on the right shows on the canvas.

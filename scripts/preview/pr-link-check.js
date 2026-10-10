@@ -6,7 +6,9 @@
 // the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
 // Merged & closed, which is folded until Show in Codealong opens it. It's also made five days
 // old, with the age filter at 24 hours, so Show in Codealong has to widen the filter to list it;
-// the session stays active in the last minute, so its row shows under that filter.
+// the session stays active in the last minute, so its row shows under that filter. Then the
+// session, shown from the PR's panel in its place: Show in Codealong on its header's PR chip goes
+// back to the PR's panel, though the PR is the one selected already.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-link-check.js
 (function () {
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
@@ -136,6 +138,29 @@
       check('which shows it in the PRs view', shown === '#' + picked.pr.number, shown + ', not #' + picked.pr.number);
       check('widening the age filter as far as lists it', localStorage.getItem('codealong.age') === '7d', localStorage.getItem('codealong.age'));
       check('and closes the card', !card());
+      // Its session, shown in the PR panel's place: Show in Codealong on the PR's chip in that
+      // session's header goes back to the PR, which is still the one selected.
+      var sess = Array.prototype.filter.call(document.querySelectorAll('.ca-prinsp .ca-psess'), function (el) { return el.querySelector('.ca-psess-title').textContent === picked.title; })[0];
+      check('the PR panel lists its session', !!sess);
+      sess.querySelector('.ca-psess-main').click();
+      return until(function () { return !document.querySelector('.ca-prinsp') && document.querySelector('.ca-sessinsp-back') && title() === picked.title; }, 3000, 'the session in the PR panel’s place');
+    })
+    .then(function () {
+      var chip = Array.prototype.filter.call(document.querySelectorAll('.ca-sessinsp .ca-prchipcard'), function (el) { return el.textContent.indexOf('#' + picked.pr.number) >= 0; })[0];
+      check('its header has the PR’s chip', !!chip);
+      hover(chip);
+      return until(card, 3000);
+    })
+    .then(function () {
+      var show = Array.prototype.filter.call(card().querySelectorAll('button'), function (b) { return /Show in Codealong/.test(b.textContent); })[0];
+      check('whose card has Show in Codealong', !!show);
+      show.click();
+      return until(function () { return document.querySelector('.ca-prinsp'); }, 3000, 'the PR panel, back from its session');
+    })
+    .then(function () {
+      var shown = document.querySelector('.ca-prinsp .ca-insp-call').textContent;
+      check('which goes back to the PR’s own panel', shown === '#' + picked.pr.number, shown);
+      check('with the session gone from its place', !document.querySelector('.ca-sessinsp-back'));
     })
     .then(done)
     .catch(stopped);
