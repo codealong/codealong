@@ -9,7 +9,9 @@
 .ca-insp-path .ca-icon { color: var(--ink-3); }
 .ca-insp-branch { margin-top: 3px; }
 .ca-insp-actions { display: flex; align-items: center; gap: 6px; }
-.ca-insp-sec { display: grid; }
+/* One column as wide as the panel: an auto column grows to its widest line (a long line of code in
+   a PR's description), and the whole panel scrolls sideways with it. */
+.ca-insp-sec { display: grid; grid-template-columns: minmax(0, 1fr); }
 .ca-insp-sec > .ca-label { margin-bottom: 6px; }
 
 /* Inspector */

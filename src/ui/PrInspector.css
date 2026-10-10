@@ -213,8 +213,10 @@
   background: var(--neutral-tint);
   font: var(--type-code);
 }
+/* A long line of code wraps, as in a conversation (Markdown.css), rather than putting a scroll
+   bar under the block. */
 .ca-prbody pre {
-  overflow-x: auto;
+  white-space: pre-wrap;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
@@ -228,7 +230,13 @@
   height: auto;
   border-radius: var(--radius-sm);
 }
+/* A wide table scrolls sideways in a box of its own, as GitHub's does, and its words stay whole:
+   the description's overflow-wrap: anywhere would squeeze a column to a letter (Markdown.css). */
 .ca-prbody table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -236,6 +244,7 @@
 .ca-prbody td {
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
+  overflow-wrap: normal;
 }
 .ca-prbody blockquote {
   padding-left: 10px;
