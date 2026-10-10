@@ -98,13 +98,16 @@ pub const PHONE: &str = "phone";
 pub const TABLET: &str = "tablet";
 
 /// What this build knows beyond version 1, as its hello says: `Have` (resuming a feed where the
-/// last one left off), watching sessions' replies (`api::SESSION_WATCH`, `Msg::Stream`), and
+/// last one left off), watching sessions' replies (`api::SESSION_WATCH`, `Msg::Stream`),
 /// Cursor's sessions and accounts (`Harness::Cursor`), which a build from before can't read: one
-/// in a message would lose it the whole message, so a device that doesn't say it gets none.
+/// in a message would lose it the whole message, so a device that doesn't say it gets none; and
+/// the sender's PR list in its feed (`FeedMsg::prs`, `pr::PrCard`), sent only to a device that
+/// says `PRS`.
 pub const HAVE: &str = "have";
 pub const WATCH: &str = "watch";
 pub const CURSOR: &str = "cursor";
-pub const KNOWS: [&str; 3] = [HAVE, WATCH, CURSOR];
+pub const PRS: &str = "prs";
+pub const KNOWS: [&str; 4] = [HAVE, WATCH, CURSOR, PRS];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {

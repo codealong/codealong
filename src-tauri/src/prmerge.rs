@@ -412,6 +412,31 @@ mod tests {
     }
 
     #[test]
+    fn what_goes_to_another_device_reads_as_codealong_peers_and_back() {
+        use codealong_peer::pr;
+        // The box another device asks for reads as codealong-peer's, every field of it.
+        let on = BOX.replace(r#""autoMergeRequest":null"#, r#""autoMergeRequest":{"mergeMethod":"SQUASH","enabledAt":"2026-10-09T10:00:00Z","enabledBy":{"login":"ana"}}"#);
+        let engine = serde_json::to_value(parse_box(&on).unwrap()).unwrap();
+        let peer: pr::MergeBox = serde_json::from_value(engine.clone()).expect("the box reads as codealong-peer's");
+        assert_eq!(serde_json::to_value(&peer).unwrap(), engine);
+        // Each act another device sends reads as the engine's.
+        let commit = pr::Commit { method: pr::Method::Squash, title: Some("Add teams (#7)".into()), body: Some(String::new()), email: None };
+        let ops = [
+            (pr::Op::Merge { commit: commit.clone(), head: "abc".into(), delete_branch: Some("REF_1".into()) }, Op::Merge { commit: Commit { method: Method::Squash, title: Some("Add teams (#7)".into()), body: Some(String::new()), email: None }, head: "abc".into(), delete_branch: Some("REF_1".into()) }),
+            (pr::Op::Auto { commit, head: "abc".into() }, Op::Auto { commit: Commit { method: Method::Squash, title: Some("Add teams (#7)".into()), body: Some(String::new()), email: None }, head: "abc".into() }),
+            (pr::Op::StopAuto, Op::StopAuto),
+            (pr::Op::Enqueue { head: "abc".into() }, Op::Enqueue { head: "abc".into() }),
+            (pr::Op::Dequeue, Op::Dequeue),
+            (pr::Op::UpdateBranch { rebase: true, head: "abc".into() }, Op::UpdateBranch { rebase: true, head: "abc".into() }),
+            (pr::Op::Ready, Op::Ready),
+            (pr::Op::DeleteBranch { branch_ref: "REF_1".into() }, Op::DeleteBranch { branch_ref: "REF_1".into() }),
+        ];
+        for (sent, read) in ops {
+            assert_eq!(serde_json::from_value::<Op>(serde_json::to_value(&sent).unwrap()).unwrap(), read);
+        }
+    }
+
+    #[test]
     fn a_missing_pr_is_an_error() {
         assert!(parse_box(r#"{"data":{"repository":{"pullRequest":null}}}"#).is_err());
         assert!(parse_box(r#"{"data":{"repository":null}}"#).is_err());

@@ -1,7 +1,8 @@
 //! What a device tells the devices it's linked with about itself (peers.rs): its name, and its board's
 //! worktrees, sessions and plan usage, cut from each board the engine publishes as barfeed.rs
-//! cuts the bar's. Only what changed goes out: each worktree is hashed, and a feed carries the
-//! ones that changed and the ids of the ones that left. What only works on this device stays here:
+//! cuts the bar's, and its PR list for a device that knows PRs (`pr_cards`). Only what changed
+//! goes out: each worktree is hashed, and a feed carries the ones that changed and the ids of the
+//! ones that left; the PR list goes again, whole, when it changed. What only works on this device stays here:
 //! open targets, process ids, preview URLs, and resume and attach commands.
 //!
 //! The receiving device keeps a `Replica` of each linked device's feed, and hands its windows the
@@ -17,6 +18,7 @@ use std::hash::{Hash, Hasher};
 use serde::Serialize;
 
 pub use codealong_peer::feed::{remote_key, split_remote, DeviceInfo, FeedMsg, Replica};
+use codealong_peer::pr::PrCard;
 
 use crate::model::{Board, DeviceTag, Harness, Lane, Usage};
 
@@ -28,9 +30,11 @@ pub struct Snapshot {
     pub device: DeviceInfo,
     pub lanes: Vec<Lane>,
     pub usage: Vec<Usage>,
+    pub prs: Vec<PrCard>,
     lane_hashes: Vec<u64>,
     device_hash: u64,
     usage_hash: u64,
+    prs_hash: u64,
     /// The same without what a device from before Cursor can't read (`reads_everywhere`), when
     /// there's any.
     older: Option<Box<Snapshot>>,
@@ -39,13 +43,56 @@ pub struct Snapshot {
 pub fn snapshot(board: &Board, device: DeviceInfo) -> Snapshot {
     let lanes: Vec<Lane> = board.lanes.iter().map(shareable).collect();
     let usage = board.usage.clone();
+    let prs = pr_cards(board);
+    let prs_hash = hash_of(&prs);
     let newer = |h: Harness| !reads_everywhere(h);
     let older = (lanes.iter().any(|l| l.sessions.iter().any(|s| newer(s.harness))) || usage.iter().any(|u| newer(u.harness))).then(|| {
         let lanes: Vec<Lane> = lanes.iter().map(|l| Lane { sessions: l.sessions.iter().filter(|s| reads_everywhere(s.harness)).cloned().collect(), ..l.clone() }).collect();
         let usage: Vec<Usage> = usage.iter().filter(|u| reads_everywhere(u.harness)).cloned().collect();
-        Box::new(Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device: device.clone(), lanes, usage, older: None })
+        Box::new(Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device: device.clone(), lanes, usage, prs: prs.clone(), prs_hash, older: None })
     });
-    Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device, lanes, usage, older }
+    Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device, lanes, usage, prs, prs_hash, older }
+}
+
+/// The PRs another device is told of: the open ones, and ones merged or closed in the last day,
+/// as the PRs view lists them, each cut down to a card. Whether one waits on your review is the
+/// board's own rule (`PrItem::waits_on_review`).
+pub fn pr_cards(board: &Board) -> Vec<PrCard> {
+    let since = board.generated_at - 24 * 3600 * 1000;
+    board
+        .prs
+        .iter()
+        .filter(|p| p.state.is_open() || p.merged_at.or(p.closed_at).is_some_and(|t| t >= since))
+        .map(|p| PrCard {
+            key: p.key.clone(),
+            repo: p.repo_slug.clone(),
+            project: p.project.clone(),
+            number: p.number,
+            title: p.title.clone(),
+            url: p.url.clone(),
+            state: p.state,
+            author: p.author.clone(),
+            mine: p.mine,
+            waits: p.waits_on_review(),
+            review_requested: p.review_requested,
+            requested_by: p.requested_by.clone(),
+            requested_at: p.requested_at,
+            snoozed_until: p.snoozed_until,
+            pinned: board.pinned_prs.contains(&p.key),
+            head: p.head.clone(),
+            base: p.base.clone(),
+            checks: p.checks.clone(),
+            merge: p.merge,
+            additions: p.additions,
+            deletions: p.deletions,
+            changed_files: p.changed_files,
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+            merged_at: p.merged_at,
+            closed_at: p.closed_at,
+            sessions: p.sessions.iter().map(|s| s.key.clone()).collect(),
+        })
+        .collect()
 }
 
 /// Whether every device's build reads the harness: the ones there were before a device's hello
@@ -107,19 +154,22 @@ pub struct Outbox {
     lanes: HashMap<String, u64>,
     device: Option<u64>,
     usage: Option<u64>,
+    prs: Option<u64>,
     /// The other device is from before Cursor: it gets the snapshot's `older` side.
     older: bool,
+    /// The other device knows PRs (`proto::PRS`): it gets the PR list.
+    knows_prs: bool,
 }
 
 impl Outbox {
     /// The outbox for a device whose hello said `knows`.
     pub fn for_device(knows: &[String]) -> Outbox {
-        Outbox { older: !knows_every_harness(knows), ..Outbox::default() }
+        Outbox { older: !knows_every_harness(knows), knows_prs: knows.iter().any(|k| k == codealong_peer::proto::PRS), ..Outbox::default() }
     }
 
     /// Starts over, so the next feed carries everything, for the same device.
     pub fn restart(&mut self) {
-        *self = Outbox { older: self.older, ..Outbox::default() };
+        *self = Outbox { older: self.older, knows_prs: self.knows_prs, ..Outbox::default() };
     }
 
     /// Picks up where the other device's copy leaves off (`Msg::Have`): the lanes it has, by the
@@ -149,6 +199,12 @@ impl Outbox {
             msg.usage = Some(snap.usage.clone());
             self.usage = Some(snap.usage_hash);
         }
+        // A new connection, resumed or not, starts with the whole list: its other side's copy
+        // could be any age.
+        if self.knows_prs && self.prs != Some(snap.prs_hash) {
+            msg.prs = Some(snap.prs.clone());
+            self.prs = Some(snap.prs_hash);
+        }
         let mut here: HashSet<&str> = HashSet::new();
         for (lane, h) in snap.lanes.iter().zip(&snap.lane_hashes) {
             here.insert(&lane.id);
@@ -164,7 +220,7 @@ impl Outbox {
         }
         if !full {
             msg.gone = gone;
-            if msg.device.is_none() && msg.usage.is_none() && msg.lanes.is_empty() && msg.gone.is_empty() {
+            if msg.device.is_none() && msg.usage.is_none() && msg.prs.is_none() && msg.lanes.is_empty() && msg.gone.is_empty() {
                 return None;
             }
         }
@@ -238,6 +294,50 @@ mod tests {
         let s = &l.sessions[0];
         assert!(s.pid.is_none() && s.resume_command.is_none() && s.attach_command.is_none() && s.open_target.is_empty() && !s.app_account);
         assert_eq!(s.title, "Title s1");
+    }
+
+    fn pr(n: u64, state: crate::model::PrState, requested: bool, merged_at: Option<i64>) -> crate::model::PrItem {
+        serde_json::from_value(serde_json::json!({
+            "key": format!("o/r#{n}"), "repoSlug": "o/r", "repo": "r", "project": "P", "number": n, "title": format!("PR {n}"),
+            "url": "", "state": state, "author": "ana", "mine": false, "reviewRequested": requested, "head": "h", "base": "main",
+            "checks": { "passed": 1, "failed": 0, "pending": 0, "skipped": 0, "failing": [] }, "merge": "clean",
+            "additions": 3, "deletions": 1, "changedFiles": 2, "createdAt": 0, "updatedAt": 5,
+            "mergedAt": merged_at, "closedAt": null, "lanes": ["/a"], "sessions": [{ "key": "claude:claude:s1", "lane": "/a" }]
+        }))
+        .expect("a PR")
+    }
+
+    #[test]
+    fn the_pr_list_goes_only_to_a_device_that_knows_prs_and_again_only_when_it_changes() {
+        use crate::model::PrState;
+        let now = 100 * 24 * 3600 * 1000;
+        let b = |prs: Vec<crate::model::PrItem>| Board { generated_at: now, prs, pinned_prs: vec!["o/r#1".into()], ..board(vec![lane("/a", vec![])]) };
+        // Open ones, and one merged in the last day; not one merged a week ago.
+        let one = b(vec![pr(1, PrState::Open, true, None), pr(2, PrState::Merged, false, Some(now - 3600 * 1000)), pr(3, PrState::Merged, false, Some(now - 7 * 24 * 3600 * 1000))]);
+        let snap = snapshot(&one, info("Mini"));
+        assert_eq!(snap.prs.iter().map(|p| p.number).collect::<Vec<_>>(), [1, 2]);
+        let first = &snap.prs[0];
+        assert!(first.waits && first.pinned && first.sessions == ["claude:claude:s1"] && first.repo == "o/r");
+
+        let mut older = Outbox::for_device(&["have".into(), "watch".into(), "cursor".into()]);
+        assert!(older.next(&snap).unwrap().prs.is_none(), "a device from before PRs gets none");
+
+        let knows: Vec<String> = codealong_peer::proto::KNOWS.iter().map(|k| k.to_string()).collect();
+        let mut out = Outbox::for_device(&knows);
+        let mut replica = Replica::default();
+        let full = out.next(&snap).unwrap();
+        assert_eq!(full.prs.as_ref().map(Vec::len), Some(2));
+        replica.apply(full);
+        assert!(out.next(&snapshot(&one, info("Mini"))).is_none(), "nothing changed");
+        // The review is answered: the list goes again, whole.
+        let two = b(vec![pr(1, PrState::Approved, false, None), pr(2, PrState::Merged, false, Some(now - 3600 * 1000))]);
+        let delta = out.next(&snapshot(&two, info("Mini"))).unwrap();
+        assert!(delta.lanes.is_empty() && delta.prs.is_some());
+        replica.apply(delta);
+        assert!(!replica.prs[0].waits && replica.prs[0].state == PrState::Approved);
+        // A reconnect starts with the list, whatever the other side kept.
+        out.restart();
+        assert!(out.next(&snapshot(&two, info("Mini"))).unwrap().prs.is_some());
     }
 
     #[test]

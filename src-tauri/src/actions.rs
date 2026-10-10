@@ -191,6 +191,14 @@ const REQUESTS: &[Request] = &[
     // Replies suggested for a session are kept on its Mac too, and only shown: nothing reaches the
     // session until someone picks one, so an agent may suggest them through the command.
     Request { name: api::SESSION_SUGGEST, here: suggest, ..ANY },
+    // A PR is read from GitHub by this device's `gh`, as you: a phone has no GitHub of its own.
+    // Reviewing and merging act as you there, so they need remote control (`api::REQUESTS`).
+    Request { name: api::PR_DETAIL, here: pr_detail, ..ANY },
+    Request { name: api::PR_MERGE_BOX, here: pr_merge_box, ..ANY },
+    Request { name: api::PR_REVIEW, here: pr_review, ..ANY },
+    Request { name: api::PR_MERGE, here: pr_merge, ..ANY },
+    // A review's snooze is kept here, as a session's is.
+    Request { name: api::PR_SNOOZE, here: pr_snooze, ..ANY },
     // A search runs as you type, so a device slow to answer is left out rather than waited for.
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
@@ -1093,6 +1101,53 @@ fn open(engine: &Handle, c: &Call) -> Result<Value, String> {
 fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Snooze = c.read()?;
     Ok(shown_at(c, engine.snooze(p.keys, p.until)))
+}
+
+/// A PR's description, reviews, comments and changed files, as this device's `gh` reads them.
+fn pr_detail(_engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Pr = c.read()?;
+    let detail = crate::github::detail(&p.repo, p.number).map_err(words)?;
+    serde_json::to_value(detail.for_devices()).map_err(words)
+}
+
+/// What a PR's merge box offers you: the engine's own box, in the shape codealong-peer's
+/// `pr::MergeBox` reads.
+fn pr_merge_box(_engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Pr = c.read()?;
+    serde_json::to_value(crate::prmerge::merge_box(&p.repo, p.number).map_err(words)?).map_err(words)
+}
+
+/// Reviews a PR as you, as the PR card's box does (lib.rs `review_pr`).
+fn pr_review(engine: &Handle, c: &Call) -> Result<Value, String> {
+    use codealong_peer::pr::Verdict;
+    let p: params::PrReview = c.read()?;
+    let verdict = match p.verdict {
+        Verdict::Approve => crate::github::Verdict::Approve,
+        Verdict::Comment => crate::github::Verdict::Comment,
+        Verdict::RequestChanges => crate::github::Verdict::RequestChanges,
+    };
+    crate::github::review(&p.repo, p.number, verdict, &p.body).map_err(words)?;
+    Ok(shown_at(c, engine.approved(&p.repo, p.number)))
+}
+
+/// Does what the merge box does, as you (lib.rs `merge_pr`). The op crosses in codealong-peer's
+/// shape, which is the engine's own (`prmerge::Op`), as its tests check.
+fn pr_merge(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::PrMerge = c.read()?;
+    let op: crate::prmerge::Op = serde_json::from_value(serde_json::to_value(&p.op).map_err(words)?).map_err(|e| format!("The merge box's act doesn't read: {e}"))?;
+    let acted = crate::prmerge::act(p.number, &p.id, &op).map_err(words)?;
+    if acted.merged {
+        engine.merged(&p.repo, p.number);
+    } else {
+        engine.pr_changed();
+    }
+    serde_json::to_value(codealong_peer::pr::Merged { note: acted.note, merged: acted.merged }).map_err(words)
+}
+
+/// Snoozes your review of PRs (`keys`, `owner/name#number`) until `until`, or wakes it.
+fn pr_snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Snooze = c.read()?;
+    Ok(shown_at(c, engine.snooze_reviews(p.keys, p.until)))
 }
 
 /// Quiets sessions (`keys`), or makes them heard again with `quiet` false.

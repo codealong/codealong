@@ -404,6 +404,32 @@ impl Client {
         self.ask(device, api::SESSION_QUIET, of(params::Quiet { keys: keys.to_vec(), quiet }), ACT_WAIT).map(|_| ())
     }
 
+    /// A PR's description, reviews, comments and changed files, as `device`'s `gh` reads them
+    /// from GitHub: two GitHub requests there, so it's given as long as an act.
+    pub fn pr_detail(&self, device: &str, repo: &str, number: u64) -> std::result::Result<crate::pr::Detail, String> {
+        read(self.ask(device, api::PR_DETAIL, of(params::Pr { repo: repo.into(), number }), ACT_WAIT)?)
+    }
+
+    /// What a PR's merge box offers you, as `device`'s `gh` reads it.
+    pub fn pr_merge_box(&self, device: &str, repo: &str, number: u64) -> std::result::Result<crate::pr::MergeBox, String> {
+        read(self.ask(device, api::PR_MERGE_BOX, of(params::Pr { repo: repo.into(), number }), ACT_WAIT)?)
+    }
+
+    /// Reviews a PR as you on GitHub, through `device`'s `gh`.
+    pub fn pr_review(&self, device: &str, repo: &str, number: u64, verdict: crate::pr::Verdict, body: &str) -> std::result::Result<(), String> {
+        self.ask(device, api::PR_REVIEW, of(params::PrReview { repo: repo.into(), number, verdict, body: body.into() }), ACT_WAIT).map(|_| ())
+    }
+
+    /// Does what a PR's merge box does, as you on GitHub, through `device`'s `gh`.
+    pub fn pr_merge(&self, device: &str, repo: &str, number: u64, id: &str, op: crate::pr::Op) -> std::result::Result<crate::pr::Merged, String> {
+        read(self.ask(device, api::PR_MERGE, of(params::PrMerge { repo: repo.into(), number, id: id.into(), op }), ACT_WAIT)?)
+    }
+
+    /// Snoozes your review of PRs on `device` (`owner/name#number`) until `until`, or wakes it.
+    pub fn pr_snooze(&self, device: &str, keys: &[String], until: Option<i64>) -> std::result::Result<(), String> {
+        self.ask(device, api::PR_SNOOZE, of(params::Snooze { keys: keys.to_vec(), until }), ACT_WAIT).map(|_| ())
+    }
+
     /// Where each of `device`'s accounts can start a session, and the models it can ask for.
     pub fn start_options(&self, device: &str) -> std::result::Result<api::StartOptions, String> {
         read(self.ask(device, api::START_OPTIONS, json!({}), READ_WAIT)?)

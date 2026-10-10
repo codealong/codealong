@@ -887,6 +887,24 @@ pub struct PrDetail {
     pub more_files: bool,
 }
 
+impl PrDetail {
+    /// The detail as another device reads it (codealong-peer's `pr::Detail`): the description
+    /// as written, in Markdown, which a phone draws itself, in place of GitHub's HTML.
+    pub fn for_devices(self) -> codealong_peer::pr::Detail {
+        use codealong_peer::pr;
+        pr::Detail {
+            body: self.body,
+            mergeable: self.mergeable,
+            commits: self.commits,
+            reviews: self.reviews.into_iter().map(|r| pr::Review { author: r.author, state: r.state, at: r.at }).collect(),
+            requested: self.requested,
+            comments: self.comments.into_iter().map(|c| pr::Comment { id: c.id, author: c.author, body: c.body, at: c.at, url: c.url, path: c.path, resolved: c.resolved, mine: c.mine }).collect(),
+            files: self.files.into_iter().map(|f| pr::File { path: f.path, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }).collect(),
+            more_files: self.more_files,
+        }
+    }
+}
+
 /// A PR's description, reviews and changed files, with their diffs. Two requests, in parallel.
 pub fn detail(slug: &str, number: u64) -> Result<PrDetail> {
     let (owner, name) = slug.split_once('/').ok_or_else(|| anyhow!("bad repo {slug}"))?;

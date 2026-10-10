@@ -1,7 +1,8 @@
 //! What a device tells the devices it's linked with about itself: its name, and its board's
-//! worktrees, sessions and plan usage. A connection starts with everything, then carries only
-//! the worktrees that changed and the ids of the ones that left (the engine's peerfeed.rs cuts
-//! them from each board it publishes).
+//! worktrees, sessions and plan usage, and its PR list for a device that knows PRs. A connection
+//! starts with everything, then carries only the worktrees that changed and the ids of the ones
+//! that left, and the PR list again only when it changed (the engine's peerfeed.rs cuts them from
+//! each board it publishes).
 //!
 //! The receiving device keeps a `Replica` of each linked device's feed. Keys from another device
 //! go around with that device's short id in front (`remote_key`), so an id from there is never
@@ -12,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Lane, Usage};
+use crate::pr::PrCard;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +50,10 @@ pub struct FeedMsg {
     /// receiver keeps them and hands them back when it reconnects (`Msg::Have`).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub hashes: HashMap<String, u64>,
+    /// The sender's PR list, whole, when it changed: only to a device that says it knows PRs
+    /// (`proto::PRS`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prs: Option<Vec<PrCard>>,
 }
 
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
@@ -63,6 +69,9 @@ pub struct Replica {
     /// The sender's hash of each lane, as its feeds said, for resuming (`have`).
     #[serde(default)]
     pub hashes: HashMap<String, u64>,
+    /// Its PR list, as its feeds last said; none from a device that sends none.
+    #[serde(default)]
+    pub prs: Vec<PrCard>,
 }
 
 impl Replica {
@@ -92,6 +101,9 @@ impl Replica {
         }
         if let Some(u) = msg.usage {
             self.usage = u;
+        }
+        if let Some(prs) = msg.prs {
+            self.prs = prs;
         }
         if !msg.gone.is_empty() {
             let gone: HashSet<&String> = msg.gone.iter().collect();
@@ -159,6 +171,49 @@ mod tests {
         // It survives the trip to disk.
         let back: Replica = serde_json::from_value(serde_json::to_value(&replica).unwrap()).unwrap();
         assert_eq!(back.have(), replica.have());
+    }
+
+    #[test]
+    fn the_pr_list_is_replaced_whole_and_kept_when_a_feed_has_none() {
+        let card = |n: u64| crate::pr::PrCard {
+            key: format!("o/r#{n}"),
+            repo: "o/r".into(),
+            project: "P".into(),
+            number: n,
+            title: format!("PR {n}"),
+            url: String::new(),
+            state: crate::model::PrState::Open,
+            author: None,
+            mine: false,
+            waits: n == 1,
+            review_requested: n == 1,
+            requested_by: None,
+            requested_at: None,
+            snoozed_until: None,
+            pinned: false,
+            head: "b".into(),
+            base: None,
+            checks: Default::default(),
+            merge: Default::default(),
+            additions: 0,
+            deletions: 0,
+            changed_files: 0,
+            created_at: 0,
+            updated_at: 0,
+            merged_at: None,
+            closed_at: None,
+            sessions: Vec::new(),
+        };
+        let mut replica = Replica::default();
+        replica.apply(FeedMsg { rev: 1, full: true, prs: Some(vec![card(1), card(2)]), ..Default::default() });
+        replica.apply(FeedMsg { rev: 2, lanes: vec![lane("/a")], ..Default::default() });
+        assert_eq!(replica.prs.iter().map(|p| p.number).collect::<Vec<_>>(), [1, 2]);
+        replica.apply(FeedMsg { rev: 3, prs: Some(vec![card(2)]), ..Default::default() });
+        assert_eq!(replica.prs.iter().map(|p| p.number).collect::<Vec<_>>(), [2]);
+        // A feed from a device that sends none leaves none behind.
+        let old: FeedMsg = serde_json::from_str(r#"{"rev":4,"full":true}"#).unwrap();
+        replica.apply(old);
+        assert!(replica.prs.is_empty());
     }
 
     #[test]

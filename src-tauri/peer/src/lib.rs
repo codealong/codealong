@@ -8,6 +8,8 @@
 //! - `net`: link codes, and reaching a device anywhere through iroh by its key.
 //! - `wire`: a connection, whatever carries it.
 //! - `api`: what devices ask each other for, and what comes back.
+//! - `pr`: pull requests as one device tells another of them: its PR list, a PR's detail and its
+//!   merge box.
 //! - `client`: a device that only watches: it links, keeps feeds and asks, and answers nothing.
 //!
 //! `fixtures` is the tests' own: the sessions, lanes and scratch folders they build on, which the
@@ -20,5 +22,6 @@ pub mod feed;
 pub(crate) mod fixtures;
 pub mod model;
 pub mod net;
+pub mod pr;
 pub mod proto;
 pub mod wire;

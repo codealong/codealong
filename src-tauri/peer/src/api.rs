@@ -72,6 +72,22 @@ pub const SESSION_DONE: &str = "session-done";
 /// never sent by themselves, so another device may suggest them as it may name a session. Macs
 /// before 2026-10-09 refuse it as a request they don't know.
 pub const SESSION_SUGGEST: &str = "session-suggest";
+/// A PR's description, reviews, comments and changed files (`repo`, `number`), as the device's
+/// `gh` reads them from GitHub, answering `pr::Detail`. Macs before 2026-10-10 refuse it as a
+/// request they don't know, as they do the other PR requests.
+pub const PR_DETAIL: &str = "pr-detail";
+/// What a PR's merge box offers you (`repo`, `number`), answering `pr::MergeBox`.
+pub const PR_MERGE_BOX: &str = "pr-merge-box";
+/// Reviews a PR as you on GitHub (`repo`, `number`, `verdict`, `body`): approves it, comments on
+/// it, or asks for changes.
+pub const PR_REVIEW: &str = "pr-review";
+/// Does one thing the merge box does to a PR as you on GitHub (`repo`, `number`, `id`, `op`):
+/// merges it, turns auto-merge on or off, queues it, updates its branch, takes it out of draft or
+/// deletes its branch, answering `pr::Merged`.
+pub const PR_MERGE: &str = "pr-merge";
+/// Snoozes your review of PRs (`keys`, `owner/name#number`) until `until`, or wakes it with none:
+/// out of what waits on you there and everywhere until then. Kept on the device asked.
+pub const PR_SNOOZE: &str = "pr-snooze";
 
 /// What each request carries, as its makers write it (the engine's windows and command, and a
 /// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
@@ -229,6 +245,33 @@ pub mod params {
         pub keys: Vec<String>,
     }
 
+    /// A PR, by its repo (`owner/name`) and number: `pr-detail`, `pr-merge-box`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Pr {
+        pub repo: String,
+        pub number: u64,
+    }
+
+    /// `pr-review`: what the review says, and what it writes (optional for an approval).
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+    pub struct PrReview {
+        pub repo: String,
+        pub number: u64,
+        pub verdict: crate::pr::Verdict,
+        #[serde(default)]
+        pub body: String,
+    }
+
+    /// `pr-merge`: the PR's node id, as its merge box gave it, and what to do.
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+    pub struct PrMerge {
+        pub repo: String,
+        pub number: u64,
+        pub id: String,
+        pub op: crate::pr::Op,
+    }
+
     /// `session-snooze`: until when (ms since the epoch), or awake with none.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -283,12 +326,13 @@ pub enum Reach {
     /// what an agent does.
     Organize,
     /// Only with remote control on at the device asked: it drives an agent (a prompt, an answer,
-    /// a start, a stop). The device asked records each one in its devices.log.
+    /// a start, a stop), or acts as you on GitHub through the device's `gh` (a review, a merge).
+    /// The device asked records each one in its devices.log.
     Control,
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 25] = [
+pub const REQUESTS: [(&str, Reach); 30] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -298,6 +342,8 @@ pub const REQUESTS: [(&str, Reach); 25] = [
     (SEARCH, Reach::Read),
     (START_OPTIONS, Reach::Read),
     (ROUTE, Reach::Read),
+    (PR_DETAIL, Reach::Read),
+    (PR_MERGE_BOX, Reach::Read),
     (MARK_SEEN, Reach::Organize),
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
@@ -306,6 +352,7 @@ pub const REQUESTS: [(&str, Reach); 25] = [
     (SESSION_ARCHIVE, Reach::Organize),
     (SESSION_RENAME, Reach::Organize),
     (SESSION_SUGGEST, Reach::Organize),
+    (PR_SNOOZE, Reach::Organize),
     (SESSION_SEND, Reach::Control),
     (SESSION_ANSWER, Reach::Control),
     (SESSION_CANCEL, Reach::Control),
@@ -314,6 +361,8 @@ pub const REQUESTS: [(&str, Reach); 25] = [
     (SESSION_RESUME, Reach::Control),
     (SESSION_MODEL, Reach::Control),
     (SESSION_DONE, Reach::Control),
+    (PR_REVIEW, Reach::Control),
+    (PR_MERGE, Reach::Control),
 ];
 
 /// Who may make `method` of a device; None for a request this crate doesn't know.
