@@ -59,15 +59,20 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - A window owns only the threads it has loaded, and takes one as it starts loading it, before
   its settings are in: `codex/ipc.rs` (`Ipc::owner`, `codex_start_turn`).
 - The router runs in whichever process started it first: the app, or the Codex extension in VS
-  Code or Cursor, which has the same code (26.908's `out/extension.js`). When that process quits,
-  the app's windows can end up split between several routers of their own until the app is
-  reopened, and Codealong's lookups reach only the last one, so a window that owns a thread never
-  answers (`no-client-found` after ten seconds). Seen 2026-10-10 on 26.930: five listening sockets
-  on `ipc.sock` in the app's process since the router moved at 2026-10-08 19:57Z, while the
-  window's log said it owned the thread. netstat tells them apart: `codex/ipc.rs`
-  (`windows_split`, `routers_at`). The app logs `[IpcRouter] I am the router` for each client that
-  joins a router of its own; the logs are in `~/Library/Logs/com.openai.codex/<date>/`, and
-  `thread_stream_role_changed` in them says which window owns a thread.
+  Code or Cursor, which has the same code (26.908's `out/extension.js`). Each of the app's
+  clients has a router manager of its own, and each that finds no router, as the app starts or
+  when the process running it quits, starts one, removing the socket the one before it made; the
+  path leads only to the last, and a client that joined an earlier one stays with it until the
+  app is reopened. So the app usually has more than one router on `ipc.sock` (two after a fresh
+  start on 26.930, 2026-10-10, every window on the last), and when a window is left on another,
+  Codealong's lookups never reach it (`no-client-found` after ten seconds). Seen 2026-10-10: five
+  listening sockets since the router moved at 2026-10-08 19:57Z, and the window that owned the
+  thread on one of the others. netstat counts the routers, and the app's log says a window took
+  the thread: `codex/ipc.rs` (`routers_split`, `routers_at`, `taken_in_log`). The logs are in
+  `~/Library/Logs/com.openai.codex/<year>/<month>/<day>/`, a file a day for each process, named
+  with its pid; `thread_stream_role_changed … role=owner` is logged as a window takes a thread,
+  and nothing as it lets one go. `[IpcRouter] I am the router` is logged for each client that
+  joins a router in that process, not for each router.
 - Stopping a thread's turn in the app (`thread-follower-interrupt-turn`, `user-stop`):
   `codex/ipc.rs` (`codex_interrupt_request`). With `expectedTurnId` (version 4) it stops the turn
   only while it's still the one running. The window sends `turn/interrupt` and kills the exec

@@ -4,7 +4,7 @@
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
@@ -152,14 +152,44 @@ fn routers_at(netstat: &str, socket: &Path) -> usize {
         .count()
 }
 
-/// Whether the app's windows are split between routers, so that a window may own a thread and
-/// still not be reached. When the router goes away (the process running it quit), each of the
-/// app's windows sets out to start another (26.930's `getOrStartRouterEndpoint`): each one
-/// removes the socket the one before it made and listens on a new one, so the app can end up
-/// with several, each knowing only the windows that reached it, and the socket's path leads only
-/// to the last. It lasts until the app is reopened. Seen 2026-10-10: five, one process.
-fn windows_split(codex_home: &Path) -> bool {
+/// Whether more than one router listens at the app's socket, so that a window may own a thread
+/// and still not be reached. Each of the app's clients has a router manager of its own (26.930's
+/// `getOrStartRouterEndpoint`), and each that finds no router, as the app starts or when the
+/// process running it quits, starts one: it removes the socket the one before it made and listens
+/// on a new one. The path leads only to the last, and a client that joined an earlier one stays
+/// with it until the app is reopened. A second router is usual, then, and most often no window is
+/// left on it (two after a fresh start, 2026-10-10); `taken_in_log` tells a window that is.
+fn routers_split(codex_home: &Path) -> bool {
     procs::run("/usr/sbin/netstat", &["-an", "-f", "unix"], None, Duration::from_secs(3)).is_ok_and(|out| routers_at(&out, &codex_home.join("ipc/ipc.sock")) > 1)
+}
+
+/// Where the Codex app logs: a folder a day (`<year>/<month>/<day>`), and in it a file a day for
+/// each of the app's processes, named with its pid (`codex-desktop-<launch>-<pid>-t0-…`).
+fn app_logs() -> PathBuf {
+    crate::util::home().join("Library/Logs/com.openai.codex")
+}
+
+/// Whether a window of the running Codex app has taken `thread`, by the app's log in `logs`: a
+/// window logs `thread_stream_role_changed conversationId=<thread> … role=owner` as it takes a
+/// thread it loads (26.930), and nothing as it lets one go. Only the running app's files count,
+/// so a thread a window had before the app was reopened doesn't.
+fn taken_in_log(logs: &Path, thread: &str) -> bool {
+    if thread.is_empty() || !thread.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return false;
+    }
+    let Ok(pids) = procs::run("/usr/bin/pgrep", &["-f", r"/(ChatGPT|Codex)\.app/Contents/MacOS/"], None, Duration::from_secs(3)) else {
+        return false;
+    };
+    let files: Vec<String> = pids.split_whitespace().map(|pid| format!("--include=*-{pid}-t*")).collect();
+    if files.is_empty() {
+        return false;
+    }
+    let taken = format!("thread_stream_role_changed conversationId={thread} .* role=owner( |$)");
+    let logs = logs.to_string_lossy();
+    let mut args = vec!["-rqE"];
+    args.extend(files.iter().map(String::as_str));
+    args.extend([taken.as_str(), &*logs]);
+    procs::run("/usr/bin/grep", &args, None, Duration::from_secs(5)).is_ok()
 }
 
 /// The error for a request the router took and may have handed to the window: it may have gone.
@@ -184,13 +214,15 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
     let client = ipc.client_id.clone();
 
     let mut opened = false;
-    // Whether the windows are split, and how long to look for the thread's window, once the
-    // first look found none. Split, the window that has it can't be reached however long
-    // Codealong waits, though one that loads it now may be, so the thread is opened and given
-    // the couple of seconds a window takes to load it.
-    let mut look = None;
+    // Once a look finds no window: whether more than one router listens (asked once), and while
+    // that's so, whether the app's log says a window has taken the thread, before the open or
+    // since. One that has it answers at once if it can be reached, so from then Codealong waits
+    // only the couple of seconds a window takes to load it, in case it had let it go.
+    let mut routers = None;
+    let mut split = false;
+    let mut by = deadline;
     let owner = loop {
-        let wait = (Instant::now() + Duration::from_millis(1500)).min(look.map_or(deadline, |(_, by)| by));
+        let wait = (Instant::now() + Duration::from_millis(1500)).min(by);
         if let Some(owner) = ipc.owner(thread, wait)? {
             if opened {
                 // A window takes a thread as it starts loading it, and a turn that arrives
@@ -200,10 +232,10 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
             }
             break owner;
         }
-        let (split, by) = *look.get_or_insert_with(|| {
-            let split = windows_split(codex_home);
-            (split, if split { (Instant::now() + Duration::from_secs(3)).min(deadline) } else { deadline })
-        });
+        if !split && *routers.get_or_insert_with(|| routers_split(codex_home)) && taken_in_log(&app_logs(), thread) {
+            split = true;
+            by = (Instant::now() + Duration::from_secs(3)).min(deadline);
+        }
         if Instant::now() >= by {
             bail!(if split { SPLIT } else { "No Codex window took this thread." });
         }
@@ -265,7 +297,7 @@ pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) 
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!(not_running(codex_home));
+        bail!(not_running(codex_home, thread));
     };
     let id = crate::start::new_session_id();
     ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, text, &crate::start::new_session_id(), cwd, crate::util::now_ms()))?;
@@ -282,10 +314,10 @@ pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) 
 }
 
 /// Why no window answered for a thread that should be running in the app: a thread that's
-/// running there is loaded in some window, so none claiming it means it isn't, unless the
-/// windows can't reach each other.
-fn not_running(codex_home: &Path) -> &'static str {
-    if windows_split(codex_home) {
+/// running there is loaded in some window, so none claiming it means it isn't, unless the one
+/// that took it can't be reached.
+fn not_running(codex_home: &Path, thread: &str) -> &'static str {
+    if routers_split(codex_home) && taken_in_log(&app_logs(), thread) {
         SPLIT
     } else {
         "No Codex window has this thread open, so it isn't running in the app."
@@ -314,7 +346,7 @@ pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!(not_running(codex_home));
+        bail!(not_running(codex_home, thread));
     };
     let id = crate::start::new_session_id();
     ipc.send(&codex_interrupt_request(&id, &ipc.client_id.clone(), &owner, thread))?;
@@ -575,9 +607,10 @@ mod tests {
         })
     }
 
-    /// Stands in for netstat, listing `routers` listening at `home`'s socket, and for the links
-    /// opened, which it keeps: the Codex app isn't running.
-    fn stand_ins(home: &Path, routers: usize) -> std::rc::Rc<std::cell::RefCell<Vec<String>>> {
+    /// Stands in for netstat, listing `routers` listening at `home`'s socket, for the app's
+    /// process and its log, which says a window took the thread when `taken`, and for the links
+    /// opened, which it keeps: the Codex app isn't running, so they open nothing.
+    fn stand_ins(home: &Path, routers: usize, taken: bool) -> std::rc::Rc<std::cell::RefCell<Vec<String>>> {
         let socket = home.join("ipc/ipc.sock").to_string_lossy().into_owned();
         let opened = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let kept = opened.clone();
@@ -594,6 +627,8 @@ mod tests {
                 kept.borrow_mut().push(args.last().unwrap().to_string());
                 Ok(String::new())
             }
+            "/usr/bin/pgrep" => Ok("4242\n".into()),
+            "/usr/bin/grep" if taken => Ok(String::new()),
             _ => Err(anyhow!("{program} isn't here")),
         })));
         opened
@@ -616,13 +651,14 @@ mod tests {
         assert_eq!(routers_at(out, Path::new("/Users/you/.codex/ipc/ipc.sock")), 0);
     }
 
-    /// The app's windows split between routers: the one with the thread can't be reached, so
-    /// Codealong says so, and why, a few seconds after opening the thread rather than eighteen.
+    /// A window of the app took the thread, by its log, and isn't on the router Codealong
+    /// reaches: Codealong says so, and why, a few seconds after opening the thread rather than
+    /// eighteen.
     #[test]
     fn says_when_the_codex_apps_windows_cant_reach_each_other() {
         let home = scratch("codex-split");
         let router = router(&home, None, json!({}));
-        let opened = stand_ins(&home, 5);
+        let opened = stand_ins(&home, 5, true);
         let began = Instant::now();
         let err = codex_start_turn(&home, "t1", "hello", None).unwrap_err();
         crate::procs::stand_in::set(None);
@@ -631,6 +667,43 @@ mod tests {
         assert!(began.elapsed() < Duration::from_secs(6), "{:?}", began.elapsed());
         assert_eq!(opened.borrow().first().map(String::as_str), Some("codex://threads/t1"));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A router more than the one Codealong reaches is usual, and with no window that took the
+    /// thread on it, a thread no window answers for is one no window has open.
+    #[test]
+    fn a_second_router_alone_isnt_taken_for_a_split() {
+        let home = scratch("codex-routers");
+        let router = router(&home, None, json!({}));
+        stand_ins(&home, 2, false);
+        let err = codex_steer_turn(&home, "t1", "and the docs", "/r/app").unwrap_err();
+        crate::procs::stand_in::set(None);
+        router.join().unwrap();
+        assert_eq!(err.to_string(), "No Codex window has this thread open, so it isn't running in the app.");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The running app's log says which threads its windows took; another process's log, a
+    /// window following a thread, and a thread whose id isn't one don't count.
+    #[test]
+    fn finds_the_threads_the_running_codex_apps_windows_took_in_its_log() {
+        let logs = scratch("codex-logs");
+        let day = logs.join("2026/10/10");
+        std::fs::create_dir_all(&day).unwrap();
+        let line = |thread: &str, role: &str| format!("2026-10-10T15:38:32.172Z info [electron-message-handler] thread_stream_role_changed conversationId={thread} ownerClientId=null previousOwnerClientId=null previousRole=null rendererWebContentsId=1 rendererWindowAppearance=primary rendererWindowFocused=true rendererWindowId=1 rendererWindowVisible=true role={role}\n");
+        std::fs::write(day.join("codex-desktop-0286bd4b-4242-t0-i1-174939-0.log"), line("01a11e06", "owner") + &line("01a1229a", "follower")).unwrap();
+        std::fs::write(day.join("codex-desktop-df0b953d-87025-t0-i1-000002-0.log"), line("01a122b1", "owner")).unwrap();
+        // pgrep names the running app; grep is the real one.
+        crate::procs::stand_in::set(Some(Box::new(|program, args, _, _| match program {
+            "/usr/bin/pgrep" => Ok("4242\n".into()),
+            _ if std::process::Command::new(program).args(args).status()?.success() => Ok(String::new()),
+            _ => Err(anyhow!("not found")),
+        })));
+        let taken = |thread: &str| taken_in_log(&logs, thread);
+        let found = (taken("01a11e06"), taken("01a1229a"), taken("01a122b1"), taken("01a11e06 .*"), taken(""));
+        crate::procs::stand_in::set(None);
+        assert_eq!(found, (true, false, false, false, false));
+        let _ = std::fs::remove_dir_all(&logs);
     }
 
     /// Once the window has the request, a turn the router lost track of may have started: it's
@@ -651,7 +724,7 @@ mod tests {
     fn a_codex_send_that_was_only_filled_in_is_not_sent() {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
         let s = Session { surface: Surface::App, status: Status::Idle, live: true, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Codex, "codex", "abc") };
-        let opened = stand_ins(Path::new("/nonexistent/codex"), 1);
+        let opened = stand_ins(Path::new("/nonexistent/codex"), 1, false);
         let err = InApp.deliver(&Delivery { session: &s, account: &account, text: "hi there", agent: None, bypasses: false, now: false, untyped: None }).map(|_| ()).unwrap_err();
         crate::procs::stand_in::set(None);
         assert_eq!(err.to_string(), "The Codex app isn't running. Nothing was sent to \u{201c}Fix the build\u{201d}: it's waiting in Codex's box for you to send there.");
