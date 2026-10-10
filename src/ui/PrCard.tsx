@@ -12,48 +12,32 @@
 //
 // Any review settles GitHub's request to you, so each of those is how the PR left what waits on
 // you (`can.left`), and the window goes on to the next at once, as it does from a session's
-// message on its way: the review goes to GitHub behind it. With a draft review of yours on the PR
-// (an agent's, prDraft.ts), a verdict submits it, comments and all, what's written going before
-// its text, and the box and the line under it say so; its Review tab shows what's in it. One GitHub refuses comes back round
+// message on its way: the review goes to GitHub behind it. One GitHub refuses comes back round
 // (`can.failed`): the PR is back in what waits on you with what you wrote, and the strip says
 // why. A merge from the merge box under its title (MergeBox.tsx `goesOn`) leaves the same way.
 // What you wrote stays with the PR until it goes, so skipping to the next and coming back loses
-// nothing.
-//
-// The box has two sides, Review and Ask, a switch at its foot, each with a draft of its own. Ask
-// puts questions about the PR to an agent (side.rs `ask_pr`), which reads its description,
-// discussion and whole diff, and the code around them in a checkout of the repo here, and changes
-// nothing: ⏎ asks, and the answers show above the box, in the strip a session's side
-// conversations show in (SideStrip.tsx), kept to read again after it's closed. Neither GitHub nor
-// the PR hears of it. `/side` and a question (or `/btw`) asks from Review too, as in a session's
-// box. The account that answers is beside Ask: Auto's, or the one picked there (review.ts
-// `askAccount`). A verdict's keys work from either side and go with Review's text, so asking
-// never loses a review half written.
+// nothing. The box is the PR panel's too (PrBox.tsx), with the line over it saying where the PR's
+// review stands, which shows its Review tab; a verdict's keys work from either of its sides.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the PR has left, and what it adds (a queue).
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { openUrl, prSideAsk, reviewPr } from '../api';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { openUrl } from '../api';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useLatest } from '../latest';
 import * as menus from '../menus';
 import { errorText, type Report } from '../report';
-import { mayApprove } from '../prStatus';
-import { commentsWord, reviewedWords, saysSomething, useYourReview, verdictWords } from '../prDraft';
-import { askAccount, askAccounts, reviewItems } from '../review';
-import { notAsked, showSides, startingSide, useKept, useSide, useSideView } from '../side';
+import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
-import { useStartAccounts } from '../startAccounts';
-import { asText, readStored, writeStored } from '../stored';
 import type { Lane, Session, Usage, Verdict } from '../types';
 import { cardZoom } from '../zoom';
 import { zoomKey } from './cardHost';
-import { PrDetails } from './PrInspector';
-import { prIsOpen, type PrRowItem } from './PrsView';
-import { BoxText, Button, cx, Icon, Seg } from './primitives';
+import { PrBoxView, usePrBox } from './PrBox';
+import { PrDetails, usePrTab } from './PrInspector';
+import type { PrRowItem } from './PrsView';
+import { Button, cx } from './primitives';
 import { Hotkey, QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue } from './SessionPanel';
-import { prSides, SideStrip } from './SideStrip';
 
 /** What a window does for a PR's actions, less what the card knows for every window. */
 export interface PrWindowCan {
@@ -94,145 +78,21 @@ interface PrCardProps {
   zoom?: number;
 }
 
-/** What's written for each PR, kept while the card goes from one to the next and back: the review,
- *  and the question being written on Ask. */
-const drafts = new Map<string, string>();
-const askDrafts = new Map<string, string>();
-
-/** Which side each PR's box is on, kept the same way. */
-type BoxSide = 'review' | 'ask';
-const boxSides = new Map<string, BoxSide>();
-
-/** The account picked to answer questions about PRs, in every window; none for Auto's. */
-const ASK_ACCOUNT = 'codealong.prask.account';
-
-/** `/side` or `/btw` at the start of what's written, and the question after it. */
-const SIDE_COMMAND = /^\/(?:side|btw)(?:\s+([\s\S]*))?$/;
-
 /** How the window says the PR left with each verdict. */
 const LEFT: Record<Verdict, menus.Left> = { approve: 'approved', comment: 'commented on', 'request-changes': 'changes requested' };
 
 export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom }: PrCardProps) {
   const { pr } = item;
   const { report } = can;
-  const [side, setSide] = useState<BoxSide>(() => boxSides.get(pr.key) ?? 'review');
-  const asking = side === 'ask';
-  const [reviewText, setReviewText] = useState(() => drafts.get(pr.key) ?? '');
-  const [askText, setAskText] = useState(() => askDrafts.get(pr.key) ?? '');
-  const text = asking ? askText : reviewText;
-  const setText = asking ? setAskText : setReviewText;
-  // A review was sent from here: the card is on its way out, and a second ⌘⏎ sends nothing.
-  const sent = useRef(false);
-  const [note, setNote] = useState<Notice | null>(null);
-  const box = useRef<HTMLTextAreaElement>(null);
-  const accounts = useStartAccounts();
+  const box = usePrBox(pr, { report, usage, now, autoFocus, onSent: (verdict) => can.left?.(LEFT[verdict]), onFailed: can.failed });
+  const { reviewable, stillOpen, review } = box;
+  const tabs = usePrTab(pr);
   const onDesktop = menus.useDesktopPins();
-  // Any open PR but your own takes a review, asked for or not; anything open takes a comment.
-  const reviewable = mayApprove(pr);
-  const stillOpen = prIsOpen(pr);
-  // Your draft review on GitHub, which a verdict submits.
-  const draft = useYourReview(pr, stillOpen)?.review?.draft ?? null;
-
-  useEffect(() => {
-    drafts.set(pr.key, reviewText);
-  }, [pr.key, reviewText]);
-  useEffect(() => {
-    askDrafts.set(pr.key, askText);
-  }, [pr.key, askText]);
-  useEffect(() => {
-    boxSides.set(pr.key, side);
-  }, [pr.key, side]);
-  useEffect(() => {
-    if (autoFocus) box.current?.focus();
-  }, [autoFocus, pr.key]);
-
-  // Ask's conversation, and the account that answers: the open conversation's, else the one
-  // picked, else Auto's.
-  const conversation = useSide(pr.key);
-  const shown = useSideView(pr.key);
-  const kept = useKept(pr.key);
-  const [chosen, setChosen] = useState<string | null>(() => readStored(ASK_ACCOUNT, asText, null));
-  const answerer = conversation && !conversation.ended ? (conversation.account ?? null) : askAccount(accounts, usage, now, chosen);
-  const [starting, setStarting] = useState(false);
-
-  const switchTo = (to: BoxSide) => {
-    setSide(to);
-    setNote(null);
-    box.current?.focus();
-  };
 
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
-  /** Sends a review with what's in the box. The PR has left what waits on you at once; the
-   *  review goes behind it, and one that doesn't go brings the PR back with what was written. */
-  const review = (verdict: Verdict) => {
-    if (sent.current) return;
-    const body = reviewText.trim();
-    if (!saysSomething(verdict, body, draft)) {
-      setSide('review');
-      setNote({ text: verdict === 'comment' ? 'Write the comment first.' : 'Say what to change first.', error: true });
-      box.current?.focus();
-      return;
-    }
-    sent.current = true;
-    setNote(null);
-    drafts.delete(pr.key);
-    can.left?.(LEFT[verdict]);
-    reviewPr(pr.repoSlug, pr.number, verdict, body).then(
-      (done) => report.info(reviewedWords(verdict, pr.number, done)),
-      (e: unknown) => {
-        drafts.set(pr.key, reviewText);
-        const why = `Didn’t ${verdict === 'approve' ? 'approve' : verdict === 'comment' ? 'comment on' : 'request changes on'} #${pr.number}: ${errorText(e)}`;
-        if (can.failed) can.failed(why);
-        else report.error(why);
-      },
-    );
-  };
-
-  /** Asks the PR's conversation `question` (on Ask, or `/side` from Review), making one on the
-   *  account that answers when there's none. The box clears at once and the question shows above
-   *  it as the engine has it; one that can't be asked is back in Ask's box, with why. No question
-   *  shows the ones kept from before. */
-  const ask = (question: string) => {
-    if (starting) return;
-    setSide('ask');
-    setNote(null);
-    if (!question) {
-      showSides(pr.key, { kind: 'list' });
-      return;
-    }
-    if (!answerer) {
-      setAskText(question);
-      setNote({ text: 'No account here can answer questions about a PR: a Claude Code or Codex one can.', error: true });
-      return;
-    }
-    setAskText('');
-    startingSide(pr.key);
-    setStarting(true);
-    prSideAsk(pr.key, answerer, question)
-      .catch((e: unknown) => {
-        setAskText((now_) => [question, now_].filter((t) => t.trim()).join('\n\n'));
-        notAsked(pr.key);
-        setNote({ text: errorText(e), error: true });
-      })
-      .finally(() => setStarting(false));
-  };
-
-  /** Picks the account that answers, from beside Ask: Auto, or one of those that can. */
-  const pickAnswerer = (el: Element) => {
-    const can = askAccounts(accounts);
-    const auto = askAccount(accounts, usage, now, null);
-    const pick = (name: string | null) => {
-      setChosen(name);
-      writeStored(ASK_ACCOUNT, asText, name ?? '');
-      box.current?.focus();
-    };
-    const items: MenuSpec = [{ label: auto ? `Auto (${auto})` : 'Auto', checked: !chosen || !can.some((a) => a.name === chosen), run: () => pick(null) }, 'separator', ...can.map((a) => ({ label: a.name, checked: a.name === chosen, run: () => pick(a.name) }))];
-    show(items, below(el));
-  };
-
-  const reviewWith = reviewItems(pr, lanes, accounts, usage, report, () => can.left?.('review started'), now);
+  const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => can.left?.('review started'), now);
   const actions: menus.PrActions = {
     approve: reviewable ? { label: `Approve #${pr.number}`, run: () => review('approve') } : undefined,
     comment: stillOpen ? { label: 'Comment', run: () => review('comment') } : undefined,
@@ -304,13 +164,6 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
     </>
   );
 
-  const withDraft = draft ? ` with your draft review${draft.count > 0 ? ` and its ${commentsWord(draft.count)}` : ''}` : '';
-  const verdicts = reviewable ? `${sign('approve')} approves${withDraft} and goes on · ${sign('comment')} comments` : stillOpen ? `${notReviewable}; ${sign('comment')} comments${withDraft}` : 'It’s closed; a comment still goes to the PR';
-  const answering = conversation?.running && !asking ? `${conversation.account ?? 'Ask'} is answering on Ask · ` : '';
-  const said = note?.text ?? (starting ? 'Reading the PR…' : asking ? [`⏎ asks${answerer ? ` ${answerer}` : ''}`, reviewable && `${sign('approve')} approves and goes on`].filter(Boolean).join(' · ') : answering + verdicts);
-  // Ask's earlier questions, while nothing about them shows above the box.
-  const earlier = kept.filter((k) => k.id !== conversation?.id);
-  const sideShown = !!conversation || (!!shown && shown.kind !== 'starting') || starting;
   return (
     <div
       className={cx('ca-reply', 'ca-prreview')}
@@ -326,96 +179,9 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
         <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, review with, pin, copy and more" onClick={(e) => menu(below(e.currentTarget))} />
       </div>
       <div className="ca-prreview-body ca-prinsp">
-        <PrDetails item={item} now={now} keys goesOn={goesOn} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
+        <PrDetails item={item} now={now} keys goesOn={goesOn} tabs={tabs} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
       </div>
-      {asking && <SideStrip key={`side:${pr.key}`} sideKey={pr.key} words={prSides(pr, answerer)} />}
-      <div className={cx('ca-composer', 'ca-prreview-box', asking && 'is-aside')}>
-        <div
-          className="ca-composer-field"
-          onMouseDown={(e) => {
-            if ((e.target as Element).closest('button, textarea')) return;
-            e.preventDefault();
-            box.current?.focus();
-          }}
-        >
-          <BoxText
-            ref={box}
-            value={text}
-            lines={6}
-            hint={asking ? `Ask about #${pr.number}: ${answerer ?? 'an agent'} reads it and its code to answer` : draft ? 'Your words, before your draft review’s text (optional)' : reviewable ? 'Your review, if it says anything' : `Comment on #${pr.number}`}
-            onChange={(e) => {
-              setText(e.target.value);
-              if (note?.error) setNote(null);
-            }}
-            onKeyDown={(e) => {
-              // ⏎ asks on Ask, and runs `/side` on Review; ⇧⏎ is a new line, and ⌘⏎ and ⌥⌘⏎
-              // are the card's.
-              if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.nativeEvent.isComposing) return;
-              const typed = e.currentTarget.value.trim();
-              const command = asking ? null : SIDE_COMMAND.exec(typed);
-              if (!asking && !command) return;
-              e.preventDefault();
-              if (command) {
-                setReviewText('');
-                ask((command[1] ?? '').trim());
-              } else if (typed) ask(typed);
-            }}
-            aria-label={asking ? `Question about #${pr.number}` : `Review of #${pr.number}`}
-          />
-          <div className="ca-composer-tools ca-prreview-sides">
-            <Seg
-              label="What the box is for"
-              options={[
-                { id: 'review', label: 'Review', title: 'Write the review that goes to GitHub' },
-                { id: 'ask', label: 'Ask', title: 'Ask an agent about the PR. It reads the PR and its code, changes nothing, and GitHub never sees it.' },
-              ]}
-              value={side}
-              onPick={switchTo}
-            />
-            {asking && !sideShown && earlier.length > 0 && (
-              <button type="button" className="ca-linkbtn" title="The questions asked about this PR before, kept by Codealong" onClick={() => showSides(pr.key, { kind: 'list' })}>
-                {earlier.length === 1 ? '1 earlier' : `${earlier.length} earlier`}
-              </button>
-            )}
-          </div>
-          {asking ? (
-            <div className="ca-composer-buttons ca-prreview-buttons">
-              {conversation && !conversation.ended ? (
-                <span className="ca-prreview-who" title="The open conversation’s agent answers. Close it above to ask another account.">
-                  {conversation.account}
-                </span>
-              ) : (
-                <button type="button" className="ca-modelmenu-chip" title="Which account answers: Auto’s, or the one you pick" aria-haspopup="menu" disabled={askAccounts(accounts).length === 0} onClick={(e) => pickAnswerer(e.currentTarget)}>
-                  <span>{answerer ?? 'No account'}</span>
-                  <Icon name="chevron-down" size={12} />
-                </button>
-              )}
-              <button type="button" className="ca-composer-send" aria-label="Ask" title="Ask (⏎)" disabled={!askText.trim() || starting} onClick={() => ask(askText.trim())}>
-                <Icon name="help" size={16} stroke={2} />
-              </button>
-            </div>
-          ) : (
-            <div className="ca-composer-buttons ca-prreview-buttons">
-              {actions.changes && (
-                <Button size="sm" disabled={!saysSomething('request-changes', reviewText, draft)} title={verdictWords('request-changes', draft) ?? 'Ask for changes, with what’s written'} onClick={() => actions.changes?.run()}>
-                  Request changes
-                </Button>
-              )}
-              <Button size="sm" disabled={!saysSomething('comment', reviewText, draft)} title={`${verdictWords('comment', draft) ?? (actions.comment ? 'Comment with what’s written' : 'Comment on the PR')} (${sign('comment')})`} onClick={() => review('comment')}>
-                Comment
-              </Button>
-              {actions.approve && (
-                <Button variant="primary" size="sm" icon="check" title={`${verdictWords('approve', draft) ?? 'Approve'} (${sign('approve')})`} onClick={() => actions.approve?.run()}>
-                  Approve
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-        <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
-          {said}
-        </span>
-      </div>
+      <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} goesOn={!!can.left} onShowReview={() => tabs.show('review')} />
     </div>
   );
 }

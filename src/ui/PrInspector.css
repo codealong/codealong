@@ -1,6 +1,23 @@
 /* The PR panel (PrInspector.tsx): status, reviews, comments, and the description as GitHub
    renders it (.ca-prbody). Its files are PrFiles.css's, its review AgentReview.css's. */
 
+/* The panel: its details scroll over the box fixed at its foot (PrBox.tsx), as a PR's card's do
+   (PrCard.css). */
+.ca-insp.ca-prpanel {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.ca-prpanel-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow: auto;
+}
+
 /* Its tabs stay at the top of what scrolls, over what's under them, where the files' filter sticks
    under them (PrFiles.css). A tab picked there shows from its start, under them. What's stuck is
    held below the scroller's padding (`--prtabs-inset`, the panel's or a card's), so the bar

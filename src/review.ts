@@ -6,10 +6,10 @@
 import { reviewInCodex, startSession } from './api';
 import type { MenuAction } from './contextMenu';
 import { FRESH_SIDES } from './harness';
-import { submittedWord } from './prDraft';
+import { commentsWord, submittedWord } from './prDraft';
 import { errorText, type Report } from './report';
 import { AUTO, autoPick, initialPlace, remembered, type Choice } from './start';
-import type { AutoReview, Lane, PrItem, StartAccount, StartPlace, StartSpec, Started, Usage } from './types';
+import type { AutoReview, Draft, Lane, PrItem, StartAccount, StartPlace, StartSpec, Started, Usage, Verdict } from './types';
 
 /** One entry of the Review with menu. */
 export type ReviewPick =
@@ -140,5 +140,24 @@ export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; subm
   const next = r.behind ? (r.stage === 'reviewing' ? 'New commits since: it reviews them once this one’s done.' : 'New commits since: it reviews them again once they settle.') : null;
   const held = r.holds ? 'It waits on your review once the agent’s is done.' : null;
   const note = [why, next, held].filter((x): x is string => !!x).join(' ');
+  if (r.approved) return { icon: 'check', says: `Agent approved ${at} for you`, note: note || null };
   return { icon: r.own && r.sent && r.stage === 'kept' ? 'send' : icon, says, note: note || null };
+}
+
+/** What the agent would do with a PR, as its windows suggest it. */
+export function suggestWords(v: Verdict): string {
+  return { approve: 'Suggests approving', 'request-changes': 'Suggests changes', comment: 'Suggests a comment' }[v];
+}
+
+/** The line over a PR's box (PrBox.tsx): where its review stands, an agent's round and your
+ *  draft review on GitHub together, else that there's none yet; `busy` while an agent reviews. */
+export function reviewLineWords(pr: Pick<PrItem, 'autoReview' | 'mine'>, draft: Draft | null): { icon: string; says: string; busy: boolean } {
+  const r = pr.autoReview;
+  const yours = draft ? `your draft review${draft.count > 0 ? `, ${commentsWord(draft.count)}` : ''}` : null;
+  if (r) {
+    const { icon, says } = autoReviewWords(r, draft ? { draft: true, submitted: null } : undefined);
+    return { icon, says: yours && r.stage === 'drafted' ? `${says}: ${yours}` : says, busy: r.stage === 'reviewing' };
+  }
+  if (yours) return { icon: 'note', says: yours[0].toUpperCase() + yours.slice(1), busy: false };
+  return { icon: 'eye', says: pr.mine ? 'No agent review of your PR' : 'No review of yours yet', busy: false };
 }

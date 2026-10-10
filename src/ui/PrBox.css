@@ -1,0 +1,67 @@
+/* A PR's box (PrBox.tsx), at the foot of its panel and its cards: the line over it saying where
+   the PR's review stands, which shows its Review tab, and the agent's suggestion there and in the
+   Review tab. The box itself is a reply box (SessionReply.css), its buttons PrCard.css's. */
+
+.ca-prbox-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-prbox-line:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-prbox-line > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-prbox-line.is-busy > .ca-icon {
+  color: var(--logo-working);
+}
+.ca-prbox-line-says {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-prbox-line-go {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  color: var(--ink-3);
+  font: var(--type-meta-strong);
+}
+.ca-prbox-line:hover .ca-prbox-line-go {
+  color: var(--ink);
+}
+
+/* What the agent would do with the PR, as a quiet tag in its verdict's color. */
+.ca-prbox-suggests {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+  font: var(--type-meta-strong);
+  white-space: nowrap;
+}
+.ca-prbox-suggests.is-approve {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-prbox-suggests.is-request-changes {
+  background: var(--attn-tint);
+  color: var(--attn);
+}

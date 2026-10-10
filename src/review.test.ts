@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewPicks, reviewPrompt } from './review';
+import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewPrompt, suggestWords } from './review';
 import * as fx from './testing/fixtures';
 import type { AutoReview, Lane, StartAccount } from './types';
 
@@ -18,6 +18,18 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('kept', { own: true, note: 'It found nothing to raise, so it isn’t sent.' }))).toEqual({ icon: 'check', says: 'Agent reviewed 309811a', note: 'It found nothing to raise, so it isn’t sent.' });
     // Not "posting is off": it never posts.
     expect(autoReviewWords(r('kept', { own: true })).note).toBe(null);
+  });
+  it('says the agent approved it for you, when it did', () => {
+    expect(autoReviewWords(r('drafted', { approved: 5, suggests: 'approve' }))).toEqual({ icon: 'check', says: 'Agent approved 309811a for you', note: 'Only you see it until you submit it.' });
+    expect(suggestWords('request-changes')).toBe('Suggests changes');
+  });
+  it('says over the box where the review stands, with your draft', () => {
+    const draft = { id: 'R', body: 'x', commit: null, url: null, comments: [], count: 3 };
+    expect(reviewLineWords({ autoReview: r('drafted'), mine: false }, draft)).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a: your draft review, 3 comments', busy: false });
+    expect(reviewLineWords({ autoReview: r('reviewing'), mine: false }, null)).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', busy: true });
+    expect(reviewLineWords({ autoReview: undefined, mine: false }, draft).says).toBe('Your draft review, 3 comments');
+    expect(reviewLineWords({ autoReview: undefined, mine: false }, null).says).toBe('No review of yours yet');
+    expect(reviewLineWords({ autoReview: undefined, mine: true }, null).says).toBe('No agent review of your PR');
   });
   it('says a draft that is no longer one on GitHub was submitted, or thrown away', () => {
     expect(autoReviewWords(r('drafted'), { draft: true, submitted: null }).note).toBe(null);

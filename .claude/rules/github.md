@@ -60,8 +60,10 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `on_merged`, `merged_here`), against an answer asked for before the merge too; the search for
   PRs that wait on your review lists only open ones, so one it found stays in it, merged, until
   GitHub is asked again.
-- Automatic reviews (autoreview.rs) never submit a review: any review you submit, a comment one
-  too, takes you off the PR's requested reviewers, and the review is still yours to give. By
+- Automatic reviews (autoreview.rs) never submit a review unless `[reviews] auto_approve` says to
+  approve one whose agent would (`Job::Approve`, through `github.rs` `review`, which submits your
+  draft with it; not run for real): any review you submit, a comment one too, takes you off the
+  PR's requested reviewers, and the review is otherwise still yours to give. By
   default they go into a pending review on your account (`github.rs` `draft_review`,
   `add_to_draft`, `pending_review`): GraphQL `addPullRequestReview` with no `event` leaves it
   `PENDING`, which only its author sees, its `threads` each a `path`, a `line` in the file's new

@@ -273,6 +273,10 @@ pub struct ReviewsCfg {
     /// Where each review goes once it's done.
     #[serde(default)]
     pub post: ReviewPost,
+    /// Approve a PR as you once its review is posted, when its agent would approve it (nothing
+    /// that needs fixing before it merges), submitting your draft review with it.
+    #[serde(default)]
+    pub auto_approve: bool,
     /// `reviewers = [{ account, model }]`, from the day several could review (2026-10-09): the
     /// first becomes `account` and `model` where those aren't set (`from_text`). Read and never
     /// written; `combine` from then is dropped as unknown.
@@ -285,7 +289,7 @@ pub struct ReviewsCfg {
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, reviewers: Vec::new(), own: OwnReviewsCfg::default() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() }
     }
 }
 
@@ -794,7 +798,8 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 # model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
 # Codealong's own. post: where each review goes: \"draft\", a draft review on your GitHub account with its
 # comments on their lines, for you to finish; \"comment\", a comment on the PR from your account; \"none\",
-# it stays in the review's session.
+# it stays in the review's session. auto_approve: approve the PR as you once its review is posted, when the
+# agent would approve it (nothing that needs fixing before it merges), your draft review submitted with it.
 ";
 const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
 # commits come in. account and model: what it runs on; \"\" for the account Auto would start among those of another
@@ -1165,6 +1170,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["reviews"]["model"], Value::from(cfg.reviews.model.trim()));
         set_value(&mut doc["reviews"]["prompt"], Value::from(cfg.reviews.prompt.trim()));
         set_value(&mut doc["reviews"]["post"], Value::from(cfg.reviews.post.as_str()));
+        set_value(&mut doc["reviews"]["auto_approve"], Value::from(cfg.reviews.auto_approve));
         // What said who reviewed and where it went for a day (2026-10-09): `comment`, then
         // `reviewers` (folded into `account` and `model` as it's read) and `combine`.
         if let Some(t) = doc.get_mut("reviews").and_then(Item::as_table_like_mut) {
@@ -1393,6 +1399,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("model = {}\n", q(cfg.reviews.model.trim())));
         s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(cfg.reviews.prompt.trim())));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
+        s.push_str(&format!("auto_approve = {}\n", cfg.reviews.auto_approve));
         let own = &cfg.reviews.own;
         if *own != OwnReviewsCfg::default() {
             s.push('\n');
@@ -1488,7 +1495,7 @@ mod tests {
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, reviewers: Vec::new(), own: OwnReviewsCfg::default() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() },
             pull_requests: PullRequestsCfg { nudge_by_default: true },
             debug: DebugCfg::default(),
         };
@@ -1866,7 +1873,7 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, reviewers: Vec::new(), own: OwnReviewsCfg::default() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");

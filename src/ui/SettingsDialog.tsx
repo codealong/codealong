@@ -302,11 +302,11 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
 
 /** `[reviews]` when config.toml has none (config.rs `ReviewsCfg`). */
 const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true };
-const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft', own: OWN_REVIEWS_OFF };
+const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft', auto_approve: false, own: OWN_REVIEWS_OFF };
 
 /** Where each review goes (config.rs `ReviewPost`), as the select offers it. */
 const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
-  { id: 'draft', name: 'A draft review for you to finish', says: 'A review on your GitHub account with its comments on the lines they’re about, left as a draft that only you see. You finish it on GitHub, approving or asking for changes, and your review is still asked for until you do.' },
+  { id: 'draft', name: 'A draft review for you to finish', says: 'A review on your GitHub account with its comments on the lines they’re about, left as a draft that only you see. You finish it from the pull request’s box in Codealong or on GitHub, approving or asking for changes, and your review is still asked for until you do.' },
   { id: 'comment', name: 'A comment on the pull request', says: 'A comment from your GitHub account that says an agent wrote it and which commit it read, each line comment under a link to its line. A comment leaves your review still asked for.' },
   { id: 'none', name: 'Nowhere: it stays in its session', says: 'Each review is in its session for you to read; nothing goes on GitHub.' },
 ];
@@ -376,6 +376,14 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
             <span>Where each review goes</span>
             <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />
             <small>{post.says}</small>
+          </label>
+          <label className="ca-field ca-settings-check">
+            <input type="checkbox" checked={reviews.auto_approve} onChange={(e) => set({ auto_approve: e.target.checked })} />
+            <span>Approve for you when the agent finds nothing that needs fixing</span>
+            <small>
+              Each review ends on what the agent would do: approve, ask for changes, or comment, which the pull request’s box suggests. With this on, a pull request whose agent would approve it (minor points at most) is approved as you once its review is posted, your draft review submitted
+              with it, comments and all, and it leaves what waits on you. Not when your draft holds words of yours, and never a merge.
+            </small>
           </label>
         </>
       )}

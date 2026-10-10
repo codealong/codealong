@@ -10,8 +10,10 @@
 // it from the PR's diff (pr_detail, stubbed) with its own marked, its place opening that line on
 // GitHub at the draft's commit; an outdated one says so and has no lines. A comment is changed
 // (edit_draft_comment) and shows what it says now; Remove asks for a second click, then takes it
-// out (drop_draft_comment), and the counts drop; the text is changed (edit_draft). The box under
-// it submits it: Approve with your words sends review_pr, the toast says the draft went with its
+// out (drop_draft_comment), and the counts drop; the text is changed (edit_draft). The box fixed
+// at the panel's foot (PrBox.tsx) has the line over it saying where the review stands and what
+// the agent suggests (asking for changes, its button marked so), which shows the Review tab from
+// another; Approve there with your words sends review_pr, the toast says the draft went with its
 // comment, and once GitHub has no draft but your approval of the agent's review, the tab says you
 // submitted it and shows what the agent wrote (pr_agent_reviews, stubbed), the review of an
 // earlier commit a click away, saying whose and when. The file count goes to Changes. The next
@@ -136,7 +138,7 @@
         draftedNumber = pr.number;
         WRITTEN[0].session = session;
         Object.assign(pr, { state: 'open', mine: false, author: 'ana', reviewRequested: true, snoozedUntil: null, headOid: '2222222bbbbcccc' });
-        pr.autoReview = { stage: 'drafted', head: '309811aaaabbbb', parts: session ? [{ who: 'auto', session: session, state: 'done' }] : [], at: now - 5 * 60000, comment: LINK, rounds: 2, behind: true };
+        pr.autoReview = { stage: 'drafted', head: '309811aaaabbbb', parts: session ? [{ who: 'auto', session: session, state: 'done' }] : [], at: now - 5 * 60000, comment: LINK, rounds: 2, behind: true, suggests: 'request-changes' };
         posted = '#' + pr.number;
         prUrl = pr.url;
       }
@@ -204,7 +206,7 @@
         note('no PR lists a session, so Session isn’t checked');
       }
       var draft = q('.ca-agentrev-draft');
-      check('your draft says its comments, and that only you see it', q('.ca-agentrev-drafttitle', draft).textContent === 'Your draft review · 2 comments' && /^Only you see it\. A verdict below submits it/.test(q('.ca-agentrev-draftnote', draft).textContent), q('.ca-agentrev-drafthead', draft).textContent);
+      check('your draft says its comments, and that only you see it', q('.ca-agentrev-drafttitle', draft).textContent === 'Your draft review · 2 comments' && /^Only you see it\. Approve, Comment or Request changes in the box below submits it/.test(q('.ca-agentrev-draftnote', draft).textContent), q('.ca-agentrev-drafthead', draft).textContent);
       var text = q('.ca-agentrev-drafttext .ca-agentrev-text', draft);
       check('its text, as Markdown, the line saying an agent wrote it in italics', !!q('strong', text) && /drafted by Codealong\.$/.test((q('em', text) || {}).textContent || '') && !/<sub>/.test(text.textContent), text.innerHTML.slice(0, 160));
       await until(function () { return all('.ca-agentrev-comment').length === 2; }, 5000, 'the draft’s comments never showed');
@@ -246,9 +248,18 @@
       press(button('Save', q('.ca-agentrev-draft .ca-agentrev-edit')));
       await until(function () { return calls('edit_draft').length === 1; }, 3000, 'Save sent no text');
       check('Save gives the draft its text on GitHub', calls('edit_draft')[0][1].text === 'Hold it for the first one.' && calls('edit_draft')[0][1].number === draftedNumber, JSON.stringify(calls('edit_draft')[0][1]));
-      // Submitted from the box under it.
-      var verdict = q('.ca-prinsp .ca-prverdict');
-      check('a box under it gives your verdict, which submits the draft', !!verdict && /submitting your draft review and its 1 comment/.test(button('Approve', verdict).title), verdict ? button('Approve', verdict).title : 'no box');
+      // Submitted from the box at the panel's foot.
+      var verdict = q('.ca-prpanel > .ca-prreview-box');
+      check('the panel has the box at its foot, out of what scrolls', !!verdict && !verdict.closest('.ca-prpanel-body') && !!q('.ca-prpanel-body .ca-prinsp-title, .ca-prpanel-body .ca-insp-call'), '');
+      var line = q('.ca-prbox-line', verdict);
+      check('over it, where the review stands, with your draft and what the agent suggests', !!line && /^Agent drafted a review of 309811a: your draft review, 1 comment/.test(q('.ca-prbox-line-says', line).textContent) && (q('.ca-prbox-suggests', line) || {}).textContent === 'Suggests changes', line ? line.textContent : 'no line');
+      check('the button the agent suggests says so', /^The agent suggests this\./.test(button('Request changes', verdict).title) && !/suggests/.test(button('Approve', verdict).title), button('Request changes', verdict).title);
+      check('and a verdict submits the draft', /submitting your draft review and its 1 comment/.test(button('Approve', verdict).title), button('Approve', verdict).title);
+      press(tab('Description'));
+      await until(function () { return shownTab() === 'Description'; }, 2000, 'Description never showed');
+      press(line);
+      await until(function () { return shownTab() === 'Review'; }, 2000, 'the line didn’t show the Review tab');
+      check('a click on the line shows the Review tab', shownTab() === 'Review', shownTab());
       type(q('textarea', verdict), 'LGTM once that’s fixed.');
       press(button('Approve', verdict));
       await until(function () { return calls('review_pr').length === 1; }, 3000, 'Approve sent nothing');

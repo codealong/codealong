@@ -178,10 +178,9 @@
   color: var(--alert);
 }
 
-/* A box where the text or a comment is changed, and the panel's box for a verdict under the
-   review: a reply box, without the rule and ground it has at a panel's foot. */
-.ca-composer.ca-agentrev-edit,
-.ca-composer.ca-prverdict {
+/* A box where the text or a comment is changed: a reply box, without the rule and ground it has
+   at a panel's foot. */
+.ca-composer.ca-agentrev-edit {
   padding: 0;
   border-top: 0;
   background: transparent;

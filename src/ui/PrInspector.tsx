@@ -5,11 +5,12 @@
 // and ⌘F go to) and Review (your review: the agent's, your draft on GitHub, AgentReview.tsx). The
 // tabs stay at the top as what's under them scrolls. A PR opens on the tab it showed last, else on
 // its review when the agent's is there to read and the PR waits on yours (agentReview.ts
-// `openingTab`), else its description. Under the header is a row of buttons: the panel's
-// (Approve, Snooze, GitHub, Review with) with the merge box's (MergeBox.tsx) after Approve, so
-// merging is where approving is. `PrDetails` is that body on its own, which the panel wraps with
-// its buttons and a box for a verdict under its review, and a PR's card (PrCard.tsx) with the
-// strip that works through what waits on you and the box that reviews it.
+// `openingTab`), else its description; a window keeps which (`usePrTab`), so the line over its box
+// can show the Review tab. Under the header is a row of buttons: the panel's (Approve, Snooze,
+// GitHub, Review with) with the merge box's (MergeBox.tsx) after Approve, so merging is where
+// approving is. `PrDetails` is that body on its own, which the panel and a PR's card (PrCard.tsx)
+// each scroll over the box that reviews it (PrBox.tsx), fixed at their foot; the card adds the
+// strip that works through what waits on you.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
@@ -20,8 +21,10 @@ import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
 import { useYourReview, verdictWords } from '../prDraft';
-import type { Lane, PrComment, PrDetail, Reviewed, Session, Verdict } from '../types';
+import type { Report } from '../report';
+import type { Lane, PrComment, PrDetail, PrItem, Session, Usage } from '../types';
 import { PrReview } from './AgentReview';
+import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { PanelPlace, PR_PRIMARY } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
@@ -44,6 +47,27 @@ const askCache = new Map<string, Record<string, number>>();
 
 /** The tab each PR showed last, kept while the window goes from one PR to the next. */
 const tabsShown = new Map<string, PrTab>();
+
+/** Which of a PR's tabs shows, for its details and what's beside them: the one picked for it,
+ *  else the one it showed last, else where it opens. `show` brings a tab into view from outside
+ *  the tab bar (the line over the box), `shown` counting those. */
+export interface PrTabs {
+  tab: PrTab;
+  pick: (to: PrTab) => void;
+  show: (to: PrTab) => void;
+  shown: number;
+}
+
+export function usePrTab(pr: PrItem): PrTabs {
+  const [picked, setPicked] = useState<{ key: string; tab: PrTab } | null>(null);
+  const [shown, setShown] = useState(0);
+  const tab = picked?.key === pr.key ? picked.tab : (tabsShown.get(pr.key) ?? openingTab(pr));
+  const pick = (to: PrTab) => {
+    tabsShown.set(pr.key, to);
+    setPicked({ key: pr.key, tab: to });
+  };
+  return { tab, pick, show: (to) => (pick(to), setShown((n) => n + 1)), shown };
+}
 
 /** A PR's comments, newest first, the ones asking for a change marked. */
 function Comments({ comments, asks, now }: { comments: PrComment[]; asks: Set<string>; now: number }) {
@@ -123,12 +147,14 @@ export interface PrDetailsProps {
   keys?: boolean;
   /** A window that goes on to the next PR as one is merged (MergeBox.tsx). */
   goesOn?: MergeGoesOn;
-  /** Gives a verdict as you with what's written, from a box under its review (AgentReview.tsx).
-   *  A card has its own box (PrCard.tsx), so it passes none. */
-  onVerdict?: (verdict: Verdict, body: string) => Promise<Reviewed>;
+  /** Which tab shows (`usePrTab`). */
+  tabs: PrTabs;
 }
 
-interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail'> {
+interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail' | 'tabs'> {
+  /** How the box says a verdict went. */
+  report: Report;
+  usage: Usage[];
   approving: boolean;
   onApprove: () => void;
   /** Drops Review with… from the button. */
@@ -137,8 +163,10 @@ interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail'> {
   onSnooze: (button: Element) => void;
 }
 
-export function PrInspector({ approving, onApprove, onReview, onSnooze, ...details }: PrInspectorProps) {
+export function PrInspector({ approving, onApprove, onReview, onSnooze, report, usage, ...details }: PrInspectorProps) {
   const { pr } = details.item;
+  const tabs = usePrTab(pr);
+  const box = usePrBox(pr, { report, usage, now: details.now });
   const requested = pr.reviewRequested && prIsOpen(pr);
   // What's read of your draft by the details below: approving submits it.
   const draft = useYourReview(pr, false)?.review?.draft;
@@ -164,22 +192,23 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, ...detai
     </>
   );
   return (
-    <aside className="ca-insp ca-prinsp" aria-label={`#${pr.number} details`}>
-      <PrDetails {...details} lead={lead} trail={trail} />
+    <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`}>
+      <div className="ca-prinsp ca-prpanel-body">
+        <PrDetails {...details} tabs={tabs} lead={lead} trail={trail} />
+      </div>
+      <PrBoxView pr={pr} box={box} keys={{ approve: '⌘⏎', comment: '⌥⌘⏎' }} ownKeys onShowReview={() => tabs.show('review')} />
     </aside>
   );
 }
 
 /** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
  *  comments, its description and its files. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, onVerdict }: PrDetailsProps) {
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs }: PrDetailsProps) {
   const { pr } = item;
   const files = useRef<FilesFinder>(null);
   const idBase = `prtab${useId().replace(/:/g, '')}`;
 
-  // The tab shown: the one picked for this PR, else the one it showed last, else where it opens.
-  const [picked, setPicked] = useState<{ key: string; tab: PrTab } | null>(null);
-  const tab = picked?.key === pr.key ? picked.tab : (tabsShown.get(pr.key) ?? openingTab(pr));
+  const { tab } = tabs;
   const bar = useRef<HTMLDivElement>(null);
   const panels = useRef<Record<PrTab, HTMLDivElement | null>>({ description: null, changes: null, review: null });
   // A tab picked while the tabs are stuck at the top shows from its start, under them.
@@ -188,14 +217,19 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
     const at = bar.current?.getBoundingClientRect();
     const view = bar.current?.parentElement?.getBoundingClientRect();
     fromTop.current = !!at && !!view && at.top - view.top < 2 && (bar.current?.parentElement?.scrollTop ?? 0) > 0;
-    tabsShown.set(pr.key, to);
-    setPicked({ key: pr.key, tab: to });
+    tabs.pick(to);
   };
   useLayoutEffect(() => {
     if (!fromTop.current) return;
     fromTop.current = false;
     panels.current[tab]?.scrollIntoView({ block: 'start' });
   }, [tab]);
+  // A tab shown from outside the bar (the line over the box) comes into view from its start.
+  useLayoutEffect(() => {
+    if (tabs.shown > 0) panels.current[tab]?.scrollIntoView({ block: 'start' });
+    // Only as it's asked for: the tab changing on its own moves nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.shown]);
   // Your review on GitHub, read while its tab shows, and for a draft the agent made.
   const yours = useYourReview(pr, tab === 'review' || pr.autoReview?.stage === 'drafted');
   const draft = yours?.review?.draft;
@@ -420,7 +454,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
       </div>
 
       <div ref={(el) => void (panels.current.review = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-review`} aria-labelledby={`${idBase}-review-tab`} hidden={tab !== 'review'}>
-        <PrReview pr={pr} detail={detail} now={now} yours={yours} sessions={item.sessions} onShowSession={onShowSession} onVerdict={onVerdict} />
+        <PrReview pr={pr} detail={detail} now={now} yours={yours} sessions={item.sessions} onShowSession={onShowSession} />
       </div>
     </>
   );

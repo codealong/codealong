@@ -56,6 +56,11 @@
   font: var(--type-reading);
   scrollbar-gutter: stable;
 }
+/* In a form's field (AgentPromptBox.tsx in Settings) the box shows the focus, as a reply box does,
+   not the field's ring around its text (.ca-field textarea:focus, controls.css). */
+.ca-field .ca-composer-text > textarea:focus {
+  box-shadow: none;
+}
 .ca-composer-text > textarea {
   align-self: stretch;
   width: 100%;

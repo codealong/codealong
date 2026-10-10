@@ -292,6 +292,12 @@ pub struct AutoReview {
     /// you, for the Review tab's Send.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sendable: Option<String>,
+    /// What this round's agent would do with the PR, which its windows suggest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggests: Option<crate::github::Verdict>,
+    /// When the PR was approved as you for it (`[reviews] auto_approve`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved: Option<i64>,
 }
 
 /// Where the reviewer's part in a round stands (autoreview.rs).

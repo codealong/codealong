@@ -5,8 +5,7 @@
 // code, with the lines around it from the PR's diff, its file and line opening that line on
 // GitHub. The text and each comment can be changed and a comment taken out, on GitHub at once,
 // where only you see them. A verdict submits it, comments and all, as GitHub's Finish your review
-// does (github.rs `review`): the panel's box under it here (`onVerdict`), or a card's own box
-// (PrCard.tsx). Without a draft, the review the agent wrote is read whole from reviews.json
+// does (github.rs `review`), from the box at the foot of the PR's panel or card (PrBox.tsx). Without a draft, the review the agent wrote is read whole from reviews.json
 // (`pr_agent_reviews`), so the board carries none of it: its text, then each comment on a line,
 // and the reviews of earlier commits a click away. Once you've submitted a draft the agent wrote,
 // it says so. A review of a PR of yours (`[reviews.own]`) never goes to GitHub: it says which
@@ -17,21 +16,17 @@ import { useEffect, useRef, useState } from 'react';
 import { excerptAt, lineLink, type ExcerptLine } from '../agentReview';
 import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews, sendAgentReview } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
-import { changeDraft, commentsWord, draftShown, readAgain, saysSomething, submittedWord, verdictWords, type Held } from '../prDraft';
+import { changeDraft, commentsWord, draftShown, readAgain, submittedWord, type Held } from '../prDraft';
 import { splitPath } from '../prFiles';
-import { mayApprove } from '../prStatus';
 import { errorText } from '../report';
-import { autoReviewWords } from '../review';
-import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Reviewed, Session, Verdict, WrittenReview } from '../types';
+import { autoReviewWords, suggestWords } from '../review';
+import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Session, WrittenReview } from '../types';
 import { Markdown } from './Markdown';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prIsOpen } from './PrsView';
 
 /** A commit as people read it. */
 const short = (sha: string) => sha.slice(0, 7);
-
-/** What's written in each PR's box, kept while the panel goes from one PR to the next. */
-const written = new Map<string, string>();
 
 /** How long a Remove waits for the click that does it. */
 const ARMED_MS = 4000;
@@ -130,6 +125,7 @@ function Standing({ pr, review, now, onGitHub, sessions, onShowSession }: { pr: 
           {ago(review.at, now)}
         </span>
         {/* A draft read from GitHub has its own way there, or is gone. */}
+        {review.suggests && !review.approved && <span className={cx('ca-prbox-suggests', `is-${review.suggests}`)}>{suggestWords(review.suggests)}</span>}
         <Links link={review.stage === 'drafted' && onGitHub ? null : review.comment} session={review.parts?.find((p) => p.session)?.session} sessions={sessions} onShowSession={onShowSession} />
         {to && (
           <button type="button" className="ca-linkbtn" disabled={sending} title="Hand the review to the session that opened the pull request, as a file it reads, to fix what holds up" onClick={send}>
@@ -291,85 +287,6 @@ function DraftReview({ pr, draft, detail, verdicts }: { pr: PrItem; draft: Draft
   );
 }
 
-/** The panel's box for a verdict: what you write, which goes before a draft's text, and Request
- *  changes, Comment and Approve, which submit the draft when there is one. ⌘⏎ approves where
- *  that's yours to do, else comments; ⌥⌘⏎ comments. */
-function Verdicts({ pr, draft, onVerdict }: { pr: PrItem; draft: Draft | null; onVerdict: (verdict: Verdict, body: string) => Promise<Reviewed> }) {
-  const [text, setText] = useState(() => written.get(pr.key) ?? '');
-  const [sending, setSending] = useState<Verdict | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const box = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    written.set(pr.key, text);
-  }, [pr.key, text]);
-  const reviewable = mayApprove(pr);
-  const go = (verdict: Verdict) => {
-    if (sending) return;
-    if (!saysSomething(verdict, text, draft)) {
-      setError(verdict === 'comment' ? 'Write the comment first.' : 'Say what to change first.');
-      box.current?.focus();
-      return;
-    }
-    setSending(verdict);
-    setError(null);
-    onVerdict(verdict, text.trim())
-      .then(() => {
-        setText('');
-        written.delete(pr.key);
-        readAgain(pr);
-      })
-      .catch((e: unknown) => setError(errorText(e)))
-      .finally(() => setSending(null));
-  };
-  const hint = draft ? 'Your words, before the draft’s text (optional)' : reviewable ? 'Your review, if it says anything' : `Comment on #${pr.number}`;
-  return (
-    <div className="ca-composer ca-prverdict">
-      <div
-        className="ca-composer-field"
-        onMouseDown={(e) => {
-          if ((e.target as Element).closest('button, textarea')) return;
-          e.preventDefault();
-          box.current?.focus();
-        }}
-      >
-        <BoxText
-          ref={box}
-          value={text}
-          lines={4}
-          hint={hint}
-          aria-label={`Your review of #${pr.number}`}
-          disabled={!!sending}
-          onChange={(e) => {
-            setText(e.target.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter' || !e.metaKey || e.ctrlKey || e.shiftKey || e.nativeEvent.isComposing) return;
-            e.preventDefault();
-            go(reviewable && !e.altKey ? 'approve' : 'comment');
-          }}
-        />
-        <div className="ca-composer-buttons ca-prreview-buttons">
-          {reviewable && (
-            <Button size="sm" disabled={!!sending} title={verdictWords('request-changes', draft) ?? 'Ask for changes, with what’s written'} onClick={() => go('request-changes')}>
-              {sending === 'request-changes' ? 'Sending…' : 'Request changes'}
-            </Button>
-          )}
-          <Button size="sm" disabled={!!sending} title={`${verdictWords('comment', draft) ?? 'Comment, with what’s written'} (${reviewable ? '⌥⌘⏎' : '⌘⏎'})`} onClick={() => go('comment')}>
-            {sending === 'comment' ? 'Sending…' : 'Comment'}
-          </Button>
-          {reviewable && (
-            <Button variant="primary" size="sm" icon="check" disabled={!!sending} title={`${verdictWords('approve', draft) ?? 'Approve it'} (⌘⏎)`} onClick={() => go('approve')}>
-              {sending === 'approve' ? 'Approving…' : 'Approve'}
-            </Button>
-          )}
-        </div>
-      </div>
-      {error && <p className="ca-form-error">{error}</p>}
-    </div>
-  );
-}
-
 /** The review the agent wrote, from reviews.json: its text and comments on lines, each earlier
  *  commit's a click away. */
 function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrItem; review: AutoReview; detail?: PrDetail; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
@@ -426,19 +343,16 @@ export interface PrReviewProps {
   /** The PR's sessions, each with its worktree, for showing the one that reviewed it. */
   sessions: { lane: Lane; session: Session }[];
   onShowSession: (lane: Lane, session: Session) => void;
-  /** Gives a verdict as you with what's written, from a box under the review. A card's box is
-   *  its own (PrCard.tsx), so it passes none. */
-  onVerdict?: (verdict: Verdict, body: string) => Promise<Reviewed>;
 }
 
-export function PrReview({ pr, detail, now, yours, sessions, onShowSession, onVerdict }: PrReviewProps) {
+export function PrReview({ pr, detail, now, yours, sessions, onShowSession }: PrReviewProps) {
   const review = pr.autoReview;
   const read = yours?.review;
   const draft = read?.draft ?? null;
   const onGitHub = read ? { draft: !!draft, submitted: read.submitted?.state ?? null } : undefined;
   const open = prIsOpen(pr);
   // What a verdict does with the draft, as the box that gives one is here or below.
-  const verdicts = !open ? 'The PR is closed, so it can’t be submitted.' : onVerdict ? 'A verdict below submits it, with its comments.' : 'Approve, Comment or Request changes submits it, with its comments.';
+  const verdicts = open ? 'Approve, Comment or Request changes in the box below submits it, with its comments.' : 'The PR is closed, so it can’t be submitted.';
   return (
     <section className="ca-insp-sec ca-agentrev" aria-label="Review">
       {review && <Standing pr={pr} review={review} now={now} onGitHub={onGitHub} sessions={sessions} onShowSession={onShowSession} />}
@@ -460,7 +374,6 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession, onVe
       {draft ? <DraftReview pr={pr} draft={draft} detail={detail} verdicts={verdicts} /> : review && <Written pr={pr} review={review} detail={detail} now={now} sessions={sessions} onShowSession={onShowSession} />}
       {!draft && !review && !yours?.loading && <p className="ca-empty">{pr.mine ? 'It’s your PR: who reviewed it is under Checks and reviews, what they said under Description. Settings › Automation can have an agent on another model review the PRs your sessions open, and hand its review back to the session.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
       {!draft && !review && yours?.loading && <p className="ca-empty">Reading your review on GitHub…</p>}
-      {onVerdict && open && <Verdicts pr={pr} draft={draft} onVerdict={onVerdict} />}
     </section>
   );
 }

@@ -407,6 +407,8 @@ export interface ReviewsCfg {
   prompt?: string;
   /** Where each review goes. Older files have none: a draft. */
   post?: ReviewPost;
+  /** Approve a PR as you once its review is posted, when its agent would approve it. */
+  auto_approve?: boolean;
   /** The pull requests your sessions open (`[reviews.own]`). */
   own?: OwnReviewsCfg;
 }
@@ -1013,6 +1015,10 @@ export interface AutoReview {
   sentAt?: number | null;
   /** The session it goes back to, which can be sent it now, for the Review tab's Send. */
   sendable?: string | null;
+  /** What this round's agent would do with the PR, which its windows suggest. */
+  suggests?: Verdict | null;
+  /** When the PR was approved as you for it (`[reviews] auto_approve`). */
+  approved?: number | null;
 }
 
 /** A session that worked on a PR. */

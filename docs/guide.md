@@ -449,17 +449,17 @@ account Auto would start among those of another harness than that session's, so 
 what one wrote (Codex reviews what Claude Code wrote, say); one of the same harness only when no
 other can start. Drafts aren't reviewed, nor a PR whose session is gone or archived. Its
 instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
-agent that wrote the PR, and to answer `LGTM:` when there's nothing to raise. Nothing goes on
-GitHub: the review is kept in Codealong, in the PR's Review tab, its comments on lines with the code
-around them. With `[reviews.own] send` (on unless turned off), the session that opened the PR is
-sent a message once it runs here and doesn't wait on you to answer something: which agent reviewed
-which commit, that its review is in a file it reads (kept as an attachment, so another agent's words
-never reach it typed in as yours), to fix what holds up and say what it leaves, and that it isn't
-asked to merge. A review that found nothing to raise isn't sent, nor one of a commit the PR has
-moved on from: the next round's is. A send that doesn't go is tried a few times and then said. The
-Review tab says where each review went or why it hasn't, and Send hands the latest to the session by
-hand while it runs here, whatever `send` says. New commits are reviewed again once the branch holds
-still, as above, so a session that fixes what was raised has its fixes looked at.
+agent that wrote the PR, and to end on whether it would approve it (see *Your review*). Nothing goes
+on GitHub: the review is kept in Codealong, in the PR's Review tab, its comments on lines with the
+code around them. With `[reviews.own] send` (on unless turned off), the session that opened the PR
+is sent a message once it runs here and doesn't wait on you to answer something: which agent
+reviewed which commit, that its review is in a file it reads (kept as an attachment, so another
+agent's words never reach it typed in as yours), to fix what holds up and say what it leaves, and
+that it isn't asked to merge. A review that found nothing to raise isn't sent, nor one of a commit
+the PR has moved on from: the next round's is. A send that doesn't go is tried a few times and then
+said. The Review tab says where each review went or why it hasn't, and Send hands the latest to the
+session by hand while it runs here, whatever `send` says. New commits are reviewed again once the
+branch holds still, as above, so a session that fixes what was raised has its fixes looked at.
 
 #### Your review
 
@@ -468,15 +468,26 @@ began there, shows as it will go: its text, then each of its comments with its f
 lines around it from the PR's diff, and Outdated on one whose line has changed since. Edit text and
 a comment's Edit change them on GitHub at once (⌘⏎ saves, Escape leaves it), and Remove takes a
 comment out on a second click; only you see any of it until it's submitted. A verdict submits the
-draft, its comments and all, as GitHub's Finish your review does: in the panel, the box under the
-review (Request changes, Comment, Approve; ⌘⏎ approves, ⌥⌘⏎ comments), and in a PR's card the
-review box at its foot. What you write there goes before the draft's text, and with nothing written
-the draft goes as it is; a comment or a request for changes needs something to say, which the
-draft's text or comments are. Approve in the panel's row of buttons, in a PR's menu and on PRs
-picked together submits your draft the same way, as GitHub's own page does, rather than leave it
-behind a review of its own. The button's tooltip, the line under a card's box and the
-toast after say when a draft goes with it. Without a draft, the panel's box gives a review of its
-own, as the card's does.
+draft, its comments and all, as GitHub's Finish your review does, from the box at the foot of the
+PR's panel or card (Request changes, Comment, Approve; in the panel ⌘⏎ approves and ⌥⌘⏎ comments
+from the box, in a card its keys work anywhere). What you write there goes before the draft's text,
+and with nothing written the draft goes as it is; a comment or a request for changes needs something
+to say, which the draft's text or comments are. Approve in the panel's row of buttons, in a PR's
+menu and on PRs picked together submits your draft the same way, as GitHub's own page does, rather
+than leave it behind a review of its own. The button's tooltip, the line under a card's box and the
+toast after say when a draft goes with it. Without a draft, the box gives a review of its own. The
+box stays at the foot of the panel and the card while the details scroll over it, with Review and
+Ask (see *Waiting on you*) at its foot, and over it, always, a line saying where the PR's review
+stands: the agent's round, your draft and its comments, or that there's none yet; a click on it
+shows the Review tab. Every agent review ends on what the agent would do with the PR, a `Verdict:`
+line (approve, request changes or comment) that isn't posted: the line says what it suggests, and
+its button in the box is marked with sparkles. With `[reviews] auto_approve` (Settings › Automation,
+Approve for you when the agent finds nothing that needs fixing), a PR that waits on your review
+whose agent would approve it is approved as you once its review is posted, your draft submitted with
+it, and it leaves what waits on you; it's held out of it until then. Not when your draft holds words
+of yours (the part of its text that isn't the agent's), which is said instead; a draft of only your
+own line comments isn't told apart. It never merges. A review of a PR of yours whose agent would
+approve it isn't handed back to its session.
 
 #### Pins, approvals and snoozes
 
