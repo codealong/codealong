@@ -159,6 +159,13 @@ under `src-tauri/src/`.
   (muda 0.19.3 parses it as Backquote). The preview shows the terminal it asks for
   (`terminal-key-check.js`).
 
+- Not yet checked by hand (2026-10-09): ⌃1 to ⌃5 in the real app (`src/mainKeys.ts`
+  `viewChord`). That WKWebView hands ⌃ and a digit to the page, from the list and from a text
+  field, and that the sidebar's keycaps show as the pointer comes onto a view. macOS's Switch to
+  Desktop shortcuts (Mission Control) are ⌃ and a digit too, off unless turned on; turned on,
+  they'd take the keys before the app sees them. The preview shows the views changing and the
+  hover's rules (`view-keys-check.js`).
+
 - Not yet checked by hand (2026-10-06): the waiting window in the real app. Whether ⌥⌘. from
   another app brings only it forward or Codealong's other windows too (`set_focus` is tao's
   `makeKeyAndOrderFront` and `activateIgnoringOtherApps`); that ⌥⌘. again gives the keyboard back
