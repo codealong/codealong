@@ -135,6 +135,30 @@ agent="$(launchctl getenv SSH_AUTH_SOCK || true)"
 [ -z "${__CF_USER_TEXT_ENCODING:-}" ] || dock+=(__CF_USER_TEXT_ENCODING="$__CF_USER_TEXT_ENCODING")
 open_app() { env -i "${dock[@]}" /usr/bin/open "$installed"; }
 open_app || { sleep 2; open_app; }
+# A Dock pin made while builds ran from the bundle folder points at nothing once they're moved to
+# Applications, and the Dock shows the running app under a question mark. It's pointed at
+# Applications, and the Dock restarted to read it, once. Nothing here may stop the script.
+repin() {
+  local prefs pinned i key repinned=""
+  prefs="$(mktemp)" || return 0
+  if defaults export com.apple.dock "$prefs" 2>/dev/null; then
+    pinned="$(plutil -extract persistent-apps raw -o - "$prefs" 2>/dev/null || echo 0)"
+    for ((i = 0; i < pinned; i++)); do
+      key="persistent-apps.$i.tile-data"
+      [ "$(plutil -extract "$key.file-data._CFURLString" raw -o - "$prefs" 2>/dev/null || true)" = "file://${app// /%20}/" ] || continue
+      plutil -replace "$key.file-data._CFURLString" -string "file://${installed// /%20}/" "$prefs" 2>/dev/null || continue
+      # The bookmark beside it leads to the old place too; without one the Dock goes by the URL.
+      plutil -remove "$key.book" "$prefs" 2>/dev/null || true
+      repinned=1
+    done
+    if [ -n "$repinned" ] && defaults import com.apple.dock "$prefs" 2>/dev/null; then
+      killall Dock 2>/dev/null || true
+      echo "Pointed the Dock's Codealong Dev at $installed."
+    fi
+  fi
+  rm -f "$prefs"
+}
+repin
 # For the next relaunch to know what runs (above). A build with uncommitted changes names no commit.
 if [ -n "$built" ]; then echo "$built" >"$launched"; else rm -f "$launched"; fi
 
