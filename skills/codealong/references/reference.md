@@ -1445,20 +1445,25 @@ the PR was open
 Usage: codealong pr [OPTIONS] <COMMAND>
 
 Commands:
-  show    One PR: its state, branches, the worktrees on its branch and the sessions that
-          worked on it. Needs the app, which reads GitHub
+  show    One PR: its state, branches, the worktrees on its branch, the sessions that
+          worked on it and which is its primary one (`primary`), and whether that one is
+          nudged (`nudge`). Needs the app, which reads GitHub
   link    Link a session to a PR it worked on that Codealong can't see by itself: a PR
           opened another way (the website, an API tool), or one worked on from a
           worktree that isn't on its branch
   unlink  Take a session off a PR it's listed on but didn't work on. It stays off,
           however it matched, until linked again
-  nudge   Have a PR's sessions told of what happens on it: each session that worked on
-          it and is still running gets a message when someone else reviews it, asks for
-          changes or comments (with what they wrote), when it's approved, merged or
-          closed, and when its checks fail, with where the PR stands. What the signed-in
-          user did, which is what its own agent did through gh, isn't told. Off for
-          every PR until turned on for it, here or from its card in the app; one
-          approved already tells its sessions that now
+  nudge   Have a PR's primary session told of what happens on it: while it runs, it gets
+          a message when someone else reviews the PR, asks for changes or comments (with
+          what they wrote), when it's approved, merged or closed, and when its checks
+          fail, with where the PR stands. Its primary session is the one that opened it,
+          unless another was made it here; the PR's other sessions aren't told. What the
+          signed-in user did, which is what its own agent did through gh, isn't told.
+          Run from a session, that session becomes the one told, unless another running
+          session is the PR's primary (--take). Off for a PR until turned on for it,
+          here or from its card in the app, unless `[pull_requests] nudge_by_default` in
+          config.toml turns it on for every PR of yours; one turned on approved already
+          tells its session that now
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1478,8 +1483,9 @@ Options:
 ## codealong pr show
 
 ```
-One PR: its state, branches, the worktrees on its branch and the sessions that worked on
-it. Needs the app, which reads GitHub
+One PR: its state, branches, the worktrees on its branch, the sessions that worked on it
+and which is its primary one (`primary`), and whether that one is nudged (`nudge`).
+Needs the app, which reads GitHub
 
 Usage: codealong pr show [OPTIONS] <PR>
 
@@ -1570,12 +1576,16 @@ Options:
 ## codealong pr nudge
 
 ```
-Have a PR's sessions told of what happens on it: each session that worked on it and is
-still running gets a message when someone else reviews it, asks for changes or comments
-(with what they wrote), when it's approved, merged or closed, and when its checks fail,
-with where the PR stands. What the signed-in user did, which is what its own agent did
-through gh, isn't told. Off for every PR until turned on for it, here or from its card
-in the app; one approved already tells its sessions that now
+Have a PR's primary session told of what happens on it: while it runs, it gets a message
+when someone else reviews the PR, asks for changes or comments (with what they wrote),
+when it's approved, merged or closed, and when its checks fail, with where the PR
+stands. Its primary session is the one that opened it, unless another was made it here;
+the PR's other sessions aren't told. What the signed-in user did, which is what its own
+agent did through gh, isn't told. Run from a session, that session becomes the one told,
+unless another running session is the PR's primary (--take). Off for a PR until turned
+on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default`
+in config.toml turns it on for every PR of yours; one turned on approved already tells
+its session that now
 
 Usage: codealong pr nudge [OPTIONS] <PR>
 
@@ -1588,11 +1598,18 @@ Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
-      --off
-          Turn it off again
+      --session <SESSION>
+          The session to tell, made the PR's primary: a session key or id. Without it,
+          the session running this command, if it runs in one
 
       --table
           Tables, even when piped
+
+      --take
+          Make the session the PR's primary even while another running session is
+
+      --off
+          Turn it off again, for this PR
 
       --verbose
           Say on stderr whether the app or the files answered

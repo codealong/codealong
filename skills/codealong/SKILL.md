@@ -207,15 +207,20 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   only mentioned the PR's folder, say). It stays off until linked again. Unlink others'
   sessions only when the user asks.
 - `codealong session show <key>` lists the PRs a session worked on (`prs`).
-- `codealong pr nudge <pr>` has Codealong tell a PR's sessions what happens on it: each one that
-  worked on it and is still running gets a message, as if the user had sent it, when someone
-  else reviews it, asks for changes or comments (with what they wrote), when it's approved,
-  merged or closed, and when its checks fail, with where the PR stands. What you do to it
-  yourself through `gh` isn't told back. It's off for every PR until turned on for that one (the
-  user can also turn it on from the PR's card in the app). Turn it on for a PR you opened when
-  you'd otherwise sit polling GitHub for its review or its checks; don't when the user wants to
-  handle its review themselves. `--off` turns it off; `codealong pr show <pr>` says whether it's
-  on (`nudge`).
+- `codealong pr nudge <pr>` has Codealong tell a PR's primary session what happens on it: while
+  it runs, it gets a message, as if the user had sent it, when someone else reviews the PR, asks
+  for changes or comments (with what they wrote), when it's approved, merged or closed, and when
+  its checks fail, with where the PR stands. What you do to it yourself through `gh` isn't told
+  back. The primary session is the one that opened the PR; the PR's other sessions are never
+  told. Run it from your session and you become the one told, unless another running session
+  is the PR's primary (it says so): leave that one be unless the user asks you to take the PR
+  over, then add `--take`. It's off for a PR until turned on for it (the user can also turn it
+  on from the PR's card in the app), unless the user turned it on for every PR of theirs in
+  Settings. Turn it on right after you open a PR, when you'd otherwise sit polling GitHub for
+  its review or its checks: then stop, and take it from there when the message comes. Don't
+  when the user wants to handle its review themselves. `--off` turns it off;
+  `codealong pr show <pr>` says whether it's on (`nudge`) and which session is told
+  (`primary`).
 
 ## Accounts
 

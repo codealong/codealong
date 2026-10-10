@@ -303,9 +303,9 @@ fn snooze_reviews(engine: State<'_, engine::Handle>, keys: Vec<String>, until: O
     engine.snooze_reviews(keys, until)
 }
 
-/// Turns telling a PR's sessions of what happens on it on or off (nudges.rs), for the PR
-/// `owner/name#number`: in pr-links.json, as `codealong pr nudge` does, which the engine then
-/// reads at once.
+/// Turns telling a PR's primary session what happens on it on or off for the PR
+/// `owner/name#number` (nudges.rs): in pr-links.json, as `codealong pr nudge` does, which the
+/// engine then reads at once.
 #[tauri::command]
 async fn set_pr_nudge(engine: State<'_, engine::Handle>, key: String, on: bool) -> Result<(), String> {
     let engine = engine.inner().clone();

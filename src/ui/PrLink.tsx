@@ -4,7 +4,7 @@
 // worktrees that hold it and the sessions that worked on it, as the PRs view has them. A click
 // opens the link in the browser, and a right-click has the PR's menu (menus.ts). A PR's chip in a
 // session's panel (`PrChipCard`) has the same card. For an open PR the board lists, the card has
-// the switch that has its sessions told of what happens on it (nudges.rs), off until turned on.
+// the switch that has its primary session, listed first, told of what happens on it (nudges.rs).
 //
 // It costs nothing until you hover: the board already lists the PRs in your projects' repos with
 // their sessions, and each link watches only its own PR there, so a push re-renders a link only
@@ -17,9 +17,10 @@ import { createPortal } from 'react-dom';
 import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { prIndex, prRefOf, type PrRef } from '../prLinks';
+import { nudgeWords } from '../prStatus';
 import { errorText } from '../report';
 import type { Lane, Pr, PrItem, Session } from '../types';
-import { PanelSession } from './PanelSession';
+import { PanelSession, PR_PRIMARY } from './PanelSession';
 import { PrPills } from './PrPills';
 import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -312,13 +313,16 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
   }, []);
 
   const laneById = new Map(lanes.map((l) => [l.id, l]));
+  // Its primary session first, the one a nudge tells.
+  const isPrimary = (s: Session) => s.key === pr?.primary;
   const sessions = (pr?.sessions ?? [])
     .flatMap((x) => {
       const lane = laneById.get(x.lane);
       const session = lane?.sessions.find((s) => s.key === x.key);
       return lane && session ? [{ lane, session }] : [];
     })
-    .sort((a, b) => Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity);
+    .sort((a, b) => Number(isPrimary(b.session)) - Number(isPrimary(a.session)) || Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity);
+  const primary = sessions.find((x) => isPrimary(x.session));
   const holding = (pr?.lanes ?? []).flatMap((id) => laneById.get(id) ?? []);
   const ended = pr?.mergedAt ?? pr?.closedAt ?? null;
   // The nudge, for an open PR the board lists: shown as just set until the board says so too.
@@ -401,6 +405,7 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
                 onShow={(l, s) => act((a) => a.showSession(l, s))}
                 onOpen={(l, s) => act((a) => a.openSession(l, s))}
                 onMenu={(l, s) => host.actions?.sessionMenu(l, s)}
+                primary={isPrimary(session) && sessions.length > 1 ? PR_PRIMARY : undefined}
               />
             ))}
           </div>
@@ -410,15 +415,11 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
       {canNudge && listed && (
         <div className="ca-prhover-sec">
           <button type="button" className="ca-prhover-nudge" role="switch" aria-checked={nudges} onClick={() => setNudge(listed.key, !nudges)}>
-            <span>Nudge {sessions.length === 1 ? 'its session' : 'its sessions'} on updates</span>
+            <span>Nudge {sessions.length > 1 ? 'its primary session' : 'its session'} on updates</span>
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
           <p className="ca-prhover-meta">
-            {nudges
-              ? 'On: each session still running is sent a message, as one of yours, when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail.'
-              : listed.state === 'approved'
-                ? 'Off for this PR. It’s approved already: turning this on tells its running sessions that now, then of what happens on it next.'
-                : 'Off for this PR. Turned on, its sessions still running are told of reviews, comments, an approval, a merge and failing checks.'}
+            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device } : null)}
           </p>
           {nudgeError && <p className="ca-prhover-error">{nudgeError}</p>}
         </div>

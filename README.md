@@ -441,6 +441,9 @@ reviewers = []                 # e.g. [{ account = "claude", model = "opus" }, {
 combine = true                 # with several, the first to finish combines their reviews into one
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the sessions
 
+[pull_requests]
+nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Accounts)
+
 [updates]
 check = true                   # look for a new version by itself (Settings › General)
 

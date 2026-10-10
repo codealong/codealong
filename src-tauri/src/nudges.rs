@@ -1,14 +1,16 @@
-//! Telling sessions what happens on their PR, for the PRs it's turned on for. It's off for every
-//! PR until someone turns it on for that one: you, from the PR's card or menu, or an agent with
-//! `codealong pr nudge` (both write pr-links.json, prlinks.rs), and a PR says so while it's open
-//! (`PrItem::nudge`). Every board the engine publishes is looked at for such PRs with something
-//! new on GitHub: approved, changes asked for, reviewed or commented on by someone else (read from
-//! the PR's detail once its `updatedAt` moves), merged or closed, or with checks that just failed.
-//! Each session that worked on the PR (`PrItem::sessions`, as the PRs view lists them) and still
-//! runs here is sent one message saying what happened, as a message of yours from a window is
-//! (actions.rs `session-send`: typed into its terminal, or its harness's own way in), on a thread
-//! of its own, since reading GitHub and a send take a moment. What you did to the PR yourself,
-//! which is what its agent did through `gh` too, is never told back.
+//! Telling a PR's own session what happens on it, for the PRs it's turned on for: by you, from
+//! the PR's card or menu, or by an agent with `codealong pr nudge` (both write pr-links.json,
+//! prlinks.rs), or for every PR of yours by `[pull_requests] nudge_by_default`, unless turned off
+//! for that one; a PR says so while it's open (`PrItem::nudge`). Every board the engine publishes
+//! is looked at for such PRs with something new on GitHub: approved, changes asked for, reviewed
+//! or commented on by someone else (read from the PR's detail once its `updatedAt` moves), merged
+//! or closed, or with checks that just failed. The PR's primary session (`PrItem::primary`: the
+//! one picked, else the one that opened it), when it runs here, is sent one message saying what
+//! happened, as a message of yours from a window is (actions.rs `session-send`: typed into its
+//! terminal, or its harness's own way in), on a thread of its own, since reading GitHub and a send
+//! take a moment. The PR's other sessions (helpers, reviewers, ones that came to its branch) are
+//! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
+//! never told back.
 //!
 //! What's seen on the board and what's been told are kept apart: an update is owed to each
 //! session from the board it shows on until a send to that session goes through. A session
@@ -112,11 +114,12 @@ pub struct Nudger {
 
 impl Nudger {
     /// The jobs due now, at `now` (ms). For each PR with its nudge on that the last board showed
-    /// otherwise, what's new is owed to each session that worked on it and runs on this Mac;
-    /// then each session owed something is sent it, unless it waits on you, a send to it is under
-    /// way, or a failed one's wait isn't over. A PR first seen is only noted, so turning the
-    /// nudge on tells of what happens from then on (and of an approval it has already); a PR the
-    /// board no longer lists is forgotten, though what's owed for it is still told.
+    /// otherwise, what's new is owed to its primary session when that runs on this Mac; then each
+    /// session owed something is sent it, unless it waits on you, a send to it is under way, or a
+    /// failed one's wait isn't over. A PR first seen is only noted, so turning the nudge on tells
+    /// of what happens from then on (and of an approval it has already, when turned on for that
+    /// PR: turning `nudge_by_default` on doesn't tell every approved PR of yours to merge); a PR
+    /// the board no longer lists is forgotten, though what's owed for it is still told.
     pub fn due(&mut self, board: &Board, now: i64) -> Vec<Job> {
         let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived);
         let mut seen_now = HashMap::with_capacity(board.prs.len());
@@ -139,7 +142,7 @@ impl Nudger {
             }
             let why = Why {
                 since: (was.on && pr.updated_at > was.updated_at).then_some(was.updated_at),
-                approved: pr.state == PrState::Approved && (was.state != PrState::Approved || !was.on),
+                approved: pr.state == PrState::Approved && (was.state != PrState::Approved || (!was.on && !pr.nudge_by_default)),
                 changes: was.on && pr.state == PrState::Changes && was.state != PrState::Changes,
                 ended: ended.then_some(pr.state),
                 failed: if was.on && seen.failed && !was.failed { pr.checks.failing.clone() } else { Vec::new() },
@@ -147,15 +150,17 @@ impl Nudger {
             if why == Why::default() {
                 continue;
             }
-            for s in pr.sessions.iter().filter(|s| runs_here(&s.key)) {
-                let owed = self.owed.entry((key.clone(), s.key.clone())).or_insert_with(|| Owed { pr: pr.clone(), why: Why::default(), sending: None, failures: 0, next_at: 0 });
-                owed.why.add(why.clone());
+            if let Some(s) = pr.primary.as_ref().filter(|k| runs_here(k)) {
+                let owed = self.owed.entry((key.clone(), s.clone())).or_insert_with(|| Owed { pr: pr.clone(), why: Why::default(), sending: None, failures: 0, next_at: 0 });
+                owed.why.add(why);
             }
         }
         self.seen = seen_now;
-        // A session that stopped is told nothing more, nor one whose PR had its nudge turned off.
+        // A session that stopped is told nothing more, nor one whose PR had its nudge turned off,
+        // nor one that's no longer its PR's primary.
         let off: HashSet<String> = board.prs.iter().filter(|p| p.state.is_open() && !p.nudge).map(|p| crate::prlinks::pr_key(&p.key)).collect();
-        self.owed.retain(|(pr, s), o| o.sending.is_some() || (runs_here(s) && !off.contains(pr)));
+        let primary: HashMap<String, Option<&str>> = board.prs.iter().map(|p| (crate::prlinks::pr_key(&p.key), p.primary.as_deref())).collect();
+        self.owed.retain(|(pr, s), o| o.sending.is_some() || (runs_here(s) && !off.contains(pr) && primary.get(pr).map_or(true, |p| *p == Some(s.as_str()))));
         // A send already under way to a session is let finish first: two typing into one terminal
         // at once would interleave.
         let busy: HashSet<String> = self.owed.iter().filter(|(_, o)| o.sending.is_some()).map(|((_, s), _)| s.clone()).collect();
@@ -341,7 +346,8 @@ mod tests {
     use crate::github::{PrComment, PrReview};
     use crate::model::{Checks, PrSession, Session};
 
-    /// An open PR of yours with its nudge on, last updated at `UPDATED`.
+    /// An open PR of yours with its nudge on, last updated at `UPDATED`, whose primary session is
+    /// the first of `sessions`.
     fn pr(key: &str, state: PrState, sessions: &[&str]) -> PrItem {
         PrItem {
             key: key.into(),
@@ -359,6 +365,8 @@ mod tests {
             requested_at: None,
             snoozed_until: None,
             nudge: state.is_open(),
+            nudge_by_default: false,
+            primary: sessions.first().map(|k| k.to_string()),
             head: "photos".into(),
             base: Some("main".into()),
             checks: Checks::default(),
@@ -449,6 +457,44 @@ mod tests {
         assert!(sent(&mut nudger, &board(vec![off(PrItem { updated_at: UPDATED + 1, ..pr("o/r#2", PrState::Approved, &[A]) })], vec![live(A)])).is_empty());
         let on = PrItem { updated_at: UPDATED + 2, ..pr("o/r#2", PrState::Approved, &[A]) };
         assert_eq!(sent(&mut nudger, &board(vec![on], vec![live(A)]))[0].why, Why { approved: true, ..Why::default() });
+    }
+
+    #[test]
+    fn only_the_prs_primary_session_is_told_and_only_while_it_runs() {
+        let mut nudger = Nudger::default();
+        let both = vec![live(A), live(B)];
+        let at = |updated: i64, primary: Option<&str>| PrItem { updated_at: updated, primary: primary.map(String::from), ..pr("o/r#1", PrState::Open, &[A, B]) };
+        sent(&mut nudger, &board(vec![at(UPDATED, Some(A))], both.clone()));
+        let jobs = sent(&mut nudger, &board(vec![at(UPDATED + 1, Some(A))], both.clone()));
+        assert_eq!(jobs.iter().map(|j| j.session.as_str()).collect::<Vec<_>>(), [A]);
+        // Another picked: it's told from then on.
+        let jobs = sent(&mut nudger, &board(vec![at(UPDATED + 2, Some(B))], both.clone()));
+        assert_eq!(jobs.iter().map(|j| j.session.as_str()).collect::<Vec<_>>(), [B]);
+        // The primary stopped: nobody, though another of its sessions runs.
+        assert!(sent(&mut nudger, &board(vec![at(UPDATED + 3, Some(B))], vec![live(A), Session { live: false, ..crate::fixtures::session(B) }])).is_empty());
+        assert!(sent(&mut nudger, &board(vec![at(UPDATED + 4, None)], both)).is_empty());
+    }
+
+    #[test]
+    fn what_a_session_was_owed_goes_when_it_is_no_longer_the_primary() {
+        use crate::model::Status;
+        let mut nudger = Nudger::default();
+        let waiting = Session { status: Status::Needs, ..live(A) };
+        let at = |updated: i64, primary: &str| PrItem { updated_at: updated, primary: Some(primary.into()), ..pr("o/r#1", PrState::Open, &[A, B]) };
+        sent(&mut nudger, &board(vec![at(UPDATED, A)], vec![waiting.clone(), live(B)]));
+        assert!(sent(&mut nudger, &board(vec![at(UPDATED + 1, A)], vec![waiting, live(B)])).is_empty(), "A waits on you");
+        assert!(sent(&mut nudger, &board(vec![at(UPDATED + 1, B)], vec![live(A), live(B)])).is_empty(), "B became the primary after it");
+    }
+
+    #[test]
+    fn turning_the_default_on_tells_no_approval_a_pr_had_already() {
+        let mut nudger = Nudger::default();
+        let approved = |nudge: bool, by_default: bool, updated: i64| PrItem { nudge, nudge_by_default: by_default, updated_at: updated, ..pr("o/r#1", PrState::Approved, &[A]) };
+        sent(&mut nudger, &board(vec![approved(false, false, UPDATED)], vec![live(A)]));
+        assert!(sent(&mut nudger, &board(vec![approved(true, true, UPDATED)], vec![live(A)])).is_empty());
+        // What happens on it from then on is told.
+        let merged = PrItem { state: PrState::Merged, nudge: false, nudge_by_default: false, ..approved(true, true, UPDATED) };
+        assert_eq!(sent(&mut nudger, &board(vec![merged], vec![live(A)]))[0].why, Why { ended: Some(PrState::Merged), ..Why::default() });
     }
 
     #[test]

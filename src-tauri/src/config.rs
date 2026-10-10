@@ -44,6 +44,8 @@ pub struct Config {
     #[serde(default)]
     pub reviews: ReviewsCfg,
     #[serde(default)]
+    pub pull_requests: PullRequestsCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -64,6 +66,7 @@ impl Default for Config {
             limits: LimitsCfg::default(),
             sessions: SessionsCfg::default(),
             reviews: ReviewsCfg::default(),
+            pull_requests: PullRequestsCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -303,6 +306,16 @@ impl ReviewPost {
             ReviewPost::None => "none",
         }
     }
+}
+
+/// Your PRs (nudges.rs). A PR's own switch, on its card, its menu or `codealong pr nudge`, wins
+/// over this either way.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PullRequestsCfg {
+    /// Every open PR of yours tells its primary session, the one that opened it, what happens on
+    /// it. Off, a PR tells nobody until turned on for it.
+    #[serde(default)]
+    pub nudge_by_default: bool,
 }
 
 /// Automatic updates (updates.rs). Only release builds update themselves.
@@ -733,6 +746,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks), as a message of yours. A PR's own switch wins either way.\n";
 const REVIEWS_COMMENT: &str = "# auto: agents review each open pull request that waits on your review, and again when new commits come in\n# while it still waits. reviewers: the agents, each an account and optionally a model, as\n# [{ account = \"claude\", model = \"opus\" }, { account = \"codex\" }]; none is the account Auto would start.\n# combine: with several, the first to finish combines their reviews into one. post: where each review goes:\n# \"draft\", a draft review on your GitHub account with its comments on their lines, for you to finish;\n# \"comment\", a comment on the PR from your account; \"none\", it stays in the reviews' sessions.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
@@ -1114,13 +1128,25 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         }
     }
 
-    // `[pull_requests] when_approved` was a setting for a day (2026-10-05); nudges are turned on
-    // PR by PR now (nudges.rs), so a file that still has it loses it, and the table with it.
+    // `[pull_requests] when_approved` was a setting for a day (2026-10-05), then nudges were
+    // turned on PR by PR (nudges.rs), so a file that still has it loses it, and the table with
+    // it unless the table has something else.
     if let Some(t) = doc.get_mut("pull_requests").and_then(Item::as_table_like_mut) {
         t.remove("when_approved");
-        if t.is_empty() {
+        if t.is_empty() && cfg.pull_requests == PullRequestsCfg::default() {
             doc.remove("pull_requests");
         }
+    }
+    // Then as [reviews]: only a file that has the table or nudges by default gets it.
+    if cfg.pull_requests != PullRequestsCfg::default() || doc.get("pull_requests").is_some() {
+        if !doc.get("pull_requests").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{PULL_REQUESTS_COMMENT}"));
+            doc.insert("pull_requests", Item::Table(t));
+            let after = ["reviews", "sessions", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "pull_requests", after);
+        }
+        set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
     }
 
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
@@ -1304,6 +1330,12 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("combine = {}\n", cfg.reviews.combine));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
     }
+    if cfg.pull_requests != PullRequestsCfg::default() {
+        s.push('\n');
+        s.push_str(PULL_REQUESTS_COMMENT);
+        s.push_str("[pull_requests]\n");
+        s.push_str(&format!("nudge_by_default = {}\n", cfg.pull_requests.nudge_by_default));
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -1382,6 +1414,7 @@ mod tests {
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
             reviews: ReviewsCfg { auto: true, reviewers: vec![ReviewerCfg { account: "claude".into(), model: Some("opus".into()) }, ReviewerCfg { account: "codex".into(), model: None }], combine: false, post: ReviewPost::None },
+            pull_requests: PullRequestsCfg { nudge_by_default: true },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1660,6 +1693,7 @@ mod tests {
             limits: LimitsCfg::default(),
             sessions: SessionsCfg::default(),
             reviews: ReviewsCfg::default(),
+            pull_requests: PullRequestsCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
     }
@@ -1688,6 +1722,28 @@ mod tests {
         // A table someone keeps other things in stays, without the key.
         let kept = with_config(&format!("{old}theirs = 1\n"), &full()).unwrap();
         assert!(kept.contains("[pull_requests]\ntheirs = 1") && !kept.contains("when_approved"), "{kept}");
+        // Nudging by default takes its place.
+        let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true }, ..full() };
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains("[pull_requests]\nnudge_by_default = true\n") && !out.contains("when_approved"), "{out}");
+    }
+
+    #[test]
+    fn nudging_by_default_is_off_until_the_file_turns_it_on() {
+        assert!(!toml::from_str::<Config>("").unwrap().pull_requests.nudge_by_default);
+        let old = render(&full());
+        assert!(!old.contains("[pull_requests]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[pull_requests]"));
+        let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true }, reviews: ReviewsCfg { auto: true, ..ReviewsCfg::default() }, ..full() };
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains(&format!("{PULL_REQUESTS_COMMENT}[pull_requests]\nnudge_by_default = true\n")), "{out}");
+        assert!(out.find("[reviews]").unwrap() < out.find("[pull_requests]").unwrap(), "{out}");
+        assert!(out.find("[pull_requests]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+        // Turned off again, the table stays, saying so.
+        let off = with_config(&out, &Config { reviews: on.reviews.clone(), ..full() }).unwrap();
+        assert!(off.contains("[pull_requests]\nnudge_by_default = false"), "{off}");
     }
 
 

@@ -17,7 +17,7 @@ import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus'
 import { autoReviewWords } from '../review';
 import type { AutoReview, Lane, PrComment, PrDetail, Session } from '../types';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
-import { PanelPlace } from './PanelSession';
+import { PanelPlace, PR_PRIMARY } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
 import { Button, cx, headerMenu, Icon } from './primitives';
@@ -316,6 +316,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
                 onShowSession={onShowSession}
                 onOpenSession={onOpenSession}
                 onSessionMenu={onSessionMenu}
+                primary={pr.primary ? { key: pr.primary, means: PR_PRIMARY } : null}
               />
             ))}
           </div>

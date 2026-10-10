@@ -146,8 +146,17 @@ pub struct PrLinks {
     pub worked: HashMap<String, Vec<String>>,
     /// (PR, session) pairs unlinked by hand: never listed, however they matched.
     pub unlinked: HashSet<(String, String)>,
-    /// PRs whose sessions are told of what happens on them (nudges.rs).
+    /// The sessions whose records show they made or changed the PR, each with the time of its
+    /// first mark: the first made it.
+    pub made: HashMap<String, Vec<(String, i64)>>,
+    /// The session picked by hand as the PR's primary.
+    pub picked: HashMap<String, String>,
+    /// PRs whose primary session is told of what happens on them (nudges.rs), turned on for
+    /// each, and the ones turned off.
     pub nudged: HashSet<String>,
+    pub not_nudged: HashSet<String>,
+    /// `[pull_requests] nudge_by_default`: every open PR of yours is told, unless turned off.
+    pub nudge_by_default: bool,
 }
 
 fn plain(s: &str) -> String {
@@ -749,7 +758,7 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 ///
 /// Then come the sessions whose records show they made or changed the PR, or that were linked
 /// to it by hand (`links.worked`), whatever their branch or time, each under the lane it's in.
-/// A session unlinked by hand is left off.
+/// A session unlinked by hand is left off. One of them is the PR's primary (`pr_primary`).
 ///
 /// A repo whose PRs aren't read (`polled_slugs`) lists the PRs GitHub's search says wait on your
 /// review (`requested`), and the search has the last word on reviews there: a PR it no longer
@@ -873,6 +882,10 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         }
     }
     sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
+    let primary = pr_primary(lanes, &sessions, &key, links);
+    let mine = login.is_some() && p.author.as_deref() == login;
+    let by_hand = links.nudged.contains(&key);
+    let nudge = p.state.is_open() && !links.not_nudged.contains(&key) && (by_hand || (links.nudge_by_default && mine));
     PrItem {
         key: format!("{slug}#{}", p.number),
         repo_slug: slug.to_string(),
@@ -883,12 +896,14 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         url: p.url.clone(),
         state: p.state,
         author: p.author.clone(),
-        mine: login.is_some() && p.author.as_deref() == login,
+        mine,
         review_requested: p.review_requested,
         requested_by: p.requested_by.clone().filter(|_| p.review_requested),
         requested_at: p.requested_at.filter(|_| p.review_requested),
         snoozed_until: None,
-        nudge: p.state.is_open() && links.nudged.contains(&key),
+        nudge,
+        nudge_by_default: nudge && !by_hand,
+        primary,
         head: p.head_ref.clone(),
         base: p.base_ref.clone(),
         checks: p.checks.clone(),
@@ -905,6 +920,24 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         head_oid: p.head_oid.clone(),
         auto_review: None,
     }
+}
+
+/// The PR's primary session, of the ones listed on it: the one picked by hand, else the one
+/// whose records show it first (the one that opened it, since a session that later pushes to it,
+/// comments or edits it is marked after), else the one that started first. A copy of a
+/// conversation (a fork, a move to another account) carries its marks with their times, so the
+/// one that started first wins a tie. An archived session isn't listed, so the next takes over.
+fn pr_primary(lanes: &[Lane], sessions: &[PrSession], key: &str, links: &PrLinks) -> Option<String> {
+    let listed = |k: &str| sessions.iter().any(|s| s.key == k);
+    if let Some(k) = links.picked.get(key).filter(|k| listed(k)) {
+        return Some(k.clone());
+    }
+    let started = |k: &str| home(lanes, k).map_or(i64::MAX, |(_, s)| s.started_at.unwrap_or(s.last_activity));
+    let made = links.made.get(key).into_iter().flatten().filter(|(k, _)| listed(k));
+    if let Some((k, _)) = made.min_by_key(|(k, at)| (crate::prlinks::mark_order(*at), started(k), k.clone())) {
+        return Some(k.clone());
+    }
+    sessions.iter().min_by_key(|s| (started(&s.key), s.key.clone())).map(|s| s.key.clone())
 }
 
 /// The first rule that matches. See *The model*, Lane status. Needs you, Working and Your turn
@@ -1998,6 +2031,51 @@ mod tests {
         assert_eq!((other.key.as_str(), other.project.as_str(), other.repo.as_str()), ("acme/tool#1037", "", "tool"));
         assert_eq!(other.sessions.len(), 1);
         assert!(other.lanes.is_empty());
+    }
+
+    #[test]
+    fn a_prs_primary_is_the_one_picked_else_the_one_that_opened_it_else_the_first_started() {
+        let s = |key: &str, started: i64| Session { started_at: Some(started), ..crate::fixtures::session(key) };
+        let lanes = vec![crate::fixtures::lane("/w", vec![s("a", 30), s("b", 10), s("c", 20), s("copy", 40)])];
+        let listed = |keys: &[&str]| keys.iter().map(|k| PrSession { key: (*k).into(), lane: "/w".into() }).collect::<Vec<_>>();
+        let primary = |keys: &[&str], links: &PrLinks| pr_primary(&lanes, &listed(keys), "o/r#1", links);
+        let mut links = PrLinks::default();
+        // Nothing in the records: the one that started first.
+        assert_eq!(primary(&["a", "b", "c"], &links).as_deref(), Some("b"));
+        assert_eq!(primary(&[], &links), None);
+        // The first mark is the one that opened it; a mark without a time comes last, and a copy
+        // of its conversation, with the same marks, loses to the one that started first.
+        links.made.insert("o/r#1".into(), vec![("a".into(), 0), ("copy".into(), 200), ("c".into(), 200), ("b".into(), 300)]);
+        assert_eq!(primary(&["a", "b", "c", "copy"], &links).as_deref(), Some("c"));
+        // One that isn't listed (archived, unlinked) leaves it to the next.
+        assert_eq!(primary(&["a", "b"], &links).as_deref(), Some("b"));
+        // Picked by hand wins, while it's listed.
+        links.picked.insert("o/r#1".into(), "a".into());
+        assert_eq!(primary(&["a", "b", "c"], &links).as_deref(), Some("a"));
+        assert_eq!(primary(&["b", "c"], &links).as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn a_pr_of_yours_nudges_by_default_unless_turned_off_for_it() {
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let card = |p: &PrRaw, login: Option<&str>, links: &PrLinks| {
+            let item = pr_card(&seeds, &[], "sprucehq/spark", &HashMap::new(), p, login, links);
+            (item.nudge, item.nudge_by_default)
+        };
+        let open = pr(PrState::Open, 0);
+        let mut links = PrLinks::default();
+        assert_eq!(card(&open, Some("gwen"), &links), (false, false));
+        links.nudge_by_default = true;
+        assert_eq!(card(&open, Some("gwen"), &links), (true, true));
+        // Someone else's isn't, nor one that ended.
+        assert_eq!(card(&open, Some("ken"), &links), (false, false));
+        assert_eq!(card(&pr(PrState::Merged, 0), Some("gwen"), &links), (false, false));
+        // Turned on for it: on whatever the setting says; off for it: off.
+        links.nudged.insert("sprucehq/spark#1037".into());
+        assert_eq!(card(&open, Some("ken"), &links), (true, false));
+        links.nudged.clear();
+        links.not_nudged.insert("sprucehq/spark#1037".into());
+        assert_eq!(card(&open, Some("gwen"), &links), (false, false));
     }
 
     #[test]

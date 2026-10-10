@@ -114,6 +114,24 @@ export function mayApprove(pr: Pick<PrItem, 'state' | 'mine'>): boolean {
   return isOpen(pr.state) && !pr.mine;
 }
 
+/* ---- Nudges ---- */
+
+/** What a PR's card says under its nudge switch (nudges.rs): whether it's on and why, and who's
+ *  told. `primary` is its primary session's title and whether it runs on this Mac, when the card
+ *  has it; only that session is ever told. */
+export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean } | null): string {
+  if (on) {
+    const lead = pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.';
+    if (!primary) return `${lead} No session of it is known here, so nobody is told.`;
+    if (!primary.runs) return `${lead} “${primary.title}”, its primary session, isn’t running here, so nobody is told until it is.`;
+    return `${lead} “${primary.title}”, its primary session, is sent a message as one of yours when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail.`;
+  }
+  const who = primary ? `“${primary.title}”` : 'its primary session';
+  return pr.state === 'approved'
+    ? `Off for this PR. It’s approved already: turning this on tells ${who} that now, then of what happens on it next.`
+    : `Off for this PR. Turned on, ${who} is told of reviews, comments, an approval, a merge and failing checks.`;
+}
+
 /* ---- Review comments ---- */
 
 /** A comment "asks for a change" at this probability or more. */

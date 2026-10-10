@@ -500,7 +500,7 @@ enum AnswerArg {
 
 #[derive(Subcommand, Debug)]
 enum PrCmd {
-    /// One PR: its state, branches, the worktrees on its branch and the sessions that worked on it. Needs the app, which reads GitHub.
+    /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it and which is its primary one (`primary`), and whether that one is nudged (`nudge`). Needs the app, which reads GitHub.
     Show {
         /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
         pr: String,
@@ -509,7 +509,7 @@ enum PrCmd {
     Link(PrLinkArgs),
     /// Take a session off a PR it's listed on but didn't work on. It stays off, however it matched, until linked again.
     Unlink(PrLinkArgs),
-    /// Have a PR's sessions told of what happens on it: each session that worked on it and is still running gets a message when someone else reviews it, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail, with where the PR stands. What the signed-in user did, which is what its own agent did through gh, isn't told. Off for every PR until turned on for it, here or from its card in the app; one approved already tells its sessions that now.
+    /// Have a PR's primary session told of what happens on it: while it runs, it gets a message when someone else reviews the PR, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail, with where the PR stands. Its primary session is the one that opened it, unless another was made it here; the PR's other sessions aren't told. What the signed-in user did, which is what its own agent did through gh, isn't told. Run from a session, that session becomes the one told, unless another running session is the PR's primary (--take). Off for a PR until turned on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of yours; one turned on approved already tells its session that now.
     Nudge(PrNudgeArgs),
 }
 
@@ -517,8 +517,14 @@ enum PrCmd {
 struct PrNudgeArgs {
     /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
     pr: String,
-    /// Turn it off again.
+    /// The session to tell, made the PR's primary: a session key or id. Without it, the session running this command, if it runs in one.
     #[arg(long)]
+    session: Option<String>,
+    /// Make the session the PR's primary even while another running session is.
+    #[arg(long)]
+    take: bool,
+    /// Turn it off again, for this PR.
+    #[arg(long, conflicts_with_all = ["session", "take"])]
     off: bool,
 }
 
@@ -1886,13 +1892,15 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
         println!("Worktree: {}", tilde(Path::new(l)));
     }
     for r in &rows {
-        println!("Session: {} {} ({}, {})", r.key, r.title, r.status, tilde(Path::new(&r.worktree)));
+        let primary = if p.primary.as_deref() == Some(r.key.as_str()) { ", primary" } else { "" };
+        println!("Session: {} {} ({}, {}{primary})", r.key, r.title, r.status, tilde(Path::new(&r.worktree)));
     }
     if rows.is_empty() {
         println!("No session is linked. `codealong pr link {} --session <key>` links one.", p.key);
     }
     if p.nudge {
-        println!("Its running sessions are told of what happens on it (`codealong pr nudge {} --off` stops that).", p.key);
+        let why = if p.nudge_by_default { "[pull_requests] nudge_by_default; " } else { "" };
+        println!("Its primary session is told of what happens on it while it runs ({why}`codealong pr nudge {} --off` stops that).", p.key);
     }
     Ok(())
 }
@@ -1931,38 +1939,74 @@ fn pr_link(c: &mut Client, a: &PrLinkArgs, linked: bool, json: bool) -> Result<(
 #[serde(rename_all = "camelCase")]
 struct PrNudgeOut {
     pr: String,
-    /// Whether its sessions are told of what happens on it, now.
+    /// Whether its primary session is told of what happens on it, now.
     nudge: bool,
+    /// The session told: the PR's primary, when that's known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<String>,
     /// False when it was already so.
     changed: bool,
 }
 
-/// Turns telling a PR's sessions of what happens on it on or off (nudges.rs), in pr-links.json,
-/// which the app watches.
+/// Turns telling a PR's primary session what happens on it on or off (nudges.rs), in
+/// pr-links.json, which the app watches. Turning it on from a session, or for one named, makes
+/// that session the PR's primary, unless another running session is (`--take`). A PR the board
+/// doesn't list yet has none: one just opened, whose opener is the one asking.
 fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, json: bool) -> Result<()> {
     let key = resolve_pr(c, &a.pr)?;
     let on = !a.off;
+    let listed = if on && c.app.is_some() { find_pr(c.board()?, &key).cloned() } else { None };
     if on && c.app.is_some() {
-        match find_pr(c.board()?, &key) {
+        match &listed {
             None => eprintln!("Note: Codealong doesn't read {key} yet (it's new, its repo isn't in a project, or it's old), so nobody is told until it does."),
-            Some(p) if !p.state.is_open() => eprintln!("Note: {key} is {}, so there's no approval left to tell of.", lower_debug(&p.state)),
+            Some(p) if !p.state.is_open() => eprintln!("Note: {key} is {}, so there's nothing more to tell of.", lower_debug(&p.state)),
             Some(_) => {}
         }
     }
+    let named = a.session.as_deref().map(|k| resolve_session(c, k)).transpose()?;
+    let wanted = match named {
+        Some(k) => Some(k),
+        None if on => find_me(c)?.0,
+        None => None,
+    };
+    if a.take && wanted.is_none() {
+        bail!("Codealong couldn't tell which session runs this command, so there's none to make {key}'s primary session. Name one with --session.");
+    }
+    let current = listed.as_ref().and_then(|p| p.primary.clone());
+    let runs = |c: &mut Client, k: &str| c.board().ok().and_then(|b| b.session(k)).is_some_and(|(_, s)| s.live && !s.archived);
+    let mut held = None;
+    let pick = match wanted {
+        Some(w) if current.as_deref() == Some(w.as_str()) => None,
+        Some(w) => match current.clone().filter(|k| runs(c, k)) {
+            Some(k) if !a.take => {
+                held = Some(k);
+                None
+            }
+            _ => Some(w),
+        },
+        None => None,
+    };
     let mut changed = false;
     crate::prlinks::change(|store| {
-        changed = store.set_nudge(&key, on);
+        let nudge = store.set_nudge(&key, on);
+        let primary = pick.as_ref().is_some_and(|w| store.set_primary(&key, w, now_ms()));
+        changed = nudge || primary;
         changed
     })?;
-    let out = PrNudgeOut { pr: crate::prlinks::pr_key(&key), nudge: on, changed };
+    let session = pick.clone().or(current).filter(|_| on);
+    let out = PrNudgeOut { pr: crate::prlinks::pr_key(&key), nudge: on, session: session.clone(), changed };
+    if let Some(k) = &held {
+        let who = session_words(c, k);
+        eprintln!("Note: {key}'s primary session is {who}, which is running, so it's the one told. `codealong pr nudge {key} --take` has this session told instead: for when you've taken the PR over.");
+    }
     if json {
         return print_json(&out);
     }
     let already = if changed { "" } else { " (it already was)" };
-    if on {
-        println!("The sessions that worked on {key} and are running then are told of what happens on it{already}.");
-    } else {
-        println!("Nobody is told of what happens on {key}{already}.");
+    match (on, &session) {
+        (false, _) => println!("Nobody is told of what happens on {key}{already}."),
+        (true, Some(k)) => println!("{} is told of what happens on {key} while it runs{already}.", session_words(c, k)),
+        (true, None) => println!("The session that opened {key} is told of what happens on it while it runs{already}."),
     }
     Ok(())
 }
@@ -3548,6 +3592,13 @@ mod tests {
         let cli = Cli::try_parse_from(["codealong", "sessions", "--live", "--json"]).unwrap();
         assert!(cli.json && matches!(cli.cmd, Cmd::Sessions(SessionsArgs { cmd: None, .. })));
         assert!(Cli::try_parse_from(["codealong", "todo", "add"]).is_err());
+        // A PR's nudge names the session told, or takes it over; turning it off names none.
+        let cli = Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--session", "claude:claude:a", "--take"]).unwrap();
+        let Cmd::Pr { cmd: PrCmd::Nudge(n) } = cli.cmd else { panic!() };
+        assert_eq!((n.pr.as_str(), n.session.as_deref(), n.take, n.off), ("#12", Some("claude:claude:a"), true, false));
+        assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off"]).is_ok());
+        assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off", "--take"]).is_err());
+        assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off", "--session", "me"]).is_err());
         // The plugin's hook, under a subcommand every older app knows: one that doesn't know
         // `hook` fails with a usage error, where an unknown first word would start the app.
         let cli = Cli::try_parse_from(["codealong", "session", "hook", "permission-request"]).unwrap();

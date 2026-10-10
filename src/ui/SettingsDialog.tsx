@@ -118,6 +118,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
         <AccountsSection focus={focus} usage={usage} terminal={apps.terminal} now={now} onSaved={() => void load()} />
         {cfg && <LimitsField cfg={cfg} disabled={!!broken} onSave={save} />}
         {cfg && <ReviewsField cfg={cfg} disabled={!!broken} onSave={save} />}
+        {cfg && <NudgeField cfg={cfg} disabled={!!broken} onSave={save} />}
       </>
     );
   } else if (section === 'agents') {
@@ -382,6 +383,24 @@ function ReviewsField({ cfg, disabled, onSave }: PaneProps) {
           </label>
         </>
       )}
+    </fieldset>
+  );
+}
+
+/** `[pull_requests] nudge_by_default`: every open PR of yours tells the session that opened it
+ *  what happens on it, unless its own switch is off (nudges.rs). */
+function NudgeField({ cfg, disabled, onSave }: PaneProps) {
+  const on = cfg.pull_requests?.nudge_by_default ?? false;
+  return (
+    <fieldset className="ca-settings-fields" disabled={disabled}>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={on} onChange={(e) => void onSave({ ...cfg, pull_requests: { nudge_by_default: e.target.checked } })} />
+        <span>Nudge the session that opened a pull request</span>
+        <small>
+          For every open pull request of yours, the session that opened it is sent a message, as one of yours, when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail, so it takes it from there. Its other sessions aren’t told. A pull
+          request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
+        </small>
+      </label>
     </fieldset>
   );
 }

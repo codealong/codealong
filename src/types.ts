@@ -384,6 +384,8 @@ export interface Config {
   sessions?: { continue_after_network_error: boolean };
   /** Reviewing the PRs that wait on your review without being asked. Older files have none: off. */
   reviews?: ReviewsCfg;
+  /** Your PRs. Older files have none: no nudges until turned on PR by PR. */
+  pull_requests?: { nudge_by_default: boolean };
   debug: { perf_log: boolean };
 }
 
@@ -863,9 +865,16 @@ export interface PrItem {
   /** You snoozed your review until then: it's out of Review requested, the floating bar's
    *  reviews and the mark until the time comes (board.rs, `apply_review_snoozes`). */
   snoozedUntil?: number | null;
-  /** Its sessions are told of what happens on it (nudges.rs): turned on for this PR, from its
-   *  card or menu or by `codealong pr nudge`. Said only while it's open. */
+  /** Its primary session is told of what happens on it (nudges.rs): turned on for this PR, from
+   *  its card or menu or by `codealong pr nudge`, or for every PR of yours by `[pull_requests]
+   *  nudge_by_default` unless turned off for this one. Said only while it's open. */
   nudge?: boolean;
+  /** The nudge is on through `[pull_requests] nudge_by_default`, not turned on for this PR. */
+  nudgeByDefault?: boolean;
+  /** The key of its primary session, of `sessions`: the one picked (`codealong pr nudge`), else
+   *  the one that opened it, else the one that started first (board.rs `pr_primary`). Only it is
+   *  nudged. */
+  primary?: string;
   head: string;
   base: string | null;
   checks: Checks;

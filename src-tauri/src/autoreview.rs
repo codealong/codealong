@@ -1305,6 +1305,8 @@ mod tests {
             requested_at: Some(n as i64),
             snoozed_until: None,
             nudge: false,
+            nudge_by_default: false,
+            primary: None,
             head: "teams".into(),
             base: Some("main".into()),
             checks: Checks::default(),

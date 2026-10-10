@@ -195,10 +195,19 @@ pub struct PrItem {
     /// out of Review requested, the floating bar's reviews and the mark until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snoozed_until: Option<i64>,
-    /// Its sessions are told of what happens on it (nudges.rs): turned on for this PR, from its
-    /// card or menu or by `codealong pr nudge`, and said only while it's open.
+    /// Its primary session is told of what happens on it (nudges.rs): turned on for this PR, from
+    /// its card or menu or by `codealong pr nudge`, or for every PR of yours by `[pull_requests]
+    /// nudge_by_default` unless turned off for this one. Said only while it's open.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub nudge: bool,
+    /// The nudge is on through `[pull_requests] nudge_by_default`, not turned on for this PR.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nudge_by_default: bool,
+    /// The session that's the PR's own, of `sessions`, by key: the one picked as its primary,
+    /// else the one whose records show it opened it, else the one that started first
+    /// (board.rs `pr_primary`). Only it is nudged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<String>,
     pub head: String,
     pub base: Option<String>,
     pub checks: Checks,

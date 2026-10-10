@@ -370,21 +370,30 @@ from any part of their row: picked together they take Mark as seen for their ses
 Every PR in the project's repos, with the worktree and sessions that worked on each: the ones that
 made, edited or commented on it, or pushed to it (from their own records: Claude Code's
 `gitOperation` results and its `pr-link` lines, Codex's commands and attached PRs), the ones on its
-branch while it was open, and any linked by hand (`codealong pr link|unlink`).
+branch while it was open, and any linked by hand (`codealong pr link|unlink`). One of them is the
+PR's primary session, listed first and tagged Primary on its card and in its panel: the one whose
+records show it opened the PR (the first to mark it), else the one that started first, unless
+another was made it with `codealong pr nudge --session`.
 
-#### Nudging a PR's sessions
+#### Nudging a PR's primary session
 
-A PR's sessions can be nudged with what happens on it, PR by PR: it's off for every PR until turned
-on for that one, with the switch on the PR's card (hover its chip in a session's header, or a link
-to it in a conversation), Nudge its sessions on updates in its menu, or by an agent for a PR it
-opened (`codealong pr nudge <pr>`, `--off` to stop). The sessions that worked on it and are still
-running are then sent a message, as one of yours, when someone else reviews it, asks for changes or
-comments (with what they wrote, read from GitHub as the PR changes), when it's approved, merged or
-closed, and when its checks fail, with where it stands (ready to merge, its checks are still
-running), so they take it from there; what you did to it yourself, which is what its agent did
-through `gh`, isn't told back. Turned on for a PR that's approved already, they're told that at
-once; what happened while Codealong wasn't running isn't told, and a session that has stopped isn't
-resumed for it.
+A PR's primary session can be nudged with what happens on it. It's off for a PR until turned on
+for it, with the switch on the PR's card (hover its chip in a session's header, or a link to it in
+a conversation), Nudge its session on updates in its menu, or by an agent: `codealong pr nudge
+<pr>` makes the agent's own session the one told, unless another running session is the PR's
+primary (`--take` takes it over, `--off` stops it). Settings › Accounts › Nudge the session that
+opened a pull request turns it on for every open PR of yours (`[pull_requests]
+nudge_by_default`), and a PR's own switch wins over that either way.
+
+The primary session, while it runs, is then sent a message, as one of yours, when someone else
+reviews the PR, asks for changes or comments (with what they wrote, read from GitHub as the PR
+changes), when it's approved, merged or closed, and when its checks fail, with where it stands
+(ready to merge, its checks are still running), so it takes it from there. The PR's other sessions
+(helpers, reviewers, ones that came to its branch) aren't told, nor is anyone while the primary
+isn't running, and what you did to it yourself, which is what its agent did through `gh`, isn't
+told back. Turned on for a PR that's approved already, it's told that at once (not when the setting
+turns it on for every PR); what happened while Codealong wasn't running isn't told, and a session
+that has stopped isn't resumed for it.
 
 #### Automatic reviews
 
@@ -1135,8 +1144,8 @@ floating, in `bar.json`; what's pinned to the desktop, and where each card was l
 `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`;
 each project's canvas in `canvas.json`; which session started or was forked into which, where the
 harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went
-into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, and the
-PRs whose sessions are nudged with what happens on them, in `pr-links.json`; worktrees marked
+into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, the
+PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked
 reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
 replies suggested for sessions, until the sessions move on, in `suggestions.json`.
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.

@@ -102,8 +102,9 @@ pub enum Msg {
     /// Lane path → session keys whose logs mention it, from the scan of that number
     /// (`Visitors::begin`).
     Visitors(u64, HashMap<PathBuf, Vec<String>>),
-    /// Session key → the PRs its records show it made or changed (prlinks.rs).
-    PrMarks(HashMap<String, Vec<String>>),
+    /// Session key → the PRs its records show it made or changed, each with its first mark's
+    /// time (prlinks.rs).
+    PrMarks(prlinks::Marks),
     /// Session key → the Chrome tabs its records show it drove, their profiles looked up, and
     /// Chrome's profiles (chrometabs.rs).
     ChromeUse(HashMap<String, chrometabs::Use>, Vec<chrome::Profile>),
@@ -889,8 +890,8 @@ struct Engine {
     visitors: Visitors,
     /// What to look for in logs: (lane path, text that identifies it, when it was made).
     needles: Vec<(PathBuf, String, i64)>,
-    /// Session key → the PRs its records show it made or changed.
-    pr_marks: HashMap<String, Vec<String>>,
+    /// Session key → the PRs its records show it made or changed, each with its first mark's time.
+    pr_marks: prlinks::Marks,
     /// Session key → the Chrome tabs its records show it drove (chrometabs.rs).
     chrome_use: HashMap<String, chrometabs::Use>,
     /// Chrome's profiles, as of the last lookup of a session's.
@@ -1476,8 +1477,10 @@ impl Engine {
         rest.appearance = before.appearance.clone();
         rest.shortcuts = before.shortcuts.clone();
         rest.debug = before.debug.clone();
-        // The apps are read as the board is composed; nothing to rescan for them either.
+        // The apps are read as the board is composed; nothing to rescan for them either, nor for
+        // which PRs nudge by default.
         rest.apps = before.apps.clone();
+        rest.pull_requests = before.pull_requests.clone();
         // A star only changes which account Auto picks; nothing to rescan for it.
         for a in &mut rest.accounts {
             if let Some(b) = before.accounts.iter().find(|b| b.name == a.name) {
@@ -1545,10 +1548,8 @@ impl Engine {
                     // Marks read from new lines while the scan ran are kept.
                     for (key, prs) in found {
                         let have = self.pr_marks.entry(key).or_default();
-                        for pr in prs {
-                            if !have.contains(&pr) {
-                                have.push(pr);
-                            }
+                        for (pr, at) in prs {
+                            prlinks::add_mark(have, pr, at);
                         }
                     }
                     self.dirty = true;
@@ -2319,18 +2320,16 @@ impl Engine {
     /// in the background unless `sync`. New lines are read as they come (`check_new_lines`).
     fn scan_pr_marks(&mut self, sync: bool) {
         let files = self.session_logs();
-        let scan = move || -> (HashMap<String, Vec<String>>, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
-            let mut out: HashMap<String, Vec<String>> = HashMap::new();
+        let scan = move || -> (prlinks::Marks, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
+            let mut out: prlinks::Marks = HashMap::new();
             let mut used: HashMap<String, chrometabs::Use> = HashMap::new();
             for (key, marks, chrome) in parallel_map(files, |(path, key)| {
                 let (marks, chrome) = file_marks(&path);
                 (!marks.is_empty() || !chrome.is_empty()).then(|| (key, marks, chrome))
             }) {
                 let have = out.entry(key.clone()).or_default();
-                for (pr, _) in marks {
-                    if !have.contains(&pr) {
-                        have.push(pr);
-                    }
+                for (pr, at) in marks {
+                    prlinks::add_mark(have, pr, at);
                 }
                 // A session's own log and its subagents' each have their own: the latest counts.
                 if !chrome.is_empty() && used.get(&key).map_or(true, |u| chrome.at > u.at) {
@@ -2407,8 +2406,17 @@ impl Engine {
 
     /// What pr-links.json and the sessions' records say of PRs, for the board.
     fn pr_links(&self) -> board::PrLinks {
-        let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
-        board::PrLinks { worked, unlinked, nudged: self.pr_store.nudges.iter().cloned().collect() }
+        let (worked, unlinked, made) = prlinks::resolve(&self.pr_marks, &self.pr_store);
+        let picked = self.pr_store.links.iter().filter(|l| l.linked && l.primary).map(|l| (prlinks::pr_key(&l.pr), l.session.clone())).collect();
+        board::PrLinks {
+            worked,
+            unlinked,
+            made,
+            picked,
+            nudged: self.pr_store.nudges.iter().cloned().collect(),
+            not_nudged: self.pr_store.nudges_off.iter().cloned().collect(),
+            nudge_by_default: self.cfg.pull_requests.nudge_by_default,
+        }
     }
 
     /// reviews.json as autoreview.rs last saved it, for the PRs' cards. One that doesn't read
@@ -2429,12 +2437,9 @@ impl Engine {
             return;
         }
         let Some(text) = crate::util::read_range(path, from, to) else { return };
-        for (pr, _) in prlinks::pr_marks(&text) {
+        for (pr, at) in prlinks::pr_marks(&text) {
             let have = self.pr_marks.entry(key.to_string()).or_default();
-            if !have.contains(&pr) {
-                have.push(pr);
-                self.dirty = true;
-            }
+            self.dirty |= prlinks::add_mark(have, pr, at);
         }
         let mut chrome = self.chrome_use.get(key).cloned().unwrap_or_default();
         if chrometabs::fold_text(&mut chrome, &text) {

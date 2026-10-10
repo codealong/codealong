@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentsToAsk, heldForAgent, mayApprove, prFlag, prPills, prReady, type PrFacts } from './prStatus';
+import { asksFor, commentPreview, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -72,6 +72,20 @@ describe('mayApprove', () => {
     expect(mayApprove(item({ mine: true }))).toBe(false);
     expect(mayApprove(item({ mine: false, state: 'merged' }))).toBe(false);
     expect(mayApprove(item({ mine: false, state: 'closed' }))).toBe(false);
+  });
+});
+
+describe('nudgeWords', () => {
+  const made = { title: 'marketing email broadcast', runs: true };
+  it('names the one session that is told, and says when nobody is', () => {
+    expect(nudgeWords(item({}), true, made)).toMatch(/^On for this PR\. “marketing email broadcast”, its primary session, is sent a message/);
+    expect(nudgeWords(item({ nudgeByDefault: true }), true, made)).toMatch(/^On for every PR of yours, by Settings\. “marketing/);
+    expect(nudgeWords(item({}), true, { ...made, runs: false })).toBe('On for this PR. “marketing email broadcast”, its primary session, isn’t running here, so nobody is told until it is.');
+    expect(nudgeWords(item({}), true, null)).toBe('On for this PR. No session of it is known here, so nobody is told.');
+  });
+  it('says what turning it on would do, an approval it has already first', () => {
+    expect(nudgeWords(item({ state: 'approved' }), false, made)).toBe('Off for this PR. It’s approved already: turning this on tells “marketing email broadcast” that now, then of what happens on it next.');
+    expect(nudgeWords(item({}), false, null)).toBe('Off for this PR. Turned on, its primary session is told of reviews, comments, an approval, a merge and failing checks.');
   });
 });
 

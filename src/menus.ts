@@ -971,13 +971,14 @@ export interface PrCan {
   canvas?: MenuSpec;
 }
 
-/** Nudge its sessions on updates, checked while it's on: for a PR the board lists, which has a
- *  key, while it's open. Each PR's own, and off until turned on (nudges.rs). */
+/** Nudge its session on updates, checked while it's on: for a PR the board lists, which has a
+ *  key, while it's open. Each PR's own, off until turned on unless `[pull_requests]
+ *  nudge_by_default` turns it on for yours; only its primary session is told (nudges.rs). */
 function nudgeItem(pr: { key?: string; state?: Pr['state']; nudge?: boolean }, report: Report): MenuAction | undefined {
   const { key, state } = pr;
   if (!key || !state || state === 'merged' || state === 'closed') return undefined;
   const on = !!pr.nudge;
-  return { label: 'Nudge its sessions on updates', checked: on, run: () => void setPrNudge(key, !on).catch((e: unknown) => report.error(errorText(e))) };
+  return { label: 'Nudge its session on updates', checked: on, run: () => void setPrNudge(key, !on).catch((e: unknown) => report.error(errorText(e))) };
 }
 
 /** A PR's menu: opening it, its session, reviewing it, showing it; approving it, snoozing your

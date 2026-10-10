@@ -17,7 +17,7 @@ import { branchLabel } from '../lanes';
 import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
-import { PanelPlace } from './PanelSession';
+import { PanelPlace, TODO_PRIMARY } from './PanelSession';
 import { PickList, PickPanel, PickRow } from './PickPanel';
 import { Button, Chip, cx, headerMenu, Icon, Kbd, Seg } from './primitives';
 import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
@@ -644,7 +644,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
                 onShowSession={onShowSession}
                 onOpenSession={onOpenSession}
                 onSessionMenu={onSessionMenu}
-                primary={item.primary?.session.key}
+                primary={item.primary && { key: item.primary.session.key, means: TODO_PRIMARY }}
               />
             ))}
           </div>
