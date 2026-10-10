@@ -64,7 +64,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   when the process running it quits, starts one, removing the socket the one before it made; the
   path leads only to the last, and a client that joined an earlier one stays with it until the
   app is reopened. So the app usually has more than one router on `ipc.sock` (two after a fresh
-  start on 26.930, 2026-10-10, every window on the last), and when a window is left on another,
+  start on 26.930, 2026-10-10, the window that had the thread on the last), and when a window is left on another,
   Codealong's lookups never reach it (`no-client-found` after ten seconds). Seen 2026-10-10: five
   listening sockets since the router moved at 2026-10-08 19:57Z, and the window that owned the
   thread on one of the others. netstat counts the routers, and the app's log says a window took
