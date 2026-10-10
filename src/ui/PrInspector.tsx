@@ -16,7 +16,7 @@ import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
 import { autoReviewWords } from '../review';
 import type { AutoReview, Lane, PrComment, PrDetail, Session } from '../types';
-import { MergeBox } from './MergeBox';
+import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { PanelPlace } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
@@ -150,6 +150,8 @@ export interface PrDetailsProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
   /** ⌘F goes to the files' filter (PrFiles.tsx). */
   keys?: boolean;
+  /** A window that goes on to the next PR as one is merged (MergeBox.tsx). */
+  goesOn?: MergeGoesOn;
 }
 
 interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail'> {
@@ -194,7 +196,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, ...detai
 
 /** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
  *  comments, its description and its files. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys }: PrDetailsProps) {
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn }: PrDetailsProps) {
   const { pr } = item;
   const files = useRef<FilesFinder>(null);
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
@@ -296,7 +298,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
           </span>
         </div>
       </header>
-      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} />
+      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} goesOn={goesOn} />
 
       {item.places.length > 0 && (
         <section className="ca-insp-sec">

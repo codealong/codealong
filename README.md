@@ -249,7 +249,8 @@ conflicts, and rows that are your move are marked. Select one for its descriptio
 checks, comments and diffs.
 
 - **Review, approve and merge** without opening GitHub: merge commit, squash or rebase,
-  auto-merge, the merge queue, updating the branch.
+  auto-merge, the merge queue, updating the branch. A merge shows everywhere as you confirm it,
+  and comes back with why if GitHub refuses it.
 - **Snooze** a review request until later.
 - **Nudge a PR's agents**, and they're told when someone reviews, asks for changes or comments,
   or when checks fail, so they take it from there.

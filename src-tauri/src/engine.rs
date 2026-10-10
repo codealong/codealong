@@ -76,6 +76,9 @@ pub enum Msg {
     RefreshGithub,
     /// A PR changed on GitHub at your hand: PRs are read again in full now.
     PrChanged,
+    /// A PR you merged from Codealong, by its slug on the board and its number. The reply is the
+    /// time of the board that shows it, published at once.
+    Merged(String, u64, Sender<i64>),
     /// A PR you approved from Codealong, by its slug on the board and its number. The reply is
     /// the time of the board that shows it, published at once.
     Approved(String, u64, Sender<i64>),
@@ -212,6 +215,14 @@ impl Handle {
     /// read again now, not at the next poll.
     pub fn pr_changed(&self) {
         let _ = self.tx.send(Msg::PrChanged);
+    }
+
+    /// A PR you've just merged shows merged now, not at the next poll. Returns the time of the
+    /// board that shows it, as `approved` does.
+    pub fn merged(&self, slug: &str, number: u64) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Merged(slug.to_string(), number, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
     /// A PR you've just approved stops asking for your review now, not at the next poll. Returns
@@ -1469,6 +1480,12 @@ impl Engine {
                 Ok(Msg::Github(event)) => self.on_github(event),
                 Ok(Msg::RefreshGithub) => self.github.poll(&self.seeds, false, Now::real()),
                 Ok(Msg::PrChanged) => self.github.on_changed(&self.seeds, Now::real()),
+                Ok(Msg::Merged(slug, number, reply)) => {
+                    self.dirty |= self.github.on_merged(slug, number, &self.seeds, Now::real());
+                    // Now rather than on the next tick: the window shows it merged meanwhile.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
                 Ok(Msg::Approved(slug, number, reply)) => {
                     self.dirty |= self.github.on_approved(slug, number, &self.seeds, Now::real());
                     // Now rather than on the next tick: the button waits for it.

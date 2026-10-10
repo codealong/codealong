@@ -422,13 +422,17 @@ export function App() {
   // the selected agent's line goes (you marked it seen, it stopped), the selection stays
   // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
   // while Done is folded, or no longer matching the search or a filter) stays in the panel: the
-  // next key you press is still about the todo you see, and an edit in progress isn't cut off.
+  // next key you press is still about the todo you see, and an edit in progress isn't cut off. A
+  // PR that leaves it stays the same way: one you merge moves under Merged & closed, folded,
+  // as you confirm it (ahead.ts `mergeAhead`), and its panel says how the merge went.
   const [selectedLaneId, selectedSessionKey] = selectedKey?.split('::') ?? [];
   const selected =
     visible.find((r) => r.key === selectedKey) ??
     (view === 'todo'
       ? todoItems.find((r) => r.key === selectedKey)
-      : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
+      : view === 'prs'
+        ? prRows.find((r) => r.key === selectedKey)
+        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
     visible[0] ??
     null;
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows

@@ -56,7 +56,10 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   which GitHub lets through for whoever may bypass the rules. A mutation GitHub refuses makes
   `gh api graphql` exit 1 with `gh: <message>` on stderr, and one that names a node that isn't
   there fails on `NOT_FOUND` only after its document is checked, which is how the mutations were
-  checked without changing anything.
+  checked without changing anything. A PR merged here shows merged at once (`ghpoll.rs`
+  `on_merged`, `merged_here`), against an answer asked for before the merge too; the search for
+  PRs that wait on your review lists only open ones, so one it found stays in it, merged, until
+  GitHub is asked again.
 - Automatic reviews (autoreview.rs) never submit a review: any review you submit, a comment one
   too, takes you off the PR's requested reviewers, and the review is still yours to give. By
   default they go into a pending review on your account (`github.rs` `draft_review`,

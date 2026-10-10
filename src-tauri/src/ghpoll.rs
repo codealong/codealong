@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::board::{self, LaneSeed};
 use crate::github::{self, Failure, Glance, Points, PrRaw, RepoPrs, Requested, Stamp};
-use crate::model::Notice;
+use crate::model::{Notice, PrState};
 use crate::procs;
 use crate::throttle;
 use crate::util::now_ms;
@@ -231,11 +231,25 @@ pub struct GhPoll {
     heard: (bool, HashSet<String>),
     /// PRs you approved here (slug, number) and when, until GitHub is asked after it.
     approved_here: HashMap<(String, u64), Instant>,
+    /// PRs you merged here (slug, number), when, and when by the clock, until GitHub is asked
+    /// after it.
+    merged_here: HashMap<(String, u64), (Instant, i64)>,
     /// When GitHub last answered.
     at: Option<i64>,
     login: Option<String>,
     schedule: Schedule,
     names: Names,
+}
+
+/// A PR as the board shows it once you've merged it here: merged then, and waiting on no review.
+fn shown_merged(pr: &mut PrRaw, ms: i64) {
+    if pr.state != PrState::Merged {
+        pr.state = PrState::Merged;
+        pr.merged_at = Some(ms);
+        pr.closed_at = Some(ms);
+        pr.updated_at = pr.updated_at.max(ms);
+    }
+    pr.review_requested = false;
 }
 
 impl GhPoll {
@@ -247,6 +261,7 @@ impl GhPoll {
             failures: BTreeMap::new(),
             heard: (false, HashSet::new()),
             approved_here: HashMap::new(),
+            merged_here: HashMap::new(),
             at: None,
             login: None,
             schedule: Schedule::default(),
@@ -480,6 +495,22 @@ impl GhPoll {
         dirty
     }
 
+    /// `gh` has merged a PR: the board shows it merged now, not at the next poll, and waiting on
+    /// no review, and GitHub is asked for the rest. GitHub's search for the PRs that wait on your
+    /// review lists only open ones, so one it found is kept, merged, until GitHub is asked again.
+    /// True when the board has changed.
+    pub fn on_merged(&mut self, slug: String, number: u64, seeds: &[LaneSeed], now: Now) -> bool {
+        let mut dirty = false;
+        let lists = self.prs.get_mut(&slug).into_iter().chain(self.requested.get_mut(&slug));
+        for pr in lists.flat_map(|prs| prs.iter_mut()).filter(|p| p.number == number) {
+            shown_merged(pr, now.ms);
+            dirty = true;
+        }
+        self.merged_here.insert((slug, number), (now.at, now.ms));
+        self.on_changed(seeds, now);
+        dirty
+    }
+
     /// Something you did changed a PR on GitHub (merged it, queued it, updated its branch):
     /// PRs are read again in full, now or as soon as the poll on its way returns.
     pub fn on_changed(&mut self, seeds: &[LaneSeed], now: Now) {
@@ -503,6 +534,19 @@ impl GhPoll {
                     }
                     if let Some(pr) = repo.prs.iter_mut().find(|p| p.number == *n) {
                         pr.review_requested = false;
+                    }
+                    true
+                });
+                // And one sent before you merged a PR here still has it open.
+                self.merged_here.retain(|(s, n), (at, ms)| {
+                    if *s != slug {
+                        return true;
+                    }
+                    if asked.is_some_and(|t| t >= *at) {
+                        return false;
+                    }
+                    if let Some(pr) = repo.prs.iter_mut().find(|p| p.number == *n) {
+                        shown_merged(pr, *ms);
                     }
                     true
                 });
@@ -552,6 +596,25 @@ impl GhPoll {
             }
             true
         });
+        // One merged here stays, merged: one asked for after has GitHub's word, which no longer
+        // lists it.
+        let previous = std::mem::take(&mut self.requested);
+        self.merged_here.retain(|(s, n), (at, ms)| {
+            if asked.is_some_and(|t| t >= *at) {
+                return false;
+            }
+            let list = requested.entry(s.clone()).or_default();
+            match list.iter_mut().find(|p| p.number == *n) {
+                Some(pr) => shown_merged(pr, *ms),
+                None => {
+                    if let Some(was) = previous.get(s).and_then(|prs| prs.iter().find(|p| p.number == *n)) {
+                        list.push(was.clone());
+                    }
+                }
+            }
+            true
+        });
+        requested.retain(|_, prs| !prs.is_empty());
         self.requested = requested;
         if found.login.is_some() {
             self.login = found.login;
@@ -909,6 +972,61 @@ mod tests {
         gh.schedule.last = Some(after(sent, 3).at);
         gh.on_event(found(), &seeds, after(sent, 4));
         assert_eq!(gh.requested()["SparkHQ/spark"].len(), 1);
+    }
+
+    #[test]
+    fn a_pr_merged_here_shows_merged_at_once() {
+        let mut gh = quiet();
+        let slug = "sprucehq/spark".to_string();
+        let state = |gh: &GhPoll| (gh.prs()[&slug][0].state, gh.prs()[&slug][0].merged_at.is_some(), gh.prs()[&slug][0].review_requested);
+        let answer = || Event::Repo(slug.clone(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![PrRaw { review_requested: true, ..pr(1089) }] }), None);
+        gh.prs.insert(slug.clone(), vec![PrRaw { review_requested: true, ..pr(1089) }]);
+        let sent = clock();
+
+        // A poll is on its way when you merge.
+        gh.schedule.inflight = true;
+        gh.schedule.last = Some(sent.at);
+        assert!(gh.on_merged(slug.clone(), 1089, &[], after(sent, 1)));
+        assert_eq!(state(&gh), (PrState::Merged, true, false), "merged at once, and waiting on no review");
+        assert_eq!(gh.prs()[&slug][0].merged_at, Some(after(sent, 1).ms));
+        assert!(gh.schedule.again, "GitHub is asked again once the poll returns");
+        // That poll was answered before GitHub had merged it.
+        gh.on_event(answer(), &[], after(sent, 2));
+        assert_eq!(state(&gh), (PrState::Merged, true, false), "an answer asked for before the merge doesn't open it again");
+
+        // An answer asked for after it is GitHub's word.
+        gh.schedule.last = Some(after(sent, 3).at);
+        gh.on_event(answer(), &[], after(sent, 4));
+        assert_eq!(state(&gh).0, PrState::Open);
+        assert!(gh.merged_here.is_empty());
+    }
+
+    #[test]
+    fn a_pr_merged_here_stays_merged_among_the_ones_that_waited_on_you() {
+        let mut gh = quiet();
+        let seeds = [seed("/x/spark", "SparkHQ/spark", "main")];
+        gh.names.now.insert("sparkhq/spark".into(), "sprucehq/spark".into());
+        let found = |prs: Vec<PrRaw>| Event::Requested(Ok(Requested { login: Some("gwen".into()), prs: prs.into_iter().map(|p| ("sprucehq/spark".to_string(), p)).collect() }), None);
+        let asked = || PrRaw { review_requested: true, ..pr(7) };
+        let sent = clock();
+        gh.schedule.last = Some(sent.at);
+        gh.on_event(found(vec![asked()]), &seeds, sent);
+
+        // Merged here: it stays listed, merged, as the search lists only open PRs.
+        gh.schedule.inflight = true;
+        assert!(gh.on_merged("SparkHQ/spark".into(), 7, &seeds, after(sent, 1)));
+        let seven = |gh: &GhPoll| gh.requested().get("SparkHQ/spark").and_then(|prs| prs.iter().find(|p| p.number == 7)).map(|p| (p.state, p.review_requested));
+        assert_eq!(seven(&gh), Some((PrState::Merged, false)));
+        // A search asked for before the merge still lists it open, or already doesn't list it.
+        gh.on_event(found(vec![asked()]), &seeds, after(sent, 2));
+        assert_eq!(seven(&gh), Some((PrState::Merged, false)));
+        gh.on_event(found(vec![]), &seeds, after(sent, 2));
+        assert_eq!(seven(&gh), Some((PrState::Merged, false)));
+        // One asked for after is GitHub's word, which no longer lists it.
+        gh.schedule.last = Some(after(sent, 3).at);
+        gh.on_event(found(vec![]), &seeds, after(sent, 4));
+        assert_eq!(seven(&gh), None);
+        assert!(gh.merged_here.is_empty());
     }
 
     /// A poll runs on a thread nobody watches. If it fell over without a word, the poll would

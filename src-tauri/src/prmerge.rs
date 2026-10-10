@@ -319,23 +319,38 @@ pub fn op_args(id: &str, op: &Op) -> Vec<Vec<String>> {
     }
 }
 
+/// What an act did: whether GitHub says the PR is merged now, and what went wrong after (a
+/// branch that stayed).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Acted {
+    pub merged: bool,
+    pub note: Option<String>,
+}
+
 /// Does what the box asked to PR `number`, whose node id is `id`. A merge that went through but
 /// whose branch couldn't be deleted is done, with what went wrong said after.
-pub fn act(number: u64, id: &str, op: &Op) -> Result<Option<String>> {
+pub fn act(number: u64, id: &str, op: &Op) -> Result<Acted> {
     let mut steps = op_args(id, op).into_iter();
     let run = |args: Vec<String>| {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         // GitHub can take a while over a merge in a big repo.
-        procs::run("gh", &args, None, Duration::from_secs(60)).map(|_| ())
+        procs::run("gh", &args, None, Duration::from_secs(60))
     };
     let first = steps.next().ok_or_else(|| anyhow!("Nothing to do"))?;
-    run(first).map_err(|e| anyhow!("Couldn't {} #{number}: {}", op.verb(), plain(&e)))?;
+    let out = run(first).map_err(|e| anyhow!("Couldn't {} #{number}: {}", op.verb(), plain(&e)))?;
+    let mut acted = Acted { merged: matches!(op, Op::Merge { .. }) && says_merged(&out), note: None };
     for step in steps {
         if let Err(e) = run(step) {
-            return Ok(Some(format!("Merged #{number}, but couldn't delete its branch: {}", plain(&e))));
+            acted.note = Some(format!("Merged #{number}, but couldn't delete its branch: {}", plain(&e)));
+            break;
         }
     }
-    Ok(None)
+    Ok(acted)
+}
+
+/// Whether `mergePullRequest`'s answer has the PR merged.
+fn says_merged(out: &str) -> bool {
+    serde_json::from_str::<Value>(out).ok().and_then(|v| v.pointer("/data/mergePullRequest/pullRequest/state").and_then(Value::as_str).map(|s| s == "MERGED")).unwrap_or(false)
 }
 
 /// What GitHub said, without `gh`'s name before it.
@@ -470,6 +485,13 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_is_merged_when_github_says_so() {
+        assert!(says_merged(r#"{"data":{"mergePullRequest":{"pullRequest":{"state":"MERGED"}}}}"#));
+        assert!(!says_merged(r#"{"data":{"mergePullRequest":{"pullRequest":{"state":"OPEN"}}}}"#));
+        assert!(!says_merged(""));
+    }
+
+    #[test]
     fn says_what_github_refused_and_a_branch_that_stayed() {
         use std::cell::RefCell;
         use std::rc::Rc;
@@ -477,7 +499,8 @@ mod tests {
         let log = sent.clone();
         // As `procs::run` says what `gh` printed when GitHub refused a mutation.
         let refused = |why: &str| Err(anyhow!("gh gh: {why}"));
-        let mut answers = vec![refused("Head branch was modified. Review and try the merge again."), Ok(String::new()), Ok(String::new()), Ok(String::new()), refused("Reference does not exist")].into_iter();
+        let merged = || Ok(r#"{"data":{"mergePullRequest":{"pullRequest":{"state":"MERGED"}}}}"#.to_string());
+        let mut answers = vec![refused("Head branch was modified. Review and try the merge again."), merged(), Ok(String::new()), merged(), refused("Reference does not exist")].into_iter();
         procs::stand_in::set(Some(Box::new(move |program, args, _, _| {
             log.borrow_mut().push((program.to_string(), args.iter().any(|a| a.contains("deleteRef"))));
             answers.next().unwrap()
@@ -487,9 +510,9 @@ mod tests {
         assert_eq!(act(7, "PR_1", &o).unwrap_err().to_string(), "Couldn't merge #7: Head branch was modified. Review and try the merge again.");
         assert_eq!(sent.borrow().len(), 1);
         // Merged and deleted.
-        assert_eq!(act(7, "PR_1", &o).unwrap(), None);
+        assert_eq!(act(7, "PR_1", &o).unwrap(), Acted { merged: true, note: None });
         // Merged, the branch stayed.
-        assert_eq!(act(7, "PR_1", &o).unwrap().as_deref(), Some("Merged #7, but couldn't delete its branch: Reference does not exist"));
+        assert_eq!(act(7, "PR_1", &o).unwrap(), Acted { merged: true, note: Some("Merged #7, but couldn't delete its branch: Reference does not exist".into()) });
         procs::stand_in::set(None);
         assert_eq!(sent.borrow().iter().filter(|(p, _)| p == "gh").count(), 5);
     }

@@ -14,8 +14,9 @@
 // you (`can.left`), and the window goes on to the next at once, as it does from a session's
 // message on its way: the review goes to GitHub behind it. One GitHub refuses comes back round
 // (`can.failed`): the PR is back in what waits on you with what you wrote, and the strip says
-// why. What you wrote stays with the PR until it goes, so skipping to the next and coming back
-// loses nothing.
+// why. A merge from the merge box under its title (MergeBox.tsx `goesOn`) leaves the same way.
+// What you wrote stays with the PR until it goes, so skipping to the next and coming back loses
+// nothing.
 //
 // The box has two sides, Review and Ask, a switch at its foot, each with a draft of its own. Ask
 // puts questions about the PR to an agent (side.rs `ask_pr`), which reads its description,
@@ -286,6 +287,10 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
       at,
     );
 
+  // A merge leaves what waits on you as a review does: the window goes on at once, and one GitHub
+  // refuses comes back round.
+  const left = can.left;
+  const goesOn = left && { left: () => left('merged'), failed: (why: string) => (can.failed ? can.failed(why) : report.error(why)) };
   const sign = (name: keyof typeof menus.PR_CHORDS) => menus.chordSigns(menus.PR_CHORDS[name] ?? '');
   const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';
   const snooze = actions.snooze;
@@ -320,7 +325,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
         <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, review with, pin, copy and more" onClick={(e) => menu(below(e.currentTarget))} />
       </div>
       <div className="ca-prreview-body ca-prinsp">
-        <PrDetails item={item} now={now} keys onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
+        <PrDetails item={item} now={now} keys goesOn={goesOn} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
       </div>
       {asking && <SideStrip key={`side:${pr.key}`} sideKey={pr.key} words={prSides(pr, answerer)} />}
       <div className={cx('ca-composer', 'ca-prreview-box', asking && 'is-aside')}>

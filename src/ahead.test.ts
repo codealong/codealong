@@ -5,6 +5,7 @@ const api = vi.hoisted(() => ({
   markSeen: vi.fn(),
   archiveSession: vi.fn(),
   renameSession: vi.fn(),
+  mergePr: vi.fn(),
 }));
 vi.mock('./api', () => ({
   ...api,
@@ -13,7 +14,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, renameAhead, sendAhead, settled, type Ahead, type View } from './ahead';
+import { barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, sendAhead, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf } from './lanes';
 import * as fx from './testing/fixtures';
@@ -151,6 +152,19 @@ describe('boardAhead', () => {
     expect(back.logoStatus).toBe('needs');
     expect(boardAhead(board, [change({ kind: 'review-snooze', keys: [other.key], until: NOW + 1 })])).toBe(board);
   });
+
+  it('shows a PR merged as it’s asked, out of what waits on your review', () => {
+    const asked = fx.prItem({ number: 1, reviewRequested: true, state: 'approved', mergedAt: null, closedAt: null });
+    const other = fx.prItem({ number: 2 });
+    const board = fx.board({ lanes: [lane([session('a', 'idle')])], prs: [asked, other], logoStatus: 'needs' });
+    const out = boardAhead(board, [change({ kind: 'pr-merge', key: asked.key })]);
+    expect(out.prs[0]).toMatchObject({ state: 'merged', mergedAt: NOW, closedAt: NOW, reviewRequested: false });
+    expect(out.prs[1]).toBe(other);
+    expect(out.logoStatus).toBe('idle');
+    // One the board shows merged already, or closed, is left as the board has it.
+    const merged = { ...board, prs: [{ ...asked, state: 'merged' as const, mergedAt: NOW - 5 }] };
+    expect(boardAhead(merged, [change({ kind: 'pr-merge', key: asked.key })])).toBe(merged);
+  });
 });
 
 describe('settled', () => {
@@ -180,6 +194,15 @@ describe('settled', () => {
     const a = change({ kind: 'seen', keys: ['a'] });
     expect(settled(a, view(NOW + 5_000, { status: 'idle' }), NOW + 5_000)).toBe(a);
     expect(settled(a, view(null), NOW + 61_000)).toBeNull();
+  });
+
+  it('keeps a merge until the engine’s board shows it, or a while with none', () => {
+    const a = change({ kind: 'pr-merge', key: 'o/r#1' });
+    expect(settled(a, view(NOW + 5_000), NOW + 5_000)).toBe(a);
+    const done = { ...a, doneAt: NOW + 3_000, shownAt: NOW + 2_900 };
+    expect(settled(done, view(NOW + 2_000), NOW + 3_100)).toBe(done);
+    expect(settled(done, view(NOW + 2_900), NOW + 3_100)).toBeNull();
+    expect(settled({ ...a, doneAt: NOW + 3_000 }, view(NOW + 9_000), NOW + 24_000)).toBeNull();
   });
 
   it('settles one the engine gave no board for (another device’s) once the view shows it', () => {
@@ -282,6 +305,12 @@ describe('barAhead', () => {
     expect(both.logoStatus).toBe('working');
   });
 
+  it('takes a review merged here off the bar', () => {
+    const f = { ...feed([item('w', 'working', NOW)]), reviews: [fx.barReview({ key: 'o/r#1' }), fx.barReview({ key: 'o/r#2' })] };
+    const out = barAhead(f, [change({ kind: 'pr-merge', key: 'o/r#2' })]);
+    expect(out.reviews.map((r) => r.key)).toEqual(['o/r#1']);
+  });
+
   it('hands back the same feed when nothing applies', () => {
     const f = feed([item('w', 'working', NOW)]);
     expect(barAhead(f, [change({ kind: 'archive', key: 'x', archived: true })])).toBe(f);
@@ -343,5 +372,28 @@ describe('renameAhead', () => {
     expect(api.renameSession).toHaveBeenCalledWith('s', 'Use `vitest` for `ahead`');
     api.renameSession.mockRejectedValueOnce(new Error("OpenCode's service isn't running."));
     await expect(renameAhead('t', 'Other')).rejects.toThrow("OpenCode's service isn't running.");
+  });
+});
+
+describe('mergeAhead', () => {
+  beforeEach(() => api.mergePr.mockReset());
+  const pr = { key: 'o/r#7', repoSlug: 'o/r', number: 7 };
+  const merge = { op: 'merge' as const, head: 'abc', method: 'squash' as const, title: 'Add teams (#7)', body: '', email: null, deleteBranch: null };
+
+  it('hands the engine the merge, and what GitHub couldn’t do after', async () => {
+    api.mergePr.mockResolvedValueOnce({ note: 'Merged #7, but couldn’t delete its branch: gone', shownAt: NOW });
+    await expect(mergeAhead(pr, 'PR_7', merge)).resolves.toBe('Merged #7, but couldn’t delete its branch: gone');
+    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge);
+  });
+
+  it('says why GitHub refused it', async () => {
+    api.mergePr.mockRejectedValueOnce(new Error('Couldn’t merge #7: Head branch was modified.'));
+    await expect(mergeAhead(pr, 'PR_7', merge)).rejects.toThrow('Head branch was modified.');
+  });
+
+  it('hands on what else the box does as it is', async () => {
+    api.mergePr.mockResolvedValueOnce({ note: null, shownAt: null });
+    await expect(mergeAhead(pr, 'PR_7', { op: 'ready' })).resolves.toBeNull();
+    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', { op: 'ready' });
   });
 });

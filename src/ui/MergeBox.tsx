@@ -16,7 +16,8 @@
 // each thing done here. What was done, or why it wasn't, shows under the row.
 
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { mergeBox, mergePr, openUrl } from '../api';
+import { mergeAhead } from '../ahead';
+import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
 import { commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, standing, type Tone } from '../merge';
 import { errorText } from '../report';
@@ -45,6 +46,15 @@ interface Row {
   lead?: ReactNode;
   /** After them: Snooze, GitHub, Review with. */
   trail?: ReactNode;
+  /** A window that goes on to the next PR as one is merged (a PR's card in a queue): the merge
+   *  shows at once (ahead.ts `mergeAhead`), so the PR has left what waits on you as it's asked,
+   *  and one GitHub refuses comes back with why, on whatever the window shows then. */
+  goesOn?: MergeGoesOn;
+}
+
+export interface MergeGoesOn {
+  left: () => void;
+  failed: (why: string) => void;
 }
 
 /** The row: the window's buttons with the merge's between them, when there's any. */
@@ -60,7 +70,7 @@ function Actions({ lead, trail, children }: Row & { children?: ReactNode }) {
 }
 
 /** One PR's box: its details give each PR one of its own (`key`). */
-export function MergeBox({ pr, lead, trail }: { pr: PrItem } & Row) {
+export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
   const key = `${pr.key}@${pr.updatedAt}`;
   const [read, setRead] = useState<{ key: string; box?: Box; error?: string }>({ key: '' });
   const [again, setAgain] = useState(0);
@@ -114,10 +124,10 @@ export function MergeBox({ pr, lead, trail }: { pr: PrItem } & Row) {
       row
     );
   }
-  return <Loaded pr={pr} box={box} note={note} setNote={setNote} reread={() => setAgain((n) => n + 1)} lead={lead} trail={trail} />;
+  return <Loaded pr={pr} box={box} note={note} setNote={setNote} reread={() => setAgain((n) => n + 1)} lead={lead} trail={trail} goesOn={goesOn} />;
 }
 
-function Loaded({ pr, box, note, setNote, reread, lead, trail }: { pr: PrItem; box: Box; note: Note; setNote: (n: Note) => void; reread: () => void } & Row) {
+function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: PrItem; box: Box; note: Note; setNote: (n: Note) => void; reread: () => void } & Row) {
   const can = offers(box);
   const said = standing(box, pr);
   const [bypassing, setBypassing] = useState(false);
@@ -145,18 +155,26 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail }: { pr: PrItem; b
     if (writing) fill(m);
   };
 
+  /** Does it. A merge shows merged everywhere as it's asked (ahead.ts `mergeAhead`), and in a
+   *  window that goes on, the window goes on to the next PR at once. */
   const act = (op: MergeOp) => {
     if (doing) return;
     setDoing(op.op);
     setNote(null);
-    mergePr(pr.number, box.id, op)
+    const going = op.op === 'merge' ? goesOn : undefined;
+    const done = mergeAhead(pr, box.id, op);
+    going?.left();
+    done
       .then(
         (warning) => {
           setNote(warning ? { text: warning, error: true } : { text: doneWords(op, pr.number, box.branch) });
           setWriting(false);
           reread();
         },
-        (e: unknown) => setNote({ text: errorText(e), error: true }),
+        (e: unknown) => {
+          if (going) going.failed(errorText(e));
+          else setNote({ text: errorText(e), error: true });
+        },
       )
       .finally(() => setDoing(null));
   };

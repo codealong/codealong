@@ -1,13 +1,17 @@
 // Changes you make that the engine takes a moment to show: sessions marked seen or unread, snoozed,
-// quieted, archived, renamed, or sent a message, and reviews asked of you snoozed. The engine takes them in its own loop, which waits behind scans and git on a
+// quieted, archived, renamed, or sent a message, reviews asked of you snoozed, and PRs merged.
+// The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
 // board that shows them. So each window shows a change at once, on top of the board it has, and
 // tells the other windows (the `ahead` event): the bar's pill goes as you mark its session seen in
 // the peek, and the main window shows the session working as you send it something from the bar.
 //
-// A seen, unread, snooze, quiet, archive or rename goes once a board at least as new as the one the engine says
+// A seen, unread, snooze, quiet, archive, rename or merge goes once a board at least as new as the one the engine says
 // shows it arrives. Going by whether the board looks right instead would hide a session that turned unread
 // again a moment later. One the engine turns down goes at once, and the caller says why.
+//
+// A merge shows as you confirm it, before GitHub has done it, and goes back with why if GitHub
+// refuses it; once it has, the engine shows the PR merged at once (ghpoll.rs `on_merged`).
 //
 // A message waits for any other on its way to the same session, so they arrive in order. The box
 // clears as you send, the thread shows the message as sending, then sent, until the session's
@@ -16,12 +20,12 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, markUnread, onAhead, quietSessions, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
+import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
 import { relaned, sessionHeadline, unreadable } from './lanes';
-import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, PrItem, ResumeIn, Sent, Session, Status, TranscriptItem } from './types';
+import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, MergeOp, PrItem, ResumeIn, Sent, Session, Status, TranscriptItem } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
  *  working; if the session isn't working either, the thread says it may not have reached it. */
@@ -50,6 +54,8 @@ export type Change =
   | { kind: 'quiet'; keys: string[]; quiet: boolean }
   /** Your review of these PRs (by PR key) snoozed until then, or woken now with null. */
   | { kind: 'review-snooze'; keys: string[]; until: number | null }
+  /** A PR (by its key) merged: merged from when it was made, and waiting on no review. */
+  | { kind: 'pr-merge'; key: string }
   | { kind: 'archive'; key: string; archived: boolean }
   /** Named, as the board will show it. */
   | { kind: 'rename'; key: string; title: string }
@@ -128,8 +134,8 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   const m = new Map<string, Ahead[]>();
   const add = (k: string, a: Ahead) => m.set(k, [...(m.get(k) ?? []), a]);
   for (const a of changes) {
-    // A review's snooze is a PR's, not a session's.
-    if (a.change.kind === 'review-snooze') continue;
+    // A review's snooze and a merge are a PR's, not a session's.
+    if (a.change.kind === 'review-snooze' || a.change.kind === 'pr-merge') continue;
     if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'quiet') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
@@ -217,18 +223,31 @@ function reviewSnoozes(changes: Ahead[]): Map<string, number | null> {
   return until;
 }
 
-/** The PRs with this window's snoozes of reviews, on the ones that wait on your review, as
- *  board.rs `apply_review_snoozes` puts them. The same array when nothing changes. */
+/** When each PR this window's changes merge was merged, by PR key. */
+function merges(changes: Ahead[]): Map<string, number> {
+  const at = new Map<string, number>();
+  for (const a of changes) if (a.change.kind === 'pr-merge') at.set(a.change.key, a.at);
+  return at;
+}
+
+/** The PRs with this window's changes: snoozes of reviews, on the ones that wait on your review,
+ *  as board.rs `apply_review_snoozes` puts them, and merges, as ghpoll.rs `shown_merged` does.
+ *  The same array when nothing changes. */
 export function prsAhead(prs: PrItem[], changes: Ahead[]): PrItem[] {
   const until = reviewSnoozes(changes);
-  if (until.size === 0) return prs;
+  const merged = merges(changes);
+  if (until.size === 0 && merged.size === 0) return prs;
   let changed = false;
   const out = prs.map((p) => {
-    if (!until.has(p.key) || !p.reviewRequested || p.state === 'merged' || p.state === 'closed') return p;
-    const next = until.get(p.key) ?? null;
-    if ((p.snoozedUntil ?? null) === next) return p;
-    changed = true;
-    return { ...p, snoozedUntil: next };
+    let next = p;
+    const at = merged.get(p.key);
+    if (at !== undefined && p.state !== 'merged' && p.state !== 'closed') next = { ...next, state: 'merged', mergedAt: at, closedAt: at, reviewRequested: false, snoozedUntil: null };
+    if (until.has(p.key) && next.reviewRequested && next.state !== 'merged' && next.state !== 'closed') {
+      const snooze = until.get(p.key) ?? null;
+      if ((next.snoozedUntil ?? null) !== snooze) next = { ...next, snoozedUntil: snooze };
+    }
+    if (next !== p) changed = true;
+    return next;
   });
   return changed ? out : prs;
 }
@@ -250,12 +269,14 @@ export function barAhead(feed: BarFeed, changes: Ahead[]): BarFeed {
   return barReviews(barMoved(barRenamed(feed, changes), changes), changes);
 }
 
-/** The bar's feed without the reviews snoozed here. One woken comes back with the engine's next
- *  feed, which has what the pill's menu says of it. The same feed when nothing changes. */
+/** The bar's feed without the reviews snoozed or merged here. One woken comes back with the
+ *  engine's next feed, which has what the pill's menu says of it. The same feed when nothing
+ *  changes. */
 function barReviews(feed: BarFeed, changes: Ahead[]): BarFeed {
   const until = reviewSnoozes(changes);
-  if (until.size === 0) return feed;
-  const reviews = feed.reviews.filter((r) => until.get(r.key) == null);
+  const merged = merges(changes);
+  if (until.size === 0 && merged.size === 0) return feed;
+  const reviews = feed.reviews.filter((r) => until.get(r.key) == null && !merged.has(r.key));
   if (reviews.length === feed.reviews.length) return feed;
   return { ...feed, reviews, logoStatus: logoOfBar(feed.items, reviews.length > 0) };
 }
@@ -399,8 +420,9 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     if (a.doneAt == null) return a;
     if (a.shownAt != null) return v.boardAt != null && v.boardAt >= a.shownAt ? null : a;
     if (now - a.doneAt > UNANSWERED_MS) return null;
-    // A window's view finds sessions, not PRs: a review's snooze goes by the board's time alone.
-    if (c.kind === 'review-snooze') return a;
+    // A window's view finds sessions, not PRs: a review's snooze and a merge go by the board's
+    // time alone.
+    if (c.kind === 'review-snooze' || c.kind === 'pr-merge') return a;
     const keys = c.kind === 'archive' || c.kind === 'rename' ? [c.key] : c.keys;
     const shows = keys.every((k) => {
       const s = v.find(k);
@@ -610,6 +632,26 @@ export function snoozeReviewsAhead(keys: string[], until: number | null): Promis
   put(a, true);
   return snoozeReviews(keys, until).then(
     (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+/** Does what a PR's merge box asked (MergeBox.tsx). A merge shows in every window as it's asked,
+ *  the PR merged and out of what waits on your review, and goes back with why when GitHub refuses
+ *  it; what else the box does waits on GitHub. Resolves with what GitHub couldn't do after (a
+ *  branch that stayed). */
+export function mergeAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp): Promise<string | null> {
+  if (op.op !== 'merge') return mergePr(pr.repoSlug, pr.number, id, op).then((d) => d.note);
+  const a = made({ kind: 'pr-merge', key: pr.key });
+  put(a, true);
+  return mergePr(pr.repoSlug, pr.number, id, op).then(
+    (d) => {
+      answered(a.id, d.shownAt);
+      return d.note;
+    },
     (e: unknown) => {
       drop(a.id, true);
       throw e;

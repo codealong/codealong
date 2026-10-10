@@ -161,11 +161,18 @@ export async function mergeBox(repo: string, number: number): Promise<MergeBox> 
   return invoke<MergeBox>('merge_box', { repo, number });
 }
 
-/** Does what the merge box asked to PR `number` (node id `id`) as you. Resolves once GitHub has
- *  done it, with what it couldn't do after (a branch that stayed), or null. */
-export async function mergePr(number: number, id: string, op: MergeOp): Promise<string | null> {
+/** What the merge box's act did: what GitHub couldn't do after (a branch that stayed), and for a
+ *  merge, the time of the first board that shows the PR merged. */
+export interface MergeDone {
+  note: string | null;
+  shownAt: number | null;
+}
+
+/** Does what the merge box asked to PR `number` of `repo` (node id `id`) as you, once GitHub has
+ *  done it. A merge goes through ahead.ts `mergeAhead`, which shows it at once. */
+export async function mergePr(repo: string, number: number, id: string, op: MergeOp): Promise<MergeDone> {
   if (!inTauri) throw new Error('Merging needs the app.');
-  return invoke<string | null>('merge_pr', { number, id, op });
+  return invoke<MergeDone>('merge_pr', { repo, number, id, op });
 }
 
 export async function reviewInCodex(url: string): Promise<void> {

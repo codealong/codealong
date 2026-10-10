@@ -300,8 +300,9 @@ window.__TAURI_INTERNALS__ = {
     // A review whose text is "fail" is refused, as GitHub might, for the checks.
     if (cmd === 'review_pr') return args.body === 'fail' ? Promise.reject(new Error('GitHub said no')) : Promise.resolve(null);
     // A PR's merge box (prmerge.rs `MergeBox`) for a PR the board lists: ready to squash and
-    // merge, with GitHub's title and message for each way, and two emails. A merge whose title is
-    // "fail" is refused, as GitHub refuses one whose branch has moved.
+    // merge, with GitHub's title and message for each way, and two emails. merge_pr answers as
+    // lib.rs does, a merge after a moment, as GitHub takes one, so what shows meanwhile can be
+    // seen; one whose title is "fail" is refused, as GitHub refuses one whose branch has moved.
     if (cmd === 'merge_box') {
       return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
         var want = args || {};
@@ -317,7 +318,15 @@ window.__TAURI_INTERNALS__ = {
         };
       });
     }
-    if (cmd === 'merge_pr') return ((args || {}).op || {}).title === 'fail' ? Promise.reject(new Error('Couldn’t merge #' + args.number + ': Head branch was modified. Review and try the merge again.')) : Promise.resolve(null);
+    if (cmd === 'merge_pr') {
+      var op = (args || {}).op || {};
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () {
+          if (op.title === 'fail') reject(new Error('Couldn’t merge #' + args.number + ': Head branch was modified. Review and try the merge again.'));
+          else resolve({ note: null, shownAt: null });
+        }, op.op === 'merge' ? 400 : 0);
+      });
+    }
     // A PR the board doesn't list, as GitHub would have it: merged a while ago, no sessions here.
     if (cmd === 'pr_card') {
       var want = args || {};

@@ -978,16 +978,32 @@ async fn merge_box(repo: String, number: u64) -> Result<prmerge::MergeBox, Strin
     blocking(move || prmerge::merge_box(&repo, number).map_err(words)).await?
 }
 
+/// What the merge box's act did, for the window that asked.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeDone {
+    /// What it couldn't do after (a branch that stayed).
+    note: Option<String>,
+    /// The time of the first board that shows the PR merged, for a merge.
+    shown_at: Option<i64>,
+}
+
 /// Does what the merge box asked to a PR as you: merges it, turns auto-merge on or off, queues it,
-/// updates or deletes its branch, takes it out of draft. Returns once GitHub has done it, with
-/// what it couldn't do after (a branch that stayed), and PRs are read again for the board.
+/// updates or deletes its branch, takes it out of draft. Returns once GitHub has done it. A PR
+/// merged shows merged on the board at once (`engine::Handle::merged`); for anything else PRs are
+/// read again.
 #[tauri::command]
-async fn merge_pr(engine: State<'_, engine::Handle>, number: u64, id: String, op: prmerge::Op) -> Result<Option<String>, String> {
+async fn merge_pr(engine: State<'_, engine::Handle>, repo: String, number: u64, id: String, op: prmerge::Op) -> Result<MergeDone, String> {
     let engine = engine.inner().clone();
     blocking(move || {
-        let note = prmerge::act(number, &id, &op).map_err(words)?;
-        engine.pr_changed();
-        Ok(note)
+        let acted = prmerge::act(number, &id, &op).map_err(words)?;
+        let shown_at = if acted.merged {
+            engine.merged(&repo, number)
+        } else {
+            engine.pr_changed();
+            None
+        };
+        Ok(MergeDone { note: acted.note, shown_at })
     })
     .await?
 }

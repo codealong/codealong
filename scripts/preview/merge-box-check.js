@@ -1,20 +1,25 @@
-// Checks a PR's merge box (MergeBox.tsx, merge.ts), on its card in the waiting window, where its
-// row of buttons is right under the PR's title. A PR plainly ready to merge says so in its filled
-// button, GitHub's pick for you, with a caret for the other ways and no line under the row;
-// pressing it shows the commit GitHub would write for that way, which the caret's menu switches
-// (a rebase writes none), the email it goes under, and whether the branch goes too. ⌘⏎ in the
-// fields confirms, and doesn't approve the PR as ⌘⏎ does elsewhere on the card; it sends the head
-// the box saw with what was written, and the way picked is kept for the repo. A merge GitHub
-// refuses says why, the commit still there to send again; Escape puts the commit away and leaves
-// the card up. Then, as the box is read again after each act: a blocked PR offers auto-merge, and
-// merging past the rules once its box is ticked, and a branch behind its base Update branch, with
-// how; a draft offers Ready for review; and a merged PR whose branch is still there, deleting it,
-// what was done staying said once there's nothing left to do.
-//   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/merge-box-check.js
+// Checks a PR's merge box (MergeBox.tsx, merge.ts) in its panel in the PRs view, whose row of
+// buttons, Approve's too, is right under the PR's title. A PR plainly ready to merge says so in
+// its filled button, GitHub's pick for you, with a caret for the other ways and no line under the
+// row; pressing it shows the commit GitHub would write for that way, which the caret's menu
+// switches (a rebase writes none), the email it goes under, and whether the branch goes too. ⌘⏎
+// in the fields confirms, and approves nothing; it sends the head the box saw with what was
+// written, and the way picked is kept for the repo. A merge GitHub refuses says why, the commit
+// still there to send again. A merge shows in the list as it's asked, before GitHub answers (the
+// stub takes a moment): the PR's row leaves its section for Merged & closed, folded, while its
+// panel stays on it, and is back where it was once GitHub refuses one; with Merged & closed
+// unfolded the row says Merged there. Escape puts the commit away and leaves the panel up. Then,
+// as the box is read again after each act: a blocked PR offers auto-merge, and merging past the
+// rules once its box is ticked, and a branch behind its base Update branch, with how; a draft
+// offers Ready for review; and a merged PR whose branch is still there, deleting it, what was
+// done staying said once there's nothing left to do. In each project the latest open PR is made
+// someone else's that doesn't ask for your review.
+//   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/merge-box-check.js
 (function () {
   localStorage.removeItem('codealong.merge.methods');
   localStorage.removeItem('codealong.merge.deleteBranch');
   var pr = null;
+  var targets = [];
   var real = window.__TAURI_INTERNALS__.invoke;
   // What the box reads as next, after each act that goes through.
   var shapes = [
@@ -45,12 +50,15 @@
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
         });
       });
-      // The first PR asks for your review, and no other does.
-      board.prs = (board.prs || []).map(function (x) {
-        if (pr && x.key !== pr.key) return Object.assign({}, x, { reviewRequested: false });
-        pr = Object.assign({}, x, { state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedBy: 'ana', requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null });
-        return pr;
+      // Each project's latest open PR is someone else's, open, and asks nothing of you.
+      var open = (board.prs || []).filter(function (x) { return x.state !== 'merged' && x.state !== 'closed'; });
+      board.projects.forEach(function (project) {
+        var here = open.filter(function (x) { return x.project === project.name; }).sort(function (a, b) { return b.updatedAt - a.updatedAt; })[0];
+        if (!here) return;
+        Object.assign(here, { state: 'open', mine: false, author: 'ana', reviewRequested: false, snoozedUntil: null, mergedAt: null, closedAt: null });
+        if (!targets.some(function (t) { return t.key === here.key; })) targets.push(here);
       });
+      board.pinnedPrs = [];
       return board;
     });
   };
@@ -65,15 +73,44 @@
   var note = function () { var n = q('.ca-merge-note'); return n ? n.textContent : null; };
   var merges = function () { return sent('merge_pr'); };
   var cmdEnter = function (el) { key(el, { key: 'Enter', metaKey: true }); };
+  var number = function (r) { return (q('.ca-prrow-num', r) || {}).textContent; };
+  var row = function () { return all('.ca-prrow').filter(function (r) { return pr && number(r) === '#' + pr.number; })[0]; };
+  /** The PR's row: the section it's under, and whether it says Merged. */
+  var listed = function () {
+    var r = row();
+    if (!r) return 'not listed';
+    var block = r.closest('.ca-bayblock');
+    var head = block && q('.ca-bay > span', block);
+    var merged = r.textContent.indexOf('Merged') >= 0;
+    return (head ? head.textContent : '?') + (merged ? ' · Merged' : '');
+  };
+  var shown = function () { var n = q('.ca-prinsp .ca-insp-call'); return n ? n.textContent : null; };
+  /** Unfolds Merged & closed, when it's there and folded. */
+  var unfoldDone = function () {
+    var done = all('.ca-bayblock').filter(function (b) { var h = q('.ca-bay > span', b); return h && h.textContent === 'Merged & closed'; })[0];
+    var toggle = done && q('.ca-bay-action .ca-linkbtn', done);
+    if (toggle && toggle.textContent === 'Show') toggle.click();
+  };
+  var press = function (el) {
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  };
   var squashed;
 
-  say('merge box check: waiting for the box');
-  until(function () { return !!pr && !!main(); }, 20000, 'the merge box')
+  say('merge box check: waiting for the PRs');
+  until(function () { return targets.length > 0 && q('.ca-prrow'); }, 20000, 'the PRs')
+    .then(function () {
+      pr = targets.filter(function (t) { return all('.ca-prrow').some(function (r) { return number(r) === '#' + t.number; }); })[0];
+      if (!pr) throw new Error('the project shown has no open PR');
+      press(row());
+      return until(function () { return !!main(); }, 5000, 'the merge box');
+    })
     .then(function () {
       check('a PR plainly ready says so in its filled button, with no line under the row', !says() && main().classList.contains('ca-btn--primary'), says());
       check('the merge buttons sit in the row under the PR’s title', !!q('.ca-prinsp > .ca-merge > .ca-insp-actions .ca-merge-main') && q('.ca-prinsp > .ca-merge').previousElementSibling === q('.ca-prinsp > header'));
       check('its button is GitHub’s pick for you, with a caret for the others', main().textContent === 'Squash and merge' && !!caret(), main().textContent);
-      check('the box is read for the PR the card shows', JSON.stringify(sent('merge_box')[0]) === JSON.stringify({ repo: pr.repoSlug, number: pr.number }), JSON.stringify(sent('merge_box')[0]));
+      check('the box is read for the PR the panel shows', sent('merge_box').some(function (a) { return a.repo === pr.repoSlug && a.number === pr.number; }), JSON.stringify(sent('merge_box')));
       main().click();
       return until(function () { return !!title(); }, 2000, 'the commit');
     })
@@ -88,7 +125,7 @@
       return wait(50);
     })
     .then(function () {
-      check('Escape puts the commit away, and leaves the card up', !title() && !!q('.ca-prreview') && !!main());
+      check('Escape puts the commit away, and leaves the panel up', !title() && !!q('.ca-prinsp') && !!main());
       caret().click();
       return wait(50);
     })
@@ -153,16 +190,32 @@
       var del = q('.ca-merge-opts .ca-check input');
       check('deleting the branch is offered, off at first', !!del && !del.checked && q('.ca-merge-opts .ca-check').textContent === 'Delete ' + pr.head + ' once merged', q('.ca-merge-opts .ca-check') && q('.ca-merge-opts .ca-check').textContent);
       del.click();
+      check('the PR is listed as open first', listed() === 'Others', listed());
       type(title(), 'fail');
       cmdEnter(title());
+      return wait(100);
+    })
+    .then(function () {
+      check('a merge leaves its section as it’s asked, before GitHub answers', listed() === 'not listed' && merges().length === 1 && !note(), listed());
+      check('and its panel stays on it', shown() === '#' + pr.number, shown());
       return until(function () { return !!note(); }, 2000, 'the refusal');
     })
     .then(function () {
+      check('one GitHub refuses is back where it was', listed() === 'Others', listed());
       check('a merge GitHub refuses says why', /Head branch was modified/.test(note()) && q('.ca-merge-note').classList.contains('is-error'), note());
       check('and the commit is still there to send again', !!title() && title().value === 'fail');
       check('⌘⏎ in the commit didn’t approve the PR', calls('review_pr').length === 0, calls('review_pr').length);
       type(title(), 'Ship teams (#' + pr.number + ')');
       cmdEnter(title());
+      return wait(50);
+    })
+    .then(function () {
+      unfoldDone();
+      return wait(50);
+    })
+    .then(function () {
+      check('the merge shows in the list at once, under Merged & closed', listed() === 'Merged & closed · Merged' && !note(), listed());
+      check('its panel still on it', shown() === '#' + pr.number, shown());
       return until(function () { return merges().length === 2 && shape === 1 && says() === 'Merging is blocked'; }, 3000, 'the merge, and the box read again');
     })
     .then(function () {
@@ -215,7 +268,11 @@
     })
     .then(function () {
       check('deleting it names its ref', JSON.stringify(merges()[4].op) === JSON.stringify({ op: 'delete-branch', branchRef: 'REF_' + pr.number }), JSON.stringify(merges()[4].op));
-      check('what was done stays said once there’s nothing left to do', !!box() && !button('Delete ' + pr.head));
+      // The box is read again once GitHub has deleted it: the button goes then.
+      return until(function () { return !button('Delete ' + pr.head); }, 3000, 'the box read again');
+    })
+    .then(function () {
+      check('what was done stays said once there’s nothing left to do', !!box() && note() === 'Deleted ' + pr.head + '.', note());
     })
     .then(done, stopped);
 
