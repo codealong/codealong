@@ -136,7 +136,9 @@ agents work in this repo at the same time, many of them in the main checkout (th
 4. Run `scripts/relaunch.sh` from your worktree, clean and at `origin/main`, never from a
    checkout holding other sessions' edits. Skip it when nothing the app runs changed (docs,
    tests). With others building it can take many minutes; the app is relaunched once the script
-   prints `Relaunched`, not before. A push after yours is its own session's to relaunch.
+   prints `Relaunched`, not before (`Relaunched already` when the running app was built from a
+   later commit that has yours: nothing to rebuild). A push after yours is its own session's to
+   relaunch.
 5. Once it has landed and the relaunch is done (it builds from your worktree), remove the
    worktree you made and its branch without asking, from the main checkout: `git worktree
    remove ../codealong-<topic>`, then `git branch -d <topic>`. Git refuses a worktree with

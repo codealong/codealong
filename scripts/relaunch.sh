@@ -6,7 +6,8 @@
 # last of the two opened wins (server::take_over). One bundle build at a time on this Mac; a build
 # started from another worktree waits. The running app is matched by its own path, anchored, so a
 # shell whose command line mentions that path (another session's build, say) is never killed. The
-# app stays up during the build.
+# app stays up during the build. One whose commit the running app already has (another session's
+# relaunch built a later origin/main while this one waited) builds nothing and leaves the app be.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -48,6 +49,28 @@ if fetch && clean && git merge-base --is-ancestor HEAD origin/main &&
   git merge -q --ff-only origin/main || echo "Couldn't fast-forward; building the checkout as it is."
 fi
 
+# Codealong Dev in Applications, or any app in the shared bundle folder (where builds ran from
+# before), is a build of this repo and relaunch's own to quit. Codealong itself is left alone: the
+# new build asks it to quit as it opens.
+re() { printf '%s' "$1" | sed 's/[][\.*^$()+?{}|]/\\&/g'; }
+running="^($(re "$installed")|$(re "$bundles")/[^/]+\.app)/Contents/MacOS/codeal[o]ng$"
+
+# The commit the running app was built from, when the build had no uncommitted changes. Agents land
+# one after another, and a relaunch waiting its turn often finds the app already built from a later
+# origin/main that has its commit: built and reopened again, the app would drop its windows and
+# the phones and Macs linked to it for the same code, as it did several times an hour.
+launched="$target/launched"
+was="$(cat "$launched" 2>/dev/null || true)"
+if [ -n "$was" ] && clean && git merge-base --is-ancestor HEAD "$was" 2>/dev/null && pgrep -f "$running" >/dev/null; then
+  scripts/catch-up-main.sh
+  at=""
+  [ "$was" != "$(git rev-parse origin/main 2>/dev/null)" ] || at=" (origin/main)"
+  echo "Relaunched already: Codealong Dev runs $(git rev-parse --short "$was")$at, which has this checkout's $(git rev-parse --short HEAD), so nothing was built or reopened"
+  exit 0
+fi
+built=""
+clean && built="$(git rev-parse HEAD)"
+
 # The workspace's own crates build to the same files from every checkout, and cargo goes by file
 # times: a build another checkout made since this one's files last changed would pass for this
 # checkout's. Touched, they compile from here.
@@ -74,11 +97,6 @@ else
   codesign --force --sign - "$app" 2>/dev/null
   echo "Couldn't sign with $identity, so the build is signed ad hoc and macOS asks again for what it had allowed."
 fi
-# Codealong Dev in Applications, or any app in the shared bundle folder (where builds ran from
-# before), is a build of this repo and relaunch's own to quit. Codealong itself is left alone: the
-# new build asks it to quit as it opens.
-re() { printf '%s' "$1" | sed 's/[][\.*^$()+?{}|]/\\&/g'; }
-running="^($(re "$installed")|$(re "$bundles")/[^/]+\.app)/Contents/MacOS/codeal[o]ng$"
 pkill -f "$running" || true
 # macOS won't open an app while its last copy is still quitting (error -600), so wait for it to
 # go, then open, trying once more if the first open is turned away.
@@ -117,6 +135,8 @@ agent="$(launchctl getenv SSH_AUTH_SOCK || true)"
 [ -z "${__CF_USER_TEXT_ENCODING:-}" ] || dock+=(__CF_USER_TEXT_ENCODING="$__CF_USER_TEXT_ENCODING")
 open_app() { env -i "${dock[@]}" /usr/bin/open "$installed"; }
 open_app || { sleep 2; open_app; }
+# For the next relaunch to know what runs (above). A build with uncommitted changes names no commit.
+if [ -n "$built" ]; then echo "$built" >"$launched"; else rm -f "$launched"; fi
 
 # Names what was launched, for the agent reporting it: the commit, where it stands against
 # origin/main, and whether uncommitted changes went into the build.
