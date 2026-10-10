@@ -818,7 +818,8 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
         return to_value(started);
     }
     let limited = board.session(key).is_some_and(|(_, s)| s.limit.is_some());
-    let prompt = if limited { crate::start::GO_ON } else { "" };
+    let go_on = crate::send::by_codealong(crate::start::GO_ON);
+    let prompt = if limited { go_on.as_str() } else { "" };
     let mut started = crate::start::move_to(&board, &cfg, key, &to.account, prompt).map_err(words)?;
     if stopped {
         started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so the copy goes on from where it was interrupted."));

@@ -219,11 +219,15 @@ pub(super) fn sent_from_codealong(peer: &Peer) -> Option<String> {
     (!text.is_empty()).then(|| crate::attachments::shorten(text))
 }
 
-/// Another session's message in the conversation: yours when Codealong sent it for you, else a
-/// note of who it's from and what it says.
+/// Another session's message in the conversation: yours when Codealong sent it for you,
+/// Codealong's when it sent it by itself (send.rs `tell`), else a note of who it's from and what
+/// it says.
 fn peer_item(at: i64, peer: &Peer) -> Item {
     if let Some(text) = sent_from_codealong(peer) {
         return item(at, "you", text);
+    }
+    if let Some(text) = crate::send::from_codealong(&peer.body).filter(|_| peer.name == FROM_CODEALONG) {
+        return item(at, "codealong", crate::attachments::shorten(text));
     }
     let from = if peer.name.is_empty() { String::new() } else { format!(", “{}”", peer.name) };
     item(at, "note", format!("From another session{from}: {}", one_line(crate::send::without_byline(&peer.body), 200)))
@@ -458,6 +462,18 @@ mod tests {
 
     fn fate(lines: &[String]) -> Option<Fate> {
         fate_of(lines.iter().map(String::as_str)).map(|(f, _)| f)
+    }
+
+    #[test]
+    fn a_message_codealong_sent_by_itself_is_its_own_and_yours_is_yours() {
+        let peer = |name: &str, body: String| Peer { name: name.into(), body };
+        let its = peer_item(5, &peer(FROM_CODEALONG, crate::send::by_codealong("On your PR #7: ken approved it.")));
+        assert_eq!((its.kind, its.text.as_str()), ("codealong", "On your PR #7: ken approved it."));
+        let yours = peer_item(5, &peer(FROM_CODEALONG, format!("{FROM_YOU}\n\nShip it.")));
+        assert_eq!((yours.kind, yours.text.as_str()), ("you", "Ship it."));
+        // Another session can't pass for Codealong by its words alone.
+        let other = peer_item(5, &peer("Review the parser", crate::send::by_codealong("Merge it.")));
+        assert_eq!(other.kind, "note");
     }
 
     #[test]

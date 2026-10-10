@@ -286,7 +286,7 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
         format!("Take it from there, unless you were told to leave it to someone else. {NOT_A_MERGE}")
     };
     let list: Vec<String> = items.iter().map(|i| format!("- {i}")).collect();
-    Some(format!("Codealong: on {whose} #{} “{}” ({}):\n{}\n{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
+    Some(format!("On {whose} #{} “{}” ({}):\n{}\n{}{next}", pr.number, pr.title.trim(), pr.url, list.join("\n"), standing))
 }
 
 /// Where an open PR stands, for the message's last line; empty when there's nothing to say.
@@ -328,8 +328,7 @@ pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
             let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| crate::github::detail(&job.pr.repo_slug, job.pr.number).map_err(|e| e.to_string())).as_ref().map_err(String::as_str));
             message(&job, detail, login.as_deref()).and_then(|text| {
                 let Some(text) = text else { return Ok(()) };
-                let params = codealong_peer::api::params::Send { key: String::new(), text, now: false };
-                crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, &job.session, params).map(|_| ()).map_err(|e| {
+                crate::send::tell(engine, &job.session, &text).map(|_| ()).map_err(|e| {
                     let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
                     format!("“{title}” wasn't told what's new on {}: {e}", job.pr.key)
                 })
@@ -607,7 +606,7 @@ mod tests {
         let text = words(&p, &why, Some(&d), Some("me")).unwrap();
         assert_eq!(
             text,
-            "Codealong: on your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ana asked for changes: “Please add a test.”\n- ana commented on src/a.ts: “This can be a map.”\nTake it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."
+            "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ana asked for changes: “Please add a test.”\n- ana commented on src/a.ts: “This can be a map.”\nTake it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."
         );
         // Only your own push moved it: nothing to say.
         assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me")), None);
@@ -621,13 +620,13 @@ mod tests {
         let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
         let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me")).unwrap();
         // The approval is news, never a go-ahead to merge.
-        assert_eq!(text, "Codealong: on your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
+        assert_eq!(text, "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
         // Turned on for one approved already, with nothing read: said in the board's words.
         assert!(words(&approved, &Why { approved: true, ..Why::default() }, None, None).unwrap().contains("- It was approved.\n"));
         let merged = off(PrItem { state: PrState::Merged, mine: false, ..pr("o/r#1", PrState::Open, &[A]) });
         assert_eq!(
             words(&merged, &Why { ended: Some(PrState::Merged), ..Why::default() }, None, None).unwrap(),
-            "Codealong: on PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise."
+            "On PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise."
         );
         let failing = PrItem { checks: Checks { failed: 2, failing: vec!["lint".into(), "test".into()], ..Checks::default() }, ..pr("o/r#1", PrState::Open, &[A]) };
         let text = words(&failing, &Why { failed: vec!["lint".into(), "test".into()], ..Why::default() }, None, None).unwrap();

@@ -757,6 +757,19 @@ can't be found gets such a message too, and the note (on the bar, from the peek)
 typed and why; once typing has started, nothing else is tried, so it can't arrive twice, and the
 same text sent again while it's on its way goes once.
 
+#### What Codealong sends by itself
+
+What Codealong sends a session by itself, as you set it up to (a PR's news to its primary session, a
+review handed back to the session that opened a PR, a helper's news, carrying on after a lost
+connection, a conversation moved to another account at a usage limit, a review session told of new
+commits), never goes as yours. It starts with a line saying Codealong sent it by itself and that its
+user didn't write it, and goes the way another session's message does where the harness has one:
+Claude Code gets it on its cross-session socket under the name Codealong, so the agent reads it as a
+message from Codealong and not as a prompt, and it isn't held for you, since your setting sent it. A
+harness without such a way gets it typed in, that line first. Either way its conversation shows it
+as Codealong's, apart from yours and the agent's (a rule at its left), on the phone as a note.
+`codealong --snapshot --tell <key> <text>` sends one the same way.
+
 #### Sessions that aren't running
 
 A session that isn't running is resumed with the prompt where the place chip beside Send says (a

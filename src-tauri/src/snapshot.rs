@@ -65,6 +65,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--stop", takes: "<session key>", run: stop },
     Mode { flag: "--done", takes: "<session key> [--stop]", run: done },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
+    Mode { flag: "--tell", takes: "<session key> <text>", run: tell },
     Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
     Mode { flag: "--switch-model", takes: "<session key> <model>", run: switch_model },
     Mode { flag: "--resume", takes: "<session key> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>]", run: resume },
@@ -124,6 +125,8 @@ const MODES: &[Mode] = &[
 /// as the panel's buttons do; `answers` are its questions' answers, as JSON.
 /// `codealong --snapshot --send <session key> <text> [--now]`: sends a session a message, as
 /// another device does; `--now` sends it into the turn it's taking, as Send now does.
+/// `codealong --snapshot --tell <session key> <text>`: sends it what Codealong sends by itself, as
+/// a PR's news or a review handed back goes (send.rs `tell`).
 /// `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
 /// names, as Rename… in its menu does.
 /// `codealong --snapshot --stop <session key>`: stops the turn it's taking, as its Stop does.
@@ -264,6 +267,13 @@ fn send_text(args: &Args, rest: &[String]) -> Done {
     let [key, text, ..] = rest else { return Err(Stop::Usage) };
     let sent: send::Sent = serde_json::from_value(act(api::SESSION_SEND, key, params::Send { text: text.clone(), now: args.has("--now"), ..Default::default() })?).map_err(|e| Stop::Failed(e.to_string()))?;
     Ok(sent.message)
+}
+
+fn tell(_: &Args, rest: &[String]) -> Done {
+    let [key, text, ..] = rest else { return Err(Stop::Usage) };
+    let cfg = config::current().map_err(failed)?;
+    let board = engine::snapshot(false, false);
+    Ok(send::send(&board, &cfg, key, text, send::Sender::Codealong, false).map_err(failed)?.message)
 }
 
 fn fork(_: &Args, rest: &[String]) -> Done {

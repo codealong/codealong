@@ -31,6 +31,16 @@
 //! sessions' messages where it has one (`Adapter::takes_messages`), which tells the model as
 //! much, and for the harnesses that have none, their terminal or service. It never resumes a
 //! session that isn't running, and never leaves a prompt for someone to send.
+//!
+//! What Codealong sends by itself, as you set it up to (a PR's news, a review handed back, a
+//! helper's news, carrying on after a lost connection or at another account; `tell`), isn't
+//! yours either: it starts with a line saying Codealong sent it and that it isn't its user's
+//! words (`FROM_CODEALONG_ITSELF`), and goes first by the ways an agent's message takes, under
+//! the name Codealong, so Claude Code shows it as a message from Codealong and not as a prompt;
+//! typed into its terminal only where there's no such way, the line saying whose it is. It
+//! claims the session's own permission class, as what you send does, since it's your setting
+//! that sends it: Claude Code doesn't hold it for you. Conversations show it as Codealong's
+//! (transcript.rs `shown_in`, claude/conversation.rs `peer_item`).
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -60,6 +70,30 @@ pub enum Sender {
     /// An agent, through `codealong session send`: the key of the session that ran the command,
     /// when the command found one.
     Agent(Option<String>),
+    /// Codealong itself, by a setting of yours: a PR's news, a review handed back, a helper's
+    /// news, carrying on after a lost connection (`tell`).
+    Codealong,
+}
+
+/// The line what Codealong sends by itself starts with (`Sender::Codealong`), as the session
+/// reads it and as its conversation is told apart from yours.
+pub const FROM_CODEALONG_ITSELF: &str = "Codealong sent this by itself, as your user set it up to; it isn't something your user wrote.";
+
+/// Text Codealong sends by itself as a session gets it: after the line that says so. For what goes
+/// in some other way than a send (a resume's or a start's prompt).
+pub fn by_codealong(text: &str) -> String {
+    format!("{FROM_CODEALONG_ITSELF}\n\n{}", text.trim())
+}
+
+/// Text that `by_codealong` led, without its line: what Codealong said.
+pub fn from_codealong(text: &str) -> Option<&str> {
+    text.trim_start().strip_prefix(FROM_CODEALONG_ITSELF).map(str::trim)
+}
+
+/// Sends a session what Codealong has to tell it by itself (`Sender::Codealong`), the way its
+/// harness takes a message from outside. Every one of Codealong's own messages goes this way.
+pub fn tell(engine: &crate::engine::Handle, key: &str, text: &str) -> Result<Sent> {
+    send_here(engine, key, text, Sender::Codealong, false)
 }
 
 /// Who an agent's message is from, as the session it goes to reads it.
@@ -96,7 +130,7 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
 /// already.
 pub fn without_byline(text: &str) -> &str {
     let t = text.trim();
-    let starts = ["This message is from another agent, ", "This message was sent with `codealong session send`"];
+    let starts = ["This message is from another agent, ", "This message was sent with `codealong session send`", FROM_CODEALONG_ITSELF];
     match t.split_once("\n\n") {
         Some((intro, rest)) if starts.iter().any(|s| intro.starts_with(s)) => rest.trim(),
         _ => t,
@@ -125,6 +159,11 @@ impl<'a> Message<'a> {
                 let b = byline(board, from.as_deref());
                 let bypasses = from.as_deref().and_then(|k| crate::harness::find(board, cfg, k).ok()).is_some_and(|(s, account)| s.live && crate::harness::adapter(s.harness).skips_permission_prompts(&crate::harness::Ctx { account }, s));
                 Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, now, byline: Some(b), bypasses }
+            }
+            // Your setting sends it, so it claims the session's class as what you send does.
+            Sender::Codealong => {
+                let b = Byline { intro: FROM_CODEALONG_ITSELF.into(), name: "Codealong".into() };
+                Message { text: Cow::Owned(by_codealong(text)), sender, now, byline: Some(b), bypasses: true }
             }
             _ => Message { text: Cow::Borrowed(text), sender, now, byline: None, bypasses: *sender == Sender::You },
         }
@@ -401,6 +440,8 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     let mut routes = crate::harness::adapter(session.harness).routes(account, session);
     if msg.from_agent() {
         routes = agent_routes(session, routes)?;
+    } else if *sender == Sender::Codealong {
+        routes = codealong_routes(session, routes)?;
     } else if shell_command(&msg.text) {
         routes = typed_routes(routes);
         if routes.is_empty() {
@@ -515,6 +556,28 @@ pub(crate) fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<
         });
     }
     Ok(kept)
+}
+
+/// The ways in what Codealong sends by itself takes: first those an agent's message takes (a
+/// harness's own way for other sessions' messages, which shows it as Codealong's), then the ways
+/// that put it in as typed (its terminal, a background job's box), its first line saying whose it
+/// is. Never one that opens an app with it to send, or leaves it on the clipboard, which would come
+/// up in front of you unasked, nor a resume.
+pub(crate) fn codealong_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<Route>> {
+    let (mut first, mut then) = (Vec::new(), Vec::new());
+    for r in routes {
+        match &r {
+            Route::Own(own) if own.takes_agents() => first.push(r),
+            Route::Own(own) if own.as_typed() => then.push(r),
+            Route::Type { .. } => then.push(r),
+            Route::Own(_) | Route::Resume => {}
+        }
+    }
+    first.append(&mut then);
+    if first.is_empty() {
+        bail!("Codealong can't reach {}: it isn't running anywhere Codealong can send to.", quoted(&session.title));
+    }
+    Ok(first)
 }
 
 /// One way in: it went, or nothing went and the next way is tried, or it failed. `untyped` is
@@ -732,6 +795,61 @@ mod tests {
         let msg = Message::new(&board, &cfg, "hi", &Sender::You, false);
         let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &board, &s, &account, &cfg, &msg, None).unwrap() else { panic!("it passed") };
         assert_eq!(went.message, "Stood in for “Fix the build”.");
+    }
+
+    /// What Codealong sends by itself says so first, goes under its name, claims what you would,
+    /// and takes another session's way in before typing; a resume never.
+    #[test]
+    fn what_codealong_sends_by_itself_says_so_and_goes_as_a_message_first() {
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
+        let (cfg, board) = (Config::default(), Board::default());
+        let s = session(Harness::Claude, Surface::Cli, Status::Unread, true, Some(42));
+        static CODEALONG: Sender = Sender::Codealong;
+        let msg = Message::new(&board, &cfg, " On your PR #7: ken approved it. ", &CODEALONG, false);
+        assert_eq!(msg.text, format!("{FROM_CODEALONG_ITSELF}\n\nOn your PR #7: ken approved it."));
+        let d = msg.delivery(&s, &account, None);
+        assert_eq!((d.agent, d.bypasses), (Some("Codealong"), true));
+        assert_eq!(from_codealong(&msg.text), Some("On your PR #7: ken approved it."));
+        assert_eq!(from_codealong("On your PR #7"), None);
+        assert_eq!(without_byline(&msg.text), "On your PR #7: ken approved it.");
+        assert_eq!(by_codealong(" Carry on. "), format!("{FROM_CODEALONG_ITSELF}\n\nCarry on."));
+
+        #[derive(Debug)]
+        struct Socket;
+        impl Own for Socket {
+            fn way(&self) -> Way {
+                Way::Message
+            }
+            fn takes_agents(&self) -> bool {
+                true
+            }
+            fn deliver(&self, d: &Delivery) -> Result<Sent> {
+                Ok(sent(format!("Messaged {}.", d.title())))
+            }
+        }
+        #[derive(Debug)]
+        struct Job;
+        impl Own for Job {
+            fn way(&self) -> Way {
+                Way::Background
+            }
+            fn takes_agents(&self) -> bool {
+                false
+            }
+            fn as_typed(&self) -> bool {
+                true
+            }
+            fn deliver(&self, d: &Delivery) -> Result<Sent> {
+                Ok(sent(format!("Pasted into {}.", d.title())))
+            }
+        }
+        // An app opened with it to send (the Claude app's way) isn't one, nor a resume.
+        let routes = vec![Route::Type { pid: 42 }, Stand(Way::ClaudeApp).into(), Job.into(), Socket.into(), Route::Resume];
+        let kept = codealong_routes(&s, routes).unwrap();
+        let ways: Vec<String> = kept.iter().map(|r| format!("{r:?}")).collect();
+        assert_eq!(ways.len(), 3, "{ways:?}");
+        assert!(ways[0].contains("Socket") && ways[1].contains("Type") && ways[2].contains("Job"), "{ways:?}");
+        assert!(codealong_routes(&s, vec![Route::Resume, Stand(Way::ClaudeApp).into()]).is_err());
     }
 
     fn board_with(s: Session) -> Board {

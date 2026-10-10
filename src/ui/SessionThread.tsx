@@ -112,12 +112,12 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
 
 /** Who spoke last, and when the last step was (0 when its record didn't say). */
 export interface Speaker {
-  kind: 'you' | 'agent' | null;
+  kind: 'you' | 'agent' | 'codealong' | null;
   at: number;
 }
 
 /** Whether a message heads itself, after `last`: where the speaker changes, or after a pause. */
-export function heads(last: Speaker, kind: 'you' | 'agent', at: number): boolean {
+export function heads(last: Speaker, kind: 'you' | 'agent' | 'codealong', at: number): boolean {
   return kind !== last.kind || (at > 0 && last.at > 0 && at - last.at >= PAUSE);
 }
 
@@ -129,7 +129,7 @@ export function headingsOf(items: TranscriptItem[]): { headed: Set<string>; last
   const headed = new Set<string>();
   const last: Speaker = { kind: null, at: 0 };
   for (const it of items) {
-    if (it.kind === 'you' || it.kind === 'agent') {
+    if (it.kind === 'you' || it.kind === 'agent' || it.kind === 'codealong') {
       if (heads(last, it.kind, it.at) || it.withdrawn) headed.add(keyOf(it));
       last.kind = it.kind;
     } else if (it.kind === 'note') last.kind = null;
@@ -306,6 +306,11 @@ function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: Tra
         </div>
       ) : item.kind === 'you' ? (
         <YourText text={item.text} />
+      ) : item.kind === 'codealong' ? (
+        // Its files (a review handed back) open as yours do.
+        <div className="ca-thread-codealong">
+          <DescriptionView text={item.text} />
+        </div>
       ) : (
         <Markdown text={item.text} className="ca-thread-agent" />
       )}
@@ -801,7 +806,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
               );
             }
             const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-            return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={it.kind === 'you' ? 'You' : s.account} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} />;
+            // What Codealong sent by itself says so, apart from yours and the agent's.
+            const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : s.account;
+            return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} />;
           })}
           {showing.map((a) => (
             <Unsaid key={a.id} ahead={a} onOpen={onOpen} />

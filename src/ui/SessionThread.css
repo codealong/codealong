@@ -35,6 +35,19 @@
 .ca-thread-said.is-you {
   margin-top: 6px;
 }
+/* What Codealong sent the session by itself (a PR's news, a review handed back): neither yours
+   nor the agent's, set apart by a rule at its left and quieter text. */
+.ca-thread-said.is-codealong {
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-strong);
+}
+.ca-thread-codealong {
+  color: var(--ink-2);
+  font: var(--type-reading);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .ca-thread-meta {
   display: flex;
   align-items: center;

@@ -62,7 +62,8 @@ impl Image {
 pub struct Item {
     pub at: i64,
     /// `you`, `agent`, `tool` (a call, with its output when the record has it there), `result`
-    /// (a call's output, by `id`) or `note` (compaction, a message from another session…).
+    /// (a call's output, by `id`), `codealong` (what Codealong sent by itself: a PR's news, a
+    /// review handed back…) or `note` (compaction, a message from another session…).
     pub kind: &'static str,
     /// Prose for you, agent and note; for a tool, a one-line label such as "Bash · `cargo test`".
     pub text: String,
@@ -134,7 +135,9 @@ pub fn newer(board: &Board, cfg: &Config, key: &str, after: u64) -> Result<Page>
     Ok(shown(adapter(s.harness).conversation_after(&Ctx { account }, s, after)?))
 }
 
-/// A page as a window shows it: each prompt of yours as you wrote it, with its images.
+/// A page as a window shows it: each prompt of yours as you wrote it, with its images, and what
+/// Codealong sent by itself (send.rs `tell`), typed in where the session had no other way to take
+/// it, as Codealong's (`codealong`), not yours.
 fn shown(page: Page) -> Page {
     shown_in(page, &attachments::images_dir(), &attachments::files_dir())
 }
@@ -149,6 +152,11 @@ fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
             continue;
         }
         if it.kind != "you" {
+            continue;
+        }
+        if let Some(said) = crate::send::from_codealong(&it.text) {
+            it.text = attachments::written_in(said, images, files);
+            it.kind = "codealong";
             continue;
         }
         let own = std::mem::take(&mut it.images);
@@ -358,6 +366,23 @@ pub fn text_of(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_codealong_typed_in_by_itself_shows_as_its_own() {
+        let dir = crate::fixtures::scratch("codealong-typed");
+        let page = Page { items: vec![item(1, "you", crate::send::by_codealong("On your PR #7: ken approved it.")), item(2, "you", "Thanks, merge it.")], before: None, after: 0 };
+        let shown = shown_in(page, &dir.join("images"), &dir.join("files"));
+        assert_eq!((shown.items[0].kind, shown.items[0].text.as_str()), ("codealong", "On your PR #7: ken approved it."));
+        assert_eq!((shown.items[1].kind, shown.items[1].text.as_str()), ("you", "Thanks, merge it."));
+        // A review handed back names its file by its full path as it's typed in, and shows it as a
+        // file again, as yours do.
+        let (images, files) = (dir.join("images"), dir.join("files"));
+        let kept = attachments::keep_in(&images, &files, b"# Review", "review-7.md").unwrap();
+        let typed = attachments::expand_in(&format!("Its review is in {}.", kept.reference()), &images, &files, attachments::Style::Path);
+        let page = Page { items: vec![item(1, "you", crate::send::by_codealong(&typed))], before: None, after: 0 };
+        let shown = shown_in(page, &images, &files);
+        assert_eq!((shown.items[0].kind, shown.items[0].text.clone()), ("codealong", format!("Its review is in {}.", kept.reference())));
+    }
     use std::path::PathBuf;
 
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.

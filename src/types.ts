@@ -1493,7 +1493,9 @@ export interface TextFound {
 export interface TranscriptItem {
   at: number;
   /** `result` is a Claude Code tool's output, matched to its call by `id`. */
-  kind: 'you' | 'agent' | 'tool' | 'result' | 'note';
+  /** `codealong`: what Codealong sent the session by itself (a PR's news, a review handed back,
+   *  a helper's news), never yours. */
+  kind: 'you' | 'agent' | 'tool' | 'result' | 'note' | 'codealong';
   text: string;
   id?: string;
   input?: string;

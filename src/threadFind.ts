@@ -42,6 +42,7 @@ export function shownText(it: TranscriptItem): string {
     case 'you':
       return it.input != null ? `! ${it.input}` : plainOf(it.text);
     case 'agent':
+    case 'codealong':
       return plainOf(it.text);
     case 'tool':
       return it.text.replace(/`/g, '');

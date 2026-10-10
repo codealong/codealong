@@ -47,6 +47,7 @@ describe('shownText', () => {
     expect(shownText(item('you', '', { input: 'git status' }))).toBe('! git status');
     expect(shownText(item('tool', 'Bash · `npm test`', { input: 'npm test --watch', output: 'all passed' }))).toBe('Bash · npm test');
     expect(shownText(item('note', 'Conversation compacted'))).toBe('Conversation compacted');
+    expect(shownText(item('codealong', 'On your PR #7: **ken** approved it.'))).toBe('On your PR #7: ken approved it.');
     expect(shownText(item('result', '', { output: 'all passed' }))).toBe('');
   });
 

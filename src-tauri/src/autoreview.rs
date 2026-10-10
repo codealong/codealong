@@ -1055,8 +1055,8 @@ pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, l
 /// What a review's session is sent when the PR has new commits since the one it last reviewed.
 pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, goes: &Goes, instructions: &str, files: &Reading) -> String {
     let mut out = match since {
-        Some(s) => format!("Codealong: #{} “{}” has new commits since you reviewed {}: it's at {} now. ", pr.number, pr.title.trim(), short(s), short(head)),
-        None => format!("Codealong: review #{} “{}” again; it's at {} now. ", pr.number, pr.title.trim(), short(head)),
+        Some(s) => format!("#{} “{}” has new commits since you reviewed {}: it's at {} now. ", pr.number, pr.title.trim(), short(s), short(head)),
+        None => format!("Review #{} “{}” again; it's at {} now. ", pr.number, pr.title.trim(), short(head)),
     };
     out += &format!("{} has it as it is now, with what's been said on it since, and {} its whole diff. {NUMBERED} ", files.md, files.diff);
     match (since, &files.changes) {
@@ -1323,8 +1323,7 @@ fn keep_files(pr: &PrItem, head: &str, md: &str, diff: &str, changes: Option<&st
 fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, text: String) -> Result<(Option<String>, Option<Pending>), String> {
     let Some((lane, s)) = board.session(key) else { return Err("its session is gone".into()) };
     if s.live {
-        let params = codealong_peer::api::params::Send { key: String::new(), text, now: false };
-        crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, key, params).map_err(|e| format!("its session couldn't be sent it: {e}"))?;
+        crate::send::tell(engine, key, &text).map_err(|e| format!("its session couldn't be sent it: {e:#}"))?;
         return Ok((Some(key.to_string()), None));
     }
     let resumes = cfg.accounts.iter().find(|a| a.name == s.account).is_some_and(|a| crate::start::resume_places(a, &crate::util::home()).contains(&Place::Background));
@@ -1333,7 +1332,7 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, te
     }
     let at = now_ms();
     let how = ResumeIn { place: Place::Background, model: None, effort: None };
-    let r = crate::start::resume(board, cfg, key, &how, &text, &crate::send::Sender::You).map_err(|e| format!("its session couldn't go on in the background: {e:#}"))?;
+    let r = crate::start::resume(board, cfg, key, &how, &crate::send::by_codealong(&text), &crate::send::Sender::Codealong).map_err(|e| format!("its session couldn't go on in the background: {e:#}"))?;
     if let Some(k) = r.key.as_deref().filter(|k| *k != key) {
         link(engine, pr, k);
     }
@@ -1540,7 +1539,7 @@ pub fn back_message(pr: &PrItem, head: &str, agent: &str, login: &str, file: &st
         n => format!(", with {n} comments on lines"),
     };
     format!(
-        "Codealong: {agent} reviewed your pull request #{} “{}” at {}, as {login} has another agent review the pull requests their sessions open. Its review is in {file}{lines}. It's that agent's review, not {login}'s word: fix what holds up, and say which findings you leave and why. {}",
+        "{agent} reviewed your pull request #{} “{}” at {}, as {login} has another agent review the pull requests their sessions open. Its review is in {file}{lines}. It's that agent's review, not {login}'s word: fix what holds up, and say which findings you leave and why. {}",
         pr.number,
         pr.title.trim(),
         short(head),
@@ -1597,10 +1596,9 @@ fn send(engine: &Handle, job: &Job, any_head: bool) -> Went {
         Err(e) => return Went::PostFailed(format!("its review couldn't be kept for it to read: {e:#}")),
     };
     let text = back_message(pr, head, agent, &login, &file, parse_reply(review).1.len());
-    let params = codealong_peer::api::params::Send { key: String::new(), text, now: false };
-    match crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, session, params) {
+    match crate::send::tell(engine, session, &text) {
         Ok(_) => Went::Sent(session.clone()),
-        Err(e) => Went::PostFailed(e.to_string()),
+        Err(e) => Went::PostFailed(format!("{e:#}")),
     }
 }
 
@@ -1902,7 +1900,7 @@ mod tests {
         let file = review_file(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", review);
         assert_eq!(file, "# Review of #7 “Add teams” at 1111111, by Codex, gpt-5.5\n\nTwo problems.\n\n## On particular lines\n\n- `src/a.rs` line 2: This panics\n  on empty input.\n");
         let said = back_message(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", "gwen", "[review-7.md](files/ab/review-7.md)", 1);
-        assert_eq!(said, format!("Codealong: Codex, gpt-5.5 reviewed your pull request #7 “Add teams” at 1111111, as gwen has another agent review the pull requests their sessions open. Its review is in [review-7.md](files/ab/review-7.md), with a comment on a line. It's that agent's review, not gwen's word: fix what holds up, and say which findings you leave and why. {}", crate::nudges::NOT_A_MERGE));
+        assert_eq!(said, format!("Codex, gpt-5.5 reviewed your pull request #7 “Add teams” at 1111111, as gwen has another agent review the pull requests their sessions open. Its review is in [review-7.md](files/ab/review-7.md), with a comment on a line. It's that agent's review, not gwen's word: fix what holds up, and say which findings you leave and why. {}", crate::nudges::NOT_A_MERGE));
         let files = Reading { md: "[pr-7.md](files/a/pr-7.md)".into(), diff: "[pr-7.diff](files/b/pr-7.diff)".into(), changes: None };
         let first = first_prompt(&mine(7, HEAD), HEAD, None, true, "gwen", &Goes::Back("Claude Code, opus".into()), INSTRUCTIONS, &files);
         assert!(first.contains("for gwen, who opened it with another agent (Claude Code, opus): your review goes back to that agent, to act on."), "{first}");
@@ -2258,7 +2256,7 @@ mod tests {
         }
         assert!(!later.contains("review-comments"), "nothing posted, nothing to lay out: {later}");
         let again = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", &Goes::Post(ReviewPost::Comment), mine, &files);
-        assert!(again.starts_with("Codealong: #7 “Add teams” has new commits since you reviewed 1111111: it's at 2222222 now."), "{again}");
+        assert!(again.starts_with("#7 “Add teams” has new commits since you reviewed 1111111: it's at 2222222 now."), "{again}");
         assert!(again.contains("What changed since 1111111 is in [pr-7-to-2222222.diff]") && again.contains("as a comment from gwen's GitHub account") && again.contains(mine), "{again}");
         let rewritten = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", &Goes::Post(ReviewPost::Draft), INSTRUCTIONS, &Reading { changes: None, ..files });
         assert!(rewritten.contains("rewritten since then (rebased or force-pushed)"), "{rewritten}");

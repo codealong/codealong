@@ -172,8 +172,8 @@ fn line(n: &Note) -> String {
 /// The message for a session's helpers' news.
 pub fn words(notes: &[Note]) -> String {
     match notes {
-        [one] => format!("Codealong: your helper {}", line(one)),
-        _ => format!("Codealong, about your helpers:\n{}", notes.iter().map(|n| format!("- {}", line(n))).collect::<Vec<_>>().join("\n")),
+        [one] => format!("Your helper {}", line(one)),
+        _ => format!("About your helpers:\n{}", notes.iter().map(|n| format!("- {}", line(n))).collect::<Vec<_>>().join("\n")),
     }
 }
 
@@ -185,8 +185,7 @@ pub fn send_now(engine: &Handle, reporter: &Mutex<Reporter>, jobs: Vec<Job>) {
         // One that falls over is told as failed, so its session isn't left waiting on a send
         // that never says how it went.
         let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let params = codealong_peer::api::params::Send { key: String::new(), text: words(&job.notes), now: false };
-            crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, &job.session, params).map(|_| ())
+            crate::send::tell(engine, &job.session, &words(&job.notes)).map(|_| ()).map_err(|e| format!("{e:#}"))
         }))
         .unwrap_or_else(|_| Err("telling it stopped partway".to_string()));
         let again = reporter.lock().unwrap_or_else(|e| e.into_inner()).told(&job, went.is_ok(), crate::util::now_ms());
@@ -233,7 +232,7 @@ mod tests {
         assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Working, 10, 30)]), NOW).is_empty());
         let jobs = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW);
         assert_eq!(news(&jobs), [(BOSS.to_string(), News::Ended)]);
-        assert!(words(&jobs[0].notes).starts_with("Codealong: your helper “Review the diff” (codex:codex:rev) ended its turn: `codealong session wait codex:codex:rev` prints its reply"));
+        assert!(words(&jobs[0].notes).starts_with("Your helper “Review the diff” (codex:codex:rev) ended its turn: `codealong session wait codex:codex:rev` prints its reply"));
         assert!(!r.told(&jobs[0], true, NOW));
         assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW).is_empty(), "once");
         // A turn quicker than a board apart: a newer prompt it has answered.
@@ -283,7 +282,7 @@ mod tests {
         let jobs = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW);
         assert_eq!(jobs.len(), 1);
         let text = words(&jobs[0].notes);
-        assert!(text.starts_with("Codealong, about your helpers:\n- “Review the diff” (codex:codex:rev) ended its turn") && text.contains("\n- “Check the migration” (codex:codex:two) waits on your user"), "{text}");
+        assert!(text.starts_with("About your helpers:\n- “Review the diff” (codex:codex:rev) ended its turn") && text.contains("\n- “Check the migration” (codex:codex:two) waits on your user"), "{text}");
         assert!(r.told(&jobs[0], false, NOW));
         assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW + 1).is_empty(), "not yet");
         let again = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW + RETRY_MS);

@@ -70,7 +70,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   or a `queued_command` attachment), what you send a Claude app session from Codealong, and a
   subagent's report back (`handback: true`): `claude/conversation.rs` (`Peer`, `line_peer`,
   `sent_from_codealong`), `claude/peer.rs` (`FROM_CODEALONG`, `FROM_YOU`),
-  `claude/transcript.rs` (`you_typed`).
+  `claude/transcript.rs` (`you_typed`). What Codealong sends by itself (send.rs `tell`) goes the
+  same way under the name Codealong, its body led by `send::FROM_CODEALONG_ITSELF`; sent to a
+  terminal session that skips prompts it arrived claiming `bypass`, unheld, and the model was told
+  it came from another session and isn't the user's (2.1.296, 2026-10-10).
 - A line's `cwd` is the shell's folder, which goes back to the session's after a command that
   `cd`s outside it; which worktree an agent works in, and commands that go elsewhere only to
   look: `board.rs` (`session_seed`), `util.rs` (`command_dir`, `only_looks`). A look where the

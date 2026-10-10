@@ -45,7 +45,7 @@ const RETRY_MS: i64 = 30_000;
 const REACH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What Codealong says to a session it tells to carry on.
-pub const MESSAGE: &str = "Codealong: your last turn ended because the API couldn't be reached (the Mac slept or lost its connection). It can be reached again, so carry on where you left off.";
+pub const MESSAGE: &str = "Your last turn ended because the API couldn't be reached (the Mac slept or lost its connection). It can be reached again, so carry on where you left off.";
 
 /// Telling one session to carry on from the connection lost at `at`.
 #[derive(Debug, Clone, PartialEq)]
@@ -190,8 +190,7 @@ pub fn send_now(engine: &Handle, continuer: &Mutex<Continuer>, due: Due) {
             if !*reached.entry(job.address).or_insert_with(|| reachable(job.address)) {
                 return Ok(Went::Offline);
             }
-            let params = codealong_peer::api::params::Send { key: String::new(), text: MESSAGE.to_string(), now: false };
-            crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, &job.session, params).map(|_| Went::Sent)
+            crate::send::tell(engine, &job.session, MESSAGE).map(|_| Went::Sent).map_err(|e| format!("{e:#}"))
         }))
         .unwrap_or_else(|_| Err("telling it stopped partway".to_string()));
         let again = continuer.lock().unwrap_or_else(|e| e.into_inner()).told(&job, *went.as_ref().unwrap_or(&Went::Failed), crate::util::now_ms());
