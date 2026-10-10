@@ -58,6 +58,16 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   copy of the thread the app doesn't see.
 - A window owns only the threads it has loaded, and takes one as it starts loading it, before
   its settings are in: `codex/ipc.rs` (`Ipc::owner`, `codex_start_turn`).
+- The router runs in whichever process started it first: the app, or the Codex extension in VS
+  Code or Cursor, which has the same code (26.908's `out/extension.js`). When that process quits,
+  the app's windows can end up split between several routers of their own until the app is
+  reopened, and Codealong's lookups reach only the last one, so a window that owns a thread never
+  answers (`no-client-found` after ten seconds). Seen 2026-10-10 on 26.930: five listening sockets
+  on `ipc.sock` in the app's process since the router moved at 2026-10-08 19:57Z, while the
+  window's log said it owned the thread. netstat tells them apart: `codex/ipc.rs`
+  (`windows_split`, `routers_at`). The app logs `[IpcRouter] I am the router` for each client that
+  joins a router of its own; the logs are in `~/Library/Logs/com.openai.codex/<date>/`, and
+  `thread_stream_role_changed` in them says which window owns a thread.
 - Stopping a thread's turn in the app (`thread-follower-interrupt-turn`, `user-stop`):
   `codex/ipc.rs` (`codex_interrupt_request`). With `expectedTurnId` (version 4) it stops the turn
   only while it's still the one running. The window sends `turn/interrupt` and kills the exec

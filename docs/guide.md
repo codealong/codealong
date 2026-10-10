@@ -667,13 +667,14 @@ the login keychain. What you type, repo names and session titles and latest line
 
 Sending goes the way each harness takes a prompt: pasted into the session's Ghostty, iTerm2,
 Terminal or tmux tab, Claude Code's daemon for a background job, OpenCode's service, a turn started
-by the Codex app itself (opening the thread there first when no window has it; else it opens with
-the prompt filled in), and Claude Code's cross-session socket for Claude app sessions, which read it
-as a message from another session (what you type in Codealong says it's yours, so one that skips
-permission prompts takes it without asking). A terminal session whose tab can't be found gets such a
-message too, and the note (on the bar, from the peek) says it wasn't typed and why; once typing has
-started, nothing else is tried, so it can't arrive twice, and the same text sent again while it's on
-its way goes once.
+by the Codex app itself (opening the thread there first when no window has it; when the app doesn't
+take it, nothing is sent: the message goes back in the box with why, and the app opens the thread
+with it filled in to send from there), and Claude Code's cross-session socket for Claude app
+sessions, which read it as a message from another session (what you type in Codealong says it's
+yours, so one that skips permission prompts takes it without asking). A terminal session whose tab
+can't be found gets such a message too, and the note (on the bar, from the peek) says it wasn't
+typed and why; once typing has started, nothing else is tried, so it can't arrive twice, and the
+same text sent again while it's on its way goes once.
 
 #### Sessions that aren't running
 

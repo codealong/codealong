@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 
 use crate::attachments::{self, Style};
 use crate::launch;
+use crate::procs;
 use crate::send::{opened, sent, Delivery, MayHaveArrived, Own, Sent, Way};
 
 /// A frame on the Codex app's IPC socket: a 4-byte little-endian length, then JSON.
@@ -136,19 +137,60 @@ impl Ipc {
     }
 }
 
+/// Why no window answered for a thread when the app's windows can't reach each other.
+const SPLIT: &str = "Codex's windows can't reach each other right now, so the one with this thread didn't answer; quitting and reopening Codex fixes that.";
+
+/// How many routers listen at `socket`, from `netstat -an -f unix`: a socket bound there lists
+/// the vnode it's bound to (Inode, the fifth column), a connection accepted from one lists none,
+/// and both end with the path.
+fn routers_at(netstat: &str, socket: &Path) -> usize {
+    let path = socket.to_string_lossy();
+    netstat
+        .lines()
+        .filter(|l| l.strip_suffix(&*path).is_some_and(|rest| rest.ends_with(' ')))
+        .filter(|l| l.split_whitespace().nth(4).is_some_and(|inode| inode != "0"))
+        .count()
+}
+
+/// Whether the app's windows are split between routers, so that a window may own a thread and
+/// still not be reached. When the router goes away (the process running it quit), each of the
+/// app's windows sets out to start another (26.930's `getOrStartRouterEndpoint`): each one
+/// removes the socket the one before it made and listens on a new one, so the app can end up
+/// with several, each knowing only the windows that reached it, and the socket's path leads only
+/// to the last. It lasts until the app is reopened. Seen 2026-10-10: five, one process.
+fn windows_split(codex_home: &Path) -> bool {
+    procs::run("/usr/sbin/netstat", &["-an", "-f", "unix"], None, Duration::from_secs(3)).is_ok_and(|out| routers_at(&out, &codex_home.join("ipc/ipc.sock")) > 1)
+}
+
+/// The error for a request the router took and may have handed to the window: it may have gone.
+fn unheard(asked: &str, why: &str) -> MayHaveArrived {
+    MayHaveArrived(format!("Codealong asked Codex to {asked} and didn't hear how it went ({why}): look there before sending it again."))
+}
+
+/// The router says these once it has handed a request to the window, which may go on with it;
+/// its other refusals, and the window's own, come before anything is sent.
+fn handed_on(why: &str) -> bool {
+    matches!(why, "request-timeout" | "client-disconnected" | "server-closed")
+}
+
 /// Starts a turn with `text` in a Codex thread, through the socket the app's windows use to
 /// reach each other. The window that owns the thread runs the turn in the app's own app-server,
 /// so the app shows it as if you'd sent it there. A thread no window has loaded is opened in the
 /// app after a short wait, which loads it and takes it within a couple of seconds, and asked
-/// about again.
+/// about again. Once the window has the request, no answer may mean it went (`MayHaveArrived`).
 pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Option<(&str, Option<&str>)>) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(18);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let client = ipc.client_id.clone();
 
     let mut opened = false;
+    // Whether the windows are split, and how long to look for the thread's window, once the
+    // first look found none. Split, the window that has it can't be reached however long
+    // Codealong waits, though one that loads it now may be, so the thread is opened and given
+    // the couple of seconds a window takes to load it.
+    let mut look = None;
     let owner = loop {
-        let wait = (Instant::now() + Duration::from_millis(1500)).min(deadline);
+        let wait = (Instant::now() + Duration::from_millis(1500)).min(look.map_or(deadline, |(_, by)| by));
         if let Some(owner) = ipc.owner(thread, wait)? {
             if opened {
                 // A window takes a thread as it starts loading it, and a turn that arrives
@@ -158,8 +200,12 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
             }
             break owner;
         }
-        if Instant::now() >= deadline {
-            bail!("No Codex window took this thread.");
+        let (split, by) = *look.get_or_insert_with(|| {
+            let split = windows_split(codex_home);
+            (split, if split { (Instant::now() + Duration::from_secs(3)).min(deadline) } else { deadline })
+        });
+        if Instant::now() >= by {
+            bail!(if split { SPLIT } else { "No Codex window took this thread." });
         }
         if !opened {
             launch::open_codex(&launch::codex_thread_url(thread))?;
@@ -170,9 +216,13 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
 
     let turn = crate::start::new_session_id();
     ipc.send(&codex_start_request(&turn, &client, &owner, thread, text, &crate::start::new_session_id(), model))?;
-    let r = ipc.response(&turn, deadline)?;
+    let r = ipc.response(&turn, deadline).map_err(|e| unheard("start a turn with this", &e.to_string()))?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
-        bail!("Codex didn't start the turn: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
+        let why = r.get("error").and_then(Value::as_str).unwrap_or("no reason given");
+        if handed_on(why) {
+            return Err(unheard("start a turn with this", why).into());
+        }
+        bail!("Codex didn't start the turn: {why}");
     }
     Ok(())
 }
@@ -215,22 +265,31 @@ pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) 
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!("No Codex window has this thread open, so it isn't running in the app.");
+        bail!(not_running(codex_home));
     };
     let id = crate::start::new_session_id();
     ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, text, &crate::start::new_session_id(), cwd, crate::util::now_ms()))?;
-    let unknown = |why: &str| MayHaveArrived(format!("Codealong asked Codex to send this into its running turn and didn't hear how it went ({why}): look there before sending it again."));
-    let r = ipc.response(&id, deadline).map_err(|e| unknown(&e.to_string()))?;
+    let asked = "send this into its running turn";
+    let r = ipc.response(&id, deadline).map_err(|e| unheard(asked, &e.to_string()))?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
         let why = r.get("error").and_then(Value::as_str).unwrap_or("no reason given");
-        // The router says these once it has handed the request to the window, which may go on
-        // with it; its other refusals, and the window's own, come before anything is sent.
-        if matches!(why, "request-timeout" | "client-disconnected" | "server-closed") {
-            return Err(unknown(why).into());
+        if handed_on(why) {
+            return Err(unheard(asked, why).into());
         }
         bail!("Codex didn't take it into the turn: {why}");
     }
     Ok(())
+}
+
+/// Why no window answered for a thread that should be running in the app: a thread that's
+/// running there is loaded in some window, so none claiming it means it isn't, unless the
+/// windows can't reach each other.
+fn not_running(codex_home: &Path) -> &'static str {
+    if windows_split(codex_home) {
+        SPLIT
+    } else {
+        "No Codex window has this thread open, so it isn't running in the app."
+    }
 }
 
 /// The request that stops the turn a thread is taking, sent to the window that owns it: what
@@ -250,14 +309,12 @@ pub fn codex_interrupt_request(request_id: &str, client_id: &str, owner: &str, t
     })
 }
 
-/// Stops the turn a Codex thread is taking in the app, through the window that runs it. A thread
-/// that's running there is loaded in some window, so one that no window claims isn't running in
-/// the app.
+/// Stops the turn a Codex thread is taking in the app, through the window that runs it.
 pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!("No Codex window has this thread open, so it isn't running in the app.");
+        bail!(not_running(codex_home));
     };
     let id = crate::start::new_session_id();
     ipc.send(&codex_interrupt_request(&id, &ipc.client_id.clone(), &owner, thread))?;
@@ -269,7 +326,9 @@ pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
 }
 
 /// The way in for a thread the app has: a turn started through the app's own windows, as if
-/// you'd sent it there, else the app opens the thread with the prompt filled in to send.
+/// you'd sent it there. When that doesn't work nothing was sent, and the send fails, so the
+/// prompt stays in the box it was sent from; the app opens the thread with it filled in too, to
+/// send from there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InApp;
 
@@ -301,13 +360,19 @@ impl Own for InApp {
         }
         match codex_start_turn(&d.account.home_path(), &d.session.id, &prompt, None) {
             Ok(()) => Ok(sent(if d.busy() { format!("Sent to {title} in Codex; it takes it after its current turn.") } else { format!("Sent to {title} in Codex.") })),
+            Err(e) if e.is::<MayHaveArrived>() => Err(e),
             // A prompt filled in for someone to send isn't a message an agent can leave.
             Err(e) if d.from_agent() => bail!("Codex didn't take it for {title} ({e}), so nothing was sent."),
-            Err(_) => {
-                // The app isn't running, didn't take the thread, or has changed how its
-                // windows talk: its own link fills the reply in instead.
-                launch::open_codex(&format!("{}?prompt={}", launch::codex_thread_url(&d.session.id), urlencoding::encode(&prompt)))?;
-                Ok(opened(format!("Codex has {title} open with the prompt filled in; send it there.")))
+            Err(e) => {
+                // The app isn't running, no window took the thread, or the app has changed how
+                // its windows talk: nothing went. The app's own link fills the prompt in to send
+                // from there, and the send still fails, so the prompt stays in the box it was
+                // sent from rather than passing for sent.
+                let link = format!("{}?prompt={}", launch::codex_thread_url(&d.session.id), urlencoding::encode(&prompt));
+                match launch::open_codex(&link) {
+                    Ok(()) => bail!("{e} Nothing was sent to {title}: it's waiting in Codex's box for you to send there."),
+                    Err(_) => bail!("{e} Nothing was sent to {title}."),
+                }
             }
         }
     }
@@ -475,6 +540,122 @@ mod tests {
         assert_eq!((&m["id"], &p["clientUserMessageId"]), (&json!("u1"), &json!("u1")));
         assert_eq!((&m["text"], &m["cwd"], &m["createdAt"]), (&json!("and the docs"), &json!("/r/app"), &json!(1_790_000_000_000i64)));
         assert_eq!(m["context"], json!({ "prompt": "and the docs", "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": ["/r/app"] }));
+    }
+
+    /// A router that answers Codealong's join and its lookups for a thread's window with
+    /// `owner` (None: no window answers), and starts a turn with `started`, until it hangs up.
+    fn router(home: &Path, owner: Option<&'static str>, started: Value) -> std::thread::JoinHandle<()> {
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
+        std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                while let Some(m) = ipc_take(&mut buf) {
+                    let id = m["requestId"].clone();
+                    let mut answer = match (m["method"].as_str(), owner) {
+                        (Some("initialize"), _) => json!({ "resultType": "success", "result": { "clientId": "me" } }),
+                        (Some("thread-owner-discovery"), Some(window)) => json!({ "resultType": "success", "handledByClientId": window }),
+                        (Some("thread-owner-discovery"), None) => json!({ "resultType": "error", "error": "no-client-found" }),
+                        _ => started.clone(),
+                    };
+                    answer["type"] = json!("response");
+                    answer["requestId"] = id;
+                    // Codealong may have hung up meanwhile, once it gave up on the last.
+                    if conn.write_all(&ipc_frame(&answer)).is_err() {
+                        return;
+                    }
+                }
+                match conn.read(&mut chunk) {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                }
+            }
+        })
+    }
+
+    /// Stands in for netstat, listing `routers` listening at `home`'s socket, and for the links
+    /// opened, which it keeps: the Codex app isn't running.
+    fn stand_ins(home: &Path, routers: usize) -> std::rc::Rc<std::cell::RefCell<Vec<String>>> {
+        let socket = home.join("ipc/ipc.sock").to_string_lossy().into_owned();
+        let opened = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let kept = opened.clone();
+        crate::procs::stand_in::set(Some(Box::new(move |program, args, _, _| match program {
+            "/usr/sbin/netstat" => {
+                let mut out = String::from("Active LOCAL (UNIX) domain sockets\nAddress          Type   Recv-Q Send-Q            Inode             Conn             Refs          Nextref Addr\n");
+                for n in 0..routers {
+                    out += &format!("cd1b15dcda766bb{n} stream      0      0  42afbf88e136ef{n}                0                0                0 {socket}\n");
+                    out += &format!("1eabd92b42207c5{n} stream      0      0                0 731306bd370ce13{n}                0                0 {socket}\n");
+                }
+                Ok(out)
+            }
+            "/usr/bin/open" => {
+                kept.borrow_mut().push(args.last().unwrap().to_string());
+                Ok(String::new())
+            }
+            _ => Err(anyhow!("{program} isn't here")),
+        })));
+        opened
+    }
+
+    #[test]
+    fn counts_the_routers_listening_on_the_codex_socket() {
+        let out = concat!(
+            "Active LOCAL (UNIX) domain sockets\n",
+            "Address          Type   Recv-Q Send-Q            Inode             Conn             Refs          Nextref Addr\n",
+            "1eabd92b42207c55 stream      0      0                0 731306bd370ce138                0                0 /Users/me/.codex/ipc/ipc.sock\n",
+            "cd1b15dcda766bb8 stream      0      0  42afbf88e136ef6                0                0                0 /Users/me/.codex/ipc/ipc.sock\n",
+            " 12cde69c79bb8ac stream      0      0                0 c7a9a81174bf18c3                0                0 /Users/me/.codex/ipc/ipc.sock\n",
+            "4488249790064287 stream      0      0 9d7dcf9987a383fd                0                0                0 /Users/me/.codex/ipc/ipc.sock\n",
+            "9ee99f668c4053df stream      0      0 cbdf3c8b9c687c69                0                0                0 /Users/me/other/.codex/ipc/ipc.sock\n",
+            "2d834054652471cf stream      0      0 5a1c0e3b9d2f4e11                0                0                0 /Users/me/Library/My Folder/ipc.sock\n",
+        );
+        assert_eq!(routers_at(out, Path::new("/Users/me/.codex/ipc/ipc.sock")), 2);
+        assert_eq!(routers_at(out, Path::new("/Users/me/Library/My Folder/ipc.sock")), 1);
+        assert_eq!(routers_at(out, Path::new("/Users/you/.codex/ipc/ipc.sock")), 0);
+    }
+
+    /// The app's windows split between routers: the one with the thread can't be reached, so
+    /// Codealong says so, and why, a few seconds after opening the thread rather than eighteen.
+    #[test]
+    fn says_when_the_codex_apps_windows_cant_reach_each_other() {
+        let home = scratch("codex-split");
+        let router = router(&home, None, json!({}));
+        let opened = stand_ins(&home, 5);
+        let began = Instant::now();
+        let err = codex_start_turn(&home, "t1", "hello", None).unwrap_err();
+        crate::procs::stand_in::set(None);
+        router.join().unwrap();
+        assert_eq!(err.to_string(), SPLIT);
+        assert!(began.elapsed() < Duration::from_secs(6), "{:?}", began.elapsed());
+        assert_eq!(opened.borrow().first().map(String::as_str), Some("codex://threads/t1"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Once the window has the request, a turn the router lost track of may have started: it's
+    /// left to look at, not filled in to send again.
+    #[test]
+    fn a_turn_the_codex_window_was_handed_may_have_started() {
+        let home = scratch("codex-handed");
+        let router = router(&home, Some("window"), json!({ "resultType": "error", "error": "request-timeout" }));
+        let err = codex_start_turn(&home, "t1", "hello", None).unwrap_err();
+        router.join().unwrap();
+        assert!(err.is::<MayHaveArrived>(), "{err}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A send Codex didn't take fails, so the prompt stays where it was written, and the app has
+    /// it filled in to send from there.
+    #[test]
+    fn a_codex_send_that_was_only_filled_in_is_not_sent() {
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
+        let s = Session { surface: Surface::App, status: Status::Idle, live: true, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Codex, "codex", "abc") };
+        let opened = stand_ins(Path::new("/nonexistent/codex"), 1);
+        let err = InApp.deliver(&Delivery { session: &s, account: &account, text: "hi there", agent: None, bypasses: false, now: false, untyped: None }).map(|_| ()).unwrap_err();
+        crate::procs::stand_in::set(None);
+        assert_eq!(err.to_string(), "The Codex app isn't running. Nothing was sent to \u{201c}Fix the build\u{201d}: it's waiting in Codex's box for you to send there.");
+        assert_eq!(*opened.borrow(), ["codex://threads/abc?prompt=hi%20there"]);
     }
 
     #[test]
