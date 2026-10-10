@@ -137,7 +137,8 @@
 }
 
 .ca-chip.ca-snoozechip,
-.ca-chip.ca-quietchip {
+.ca-chip.ca-quietchip,
+.ca-chip.ca-suggestedchip {
   padding: 0 7px 0 6px;
   font: var(--type-caption-heading);
   color: var(--ink-3);

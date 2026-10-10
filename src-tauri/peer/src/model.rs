@@ -243,6 +243,11 @@ pub struct Session {
     /// still leave its turns out.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub quiet: bool,
+    /// Replies another session suggested you send it (`codealong session suggest`), shown above
+    /// its box to send with a click, while they still answer where it stands
+    /// (`board::suggestions_hold`). None from Macs before 2026-10-09.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestions: Option<Suggestions>,
     /// It worked in a reusable worktree before that worktree last took new work
     /// (`board::earlier`): kept in the lane's list after its current sessions, and out of the
     /// lane's status.
@@ -339,6 +344,7 @@ impl Session {
             steerable: false,
             snoozed_until: None,
             quiet: false,
+            suggestions: None,
             earlier: false,
             chrome: None,
             limit: None,
@@ -381,6 +387,28 @@ pub struct ConnectionLost {
     /// `[sessions] continue_after_network_error`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub continues: bool,
+}
+
+/// Replies suggested for a session by another session that read it (a supervisor going over the
+/// sessions that wait on you) through `codealong session suggest`. Each goes as it is, as if you'd
+/// typed it, and nothing goes until you pick one. Kept on the session's Mac (suggestions.rs) until
+/// something is sent to the session or a turn of its starts.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Suggestions {
+    /// The replies, best first.
+    pub replies: Vec<String>,
+    /// Why, or what to weigh, in a sentence or two, when the suggester said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// The session that suggested them, by its key on its own device, when one did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    /// That session's title when it suggested them, to name it by on any device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_title: Option<String>,
+    /// When they were suggested, by the clock of the session's Mac.
+    pub at: i64,
 }
 
 /// Where a session came from: the session it was forked from or started by.
@@ -777,7 +805,9 @@ mod tests {
                 "appAccount": true, "openTarget": "s|claude:claude2:abc|focus", "visitor": "worked here", "headline": "Needs you", "detail": "now",
                 "branch": "login", "archived": true, "attachCommand": "claude attach j1", "continues": "claude:claude2:from",
                 "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
-                "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true, "earlier": true,
+                "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true,
+                "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10 },
+                "earlier": true,
                 "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 }
             }"#,
         )

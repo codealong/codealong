@@ -990,6 +990,20 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
     }
 }
 
+/// Whether replies suggested for a session at `at` still answer where it stands: nothing has been
+/// sent to it since (a prompt of yours, from Codealong or where it runs) and no turn of its has
+/// started since. A turn that started after them has moved on from what they answered, even once
+/// it ends, so the engine forgets them once it sees one (`Engine::forget_stale_suggestions`).
+pub fn suggestions_hold(s: &Session, at: i64) -> bool {
+    s.last_prompt_at <= at && !(s.status == Status::Working && s.status_since.is_some_and(|since| since > at))
+}
+
+/// Puts the replies suggested for a session on it while they hold (`suggestions_hold`): after its
+/// status and Jev's read of it, before a snooze or a mark of unread moves when its status began.
+pub fn apply_suggestions(s: &mut Session, suggested: Option<&Suggestions>) {
+    s.suggestions = suggested.filter(|g| !g.replies.is_empty() && suggestions_hold(s, g.at)).cloned();
+}
+
 /// Applies a snooze from Codealong to a session, after its status and Jev's read of it, before
 /// bays and headlines are worked out. Until its time the session carries `snoozed_until`, and the
 /// floating bar and the mark leave it out of Needs you and Your turn. When the time comes it's
@@ -2560,6 +2574,33 @@ mod tests {
         let mut woke = quiet(&ended);
         apply_snooze(&mut woke, Some(&Snooze { key: ended.key.clone(), at: NOW - 15 * MIN, until: NOW - MIN }), NOW - 30 * MIN, NOW);
         assert_eq!(woke.status, Status::Unread);
+    }
+
+    #[test]
+    fn suggested_replies_hold_until_the_session_moves_on() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        // Its turn ended 20 minutes ago, on a prompt sent 30 minutes ago; replies were suggested 10
+        // minutes ago.
+        let ended = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        let ended = Session { last_prompt_at: NOW - 30 * MIN, ..ended };
+        let suggested = Suggestions { replies: vec!["Yes, push it".into(), "Run the tests first".into()], note: Some("It asks whether to push".into()), by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at: NOW - 10 * MIN };
+        let with = |s: &Session, g: Option<&Suggestions>| {
+            let mut s = s.clone();
+            apply_suggestions(&mut s, g);
+            s.suggestions
+        };
+        assert_eq!(with(&ended, Some(&suggested)), Some(suggested.clone()));
+        // Waiting on you, or still at the turn they were suggested in, they hold.
+        assert!(with(&Session { status: Status::Needs, ..ended.clone() }, Some(&suggested)).is_some());
+        assert!(with(&Session { status: Status::Working, status_since: Some(NOW - 20 * MIN), ..ended.clone() }, Some(&suggested)).is_some());
+        // A prompt sent since, from anywhere, answered them.
+        assert_eq!(with(&Session { last_prompt_at: NOW - 5 * MIN, ..ended.clone() }, Some(&suggested)), None);
+        // A turn started since (a background task woke it) has moved on from them.
+        assert!(!suggestions_hold(&Session { status: Status::Working, status_since: Some(NOW - 5 * MIN), ..ended.clone() }, suggested.at));
+        // None, or none left, puts none on it, and takes away what it had.
+        assert_eq!(with(&Session { suggestions: Some(suggested.clone()), ..ended.clone() }, None), None);
+        assert_eq!(with(&ended, Some(&Suggestions { replies: vec![], ..suggested.clone() })), None);
     }
 
     #[test]

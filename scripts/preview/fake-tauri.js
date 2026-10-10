@@ -520,6 +520,7 @@ window.__TAURI_INTERNALS__ = {
       return Promise.resolve(null);
     }
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
+    if (cmd === 'dismiss_suggestions') return Promise.resolve(null);
     if (cmd === 'resume_session') return Promise.resolve({ message: 'Resumed (in the preview nothing starts anywhere).', opened: false });
     if (cmd === 'switch_session_model') return Promise.resolve('Switched its model (in the preview nothing is typed anywhere).');
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.

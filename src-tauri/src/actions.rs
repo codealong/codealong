@@ -187,6 +187,9 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
     // So is quiet, which is the session's for as long as it lasts.
     Request { name: api::SESSION_QUIET, here: quiet, ..ANY },
+    // Replies suggested for a session are kept on its Mac too, and only shown: nothing reaches the
+    // session until someone picks one, so an agent may suggest them through the command.
+    Request { name: api::SESSION_SUGGEST, here: suggest, ..ANY },
     // A search runs as you type, so a device slow to answer is left out rather than waited for.
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
@@ -495,6 +498,18 @@ const ANSWERED_WAIT: Duration = Duration::from_secs(10);
 /// tells it what to do instead: in the same answer where its harness takes words with one
 /// (`Adapter::deny_saying`), else sent as a prompt once it no longer waits.
 fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let said = answer_here(engine, c)?;
+    // Words sent in place of the call answer what was suggested for it, as a message does
+    // (`send_prompt`).
+    let p: params::Answer = c.read()?;
+    if p.message.as_deref().is_some_and(|m| !m.trim().is_empty()) && !matches!(c.from, From::Command(_)) {
+        forget_suggested(engine, c.session()?);
+    }
+    Ok(said)
+}
+
+/// The answer itself, as `answer_call` says.
+fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let p: params::Answer = c.read()?;
     let (answer, id) = (p.answer.ok_or("The request has no answer.")?, p.id);
@@ -563,11 +578,58 @@ fn sender_of(from: &From) -> send::Sender {
 /// with the prompt ready to send is refused: that needs someone here.
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Send = c.read()?;
-    let sent = send::send_here(engine, c.session()?, &p.text, sender_of(c.from), p.now).map_err(words)?;
+    let key = c.session()?;
+    let sent = send::send_here(engine, key, &p.text, sender_of(c.from), p.now).map_err(words)?;
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
+    // What its user sent answers what was suggested, in every window at once, rather than once
+    // its record shows the prompt. Not what an agent sent, nor what's only on the clipboard for
+    // its app to take.
+    if !matches!(c.from, From::Command(_)) && !sent.opened {
+        forget_suggested(engine, key);
+    }
     to_value(sent)
+}
+
+/// Takes away the replies suggested for a session, when it has any.
+fn forget_suggested(engine: &Handle, key: &str) {
+    let at = crate::suggestions::current().sessions.get(key).map(|g| g.at);
+    let Some(at) = at else { return };
+    match crate::suggestions::forget(&[(key.to_string(), at)]) {
+        Ok(true) => {
+            engine.suggested(false);
+        }
+        Ok(false) => {}
+        Err(e) => eprintln!("Couldn't forget the replies suggested for {key}: {e:#}"),
+    }
+}
+
+/// Suggests replies for it, in place of any it had, or with none takes them away
+/// (suggestions.rs). They're the session's until something is sent to it or a turn of its
+/// starts. Says what was done, in a sentence.
+fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    let p: params::Suggest = c.read()?;
+    if !engine.read(|b| b.session(key).is_some()) {
+        return Err("Codealong doesn't list that session.".into());
+    }
+    let replies = crate::suggestions::tidy(p.replies).map_err(words)?;
+    let note = crate::suggestions::tidy_note(p.note).map_err(words)?;
+    let n = replies.len();
+    let filled = |v: Option<String>| v.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    let suggested = (n > 0).then(|| crate::model::Suggestions { replies, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms() });
+    let changed = crate::suggestions::set(key, suggested).map_err(words)?;
+    let at = if changed { engine.suggested(*c.from == From::Here) } else { None };
+    if *c.from == From::Here {
+        return Ok(json!(at));
+    }
+    Ok(json!(match n {
+        0 if changed => "Took its suggested replies away.".to_string(),
+        0 => "It had no suggested replies.".to_string(),
+        1 => "Suggested a reply. It shows above the session's box in Codealong until something is sent to the session or a turn of its starts.".to_string(),
+        n => format!("Suggested {n} replies. They show above the session's box in Codealong until something is sent to the session or a turn of its starts."),
+    }))
 }
 
 /// Goes on with a session that isn't running where it says (`start::resume`), answering how it
@@ -1076,6 +1138,11 @@ mod tests {
         assert_eq!((snooze.there)(json!({ "keys": ["claude:claude:abc"], "until": 1 }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "until": 1 }));
         let quiet = find(api::SESSION_QUIET).unwrap();
         assert_eq!((quiet.there)(json!({ "keys": ["claude:claude:abc"], "quiet": true }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "quiet": true }));
+        // Suggested replies go with the session's key there, and the suggester as its own device
+        // knows it.
+        let suggest = find(api::SESSION_SUGGEST).unwrap();
+        let asked = json!({ "replies": ["Yes"], "by": "claude:claude:sup", "byTitle": "Supervisor" });
+        assert_eq!((suggest.there)(asked, "claude:claude:abc").unwrap(), json!({ "replies": ["Yes"], "by": "claude:claude:sup", "byTitle": "Supervisor", "key": "claude:claude:abc" }));
         // A start goes with the worktree as that device knows it and none of this device's todos,
         // and the session it started comes back by the key it has here.
         let start = find(api::START).unwrap();

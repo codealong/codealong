@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user mentions a todo or asks to note work for later, when you take on or finish a piece of work, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), or when choosing which account to start something on.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user mentions a todo or asks to note work for later, when you take on or finish a piece of work, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when asked to go over the sessions that wait on the user and suggest replies, or when choosing which account to start something on.
 ---
 
 # Codealong
@@ -77,7 +77,8 @@ done` say on stderr that no session was linked; give a session key when you want
   waiting on the user, `working`, `unread` means its turn ended and nobody looked, `idle`,
   `stopped` means its process ended), `live` (a process has it open now), account, worktree,
   title and what it's doing now. Filter with `--account`, `--status`,
-  `--project`, `--worktree .`, `--live`, `--since 24h|3d|all`.
+  `--project`, `--worktree .`, `--live`, `--since 24h|3d|all`; `--waiting` lists the ones that
+  wait on the user (needs, error, unread, not snoozed), as Codealong's queue has them.
 - `codealong sessions find <words>` searches titles, excerpts, worktrees, branches and PRs,
   and what was said (prompts and replies) in sessions active in the last two weeks (`[search]
   days` in config.toml). Use it before re-deriving what another agent did in this repo.
@@ -85,6 +86,10 @@ done` say on stderr that no session was linked; give a session key when you want
   command that resumes it, linked todos, and `records`: the paths of its own files. Claude
   Code and Codex records are JSONL you can grep; OpenCode's and Antigravity's are SQLite
   databases.
+- `codealong session transcript <key>` prints a session's conversation from its own record,
+  whatever its harness: the newest part, or the part before `--before <cursor>`. Prompts are
+  `you`, replies `agent`, tool calls `tool` (inputs and outputs cut short unless `--full`).
+  Read this rather than parsing records by hand.
 - `codealong session open <key>` shows a session in the Codealong app: its window comes
   forward on the session, with its conversation in the panel. Use it when the user asks to see
   a session, or to put one you found (`sessions find`, `pr show`) in front of them; `me` is
@@ -159,6 +164,30 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
   its result and its work has landed (`session done <key>`); it closes and leaves your user's
   lists. Any other session, and one that's working or waiting on its user, is your user's to
   mark done, in Codealong.
+
+## Suggesting replies
+
+When the user asks you to supervise their sessions (to go over the ones waiting on them and say
+what they might answer), suggest replies rather than sending anything: Codealong shows them above
+the session's box, and the user sends one with a click or types their own.
+
+1. `codealong sessions --waiting` lists the sessions that wait on the user; `suggestions` on one
+   means it has suggested replies already (and `by`, from whom).
+2. Read each one's end: `codealong session transcript <key>`, and `codealong session pending
+   <key>` for a call it waits on the user to allow. Look at the worktree, the PR or the code as
+   far as the answer needs.
+3. `codealong session suggest <key> "<reply>" "<reply>" --note "<why, or what to weigh>"`. Write
+   each reply as the user would send it, in their words and ready to go as it is: one or two
+   sentences, the best first, at most six. The note is for the user, not the session: what it
+   asks, what you checked, what's risky. A reply goes to the session as the user's own message,
+   so never write one that needs more than the user would say (no "As the supervisor…").
+4. Suggest again to replace them; `--clear` takes them away. They go by themselves once
+   anything is sent to the session or a turn of its starts, so a session with none left has
+   moved on: read it again before suggesting more.
+
+Suggesting sends nothing and needs no say-so, but don't message, answer or stop the sessions
+you supervise unless the user asks. A supervisor that runs on a loop goes over the waiting list
+each time and skips the sessions whose suggestions still stand.
 
 ## PRs
 

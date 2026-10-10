@@ -13,7 +13,7 @@ import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../
 import { branchLabel, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
-import type { GitInfo, Lane, Session, Todo } from '../types';
+import type { GitInfo, Lane, Session, Suggestions, Todo } from '../types';
 import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
@@ -342,6 +342,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen }: Session
           {where}
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
+          <SuggestedChip suggestions={s.suggestions} />
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
           <InsightChips session={s} />
           <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
@@ -448,6 +449,19 @@ export function QuietChip({ quiet }: { quiet: boolean | undefined }) {
   );
 }
 
+/** A chip for the replies another session suggested you send it, which its box shows: its tooltip
+ *  says who suggested them and what they are. */
+export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | undefined }) {
+  if (!g || g.replies.length === 0) return null;
+  const replies = g.replies.map((r) => `· ${r.length > 80 ? `${r.slice(0, 79)}…` : r}`).join('\n');
+  return (
+    <Chip className="ca-suggestedchip" title={`${g.byTitle ? `Suggested by ${g.byTitle}` : 'Suggested replies'}, to send from its box:\n${replies}`}>
+      <Icon name="sparkles" size={12} />
+      Suggested
+    </Chip>
+  );
+}
+
 /**
  * One session in the Sessions view. On two lines: what it's about first (its title, what it waits
  * on you for, and what it's doing or said last), then where and why (its worktree, todo and
@@ -481,6 +495,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             <span className="ca-chips ca-agentline-tags">
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
+              <SuggestedChip suggestions={s.suggestions} />
               <InsightChips session={s} />
               <WorktreeChip lane={lane} short />
             </span>

@@ -19,6 +19,7 @@ use crate::prlinks;
 use crate::previews;
 use crate::reusable;
 use crate::origins;
+use crate::suggestions;
 use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
 use crate::editors;
@@ -95,6 +96,9 @@ pub enum Msg {
     /// Sessions quieted, or made heard again. The reply is the time of the board that shows it,
     /// published at once.
     Quiet(Vec<String>, bool, Sender<i64>),
+    /// suggestions.json just changed at a request here: the board is published again at once.
+    /// The reply is the time of the board that shows it.
+    Suggested(Sender<i64>),
     /// Lane path → session keys whose logs mention it, from the scan of that number
     /// (`Visitors::begin`).
     Visitors(u64, HashMap<PathBuf, Vec<String>>),
@@ -278,6 +282,18 @@ impl Handle {
     pub fn quiet(&self, keys: Vec<String>, quiet: bool) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::Quiet(keys, quiet, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// suggestions.json was just changed here (suggestions.rs): the board shows it now rather than
+    /// with the next change it hears of. Returns the time of the board that shows it, as
+    /// `mark_seen_shown` does, waiting for it only with `wait`.
+    pub fn suggested(&self, wait: bool) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Suggested(tx)).ok()?;
+        if !wait {
+            return None;
+        }
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -1225,6 +1241,38 @@ impl Engine {
         sessions
     }
 
+    /// The replies suggested for each session, while they still answer where it stands
+    /// (suggestions.rs, `board::apply_suggestions`). After Jev's read of it, before a snooze or a
+    /// mark of unread moves when its status began.
+    fn with_suggestions(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        let store = suggestions::current();
+        if store.sessions.is_empty() {
+            return sessions;
+        }
+        for s in &mut sessions {
+            let suggested = store.sessions.get(&s.key);
+            board::apply_suggestions(s, suggested);
+        }
+        sessions
+    }
+
+    /// Forgets the replies suggested for sessions that have moved on since: something was sent to
+    /// them, or a turn of theirs started. A turn that started and then ended would hold them again
+    /// by `board::suggestions_hold` alone, so they're forgotten as soon as it's seen.
+    fn forget_stale_suggestions(&self, board: &Board) {
+        let store = suggestions::current();
+        if store.sessions.is_empty() {
+            return;
+        }
+        let stale: Vec<(String, i64)> = store.sessions.iter().filter(|(key, g)| board.session(key).is_some_and(|(_, s)| !board::suggestions_hold(s, g.at))).map(|(key, g)| (key.clone(), g.at)).collect();
+        if stale.is_empty() {
+            return;
+        }
+        if let Err(e) = suggestions::forget(&stale) {
+            eprintln!("Couldn't forget the replies suggested for sessions that moved on: {e:#}");
+        }
+    }
+
     /// Where sessions came from by Codealong's own record (origins.rs): started by an agent's
     /// `codealong start`, or forked from Codealong where the harness doesn't say. What the
     /// harness recorded comes first.
@@ -1668,6 +1716,10 @@ impl Engine {
                         }
                     }
                     self.save_state();
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Suggested(reply)) => {
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
@@ -2649,7 +2701,7 @@ impl Engine {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now), now), &usage, now)),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now)), now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),
@@ -2721,6 +2773,8 @@ impl Engine {
         if self.link_origins(&board) {
             board = self.compose();
         }
+        // The board already leaves them out.
+        self.forget_stale_suggestions(&board);
         self.jev_look(&board);
         let composed = t.elapsed();
         self.dirty = false;

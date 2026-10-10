@@ -33,6 +33,21 @@ export interface SessionLimit {
   moveTo: string | null;
 }
 
+/** Replies suggested for a session by another session that read it (peer/src/model.rs
+ *  `Suggestions`): each goes as it is, as yours, once you pick it. */
+export interface Suggestions {
+  /** The best first. */
+  replies: string[];
+  /** Why, or what to weigh, when the suggester said. */
+  note?: string;
+  /** The session that suggested them, by its key on its own device. */
+  by?: string;
+  /** That session's title when it suggested them. */
+  byTitle?: string;
+  /** When they were suggested, by the session's Mac's clock. */
+  at: number;
+}
+
 export interface Session {
   key: string;
   id: string;
@@ -95,6 +110,10 @@ export interface Session {
    *  only when it needs you (board::apply_quiet), until you make it heard again. Missing from
    *  older Macs, whose statuses say nothing of it. */
   quiet?: boolean;
+  /** Replies another session suggested you send it (`codealong session suggest`), shown above its
+   *  box to send with a click, while they still answer where it stands: nothing sent to it since,
+   *  no turn of its started since (board::suggestions_hold). Missing from older Macs. */
+  suggestions?: Suggestions;
   /** It worked in a reusable worktree before that worktree last took new work: listed after the
    *  current work's sessions, and out of the worktree's status (board::earlier). */
   earlier?: boolean;

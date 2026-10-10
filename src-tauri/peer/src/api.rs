@@ -63,6 +63,11 @@ pub const SESSION_MODEL: &str = "session-model";
 /// answering `Done`. Work under way holds it unless `stop` ends that too. Macs before 2026-10-07
 /// refuse it as a request they don't know; the Mac asking then marks it seen and archives it.
 pub const SESSION_DONE: &str = "session-done";
+/// Suggests replies for a session (`key`): its box shows them, to send with a click, until
+/// something is sent to it or a turn of its starts. No `replies` takes them away. They're shown,
+/// never sent by themselves, so another device may suggest them as it may name a session. Macs
+/// before 2026-10-09 refuse it as a request they don't know.
+pub const SESSION_SUGGEST: &str = "session-suggest";
 
 /// What each request carries, as its makers write it (the engine's windows and command, and a
 /// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
@@ -184,6 +189,22 @@ pub mod params {
         pub name: String,
     }
 
+    /// `session-suggest`: the replies, in place of any it had; none takes them away. `by` and
+    /// `by_title` name the session that suggests them, as its own device knows it.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct Suggest {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub replies: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub note: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub by: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub by_title: Option<String>,
+    }
+
     /// `session-fork`: the copy starts on `prompt`, or waits for one when it's empty.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -252,7 +273,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 23] = [
+pub const REQUESTS: [(&str, Reach); 24] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -268,6 +289,7 @@ pub const REQUESTS: [(&str, Reach); 23] = [
     (SESSION_QUIET, Reach::Organize),
     (SESSION_ARCHIVE, Reach::Organize),
     (SESSION_RENAME, Reach::Organize),
+    (SESSION_SUGGEST, Reach::Organize),
     (SESSION_SEND, Reach::Control),
     (SESSION_ANSWER, Reach::Control),
     (SESSION_CANCEL, Reach::Control),

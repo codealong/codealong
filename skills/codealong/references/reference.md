@@ -34,10 +34,12 @@ Commands:
   sessions   Sessions on the board: every agent, live or not, with its status and where
              it works. Lists by default; `find` searches
   session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
-             resume it, and where its own records are), in the Codealong app (`open`), a
-             message to it where it runs (`send`), what it waits on its user for
-             (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming
-             it (`rename`) and forking it into the background (`fork`)
+             resume it, and where its own records are), its conversation (`transcript`),
+             replies suggested for its user to send with a click (`suggest`), in the
+             Codealong app (`open`), a message to it where it runs (`send`), what it
+             waits on its user for (`pending`) and denying it (`answer`), stopping its
+             turn (`stop`), naming it (`rename`) and forking it into the background
+             (`fork`)
   worktrees  Worktrees the board knows: each with its branch, PR, status, and the agents
              running in it now (`agents`: sessions a process has open, or that are
              working or waiting on you; `working`: those working or waiting on you).
@@ -796,6 +798,10 @@ Options:
           Only this status: needs (waiting on you), error, working, unread (its turn
           ended, not seen), idle, stopped
 
+      --waiting
+          Only the sessions that wait on you, as Codealong's queue has them: needs,
+          error and unread, less the snoozed ones
+
       --project <PROJECT>
           Only this project
 
@@ -849,11 +855,15 @@ Options:
       --table
           Tables, even when piped
 
-      --project <PROJECT>
-          Only this project
-
       --verbose
           Say on stderr whether the app or the files answered
+
+      --waiting
+          Only the sessions that wait on you, as Codealong's queue has them: needs,
+          error and unread, less the snoozed ones
+
+      --project <PROJECT>
+          Only this project
 
       --worktree <WORKTREE>
           Only sessions in this worktree (a path, or `.`)
@@ -923,63 +933,89 @@ Options:
 
 ```
 One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and
-where its own records are), in the Codealong app (`open`), a message to it where it runs
-(`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping
-its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`)
+where its own records are), its conversation (`transcript`), replies suggested for its
+user to send with a click (`suggest`), in the Codealong app (`open`), a message to it
+where it runs (`send`), what it waits on its user for (`pending`) and denying it
+(`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the
+background (`fork`)
 
 Usage: codealong session [OPTIONS] <COMMAND>
 
 Commands:
-  show     One session in full
-  open     Show a session in the Codealong app: its window comes forward on the
-           session's row in Sessions, with its conversation in the panel beside it, as
-           Show in Codealong does in the floating bar. Nothing is opened where the
-           session runs (its terminal, the Claude or Codex app). Needs the app running
-  send     Send a message to another session where it runs, on any account or harness.
-           It's never your user's word: the message starts by saying it's from another
-           agent and not the user, which session sent it, and how to answer (`codealong
-           session send <sender's key> "…"`), so an answer arrives in your session as a
-           new message. Claude Code sessions get it on their socket for messages between
-           sessions; one that skips permission prompts takes it at once only from a
-           session that skips them too, and otherwise asks its user first (a Claude app
-           session can't, so nothing is sent). Codex and OpenCode sessions get it as a
-           prompt, typed into their terminal or posted to their service, and queued
-           while they work. Nothing is sent to a session that isn't running, one waiting
-           on its user to answer a prompt, or an Antigravity one
-  pending  What a session waits on its user for, when Codealong can see it (`pending`):
-           the tool call it asks to run (`id`, which `session answer` names; `label`,
-           the call in a line; `input`, all of it; `cannot`, why Codealong can't answer
-           it, when it can't) or the questions it asks (`questions`); null when it waits
-           on nothing Codealong can see. Codex records no approvals, so a Codex session
-           never shows one
-  answer   Deny the tool call a session waits on its user to allow, by the id `session
-           pending` shows, if it's still the one waiting: Claude Code ends the turn, as
-           No at its prompt does, and an OpenCode session is told no. Only `deny`:
-           letting a call through, or answering the questions a session asks, is its
-           user's to do, in Codealong or where the session runs
-  stop     Stop the turn a session is taking, as its Stop in Codealong does: the
-           conversation stays, and the session waits for its next message. A command it
-           had handed to the background may keep running. A Claude app or Antigravity
-           session can't be stopped from outside; the error says so
-  done     Mark a session done, as Mark as done in Codealong does, from inside a
-           session, which may mark only its own and the ones it started. `me`: this
-           session ends once its current turn does (its terminal closes, or its harness
-           exits it and cleans up a worktree it made), and its last reply stays in Your
-           turn for its user to read and mark done. A session this one started with
-           `codealong start`: it ends now and is marked seen and archived, and
-           Codealong's main window says which session did it, with an Undo. Never a
-           session that's working, waiting on its user, or on another Mac; any other
-           session is its user's to mark done, in Codealong. Needs the app running
-  rename   Name a session where its harness keeps names (Claude Code's /rename, a Codex
-           thread's name, an OpenCode session's title), so the harness shows the name as
-           Codealong does
-  fork     Fork a session into a copy that goes on in the background, as /fork in its
-           box in Codealong does: a Claude Code background job, an OpenCode session, or
-           a Codex thread Codealong runs (that one needs the app running). The session
-           carries on unaware. Given a prompt, the copy starts on it; without one it
-           waits for its first message. Prints the copy's key when its harness says it
-           at once
-  help     Print this message or the help of the given subcommand(s)
+  show        One session in full
+  open        Show a session in the Codealong app: its window comes forward on the
+              session's row in Sessions, with its conversation in the panel beside it,
+              as Show in Codealong does in the floating bar. Nothing is opened where the
+              session runs (its terminal, the Claude or Codex app). Needs the app
+              running
+  send        Send a message to another session where it runs, on any account or
+              harness. It's never your user's word: the message starts by saying it's
+              from another agent and not the user, which session sent it, and how to
+              answer (`codealong session send <sender's key> "…"`), so an answer arrives
+              in your session as a new message. Claude Code sessions get it on their
+              socket for messages between sessions; one that skips permission prompts
+              takes it at once only from a session that skips them too, and otherwise
+              asks its user first (a Claude app session can't, so nothing is sent).
+              Codex and OpenCode sessions get it as a prompt, typed into their terminal
+              or posted to their service, and queued while they work. Nothing is sent to
+              a session that isn't running, one waiting on its user to answer a prompt,
+              or an Antigravity one
+  pending     What a session waits on its user for, when Codealong can see it
+              (`pending`): the tool call it asks to run (`id`, which `session answer`
+              names; `label`, the call in a line; `input`, all of it; `cannot`, why
+              Codealong can't answer it, when it can't) or the questions it asks
+              (`questions`); null when it waits on nothing Codealong can see. Codex
+              records no approvals, so a Codex session never shows one
+  answer      Deny the tool call a session waits on its user to allow, by the id
+              `session pending` shows, if it's still the one waiting: Claude Code ends
+              the turn, as No at its prompt does, and an OpenCode session is told no.
+              Only `deny`: letting a call through, or answering the questions a session
+              asks, is its user's to do, in Codealong or where the session runs
+  stop        Stop the turn a session is taking, as its Stop in Codealong does: the
+              conversation stays, and the session waits for its next message. A command
+              it had handed to the background may keep running. A Claude app or
+              Antigravity session can't be stopped from outside; the error says so
+  done        Mark a session done, as Mark as done in Codealong does, from inside a
+              session, which may mark only its own and the ones it started. `me`: this
+              session ends once its current turn does (its terminal closes, or its
+              harness exits it and cleans up a worktree it made), and its last reply
+              stays in Your turn for its user to read and mark done. A session this one
+              started with `codealong start`: it ends now and is marked seen and
+              archived, and Codealong's main window says which session did it, with an
+              Undo. Never a session that's working, waiting on its user, or on another
+              Mac; any other session is its user's to mark done, in Codealong. Needs the
+              app running
+  transcript  A session's conversation as its own record has it, for reading what
+              another agent did and where it stands: the newest part (about 60 items),
+              or the part before `--before`. Each item is a prompt (`you`), a reply
+              (`agent`), a tool call (`tool`: `text` is the call in a line, with its
+              input and output when the record has them there), a call's output
+              (`result`) or a note (a message from another session, compaction). Oldest
+              first; `before` is the cursor for the part before, null at the start.
+              Inputs and outputs are cut short unless --full. Any harness, and sessions
+              on your other devices
+  suggest     Suggest replies to a session for its user to send with one click: what
+              they might answer it, written by an agent that read it (a supervisor going
+              over the sessions that wait on its user: `codealong sessions --waiting`,
+              then `session transcript` for each). Codealong shows them above the
+              session's box, wherever that shows; picking one sends it as the user's own
+              message, and the user can type their own instead. Nothing reaches the
+              session until they pick. They stay until something is sent to the session
+              or a turn of its starts; suggesting again replaces them, and --clear takes
+              them away. Write each as the user would send it, in their words and ready
+              to go as it is: short, and the best first. Say why, or what to weigh, in
+              --note. The session's `suggestions` in `session show` and `sessions` are
+              the ones it has now
+  rename      Name a session where its harness keeps names (Claude Code's /rename, a
+              Codex thread's name, an OpenCode session's title), so the harness shows
+              the name as Codealong does
+  fork        Fork a session into a copy that goes on in the background, as /fork in its
+              box in Codealong does: a Claude Code background job, an OpenCode session,
+              or a Codex thread Codealong runs (that one needs the app running). The
+              session carries on unaware. Given a prompt, the copy starts on it; without
+              one it waits for its first message. Prints the copy's key when its harness
+              says it at once
+  help        Print this message or the help of the given subcommand(s)
 
 Options:
       --json
@@ -1209,6 +1245,86 @@ Arguments:
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session transcript
+
+```
+A session's conversation as its own record has it, for reading what another agent did
+and where it stands: the newest part (about 60 items), or the part before `--before`.
+Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the
+call in a line, with its input and output when the record has them there), a call's
+output (`result`) or a note (a message from another session, compaction). Oldest first;
+`before` is the cursor for the part before, null at the start. Inputs and outputs are
+cut short unless --full. Any harness, and sessions on your other devices
+
+Usage: codealong session transcript [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: its key, its id, a unique start of its id, or `me`
+
+Options:
+      --before <BEFORE>
+          The part before this cursor (the `before` of the part read last)
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --full
+          Tool calls' inputs and outputs whole, not cut short
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session suggest
+
+```
+Suggest replies to a session for its user to send with one click: what they might answer
+it, written by an agent that read it (a supervisor going over the sessions that wait on
+its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong
+shows them above the session's box, wherever that shows; picking one sends it as the
+user's own message, and the user can type their own instead. Nothing reaches the session
+until they pick. They stay until something is sent to the session or a turn of its
+starts; suggesting again replaces them, and --clear takes them away. Write each as the
+user would send it, in their words and ready to go as it is: short, and the best first.
+Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and
+`sessions` are the ones it has now
+
+Usage: codealong session suggest [OPTIONS] <KEY> [REPLIES]...
+
+Arguments:
+  <KEY>
+          The session: its key, its id, or a unique start of its id
+
+  [REPLIES]...
+          The replies, the best first, each as its user would send it. At most 6
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --note <NOTE>
+          Why, or what to weigh before picking, in a sentence or two; shown with them
+
+      --clear
+          Take the session's suggested replies away
 
       --table
           Tables, even when piped

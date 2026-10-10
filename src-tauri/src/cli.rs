@@ -77,7 +77,7 @@ enum Cmd {
     },
     /// Sessions on the board: every agent, live or not, with its status and where it works. Lists by default; `find` searches.
     Sessions(SessionsArgs),
-    /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), in the Codealong app (`open`), a message to it where it runs (`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`).
+    /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), its conversation (`transcript`), replies suggested for its user to send with a click (`suggest`), in the Codealong app (`open`), a message to it where it runs (`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`).
     Session {
         #[command(subcommand)]
         cmd: SessionCmd,
@@ -332,8 +332,11 @@ struct SessionFilter {
     #[arg(long)]
     account: Option<String>,
     /// Only this status: needs (waiting on you), error, working, unread (its turn ended, not seen), idle, stopped.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "waiting")]
     status: Option<String>,
+    /// Only the sessions that wait on you, as Codealong's queue has them: needs, error and unread, less the snoozed ones.
+    #[arg(long)]
+    waiting: bool,
     /// Only this project.
     #[arg(long)]
     project: Option<String>,
@@ -413,6 +416,10 @@ enum SessionCmd {
         /// The session: `me`, or one this session started (its key, its id, or a unique start of its id).
         key: String,
     },
+    /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`) or a note (a message from another session, compaction). Oldest first; `before` is the cursor for the part before, null at the start. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
+    Transcript(TranscriptArgs),
+    /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
+    Suggest(SuggestArgs),
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
         /// The session: its key, its id, a unique start of its id, or `me`.
@@ -447,6 +454,33 @@ struct SendArgs {
     /// A file to send with it, such as a screenshot or a log: copied into Codealong's store, and the session gets its full path to open (Claude Code's Read tool shows images). Repeatable.
     #[arg(long, value_name = "FILE")]
     attach: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct TranscriptArgs {
+    /// The session: its key, its id, a unique start of its id, or `me`.
+    key: String,
+    /// The part before this cursor (the `before` of the part read last).
+    #[arg(long)]
+    before: Option<u64>,
+    /// Tool calls' inputs and outputs whole, not cut short.
+    #[arg(long)]
+    full: bool,
+}
+
+#[derive(Args, Debug)]
+struct SuggestArgs {
+    /// The session: its key, its id, or a unique start of its id.
+    key: String,
+    /// The replies, the best first, each as its user would send it. At most 6.
+    #[arg(required_unless_present = "clear")]
+    replies: Vec<String>,
+    /// Why, or what to weigh before picking, in a sentence or two; shown with them.
+    #[arg(long)]
+    note: Option<String>,
+    /// Take the session's suggested replies away.
+    #[arg(long, conflicts_with_all = ["replies", "note"])]
+    clear: bool,
 }
 
 #[derive(Args, Debug)]
@@ -896,6 +930,8 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         }
         Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, params::Session::default(), json),
         Cmd::Session { cmd: SessionCmd::Done { key } } => session_done(c, &key, json),
+        Cmd::Session { cmd: SessionCmd::Transcript(a) } => session_transcript(c, &a, json),
+        Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
@@ -1302,6 +1338,9 @@ struct SessionRow {
     attach_command: Option<String>,
     /// Ids of todos linked to it.
     todos: Vec<String>,
+    /// Replies suggested for its user to send (`session suggest`), while it has them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggestions: Option<crate::model::Suggestions>,
     /// Where a search found the words in what was said, when it did: a line of the message.
     #[serde(skip_serializing_if = "Option::is_none")]
     said: Option<String>,
@@ -1330,6 +1369,7 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
         resume_command: s.resume_command.clone(),
         attach_command: s.attach_command.clone(),
         todos: todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| t.id.clone()).collect(),
+        suggestions: s.suggestions.clone(),
         said: None,
     }
 }
@@ -1369,6 +1409,7 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
             (f.archived || !s.archived)
                 && f.account.as_deref().map_or(true, |a| a == s.account)
                 && status.map_or(true, |st| st == s.status)
+                && (!f.waiting || (matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none()))
                 && f.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&lane.project))
                 && worktree.as_deref().map_or(true, |w| w == lane.id)
                 && (!f.live || s.live)
@@ -1555,6 +1596,12 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     if let Some(e) = &r.excerpt {
         println!("Now: {e}");
     }
+    if let Some(g) = &r.suggestions {
+        println!("Suggested replies{}:", g.by_title.as_deref().map(|t| format!(" (by {t})")).unwrap_or_default());
+        for (i, reply) in g.replies.iter().enumerate() {
+            println!("  {}. {}", i + 1, one_line(reply, 120));
+        }
+    }
     println!("Worktree: {} ({}{})", tilde(Path::new(&r.worktree)), out.worktree_callsign, r.branch.as_deref().map(|b| format!(", {b}")).unwrap_or_default());
     if let Some(n) = r.pr {
         println!("PR: #{n} {} ({})", out.pr_title.clone().unwrap_or_default(), out.pr_state.clone().unwrap_or_default());
@@ -1710,6 +1757,71 @@ fn session_done(c: &mut Client, key: &str, json: bool) -> Result<()> {
     let got = c.act(api::SESSION_DONE, &key, params::Done::default(), me)?;
     let said = got.get("message").and_then(Value::as_str).map(String::from);
     let out = ActOut { session: key, said, copy: None };
+    if json {
+        return print_json(&out);
+    }
+    if let Some(said) = &out.said {
+        println!("{said}");
+    }
+    Ok(())
+}
+
+/// How much of a tool call's input or output `session transcript` shows without --full: enough
+/// to tell what it did and how it went, not a file's whole text.
+const TRANSCRIPT_CUT: usize = 600;
+
+/// `session transcript`: a page of the conversation, as a window's panel reads it (the
+/// session-page request), on whichever device the session is on.
+fn session_transcript(c: &mut Client, a: &TranscriptArgs, json: bool) -> Result<()> {
+    let key = resolve_session(c, &a.key)?;
+    let got = c.act(api::SESSION_PAGE, &key, params::Page { before: a.before, ..Default::default() }, None)?;
+    let mut page: api::Page = serde_json::from_value(got).context("The conversation didn't read")?;
+    if !a.full {
+        for item in &mut page.items {
+            for text in [&mut item.input, &mut item.output].into_iter().flatten() {
+                if text.chars().count() > TRANSCRIPT_CUT {
+                    *text = format!("{}… (cut; --full for all of it)", text.chars().take(TRANSCRIPT_CUT).collect::<String>());
+                }
+            }
+        }
+    }
+    if json {
+        return print_json(&json!({ "session": key, "items": page.items, "before": page.before }));
+    }
+    let now = now_ms();
+    for item in &page.items {
+        let when = match ago(now - item.at).as_str() {
+            "now" => "just now".to_string(),
+            a => format!("{a} ago"),
+        };
+        match item.kind.as_str() {
+            "you" => println!("\n── You · {when}{}\n{}", if item.withdrawn { " (taken back)" } else { "" }, item.text.trim_end()),
+            "agent" => println!("\n── Agent · {when}\n{}", item.text.trim_end()),
+            "tool" => println!("  {} {}", if item.failed { "✗" } else { "⏺" }, one_line(&item.text, 160)),
+            "result" => {}
+            _ => println!("  · {}", one_line(&item.text, 160)),
+        }
+    }
+    if let Some(before) = page.before {
+        println!("\nEarlier: codealong session transcript {key} --before {before}");
+    }
+    Ok(())
+}
+
+/// `session suggest`: asked as the session running the command, which is named with them, on
+/// whichever device the session is on. The app's windows show them at once; without the app,
+/// they're kept for it.
+fn session_suggest(c: &mut Client, a: SuggestArgs, json: bool) -> Result<()> {
+    let key = resolve_session(c, &a.key)?;
+    let me = find_me(c)?.0;
+    let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
+    let replies = if a.clear { Vec::new() } else { a.replies };
+    if !a.clear && replies.iter().all(|r| r.trim().is_empty()) {
+        bail!("Give at least one reply to suggest, or --clear to take them away.");
+    }
+    let params = params::Suggest { replies, note: a.note, by: me.clone(), by_title, ..Default::default() };
+    let got = c.act(api::SESSION_SUGGEST, &key, params, me)?;
+    let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
     if json {
         return print_json(&out);
     }

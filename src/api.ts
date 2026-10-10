@@ -295,6 +295,13 @@ export async function renameSession(key: string, name: string): Promise<number |
   return (await invoke<number | null>('rename_session', { key, name })) ?? null;
 }
 
+/** Takes away the replies suggested for a session, on the device it's on. Returns the time of the
+ *  board that shows it, as `markSeen` does. */
+export async function dismissSuggestions(key: string): Promise<number | null> {
+  if (!inTauri) return null;
+  return (await invoke<number | null>('dismiss_suggestions', { key })) ?? null;
+}
+
 /** Tells every window about a change shown ahead of the engine (ahead.ts). */
 export function emitAhead<T>(event: T): void {
   if (inTauri) void emit('ahead', event);

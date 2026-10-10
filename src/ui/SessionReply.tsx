@@ -54,6 +54,11 @@
 // the box is empty, whose placeholder says so (⌘. too, from anywhere in the window). It sends what the harness's own Stop
 // sends, or presses Escape in its terminal. The session carries on, waiting for you.
 //
+// Replies another session suggested for this one (`codealong session suggest`) show above the box
+// (SuggestedReplies.tsx), the box's own: a click sends one as ⏎ sends what's typed, leaving what's
+// in the box where it is, and ⌥-click puts it in the box to change first. They're gone once you've
+// sent the session anything, here or anywhere, and while the box is a side conversation's.
+//
 // While its turn runs, ⏎ sends as the session's own box would: Claude Code takes the message in
 // once the step it's on ends (a command it's running included), the Codex app and OpenCode after
 // the turn. Where the session can take it sooner (the engine's `steerable`), the bolt beside Send
@@ -64,7 +69,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
+import { dismissSuggestions, forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -86,6 +91,7 @@ import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
+import { SuggestedReplies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
 
@@ -235,6 +241,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   latest.current = text;
   const attached = attachmentsIn(text);
   const way = useWay(s);
+  // The suggestions (by when they were made) that what this box sent answered, or that were
+  // dismissed here: they go at once, the board saying so a moment later.
+  const [answered, setAnswered] = useState<number | null>(null);
+  const suggestionList = useRef<HTMLDivElement>(null);
 
   // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
   // its account offers a choice; without one, a send resumes it in a terminal. The place and the
@@ -366,21 +376,26 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const { folders: skillFolders, accounts: skillAccounts } = sessionSkillsFor(s);
   const skills = sessionSkills(useSkills(skillFolders, skillAccounts, slash), s.harness);
 
-  /** Sends what's in the box, into the turn it's taking at once with `now`; says whether there was
-   *  anything to send. A deny it sends goes on to the next with `next` once it's in. */
-  const send = (now = false, next = false): boolean => {
+  /** Sends what's in the box, or a suggested reply that was `chosen` (the box keeping what's in
+   *  it), into the turn it's taking at once with `now`; says whether there was anything to send. A
+   *  deny it sends goes on to the next with `next` once it's in. */
+  const send = (now = false, next = false, chosen?: string): boolean => {
     // A skill's name goes as the session's harness takes it.
-    const t = writtenFor(text.trim(), skills, s.harness);
+    const t = chosen?.trim() ?? writtenFor(text.trim(), skills, s.harness);
     if (!t) return false;
-    if (waiting) return denySaying(t, next);
+    if (waiting) return denySaying(t, next, chosen !== undefined);
     setNote(null);
-    setText('');
+    if (chosen === undefined) setText('');
     // What happens next is told to whichever box is showing then: this one may be gone by then
     // (the peek closes as it sends).
     const key = s.key;
+    // What's sent answers what was suggested, which goes from here at once rather than when the
+    // board says.
+    const suggestedAt = s.suggestions?.at;
     if (resumeHow) rememberResumed(s.account, resumeHow.place);
     sendAhead(s, t, { now, resume: resumeHow ?? undefined }).then(
       (sent) => {
+        if (suggestedAt !== undefined && !sent?.opened) setAnswered(suggestedAt);
         land(key, { text: sent?.message ?? 'Sent.', error: false });
         onSent?.(sent);
       },
@@ -394,15 +409,20 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   };
 
   /** While it waits on a call that can be answered here: denies it with `t` as what to do
-   *  instead. The box clears at once, and has what you wrote back, with why, if it doesn't go. */
-  const denySaying = (t: string, next: boolean): boolean => {
+   *  instead. The box clears at once, and has what you wrote back, with why, if it doesn't go. A
+   *  suggested reply that was `chosen` leaves the box as it is, and is put in it if it doesn't go. */
+  const denySaying = (t: string, next: boolean, chosen = false): boolean => {
     if (!onDenySaying) return false;
     const key = s.key;
-    const typed = text;
+    const typed = chosen ? t : text;
+    const suggestedAt = s.suggestions?.at;
     setNote(null);
-    setText('');
+    if (!chosen) setText('');
     void onDenySaying(t, next).then((why) => {
-      if (why == null) return;
+      if (why == null) {
+        if (suggestedAt !== undefined) setAnswered(suggestedAt);
+        return;
+      }
       writeDraft(key, [typed, readDraft(key)].filter((x) => x.trim()).join('\n\n'));
       if (!land(key, { text: why, error: true })) onFailed?.(why);
     });
@@ -535,6 +555,42 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   };
   // A skill the box names whole, with what may follow it, for the line under the box.
   const skill = !command && !listing ? skillNamed(text, skills) : undefined;
+  // Replies suggested for it, above the box, while they're the session's: not while the box is a
+  // side conversation's, a message is on its way, or the slash list has the room.
+  const suggested = s.suggestions && s.suggestions.replies.length > 0 && !aside && !going && !listing && answered !== s.suggestions.at ? s.suggestions : null;
+  // While it waits on a call that can't be answered here, a reply can only go in the box.
+  const suggestionBlocked = waiting && !onDenySaying ? 'It waits on you for something that can’t be answered from here, so this can go once it doesn’t' : undefined;
+  const pickSuggestion = (reply: string, how: PickHow) => {
+    if (how === 'edit') {
+      const now = latest.current.trim() ? `${latest.current.trimEnd()}\n\n${reply}` : reply;
+      setText(now);
+      window.requestAnimationFrame(() => {
+        box.current?.focus();
+        box.current?.setSelectionRange(now.length, now.length);
+      });
+      return;
+    }
+    const next = how === 'next' && !!onNext;
+    // Sent and on to the next as ⌘⏎ does: a deny goes on once it's in.
+    if (send(false, next, reply) && next && !waiting) onNext?.('sent.');
+  };
+  const dismissSuggested = () => {
+    const at = s.suggestions?.at;
+    if (at === undefined) return;
+    setAnswered(at);
+    box.current?.focus();
+    dismissSuggestions(s.key).catch((e: unknown) => {
+      setAnswered(null);
+      setNote({ text: errorText(e), error: true });
+    });
+  };
+  /** Gives the keyboard to the reply nearest the box, from ↑ in the empty box. */
+  const intoSuggestions = (): boolean => {
+    const replies = suggestionList.current?.querySelectorAll<HTMLButtonElement>('.ca-suggest-reply');
+    const last = replies?.[replies.length - 1];
+    last?.focus();
+    return !!last;
+  };
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works. Not while the box is the side
   // conversation's: what's done there leaves the session's turn alone.
@@ -557,10 +613,22 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
           : skill
           ? `/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`
-          : (note?.text ?? (stopping ? 'Stopping…' : onlyAside ? SESSION_SIDES.open : aside ? `To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying, !empty)));
+          : (note?.text ?? (stopping ? 'Stopping…' : onlyAside ? SESSION_SIDES.open : aside ? `To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, !!onDenySaying, !empty, !!suggested && !text)));
   return (
     <div className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
+      {suggested && (
+        <SuggestedReplies
+          ref={suggestionList}
+          suggestions={suggested}
+          onPick={pickSuggestion}
+          onDismiss={dismissSuggested}
+          blocked={suggestionBlocked}
+          denies={waiting && !!onDenySaying}
+          next={!!onNext}
+          onLeave={() => box.current?.focus()}
+        />
+      )}
       <div
         className="ca-composer-field"
         onMouseDown={(e) => {
@@ -605,6 +673,13 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 setClosedFor(mention?.name ?? null);
                 return;
               }
+            }
+            // ↑ in the empty box goes to the replies suggested above it, and nowhere else: the
+            // window's own keys would read it as the list's once the box no longer has the keyboard.
+            if (e.key === 'ArrowUp' && !text && suggested && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.nativeEvent.isComposing && intoSuggestions()) {
+              e.preventDefault();
+              e.stopPropagation();
+              return;
             }
             // Escape stops a running turn; once it's stopping, Escape does what it does in the
             // window (closes the peek, gives Sessions' list its keys back).
@@ -694,7 +769,12 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
  *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape stops a
  *  turn while it can. */
-function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denySaying = false, written = false): string {
+function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denySaying = false, written = false, suggested = false): string {
+  const keys = hintKeys(waiting, next, allow, sendNow, denySaying, written);
+  return suggested ? [keys, '↑ suggested replies'].filter(Boolean).join(' · ') : keys;
+}
+
+function hintKeys(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow: boolean, denySaying: boolean, written: boolean): string {
   if (waiting && denySaying && written) return `⏎ denies it and sends this instead${next ? ' · ⌘⏎ + next' : ''}`;
   if (waiting && denySaying) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · ⏎ denies it and sends what you write instead` : '⏎ denies it and sends what you write instead';
   if (waiting) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · send this once it isn’t waiting on you` : 'Send this once it isn’t waiting on you';

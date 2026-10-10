@@ -867,6 +867,22 @@ Quiet, whatever it does meanwhile; Mark as unread, or a snooze that ends, still 
 row has a Quiet chip and its header says quiet. A session on another device is quieted on its Mac,
 as a snooze is.
 
+#### Suggested replies
+
+An agent that reads your sessions for you can suggest what you might answer each one: start a
+session and ask it to go over what waits on you (`codealong sessions --waiting`, then `codealong
+session transcript` for each), and it suggests replies with `codealong session suggest`. They show
+above the session's box, in every window that has it (Sessions' panel, the peek, the notch, the
+waiting window), under who suggested them and the note it left. A click sends one as yours, as it
+is, the way ⏎ sends what's typed, leaving what you'd typed in the box; ⌘-click sends it and goes on
+to the next that waits on you, as ⌘⏎ does; ⌥-click puts it in the box to change first; ↑ from the
+empty box goes through them, ⏎ sending the one you're on. A reply's right-click menu has the same,
+and Dismiss takes them all away. The box stays yours to type in instead, and nothing reaches the
+session until you pick. While it waits on a call to allow, a reply denies the call and is sent
+instead, as what you type would be. Its row has a Suggested chip, whose tooltip lists them. They go
+once anything is sent to the session or a turn of its starts, and suggesting again replaces them. A
+session on another device keeps them on its Mac.
+
 #### Queues, pills and the mark
 
 Needs you, Your turn and Working are queues, the longest first, so a new one joins the end instead
@@ -1089,7 +1105,10 @@ included (`todo list --ready` is what can start now, `--waiting` what's under Wa
 or finishing a todo links the session that ran the command; `codealong sessions [find <words>]`,
 `session show`, `worktrees` and `accounts --usage` answer what else is running, what it did, where
 it lives, and which account has room; `codealong session open` brings the main window up on a
-session's conversation; `codealong session stop|rename|fork` do what a session's menu does, and
+session's conversation; `codealong session transcript` reads a session's conversation whatever its
+harness, `codealong sessions --waiting` lists what waits on you, and `codealong session suggest`
+puts replies above a session's box for you to send with a click; `codealong session
+stop|rename|fork` do what a session's menu does, and
 `session pending` and `session answer … deny` what its panel does, except letting a call through or
 answering its questions, which is its user's to do; `codealong session done` is Mark as done for
 what's the agent's own: its own session (`me`), which ends once its turn does and stays in Your turn
@@ -1118,7 +1137,8 @@ each project's canvas in `canvas.json`; which session started or was forked into
 harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went
 into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, and the
 PRs whose sessions are nudged with what happens on them, in `pr-links.json`; worktrees marked
-reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`.
+reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
+replies suggested for sessions, until the sessions move on, in `suggestions.json`.
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;
 ones no todo uses are cleared after 30 days. The devices this one is linked with are in

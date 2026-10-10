@@ -1,0 +1,83 @@
+/* Replies another session suggested (SuggestedReplies.tsx): a head line naming who suggested them,
+   with Dismiss at its end, the suggester's note under it, then a row for each reply, which sends
+   it. It sits in the composer, above the box, and scrolls past a handful. */
+.ca-suggest {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.ca-suggest-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-3);
+  font: var(--type-caption-heading);
+}
+.ca-suggest-by {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-suggest-head .ca-linkbtn {
+  flex: none;
+  margin-left: auto;
+  font: var(--type-meta);
+}
+.ca-suggest-note {
+  margin: 0;
+  color: var(--ink-2);
+  font: var(--type-caption);
+  overflow-wrap: anywhere;
+}
+.ca-suggest-replies {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 168px;
+  overflow-y: auto;
+}
+/* A reply: its text, at most two lines, and the arrow that says a click sends it. */
+.ca-suggest-reply {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 5px var(--space-2) 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-suggest-reply > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-suggest-reply:hover:not([aria-disabled='true']),
+.ca-suggest-reply:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--surface-selected);
+}
+.ca-suggest-reply:hover:not([aria-disabled='true']) > .ca-icon,
+.ca-suggest-reply:focus-visible > .ca-icon {
+  color: var(--ink);
+}
+.ca-suggest-reply:focus-visible {
+  outline: none;
+}
+.ca-suggest-reply[aria-disabled='true'] {
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-suggest-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font: var(--type-body);
+  overflow-wrap: anywhere;
+}
