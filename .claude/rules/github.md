@@ -72,7 +72,8 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   into the text. Variables go as JSON on stdin (`gh api graphql --input -`), since a list of
   objects can't be given with `-f`. The documents were checked against GitHub's schema with
   made-up node ids, which it answers `NOT_FOUND` only after checking them, and `commitOID` takes
-  a whole 40-character id (2026-10-09); none was run against a real PR. With `post =
+  a whole 40-character id (2026-10-09). The first real run (atlas #1182, 2026-10-10) left a
+  `PENDING` review at the reviewed commit with its text and four comments, each on its line. With `post =
   "comment"` they post with REST `POST repos/<owner>/<name>/issues/<n>/comments` (`comment`). What changed between two commits is REST `repos/<owner>/<name>/compare/
   <a>...<b>` (`changes_since`), whose `status` is `ahead` only when the second follows from the
   first (`behind` the other way round; checked 2026-10-09, with `files[].filename` and `patch`);

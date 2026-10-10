@@ -123,6 +123,17 @@ pub struct LegacyRouter {
 /// Settings from config.toml's text, with an old `[router]` folded into `[jev]`.
 fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
     let mut cfg: Config = toml::from_str(text)?;
+    if let Some(first) = cfg.reviews.reviewers.first().cloned() {
+        let doc = text.parse::<toml_edit::DocumentMut>().ok();
+        let has = |key: &str| doc.as_ref().is_some_and(|d| d.get("reviews").and_then(|r| r.get(key)).is_some());
+        if !has("account") {
+            cfg.reviews.account = first.account;
+        }
+        if !has("model") {
+            cfg.reviews.model = first.model.unwrap_or_default();
+        }
+    }
+    cfg.reviews.reviewers.clear();
     if let Some(old) = cfg.router.take() {
         let has_jev = text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("jev").is_some());
         if !has_jev {
@@ -246,43 +257,41 @@ pub struct ReviewsCfg {
     /// PR again when new commits come in while it still waits.
     #[serde(default)]
     pub auto: bool,
-    /// The agents that review each PR, each in a session of its own: none is the account Auto
-    /// would start, on its own model. Apart from the accounts new sessions start on.
+    /// The account the reviews run on; empty for the one Auto would start. Apart from the
+    /// account new sessions start on.
     #[serde(default)]
-    pub reviewers: Vec<ReviewerCfg>,
-    /// With more than one reviewer, the first to finish combines the others' reviews with its own
-    /// into one; off, each goes on the PR as it is, under its reviewer's name.
-    #[serde(default = "yes")]
-    pub combine: bool,
+    pub account: String,
+    /// The model they start on, as a start's `--model` takes it; empty for the account's own.
+    #[serde(default)]
+    pub model: String,
+    /// What the reviewer is told to do, in place of Codealong's own instructions
+    /// (autoreview.rs `INSTRUCTIONS`): what to look for and how, and whether to start subagents
+    /// of its own. Empty for Codealong's. Which PR, where it's written out, that nothing is to
+    /// change and how the last message is laid out are said either way.
+    #[serde(default)]
+    pub prompt: String,
     /// Where each review goes once it's done.
     #[serde(default)]
     pub post: ReviewPost,
+    /// `reviewers = [{ account, model }]`, from the day several could review (2026-10-09): the
+    /// first becomes `account` and `model` where those aren't set (`from_text`). Read and never
+    /// written; `combine` from then is dropped as unknown.
+    #[serde(default, skip_serializing)]
+    pub reviewers: Vec<ReviewerCfg>,
 }
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, reviewers: Vec::new(), combine: true, post: ReviewPost::Draft }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, reviewers: Vec::new() }
     }
 }
 
-/// One of the agents that review PRs: an account, and the model its sessions start on (the
-/// account's own when none), as a start's `--model` takes it.
+/// A reviewer as `[reviews] reviewers` named one for a day.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReviewerCfg {
     pub account: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub model: Option<String>,
-}
-
-impl ReviewerCfg {
-    /// What it's called: its account, and its model when it names one (`claude opus`). Each PR
-    /// keeps a session for each name (autoreview.rs).
-    pub fn name(&self) -> String {
-        match self.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-            Some(m) => format!("{} {m}", self.account.trim()),
-            None => self.account.trim().to_string(),
-        }
-    }
 }
 
 /// Where an automatic review goes (autoreview.rs). `draft`: a review on your GitHub account left
@@ -747,24 +756,15 @@ const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then,
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks), as a message of yours. A PR's own switch wins either way.\n";
-const REVIEWS_COMMENT: &str = "# auto: agents review each open pull request that waits on your review, and again when new commits come in\n# while it still waits. reviewers: the agents, each an account and optionally a model, as\n# [{ account = \"claude\", model = \"opus\" }, { account = \"codex\" }]; none is the account Auto would start.\n# combine: with several, the first to finish combines their reviews into one. post: where each review goes:\n# \"draft\", a draft review on your GitHub account with its comments on their lines, for you to finish;\n# \"comment\", a comment on the PR from your account; \"none\", it stays in the reviews' sessions.\n";
+const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
+# in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
+# model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
+# Codealong's own. post: where each review goes: \"draft\", a draft review on your GitHub account with its
+# comments on their lines, for you to finish; \"comment\", a comment on the PR from your account; \"none\",
+# it stays in the review's session.
+";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
-
-/// `[reviews] reviewers` as config.toml writes it: a list of inline tables, on one line.
-fn reviewers_value(reviewers: &[ReviewerCfg]) -> toml_edit::Array {
-    let mut list = toml_edit::Array::new();
-    for r in reviewers {
-        let mut t = toml_edit::InlineTable::new();
-        t.insert("account", r.account.trim().into());
-        if let Some(m) = r.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-            t.insert("model", m.into());
-        }
-        list.push(t);
-    }
-    list.fmt();
-    list
-}
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
 /// from an Open in menu is the one Open in <editor> uses from then on.
@@ -898,6 +898,9 @@ pub struct ConfigView {
     pub editors: Vec<Profile>,
     /// Chrome's profiles, for a project's `chrome_profile` and a worktree's preview.
     pub chrome_profiles: Vec<crate::chrome::Profile>,
+    /// What a reviewer is told to do while `[reviews] prompt` is empty, for Settings to show and
+    /// edit (autoreview.rs `INSTRUCTIONS`).
+    pub review_prompt: String,
 }
 
 pub fn view() -> ConfigView {
@@ -911,7 +914,7 @@ fn view_of(text: &str, path: &str) -> ConfigView {
         Ok(c) => (c, None),
         Err(e) => (Config::default(), Some(e.to_string().trim().to_string())),
     };
-    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles() }
+    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string() }
 }
 
 /// Why a list of projects can't be saved, in words.
@@ -948,18 +951,13 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.jev.model.trim().is_empty() {
         return Err("[jev] model is empty; use \"jev-latest\".".into());
     }
-    let mut names = std::collections::HashSet::new();
-    for r in &cfg.reviews.reviewers {
-        let account = r.account.trim();
-        if !cfg.accounts.iter().any(|a| a.name == account) {
-            return Err(format!("[reviews] reviewers names the account {account:?}, which isn't one of the [[accounts]]."));
-        }
-        if let Some(m) = r.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && !crate::start::valid_model(m)) {
-            return Err(format!("[reviews] reviewers: {m:?} isn't a model name Codealong can start {account} on."));
-        }
-        if !names.insert(r.name()) {
-            return Err(format!("[reviews] reviewers has {} twice.", r.name()));
-        }
+    let reviewer = cfg.reviews.account.trim();
+    if !reviewer.is_empty() && !cfg.accounts.iter().any(|a| a.name == reviewer) {
+        return Err(format!("[reviews] account is {reviewer:?}, which isn't one of the [[accounts]]; use one of them, or \"\" for Auto."));
+    }
+    let model = cfg.reviews.model.trim();
+    if !model.is_empty() && !crate::start::valid_model(model) {
+        return Err(format!("[reviews] model is {model:?}, which isn't a model name Codealong can start a session on."));
     }
     if cfg.devices.port < 1024 {
         return Err(format!("[devices] port is {}; use one from 1024 up ({DEFAULT_DEVICES_PORT} is the default).", cfg.devices.port));
@@ -1117,14 +1115,16 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "reviews", after);
         }
         set_value(&mut doc["reviews"]["auto"], Value::from(cfg.reviews.auto));
-        set_value(&mut doc["reviews"]["reviewers"], Value::Array(reviewers_value(&cfg.reviews.reviewers)));
-        set_value(&mut doc["reviews"]["combine"], Value::from(cfg.reviews.combine));
+        set_value(&mut doc["reviews"]["account"], Value::from(cfg.reviews.account.trim()));
+        set_value(&mut doc["reviews"]["model"], Value::from(cfg.reviews.model.trim()));
+        set_value(&mut doc["reviews"]["prompt"], Value::from(cfg.reviews.prompt.trim()));
         set_value(&mut doc["reviews"]["post"], Value::from(cfg.reviews.post.as_str()));
-        // `account` and `comment` said who reviewed and where it went for a day (2026-10-09),
-        // before `reviewers` and `post`.
+        // What said who reviewed and where it went for a day (2026-10-09): `comment`, then
+        // `reviewers` (folded into `account` and `model` as it's read) and `combine`.
         if let Some(t) = doc.get_mut("reviews").and_then(Item::as_table_like_mut) {
-            t.remove("account");
-            t.remove("comment");
+            for old in ["comment", "reviewers", "combine"] {
+                t.remove(old);
+            }
         }
     }
 
@@ -1326,8 +1326,9 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(REVIEWS_COMMENT);
         s.push_str("[reviews]\n");
         s.push_str(&format!("auto = {}\n", cfg.reviews.auto));
-        s.push_str(&format!("reviewers = {}\n", reviewers_value(&cfg.reviews.reviewers)));
-        s.push_str(&format!("combine = {}\n", cfg.reviews.combine));
+        s.push_str(&format!("account = {}\n", q(cfg.reviews.account.trim())));
+        s.push_str(&format!("model = {}\n", q(cfg.reviews.model.trim())));
+        s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(cfg.reviews.prompt.trim())));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
     }
     if cfg.pull_requests != PullRequestsCfg::default() {
@@ -1413,7 +1414,7 @@ mod tests {
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
-            reviews: ReviewsCfg { auto: true, reviewers: vec![ReviewerCfg { account: "claude".into(), model: Some("opus".into()) }, ReviewerCfg { account: "codex".into(), model: None }], combine: false, post: ReviewPost::None },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, reviewers: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true },
             debug: DebugCfg::default(),
         };
@@ -1785,36 +1786,36 @@ mod tests {
     #[test]
     fn reviews_are_off_until_the_file_turns_them_on_and_name_an_account_it_has() {
         let none = toml::from_str::<Config>("").unwrap().reviews;
-        assert_eq!((none.auto, none.reviewers.len(), none.combine, none.post), (false, 0, true, ReviewPost::Draft));
+        assert_eq!(none, ReviewsCfg::default());
+        assert_eq!((none.auto, none.account.as_str(), none.model.as_str(), none.prompt.as_str(), none.post), (false, "", "", "", ReviewPost::Draft));
         let old = render(&full());
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, reviewers: vec![ReviewerCfg { account: "claude".into(), model: Some("opus".into()) }, ReviewerCfg { account: "codex".into(), model: None }], combine: true, post: ReviewPost::Comment };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, reviewers: Vec::new() };
         let out = with_config(&old, &on).unwrap();
-        assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\nreviewers = [{{ account = \"claude\", model = \"opus\" }}, {{ account = \"codex\" }}]\ncombine = true\npost = \"comment\"")), "{out}");
+        assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), on);
         assert_eq!(parse(&render(&on)).unwrap(), on);
         // Turned off again, the table stays, saying so.
         let off = with_config(&out, &full()).unwrap();
-        assert!(off.contains("[reviews]\nauto = false\nreviewers = []\ncombine = true\npost = \"draft\""), "{off}");
-        // A file from the day `account` and `comment` said who reviewed and where loses them.
-        let then = format!("{old}\n[reviews]\nauto = true\naccount = \"claude\"\ncomment = false\n");
-        let saved = with_config(&then, &on).unwrap();
-        assert!(!saved.contains("comment =") && !saved.contains("account = \"claude\"\n"), "{saved}");
-        // An account that isn't listed can't review, nor a model name that can't be typed, nor
-        // one reviewer twice.
+        assert!(off.contains("[reviews]\nauto = false\naccount = \"\"\nmodel = \"\"\nprompt = \"\"\npost = \"draft\""), "{off}");
+        // A file from the day several reviewers could be named: the first is the reviewer, and
+        // what's gone is dropped as it's saved.
+        let then = format!("{old}\n[reviews]\nauto = true\nreviewers = [{{ account = \"codex\", model = \"gpt-5.5\" }}, {{ account = \"claude\" }}]\ncombine = true\ncomment = false\n");
+        let read = parse(&then).unwrap().reviews;
+        assert_eq!((read.account.as_str(), read.model.as_str(), read.reviewers.len()), ("codex", "gpt-5.5", 0));
+        let saved = with_config(&then, &parse(&then).unwrap()).unwrap();
+        assert!(!saved.contains("reviewers =") && !saved.contains("combine =") && !saved.contains("comment =") && saved.contains("account = \"codex\""), "{saved}");
+        // An account that isn't listed can't review, nor a model name that can't be typed.
         assert_eq!(check(&on), Ok(()));
         let mut bad = on.clone();
-        bad.reviews.reviewers[1].account = "claude9".into();
+        bad.reviews.account = "claude9".into();
         assert!(check(&bad).unwrap_err().contains("claude9"));
         let mut bad = on.clone();
-        bad.reviews.reviewers[0].model = Some("opus; rm".into());
+        bad.reviews.model = "opus; rm".into();
         assert!(check(&bad).unwrap_err().contains("isn't a model name"));
-        let mut bad = on.clone();
-        bad.reviews.reviewers.push(ReviewerCfg { account: "claude".into(), model: Some("opus".into()) });
-        assert!(check(&bad).unwrap_err().contains("claude opus twice"));
     }
 
     #[test]

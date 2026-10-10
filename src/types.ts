@@ -393,22 +393,16 @@ export interface Config {
 
 /** `[reviews]` (config.rs `ReviewsCfg`, autoreview.rs). */
 export interface ReviewsCfg {
-  /** Agents review each open PR that waits on your review, and again when new commits come in. */
+  /** An agent reviews each open PR that waits on your review, and again when new commits come in. */
   auto: boolean;
-  /** The agents that review each PR, each in a session of its own; none is the account Auto
-   *  would start. Older files have none. */
-  reviewers?: ReviewerCfg[];
-  /** With several reviewers, the first to finish combines their reviews into one. Older files
-   *  have none: on. */
-  combine?: boolean;
+  /** The account it runs on; empty for the one Auto would start. */
+  account?: string;
+  /** The model it starts on; empty for the account's own. */
+  model?: string;
+  /** What it's told to do; empty for Codealong's own instructions (`ConfigView.reviewPrompt`). */
+  prompt?: string;
   /** Where each review goes. Older files have none: a draft. */
   post?: ReviewPost;
-}
-
-/** One of the agents that review PRs: an account, and the model it starts on (its own when none). */
-export interface ReviewerCfg {
-  account: string;
-  model?: string;
 }
 
 /** Where an automatic review goes (config.rs `ReviewPost`): a draft review on your GitHub account
@@ -555,6 +549,9 @@ export interface ConfigView {
   editors: Profile[];
   /** Chrome's profiles, in its profile picker's order; empty when Chrome isn't set up here. */
   chromeProfiles: ChromeProfile[];
+  /** What a reviewer is told to do while `[reviews] prompt` is empty (autoreview.rs
+   *  `INSTRUCTIONS`). Missing from older engines. */
+  reviewPrompt?: string;
 }
 
 /** A Chrome profile (src-tauri/src/chrome.rs). */
@@ -902,9 +899,9 @@ export interface PrItem {
  *  `queued` is the round to come for a commit no session has started on yet. */
 export type ReviewStage = 'queued' | 'reviewing' | 'posted' | 'drafted' | 'kept' | 'skipped' | 'failed';
 
-/** One reviewer's part in a round (model.rs `ReviewPart`). */
+/** The reviewer's part in a round (model.rs `ReviewPart`). */
 export interface ReviewPart {
-  /** The reviewer, as config.toml names it (`claude opus`), or `auto`. */
+  /** The reviewer, by its account and model (`claude opus`), or `auto`. */
   who: string;
   session?: string;
   state: 'reviewing' | 'done' | 'skipped' | 'failed';
@@ -916,10 +913,8 @@ export interface AutoReview {
   stage: ReviewStage;
   /** The commit it reviews. */
   head: string;
-  /** Each reviewer's part, in config.toml's order. */
+  /** The reviewer's part, with its session. */
   parts?: ReviewPart[];
-  /** The first reviewer to finish is combining the others' reviews with its own. */
-  combining?: boolean;
   /** When the round began, or ended once it has. */
   at: number;
   /** The latest review it posted, by its link. */

@@ -259,12 +259,9 @@ pub struct AutoReview {
     pub stage: ReviewStage,
     /// The commit it reviews, as GitHub names it.
     pub head: String,
-    /// Each reviewer's part in it, in config.toml's order.
+    /// The reviewer's part in it, with its session.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<ReviewPart>,
-    /// The first reviewer to finish is combining the others' reviews with its own.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub combining: bool,
     /// When the round began, or ended once it has.
     pub at: i64,
     /// The latest review it posted, by its link: this round's, else an earlier one's.
@@ -284,7 +281,7 @@ pub struct AutoReview {
     pub holds: bool,
 }
 
-/// Where one reviewer's part in a round stands (autoreview.rs).
+/// Where the reviewer's part in a round stands (autoreview.rs).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PartState {
@@ -298,11 +295,11 @@ pub enum PartState {
     Failed,
 }
 
-/// One reviewer's part in a round, for a PR's card.
+/// The reviewer's part in a round, for a PR's card.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewPart {
-    /// The reviewer, as config.toml names it (`claude opus`), or `auto`.
+    /// The reviewer, by its account and model (`claude opus`), or `auto`.
     pub who: String,
     /// Its session, once known.
     #[serde(default, skip_serializing_if = "Option::is_none")]

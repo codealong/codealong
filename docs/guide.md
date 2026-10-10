@@ -399,22 +399,35 @@ isn't told, and a session that has stopped isn't resumed for it.
 #### Automatic reviews
 
 With `[reviews] auto = true` (Settings › Accounts), an agent reviews each open PR that asks for your
-review, isn't yours and isn't a draft, in a session of its own on `[reviews] account` (else the
-account Auto would start), out of sight: under Claude Code's background service, else in Codealong,
-else in a terminal behind your windows. It starts in the worktree that holds the PR's branch, else
-the repo's main checkout, is handed the PR and its whole diff as files (so it never stops on a
-permission prompt to ask `gh`), is told to change and post nothing, and is linked to the PR. When
-its turn ends, its last message is posted on the PR as a comment from your GitHub account, saying an
-agent wrote it and which commit it read (`comment = false` leaves it in the session); a comment, not
-a review, so the review stays asked of you. When new commits come in while the PR still waits on
-you, the same session reviews it again once the branch has held still five minutes, told what
-changed since and asked what of its findings is fixed. Two run at once at most; a session waiting on
-you holds no place. Until the agent's review of the PR's latest commit is done, or didn't get done
-(two hours at most), the PR is out of what waits on you (the floating bar, the notch, the waiting
-window and the mark), as a snoozed review is, so you review it after the agent; it stays under
-Review requested, saying Agent reviewing. The PR's panel says where its latest round stands, with
-its comment and its session a click away; `codealong --snapshot --review-plan <owner/name> <number>`
-prints what a review would start, without starting it.
+review, isn't yours and isn't a draft, in a session of its own on `[reviews] account` and `model`
+(else the account Auto would start, on its own model), apart from the account new sessions start
+on. It runs out of sight: under Claude Code's background service, else in Codealong, else in a
+terminal behind your windows. It starts in the worktree that holds the PR's branch, else the repo's
+main checkout, and is handed the PR and its whole diff as files, each line of the diff numbered by
+its place in the file's new version (so it never stops on a permission prompt to ask `gh`, and can
+name its lines). What it's told to do is `[reviews] prompt`, which Settings shows to edit, filled
+with Codealong's own instructions until you change it: what to look for and how, and, if you like,
+to start subagents of its own (in Claude Code, ask for the Task tool and name each one's model) and
+combine what they find. Either way Codealong tells it which PR, where it's written out, to change
+and post nothing, and how to lay out its last message: a summary, then its comments on particular
+lines. The session is linked to the PR.
+
+When its turn ends, its review goes where `[reviews] post` says. By default (`"draft"`) it's a
+review on your GitHub account left as a draft that only you see, each comment on its line where the
+PR's diff shows it (the rest written into the text, each under a link to its line), added after
+what you wrote when you have a draft on that PR already: you finish it on GitHub, approving or
+asking for changes, and the review stays asked of you until you submit it. `"comment"` posts a
+comment from your account instead, each line comment under a link to its line, and `"none"` leaves
+the review in the session. Never a submitted review, which would settle the request to you. What
+goes on GitHub says an agent wrote it and which commit it read. When new commits come in while the
+PR still waits on you, the same session reviews it again once the branch has held still five
+minutes, told what changed since and asked what of its findings is fixed. Two run at once at most;
+a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
+or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
+notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
+it stays under Review requested, saying Agent reviewing. The PR's panel says where its latest round
+stands, with the draft or comment and the session a click away; `codealong --snapshot
+--review-plan <owner/name> <number>` prints what a review would start, without starting it.
 
 #### Pins, approvals and snoozes
 

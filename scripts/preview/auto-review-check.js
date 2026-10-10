@@ -7,9 +7,11 @@
 // PR's review didn't finish, and says why in red. The third is still being reviewed, so it's
 // held out of what waits on you (prStatus.ts `heldForAgent`): its row says Agent reviewing in
 // place of Awaiting review, and its panel that it waits on you once that's done. Then Settings ›
-// Accounts has the switch, off by default; turned on it saves `[reviews]` as config.toml has it,
-// says the reviewer is Auto while none is listed, adds one on Add reviewer (an account that can
-// review out of the way, saying where), and offers where each review goes, a draft first.
+// Accounts has the switch, off by default; turned on it saves `[reviews]` as config.toml has it
+// and offers the account to review on, Auto first, then each that can review out of the way,
+// saying where; shows what the reviewer is told, Codealong's own instructions until you change
+// them, saves what you write there, and goes back to Codealong's; and offers where each review
+// goes, a draft first.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/auto-review-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -19,6 +21,7 @@
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
   };
   var LINK = 'https://github.com/o/r/pull/1/files';
+  var DEFAULT = 'Look for bugs, security and data risks, missing tests, and anything that doesn’t do what the PR says it does.';
   var posted = null;
   var failed = null;
   var held = null;
@@ -33,7 +36,13 @@
       return Promise.resolve(null);
     }
     if (cmd === 'get_config') {
-      return p.then(function (view) { return saved ? Object.assign({}, view, { config: saved }) : view; });
+      // As a config.toml without [reviews] has it, whatever this Mac's says; and an engine from
+      // before the instructions could be edited says none.
+      return p.then(function (view) {
+        var config = Object.assign({}, view.config);
+        delete config.reviews;
+        return Object.assign({}, view, { reviewPrompt: view.reviewPrompt || DEFAULT, config: saved || config });
+      });
     }
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
@@ -112,27 +121,36 @@
       var input = box(on).querySelector('input');
       check('Settings › Accounts has it, off by default', !input.checked, String(input.checked));
       var field = function (words) { return all('.ca-field').filter(function (f) { return words.test((q('span', f) || {}).textContent || ''); })[0]; };
-      check('with nothing more while it’s off', !field(/^Reviewers$/) && !field(/^Where each review goes$/), '');
+      check('with nothing more while it’s off', !field(/^Review on$/) && !field(/^Where each review goes$/), '');
       input.click();
       await until(function () { return calls('save_config').length > 0; }, 3000, 'turning it on saved nothing');
       var cfg = calls('save_config')[0][1].config;
-      check('turned on, it saves [reviews] as config.toml has it', cfg && cfg.reviews && cfg.reviews.auto === true && cfg.reviews.reviewers.length === 0 && cfg.reviews.combine === true && cfg.reviews.post === 'draft', JSON.stringify(cfg && cfg.reviews));
-      await until(function () { return !!field(/^Reviewers$/); }, 3000, 'no reviewers once it’s on');
-      check('with no reviewer listed, it says Auto reviews', /None listed: the account the quick panel’s Auto would start/.test(field(/^Reviewers$/).textContent), field(/^Reviewers$/).textContent);
+      check('turned on, it saves [reviews] as config.toml has it', cfg && cfg.reviews && cfg.reviews.auto === true && cfg.reviews.account === '' && cfg.reviews.model === '' && cfg.reviews.prompt === '' && cfg.reviews.post === 'draft', JSON.stringify(cfg && cfg.reviews));
+      await until(function () { return !!field(/^Review on$/); }, 3000, 'no account to review on once it’s on');
       var where = all('option', field(/^Where each review goes$/)).map(function (o) { return o.textContent; });
-      check('each review goes to a draft first, else a comment or nowhere', where.join(' | ') === 'A draft review for you to finish | A comment on the pull request | Nowhere: it stays in its sessions', where.join(' | '));
+      check('each review goes to a draft first, else a comment or nowhere', where.join(' | ') === 'A draft review for you to finish | A comment on the pull request | Nowhere: it stays in its session', where.join(' | '));
       // Accounts come from start_options, which this Mac's snapshot answers.
-      var addButton = function () { return all('.ca-settings-add').filter(function (b) { return !b.disabled; })[0]; };
-      await until(function () { return !!addButton(); }, 5000, 'Add reviewer stays off: no account can review out of the way');
+      var accounts = function () { var sel = q('.ca-settings-reviewer select', field(/^Review on$/)); return sel ? all('option', sel).map(function (o) { return o.textContent; }) : []; };
+      await until(function () { return accounts().length > 1; }, 5000, 'only Auto is offered');
+      check('Auto first, then each account that can review out of the way, saying where', accounts()[0] === 'Auto' && accounts().slice(1).every(function (o) { return /, in (the background|Codealong|a terminal behind your windows)$/.test(o); }), accounts().join(' | '));
+      note('accounts offered: ' + accounts().join(' | '));
+      var told = function () { return q('textarea', field(/^What the reviewer is told$/)); };
+      check('it shows what the reviewer is told: Codealong’s instructions', told() && told().value === DEFAULT, told() ? told().value : 'no box');
+      check('with nothing to go back to yet', !all('.ca-settings-add').some(function (b) { return /Codealong’s instructions/.test(b.textContent); }), '');
+      var mine = 'Start two subagents, one on Opus and one on Sonnet, and combine what they find.';
       var saves = calls('save_config').length;
-      addButton().click();
-      await until(function () { return calls('save_config').length > saves; }, 3000, 'Add reviewer saved nothing');
-      var added = calls('save_config')[saves][1].config.reviews.reviewers;
-      check('Add reviewer adds an account, on its own model', added.length === 1 && !!added[0].account && !added[0].model, JSON.stringify(added));
-      var options = function () { return all('.ca-settings-reviewers li select').length ? all('option', all('.ca-settings-reviewers li select')[0]).map(function (o) { return o.textContent; }) : []; };
-      await until(function () { return options().length > 0; }, 3000, 'no reviewer row once one is added');
-      check('each account that can review out of the way is offered, saying where', options().every(function (o) { return /, in (the background|Codealong|a terminal behind your windows)$/.test(o); }), options().join(' | '));
-      note('accounts offered: ' + options().join(' | '));
+      told().value = mine;
+      told().dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      told().dispatchEvent(new FocusEvent('blur'));
+      await until(function () { return calls('save_config').length > saves; }, 3000, 'writing instructions saved nothing');
+      check('instructions of your own are saved', calls('save_config')[saves][1].config.reviews.prompt === mine, JSON.stringify(calls('save_config')[saves][1].config.reviews));
+      var back = function () { return all('.ca-settings-add').filter(function (b) { return /Codealong’s instructions/.test(b.textContent); })[0]; };
+      await until(function () { return !!back(); }, 3000, 'no way back to Codealong’s instructions');
+      saves = calls('save_config').length;
+      back().click();
+      await until(function () { return calls('save_config').length > saves; }, 3000, 'going back saved nothing');
+      check('and going back saves none, which is Codealong’s', calls('save_config')[saves][1].config.reviews.prompt === '', JSON.stringify(calls('save_config')[saves][1].config.reviews));
+      await until(function () { return told() && told().value === DEFAULT; }, 3000, 'the box doesn’t show Codealong’s instructions again');
     } catch (e) {
       return stopped(e);
     }

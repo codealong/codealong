@@ -84,19 +84,14 @@
   font: var(--type-code);
 }
 
-/* The agents that review pull requests (`[reviews] reviewers`): an account and a model each. */
-.ca-settings-reviewers {
+/* The agent that reviews pull requests (`[reviews] account` and `model`), and what it's told. */
+.ca-settings-reviewer {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  max-width: 560px;
 }
-.ca-settings-reviewers li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: var(--space-2);
-  align-items: center;
+.ca-settings-prompt {
   max-width: 560px;
 }
 .ca-settings-add {

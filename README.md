@@ -255,10 +255,11 @@ checks, comments and diffs.
 - **Nudge a PR's agent**, the session that opened it, and it's told when someone reviews, asks for
   changes or comments, or when checks fail, so it takes it from there; it's never told to merge.
 - **Ask about a PR**: put questions to an agent that has read its whole diff.
-- **Automatic reviews** (optional): agents of your choosing (an account and model each) review
-  each PR that asks for your review, combine what they found into one review, and leave it as a
-  draft review on your account with its comments on the lines they're about, for you to finish
-  and submit. The PR waits on you only once they're done, and new commits get reviewed again.
+- **Automatic reviews** (optional): an agent on the account and model you pick reviews each PR
+  that asks for your review, told what to look for by instructions you can edit (which can have it
+  start subagents of its own), and leaves a draft review on your account with its comments on the
+  lines they're about, for you to finish and submit. The PR waits on you only once it's done, and
+  new commits get reviewed again.
 
 ### Todos your agents can work
 
@@ -437,10 +438,11 @@ when_hit = "suggest"           # a session stopped at its usage limit offers a m
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Accounts)
 
 [reviews]
-auto = false                   # agents review each PR that waits on your review, and again on new commits (Settings › Accounts)
-reviewers = []                 # e.g. [{ account = "claude", model = "opus" }, { account = "codex" }]; none: Auto's account
-combine = true                 # with several, the first to finish combines their reviews into one
-post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the sessions
+auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Accounts)
+account = ""                   # the account it runs on; "" for the one Auto would start
+model = ""                     # the model it starts on; "" for the account's own
+prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
+post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
 
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Accounts)

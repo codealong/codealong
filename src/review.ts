@@ -119,21 +119,16 @@ export function askAccount(accounts: StartAccount[], usage: Usage[], now: number
  *  commits are reviewed again. */
 export function autoReviewWords(r: AutoReview): { icon: string; says: string; note: string | null } {
   const at = r.head.slice(0, 7);
-  const parts = r.parts ?? [];
-  const many = parts.length > 1;
-  const agent = many ? 'Agents' : 'Agent';
-  const done = parts.filter((p) => p.state !== 'reviewing').length;
-  const reviewing = r.combining ? `Agents combining their reviews of ${at}` : many ? `Agents reviewing ${at}: ${done} of ${parts.length} done` : `Agent reviewing ${at}`;
   const [icon, says] = {
     queued: ['hourglass', `Agent review of ${at} to come`],
-    reviewing: ['eye', reviewing],
-    posted: ['message-circle', `${agent} reviewed ${at} and commented`],
-    drafted: ['note', `${agent} drafted a review of ${at}`],
-    kept: ['check', `${agent} reviewed ${at}`],
-    skipped: ['circle-dashed', `${agent} passed on ${at}`],
-    failed: ['alert', `${many ? 'Agents’' : 'Agent’s'} review of ${at} didn’t finish`],
+    reviewing: ['eye', `Agent reviewing ${at}`],
+    posted: ['message-circle', `Agent reviewed ${at} and commented`],
+    drafted: ['note', `Agent drafted a review of ${at}`],
+    kept: ['check', `Agent reviewed ${at}`],
+    skipped: ['circle-dashed', `Agent passed on ${at}`],
+    failed: ['alert', `Agent’s review of ${at} didn’t finish`],
   }[r.stage];
-  const kept = r.stage === 'kept' ? `${many ? 'Their reviews are in their sessions' : 'Its review is in its session'}: posting is off.` : null;
+  const kept = r.stage === 'kept' ? 'Its review is in its session: posting is off.' : null;
   const why = r.note ?? kept ?? (r.stage === 'drafted' ? 'Only you see it until you submit it on GitHub.' : null);
   const next = r.behind ? (r.stage === 'reviewing' ? 'New commits since: it reviews them once this one’s done.' : 'New commits since: it reviews them again once they settle.') : null;
   const held = r.holds ? 'It waits on your review once the agent’s is done.' : null;
