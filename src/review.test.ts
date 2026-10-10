@@ -12,6 +12,13 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('failed', { note: 'Its session is gone.' })).says).toBe('Agent’s review of 309811a didn’t finish');
     expect(autoReviewWords(r('drafted'))).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a', note: 'Only you see it until you submit it.' });
   });
+  it('says where a review of a PR of yours went back to, or why it hasn’t', () => {
+    expect(autoReviewWords(r('kept', { own: true, sent: 'k' }), undefined, 'Add teams')).toEqual({ icon: 'send', says: 'Agent reviewed 309811a', note: 'It went back to “Add teams”.' });
+    expect(autoReviewWords(r('kept', { own: true, sent: 'k' })).note).toBe('It went back to the session that opened the PR.');
+    expect(autoReviewWords(r('kept', { own: true, note: 'It found nothing to raise, so it isn’t sent.' }))).toEqual({ icon: 'check', says: 'Agent reviewed 309811a', note: 'It found nothing to raise, so it isn’t sent.' });
+    // Not "posting is off": it never posts.
+    expect(autoReviewWords(r('kept', { own: true })).note).toBe(null);
+  });
   it('says a draft that is no longer one on GitHub was submitted, or thrown away', () => {
     expect(autoReviewWords(r('drafted'), { draft: true, submitted: null }).note).toBe(null);
     expect(autoReviewWords(r('drafted'), { draft: false, submitted: 'APPROVED' }).note).toBe('You submitted it, approving it.');

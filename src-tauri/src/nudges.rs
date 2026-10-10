@@ -216,7 +216,7 @@ fn excerpt(body: &str) -> String {
 }
 
 /// What an open PR's message ends with: the news is no go-ahead to merge.
-const NOT_A_MERGE: &str = "This message doesn't ask you to merge it: merge it only if you were asked to.";
+pub const NOT_A_MERGE: &str = "This message doesn't ask you to merge it: merge it only if you were asked to.";
 
 /// What the session is told: the PR, each new thing on it, where it stands, and that it's the
 /// session's to take on, but not to merge: a message that came by itself, as one of yours, must

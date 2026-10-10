@@ -35,6 +35,17 @@
 //! each PR stands is kept in reviews.json next to the config (`Store`), which this keeps in memory
 //! and saves whole, and the engine reads for the PRs' cards (`apply`). A round keeps its reviewer's
 //! turn as a part (`Part`), as it did when several could review one PR.
+//!
+//! The pull requests your own sessions open are reviewed the same way when `[reviews.own] auto`
+//! says to (`wants_own`): each open PR of yours whose session (`PrItem::primary`, the one that
+//! opened it) is on this Mac, on `[reviews.own]`'s account and model, else the account Auto would
+//! start among those of another harness than that session's (`Seat::avoid`), so another model
+//! reads what one wrote. Nothing goes on GitHub: the review is kept here (`ReviewStage::Kept`)
+//! and, with `[reviews.own] send`, handed back to the PR's session once that runs here and doesn't
+//! wait on you (`Job::Send`), as a file it's told to read (`review_file`, `back_message`), so the
+//! other agent's words never reach it typed in as yours. A review that found nothing to raise
+//! (`clean`) isn't sent, nor one of a commit the PR has moved on from: the next round's is. The
+//! PR's Review tab sends one by hand (`send_now`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -45,7 +56,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{support_dir, Config, ReviewPost, ReviewsCfg};
 use crate::engine::Handle;
 use crate::github::{LineComment, PendingReview};
-use crate::model::{AutoReview, Board, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
+use crate::model::{AutoReview, Board, Harness, Lane, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
 use crate::prlinks::pr_key;
 use crate::start::{Place, ResumeIn, StartSpec};
 use crate::transcript::Item;
@@ -84,6 +95,15 @@ pub const INSTRUCTIONS: &str = "Look for bugs, security and data risks, missing 
 /// What the reviewer is told to do: `[reviews] prompt`, else `INSTRUCTIONS`.
 pub fn instructions(cfg: &ReviewsCfg) -> &str {
     Some(cfg.prompt.trim()).filter(|p| !p.is_empty()).unwrap_or(INSTRUCTIONS)
+}
+
+/// What the reviewer of `pr` is told to do: `[reviews.own] prompt` for a PR of yours, else
+/// `instructions`.
+fn instructions_for<'a>(cfg: &'a ReviewsCfg, pr: &PrItem) -> &'a str {
+    if !pr.mine {
+        return instructions(cfg);
+    }
+    Some(cfg.own.prompt.trim()).filter(|p| !p.is_empty()).unwrap_or(INSTRUCTIONS)
 }
 
 /// A start that didn't say which session it made: the session is the next one of its account in
@@ -165,13 +185,27 @@ pub struct Round {
     /// The reviewer's turn: one, once asked.
     #[serde(default)]
     pub parts: Vec<Part>,
+    /// Where a review of a PR of yours went back to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent: Option<Sent>,
 }
 
 impl Round {
     fn new(head: &str, stage: ReviewStage, at: i64) -> Round {
         let ended_at = (stage != ReviewStage::Reviewing).then_some(at);
-        Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new() }
+        Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new(), sent: None }
     }
+}
+
+/// A review of a PR of yours sent to the session that opened it (`Job::Send`), or given up on
+/// after a few tries (`failed`, why).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Sent {
+    pub session: String,
+    pub at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed: Option<String>,
 }
 
 /// One PR's reviews.
@@ -212,14 +246,34 @@ pub struct Seat {
     /// None: the account's own.
     pub model: Option<String>,
     pub session: Option<String>,
+    /// The harness Auto keeps off: the one of the session that opened a PR of yours, so another
+    /// model reviews it. Auto takes one of it only when no account of another can start.
+    pub avoid: Option<Harness>,
 }
 
 /// The reviewer `cfg` names, with its session for the PR in `t`.
 fn seat(cfg: &ReviewsCfg, t: Option<&Tracked>) -> Seat {
+    named_seat(&cfg.account, &cfg.model, t)
+}
+
+fn named_seat(account: &str, model: &str, t: Option<&Tracked>) -> Seat {
     let some = |s: &str| Some(s.trim()).filter(|s| !s.is_empty()).map(String::from);
-    let (account, model) = (some(&cfg.account), some(&cfg.model));
+    let (account, model) = (some(account), some(model));
     let who = [account.as_deref().unwrap_or(AUTO), model.as_deref().unwrap_or("")].join(" ").trim().to_string();
-    Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model }
+    Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, avoid: None }
+}
+
+/// The reviewer of `pr`: `[reviews.own]`'s for a PR of yours, whose Auto keeps off the harness of
+/// the session that opened it, else `seat`.
+fn seat_for(cfg: &ReviewsCfg, t: Option<&Tracked>, lanes: &[Lane], pr: &PrItem) -> Seat {
+    if !pr.mine {
+        return seat(cfg, t);
+    }
+    let mut s = named_seat(&cfg.own.account, &cfg.own.model, t);
+    if s.account.is_none() {
+        s.avoid = origin(lanes, pr).map(|(_, o)| o.harness);
+    }
+    s
 }
 
 /// What's due.
@@ -232,12 +286,15 @@ pub enum Job {
     Read { pr: PrItem, head: String, part: usize, session: String, at: i64 },
     /// Post the round's review, written by `agent`.
     Post { pr: PrItem, head: String, review: String, agent: String },
+    /// Hand a PR of yours' review of commit `head`, written by `agent`, to `session`, the one
+    /// that opened it.
+    Send { pr: PrItem, head: String, session: String, review: String, agent: String },
 }
 
 impl Job {
     fn pr(&self) -> &PrItem {
         match self {
-            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::Post { pr, .. } => pr,
+            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } => pr,
         }
     }
 }
@@ -269,6 +326,8 @@ pub enum Went {
     Failed(String),
     /// Posting didn't go through, and why: it's tried again a few times.
     PostFailed(String),
+    /// Its review was sent to this session.
+    Sent(String),
 }
 
 /// What's next for a round under way.
@@ -300,6 +359,53 @@ pub fn wants(pr: &PrItem) -> bool {
     pr.review_requested && pr.state.is_open() && pr.state != PrState::Draft && !pr.mine && pr.head_oid.is_some()
 }
 
+/// The session a PR of yours goes back to: the one that opened it (`PrItem::primary`), when it's
+/// on this Mac and isn't a visitor's, a helper (a review's own session, which a PR whose opener
+/// is gone could take for its primary) or archived.
+fn origin<'a>(lanes: &'a [Lane], pr: &PrItem) -> Option<(&'a Lane, &'a Session)> {
+    let key = pr.primary.as_deref()?;
+    lanes.iter().filter(|l| l.device.is_none()).find_map(|l| l.sessions.iter().find(|s| s.key == key && s.visitor.is_none() && s.helper.is_none() && !s.archived).map(|s| (l, s)))
+}
+
+/// Whether Codealong reviews a PR of yours (`[reviews.own]`): it's open and not a draft, and the
+/// session that opened it is here to hand the review to.
+pub fn wants_own(lanes: &[Lane], pr: &PrItem) -> bool {
+    pr.mine && pr.state.is_open() && pr.state != PrState::Draft && pr.head_oid.is_some() && origin(lanes, pr).is_some()
+}
+
+/// Whether `cfg` has Codealong review a PR: one that waits on your review while `[reviews] auto`
+/// is on, one of yours while `[reviews.own] auto` is.
+fn wanted(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
+    if pr.mine {
+        cfg.own.auto && wants_own(lanes, pr)
+    } else {
+        cfg.auto && wants(pr)
+    }
+}
+
+/// A session can be handed a review now: it runs here and doesn't wait on you to answer
+/// something, which what's typed would answer.
+fn can_take(s: &Session) -> bool {
+    s.live && !crate::send::waits_on_you(s)
+}
+
+/// A review that found nothing to raise, as a review of a PR of yours is told to say (`LGTM:`):
+/// it isn't handed back.
+pub fn clean(review: &str) -> bool {
+    review.trim_start().strip_prefix("LGTM").is_some_and(|rest| rest.is_empty() || rest.starts_with(':') || rest.starts_with(char::is_whitespace))
+}
+
+/// A round's review that's still to go back to its session: done, of commit `head`, not sent or
+/// given up on, with something to raise. The review and who wrote it.
+fn to_send(r: &Round, head: &str) -> Option<(String, String)> {
+    if r.stage != ReviewStage::Kept || r.head != head || r.sent.is_some() {
+        return None;
+    }
+    let p = r.parts.iter().find(|p| p.state == PartState::Done)?;
+    let review = p.review.clone().filter(|v| !clean(v))?;
+    Some((review, p.label()))
+}
+
 /// A session's turn ended after `at`: it's done, or waits on you only because its reply asks you
 /// something. One stopped by a usage limit or an error, or waiting on you to allow something,
 /// isn't done.
@@ -327,9 +433,9 @@ fn found(board: &Board, p: &Pending, url: &str) -> Option<String> {
 /// read once its session ended it, and fails once its session is gone a while; once it's settled,
 /// its review is posted, or the round ends without one. A round stuck while the PR moved on ends,
 /// for the next.
-fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, now: i64) -> Next {
+fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now: i64) -> Next {
     let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
-    if head != r.head && wants(pr) && !r.parts.iter().filter(|p| p.reviewing()).any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
+    if head != r.head && wanted && !r.parts.iter().filter(|p| p.reviewing()).any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
         end(r, ReviewStage::Failed, Some("New commits came in before it was done, so it's left for the next round.".into()), now);
         return Next::Changed;
     }
@@ -380,7 +486,7 @@ impl Reviewer {
     /// `AT_ONCE` rounds are under way. Nothing for a PR with a job under way, or whose wait after
     /// a try isn't over.
     pub fn due(&mut self, board: &Board, cfg: &ReviewsCfg, now: i64) -> Vec<Job> {
-        if !cfg.auto || board.github_login.is_none() {
+        if !(cfg.auto || cfg.own.auto) || board.github_login.is_none() {
             return Vec::new();
         }
         let mut changed = false;
@@ -406,7 +512,7 @@ impl Reviewer {
         }
         // PRs that no longer wait on you are forgotten a while after their last round.
         let before = self.store.prs.len();
-        self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wants(p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
+        self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wanted(cfg, &board.lanes, p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
         changed |= self.store.prs.len() != before;
         // A round holds a place while one of its sessions works, or is starting.
         let holds_place = |r: &Round| {
@@ -428,8 +534,9 @@ impl Reviewer {
             if self.busy.contains(&key) || self.next_at.get(&key).is_some_and(|&t| now < t) {
                 continue;
             }
+            let want = wanted(cfg, &board.lanes, pr);
             if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing) {
-                match next(r, board, pr, &head, now) {
+                match next(r, board, pr, &head, want, now) {
                     Next::Job(job) => {
                         self.busy.insert(key);
                         jobs.push(job);
@@ -439,7 +546,12 @@ impl Reviewer {
                 }
                 continue;
             }
-            if !wants(pr) {
+            if let Some(job) = self.send_due(board, cfg, pr, &head) {
+                self.busy.insert(key);
+                jobs.push(job);
+                continue;
+            }
+            if !want {
                 continue;
             }
             let t = self.store.prs.get(&key);
@@ -452,12 +564,23 @@ impl Reviewer {
             }
             running += 1;
             self.busy.insert(key);
-            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), seat: seat(cfg, t) });
+            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), seat: seat_for(cfg, t, &board.lanes, pr) });
         }
         if changed {
             self.save();
         }
         jobs
+    }
+
+    /// The send due for a PR of yours at `head` (`to_send`): to the session that opened it, once
+    /// that runs here and doesn't wait on you, while sending is on and the PR is open.
+    fn send_due(&self, board: &Board, cfg: &ReviewsCfg, pr: &PrItem, head: &str) -> Option<Job> {
+        if !(pr.mine && cfg.own.auto && cfg.own.send && pr.state.is_open()) {
+            return None;
+        }
+        let (review, agent) = to_send(self.store.prs.get(&pr_key(&pr.key))?.rounds.last()?, head)?;
+        let (_, s) = origin(&board.lanes, pr).filter(|(_, s)| can_take(s))?;
+        Some(Job::Send { pr: pr.clone(), head: head.to_string(), session: s.key.clone(), review, agent })
     }
 
     /// How a job went, at `now` (ms): kept, and saved. What should be said as a notice, for a
@@ -528,6 +651,26 @@ impl Reviewer {
                     _ => {}
                 }
             }
+            (Job::Send { head, .. }, Went::Sent(session)) => {
+                self.post_failures.remove(&key);
+                if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
+                    r.sent = Some(Sent { session, at: now, failed: None });
+                }
+            }
+            (Job::Send { head, session, .. }, Went::PostFailed(why)) => {
+                let failures = self.post_failures.entry(key.clone()).or_default();
+                *failures += 1;
+                if *failures < POST_TRIES {
+                    self.next_at.insert(key, now + (RETRY_MS << (*failures - 1)));
+                    return Err(format!("Codealong couldn't hand its review of {} to the session that opened it: {why} It tries again in a minute or two.", pr.key));
+                }
+                self.post_failures.remove(&key);
+                if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
+                    r.sent = Some(Sent { session: session.clone(), at: now, failed: Some(why.clone()) });
+                }
+                said = Err(format!("Codealong couldn't hand its review of {} to the session that opened it: {why}", pr.key));
+            }
+            (Job::Send { .. }, _) => {}
             (Job::Post { .. }, Went::NotYet) => {
                 self.next_at.insert(key, now + RETRY_MS);
                 return Ok(());
@@ -577,12 +720,13 @@ fn end(r: &mut Round, stage: ReviewStage, note: Option<String>, now: i64) {
 }
 
 /// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
-/// the round to come for a PR that waits on your review; whether the PR has moved on since that
-/// round, with another to come; and whether it's held out of what waits on you until the agent's
-/// review is done. All of that only while reviews are `on`, and the PR is one they're for
-/// (`wants`). It's held while its commit has had no round yet, for `HOLD_MS` at most from when
-/// your review was asked for or the PR last changed, and while its commit's round is under way,
-/// for as long from when that began; a round that's done, or didn't get done, hands it to you.
+/// the round to come for a PR that reviews are on for (`wanted`); whether the PR has moved on
+/// since that round, with another to come; and whether it's held out of what waits on you until
+/// the agent's review is done. It's held while its commit has had no round yet, for `HOLD_MS` at
+/// most from when your review was asked for or the PR last changed, and while its commit's round
+/// is under way, for as long from when that began; a round that's done, or didn't get done, hands
+/// it to you. A PR of yours is never held: it says where its review went back to, or why it
+/// hasn't, and whether the session that opened it can be sent it now.
 /// The PR each session reviews, by the session's key: every session a round of a PR's reviews
 /// asked, and the one kept for its next round. Each is a helper of that PR (`Session::helper`),
 /// out of your lists and queues while it doesn't need you, and listed on the PR's card.
@@ -597,13 +741,15 @@ pub fn reviewers(store: &Store) -> HashMap<&str, &str> {
     out
 }
 
-pub fn apply(prs: &mut [PrItem], store: &Store, on: bool, now: i64) {
+pub fn apply(prs: &mut [PrItem], store: &Store, cfg: &ReviewsCfg, lanes: &[Lane], now: i64) {
     for pr in prs {
-        let wanted = on && wants(pr);
+        let wanted = wanted(cfg, lanes, pr);
         let t = store.prs.get(&pr_key(&pr.key));
         let head = pr.head_oid.clone().unwrap_or_default();
         let since = pr.requested_at.unwrap_or(0).max(pr.updated_at);
+        let own = pr.mine;
         let holds = wanted
+            && !own
             && match t.and_then(|t| t.rounds.iter().rev().find(|r| r.head == head)) {
                 Some(r) => r.stage == ReviewStage::Reviewing && now - r.at < HOLD_MS,
                 None => now - since < HOLD_MS,
@@ -615,14 +761,34 @@ pub fn apply(prs: &mut [PrItem], store: &Store, on: bool, now: i64) {
                 parts: r.parts.iter().map(|p| ReviewPart { who: p.who.clone(), session: p.session.clone(), state: p.state, note: p.note.clone() }).collect(),
                 at: r.ended_at.unwrap_or(r.at),
                 comment: r.comment.clone().or_else(|| t.rounds.iter().rev().find_map(|r| r.comment.clone())),
-                note: r.note.clone(),
+                note: if own { back_note(r, cfg, &head) } else { r.note.clone() },
                 rounds: t.rounds.len(),
                 behind: wanted && head != r.head,
                 holds,
+                own,
+                sent: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.session.clone()),
+                sent_at: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
+                sendable: (own && r.stage == ReviewStage::Kept).then(|| origin(lanes, pr)).flatten().filter(|(_, s)| can_take(s)).map(|(_, s)| s.key.clone()),
             }),
-            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, parts: Vec::new(), at: since, comment: None, note: None, rounds: 0, behind: false, holds }),
+            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, parts: Vec::new(), at: since, comment: None, note: None, rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None }),
             None => None,
         };
+    }
+}
+
+/// Why a review of a PR of yours hasn't gone back to its session, while it hasn't: what the
+/// round says (it found nothing to raise, the PR ended), else that sending is off, it was given
+/// up on, the PR moved on, or it waits for its session.
+fn back_note(r: &Round, cfg: &ReviewsCfg, head: &str) -> Option<String> {
+    if r.note.is_some() || r.stage != ReviewStage::Kept {
+        return r.note.clone();
+    }
+    match &r.sent {
+        Some(Sent { failed: Some(why), .. }) => Some(format!("It couldn't be handed to the session that opened the PR: {why}")),
+        Some(_) => None,
+        None if !cfg.own.send => Some("Handing reviews back is off: send it from here.".into()),
+        None if r.head != head => Some("New commits came in since, so it isn't sent: the next review is.".into()),
+        None => Some("It goes to the session that opened the PR once that runs here and doesn't wait on you.".into()),
     }
 }
 
@@ -682,16 +848,43 @@ pub struct Reading {
     pub changes: Option<String>,
 }
 
-/// How the review's last message is laid out where it's posted: a summary, then the comments on
+/// How the review's last message is laid out, written to `to`: a summary, then the comments on
 /// particular lines in a block Codealong reads (`parse_reply`).
-const LAYOUT: &str = "So make that message the review and nothing else, in GitHub Markdown, written to the PR's author: first a line on what you make of it, then the findings that aren't about particular lines, most serious first. Then put each finding about a particular line in a fenced block tagged `review-comments` holding a JSON array of objects with `path` (the file as the diff names it), `line` (the line's number in the file's new version: the diff's left column) and `body` (the comment, saying what to do about it). Only a line the diff numbers can take a comment.";
+fn layout(to: &str) -> String {
+    format!("So make that message the review and nothing else, in GitHub Markdown, written to {to}: first a line on what you make of it, then the findings that aren't about particular lines, most serious first. Then put each finding about a particular line in a fenced block tagged `review-comments` holding a JSON array of objects with `path` (the file as the diff names it), `line` (the line's number in the file's new version: the diff's left column) and `body` (the comment, saying what to do about it). Only a line the diff numbers can take a comment.")
+}
+
+/// Where a review goes once it's done: where config.toml posts it, or back to the agent that wrote
+/// a PR of yours (`[reviews.own]`), named by its session's harness and model.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Goes {
+    Post(ReviewPost),
+    Back(String),
+}
+
+/// Where `pr`'s review goes.
+fn goes(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> Goes {
+    if pr.mine {
+        Goes::Back(origin(lanes, pr).map(|(_, s)| agent_of(s)).unwrap_or_else(|| "the agent that wrote it".into()))
+    } else {
+        Goes::Post(cfg.post)
+    }
+}
+
+/// Who a session's agent is, as a review names its author: its harness, and its model where
+/// that's known.
+fn agent_of(s: &Session) -> String {
+    let harness = crate::harness::adapter(s.harness).harness().word();
+    s.model.as_deref().map(|m| format!("{harness}, {m}")).unwrap_or_else(|| harness.to_string())
+}
 
 /// Where the review's last message goes, and how to lay it out for that.
-fn last_message(login: &str, post: ReviewPost) -> String {
-    match post {
-        ReviewPost::Draft => format!("Codealong puts your last message on the PR as a review on {login}'s GitHub account, left as a draft that only {login} sees until they finish it there, with each line comment on its line and a line saying an agent wrote it. {LAYOUT}"),
-        ReviewPost::Comment => format!("Codealong posts your last message on the PR as a comment from {login}'s GitHub account, with each line comment written in under a link to its line, and a line saying an agent wrote it. {LAYOUT}"),
-        ReviewPost::None => format!("Your last message is the review, for {login} to read here; nothing is posted. Make it the review and nothing else, in Markdown: a line on what you make of it, then each finding, most serious first, with its file and line and what to do about it."),
+fn last_message(login: &str, goes: &Goes) -> String {
+    match goes {
+        Goes::Post(ReviewPost::Draft) => format!("Codealong puts your last message on the PR as a review on {login}'s GitHub account, left as a draft that only {login} sees until they finish it there, with each line comment on its line and a line saying an agent wrote it. {}", layout("the PR's author")),
+        Goes::Post(ReviewPost::Comment) => format!("Codealong posts your last message on the PR as a comment from {login}'s GitHub account, with each line comment written in under a link to its line, and a line saying an agent wrote it. {}", layout("the PR's author")),
+        Goes::Post(ReviewPost::None) => format!("Your last message is the review, for {login} to read here; nothing is posted. Make it the review and nothing else, in Markdown: a line on what you make of it, then each finding, most serious first, with its file and line and what to do about it."),
+        Goes::Back(who) => format!("Codealong hands your last message to the agent that wrote the PR ({who}) to act on, and shows it to {login}; nothing goes on GitHub. {} If it's ready to merge as it is, make your last message `LGTM: ` and a sentence on what you checked, and it isn't handed on.", layout("that agent")),
     }
 }
 
@@ -704,11 +897,15 @@ const NUMBERED: &str = "Each line of a diff has its number in the file's new ver
 /// out. `since`: the commit an earlier review of it was of, by a session that's gone, with
 /// `files.changes` saying what changed since where that follows on.
 #[allow(clippy::too_many_arguments)]
-pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, login: &str, post: ReviewPost, instructions: &str, files: &Reading) -> String {
+pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, login: &str, goes: &Goes, instructions: &str, files: &Reading) -> String {
     let base = pr.base.as_deref().unwrap_or("its base branch");
     let by = pr.author.as_deref().map(|a| format!(", by {a}")).unwrap_or_default();
+    let why = match goes {
+        Goes::Back(who) => format!("Codealong started you to review it for {login}, who opened it with another agent ({who}): your review goes back to that agent, to act on."),
+        Goes::Post(_) => format!("Codealong started you to review it for {login}, whose review it waits on."),
+    };
     let mut out = format!(
-        "Review pull request #{} in {}, “{}” ({}){by}: it merges {} into {base}, and is at commit {}. Codealong started you to review it for {login}, whose review it waits on.\n\n",
+        "Review pull request #{} in {}, “{}” ({}){by}: it merges {} into {base}, and is at commit {}. {why}\n\n",
         pr.number,
         pr.repo_slug,
         pr.title.trim(),
@@ -731,12 +928,12 @@ pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, l
         }
         out += "Start with which of its findings are fixed and which aren't.\n\n";
     }
-    out += &format!("{}\n\n{HANDS_OFF} {} {SKIP}", instructions.trim(), last_message(login, post));
+    out += &format!("{}\n\n{HANDS_OFF} {} {SKIP}", instructions.trim(), last_message(login, goes));
     out
 }
 
 /// What a review's session is sent when the PR has new commits since the one it last reviewed.
-pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, post: ReviewPost, instructions: &str, files: &Reading) -> String {
+pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, goes: &Goes, instructions: &str, files: &Reading) -> String {
     let mut out = match since {
         Some(s) => format!("Codealong: #{} “{}” has new commits since you reviewed {}: it's at {} now. ", pr.number, pr.title.trim(), short(s), short(head)),
         None => format!("Codealong: review #{} “{}” again; it's at {} now. ", pr.number, pr.title.trim(), short(head)),
@@ -750,7 +947,7 @@ pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, p
     out += &format!(
         "Review it again, starting with which of your earlier findings are fixed and which aren't, then anything new, as you were asked to:\n\n{}\n\n{HANDS_OFF} {} {SKIP}",
         instructions.trim(),
-        last_message(login, post)
+        last_message(login, goes)
     );
     out
 }
@@ -963,10 +1160,17 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
 // ---- Doing the jobs ----
 
 /// The account a new review runs on, and where: `account`, else the one Auto would start, out
-/// of sight (`start::out_of_sight`).
-fn reviewer_place(cfg: &Config, board: &Board, account: Option<&str>) -> Result<(String, Place), String> {
+/// of sight (`start::out_of_sight`), among the accounts of another harness than `avoid` when one
+/// of them can.
+fn reviewer_place(cfg: &Config, board: &Board, account: Option<&str>, avoid: Option<Harness>) -> Result<(String, Place), String> {
     let name = match account.map(str::trim).filter(|a| !a.is_empty()) {
-        None => crate::start::pick_account(cfg, &board.usage, &crate::start::OUT_OF_SIGHT, None, now_ms()).ok_or("no account can start a session in the background")?,
+        None => {
+            let other = |a: &crate::config::AccountCfg| crate::harness::of(a).map(|h| h.harness()) != avoid;
+            avoid
+                .and_then(|_| crate::start::pick_account_where(cfg, &board.usage, &crate::start::OUT_OF_SIGHT, None, now_ms(), other))
+                .or_else(|| crate::start::pick_account(cfg, &board.usage, &crate::start::OUT_OF_SIGHT, None, now_ms()))
+                .ok_or("no account can start a session in the background")?
+        }
         Some(n) => n.to_string(),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
@@ -1023,7 +1227,7 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, te
 fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Part {
     let at = now_ms();
     if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some()) {
-        match hand(engine, board, cfg, pr, key, again_prompt(pr, head, since, login, cfg.reviews.post, instructions(&cfg.reviews), files)) {
+        match hand(engine, board, cfg, pr, key, again_prompt(pr, head, since, login, &goes(&cfg.reviews, &board.lanes, pr), instructions_for(&cfg.reviews, pr), files)) {
             Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
             // A session that can't go on is replaced by a new one.
             Err(e) => eprintln!("codealong: {}'s review of {} starts afresh: {e}", seat.who, pr.key),
@@ -1054,7 +1258,7 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
         Err(e) => return Went::NotStarted(format!("{e:#}")),
     };
     let Some(pr) = board.prs.iter().find(|p| p.key == pr.key) else { return Went::Later };
-    if pr.head_oid.as_deref() != Some(head) || !wants(pr) {
+    if pr.head_oid.as_deref() != Some(head) || !wanted(&cfg.reviews, &board.lanes, pr) {
         return Went::Later;
     }
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
@@ -1064,7 +1268,7 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
     };
     // Reviewed already, from another Mac or before a restart.
     let mark = marker(&pr.key, head);
-    if let Some(c) = detail.comments.iter().find(|c| c.mine && c.body.contains(&mark)) {
+    if let Some(c) = detail.comments.iter().find(|c| !pr.mine && c.mine && c.body.contains(&mark)) {
         return match cfg.reviews.post {
             ReviewPost::Draft => Went::Drafted(draft_link(pr)),
             _ => Went::Posted(c.url.clone().unwrap_or_else(|| pr.url.clone())),
@@ -1082,9 +1286,9 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
 /// where it starts out of sight, in the worktree `side::pr_lane` picks, on the first prompt.
 #[allow(clippy::too_many_arguments)]
 fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Result<StartSpec, String> {
-    let (account, place) = reviewer_place(cfg, board, seat.account.as_deref())?;
+    let (account, place) = reviewer_place(cfg, board, seat.account.as_deref(), seat.avoid)?;
     let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
-    let prompt = first_prompt(pr, head, since, holds, login, cfg.reviews.post, instructions(&cfg.reviews), files);
+    let prompt = first_prompt(pr, head, since, holds, login, &goes(&cfg.reviews, &board.lanes, pr), instructions_for(&cfg.reviews, pr), files);
     Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: seat.model.clone(), effort: None, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }
 
@@ -1104,9 +1308,7 @@ fn read(engine: &Handle, session: &str, at: i64) -> Went {
     if let Some(why) = skipped(&review) {
         return Went::Skipped(why);
     }
-    let harness = crate::harness::adapter(s.harness).harness().word();
-    let agent = s.model.as_deref().map(|m| format!("{harness}, {m}")).unwrap_or_else(|| harness.to_string());
-    Went::Read { review, agent }
+    Went::Read { review, agent: agent_of(s) }
 }
 
 /// Posts a round's review where config.toml says, unless the PR ended or moved on before it was
@@ -1118,11 +1320,17 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str) -> 
         Err(e) => return Went::PostFailed(format!("{e:#}")),
     };
     let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
+    let not = if pr.mine { "Not sent" } else { "Not posted" };
     if !pr.state.is_open() {
-        return Went::Kept(Some("Not posted: the PR was closed before the review was done.".into()));
+        return Went::Kept(Some(format!("{not}: the PR was closed before the review was done.")));
     }
     if pr.head_oid.as_deref().is_some_and(|h| h != head) {
-        return Went::Failed("Not posted: new commits came in before it was done.".into());
+        return Went::Failed(format!("{not}: new commits came in before it was done."));
+    }
+    // A review of a PR of yours stays here, and goes back to its session from there
+    // (`Job::Send`), never to GitHub.
+    if pr.mine {
+        return Went::Kept(clean(review).then(|| "It found nothing to raise, so it isn't sent.".to_string()));
     }
     let (summary, comments) = parse_reply(review);
     match cfg.reviews.post {
@@ -1175,7 +1383,7 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
     let changes = since.as_deref().and_then(|s| crate::github::changes_since(&pr.repo_slug, s, &head).ok().flatten());
     let files = keep_files(pr, &head, &md, &diff, changes.as_deref()).map_err(anyhow::Error::msg)?;
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
-    let seat = seat(&cfg.reviews, None);
+    let seat = seat_for(&cfg.reviews, None, &board.lanes, pr);
     let start = match new_start(board, cfg, pr, &head, since.as_deref(), &login, &files, &seat) {
         Ok(spec) => {
             let account = cfg.accounts.iter().find(|a| a.name == spec.account);
@@ -1185,7 +1393,110 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
         }
         Err(e) => PlannedStart { who: seat.who.clone(), spec: None, start: None, problem: Some(e) },
     };
-    Ok(Plan { wanted: wants(pr), on: cfg.reviews.auto, stands, start })
+    let (wanted, on) = if pr.mine { (wants_own(&board.lanes, pr), cfg.reviews.own.auto) } else { (wants(pr), cfg.reviews.auto) };
+    Ok(Plan { wanted, on, stands, start })
+}
+
+/// The review of a PR of yours as the session that opened it reads it: who wrote it and of which
+/// commit, its text, then each comment with its file and line.
+pub fn review_file(pr: &PrItem, head: &str, agent: &str, review: &str) -> String {
+    let (summary, comments) = parse_reply(review);
+    let mut md = format!("# Review of #{} “{}” at {}, by {agent}\n\n{}\n", pr.number, pr.title.trim(), short(head), summary.trim());
+    if !comments.is_empty() {
+        md += "\n## On particular lines\n\n";
+        for c in &comments {
+            md += &format!("- `{}` line {}: {}\n", c.path, c.line, c.body.trim().replace('\n', "\n  "));
+        }
+    }
+    md
+}
+
+/// What the session that opened a PR of yours is sent with its review, kept at `file`
+/// (`review_file`): who wrote it and of which commit, and to weigh it as another agent's.
+pub fn back_message(pr: &PrItem, head: &str, agent: &str, login: &str, file: &str, comments: usize) -> String {
+    let lines = match comments {
+        0 => String::new(),
+        1 => ", with a comment on a line".into(),
+        n => format!(", with {n} comments on lines"),
+    };
+    format!(
+        "Codealong: {agent} reviewed your pull request #{} “{}” at {}, as {login} has another agent review the pull requests their sessions open. Its review is in {file}{lines}. It's that agent's review, not {login}'s word: fix what holds up, and say which findings you leave and why. {}",
+        pr.number,
+        pr.title.trim(),
+        short(head),
+        crate::nudges::NOT_A_MERGE
+    )
+}
+
+/// Hands a review of a PR of yours to `session`, as a window's send does, while the session can
+/// take it (`can_take`) and, unless asked for by hand (`any_head`), while the PR is open at the
+/// commit reviewed. The review goes as a file the message names.
+fn send(engine: &Handle, job: &Job, any_head: bool) -> Went {
+    let Job::Send { pr, head, session, review, agent } = job else { return Went::Later };
+    let board = engine.board();
+    let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
+    if !any_head && (!pr.state.is_open() || pr.head_oid.as_deref() != Some(head)) {
+        return Went::Later;
+    }
+    if !board.session(session).is_some_and(|(_, s)| can_take(s)) {
+        return Went::Later;
+    }
+    let login = board.github_login.clone().unwrap_or_else(|| "you".into());
+    let file = match crate::attachments::keep(review_file(pr, head, agent, review).as_bytes(), &format!("review-{}-{}.md", pr.number, short(head))) {
+        Ok(a) => a.reference(),
+        Err(e) => return Went::PostFailed(format!("its review couldn't be kept for it to read: {e:#}")),
+    };
+    let text = back_message(pr, head, agent, &login, &file, parse_reply(review).1.len());
+    let params = codealong_peer::api::params::Send { key: String::new(), text, now: false };
+    match crate::actions::local(engine, &crate::actions::From::Here, codealong_peer::api::SESSION_SEND, session, params) {
+        Ok(_) => Went::Sent(session.clone()),
+        Err(e) => Went::PostFailed(e.to_string()),
+    }
+}
+
+/// Hands a PR of yours' latest review to the session that opened it now, as its Review tab's Send
+/// asks: whether or not sending is on, and one that found nothing to raise too.
+pub fn send_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Result<(), String> {
+    let board = engine.board();
+    let pr = board.prs.iter().find(|p| p.key == key).ok_or("Codealong doesn't list that PR any more.")?;
+    let (_, s) = origin(&board.lanes, pr).ok_or("The session that opened it isn't here any more.")?;
+    if !can_take(s) {
+        return Err(if s.live { "The session that opened it waits on you: answer it first." } else { "The session that opened it isn't running here." }.into());
+    }
+    let job = {
+        let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+        let k = pr_key(key);
+        if r.busy.contains(&k) {
+            return Err("Its review is being read or sent: try again in a moment.".into());
+        }
+        let t = r.store.prs.get(&k).ok_or("It has no review to send.")?;
+        let round = t.rounds.iter().rev().find(|r| r.parts.iter().any(|p| p.state == PartState::Done)).ok_or("It has no review to send.")?;
+        let p = round.parts.iter().find(|p| p.state == PartState::Done).ok_or("It has no review to send.")?;
+        let job = Job::Send { pr: pr.clone(), head: round.head.clone(), session: s.key.clone(), review: p.review.clone().unwrap_or_default(), agent: p.label() };
+        r.busy.insert(k);
+        job
+    };
+    let went = send(engine, &job, true);
+    let failed = match &went {
+        Went::Sent(_) => None,
+        Went::PostFailed(why) => Some(why.clone()),
+        _ => Some("The session that opened it can't take it now.".to_string()),
+    };
+    let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+    match failed {
+        None => {
+            let said = r.told(&job, went, now_ms());
+            drop(r);
+            engine.reviewed(said);
+            Ok(())
+        }
+        // A send by hand that didn't go is said where it was asked for, and leaves the round as
+        // it was.
+        Some(why) => {
+            r.busy.remove(&pr_key(key));
+            Err(why)
+        }
+    }
 }
 
 /// Does a job and tells `reviewer` how it went, and the engine, which says a failure as a notice
@@ -1195,6 +1506,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
         Job::Review { pr, head, since, seat } => review(engine, pr, head, since.as_deref(), seat),
         Job::Read { session, at, .. } => read(engine, session, *at),
         Job::Post { pr, head, review, agent } => post(engine, pr, head, review, agent),
+        Job::Send { .. } => send(engine, &job, false),
     }))
     .unwrap_or_else(|_| Went::Failed("It stopped partway.".into()));
     let said = reviewer.lock().unwrap_or_else(|e| e.into_inner()).told(&job, went, now_ms());
@@ -1278,6 +1590,7 @@ mod tests {
                 }
                 Job::Read { pr, part, session, .. } => format!("read {} part {part} in {session}", pr.number),
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
+                Job::Send { pr, head, session, agent, .. } => format!("send {} {} by {agent} to {session}", pr.number, short(head)),
             })
             .collect()
     }
@@ -1313,10 +1626,136 @@ mod tests {
         // That commit is done.
         assert!(r.due(&done, &on(), NOW + 10 * QUIET_MS).is_empty());
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, true, NOW);
+        apply(&mut prs, &r.store, &on(), &[], NOW);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.stage, a.head.as_str(), a.comment.as_deref(), a.rounds, a.behind), (ReviewStage::Drafted, HEAD, Some("https://github.com/o/r/pull/7/files"), 1, false));
         assert_eq!(a.parts, [ReviewPart { who: AUTO.into(), session: Some(S.into()), state: PartState::Done, note: None }]);
+    }
+
+    /// The session that opened PR 7 of yours.
+    const MAKER: &str = "claude:claude:maker";
+
+    /// PR `n` of yours at `head`, opened by `MAKER`.
+    fn mine(n: u64, head: &str) -> PrItem {
+        PrItem { mine: true, author: Some("gwen".into()), review_requested: false, primary: Some(MAKER.into()), ..pr(n, head) }
+    }
+
+    /// Reviews of your own PRs on, and nothing else.
+    fn own() -> ReviewsCfg {
+        ReviewsCfg { own: crate::config::OwnReviewsCfg { auto: true, ..Default::default() }, ..ReviewsCfg::default() }
+    }
+
+    #[test]
+    fn a_pr_of_yours_is_reviewed_on_another_harness_and_its_review_handed_back_to_its_session() {
+        let mut r = Reviewer::default();
+        let maker = |status: Status| Session { status, last_activity: NOW, ..fixtures::session(MAKER) };
+        let b = board(vec![mine(7, HEAD)], vec![maker(Status::Working)]);
+        let jobs = r.due(&b, &own(), NOW);
+        assert_eq!(kinds(&jobs), ["review 7 1111111 since None by auto"]);
+        // Auto keeps off the harness of the session that opened it.
+        let Job::Review { seat, .. } = &jobs[0] else { unreachable!() };
+        assert_eq!(seat.avoid, Some(Harness::Claude));
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW + 1).unwrap();
+        let done = |status: Status| board(vec![mine(7, HEAD)], vec![maker(status), session(Status::Unread, NOW + 60_000)]);
+        read(&mut r, &done(Status::Working), &own(), NOW + 61_000, "Two problems.\n\n```review-comments\n[{\"path\":\"src/a.rs\",\"line\":2,\"body\":\"This panics.\"}]\n```", "Codex, gpt-5.5");
+        let post = r.due(&done(Status::Working), &own(), NOW + 62_000).pop().unwrap();
+        assert!(matches!(post, Job::Post { .. }), "{post:?}");
+        // Kept here: nothing goes on GitHub.
+        r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Kept);
+        // Handed back to the session that opened it, while it doesn't wait on you.
+        let jobs = r.due(&done(Status::Working), &own(), NOW + 64_000);
+        assert_eq!(kinds(&jobs), [format!("send 7 1111111 by Codex, gpt-5.5 to {MAKER}")]);
+        r.told(&jobs[0], Went::Later, NOW + 64_500).unwrap();
+        let waiting = Session { asks: false, ..maker(Status::Needs) };
+        assert!(r.due(&board(vec![mine(7, HEAD)], vec![waiting, session(Status::Unread, NOW + 60_000)]), &own(), NOW + 65_000).is_empty(), "waits on you");
+        let stopped = Session { live: false, ..maker(Status::Idle) };
+        assert!(r.due(&board(vec![mine(7, HEAD)], vec![stopped, session(Status::Unread, NOW + 60_000)]), &own(), NOW + 65_000).is_empty(), "not running");
+        let jobs = r.due(&done(Status::Idle), &own(), NOW + 66_000);
+        r.told(&jobs[0], Went::Sent(MAKER.into()), NOW + 67_000).unwrap();
+        assert!(r.due(&done(Status::Idle), &own(), NOW + 68_000).is_empty(), "once");
+        let mut prs = vec![mine(7, HEAD)];
+        apply(&mut prs, &r.store, &own(), &done(Status::Idle).lanes, NOW + 68_000);
+        let a = prs[0].auto_review.clone().unwrap();
+        assert_eq!((a.stage, a.own, a.holds, a.sent.as_deref(), a.sent_at, a.note.as_deref(), a.sendable.as_deref()), (ReviewStage::Kept, true, false, Some(MAKER), Some(NOW + 67_000), None, Some(MAKER)));
+    }
+
+    #[test]
+    fn a_review_of_yours_that_found_nothing_or_with_sending_off_stays_here() {
+        let maker = Session { status: Status::Idle, ..fixtures::session(MAKER) };
+        let b = board(vec![mine(7, HEAD)], vec![maker.clone(), session(Status::Unread, NOW + 60_000)]);
+        let reviewed = |cfg: &ReviewsCfg, review: &str| {
+            let mut r = Reviewer::default();
+            let job = r.due(&b, cfg, NOW).pop().unwrap();
+            r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+            read(&mut r, &b, cfg, NOW + 61_000, review, "Codex");
+            let post = r.due(&b, cfg, NOW + 62_000).pop().unwrap();
+            r.told(&post, Went::Kept(clean(review).then(|| "It found nothing to raise, so it isn't sent.".into())), NOW + 63_000).unwrap();
+            r
+        };
+        let mut r = reviewed(&own(), "LGTM: the tests cover it.");
+        assert!(r.due(&b, &own(), NOW + 64_000).is_empty());
+        let mut prs = vec![mine(7, HEAD)];
+        apply(&mut prs, &r.store, &own(), &b.lanes, NOW);
+        assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It found nothing to raise, so it isn't sent."));
+        let mut quiet = own();
+        quiet.own.send = false;
+        let mut r = reviewed(&quiet, "Two problems.");
+        assert!(r.due(&b, &quiet, NOW + 64_000).is_empty());
+        let mut prs = vec![mine(7, HEAD)];
+        apply(&mut prs, &r.store, &quiet, &b.lanes, NOW);
+        let a = prs[0].auto_review.clone().unwrap();
+        // Sent from the Review tab instead, while its session can take it.
+        assert_eq!((a.note.as_deref(), a.sendable.as_deref()), (Some("Handing reviews back is off: send it from here."), Some(MAKER)));
+        // A send that doesn't go is tried a few times, then given up on, saying why.
+        let mut r = reviewed(&own(), "Two problems.");
+        for i in 0..POST_TRIES {
+            let at = NOW + 64_000 + i64::from(i) * 10 * RETRY_MS;
+            let job = r.due(&b, &own(), at).pop().expect("a send");
+            let said = r.told(&job, Went::PostFailed("the terminal is gone".into()), at);
+            assert!(said.unwrap_err().contains("couldn't hand its review of o/r#7"));
+        }
+        assert!(r.due(&b, &own(), NOW + 100 * RETRY_MS).is_empty());
+        let mut prs = vec![mine(7, HEAD)];
+        apply(&mut prs, &r.store, &own(), &b.lanes, NOW);
+        assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It couldn't be handed to the session that opened the PR: the terminal is gone"));
+    }
+
+    #[test]
+    fn only_prs_of_yours_a_session_here_opened_and_each_kind_only_while_its_switch_is_on() {
+        let maker = fixtures::session(MAKER);
+        let lanes = vec![fixtures::lane("/r", vec![maker.clone()])];
+        assert!(wants_own(&lanes, &mine(7, HEAD)));
+        assert!(!wants_own(&lanes, &PrItem { primary: None, ..mine(7, HEAD) }), "no session opened it");
+        assert!(!wants_own(&[fixtures::lane("/r", vec![Session { archived: true, ..maker.clone() }])], &mine(7, HEAD)), "archived");
+        assert!(!wants_own(&lanes, &PrItem { state: PrState::Draft, ..mine(7, HEAD) }));
+        assert!(!wants_own(&lanes, &pr(8, HEAD)), "not yours");
+        let both = board(vec![mine(7, HEAD), pr(8, HEAD)], vec![maker]);
+        let mut r = Reviewer::default();
+        assert_eq!(kinds(&r.due(&both, &own(), NOW)), ["review 7 1111111 since None by auto"]);
+        let mut r2 = Reviewer::default();
+        assert_eq!(kinds(&r2.due(&both, &on(), NOW)), ["review 8 1111111 since None by auto"]);
+        // [reviews.own]'s reviewer, named: no harness kept off.
+        let named = ReviewsCfg { own: crate::config::OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), ..Default::default() }, ..ReviewsCfg::default() };
+        let s = seat_for(&named, None, &lanes, &mine(7, HEAD));
+        assert_eq!((s.who.as_str(), s.avoid), ("codex gpt-5.5", None));
+        assert_eq!(instructions_for(&ReviewsCfg { own: crate::config::OwnReviewsCfg { prompt: " Mind the tests. ".into(), ..Default::default() }, ..ReviewsCfg::default() }, &mine(7, HEAD)), "Mind the tests.");
+        assert_eq!(instructions_for(&own(), &mine(7, HEAD)), INSTRUCTIONS);
+    }
+
+    #[test]
+    fn what_the_session_that_opened_it_is_told_and_given_to_read() {
+        assert!(clean("LGTM: the tests cover it.") && clean("  LGTM") && !clean("LGTMs aside, two problems.") && !clean("Two problems. LGTM otherwise."));
+        let review = "Two problems.\n\n```review-comments\n[{\"path\":\"src/a.rs\",\"line\":2,\"body\":\"This panics\\non empty input.\"}]\n```";
+        let file = review_file(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", review);
+        assert_eq!(file, "# Review of #7 “Add teams” at 1111111, by Codex, gpt-5.5\n\nTwo problems.\n\n## On particular lines\n\n- `src/a.rs` line 2: This panics\n  on empty input.\n");
+        let said = back_message(&mine(7, HEAD), HEAD, "Codex, gpt-5.5", "gwen", "[review-7.md](files/ab/review-7.md)", 1);
+        assert_eq!(said, format!("Codealong: Codex, gpt-5.5 reviewed your pull request #7 “Add teams” at 1111111, as gwen has another agent review the pull requests their sessions open. Its review is in [review-7.md](files/ab/review-7.md), with a comment on a line. It's that agent's review, not gwen's word: fix what holds up, and say which findings you leave and why. {}", crate::nudges::NOT_A_MERGE));
+        let files = Reading { md: "[pr-7.md](files/a/pr-7.md)".into(), diff: "[pr-7.diff](files/b/pr-7.diff)".into(), changes: None };
+        let first = first_prompt(&mine(7, HEAD), HEAD, None, true, "gwen", &Goes::Back("Claude Code, opus".into()), INSTRUCTIONS, &files);
+        assert!(first.contains("for gwen, who opened it with another agent (Claude Code, opus): your review goes back to that agent, to act on."), "{first}");
+        assert!(first.contains("hands your last message to the agent that wrote the PR (Claude Code, opus) to act on, and shows it to gwen; nothing goes on GitHub.") && first.contains("written to that agent") && first.contains("`LGTM: `"), "{first}");
+        assert!(!first.contains("whose review it waits on") && !first.contains("draft"), "{first}");
     }
 
     #[test]
@@ -1325,10 +1764,10 @@ mod tests {
         let mut t = Tracked::default();
         t.sessions.insert("claude opus".into(), S.into());
         let named = seat(&cfg(" claude ", "opus"), Some(&t));
-        assert_eq!(named, Seat { who: "claude opus".into(), account: Some("claude".into()), model: Some("opus".into()), session: Some(S.into()) });
+        assert_eq!(named, Seat { who: "claude opus".into(), account: Some("claude".into()), model: Some("opus".into()), session: Some(S.into()), avoid: None });
         // Another reviewer starts afresh; Auto is named for what it is.
         assert_eq!(seat(&cfg("claude", ""), Some(&t)).session, None);
-        assert_eq!(seat(&cfg("", ""), None), Seat { who: AUTO.into(), account: None, model: None, session: None });
+        assert_eq!(seat(&cfg("", ""), None), Seat { who: AUTO.into(), account: None, model: None, session: None, avoid: None });
         assert_eq!(seat(&cfg("", "opus"), None).who, "auto opus");
         // Its instructions are config.toml's, else Codealong's.
         assert_eq!(instructions(&cfg("", "")), INSTRUCTIONS);
@@ -1358,7 +1797,7 @@ mod tests {
         let fresh = |head: &str| PrItem { requested_at: Some(NOW - 60_000), updated_at: NOW - 60_000, ..pr(7, head) };
         let shown = |store: &Store, p: PrItem, on: bool, at: i64| {
             let mut prs = vec![p];
-            apply(&mut prs, store, on, at);
+            apply(&mut prs, store, &ReviewsCfg { auto: on, ..ReviewsCfg::default() }, &[], at);
             prs.remove(0)
         };
         let mut r = Reviewer::default();
@@ -1403,7 +1842,7 @@ mod tests {
         let moved = board(vec![pr(7, NEXT)], vec![session(Status::Idle, NOW + 1)]);
         assert!(r.due(&moved, &on(), NOW + 10).is_empty(), "first seen");
         let mut prs = vec![pr(7, NEXT)];
-        apply(&mut prs, &r.store, true, NOW);
+        apply(&mut prs, &r.store, &on(), &[], NOW);
         assert!(prs[0].auto_review.as_ref().unwrap().behind);
         assert!(r.due(&moved, &on(), NOW + QUIET_MS).is_empty(), "still settling");
         assert_eq!(kinds(&r.due(&moved, &on(), NOW + 10 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") by auto in {S}")]);
@@ -1583,7 +2022,7 @@ mod tests {
     #[test]
     fn what_the_session_is_told() {
         let files = Reading { md: "[pr-7.md](files/aa/pr-7.md)".into(), diff: "[pr-7.diff](files/bb/pr-7.diff)".into(), changes: Some("[pr-7-to-2222222.diff](files/cc/pr-7-to-2222222.diff)".into()) };
-        let first = first_prompt(&pr(7, HEAD), HEAD, None, false, "gwen", ReviewPost::Draft, INSTRUCTIONS, &files);
+        let first = first_prompt(&pr(7, HEAD), HEAD, None, false, "gwen", &Goes::Post(ReviewPost::Draft), INSTRUCTIONS, &files);
         assert!(first.starts_with("Review pull request #7 in o/r, “Add teams” (https://github.com/o/r/pull/7), by ana: it merges teams into main, and is at commit 1111111."), "{first}");
         for part in ["[pr-7.md](files/aa/pr-7.md)", NUMBERED, "without its branch", INSTRUCTIONS, "Don't change any files, commit, push, or post on GitHub.", "left as a draft that only gwen sees", "`review-comments`", "`SKIP: `"] {
             assert!(first.contains(part), "{part}: {first}");
@@ -1591,16 +2030,16 @@ mod tests {
         assert!(!first.contains("earlier review"));
         // Instructions of your own take the place of Codealong's; the rest is said either way.
         let mine = "Start two subagents, one on Opus and one on Sonnet, and combine what they find.";
-        let later = first_prompt(&pr(7, NEXT), NEXT, Some(HEAD), true, "gwen", ReviewPost::None, mine, &files);
+        let later = first_prompt(&pr(7, NEXT), NEXT, Some(HEAD), true, "gwen", &Goes::Post(ReviewPost::None), mine, &files);
         assert!(later.contains(mine) && !later.contains(INSTRUCTIONS), "{later}");
         for part in ["has its branch checked out", "An earlier review of commit 1111111", "[pr-7-to-2222222.diff]", "for gwen to read here; nothing is posted", "Don't change any files"] {
             assert!(later.contains(part), "{part}: {later}");
         }
         assert!(!later.contains("review-comments"), "nothing posted, nothing to lay out: {later}");
-        let again = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", ReviewPost::Comment, mine, &files);
+        let again = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", &Goes::Post(ReviewPost::Comment), mine, &files);
         assert!(again.starts_with("Codealong: #7 “Add teams” has new commits since you reviewed 1111111: it's at 2222222 now."), "{again}");
         assert!(again.contains("What changed since 1111111 is in [pr-7-to-2222222.diff]") && again.contains("as a comment from gwen's GitHub account") && again.contains(mine), "{again}");
-        let rewritten = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", ReviewPost::Draft, INSTRUCTIONS, &Reading { changes: None, ..files });
+        let rewritten = again_prompt(&pr(7, NEXT), NEXT, Some(HEAD), "gwen", &Goes::Post(ReviewPost::Draft), INSTRUCTIONS, &Reading { changes: None, ..files });
         assert!(rewritten.contains("rewritten since then (rebased or force-pushed)"), "{rewritten}");
     }
 

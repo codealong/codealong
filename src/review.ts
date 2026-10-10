@@ -118,8 +118,10 @@ export function askAccount(accounts: StartAccount[], usage: Usage[], now: number
 /** What a PR's card says of Codealong's own review of it (autoreview.rs, `[reviews] auto`): the
  *  latest round in a few words with its icon, then why it didn't go as it would, and that new
  *  commits are reviewed again. `onGitHub`, once your review of the PR there is read (prDraft.ts):
- *  a draft that's no longer one was submitted, or thrown away. */
-export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; submitted: string | null }): { icon: string; says: string; note: string | null } {
+ *  a draft that's no longer one was submitted, or thrown away. A review of a PR of yours
+ *  (`[reviews.own]`) says where it went back to, by the session's title (`sentTo`), or why it
+ *  hasn't, as the engine has it. */
+export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; submitted: string | null }, sentTo?: string | null): { icon: string; says: string; note: string | null } {
   const at = r.head.slice(0, 7);
   const [icon, says] = {
     queued: ['hourglass', `Agent review of ${at} to come`],
@@ -130,12 +132,13 @@ export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; subm
     skipped: ['circle-dashed', `Agent passed on ${at}`],
     failed: ['alert', `Agent’s review of ${at} didn’t finish`],
   }[r.stage];
-  const kept = r.stage === 'kept' ? 'Its review is in its session: posting is off.' : null;
+  const kept = r.stage === 'kept' && !r.own ? 'Its review is in its session: posting is off.' : null;
+  const back = r.own && r.sent ? `It went back to ${sentTo ? `“${sentTo}”` : 'the session that opened the PR'}.` : null;
   const gone = r.stage === 'drafted' && onGitHub && !onGitHub.draft ? (onGitHub.submitted ? `You submitted it, ${submittedWord(onGitHub.submitted)}.` : 'It isn’t a draft on GitHub any more: it was submitted or thrown away.') : null;
   // A draft that shows below says so itself.
-  const why = r.note ?? kept ?? gone ?? (r.stage === 'drafted' && !onGitHub?.draft ? 'Only you see it until you submit it.' : null);
+  const why = r.note ?? kept ?? back ?? gone ?? (r.stage === 'drafted' && !onGitHub?.draft ? 'Only you see it until you submit it.' : null);
   const next = r.behind ? (r.stage === 'reviewing' ? 'New commits since: it reviews them once this one’s done.' : 'New commits since: it reviews them again once they settle.') : null;
   const held = r.holds ? 'It waits on your review once the agent’s is done.' : null;
   const note = [why, next, held].filter((x): x is string => !!x).join(' ');
-  return { icon, says, note: note || null };
+  return { icon: r.own && r.sent && r.stage === 'kept' ? 'send' : icon, says, note: note || null };
 }

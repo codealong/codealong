@@ -279,6 +279,19 @@ pub struct AutoReview {
     /// (`PrItem::waits_on_review`) until it is: you review it once the agent has.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub holds: bool,
+    /// It's a review of a PR of yours (`[reviews.own]`), which goes back to the session that
+    /// opened it rather than to GitHub.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub own: bool,
+    /// The session this round's review was sent to, and when.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<i64>,
+    /// The session it goes back to, which can be sent it now: it runs here and doesn't wait on
+    /// you, for the Review tab's Send.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sendable: Option<String>,
 }
 
 /// Where the reviewer's part in a round stands (autoreview.rs).

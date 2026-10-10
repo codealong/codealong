@@ -440,6 +440,27 @@ earlier commits too. Once you've submitted the agent's draft, it says so and how
 it, and `codealong --snapshot --pr-draft <owner/name> <number>` your draft as the Review tab reads
 it.
 
+#### Reviews of your own pull requests
+
+With `[reviews.own] auto = true` (Settings › Automation, Review the pull requests your sessions
+open), each open PR of yours that a session here opened (its primary, see *Nudging a PR's primary
+session*) is reviewed the same way, by an agent on `[reviews.own] account` and `model`, else on the
+account Auto would start among those of another harness than that session's, so another model reads
+what one wrote (Codex reviews what Claude Code wrote, say); one of the same harness only when no
+other can start. Drafts aren't reviewed, nor a PR whose session is gone or archived. Its
+instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
+agent that wrote the PR, and to answer `LGTM:` when there's nothing to raise. Nothing goes on
+GitHub: the review is kept in Codealong, in the PR's Review tab, its comments on lines with the code
+around them. With `[reviews.own] send` (on unless turned off), the session that opened the PR is
+sent a message once it runs here and doesn't wait on you to answer something: which agent reviewed
+which commit, that its review is in a file it reads (kept as an attachment, so another agent's words
+never reach it typed in as yours), to fix what holds up and say what it leaves, and that it isn't
+asked to merge. A review that found nothing to raise isn't sent, nor one of a commit the PR has
+moved on from: the next round's is. A send that doesn't go is tried a few times and then said. The
+Review tab says where each review went or why it hasn't, and Send hands the latest to the session by
+hand while it runs here, whatever `send` says. New commits are reviewed again once the branch holds
+still, as above, so a session that fixes what was raised has its fixes looked at.
+
 #### Your review
 
 A PR's Review tab is your review of it. A draft review of yours on GitHub, the agent's or one you

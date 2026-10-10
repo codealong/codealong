@@ -9,7 +9,7 @@ import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, OwnReviewsCfg, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -301,7 +301,8 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
 }
 
 /** `[reviews]` when config.toml has none (config.rs `ReviewsCfg`). */
-const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft' };
+const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true };
+const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft', own: OWN_REVIEWS_OFF };
 
 /** Where each review goes (config.rs `ReviewPost`), as the select offers it. */
 const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
@@ -378,7 +379,64 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
           </label>
         </>
       )}
+      <OwnReviewsField reviews={reviews} accounts={accounts} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} onSave={set} />
     </fieldset>
+  );
+}
+
+/** `[reviews.own]`: the pull requests your sessions open, each reviewed by an agent on another
+ *  model or provider than the session that opened it, its review kept here and handed back to
+ *  that session (autoreview.rs). The reviewer is the same box as the one above. */
+function OwnReviewsField({ reviews, accounts, defaultPrompt, usage, now, disabled, onSave }: { reviews: Required<ReviewsCfg>; accounts: StartAccount[]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean; onSave: (next: Partial<ReviewsCfg>) => void }) {
+  const own = { ...OWN_REVIEWS_OFF, ...reviews.own };
+  const set = (next: Partial<OwnReviewsCfg>) => onSave({ own: { ...own, ...next } });
+  const runsIn = accounts.find((a) => a.name === own.account);
+  return (
+    <>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={own.auto} onChange={(e) => set({ auto: e.target.checked })} />
+        <span>Review the pull requests your sessions open</span>
+        <small>
+          An agent on another model reviews each open pull request a session of yours opened here, in a session of its own, and again when new commits come in. It reads the pull request and the code around it and changes nothing. Its review stays in Codealong, in the pull request’s Review
+          tab: nothing goes on GitHub.
+        </small>
+      </label>
+      {own.auto && (
+        <>
+          <div className="ca-field">
+            <span>Reviewer of your pull requests</span>
+            <AgentPromptBox
+              accounts={accounts}
+              usage={usage}
+              now={now}
+              account={own.account}
+              model={own.model}
+              prompt={own.prompt}
+              defaultPrompt={defaultPrompt}
+              label="What the reviewer of your pull requests is told"
+              hint="What to look for, and how"
+              autoTitle="An account of another harness than the session that opened each pull request, picked as the quick panel’s Auto picks among them, so another model reads what one wrote. One of the same harness only when no other can start."
+              autoSays="another harness"
+              defaultLabel="Use Codealong’s instructions"
+              disabled={disabled}
+              onAgent={(account, model) => set({ account, model })}
+              onPrompt={(prompt) => set({ prompt })}
+            />
+            <small>
+              {runsIn ? `It runs ${reviewsRunIn(runsIn)}, whatever opened the pull request.` : 'Auto picks an account of another harness than the session that opened each pull request: Codex reviews what Claude Code wrote, say.'} Pick one with its model to have that review every one.
+            </small>
+          </div>
+          <label className="ca-field ca-settings-check">
+            <input type="checkbox" checked={own.send} onChange={(e) => set({ send: e.target.checked })} />
+            <span>Hand each review to the session that opened the pull request</span>
+            <small>
+              Once that session runs here and doesn’t wait on you, it’s sent a message naming the review, kept as a file it reads, to fix what holds up and say what it leaves. A review that finds nothing to raise isn’t sent, nor one of commits it has moved on from. Off, send one from the pull
+              request’s Review tab.
+            </small>
+          </label>
+        </>
+      )}
+    </>
   );
 }
 

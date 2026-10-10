@@ -407,6 +407,22 @@ export interface ReviewsCfg {
   prompt?: string;
   /** Where each review goes. Older files have none: a draft. */
   post?: ReviewPost;
+  /** The pull requests your sessions open (`[reviews.own]`). */
+  own?: OwnReviewsCfg;
+}
+
+/** Reviews of the PRs your sessions open (config.rs `OwnReviewsCfg`): on another model or
+ *  provider than the session that opened each, kept here and handed back to that session. */
+export interface OwnReviewsCfg {
+  auto: boolean;
+  /** The account they run on; empty for the one Auto would start among those of another harness
+   *  than the PR's session. */
+  account?: string;
+  model?: string;
+  /** What the reviewer is told to do; empty for Codealong's own instructions. */
+  prompt?: string;
+  /** Hand each review to the session that opened the PR. Older files have none: on. */
+  send?: boolean;
 }
 
 /** Where an automatic review goes (config.rs `ReviewPost`): a draft review on your GitHub account
@@ -990,6 +1006,13 @@ export interface AutoReview {
   /** The agent's review of its commit isn't done, so the PR is out of what waits on you until
    *  it is (`heldForAgent`). */
   holds?: boolean;
+  /** A review of a PR of yours (`[reviews.own]`), which goes back to the session that opened it. */
+  own?: boolean;
+  /** The session this round's review went back to, and when. */
+  sent?: string | null;
+  sentAt?: number | null;
+  /** The session it goes back to, which can be sent it now, for the Review tab's Send. */
+  sendable?: string | null;
 }
 
 /** A session that worked on a PR. */

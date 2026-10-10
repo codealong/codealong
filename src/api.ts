@@ -170,6 +170,13 @@ export async function reviewPr(repo: string, number: number, verdict: Verdict, b
   return (await invoke<Reviewed | null>('review_pr', { repo, number, verdict, body })) ?? { draft: null };
 }
 
+/** Hands a PR of yours' latest agent review to the session that opened it (autoreview.rs
+ *  `send_now`). */
+export async function sendAgentReview(key: string): Promise<void> {
+  if (!inTauri) throw new Error('Sending a review needs the app.');
+  await invoke('send_agent_review', { key });
+}
+
 /** Your review of a PR on GitHub: your draft with its comments, and the agent's you submitted. */
 export async function prDraft(repo: string, number: number): Promise<YourReview> {
   if (!inTauri) return { draft: null, submitted: null };

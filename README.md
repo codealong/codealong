@@ -260,6 +260,10 @@ checks, comments and diffs.
   start subagents of its own), and leaves a draft review on your account with its comments on the
   lines they're about, for you to finish and submit. The PR waits on you only once it's done, and
   new commits get reviewed again.
+- **A second opinion on your agents' PRs** (optional): each PR a session of yours opens is
+  reviewed by an agent on another model or provider (Codex reviews what Claude Code wrote, say),
+  kept in Codealong and handed back to the session that opened it to act on. Nothing goes on
+  GitHub.
 
 ### Todos your agents can work
 
@@ -443,6 +447,13 @@ account = ""                   # the account it runs on; "" for the one Auto wou
 model = ""                     # the model it starts on; "" for the account's own
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
+
+[reviews.own]
+auto = false                   # an agent reviews each PR a session of yours opened here, and again on new commits (Settings › Automation)
+account = ""                   # the account it runs on; "" for Auto's among those of another harness than the PR's session
+model = ""                     # the model it starts on; "" for the account's own
+prompt = ""                    # what it's told to do; "" for Codealong's own
+send = true                    # hand each review to the session that opened the PR; nothing goes on GitHub
 
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)

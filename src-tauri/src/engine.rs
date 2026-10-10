@@ -2770,7 +2770,7 @@ impl Engine {
             previews: &self.previews,
             reusable: &self.reusable,
             review_snoozes: &self.seen.review_snoozes,
-            auto_reviews: (&self.reviews, self.cfg.reviews.auto),
+            auto_reviews: (&self.reviews, &self.cfg.reviews),
         });
         board.usage = usage;
         board.when_limited = self.cfg.limits.when_hit;

@@ -32,6 +32,9 @@ export interface AgentPromptBoxProps {
   hint: string;
   /** What Auto means here, on its line in the menu. */
   autoTitle: string;
+  /** What the chip says Auto starts, where that isn't one account for every run (another
+   *  harness than each PR's session's); else the account Auto would start now. */
+  autoSays?: string;
   /** What going back to the default instructions says. */
   defaultLabel?: string;
   disabled?: boolean;
@@ -39,13 +42,14 @@ export interface AgentPromptBoxProps {
   onPrompt: (prompt: string) => void;
 }
 
-export function AgentPromptBox({ accounts, usage, now, account, model, prompt, defaultPrompt, label, hint, autoTitle, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
+export function AgentPromptBox({ accounts, usage, now, account, model, prompt, defaultPrompt, label, hint, autoTitle, autoSays, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
   const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
   const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
   const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);
   const chosen = account ? agentId(account, model || null) : AUTO;
   const sections = agentMenuSections(agents, accounts, pick, usage, models, now, chosen, autoTitle);
-  const chip = agentChipWords({ auto: !account, account: account || pick?.account || null, accounts: accounts.length, remote: null, model: model || null, effortWord: null });
+  const words = agentChipWords({ auto: !account, account: account || pick?.account || null, accounts: accounts.length, remote: null, model: model || null, effortWord: null });
+  const chip = !account && autoSays ? { ...words, detail: autoSays } : words;
 
   const shown = prompt.trim() || defaultPrompt;
   const [draft, setDraft] = useState(shown);

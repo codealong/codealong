@@ -18,14 +18,18 @@
 // PR's review didn't finish: it opens on Description, and its Review tab says why in red. The
 // third is still being reviewed, so it's held out of what waits on you (prStatus.ts
 // `heldForAgent`): its row says Agent reviewing in place of Awaiting review, its Review tab has a
-// dot, and says it waits on you once that's done. Then Settings ›
+// dot, and says it waits on you once that's done. A fourth is made a PR of yours an agent
+// reviewed (`[reviews.own]`) with handing back off: it opens on Review, says why its review hasn't
+// gone back, and Send hands it to the session that opened it (send_agent_review). Then Settings ›
 // Automation (no longer Accounts) has the switch, off by default, with the PR nudge, the usage
 // limit and the network error; turned on it saves `[reviews]` as config.toml has it, and the
 // reviewer is a box drawn as a session's (AgentPromptBox.tsx): what it's told, Codealong's own
 // instructions until you change them, and the agent chip at its foot, whose menu is the quick
 // panel's (Auto, then each account that can review out of the way with its models). Picking an
 // account saves it; what you write is saved as the box loses the keyboard, and going back to
-// Codealong's saves none. Each review goes to a draft first.
+// Codealong's saves none. Each review goes to a draft first. Reviews of the PRs your sessions open
+// have a switch of their own, off by default, which saves `[reviews.own]` handing reviews back,
+// with a reviewer box of its own.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/auto-review-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -69,6 +73,8 @@
   };
   var submitted = null;
   var prUrl = null;
+  var yours = null;
+  var yoursKey = null;
   var posted = null;
   var failed = null;
   var held = null;
@@ -143,6 +149,14 @@
         Object.assign(open[2], { state: 'open', mine: false, reviewRequested: true, snoozedUntil: null, merge: 'blocked' });
         open[2].autoReview = { stage: 'reviewing', head: '5555555eeee', parts: [{ who: 'auto', state: 'reviewing' }], at: now - 30000, rounds: 1, holds: true };
         held = '#' + open[2].number;
+      }
+      // A PR of yours, which an agent on another model reviewed with handing back turned off.
+      var maker = open[3] && open[3].sessions[0];
+      if (maker) {
+        Object.assign(open[3], { state: 'open', mine: true, reviewRequested: false, snoozedUntil: null, primary: maker.key });
+        open[3].autoReview = { stage: 'kept', head: '6666666ffff', parts: [{ who: 'auto', state: 'done' }], at: now - 120000, rounds: 1, own: true, sendable: maker.key, note: 'Handing reviews back is off: send it from here.' };
+        yours = '#' + open[3].number;
+        yoursKey = open[3].key;
       }
       board.pinnedPrs = [];
       return board;
@@ -282,6 +296,19 @@
       } else {
         note('no third open PR to hold for the agent');
       }
+      if (yours && row(yours)) {
+        press(row(yours));
+        await until(function () { return !!tab('Review') && q('.ca-prinsp .ca-insp-call').textContent === yours; }, 5000, 'your PR never showed');
+        check('a PR of yours an agent reviewed opens on Review', shownTab() === 'Review', shownTab());
+        await until(function () { return auto() && /Agent reviewed 6666666/.test(auto().textContent); }, 5000, 'your PR shows no agent review');
+        var sendTo = all('.ca-prinsp-auto .ca-linkbtn').filter(function (b) { return /^Send to “/.test(b.textContent); })[0];
+        check('it says why its review hasn’t gone back, and offers to send it to the session that opened it', !!sendTo && q('.ca-prinsp-auto-note').textContent === 'Handing reviews back is off: send it from here.', all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
+        press(sendTo);
+        await until(function () { return calls('send_agent_review').length === 1; }, 3000, 'Send sent nothing');
+        check('Send hands it to that session', calls('send_agent_review')[0][1].key === yoursKey, JSON.stringify(calls('send_agent_review')[0][1]));
+      } else {
+        note('no fourth open PR with a session to make yours');
+      }
 
       q('.ca-side-config').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
@@ -340,6 +367,21 @@
       await until(function () { return calls('save_config').length > saves; }, 3000, 'going back saved nothing');
       check('and going back saves none, which is Codealong’s', calls('save_config')[saves][1].config.reviews.prompt === '', JSON.stringify(calls('save_config')[saves][1].config.reviews));
       await until(function () { return told() && told().value === DEFAULT; }, 3000, 'the box doesn’t show Codealong’s instructions again');
+
+      // The pull requests your sessions open, reviewed on another model and handed back.
+      var ownSwitch = function () { return box(/Review the pull requests your sessions open/); };
+      check('your own pull requests have a switch of their own, off by default', !!ownSwitch() && !ownSwitch().querySelector('input').checked, '');
+      check('with nothing more while it’s off', !field(/^Reviewer of your pull requests$/), '');
+      saves = calls('save_config').length;
+      ownSwitch().querySelector('input').click();
+      await until(function () { return calls('save_config').length > saves; }, 3000, 'turning it on saved nothing');
+      var ownCfg = calls('save_config')[saves][1].config.reviews.own;
+      check('turned on, it saves [reviews.own], handing each review back', ownCfg && ownCfg.auto === true && ownCfg.send === true && ownCfg.account === '' && ownCfg.prompt === '', JSON.stringify(ownCfg));
+      await until(function () { return !!field(/^Reviewer of your pull requests$/); }, 3000, 'no reviewer for your pull requests once it’s on');
+      var theirs = q('.ca-agentbox', field(/^Reviewer of your pull requests$/));
+      check('which is a box of its own, as the reviewer above is, whose Auto is another harness than each PR’s session’s', !!theirs && theirs !== agentBox() && /^Auto\s*another harness/.test(q('.ca-modelmenu-chip', theirs).textContent) && q('textarea', theirs).value === DEFAULT, theirs ? q('.ca-modelmenu-chip', theirs).textContent : 'none');
+      var handBack = box(/Hand each review to the session that opened/);
+      check('and the switch that hands reviews back, on', !!handBack && handBack.querySelector('input').checked, '');
     } catch (e) {
       return stopped(e);
     }

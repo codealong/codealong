@@ -35,5 +35,8 @@ describe('openingTab', () => {
     expect(openingTab({ reviewRequested: false, state: 'open', autoReview: auto('drafted') })).toBe('description');
     expect(openingTab({ reviewRequested: true, state: 'merged', autoReview: auto('drafted') })).toBe('description');
     expect(openingTab({ reviewRequested: true, state: 'open', autoReview: undefined })).toBe('description');
+    // A review of a PR of yours, which nobody asked you to review.
+    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('posted'), stage: 'kept', own: true } })).toBe('review');
+    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('reviewing'), own: true } })).toBe('description');
   });
 });

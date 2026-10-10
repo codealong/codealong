@@ -56,9 +56,13 @@ export function lineLink(repoSlug: string, commit: string, path: string, line: n
 export type PrTab = 'description' | 'changes' | 'review';
 
 /** The tab a PR's details open on, when it hasn't shown one yet: its review, when the agent's
- *  is there to read and the PR still waits on yours, else its description. */
+ *  is there to read and the PR still waits on yours, or it's a review of a PR of yours, else its
+ *  description. */
 export function openingTab(pr: Pick<PrItem, 'reviewRequested' | 'state' | 'autoReview'>): PrTab {
-  const stage = pr.autoReview?.stage;
+  const a = pr.autoReview;
+  const stage = a?.stage;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
-  return open && pr.reviewRequested && (stage === 'drafted' || stage === 'posted' || stage === 'kept') ? 'review' : 'description';
+  const theirs = pr.reviewRequested && (stage === 'drafted' || stage === 'posted' || stage === 'kept');
+  const yours = !!a?.own && stage === 'kept';
+  return open && (theirs || yours) ? 'review' : 'description';
 }

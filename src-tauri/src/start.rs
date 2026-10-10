@@ -359,8 +359,14 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
 /// resets soonest. `codealong start`'s Auto, and the account automatic reviews run on unless
 /// config.toml names one (autoreview.rs).
 pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64) -> Option<String> {
+    pick_account_where(cfg, usages, places, model, now, |_| true)
+}
+
+/// `pick_account` among the accounts `keep` takes: the reviewer of a PR of yours, among those of
+/// another harness than the session that opened it (autoreview.rs).
+pub fn pick_account_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
     let home = home();
-    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter_map(|a| ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
+    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter(|a| keep(a)).filter_map(|a| ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
     let preferred = preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
     let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)))).collect();
     let candidates: Vec<Candidate> = startable

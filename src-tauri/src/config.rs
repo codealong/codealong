@@ -278,11 +278,44 @@ pub struct ReviewsCfg {
     /// written; `combine` from then is dropped as unknown.
     #[serde(default, skip_serializing)]
     pub reviewers: Vec<ReviewerCfg>,
+    /// Your own pull requests, `[reviews.own]`.
+    #[serde(default)]
+    pub own: OwnReviewsCfg,
 }
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, reviewers: Vec::new() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, reviewers: Vec::new(), own: OwnReviewsCfg::default() }
+    }
+}
+
+/// The pull requests your sessions open, each reviewed by an agent on another model or provider
+/// than the session that opened it, its review kept here and handed back to that session
+/// (autoreview.rs). Nothing goes on GitHub. Off until you turn it on.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OwnReviewsCfg {
+    /// Review each open PR of yours that a session here opened, and again when new commits come in.
+    #[serde(default)]
+    pub auto: bool,
+    /// The account the reviews run on; empty for the one Auto would start among the accounts of
+    /// another harness than the PR's session, else Auto's.
+    #[serde(default)]
+    pub account: String,
+    /// The model they start on; empty for the account's own.
+    #[serde(default)]
+    pub model: String,
+    /// What the reviewer is told to do, as `[reviews] prompt` is; empty for Codealong's own.
+    #[serde(default)]
+    pub prompt: String,
+    /// Send each review to the session that opened the PR, once it runs here and doesn't wait on
+    /// you; else it's kept here, to send from the PR's Review tab.
+    #[serde(default = "yes")]
+    pub send: bool,
+}
+
+impl Default for OwnReviewsCfg {
+    fn default() -> Self {
+        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), send: true }
     }
 }
 
@@ -763,6 +796,11 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 # comments on their lines, for you to finish; \"comment\", a comment on the PR from your account; \"none\",
 # it stays in the review's session.
 ";
+const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
+# commits come in. account and model: what it runs on; \"\" for the account Auto would start among those of another
+# harness than the PR's session. prompt: what it's told to do; \"\" for Codealong's own. send: hand each review to
+# the session that opened the PR, once it runs and doesn't wait on you. Nothing goes on GitHub.
+";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
@@ -959,6 +997,14 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if !model.is_empty() && !crate::start::valid_model(model) {
         return Err(format!("[reviews] model is {model:?}, which isn't a model name Codealong can start a session on."));
     }
+    let reviewer = cfg.reviews.own.account.trim();
+    if !reviewer.is_empty() && !cfg.accounts.iter().any(|a| a.name == reviewer) {
+        return Err(format!("[reviews.own] account is {reviewer:?}, which isn't one of the [[accounts]]; use one of them, or \"\" for Auto."));
+    }
+    let model = cfg.reviews.own.model.trim();
+    if !model.is_empty() && !crate::start::valid_model(model) {
+        return Err(format!("[reviews.own] model is {model:?}, which isn't a model name Codealong can start a session on."));
+    }
     if cfg.devices.port < 1024 {
         return Err(format!("[devices] port is {}; use one from 1024 up ({DEFAULT_DEVICES_PORT} is the default).", cfg.devices.port));
     }
@@ -1125,6 +1171,23 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             for old in ["comment", "reviewers", "combine"] {
                 t.remove(old);
             }
+        }
+        // [reviews.own] the same way: only once it's turned on or the file has it. A table left
+        // without a place of its own is written right after [reviews].
+        let own = &cfg.reviews.own;
+        if *own != OwnReviewsCfg::default() || doc["reviews"].get("own").is_some() {
+            if !doc["reviews"].get("own").is_some_and(toml_edit::Item::is_table_like) {
+                let mut t = Table::new();
+                t.decor_mut().set_prefix(format!("\n{OWN_REVIEWS_COMMENT}"));
+                if let Some(r) = doc["reviews"].as_table_like_mut() {
+                    r.insert("own", Item::Table(t));
+                }
+            }
+            set_value(&mut doc["reviews"]["own"]["auto"], Value::from(own.auto));
+            set_value(&mut doc["reviews"]["own"]["account"], Value::from(own.account.trim()));
+            set_value(&mut doc["reviews"]["own"]["model"], Value::from(own.model.trim()));
+            set_value(&mut doc["reviews"]["own"]["prompt"], Value::from(own.prompt.trim()));
+            set_value(&mut doc["reviews"]["own"]["send"], Value::from(own.send));
         }
     }
 
@@ -1330,6 +1393,17 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("model = {}\n", q(cfg.reviews.model.trim())));
         s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(cfg.reviews.prompt.trim())));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
+        let own = &cfg.reviews.own;
+        if *own != OwnReviewsCfg::default() {
+            s.push('\n');
+            s.push_str(OWN_REVIEWS_COMMENT);
+            s.push_str("[reviews.own]\n");
+            s.push_str(&format!("auto = {}\n", own.auto));
+            s.push_str(&format!("account = {}\n", q(own.account.trim())));
+            s.push_str(&format!("model = {}\n", q(own.model.trim())));
+            s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(own.prompt.trim())));
+            s.push_str(&format!("send = {}\n", own.send));
+        }
     }
     if cfg.pull_requests != PullRequestsCfg::default() {
         s.push('\n');
@@ -1414,7 +1488,7 @@ mod tests {
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, reviewers: Vec::new() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, reviewers: Vec::new(), own: OwnReviewsCfg::default() },
             pull_requests: PullRequestsCfg { nudge_by_default: true },
             debug: DebugCfg::default(),
         };
@@ -1792,7 +1866,7 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, reviewers: Vec::new() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, reviewers: Vec::new(), own: OwnReviewsCfg::default() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
@@ -1816,6 +1890,32 @@ mod tests {
         let mut bad = on.clone();
         bad.reviews.model = "opus; rm".into();
         assert!(check(&bad).unwrap_err().contains("isn't a model name"));
+    }
+
+    #[test]
+    fn reviews_of_your_own_prs_are_a_table_of_their_own_under_reviews() {
+        let none = toml::from_str::<Config>("").unwrap().reviews.own;
+        assert_eq!(none, OwnReviewsCfg::default());
+        // Each review goes back to the PR's session unless that's turned off.
+        assert!(none.send && !none.auto);
+        let old = render(&full());
+        let mut on = full();
+        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), prompt: "Look hard at the tests.".into(), send: true };
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains(&format!("{OWN_REVIEWS_COMMENT}[reviews.own]\nauto = true\naccount = \"codex\"\nmodel = \"gpt-5.5\"\nprompt = \"Look hard at the tests.\"\nsend = true")), "{out}");
+        // Right after [reviews], whose own lines stay as they were.
+        assert!(out.find("[reviews]\nauto = false").unwrap() < out.find("[reviews.own]").unwrap() && out.find("[reviews.own]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+        // Kept as it's changed, sending turned off.
+        let mut quiet = on.clone();
+        quiet.reviews.own.send = false;
+        let again = with_config(&out, &quiet).unwrap();
+        assert_eq!(again.matches("\n[reviews.own]\n").count(), 1, "{again}");
+        assert_eq!(parse(&again).unwrap(), quiet);
+        let mut bad = on.clone();
+        bad.reviews.own.account = "codex9".into();
+        assert!(check(&bad).unwrap_err().contains("[reviews.own] account"));
     }
 
     #[test]

@@ -9,12 +9,14 @@
 // (PrCard.tsx). Without a draft, the review the agent wrote is read whole from reviews.json
 // (`pr_agent_reviews`), so the board carries none of it: its text, then each comment on a line,
 // and the reviews of earlier commits a click away. Once you've submitted a draft the agent wrote,
-// it says so.
+// it says so. A review of a PR of yours (`[reviews.own]`) never goes to GitHub: it says which
+// session it went back to, or why it hasn't, and Send hands it to the session that opened the PR
+// while that can take it (`send_agent_review`).
 
 import { useEffect, useRef, useState } from 'react';
 import { excerptAt, lineLink, type ExcerptLine } from '../agentReview';
-import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews } from '../api';
-import { absolute, ago } from '../format';
+import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews, sendAgentReview } from '../api';
+import { absolute, ago, middleTruncate } from '../format';
 import { changeDraft, commentsWord, draftShown, readAgain, saysSomething, submittedWord, verdictWords, type Held } from '../prDraft';
 import { splitPath } from '../prFiles';
 import { mayApprove } from '../prStatus';
@@ -101,10 +103,22 @@ function LineNote({ comment, pr, head, detail }: { comment: LineComment; pr: PrI
   );
 }
 
-/** Where the PR's latest round stands, with its draft or comment and its session a click away. */
-function Standing({ review, now, onGitHub, sessions, onShowSession }: { review: AutoReview; now: number; onGitHub?: { draft: boolean; submitted: string | null }; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
-  const { icon, says, note } = autoReviewWords(review, onGitHub);
+/** Where the PR's latest round stands, with its draft or comment and its session a click away;
+ *  for a PR of yours, where it went back to, and Send while it hasn't. */
+function Standing({ pr, review, now, onGitHub, sessions, onShowSession }: { pr: PrItem; review: AutoReview; now: number; onGitHub?: { draft: boolean; submitted: string | null }; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
+  const titleOf = (key: string | null | undefined) => sessions.find((s) => s.session.key === key)?.session.title ?? null;
+  const { icon, says, note } = autoReviewWords(review, onGitHub, titleOf(review.sent));
   const rounds = `${review.rounds} ${review.rounds === 1 ? 'round' : 'rounds'} so far`;
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const to = review.own && review.stage === 'kept' && !review.sent ? review.sendable : null;
+  const send = () => {
+    setSending(true);
+    setError(null);
+    sendAgentReview(pr.key)
+      .catch((e: unknown) => setError(errorText(e)))
+      .finally(() => setSending(false));
+  };
   return (
     <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
       <div className="ca-prinsp-auto-head">
@@ -117,8 +131,14 @@ function Standing({ review, now, onGitHub, sessions, onShowSession }: { review: 
         </span>
         {/* A draft read from GitHub has its own way there, or is gone. */}
         <Links link={review.stage === 'drafted' && onGitHub ? null : review.comment} session={review.parts?.find((p) => p.session)?.session} sessions={sessions} onShowSession={onShowSession} />
+        {to && (
+          <button type="button" className="ca-linkbtn" disabled={sending} title="Hand the review to the session that opened the pull request, as a file it reads, to fix what holds up" onClick={send}>
+            {sending ? 'Sending…' : `Send to “${middleTruncate(titleOf(to) ?? 'its session', 32)}”`}
+          </button>
+        )}
       </div>
       {note && <p className="ca-prinsp-auto-note">{note}</p>}
+      {error && <p className="ca-form-error">{error}</p>}
     </div>
   );
 }
@@ -421,7 +441,7 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession, onVe
   const verdicts = !open ? 'The PR is closed, so it can’t be submitted.' : onVerdict ? 'A verdict below submits it, with its comments.' : 'Approve, Comment or Request changes submits it, with its comments.';
   return (
     <section className="ca-insp-sec ca-agentrev" aria-label="Review">
-      {review && <Standing review={review} now={now} onGitHub={onGitHub} sessions={sessions} onShowSession={onShowSession} />}
+      {review && <Standing pr={pr} review={review} now={now} onGitHub={onGitHub} sessions={sessions} onShowSession={onShowSession} />}
       {read?.submitted && !draft && (
         <p className="ca-agentrev-submitted">
           <Icon name="check" size={12} />
@@ -438,7 +458,7 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession, onVe
       )}
       {yours?.error && <p className="ca-form-error">Couldn’t read your review on GitHub: {yours.error}</p>}
       {draft ? <DraftReview pr={pr} draft={draft} detail={detail} verdicts={verdicts} /> : review && <Written pr={pr} review={review} detail={detail} now={now} sessions={sessions} onShowSession={onShowSession} />}
-      {!draft && !review && !yours?.loading && <p className="ca-empty">{pr.mine ? 'It’s your PR: who reviewed it is under Checks and reviews, what they said under Description.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
+      {!draft && !review && !yours?.loading && <p className="ca-empty">{pr.mine ? 'It’s your PR: who reviewed it is under Checks and reviews, what they said under Description. Settings › Automation can have an agent on another model review the PRs your sessions open, and hand its review back to the session.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
       {!draft && !review && yours?.loading && <p className="ca-empty">Reading your review on GitHub…</p>}
       {onVerdict && open && <Verdicts pr={pr} draft={draft} onVerdict={onVerdict} />}
     </section>
