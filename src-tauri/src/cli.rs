@@ -420,7 +420,7 @@ enum SessionCmd {
     Transcript(TranscriptArgs),
     /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; then wait again with --until-done. `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
     Wait(SessionWaitArgs),
-    /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
+    /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. A session that asks its user questions (`session pending` shows them, with their choices) takes no replies, which would only decline them: --pick picks one of a question's own choices instead, and its question box shows it picked, to answer with one click. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
@@ -490,8 +490,14 @@ struct SuggestArgs {
     /// The session: its key, its id, or a unique start of its id.
     key: String,
     /// The replies, the best first, each as its user would send it. At most 6.
-    #[arg(required_unless_present = "clear")]
+    #[arg(required_unless_present_any = ["clear", "picks"])]
     replies: Vec<String>,
+    /// For a session that asks questions: the choice to pick for its user, by its label as `session pending` shows it, in place of replies. Once for each question, or more for one that takes several; write `<header>: <label>` for a label more than one question offers.
+    #[arg(long = "pick", value_name = "CHOICE", conflicts_with = "replies", requires = "pending")]
+    picks: Vec<String>,
+    /// With --pick: the id of the questions you read, as `session pending` shows it. The picks are turned down once it asks others.
+    #[arg(long, value_name = "ID", requires = "picks")]
+    pending: Option<String>,
     /// Why, or what to weigh before picking, in a sentence or two; shown with them.
     #[arg(long)]
     note: Option<String>,
@@ -499,7 +505,7 @@ struct SuggestArgs {
     #[arg(long, value_name = "MS", required_unless_present = "clear")]
     prompt_at: Option<i64>,
     /// Take the session's suggested replies away.
-    #[arg(long, conflicts_with_all = ["replies", "note", "prompt_at"])]
+    #[arg(long, conflicts_with_all = ["replies", "picks", "note", "prompt_at"])]
     clear: bool,
 }
 
@@ -1636,9 +1642,13 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
         println!("Now: {e}");
     }
     if let Some(g) = &r.suggestions {
-        println!("Suggested replies{}:", g.by_title.as_deref().map(|t| format!(" (by {t})")).unwrap_or_default());
+        let what = if g.replies.is_empty() { "Picked for its questions" } else { "Suggested replies" };
+        println!("{what}{}:", g.by_title.as_deref().map(|t| format!(" (by {t})")).unwrap_or_default());
         for (i, reply) in g.replies.iter().enumerate() {
             println!("  {}. {}", i + 1, one_line(reply, 120));
+        }
+        for (question, labels) in &g.picks {
+            println!("  {}: {}", one_line(question, 80), labels.join(", "));
         }
     }
     println!("Worktree: {} ({}{})", tilde(Path::new(&r.worktree)), out.worktree_callsign, r.branch.as_deref().map(|b| format!(", {b}")).unwrap_or_default());
@@ -1735,10 +1745,14 @@ fn session_pending(c: &mut Client, key: &str, json: bool) -> Result<()> {
     };
     for q in &p.questions {
         let choices: Vec<&str> = q.options.iter().map(|o| o.label.as_str()).collect();
-        println!("Asks: {} ({})", q.question, choices.join(", "));
+        let header = q.header.as_deref().map(|h| format!("{h}: ")).unwrap_or_default();
+        let several = if q.multi_select { "any of: " } else { "" };
+        println!("Asks: {header}{} ({several}{})", q.question, choices.join(", "));
     }
     if p.questions.is_empty() {
         println!("Waits to run: {} (id {})", p.label, p.id);
+    } else {
+        println!("Their id: {} (for `session suggest --pick … --pending`)", p.id);
     }
     if let Some(input) = p.input.as_deref().filter(|i| !i.trim().is_empty()) {
         println!("{input}");
@@ -2050,11 +2064,11 @@ fn session_suggest(c: &mut Client, a: SuggestArgs, json: bool) -> Result<()> {
     let key = resolve_session(c, &a.key)?;
     let me = find_me(c)?.0;
     let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
-    let replies = if a.clear { Vec::new() } else { a.replies };
-    if !a.clear && replies.iter().all(|r| r.trim().is_empty()) {
-        bail!("Give at least one reply to suggest, or --clear to take them away.");
+    let (replies, picks) = if a.clear { (Vec::new(), Vec::new()) } else { (a.replies, a.picks) };
+    if !a.clear && replies.iter().chain(&picks).all(|r| r.trim().is_empty()) {
+        bail!("Give at least one reply to suggest, a choice to --pick, or --clear to take them away.");
     }
-    let params = params::Suggest { replies, note: a.note, by: me.clone(), by_title, prompt_at: a.prompt_at, ..Default::default() };
+    let params = params::Suggest { replies, picks, pending: a.pending, note: a.note, by: me.clone(), by_title, prompt_at: a.prompt_at, ..Default::default() };
     let got = c.act(api::SESSION_SUGGEST, &key, params, me)?;
     let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
     if json {
@@ -3870,6 +3884,12 @@ mod tests {
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));
+        // Picks stand in for replies, never beside them.
+        let cli = Cli::try_parse_from(["codealong", "session", "suggest", "abc", "--pick", "Read only first", "--pending", "toolu_1", "--prompt-at", "4"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Suggest(ref a) } if a.picks == ["Read only first"] && a.replies.is_empty() && a.pending.as_deref() == Some("toolu_1")));
+        assert!(Cli::try_parse_from(["codealong", "session", "suggest", "abc", "Yes", "--pick", "Yes", "--pending", "toolu_1", "--prompt-at", "4"]).is_err());
+        assert!(Cli::try_parse_from(["codealong", "session", "suggest", "abc", "--pick", "Yes", "--pending", "toolu_1"]).is_err(), "it needs the prompt that was read");
+        assert!(Cli::try_parse_from(["codealong", "session", "suggest", "abc", "--pick", "Yes", "--prompt-at", "4"]).is_err(), "and the questions");
         let cli = Cli::try_parse_from(["codealong", "session", "rename", "abc", "Fix the flaky test"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Rename { ref name, .. } } if name == "Fix the flaky test"));
         assert!(Cli::try_parse_from(["codealong", "session", "rename", "abc"]).is_err());

@@ -209,16 +209,23 @@ pub mod params {
         pub name: String,
     }
 
-    /// `session-suggest`: the replies, in place of any it had; none takes them away. `by` and
-    /// `by_title` name the session that suggests them, as its own device knows it, and
-    /// `prompt_at` is the session's last prompt as it read it: they're turned down when the
-    /// session's been sent another since. Macs before 2026-10-09 ignore it.
+    /// `session-suggest`: the replies, in place of any it had; none takes them away. `picks`
+    /// are choices of the questions it asks to pick in place of replies, each by its label or as
+    /// `<header>: <label>` (suggestions.rs `picked`), and `pending` the id of those questions as
+    /// they were read (`Pending::id`): picks for others are turned down. `by` and `by_title` name the session that
+    /// suggests them, as its own device knows it, and `prompt_at` is the session's last prompt as
+    /// it read it: they're turned down when the session's been sent another since. Macs before
+    /// 2026-10-09 ignore it, and Macs before 2026-10-10 take picks without replies for none.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default, rename_all = "camelCase")]
     pub struct Suggest {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub replies: Vec<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        pub picks: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub pending: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub note: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]

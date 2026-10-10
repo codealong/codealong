@@ -1017,8 +1017,12 @@ Commands:
               sent to the session or a turn of its starts; suggesting again replaces
               them, and --clear takes them away. Write each as the user would send it,
               in their words and ready to go as it is: short, and the best first. Say
-              why, or what to weigh, in --note. The session's `suggestions` in `session
-              show` and `sessions` are the ones it has now
+              why, or what to weigh, in --note. A session that asks its user questions
+              (`session pending` shows them, with their choices) takes no replies, which
+              would only decline them: --pick picks one of a question's own choices
+              instead, and its question box shows it picked, to answer with one click.
+              The session's `suggestions` in `session show` and `sessions` are the ones
+              it has now
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
@@ -1366,7 +1370,10 @@ turned down if the user replied since (they'd answer the turn before), or while 
 a turn. They stay until something is sent to the session or a turn of its starts;
 suggesting again replaces them, and --clear takes them away. Write each as the user
 would send it, in their words and ready to go as it is: short, and the best first. Say
-why, or what to weigh, in --note. The session's `suggestions` in `session show` and
+why, or what to weigh, in --note. A session that asks its user questions (`session
+pending` shows them, with their choices) takes no replies, which would only decline
+them: --pick picks one of a question's own choices instead, and its question box shows
+it picked, to answer with one click. The session's `suggestions` in `session show` and
 `sessions` are the ones it has now
 
 Usage: codealong session suggest [OPTIONS] <KEY> [REPLIES]...
@@ -1382,8 +1389,24 @@ Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
+      --pick <CHOICE>
+          For a session that asks questions: the choice to pick for its user, by its
+          label as `session pending` shows it, in place of replies. Once for each
+          question, or more for one that takes several; write `<header>: <label>` for a
+          label more than one question offers
+
+      --pending <ID>
+          With --pick: the id of the questions you read, as `session pending` shows it.
+          The picks are turned down once it asks others
+
+      --table
+          Tables, even when piped
+
       --note <NOTE>
           Why, or what to weigh before picking, in a sentence or two; shown with them
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
       --prompt-at <MS>
           The session's `lastPromptAt` as you read it: `session transcript` prints it
@@ -1391,14 +1414,8 @@ Options:
           down if it's been sent a prompt since, since they'd answer the turn before,
           and shown only until it's sent another
 
-      --table
-          Tables, even when piped
-
       --clear
           Take the session's suggested replies away
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help

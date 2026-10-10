@@ -85,7 +85,7 @@ import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type R
 import { accountOf, useStartAccounts } from '../startAccounts';
 import { sessionSkillsFor, useSkills } from '../useSkills';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
-import type { Answers, Pending, Question, Sent, Session, StartPlace, Way } from '../types';
+import type { Answers, Pending, Question, Sent, Session, StartPlace, Suggestions, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
@@ -95,7 +95,7 @@ import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
-import { chordedReply, SuggestedReplies, type Denies, type PickHow } from './SuggestedReplies';
+import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
 
@@ -933,6 +933,19 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     return () => onKeys(null);
   }, [onKeys, answerable, allowable, declinable]);
 
+  // Choices another session picked for the questions it asks (`codealong session suggest
+  // --pick`), until you dismiss them: they go from here at once, and from the session's Mac after.
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  const picked = s.suggestions?.picks && Object.keys(s.suggestions.picks).length > 0 && dismissed !== s.suggestions.at ? s.suggestions : null;
+  const dismissPicked = () => {
+    if (!picked) return;
+    setDismissed(picked.at);
+    dismissSuggestions(s.key).catch((e: unknown) => {
+      setDismissed(null);
+      setNote({ text: errorText(e), error: true });
+    });
+  };
+
   const where = sessionPlace(s, terminal);
   // Questions that can only be answered where it runs still show here, to read before you go.
   if (pending?.cannot && pending.questions?.length) {
@@ -942,7 +955,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           <Icon name="help" size={14} />
           <span>Asks you</span>
         </div>
-        <QuestionList questions={pending.questions} />
+        <QuestionList questions={pending.questions} suggested={picked?.picks} />
+        {picked && <SuggestionHead suggestions={picked} onDismiss={dismissPicked} />}
         <div className="ca-composer-foot">
           <span className="ca-composer-note" title={pending.cannot}>
             {note?.text ?? `Answer ${pending.questions.length > 1 ? 'them' : 'it'} in ${where}.`}
@@ -1004,6 +1018,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         keys={keys}
         busy={busy}
         note={note}
+        suggested={picked}
+        onDismissSuggested={dismissPicked}
         onAnswer={(answers, on) => answer('allow', on ? andNext : undefined, answers)}
         onDecline={() => answer('deny')}
       />
@@ -1073,15 +1089,23 @@ interface QuestionsProps {
    *  does from the box. The button answers and stays. */
   onAnswer: (answers: Answers, on: boolean) => void;
   onDecline: () => void;
+  /** Choices another session picked for them (`Suggestions.picks`), picked here until you pick
+   *  otherwise, so one click on Answer answers with them. */
+  suggested?: Suggestions | null;
+  onDismissSuggested?: () => void;
 }
 
 /** Questions a session asks you (Claude Code's AskUserQuestion): pick a choice, several where a
  *  question takes more, or type your own answer; your picks go back as its answer. Several show
  *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
  *  between them: all at once, a few long ones ran off the bottom of the panel. */
-function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAnswer, onDecline }: QuestionsProps) {
+function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAnswer, onDecline, suggested, onDismissSuggested }: QuestionsProps) {
+  // Your picks, by question; a question you haven't touched has the ones suggested for it.
   const [picks, setPicks] = useState<Record<string, string[]>>({});
   const [own, setOwn] = useState<Record<string, string>>({});
+  const offered = (q: Question): string[] => (suggested?.picks?.[q.question] ?? []).filter((l) => q.options.some((o) => o.label === l));
+  const chosenFor = (q: Question): string[] => picks[q.question] ?? offered(q);
+  const suggesting = !!suggested && questions.some((q) => offered(q).length > 0);
   // The question showing, for the questions it was picked among: another set starts at the first.
   const asked = questions.map((q) => q.question).join('\n');
   const [step, setStep] = useState({ asked, at: 0 });
@@ -1090,7 +1114,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
   const answers: Answers = {};
   for (const q of questions) {
     const words = (own[q.question] ?? '').trim();
-    const chosen = picks[q.question] ?? [];
+    const chosen = chosenFor(q);
     if (q.multiSelect) {
       const all = words ? [...chosen, words] : chosen;
       if (all.length) answers[q.question] = all;
@@ -1112,7 +1136,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
   }, [at]);
   const pick = (q: Question, label: string) => {
     setPicks((all) => {
-      const chosen = all[q.question] ?? [];
+      const chosen = all[q.question] ?? offered(q);
       const next = q.multiSelect ? (chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label]) : [label];
       return { ...all, [q.question]: next };
     });
@@ -1126,6 +1150,9 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
   const type = (q: Question, text: string) => {
     setOwn((all) => ({ ...all, [q.question]: text }));
     if (!q.multiSelect && text.trim()) setPicks((all) => ({ ...all, [q.question]: [] }));
+    // Words of yours to go with picks are an answer you've begun: picks suggested later don't
+    // join it, and the ones it went with stay.
+    else if (q.multiSelect) setPicks((all) => (q.question in all ? all : { ...all, [q.question]: offered(q) }));
   };
   const answerRef = useRef((_on: boolean) => {});
   answerRef.current = (on) => {
@@ -1164,7 +1191,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
         <Seg
           className="ca-question-steps"
           label="Questions"
-          options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: answered[i] ? 'check' : undefined }))}
+          options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: !answered[i] ? undefined : picks[q.question] === undefined && !own[q.question]?.trim() && offered(q).length ? 'sparkles' : 'check' }))}
           value={at}
           onPick={go}
         />
@@ -1177,14 +1204,17 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
         </div>
         <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
           {q.options.map((o) => {
-            const on = (picks[q.question] ?? []).includes(o.label);
+            const on = chosenFor(q).includes(o.label);
+            // The suggested one keeps its mark once you pick another.
+            const tip = offered(q).includes(o.label) ? 'sparkles' : undefined;
             return (
-              <Button key={o.label} size="sm" variant={on ? 'primary' : 'secondary'} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} title={o.description} disabled={busy} onClick={() => pick(q, o.label)}>
+              <Button key={o.label} size="sm" variant={on ? 'primary' : 'secondary'} icon={tip} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} title={tip ? [o.description, 'Suggested'].filter(Boolean).join(' · ') : o.description} disabled={busy} onClick={() => pick(q, o.label)}>
                 {o.label}
               </Button>
             );
           })}
         </div>
+        {suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
         <input
           ref={ownRef}
           className="ca-question-own"

@@ -475,13 +475,17 @@ fn newer(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// What it waits on you to allow, when Codealong can answer for it (`Adapter::pending`).
 fn pending(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let key = c.session()?;
+    to_value(pending_of(engine, c.session()?)?)
+}
+
+/// What the session `key` waits on you for, as `pending` says.
+fn pending_of(engine: &Handle, key: &str) -> Result<Option<api::Pending>, String> {
     if acp::hosts(key) {
-        return to_value(acp::pending(key));
+        return Ok(acp::pending(key));
     }
     let (cfg, board) = (cfg()?, engine.board());
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
-    to_value(harness::adapter(s.harness).pending(&harness::Ctx { account }, s))
+    Ok(harness::adapter(s.harness).pending(&harness::Ctx { account }, s))
 }
 
 /// How a message sent to it would reach it (send.rs `way_in`).
@@ -508,10 +512,11 @@ const ANSWERED_WAIT: Duration = Duration::from_secs(10);
 /// (`Adapter::deny_saying`), else sent as a prompt once it no longer waits.
 fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     let said = answer_here(engine, c)?;
-    // Words sent in place of the call answer what was suggested for it, as a message does
-    // (`send_prompt`).
+    // Answers to its questions, or words sent in place of the call, answer what was suggested
+    // for it, as a message does (`send_prompt`).
     let p: params::Answer = c.read()?;
-    if p.message.as_deref().is_some_and(|m| !m.trim().is_empty()) && !matches!(c.from, From::Command(_)) {
+    let words_sent = p.message.as_deref().is_some_and(|m| !m.trim().is_empty());
+    if (words_sent || p.answers.as_ref().is_some_and(|a| !a.is_null())) && !matches!(c.from, From::Command(_)) {
         forget_suggested(engine, c.session()?);
     }
     Ok(said)
@@ -614,9 +619,9 @@ fn forget_suggested(engine: &Handle, key: &str) {
     }
 }
 
-/// Suggests replies for it, in place of any it had, or with none takes them away
-/// (suggestions.rs). They're the session's until something is sent to it or a turn of its
-/// starts. Says what was done, in a sentence.
+/// Suggests replies for it, or picks choices of the questions it asks, in place of any it had,
+/// or with neither takes them away (suggestions.rs). They're the session's until something is
+/// sent to it or a turn of its starts. Says what was done, in a sentence.
 fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let p: params::Suggest = c.read()?;
@@ -626,15 +631,33 @@ fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
     let replies = crate::suggestions::tidy(p.replies).map_err(words)?;
     let note = crate::suggestions::tidy_note(p.note).map_err(words)?;
     let n = replies.len();
+    // Picks go by the questions it asks now. Replies to questions would only decline them, so a
+    // session asking some gets picks instead.
+    let picking = p.picks.iter().any(|p| !p.trim().is_empty());
+    let pending = if picking || (n > 0 && send::waits_on_you(&session)) { pending_of(engine, key)? } else { None };
+    // Answered where it runs, it may have gone on to other questions in the same turn since they
+    // were read, which picks for those would answer.
+    if let (true, Some(read), Some(now)) = (picking, p.pending.as_deref(), pending.as_ref()) {
+        if now.id != read {
+            return Err("It asks other questions now than the ones you read. Read them again (`codealong session pending`).".into());
+        }
+    }
+    let asked = pending.map(|p| p.questions).unwrap_or_default();
+    if n > 0 && !asked.is_empty() {
+        return Err("It asks you questions, which a reply would decline: pick among its choices instead (`--pick`; `codealong session pending` lists them).".into());
+    }
+    let picks = if picking { crate::suggestions::picked(&asked, &p.picks).map_err(words)? } else { BTreeMap::new() };
     // What was read is where they answer from; without it (an older Mac's agent), where it stands.
     let read = p.prompt_at.unwrap_or(session.last_prompt_at);
-    if n > 0 {
+    let suggesting = n > 0 || !picks.is_empty();
+    if suggesting {
         if let Some(why) = crate::board::suggestion_refused(&session, read) {
             return Err(why);
         }
     }
     let filled = |v: Option<String>| v.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-    let suggested = (n > 0).then(|| crate::model::Suggestions { replies, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms(), prompt_at: Some(read) });
+    let questions = picks.len();
+    let suggested = suggesting.then(|| crate::model::Suggestions { replies, picks, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms(), prompt_at: Some(read) });
     let changed = crate::suggestions::set(key, suggested).map_err(words)?;
     // Waited for whoever asked, so that what they read next (an agent's `codealong sessions`)
     // has them.
@@ -642,11 +665,13 @@ fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
     if *c.from == From::Here {
         return Ok(json!(at));
     }
-    Ok(json!(match n {
-        0 if changed => "Took its suggested replies away.".to_string(),
-        0 => "It had no suggested replies.".to_string(),
-        1 => "Suggested a reply. It shows above the session's box in Codealong until something is sent to the session or a turn of its starts.".to_string(),
-        n => format!("Suggested {n} replies. They show above the session's box in Codealong until something is sent to the session or a turn of its starts."),
+    Ok(json!(match (n, questions) {
+        (0, 1) => "Picked a choice for its question. It shows picked in the session's question in Codealong, to answer with a click, until it's answered or a turn of its starts.".to_string(),
+        (0, q) if q > 1 => format!("Picked choices for its {q} questions. They show picked in the session's questions in Codealong, to answer with a click, until they're answered or a turn of its starts."),
+        (0, _) if changed => "Took its suggested replies away.".to_string(),
+        (0, _) => "It had no suggested replies.".to_string(),
+        (1, _) => "Suggested a reply. It shows above the session's box in Codealong until something is sent to the session or a turn of its starts.".to_string(),
+        (n, _) => format!("Suggested {n} replies. They show above the session's box in Codealong until something is sent to the session or a turn of its starts."),
     }))
 }
 

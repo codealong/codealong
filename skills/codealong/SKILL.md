@@ -184,6 +184,13 @@ the session's box, and the user sends one with a click or types their own.
    sentences, the best first, at most six. The note is for the user, not the session: what it
    asks, what you checked, what's risky. A reply goes to the session as the user's own message,
    so never write one that needs more than the user would say (no "As the supervisor…").
+   A session that asks the user questions (`session pending` shows `Asks:` with each question's
+   header and choices, and their id) takes no replies, which would only decline them: pick one
+   of its own choices instead, `codealong session suggest <key> --pick "<choice>" --pending
+   <their id> --prompt-at <lastPromptAt> --note "<why>"`, once for each question (more for one
+   that takes several; `--pick "<header>: <choice>"` where two questions offer the same choice).
+   Its question box shows them picked, so the user answers with one click on Answer, or picks
+   otherwise. Picks for questions it no longer asks are turned down: read them again.
 4. Suggest again to replace them; `--clear` takes them away. They go by themselves once
    anything is sent to the session or a turn of its starts, so a session with none left has
    moved on: read it again before suggesting more.

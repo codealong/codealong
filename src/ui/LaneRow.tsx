@@ -483,10 +483,14 @@ export function HelpersChip({ helpers: h }: { helpers: HelperCount | undefined }
 /** A chip for the replies another session suggested you send it, which its box shows: its tooltip
  *  says who suggested them and what they are. */
 export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | undefined }) {
-  if (!g || g.replies.length === 0) return null;
-  const replies = g.replies.map((r) => `· ${r.length > 80 ? `${r.slice(0, 79)}…` : r}`).join('\n');
+  const picks = Object.entries(g?.picks ?? {});
+  if (!g || (g.replies.length === 0 && picks.length === 0)) return null;
+  const cut = (t: string) => (t.length > 80 ? `${t.slice(0, 79)}…` : t);
+  const by = g.byTitle ? `Suggested by ${g.byTitle}` : 'Suggested';
+  // Replies to send from its box, or choices picked in its question box.
+  const title = g.replies.length ? `${by}, to send from its box:\n${g.replies.map((r) => `· ${cut(r)}`).join('\n')}` : `${by}, picked to answer its ${picks.length > 1 ? 'questions' : 'question'} with:\n${picks.map(([q, labels]) => `· ${cut(q)} ${labels.join(', ')}`).join('\n')}`;
   return (
-    <Chip className="ca-suggestedchip" title={`${g.byTitle ? `Suggested by ${g.byTitle}` : 'Suggested replies'}, to send from its box:\n${replies}`}>
+    <Chip className="ca-suggestedchip" title={title}>
       <Icon name="sparkles" size={12} />
       Suggested
     </Chip>

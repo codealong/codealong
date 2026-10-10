@@ -1075,10 +1075,11 @@ pub fn suggestion_refused(s: &Session, read_prompt_at: i64) -> Option<String> {
     None
 }
 
-/// Puts the replies suggested for a session on it while they hold (`suggestions_hold`): after its
-/// status and Jev's read of it, before a snooze or a mark of unread moves when its status began.
+/// Puts the replies suggested for a session, or the choices picked for questions it asks, on it
+/// while they hold (`suggestions_hold`): after its status and Jev's read of it, before a snooze or
+/// a mark of unread moves when its status began.
 pub fn apply_suggestions(s: &mut Session, suggested: Option<&Suggestions>) {
-    s.suggestions = suggested.filter(|g| !g.replies.is_empty() && suggestions_hold(s, g)).cloned();
+    s.suggestions = suggested.filter(|g| (!g.replies.is_empty() || !g.picks.is_empty()) && suggestions_hold(s, g)).cloned();
 }
 
 /// Applies a snooze from Codealong to a session, after its status and Jev's read of it, before
@@ -2712,7 +2713,7 @@ mod tests {
         let ended = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
         let ended = Session { last_prompt_at: NOW - 30 * MIN, ..ended };
         // It was read with its prompt of 30 minutes ago the last.
-        let suggested = Suggestions { replies: vec!["Yes, push it".into(), "Run the tests first".into()], note: Some("It asks whether to push".into()), by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at: NOW - 10 * MIN, prompt_at: Some(NOW - 30 * MIN) };
+        let suggested = Suggestions { replies: vec!["Yes, push it".into(), "Run the tests first".into()], picks: Default::default(), note: Some("It asks whether to push".into()), by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at: NOW - 10 * MIN, prompt_at: Some(NOW - 30 * MIN) };
         let with = |s: &Session, g: Option<&Suggestions>| {
             let mut s = s.clone();
             apply_suggestions(&mut s, g);
@@ -2735,6 +2736,10 @@ mod tests {
         // None, or none left, puts none on it, and takes away what it had.
         assert_eq!(with(&Session { suggestions: Some(suggested.clone()), ..ended.clone() }, None), None);
         assert_eq!(with(&ended, Some(&Suggestions { replies: vec![], ..suggested.clone() })), None);
+        // Choices picked for the questions it asks hold as replies do.
+        let picked = Suggestions { replies: vec![], picks: [("Push it?".to_string(), vec!["Yes".to_string()])].into(), ..suggested.clone() };
+        assert_eq!(with(&Session { status: Status::Needs, ..ended.clone() }, Some(&picked)), Some(picked.clone()));
+        assert_eq!(with(&Session { status: Status::Working, status_since: Some(NOW - 5 * MIN), ..ended.clone() }, Some(&picked)), None);
     }
 
     #[test]

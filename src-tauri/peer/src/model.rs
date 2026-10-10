@@ -3,6 +3,8 @@
 //! names serialize in camelCase to match `src/types.ts`. The board itself, and what only the Mac
 //! app shows, are in the engine's model.rs.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -424,13 +426,19 @@ pub struct ConnectionLost {
 
 /// Replies suggested for a session by another session that read it (a supervisor going over the
 /// sessions that wait on you) through `codealong session suggest`. Each goes as it is, as if you'd
-/// typed it, and nothing goes until you pick one. Kept on the session's Mac (suggestions.rs) until
-/// something is sent to the session or a turn of its starts.
+/// typed it, and nothing goes until you pick one; for questions it asks, choices of their own,
+/// picked for you to answer with. Kept on the session's Mac (suggestions.rs) until something is
+/// sent to the session or a turn of its starts.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Suggestions {
-    /// The replies, best first.
+    /// The replies, best first; none where it picks among the choices of questions it asks.
     pub replies: Vec<String>,
+    /// For questions the session asks you (`api::Pending::questions`): the labels of the choices
+    /// picked for each, by its question, which its question box shows picked. Devices from before
+    /// 2026-10-10 don't show them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub picks: BTreeMap<String, Vec<String>>,
     /// Why, or what to weigh, in a sentence or two, when the suggester said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -844,7 +852,7 @@ mod tests {
                 "branch": "login", "archived": true, "attachCommand": "claude attach j1", "continues": "claude:claude2:from",
                 "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
                 "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true,
-                "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
+                "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "picks": { "Push it?": ["Yes"] }, "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
                 "earlier": true,
                 "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 },
                 "helper": { "parent": "claude:claude2:from", "pr": "acme/app#7" }

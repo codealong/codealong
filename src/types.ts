@@ -36,8 +36,10 @@ export interface SessionLimit {
 /** Replies suggested for a session by another session that read it (peer/src/model.rs
  *  `Suggestions`): each goes as it is, as yours, once you pick it. */
 export interface Suggestions {
-  /** The best first. */
+  /** The best first; none where it picks among the choices of questions it asks. */
   replies: string[];
+  /** The labels of the choices picked for each question it asks, by its question. */
+  picks?: Record<string, string[]>;
   /** Why, or what to weigh, when the suggester said. */
   note?: string;
   /** The session that suggested them, by its key on its own device. */

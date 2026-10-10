@@ -42,7 +42,9 @@ export function nextQuestion(answered: readonly boolean[], at: number): number |
   return null;
 }
 
-export function QuestionList({ questions, answers }: { questions: Question[]; answers?: Record<string, string[]> }) {
+/** `suggested` marks the choices another session picked for them (`Suggestions.picks`), while
+ *  they wait to be answered where the session runs. */
+export function QuestionList({ questions, answers, suggested }: { questions: Question[]; answers?: Record<string, string[]>; suggested?: Record<string, string[]> }) {
   return (
     <div className="ca-questions">
       {questions.map((q) => {
@@ -61,6 +63,7 @@ export function QuestionList({ questions, answers }: { questions: Question[]; an
                     <span className="ca-question-opt">
                       <Rich text={o.label} now={0} />
                       {picked.has(o.label) && <Icon name="check" size={12} stroke={2.25} title="Your pick" />}
+                      {suggested?.[q.question]?.includes(o.label) && <Icon name="sparkles" size={12} title="Suggested" />}
                     </span>
                     {o.description && (
                       <span className="ca-question-desc">
