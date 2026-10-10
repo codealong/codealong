@@ -100,7 +100,7 @@ const DAY = 24 * 60 * 60 * 1000;
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
 const VIEWS: { id: View; label: string; icon: string }[] = [
   { id: 'sessions', label: 'Sessions', icon: 'terminal' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'branch' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'folder' },
   { id: 'prs', label: 'PRs', icon: 'pr' },
   { id: 'todo', label: 'Todo', icon: 'list-check' },
   { id: 'canvas', label: 'Canvas', icon: 'layout-grid' },

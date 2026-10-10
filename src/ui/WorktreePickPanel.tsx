@@ -26,7 +26,7 @@ export function WorktreePickPanel({ items, actions, onShow, onLeaveOut, onMoreMe
   return (
     <PickPanel
       label="Selected worktrees"
-      icon="branch"
+      icon="folder"
       head={count(items.length, 'worktree')}
       help="⌘-click adds a worktree or leaves it out, ⇧-click adds a run of them. Esc goes back to one."
       moreTitle="Everything that can be done to them"

@@ -1770,7 +1770,7 @@ export function Quick() {
           )}
           <div className="ca-quick-pick">
             <button type="button" data-picker-trigger className="ca-quick-chip" title={lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)'} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
-              <Icon name={lane?.startsChats ? 'message-circle' : 'branch'} size={14} />
+              <Icon name={lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
               <span>{lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
               <Icon name="chevron-down" size={12} />
             </button>
