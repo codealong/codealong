@@ -732,17 +732,19 @@ interface NavItemProps {
   /** A count that asks for you, in a solid badge before the plain count. */
   badge?: number;
   badgeTitle?: string;
+  /** The keys that go to it, shown in the count's place while the pointer is on it. */
+  kbd?: string[];
   className?: string;
   title?: string;
   onClick?: () => void;
   onContextMenu?: () => void;
 }
 
-export function NavItem({ label, icon, glyph, count, active, child, tone, lead, badge, badgeTitle, className, title, onClick, onContextMenu }: NavItemProps) {
+export function NavItem({ label, icon, glyph, count, active, child, tone, lead, badge, badgeTitle, kbd, className, title, onClick, onContextMenu }: NavItemProps) {
   return (
     <button
       type="button"
-      className={cx('ca-nav', active && 'is-active', child && 'is-child', className)}
+      className={cx('ca-nav', active && 'is-active', child && 'is-child', kbd && 'has-kbd', className)}
       aria-pressed={active}
       title={title}
       onClick={onClick}
@@ -762,6 +764,7 @@ export function NavItem({ label, icon, glyph, count, active, child, tone, lead, 
         </span>
       ) : null}
       {count != null && <span className={cx('ca-nav-count', tone && count > 0 && `is-${tone}`)}>{count}</span>}
+      {kbd && <Kbd keys={kbd} />}
     </button>
   );
 }

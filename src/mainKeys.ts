@@ -32,6 +32,21 @@ function listChord(e: KeyboardEvent): boolean {
   return e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab';
 }
 
+/** ⌃1 to ⌃9 go straight to a view, by its place in the sidebar, which shows each view's chord as
+ *  you point at it. ⌃ alone because ⌘ and a digit open the selected row's places, ⌥⌘ switches
+ *  projects and ⌃⌘ snoozes. */
+export function viewChord(index: number): string {
+  return `Ctrl+${index + 1}`;
+}
+
+/** The view a key event goes to (`viewChord`), or none. By the key's code, as ⌥⌘'s digits go,
+ *  so a layout that types its digits with ⇧ has them too. */
+export function viewOfKey<V>(e: Pick<KeyboardEvent, 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {
+  if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
+  const digit = /^Digit([1-9])$/.exec(e.code);
+  return digit ? (views[Number(digit[1]) - 1]?.id ?? null) : null;
+}
+
 /** Whether the keyboard is in a text field (other than search, which has keys of its own). */
 function inField(el: Element | null, search: HTMLInputElement | null): boolean {
   if (!el || el === search) return false;
@@ -41,7 +56,7 @@ function inField(el: Element | null, search: HTMLInputElement | null): boolean {
 /** What the keys read and do, as the window has it. `V` is the window's views. */
 export interface MainKeys<V extends string> {
   view: V;
-  /** The views in the order ⌃Tab and v go through them. */
+  /** The views in the order ⌃Tab and v go through them, and ⌃1 on go to (`viewChord`). */
   views: readonly { id: V }[];
   /** A sheet that has the keyboard while it's open: Settings, the preview URL's, rename. */
   settings: object | null;
@@ -131,6 +146,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   };
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
   const toTerminal = chordPressed(menus.CHORDS.terminal ?? '', e);
+  const toView = viewOfKey(e, VIEWS);
   // ⌘= and ⌘- zoom the window and ⌘0 puts it back, as in VS Code, from any field or sheet. The
   // canvas has them for its own zoom wherever its keys work: not in a field or the panel beside it.
   const zoomTo = zoomStep(e);
@@ -150,8 +166,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
-  // ones, ⌃- and ⌃`, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !toTerminal && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+  // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords.
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !toTerminal && !toView && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -159,6 +175,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // Settings has the keyboard while it's open, as the preview URL and rename sheets do.
   if (settings || previewFor || renaming) return;
+  // ⌃1 to ⌃5 go straight to a view, from any view and any field (`viewChord`).
+  if (toView) {
+    e.preventDefault();
+    setView(toView);
+    return;
+  }
   // ⌃` opens a new terminal in the folder of what the window shows, as it opens VS Code's
   // terminal, from any view and any field: the session's own folder, else the worktree's.
   if (toTerminal) {

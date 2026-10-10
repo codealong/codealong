@@ -59,7 +59,7 @@ import { openWhere, where } from './open';
 import { asText, flag, oneOf, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
 import { useLatest } from './latest';
-import { useMainKeys } from './mainKeys';
+import { useMainKeys, viewChord } from './mainKeys';
 import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel } from './ui/MainPanel';
@@ -1185,10 +1185,11 @@ export function App() {
 
   // The sidebar: the views with their counts, the statuses to narrow them to, and what narrows
   // the view now, for the collapsed rail's badge.
-  const sideViews = VIEWS.map((v) => ({
+  const sideViews = VIEWS.map((v, i) => ({
     id: v.id,
     label: v.label,
     icon: v.icon,
+    kbd: menus.chordKeys(viewChord(i)),
     count: v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openPrCount,
     badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
     badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,

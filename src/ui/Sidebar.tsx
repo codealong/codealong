@@ -22,6 +22,8 @@ export interface SideView {
   /** What asks for you there (PRs waiting on your review), in a solid badge. */
   badge?: number;
   badgeTitle?: string;
+  /** The keys that go to it (`mainKeys.ts` `viewChord`), one sign at a time: ⌃ 1. */
+  kbd: string[];
 }
 
 export interface SideAge {
@@ -103,7 +105,7 @@ function Open(p: SidebarProps) {
       <div className="ca-side-scroll">
         <div className="ca-label ca-side-label">View</div>
         {p.views.map((v) => (
-          <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} active={p.view === v.id} title="Switch views (V)" onClick={() => p.onView(v.id)} />
+          <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} kbd={v.kbd} active={p.view === v.id} title="⌃Tab goes to the next view" onClick={() => p.onView(v.id)} />
         ))}
         {showDevices && p.devices && (
           <>
@@ -253,7 +255,7 @@ function Rail(p: SidebarProps) {
   return (
     <nav className="ca-rail" aria-label="Sidebar">
       {p.views.map((v) => (
-        <RailButton key={v.id} icon={v.icon} label={v.id === 'prs' && v.badge ? `${v.label} · ${v.badgeTitle}` : v.label} active={p.view === v.id} badge={v.id === 'sessions' ? needs : v.badge} onClick={() => p.onView(v.id)} />
+        <RailButton key={v.id} icon={v.icon} label={`${v.label} (${v.kbd.join('')})${v.id === 'prs' && v.badge ? ` · ${v.badgeTitle}` : ''}`} active={p.view === v.id} badge={v.id === 'sessions' ? needs : v.badge} onClick={() => p.onView(v.id)} />
       ))}
       {showDevices && p.devices && (
         <>

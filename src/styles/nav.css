@@ -9,6 +9,10 @@
 .ca-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-nav-count { font: var(--type-code-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .ca-nav-count.is-attn { color: var(--attn); }
+/* A view's keys (NavItem's kbd) take its count's place while the pointer is on its row. */
+.ca-nav .ca-kbds { display: none; }
+.ca-nav.has-kbd:is(:hover, :focus-visible) .ca-kbds { display: inline-flex; }
+.ca-nav.has-kbd:is(:hover, :focus-visible) .ca-nav-count { display: none; }
 
 /* Sidebar rows are buttons. */
 .ca-nav {
