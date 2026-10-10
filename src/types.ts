@@ -46,6 +46,8 @@ export interface Suggestions {
   byTitle?: string;
   /** When they were suggested, by the session's Mac's clock. */
   at: number;
+  /** The session's last prompt as the suggester read it: they answer the reply to that one. */
+  promptAt?: number;
 }
 
 export interface Session {

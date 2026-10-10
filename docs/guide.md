@@ -892,8 +892,10 @@ which sends it from anywhere in the window, Sessions' list included; **⌃⌥⌘
 it and goes on to the next. A reply's right-click menu has the same,
 and Dismiss takes them all away. The box stays yours to type in instead, and nothing reaches the
 session until you pick. While it waits on a call to allow, a reply denies the call and is sent
-instead, as what you type would be. Its row has a Suggested chip, whose tooltip lists them. They go
-once anything is sent to the session or a turn of its starts, and suggesting again replaces them. A
+instead, as what you type would be. Its row has a Suggested chip, whose tooltip lists them. They answer the reply the agent read: one
+written after you'd replied since is turned down, as is one while the session takes a turn, so a
+suggestion for the turn before never appears after your answer. They go once anything is sent to
+the session or a turn of its starts, and suggesting again replaces them. A
 session on another device keeps them on its Mac.
 
 #### Queues, pills and the mark

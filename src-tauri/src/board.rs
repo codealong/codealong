@@ -1023,18 +1023,33 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
     }
 }
 
-/// Whether replies suggested for a session at `at` still answer where it stands: nothing has been
-/// sent to it since (a prompt of yours, from Codealong or where it runs) and no turn of its has
-/// started since. A turn that started after them has moved on from what they answered, even once
-/// it ends, so the engine forgets them once it sees one (`Engine::forget_stale_suggestions`).
-pub fn suggestions_hold(s: &Session, at: i64) -> bool {
-    s.last_prompt_at <= at && !(s.status == Status::Working && s.status_since.is_some_and(|since| since > at))
+/// Whether replies suggested for a session still answer where it stands: it's been sent nothing
+/// since the prompt whose reply the suggester read (`prompt_at`; a prompt of yours, from Codealong
+/// or where it runs), and no turn of its has started since they were suggested. A turn that
+/// started after them has moved on from what they answered, even once it ends, so the engine
+/// forgets them once it sees one (`Engine::forget_stale_suggestions`). Ones from Macs that didn't
+/// say what was read go by when they were suggested.
+pub fn suggestions_hold(s: &Session, g: &Suggestions) -> bool {
+    s.last_prompt_at <= g.prompt_at.unwrap_or(g.at) && !(s.status == Status::Working && s.status_since.is_some_and(|since| since > g.at))
+}
+
+/// Why replies for a session are turned down, given its last prompt as the suggester read it, or
+/// none when they answer where it stands. Read before you replied, they'd answer the turn before
+/// yours; suggested while it takes a turn, the reply it's writing isn't what was read.
+pub fn suggestion_refused(s: &Session, read_prompt_at: i64) -> Option<String> {
+    if s.last_prompt_at > read_prompt_at {
+        return Some(format!("It's been sent a prompt since you read it (lastPromptAt {} now, {read_prompt_at} as you read it). Read it again (`codealong session transcript`) and suggest for where it stands.", s.last_prompt_at));
+    }
+    if s.status == Status::Working && !s.waits_in_background() {
+        return Some("It's taking a turn now, so what you read isn't where it stands. Suggest once it waits on its user again.".to_string());
+    }
+    None
 }
 
 /// Puts the replies suggested for a session on it while they hold (`suggestions_hold`): after its
 /// status and Jev's read of it, before a snooze or a mark of unread moves when its status began.
 pub fn apply_suggestions(s: &mut Session, suggested: Option<&Suggestions>) {
-    s.suggestions = suggested.filter(|g| !g.replies.is_empty() && suggestions_hold(s, g.at)).cloned();
+    s.suggestions = suggested.filter(|g| !g.replies.is_empty() && suggestions_hold(s, g)).cloned();
 }
 
 /// Applies a snooze from Codealong to a session, after its status and Jev's read of it, before
@@ -2662,7 +2677,8 @@ mod tests {
         // minutes ago.
         let ended = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
         let ended = Session { last_prompt_at: NOW - 30 * MIN, ..ended };
-        let suggested = Suggestions { replies: vec!["Yes, push it".into(), "Run the tests first".into()], note: Some("It asks whether to push".into()), by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at: NOW - 10 * MIN };
+        // It was read with its prompt of 30 minutes ago the last.
+        let suggested = Suggestions { replies: vec!["Yes, push it".into(), "Run the tests first".into()], note: Some("It asks whether to push".into()), by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at: NOW - 10 * MIN, prompt_at: Some(NOW - 30 * MIN) };
         let with = |s: &Session, g: Option<&Suggestions>| {
             let mut s = s.clone();
             apply_suggestions(&mut s, g);
@@ -2674,11 +2690,36 @@ mod tests {
         assert!(with(&Session { status: Status::Working, status_since: Some(NOW - 20 * MIN), ..ended.clone() }, Some(&suggested)).is_some());
         // A prompt sent since, from anywhere, answered them.
         assert_eq!(with(&Session { last_prompt_at: NOW - 5 * MIN, ..ended.clone() }, Some(&suggested)), None);
+        // A prompt sent after it was read and before they were suggested answered the turn they
+        // were written for: they're for the turn before.
+        assert_eq!(with(&Session { last_prompt_at: NOW - 15 * MIN, ..ended.clone() }, Some(&suggested)), None);
+        // Ones from a Mac that didn't say what was read go by when they were suggested.
+        let undated = Suggestions { prompt_at: None, ..suggested.clone() };
+        assert!(with(&Session { last_prompt_at: NOW - 15 * MIN, ..ended.clone() }, Some(&undated)).is_some());
         // A turn started since (a background task woke it) has moved on from them.
-        assert!(!suggestions_hold(&Session { status: Status::Working, status_since: Some(NOW - 5 * MIN), ..ended.clone() }, suggested.at));
+        assert!(!suggestions_hold(&Session { status: Status::Working, status_since: Some(NOW - 5 * MIN), ..ended.clone() }, &suggested));
         // None, or none left, puts none on it, and takes away what it had.
         assert_eq!(with(&Session { suggestions: Some(suggested.clone()), ..ended.clone() }, None), None);
         assert_eq!(with(&ended, Some(&Suggestions { replies: vec![], ..suggested.clone() })), None);
+    }
+
+    #[test]
+    fn replies_are_turned_down_for_a_session_that_moved_on_since_it_was_read() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let ended = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        let ended = Session { last_prompt_at: NOW - 30 * MIN, ..ended };
+        // As it was read, they're taken.
+        assert_eq!(suggestion_refused(&ended, NOW - 30 * MIN), None);
+        assert_eq!(suggestion_refused(&Session { status: Status::Needs, ..ended.clone() }, NOW - 30 * MIN), None);
+        // You replied after it was read: the turn they'd answer is gone.
+        let replied = Session { last_prompt_at: NOW - MIN, ..ended.clone() };
+        assert!(suggestion_refused(&replied, NOW - 30 * MIN).unwrap().contains("Read it again"));
+        // Taking a turn, a prompt or not, it's moving on from what was read; a turn that left a
+        // command waiting in the background is over.
+        let working = Session { status: Status::Working, status_since: Some(NOW - MIN), ..ended.clone() };
+        assert!(suggestion_refused(&working, NOW - 30 * MIN).unwrap().contains("taking a turn"));
+        assert_eq!(suggestion_refused(&Session { background: Some("npm run dev".into()), ..working }, NOW - 30 * MIN), None);
     }
 
     #[test]

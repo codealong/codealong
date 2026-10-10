@@ -611,14 +611,21 @@ fn forget_suggested(engine: &Handle, key: &str) {
 fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let p: params::Suggest = c.read()?;
-    if !engine.read(|b| b.session(key).is_some()) {
+    let Some(session) = engine.read(|b| b.session(key).map(|(_, s)| s.clone())) else {
         return Err("Codealong doesn't list that session.".into());
-    }
+    };
     let replies = crate::suggestions::tidy(p.replies).map_err(words)?;
     let note = crate::suggestions::tidy_note(p.note).map_err(words)?;
     let n = replies.len();
+    // What was read is where they answer from; without it (an older Mac's agent), where it stands.
+    let read = p.prompt_at.unwrap_or(session.last_prompt_at);
+    if n > 0 {
+        if let Some(why) = crate::board::suggestion_refused(&session, read) {
+            return Err(why);
+        }
+    }
     let filled = |v: Option<String>| v.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-    let suggested = (n > 0).then(|| crate::model::Suggestions { replies, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms() });
+    let suggested = (n > 0).then(|| crate::model::Suggestions { replies, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms(), prompt_at: Some(read) });
     let changed = crate::suggestions::set(key, suggested).map_err(words)?;
     // Waited for whoever asked, so that what they read next (an agent's `codealong sessions`)
     // has them.

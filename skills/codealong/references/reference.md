@@ -991,21 +991,24 @@ Commands:
               (`agent`), a tool call (`tool`: `text` is the call in a line, with its
               input and output when the record has them there), a call's output
               (`result`) or a note (a message from another session, compaction). Oldest
-              first; `before` is the cursor for the part before, null at the start.
-              Inputs and outputs are cut short unless --full. Any harness, and sessions
-              on your other devices
+              first; `before` is the cursor for the part before, null at the start;
+              `lastPromptAt` is the session's as it was read, for `session suggest
+              --prompt-at`. Inputs and outputs are cut short unless --full. Any harness,
+              and sessions on your other devices
   suggest     Suggest replies to a session for its user to send with one click: what
               they might answer it, written by an agent that read it (a supervisor going
               over the sessions that wait on its user: `codealong sessions --waiting`,
               then `session transcript` for each). Codealong shows them above the
               session's box, wherever that shows; picking one sends it as the user's own
               message, and the user can type their own instead. Nothing reaches the
-              session until they pick. They stay until something is sent to the session
-              or a turn of its starts; suggesting again replaces them, and --clear takes
-              them away. Write each as the user would send it, in their words and ready
-              to go as it is: short, and the best first. Say why, or what to weigh, in
-              --note. The session's `suggestions` in `session show` and `sessions` are
-              the ones it has now
+              session until they pick. Give --prompt-at the session's `lastPromptAt` as
+              you read it: they're turned down if the user replied since (they'd answer
+              the turn before), or while it takes a turn. They stay until something is
+              sent to the session or a turn of its starts; suggesting again replaces
+              them, and --clear takes them away. Write each as the user would send it,
+              in their words and ready to go as it is: short, and the best first. Say
+              why, or what to weigh, in --note. The session's `suggestions` in `session
+              show` and `sessions` are the ones it has now
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
@@ -1264,8 +1267,9 @@ and where it stands: the newest part (about 60 items), or the part before `--bef
 Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the
 call in a line, with its input and output when the record has them there), a call's
 output (`result`) or a note (a message from another session, compaction). Oldest first;
-`before` is the cursor for the part before, null at the start. Inputs and outputs are
-cut short unless --full. Any harness, and sessions on your other devices
+`before` is the cursor for the part before, null at the start; `lastPromptAt` is the
+session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut
+short unless --full. Any harness, and sessions on your other devices
 
 Usage: codealong session transcript [OPTIONS] <KEY>
 
@@ -1301,10 +1305,12 @@ it, written by an agent that read it (a supervisor going over the sessions that 
 its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong
 shows them above the session's box, wherever that shows; picking one sends it as the
 user's own message, and the user can type their own instead. Nothing reaches the session
-until they pick. They stay until something is sent to the session or a turn of its
-starts; suggesting again replaces them, and --clear takes them away. Write each as the
-user would send it, in their words and ready to go as it is: short, and the best first.
-Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and
+until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're
+turned down if the user replied since (they'd answer the turn before), or while it takes
+a turn. They stay until something is sent to the session or a turn of its starts;
+suggesting again replaces them, and --clear takes them away. Write each as the user
+would send it, in their words and ready to go as it is: short, and the best first. Say
+why, or what to weigh, in --note. The session's `suggestions` in `session show` and
 `sessions` are the ones it has now
 
 Usage: codealong session suggest [OPTIONS] <KEY> [REPLIES]...
@@ -1323,11 +1329,17 @@ Options:
       --note <NOTE>
           Why, or what to weigh before picking, in a sentence or two; shown with them
 
-      --clear
-          Take the session's suggested replies away
+      --prompt-at <MS>
+          The session's `lastPromptAt` as you read it: `session transcript` prints it
+          with what it read, as do `sessions` and `session show`. The replies are turned
+          down if it's been sent a prompt since, since they'd answer the turn before,
+          and shown only until it's sent another
 
       --table
           Tables, even when piped
+
+      --clear
+          Take the session's suggested replies away
 
       --verbose
           Say on stderr whether the app or the files answered

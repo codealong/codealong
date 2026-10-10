@@ -142,7 +142,7 @@ mod tests {
     use super::*;
 
     fn suggested(at: i64) -> Suggestions {
-        Suggestions { replies: vec!["Yes, push it".into()], note: None, by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at }
+        Suggestions { replies: vec!["Yes, push it".into()], note: None, by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at, prompt_at: None }
     }
 
     #[test]

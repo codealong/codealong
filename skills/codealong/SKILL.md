@@ -175,8 +175,11 @@ the session's box, and the user sends one with a click or types their own.
    means it has suggested replies already (and `by`, from whom).
 2. Read each one's end: `codealong session transcript <key>`, and `codealong session pending
    <key>` for a call it waits on the user to allow. Look at the worktree, the PR or the code as
-   far as the answer needs.
-3. `codealong session suggest <key> "<reply>" "<reply>" --note "<why, or what to weigh>"`. Write
+   far as the answer needs. Keep the `lastPromptAt` the transcript printed with what you read.
+3. `codealong session suggest <key> "<reply>" "<reply>" --prompt-at <lastPromptAt> --note "<why,
+   or what to weigh>"`, with the `lastPromptAt` from step 2, not a fresher one: if the user
+   replied since you read it, the suggestions are turned down (they'd answer the turn before),
+   and so they are while it takes a turn. Read it again and suggest for where it stands. Write
    each reply as the user would send it, in their words and ready to go as it is: one or two
    sentences, the best first, at most six. The note is for the user, not the session: what it
    asks, what you checked, what's risky. A reply goes to the session as the user's own message,

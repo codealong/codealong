@@ -416,9 +416,9 @@ enum SessionCmd {
         /// The session: `me`, or one this session started (its key, its id, or a unique start of its id).
         key: String,
     },
-    /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`) or a note (a message from another session, compaction). Oldest first; `before` is the cursor for the part before, null at the start. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
+    /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`) or a note (a message from another session, compaction). Oldest first; `before` is the cursor for the part before, null at the start; `lastPromptAt` is the session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
     Transcript(TranscriptArgs),
-    /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
+    /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
@@ -478,8 +478,11 @@ struct SuggestArgs {
     /// Why, or what to weigh before picking, in a sentence or two; shown with them.
     #[arg(long)]
     note: Option<String>,
+    /// The session's `lastPromptAt` as you read it: `session transcript` prints it with what it read, as do `sessions` and `session show`. The replies are turned down if it's been sent a prompt since, since they'd answer the turn before, and shown only until it's sent another.
+    #[arg(long, value_name = "MS", required_unless_present = "clear")]
+    prompt_at: Option<i64>,
     /// Take the session's suggested replies away.
-    #[arg(long, conflicts_with_all = ["replies", "note"])]
+    #[arg(long, conflicts_with_all = ["replies", "note", "prompt_at"])]
     clear: bool,
 }
 
@@ -1780,6 +1783,10 @@ const TRANSCRIPT_CUT: usize = 600;
 /// session-page request), on whichever device the session is on.
 fn session_transcript(c: &mut Client, a: &TranscriptArgs, json: bool) -> Result<()> {
     let key = resolve_session(c, &a.key)?;
+    // Taken before the page is read, so a prompt sent meanwhile makes it older than what was read,
+    // never newer: replies suggested for it are then turned down, not put on a turn they didn't
+    // see.
+    let prompt_at = c.board()?.session(&key).map(|(_, s)| s.last_prompt_at);
     let got = c.act(api::SESSION_PAGE, &key, params::Page { before: a.before, ..Default::default() }, None)?;
     let mut page: api::Page = serde_json::from_value(got).context("The conversation didn't read")?;
     if !a.full {
@@ -1792,7 +1799,7 @@ fn session_transcript(c: &mut Client, a: &TranscriptArgs, json: bool) -> Result<
         }
     }
     if json {
-        return print_json(&json!({ "session": key, "items": page.items, "before": page.before }));
+        return print_json(&json!({ "session": key, "lastPromptAt": prompt_at, "items": page.items, "before": page.before }));
     }
     let now = now_ms();
     for item in &page.items {
@@ -1811,6 +1818,9 @@ fn session_transcript(c: &mut Client, a: &TranscriptArgs, json: bool) -> Result<
     if let Some(before) = page.before {
         println!("\nEarlier: codealong session transcript {key} --before {before}");
     }
+    if let Some(at) = prompt_at {
+        println!("Suggest replies to this with --prompt-at {at}");
+    }
     Ok(())
 }
 
@@ -1825,7 +1835,7 @@ fn session_suggest(c: &mut Client, a: SuggestArgs, json: bool) -> Result<()> {
     if !a.clear && replies.iter().all(|r| r.trim().is_empty()) {
         bail!("Give at least one reply to suggest, or --clear to take them away.");
     }
-    let params = params::Suggest { replies, note: a.note, by: me.clone(), by_title, ..Default::default() };
+    let params = params::Suggest { replies, note: a.note, by: me.clone(), by_title, prompt_at: a.prompt_at, ..Default::default() };
     let got = c.act(api::SESSION_SUGGEST, &key, params, me)?;
     let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
     if json {

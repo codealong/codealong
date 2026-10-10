@@ -190,7 +190,9 @@ pub mod params {
     }
 
     /// `session-suggest`: the replies, in place of any it had; none takes them away. `by` and
-    /// `by_title` name the session that suggests them, as its own device knows it.
+    /// `by_title` name the session that suggests them, as its own device knows it, and
+    /// `prompt_at` is the session's last prompt as it read it: they're turned down when the
+    /// session's been sent another since. Macs before 2026-10-09 ignore it.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default, rename_all = "camelCase")]
     pub struct Suggest {
@@ -203,6 +205,8 @@ pub mod params {
         pub by: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub by_title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub prompt_at: Option<i64>,
     }
 
     /// `session-fork`: the copy starts on `prompt`, or waits for one when it's empty.

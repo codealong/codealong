@@ -409,6 +409,11 @@ pub struct Suggestions {
     pub by_title: Option<String>,
     /// When they were suggested, by the clock of the session's Mac.
     pub at: i64,
+    /// When the session was last sent a prompt as the suggester read it (its `last_prompt_at`):
+    /// they answer the reply to that prompt, and nothing once it's been sent another. None from
+    /// Macs before 2026-10-09, whose suggestions go by `at`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_at: Option<i64>,
 }
 
 /// Where a session came from: the session it was forked from or started by.
@@ -806,7 +811,7 @@ mod tests {
                 "branch": "login", "archived": true, "attachCommand": "claude attach j1", "continues": "claude:claude2:from",
                 "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
                 "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true,
-                "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10 },
+                "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
                 "earlier": true,
                 "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 }
             }"#,

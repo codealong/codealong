@@ -1258,14 +1258,14 @@ impl Engine {
     }
 
     /// Forgets the replies suggested for sessions that have moved on since: something was sent to
-    /// them, or a turn of theirs started. A turn that started and then ended would hold them again
+    /// them since they were read, or a turn of theirs started since they were suggested. A turn that started and then ended would hold them again
     /// by `board::suggestions_hold` alone, so they're forgotten as soon as it's seen.
     fn forget_stale_suggestions(&self, board: &Board) {
         let store = suggestions::current();
         if store.sessions.is_empty() {
             return;
         }
-        let stale: Vec<(String, i64)> = store.sessions.iter().filter(|(key, g)| board.session(key).is_some_and(|(_, s)| !board::suggestions_hold(s, g.at))).map(|(key, g)| (key.clone(), g.at)).collect();
+        let stale: Vec<(String, i64)> = store.sessions.iter().filter(|(key, g)| board.session(key).is_some_and(|(_, s)| !board::suggestions_hold(s, g))).map(|(key, g)| (key.clone(), g.at)).collect();
         if stale.is_empty() {
             return;
         }
