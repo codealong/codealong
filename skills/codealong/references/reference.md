@@ -1548,7 +1548,9 @@ Commands:
           session is the PR's primary (--take). Off for a PR until turned on for it,
           here or from its card in the app, unless `[pull_requests] nudge_by_default` in
           config.toml turns it on for every PR of yours; one turned on approved already
-          tells its session that now
+          tells its session that now. `[pull_requests] nudge_about` can keep what it
+          tells to comments and requests for changes ("feedback"), and failing checks
+          ("feedback-and-checks")
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1670,7 +1672,8 @@ agent did through gh, isn't told. Run from a session, that session becomes the o
 unless another running session is the PR's primary (--take). Off for a PR until turned
 on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default`
 in config.toml turns it on for every PR of yours; one turned on approved already tells
-its session that now
+its session that now. `[pull_requests] nudge_about` can keep what it tells to comments
+and requests for changes ("feedback"), and failing checks ("feedback-and-checks")
 
 Usage: codealong pr nudge [OPTIONS] <PR>
 

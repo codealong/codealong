@@ -224,8 +224,9 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
 - `codealong pr nudge <pr>` has Codealong tell a PR's primary session what happens on it: while
   it runs, it gets a message, as if the user had sent it, when someone else reviews the PR, asks
   for changes or comments (with what they wrote), when it's approved, merged or closed, and when
-  its checks fail, with where the PR stands. What you do to it yourself through `gh` isn't told
-  back. The primary session is the one that opened the PR; the PR's other sessions are never
+  its checks fail, with where the PR stands; `[pull_requests] nudge_about` can keep that to
+  comments and requests for changes (`"feedback"`), and failing checks (`"feedback-and-checks"`).
+  What you do to it yourself through `gh` isn't told back. The primary session is the one that opened the PR; the PR's other sessions are never
   told. Run it from your session and you become the one told, unless another running session
   is the PR's primary (it says so): leave that one be unless the user asks you to take the PR
   over, then add `--take`. It's off for a PR until turned on for it (the user can also turn it
