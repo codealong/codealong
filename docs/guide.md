@@ -488,7 +488,13 @@ Ask (see *Waiting on you*) at its foot, and over it, always, a line saying where
 stands: the agent's round, your draft and its comments, or that there's none yet; a click on it
 shows the Review tab. Every agent review ends on what the agent would do with the PR, a `Verdict:`
 line (approve, request changes or comment) that isn't posted: the line says what it suggests, and
-its button in the box is marked with sparkles. `[reviews] submit` (Settings › Automation, Submit the
+its button in the box is marked with sparkles. When it suggests requesting changes or commenting,
+and its review of the commit the PR's at hasn't been submitted, that button is the filled one and
+submits the agent's review as your review in one press, with nothing written: your draft review,
+its comments and all, else the review itself (or, posted as a comment, a link to it), with what
+you wrote there going first, even into a draft with words of yours. Approve steps back beside it,
+and ⌘⏎ still approves; ⌥⌘⏎ comments with the agent's review when it suggests commenting.
+`[reviews] submit` (Settings › Automation, Submit the
 agent's review for you) has Codealong submit that verdict as your review once the review is posted,
 for a PR that waits on your review: `"never"` (the default) leaves every one to you; `"approve"`
 approves a PR the agent would approve; `"approve-or-request-changes"` does that and requests changes

@@ -58,7 +58,8 @@
 //! yours; without one, a comment or a request for changes points to the review posted as a comment,
 //! or carries the review with posting off (`without_draft`). A PR that waits on your review is held
 //! out of what waits on you until its review is submitted, when it's to be. An agent that can't
-//! tell leaves it to you.
+//! tell leaves it to you. The PR's box submits it by hand, as the verdict its agent suggests, with
+//! what you wrote before it (`submit_now`, through lib.rs `review_pr`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -1636,18 +1637,81 @@ fn submit(engine: &Handle, pr: &PrItem, head: &str, verdict: Verdict, text: Opti
         Ok(y) => y.draft,
         Err(e) => return Went::PostFailed(format!("{e:#}")),
     };
-    let body = match (&draft, text) {
-        (Some(d), _) if !codealongs_only(&d.whole) => return Went::NotSubmitted("your draft review on it has words of yours, so it's yours to submit.".into()),
-        (Some(_), _) => "",
-        (None, Some(text)) => text,
-        (None, None) => return Went::NotSubmitted("the agent's draft review isn't on GitHub any more: it was submitted or thrown away.".into()),
+    let body = match submission(draft.as_ref(), text, None) {
+        Ok(body) => body,
+        Err(why) => return Went::NotSubmitted(why),
     };
-    match crate::github::review_with(&pr.repo_slug, pr.number, verdict, body, draft.as_ref()) {
+    match crate::github::review_with(&pr.repo_slug, pr.number, verdict, &body, draft.as_ref()) {
         Ok(_) => {
             engine.approved(&pr.repo_slug, pr.number);
             Went::Submitted
         }
         Err(e) => Went::PostFailed(format!("{e:#}")),
+    }
+}
+
+/// The text a round's review is submitted with: none of its own where your draft review goes
+/// (the draft's, what you wrote going before it: github.rs `review_with`), else `text`
+/// (`without_draft`). `by_hand` is what you wrote, where you asked for it from the PR's box
+/// (`submit_now`): it goes first, and a draft with words of yours in it goes too, which isn't
+/// submitted for you otherwise. Err says why nothing goes.
+fn submission(draft: Option<&crate::github::Draft>, text: Option<&str>, by_hand: Option<&str>) -> Result<String, String> {
+    let words = by_hand.unwrap_or_default().trim();
+    match (draft, text) {
+        (Some(d), _) if by_hand.is_none() && !codealongs_only(&d.whole) => Err("your draft review on it has words of yours, so it's yours to submit.".into()),
+        (Some(_), _) => Ok(words.to_string()),
+        (None, Some(text)) if words.is_empty() => Ok(text.to_string()),
+        (None, Some(text)) if text.is_empty() => Ok(words.to_string()),
+        (None, Some(text)) => Ok(format!("{words}\n\n{text}")),
+        (None, None) => Err("the agent's draft review isn't on GitHub any more: it was submitted or thrown away.".into()),
+    }
+}
+
+/// Submits a PR's latest agent review as yours now, as `verdict`, with what you wrote before it,
+/// as the PR's box does with the verdict its agent suggests (PrBox.tsx): your draft review, the
+/// agent's and whatever you added to it, else the review itself or a link to it as posted
+/// (`without_draft`). The review must be of the commit the PR's at and not submitted yet. One
+/// GitHub refuses is said where it was asked for, and leaves the round as it was.
+pub fn submit_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, verdict: Verdict, words: &str) -> Result<crate::github::Reviewed, String> {
+    let board = engine.board();
+    let pr = board.prs.iter().find(|p| p.key.eq_ignore_ascii_case(key)).ok_or("Codealong doesn't list that PR any more.")?;
+    if !pr.state.is_open() {
+        return Err("It's closed.".into());
+    }
+    let head = pr.head_oid.clone().ok_or("GitHub hasn't said which commit it's at yet.")?;
+    let k = pr_key(&pr.key);
+    let job = {
+        let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+        if r.busy.contains(&k) {
+            return Err("Its review is being read or sent: try again in a moment.".into());
+        }
+        let round = r.store.prs.get(&k).and_then(|t| t.rounds.last()).filter(|r| r.head == head && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept));
+        let round = round.ok_or("The agent hasn't reviewed the commit it's at now.")?;
+        if round.submitted.as_ref().is_some_and(|s| s.failed.is_none()) {
+            return Err("The agent's review of it was submitted already.".into());
+        }
+        let text = without_draft(round, pr, &head, verdict);
+        r.busy.insert(k.clone());
+        Job::Submit { pr: pr.clone(), head, verdict, text }
+    };
+    let Job::Submit { text, .. } = &job else { unreachable!() };
+    let sent = crate::github::your_review(&pr.repo_slug, pr.number).map_err(|e| format!("{e:#}")).and_then(|y| {
+        let body = submission(y.draft.as_ref(), text.as_deref(), Some(words))?;
+        crate::github::review_with(&pr.repo_slug, pr.number, verdict, &body, y.draft.as_ref()).map_err(|e| format!("{e:#}"))
+    });
+    let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+    match sent {
+        Ok(done) => {
+            let said = r.told(&job, Went::Submitted, now_ms());
+            drop(r);
+            engine.approved(&pr.repo_slug, pr.number);
+            engine.reviewed(said);
+            Ok(done)
+        }
+        Err(why) => {
+            r.busy.remove(&k);
+            Err(why)
+        }
     }
 }
 
@@ -2080,6 +2144,23 @@ mod tests {
         assert!(codealongs_only("Fine.\n<!-- codealong-review o/r#7 abc -->"));
         assert!(codealongs_only("Round one.\n<!-- codealong-review o/r#7 abc -->\n\n---\n\nRound two.\n<!-- codealong-review o/r#7 def -->"));
         assert!(!codealongs_only("My own notes.\n\n---\n\nFine.\n<!-- codealong-review o/r#7 abc -->"));
+    }
+
+    #[test]
+    fn a_review_submitted_by_hand_has_what_you_wrote_first() {
+        let draft = |whole: &str| crate::github::Draft { id: "R".into(), body: whole.into(), commit: None, url: None, comments: Vec::new(), count: 1, whole: whole.into() };
+        let agents = draft("Fix it.\n<!-- codealong-review o/r#7 abc -->");
+        let yours = draft("My own notes.");
+        // For you: the agent's draft goes as it is; one with words of yours is yours to submit.
+        assert_eq!(submission(Some(&agents), None, None), Ok(String::new()));
+        assert!(submission(Some(&yours), None, None).is_err());
+        // By hand: your draft goes, words of yours in it or not, with what you wrote before its text.
+        assert_eq!(submission(Some(&yours), None, Some("  Also this. ")), Ok("Also this.".into()));
+        // With no draft, the review's own text, after what you wrote.
+        assert_eq!(submission(None, Some("The agent's review"), Some("")), Ok("The agent's review".into()));
+        assert_eq!(submission(None, Some("The agent's review"), Some("Also this.")), Ok("Also this.\n\nThe agent's review".into()));
+        assert_eq!(submission(None, Some(""), Some("Looks good.")), Ok("Looks good.".into()));
+        assert!(submission(None, None, Some("Also this.")).is_err());
     }
 
     #[test]

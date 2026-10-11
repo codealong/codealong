@@ -2,7 +2,7 @@
 // (ui/AgentReview.tsx): each comment on a line of the code with the lines around it from the PR's
 // diff, and a link to that line on GitHub at the commit it reviewed.
 
-import type { PrItem } from './types';
+import type { PrItem, Verdict } from './types';
 
 /** A line of a diff around a comment's line, as `excerptAt` gives it. */
 export interface ExcerptLine {
@@ -65,4 +65,23 @@ export function openingTab(pr: Pick<PrItem, 'reviewRequested' | 'state' | 'autoR
   const theirs = pr.reviewRequested && (stage === 'drafted' || stage === 'posted' || stage === 'kept');
   const yours = !!a?.own && stage === 'kept';
   return open && (theirs || yours) ? 'review' : 'description';
+}
+
+/** The verdict a PR's box submits the agent's review as, in one press (PrBox.tsx; autoreview.rs
+ *  `submit_now`): the one it suggests, when that's a request for changes or a comment (an approval
+ *  needs no text of its own, so its button is as it always is), while its latest review is of the
+ *  commit the PR's at, there to submit (drafted, posted or kept), not submitted yet, and of
+ *  someone else's open PR. Null otherwise. */
+export function agentsVerdict(pr: Pick<PrItem, 'state' | 'mine' | 'headOid' | 'autoReview'>): Verdict | null {
+  const a = pr.autoReview;
+  if (!a?.suggests || a.suggests === 'approve' || a.submitted || a.own || pr.mine) return null;
+  if (pr.state === 'merged' || pr.state === 'closed' || !pr.headOid || a.head !== pr.headOid) return null;
+  return a.stage === 'drafted' || a.stage === 'posted' || a.stage === 'kept' ? a.suggests : null;
+}
+
+/** What the agent's review goes as, in its button's words: "with your draft review and its 3
+ *  comments", "pointing to the agent's review on the PR", "with the agent's review". */
+export function agentsWords(stage: string, draftComments: number | null): string {
+  if (draftComments !== null) return `with your draft review${draftComments > 0 ? ` and its ${draftComments === 1 ? 'comment' : `${draftComments} comments`}` : ''}`;
+  return stage === 'posted' ? 'pointing to the agent’s review on the PR' : 'with the agent’s review as its text';
 }

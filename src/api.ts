@@ -164,10 +164,11 @@ export async function prCommentAsks(title: string, comments: { id: string; autho
 /** Reviews a PR as you: approves it, comments on it or asks for changes, with `body` as the
  *  review's text (a comment or a request for changes needs some). With a draft review of yours
  *  on it, that's what's submitted, `body` going before its text. */
-export async function reviewPr(repo: string, number: number, verdict: Verdict, body: string): Promise<Reviewed> {
+export async function reviewPr(repo: string, number: number, verdict: Verdict, body: string, agents = false): Promise<Reviewed> {
   if (!inTauri) throw new Error('Reviewing needs the app.');
-  // An engine from before drafts were submitted answers nothing.
-  return (await invoke<Reviewed | null>('review_pr', { repo, number, verdict, body })) ?? { draft: null };
+  // An engine from before drafts were submitted answers nothing. With `agents`, the agent's review
+  // is what's submitted, `body` before it (autoreview.rs `submit_now`).
+  return (await invoke<Reviewed | null>('review_pr', { repo, number, verdict, body, agents })) ?? { draft: null };
 }
 
 /** Hands a PR of yours' latest agent review to the session that opened it (autoreview.rs

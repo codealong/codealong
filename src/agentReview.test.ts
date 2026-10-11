@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { excerptAt, lineLink, openingTab } from './agentReview';
+import { agentsVerdict, agentsWords, excerptAt, lineLink, openingTab } from './agentReview';
 
 /** Two hunks of one file's patch, as GitHub gives it. */
 const PATCH = ['@@ -1,4 +1,5 @@', ' fn a() {', '-    old();', '+    new();', '+    more();', ' }', ' ', '@@ -20,3 +21,3 @@ fn b() {', ' let x = 1;', '-let y = 2;', '+let y = 3;', ' x + y', '\\ No newline at end of file'].join('\n');
@@ -38,5 +38,33 @@ describe('openingTab', () => {
     // A review of a PR of yours, which nobody asked you to review.
     expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('posted'), stage: 'kept', own: true } })).toBe('review');
     expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('reviewing'), own: true } })).toBe('description');
+  });
+});
+
+describe('agentsVerdict', () => {
+  const pr = (a: Record<string, unknown>, more: Record<string, unknown> = {}) => ({ state: 'open' as const, mine: false, headOid: 'abc', autoReview: { stage: 'posted' as const, head: 'abc', at: 0, rounds: 1, suggests: 'request-changes' as const, ...a }, ...more });
+  it('is what the agent suggests asking or saying, while its review of the commit the PR is at waits to be submitted', () => {
+    expect(agentsVerdict(pr({}))).toBe('request-changes');
+    expect(agentsVerdict(pr({ suggests: 'comment', stage: 'kept' }))).toBe('comment');
+    expect(agentsVerdict(pr({ stage: 'drafted' }))).toBe('request-changes');
+  });
+
+  it('is nothing for an approval, a review of an earlier commit, one submitted, one under way, or a PR of yours or closed', () => {
+    expect(agentsVerdict(pr({ suggests: 'approve' }))).toBeNull();
+    expect(agentsVerdict(pr({ head: 'old' }))).toBeNull();
+    expect(agentsVerdict(pr({ submitted: 'request-changes' }))).toBeNull();
+    expect(agentsVerdict(pr({ stage: 'reviewing' }))).toBeNull();
+    expect(agentsVerdict(pr({ suggests: null }))).toBeNull();
+    expect(agentsVerdict(pr({ own: true }))).toBeNull();
+    expect(agentsVerdict(pr({}, { mine: true }))).toBeNull();
+    expect(agentsVerdict(pr({}, { state: 'merged' }))).toBeNull();
+    expect(agentsVerdict(pr({}, { headOid: undefined }))).toBeNull();
+  });
+
+  it('says what goes with it', () => {
+    expect(agentsWords('drafted', 3)).toBe('with your draft review and its 3 comments');
+    expect(agentsWords('drafted', 1)).toBe('with your draft review and its comment');
+    expect(agentsWords('posted', null)).toBe('pointing to the agent’s review on the PR');
+    expect(agentsWords('kept', null)).toBe('with the agent’s review as its text');
   });
 });

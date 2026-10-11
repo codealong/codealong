@@ -104,9 +104,10 @@ export function saysSomething(verdict: Verdict, written: string, draft: Draft | 
 const PAST: Record<Verdict, string> = { approve: 'Approved', comment: 'Commented on', 'request-changes': 'Requested changes on' };
 
 /** What a window says once a review went: what was done, and the draft submitted with it. */
-export function reviewedWords(verdict: Verdict, number: number, done: Reviewed | null | undefined): string {
+export function reviewedWords(verdict: Verdict, number: number, done: Reviewed | null | undefined, agents = false): string {
   const n = done?.draft;
-  return n == null ? `${PAST[verdict]} #${number}.` : `${PAST[verdict]} #${number}, submitting your draft review${n > 0 ? ` and its ${commentsWord(n)}` : ''}.`;
+  if (n == null) return agents ? `${PAST[verdict]} #${number} with the agent’s review.` : `${PAST[verdict]} #${number}.`;
+  return `${PAST[verdict]} #${number}, submitting your draft review${n > 0 ? ` and its ${commentsWord(n)}` : ''}.`;
 }
 
 /** What a verdict's button says it does with a draft there: "Approve, submitting your draft

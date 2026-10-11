@@ -9,7 +9,11 @@
 // Comment and Approve, the one the agent suggests (`AutoReview.suggests`) marked so; a comment or
 // a request for changes needs something to say, which your draft review on GitHub can hold, and a
 // verdict on a PR you have a draft of submits it, comments and all, what's written going before
-// its text (prDraft.ts). Ask puts questions about the PR to an agent (side.rs `ask_pr`), which
+// its text (prDraft.ts). When the agent suggests asking for changes or commenting, and its review
+// of the commit the PR's at waits to be submitted, that verdict is the filled button and submits
+// the agent's review in one press, with nothing written needed (agentReview.ts `agentsVerdict`,
+// autoreview.rs `submit_now`): your draft review, else the review itself or a link to it as
+// posted, what you wrote going first. Approve steps back beside it, and ⌘⏎ still approves. Ask puts questions about the PR to an agent (side.rs `ask_pr`), which
 // reads its description, discussion and whole diff, and the code around them in a checkout of the
 // repo here, and changes nothing: ⏎ asks, and the answers show above the box, in the strip a
 // session's side conversations show in (SideStrip.tsx), kept to read again after it's closed.
@@ -23,6 +27,7 @@
 // box sending, then empty, or saying why GitHub refused it with what was written still there.
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { agentsVerdict, agentsWords } from '../agentReview';
 import { prSideAsk, reviewPr } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
 import { commentsWord, readAgain, reviewedWords, saysSomething, useYourReview, verdictWords } from '../prDraft';
@@ -88,6 +93,8 @@ export interface PrBox {
   starting: boolean;
   /** The verdict being sent from a box that stays (the panel's). */
   sending: Verdict | null;
+  /** The verdict that submits the agent's review in one press (`agentsVerdict`). */
+  agents: Verdict | null;
   accounts: StartAccount[];
   switchTo: (to: BoxSide) => void;
   /** Gives a verdict with what's written on Review. */
@@ -139,10 +146,14 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     box.current?.focus();
   };
 
+  // The verdict that submits the agent's review in one press, what it suggests asking or saying:
+  // it needs nothing written, the review saying it (agentReview.ts `agentsVerdict`).
+  const agents = agentsVerdict(pr);
   const review = (verdict: Verdict) => {
     if (sent.current || sending) return;
     const body = reviewText.trim();
-    if (!saysSomething(verdict, body, draft)) {
+    const withAgents = verdict === agents;
+    if (!withAgents && !saysSomething(verdict, body, draft)) {
       setSide('review');
       setNote({ text: verdict === 'comment' ? 'Write the comment first.' : 'Say what to change first.', error: true });
       box.current?.focus();
@@ -156,10 +167,10 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     } else {
       setSending(verdict);
     }
-    reviewPr(pr.repoSlug, pr.number, verdict, body)
+    reviewPr(pr.repoSlug, pr.number, verdict, body, withAgents)
       .then(
         (done) => {
-          report.info(reviewedWords(verdict, pr.number, done));
+          report.info(reviewedWords(verdict, pr.number, done, withAgents));
           if (!onSent) {
             setReviewText('');
             drafts.delete(pr.key);
@@ -222,7 +233,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     void showContextMenu(items, below(el)).catch((e: unknown) => report.error(errorText(e)));
   };
 
-  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, accounts, switchTo, review, ask, pickAnswerer };
+  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, agents, accounts, switchTo, review, ask, pickAnswerer };
 }
 
 /** Where the PR's review stands, over its box: a click shows its Review tab. */
@@ -258,7 +269,7 @@ export interface PrBoxProps {
 }
 
 export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, onShowReview, className }: PrBoxProps) {
-  const { asking, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, note, sending } = b;
+  const { asking, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, note, sending, agents } = b;
   const text = asking ? b.askText : b.reviewText;
   const setText = asking ? b.setAskText : b.setReviewText;
   const suggests = pr.autoReview && !pr.autoReview.submitted ? pr.autoReview.suggests : null;
@@ -267,7 +278,18 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
   const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';
   const onward = goesOn ? ' and goes on' : '';
   const withDraft = draft ? ` with your draft review${draft.count > 0 ? ` and its ${commentsWord(draft.count)}` : ''}` : '';
-  const verdicts = reviewable ? `${keys.approve} approves${withDraft}${onward} · ${keys.comment} comments` : stillOpen ? `${notReviewable}; ${keys.comment} comments${withDraft}` : 'It’s closed; a comment still goes to the PR';
+  // Where the agent's review goes in one press, the line says that press first, and that
+  // approving is still there.
+  const verdicts =
+    agents === 'request-changes'
+      ? `Request changes sends the agent’s review${onward} · ${keys.approve} approves anyway · ${keys.comment} comments`
+      : agents === 'comment'
+        ? `${keys.comment} comments with the agent’s review${onward} · ${keys.approve} approves anyway`
+        : reviewable
+          ? `${keys.approve} approves${withDraft}${onward} · ${keys.comment} comments`
+          : stillOpen
+            ? `${notReviewable}; ${keys.comment} comments${withDraft}`
+            : 'It’s closed; a comment still goes to the PR';
   const answering = conversation?.running && !asking ? `${conversation.account ?? 'Ask'} is answering on Ask · ` : '';
   const said = note?.text ?? (sending ? 'Sending to GitHub…' : starting ? 'Reading the PR…' : asking ? [`⏎ asks${answerer ? ` ${answerer}` : ''}`, reviewable && `${keys.approve} approves${onward}`].filter(Boolean).join(' · ') : answering + verdicts);
   // Ask's earlier questions, while nothing about them shows above the box.
@@ -275,7 +297,13 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
   const sideShown = !!conversation || (!!shown && shown.kind !== 'starting') || starting;
   const button = (v: Verdict, label: string, base: string) => {
     const s = suggested(v);
-    return { icon: s?.icon, title: `${s?.why ?? ''}${verdictWords(v, draft) ?? base}`, label: sending === v ? 'Sending…' : label };
+    const label2 = sending === v ? 'Sending…' : label;
+    // The agent's verdict submits its review, what you wrote going first.
+    if (v === agents) {
+      const yours = b.reviewText.trim() ? ', what you wrote before it' : '';
+      return { icon: 'sparkles', title: `${label} ${agentsWords(pr.autoReview?.stage ?? '', draft ? draft.count : null)}${yours}. The agent suggests this.`, label: label2 };
+    }
+    return { icon: s?.icon, title: `${s?.why ?? ''}${verdictWords(v, draft) ?? base}`, label: label2 };
   };
   const changes = button('request-changes', 'Request changes', 'Ask for changes, with what’s written');
   const comment = button('comment', 'Comment', 'Comment with what’s written');
@@ -358,16 +386,18 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
             </div>
           ) : (
             <div className="ca-composer-buttons ca-prreview-buttons">
+              {/* The agent's verdict, when its review goes in one press, is the filled one, and
+                  needs nothing written; Approve steps back beside it. */}
               {reviewable && (
-                <Button size="sm" icon={changes.icon} disabled={!!sending || !saysSomething('request-changes', b.reviewText, draft)} title={changes.title} onClick={() => b.review('request-changes')}>
+                <Button variant={agents === 'request-changes' ? 'primary' : 'secondary'} size="sm" icon={changes.icon} disabled={!!sending || (agents !== 'request-changes' && !saysSomething('request-changes', b.reviewText, draft))} title={changes.title} onClick={() => b.review('request-changes')}>
                   {changes.label}
                 </Button>
               )}
-              <Button size="sm" icon={comment.icon} disabled={!!sending || !saysSomething('comment', b.reviewText, draft)} title={`${comment.title} (${keys.comment})`} onClick={() => b.review('comment')}>
+              <Button variant={agents === 'comment' ? 'primary' : 'secondary'} size="sm" icon={comment.icon} disabled={!!sending || (agents !== 'comment' && !saysSomething('comment', b.reviewText, draft))} title={`${comment.title} (${keys.comment})`} onClick={() => b.review('comment')}>
                 {comment.label}
               </Button>
               {reviewable && (
-                <Button variant="primary" size="sm" icon={approve.icon ?? 'check'} disabled={!!sending} title={`${approve.title} (${keys.approve})`} onClick={() => b.review('approve')}>
+                <Button variant={agents ? 'secondary' : 'primary'} size="sm" icon={approve.icon ?? 'check'} disabled={!!sending} title={`${approve.title} (${keys.approve})`} onClick={() => b.review('approve')}>
                   {approve.label}
                 </Button>
               )}

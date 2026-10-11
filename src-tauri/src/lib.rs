@@ -973,11 +973,15 @@ async fn pr_comment_asks(title: String, comments: Vec<prasks::CommentIn>) -> Res
 /// Reviews a PR as you: approves it, comments on it or asks for changes, with `body` as the
 /// review's text, submitting your draft review of it when you have one (github.rs `review`). Any
 /// review settles the request to you, so it returns once the board no longer asks for your
-/// review, and PRs are read again for the rest.
+/// review, and PRs are read again for the rest. With `agents`, it's the agent's review that's
+/// submitted, as the verdict it suggests, `body` going before it (autoreview.rs `submit_now`).
 #[tauri::command]
-async fn review_pr(engine: State<'_, engine::Handle>, repo: String, number: u64, verdict: github::Verdict, body: String) -> Result<github::Reviewed, String> {
-    let engine = engine.inner().clone();
+async fn review_pr(engine: State<'_, engine::Handle>, reviews: State<'_, Reviews>, repo: String, number: u64, verdict: github::Verdict, body: String, agents: Option<bool>) -> Result<github::Reviewed, String> {
+    let (engine, reviewer) = (engine.inner().clone(), reviews.0.clone());
     blocking(move || {
+        if agents == Some(true) {
+            return autoreview::submit_now(&engine, &reviewer, &format!("{repo}#{number}"), verdict, &body);
+        }
         let done = github::review(&repo, number, verdict, &body).map_err(words)?;
         engine.approved(&repo, number);
         Ok(done)

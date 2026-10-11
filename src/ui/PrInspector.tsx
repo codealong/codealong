@@ -20,7 +20,7 @@
 // content security policy blocks scripts on top of that. Links in it open in the browser.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { openingTab, type PrTab } from '../agentReview';
+import { agentsVerdict, openingTab, type PrTab } from '../agentReview';
 import { below, showContextMenu } from '../contextMenu';
 import { openPrFile, openUrl, prCommentAsks, prDetail } from '../api';
 import { useEditorIcons } from '../editors';
@@ -212,9 +212,10 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
   const requested = pr.reviewRequested && prIsOpen(pr);
   // What's read of your draft by the details below: approving submits it.
   const draft = useYourReview(pr, false)?.review?.draft;
-  // Approve is for any open PR but yours, asked for or not; it's filled when it's asked of you.
+  // Approve is for any open PR but yours, asked for or not; it's filled when it's asked of you,
+  // unless the agent suggests otherwise and its review goes from the box in one press.
   const lead = mayApprove(pr) && (
-    <Button variant={requested ? 'primary' : 'secondary'} icon="check" disabled={approving} title={verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for')} onClick={onApprove}>
+    <Button variant={requested && !agentsVerdict(pr) ? 'primary' : 'secondary'} icon="check" disabled={approving} title={verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for')} onClick={onApprove}>
       {approving ? 'Approving…' : 'Approve'}
     </Button>
   );
