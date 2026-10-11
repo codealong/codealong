@@ -323,8 +323,9 @@ pub enum Job {
     Review { pr: PrItem, head: String, since: Option<String>, seat: Seat, by_hand: bool },
     /// The round's part `part` ended its turn in `session`: read the review it wrote after `at`.
     Read { pr: PrItem, head: String, part: usize, session: String, at: i64 },
-    /// Post the round's review, written by `agent`.
-    Post { pr: PrItem, head: String, review: String, agent: String },
+    /// Post the round's review, written by `agent`. `round`: when the round began, which tells its
+    /// review from another of the same commit in your draft (`draft_mark`).
+    Post { pr: PrItem, head: String, review: String, agent: String, round: i64 },
     /// Hand a PR of yours' review of commit `head`, written by `agent`, to `session`, the one
     /// that opened it.
     Send { pr: PrItem, head: String, session: String, review: String, agent: String },
@@ -583,7 +584,7 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
         return if changed { Next::Changed } else { Next::Wait };
     }
     if let Some(p) = r.parts.iter().find(|p| p.state == PartState::Done) {
-        return Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), review: p.review.clone().unwrap_or_default(), agent: p.label() });
+        return Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), review: p.review.clone().unwrap_or_default(), agent: p.label(), round: r.at });
     }
     let skip = r.parts.iter().find(|p| p.state == PartState::Skipped).and_then(|p| p.note.clone());
     let why = r.parts.iter().filter_map(|p| p.note.as_deref()).collect::<Vec<_>>().join(" ");
@@ -708,13 +709,29 @@ impl Reviewer {
         jobs
     }
 
+    /// Makes way for a round of PR `key` asked for by hand: not while one is under way, but an
+    /// automatic round left under way when reviews were turned off (`on` false), which goes no
+    /// further (`due`), is ended for it.
+    fn clear_for_hand(&mut self, key: &str, on: bool, now: i64) -> Result<(), String> {
+        let last = self.store.prs.get_mut(key).and_then(|t| t.rounds.last_mut()).filter(|x| x.stage == ReviewStage::Reviewing);
+        if self.busy.contains(key) || last.as_ref().is_some_and(|x| on || x.by_hand) {
+            return Err("A review of it is under way: its card says how that goes.".into());
+        }
+        if let Some(x) = last {
+            end(x, ReviewStage::Failed, Some("Automatic reviews were turned off before it was done.".into()), now);
+        }
+        Ok(())
+    }
+
     /// The send due for a PR of yours at `head` (`to_send`): to the session that opened it, once
     /// that runs here and doesn't wait on you, while sending is on and the PR is open.
     fn send_due(&self, board: &Board, cfg: &ReviewsCfg, pr: &PrItem, head: &str) -> Option<Job> {
-        if !(pr.mine && cfg.own.auto && cfg.own.send && pr.state.is_open()) {
+        if !(pr.mine && cfg.own.send && pr.state.is_open()) {
             return None;
         }
-        let (review, agent) = to_send(self.store.prs.get(&pr_key(&pr.key))?.rounds.last()?, head)?;
+        // A round asked for by hand goes back as an automatic one would.
+        let r = self.store.prs.get(&pr_key(&pr.key))?.rounds.last().filter(|r| cfg.own.auto || r.by_hand)?;
+        let (review, agent) = to_send(r, head)?;
         let (_, s) = origin(&board.lanes, pr).filter(|(_, s)| can_take(s))?;
         Some(Job::Send { pr: pr.clone(), head: head.to_string(), session: s.key.clone(), review, agent })
     }
@@ -981,7 +998,7 @@ fn back_note(r: &Round, cfg: &ReviewsCfg, head: &str) -> Option<String> {
     match &r.sent {
         Some(Sent { failed: Some(why), .. }) => Some(format!("It couldn't be handed to the session that opened the PR: {why}")),
         Some(_) => None,
-        None if !cfg.own.send => Some("Handing reviews back is off: send it from here.".into()),
+        None if !cfg.own.send || !(cfg.own.auto || r.by_hand) => Some("Handing reviews back is off: send it from here.".into()),
         None if r.head != head => Some("New commits came in since, so it isn't sent: the next review is.".into()),
         None => Some("It goes to the session that opened the PR once that runs here and doesn't wait on you.".into()),
     }
@@ -1285,12 +1302,17 @@ fn written_in(pr: &PrItem, head: &str, comments: &[LineComment]) -> String {
 /// A review's text as it's posted: `text`, cut to what GitHub takes, then a line saying an agent
 /// wrote it, of which commit, and the unseen mark (`marker`).
 fn signed(text: &str, pr: &PrItem, head: &str, agent: &str, how: &str) -> String {
+    signed_with(text, head, agent, how, &marker(&pr.key, head))
+}
+
+/// `signed`, with `mark` as its unseen mark.
+fn signed_with(text: &str, head: &str, agent: &str, how: &str, mark: &str) -> String {
     let mut text = text.trim().to_string();
     if text.chars().count() > COMMENT_MAX {
         let cut = crate::util::truncate(&text, COMMENT_MAX);
         text = format!("{}\n\n…(cut short: the whole review is longer than GitHub takes)", cut.trim_end());
     }
-    format!("{text}\n\n<sub>An agent's review ({agent}) of {}, {how} by Codealong.</sub>\n{}", short(head), marker(&pr.key, head))
+    format!("{text}\n\n<sub>An agent's review ({agent}) of {}, {how} by Codealong.</sub>\n{mark}", short(head))
 }
 
 /// The comment posted for a review: its text, then its comments on particular lines, each under a
@@ -1313,8 +1335,6 @@ pub struct DraftPlan {
     pub add_to: Option<String>,
     pub body: String,
     pub threads: Vec<LineComment>,
-    /// The review's own part of `body`, signed, which a draft that has it already holds.
-    pub ours: String,
 }
 
 /// How a review goes into a draft on your account. A comment goes on its line when the PR's diff
@@ -1322,24 +1342,25 @@ pub struct DraftPlan {
 /// no other, so the rest are written into its text under links to their lines. A draft you have
 /// already keeps what you wrote, the review's text going after it, and one begun on another
 /// commit takes every comment in its text, since its lines are numbered by that commit.
-pub fn draft_plan(summary: &str, comments: Vec<LineComment>, lines: &HashMap<String, HashSet<u64>>, pending: Option<&PendingReview>, pr: &PrItem, head: &str, agent: &str) -> DraftPlan {
+pub fn draft_plan(summary: &str, comments: Vec<LineComment>, lines: &HashMap<String, HashSet<u64>>, pending: Option<&PendingReview>, pr: &PrItem, head: &str, agent: &str, round: i64) -> DraftPlan {
     let same = pending.is_none_or(|p| p.commit.as_deref() == Some(head));
     let (threads, rest): (Vec<LineComment>, Vec<LineComment>) = comments.into_iter().partition(|c| same && lines.get(&c.path).is_some_and(|l| l.contains(&c.line)));
     let others = written_in(pr, head, &rest);
     let others = if others.is_empty() { others } else { format!("**On other lines**\n\n{others}") };
     let text = [summary.trim(), others.as_str()].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
-    let ours = signed(&text, pr, head, agent, "drafted");
+    let ours = signed_with(&text, head, agent, "drafted", &draft_mark(&pr.key, head, round));
     let body = match pending.map(|p| p.body.trim()).filter(|b| !b.is_empty()) {
         Some(mine) => format!("{mine}\n\n---\n\n{ours}"),
-        None => ours.clone(),
+        None => ours,
     };
-    DraftPlan { add_to: pending.map(|p| p.id.clone()), body, threads, ours }
+    DraftPlan { add_to: pending.map(|p| p.id.clone()), body, threads }
 }
 
-/// Whether a draft's text holds `ours` already, line endings and trailing spaces aside.
-fn holds_text(body: &str, ours: &str) -> bool {
-    let norm = |t: &str| t.replace("\r\n", "\n").lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
-    norm(body).contains(norm(ours).trim())
+/// The mark a review drafted for round `round` carries: the PR's and commit's (`marker`), which
+/// tells another Mac it's reviewed, then the round's, which tells a draft that has this round's
+/// review from one that has another of the same commit.
+pub fn draft_mark(pr_key_: &str, head: &str, round: i64) -> String {
+    format!("{} <!-- round {round} -->", marker(pr_key_, head))
 }
 
 /// Where a PR's draft review is seen: its files, beside the lines it comments on.
@@ -1348,10 +1369,10 @@ fn draft_link(pr: &PrItem) -> String {
 }
 
 /// Puts a review into a draft on your account (`draft_plan`), reading the PR's diff and your draft
-/// as they are now. A draft that has this review already (its own signed text) is left as it is: a
-/// post tried again after adding part of it doesn't add it twice. Another review of the same commit,
-/// asked for by hand, goes in after it.
-fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, agent: &str) -> Went {
+/// as they are now. A draft that has this round's review already (its mark, `draft_mark`) is left
+/// as it is: a post tried again after adding part of it doesn't add it twice. Another round's
+/// review of the same commit, asked for by hand, goes in after it.
+fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, agent: &str, round: i64) -> Went {
     let diff = match crate::github::pr_diff(&pr.repo_slug, pr.number) {
         Ok(d) => d,
         Err(e) => return Went::PostFailed(format!("its diff couldn't be read: {e:#}")),
@@ -1360,10 +1381,10 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
         Ok(p) => p,
         Err(e) => return Went::PostFailed(format!("{e:#}")),
     };
-    let plan = draft_plan(summary, comments, &commentable(&diff), pending.as_ref(), pr, head, agent);
-    if pending.as_ref().is_some_and(|p| holds_text(&p.body, &plan.ours)) {
+    if pending.as_ref().is_some_and(|p| p.body.contains(&draft_mark(&pr.key, head, round))) {
         return Went::Drafted(draft_link(pr));
     }
+    let plan = draft_plan(summary, comments, &commentable(&diff), pending.as_ref(), pr, head, agent, round);
     let done = match &plan.add_to {
         None => crate::github::draft_review(&id, head, &plan.body, &plan.threads),
         Some(review) => crate::github::add_to_draft(review, &plan.body, &plan.threads),
@@ -1531,7 +1552,7 @@ fn read(engine: &Handle, session: &str, at: i64) -> Went {
 
 /// Posts a round's review where config.toml says, unless the PR ended or moved on before it was
 /// done.
-fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str) -> Went {
+fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, round: i64) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
         Ok(c) => c,
@@ -1553,7 +1574,7 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str) -> 
     let (summary, comments) = parse_reply(review);
     match cfg.reviews.post {
         ReviewPost::None => Went::Kept(None),
-        ReviewPost::Draft => draft(pr, head, &summary, comments, agent),
+        ReviewPost::Draft => draft(pr, head, &summary, comments, agent, round),
         ReviewPost::Comment => match crate::github::comment(&pr.repo_slug, pr.number, &comment_body(&summary, &comments, pr, head, agent)) {
             Ok(link) => {
                 engine.pr_changed();
@@ -1789,10 +1810,8 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
     let k = pr_key(&pr.key);
     let job = {
         let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+        r.clear_for_hand(&k, cfg.reviews.auto || cfg.reviews.own.auto, now_ms())?;
         let t = r.store.prs.get(&k);
-        if r.busy.contains(&k) || t.and_then(|t| t.rounds.last()).is_some_and(|x| x.stage == ReviewStage::Reviewing) {
-            return Err("A review of it is under way: its card says how that goes.".into());
-        }
         let seat = match account.map(str::trim).filter(|a| !a.is_empty()) {
             Some(a) => named_seat(a, "", t),
             None => seat_for(&cfg.reviews, t, &board.lanes, pr),
@@ -1814,6 +1833,7 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
     match failed {
         Some(why) => {
             r.busy.remove(&k);
+            r.save();
             Err(format!("Codealong couldn't start a review of #{}: {why}", pr.number))
         }
         None => {
@@ -1876,7 +1896,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
         Job::Review { pr, head, since, seat, by_hand } => review(engine, pr, head, since.as_deref(), seat, *by_hand),
         Job::Read { session, at, .. } => read(engine, session, *at),
-        Job::Post { pr, head, review, agent } => post(engine, pr, head, review, agent),
+        Job::Post { pr, head, review, agent, round } => post(engine, pr, head, review, agent, *round),
         Job::Send { .. } => send(engine, &job, false),
         Job::Submit { pr, head, verdict, text } => submit(engine, pr, head, *verdict, text.as_deref()),
     }))
@@ -2279,13 +2299,51 @@ mod tests {
         let auto = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat, by_hand: false };
         r.told(&auto, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         assert!(r.due(&done, &off, NOW + 61_000).is_empty());
-        assert_eq!(kinds(&r.due(&done, &on(), NOW + 61_000)), [format!("read 7 part 0 in {S}")]);
-        // A draft that holds this review already isn't given it again; another review of the
-        // commit goes in after it.
-        let plan = draft_plan("Fine.", vec![], &HashMap::new(), None, &pr(7, HEAD), HEAD, "Claude Code");
-        assert!(holds_text(&format!("Mine.\r\n\r\n---\r\n\r\n{}  ", plan.ours.replace('\n', "\r\n")), &plan.ours));
-        let other = draft_plan("Two problems.", vec![], &HashMap::new(), None, &pr(7, HEAD), HEAD, "Codex");
-        assert!(!holds_text(&plan.body, &other.ours));
+        let jobs = r.due(&done, &on(), NOW + 61_000);
+        assert_eq!(kinds(&jobs), [format!("read 7 part 0 in {S}")]);
+        r.told(&jobs[0], Went::NotYet, NOW + 61_500).unwrap();
+        // It doesn't hold up one asked for by hand, which ends it; one going on does.
+        assert!(r.clear_for_hand("o/r#7", true, NOW + 62_000).is_err());
+        assert_eq!(r.clear_for_hand("o/r#7", false, NOW + 62_000), Ok(()));
+        let ended = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((ended.stage, ended.note.as_deref()), (ReviewStage::Failed, Some("Automatic reviews were turned off before it was done.")));
+        let hand = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("claude", "", None), by_hand: true };
+        r.told(&hand, Went::Started(vec![started("claude", S, NOW + 63_000)]), NOW + 63_000).unwrap();
+        assert!(r.clear_for_hand("o/r#7", false, NOW + 64_000).is_err(), "one asked for by hand goes on");
+        // A drafted review's mark names its round, after the commit's: another Mac still finds the
+        // commit reviewed, a post tried again finds its round's review there, and another round's
+        // review of the same commit, the same words or not, isn't taken for it.
+        let plan = draft_plan("Fine.", vec![], &HashMap::new(), None, &pr(7, HEAD), HEAD, "Claude Code", NOW);
+        assert!(plan.body.ends_with(&draft_mark("o/r#7", HEAD, NOW)) && plan.body.contains(&marker("o/r#7", HEAD)), "{}", plan.body);
+        assert!(!plan.body.contains(&draft_mark("o/r#7", HEAD, NOW + 1)));
+        let last = plan.body.lines().last().unwrap();
+        assert!(last.starts_with(crate::github::REVIEW_MARK) && last.ends_with("-->"), "a mark line, which an edit keeps hidden: {last}");
+    }
+
+    #[test]
+    fn a_review_of_a_pr_of_yours_asked_for_by_hand_goes_back_with_its_reviews_off() {
+        let mut r = Reviewer::default();
+        let maker = Session { status: Status::Idle, last_activity: NOW, live: true, ..fixtures::session(MAKER) };
+        let b = board(vec![mine(7, HEAD)], vec![maker, session(Status::Unread, NOW + 60_000)]);
+        let off = ReviewsCfg::default();
+        assert!(off.own.send && !off.own.auto);
+        let job = Job::Review { pr: mine(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("codex", "", None), by_hand: true };
+        r.told(&job, Went::Started(vec![started("codex", S, NOW)]), NOW).unwrap();
+        read(&mut r, &b, &off, NOW + 61_000, "Two problems.", "Codex");
+        let post = r.due(&b, &off, NOW + 62_000).pop().unwrap();
+        r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
+        assert_eq!(kinds(&r.due(&b, &off, NOW + 64_000)), [format!("send 7 1111111 by Codex to {MAKER}")]);
+        // An automatic one isn't, with reviews of your PRs off, and says so.
+        let mut r = Reviewer::default();
+        let auto = Job::Review { pr: mine(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("codex", "", None), by_hand: false };
+        r.told(&auto, Went::Started(vec![started("codex", S, NOW)]), NOW).unwrap();
+        read(&mut r, &b, &own(), NOW + 61_000, "Two problems.", "Codex");
+        let post = r.due(&b, &own(), NOW + 62_000).pop().unwrap();
+        r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
+        assert!(r.due(&b, &off, NOW + 64_000).is_empty());
+        let mut prs = vec![mine(7, HEAD)];
+        apply(&mut prs, &r.store, &off, &b.lanes, NOW + 64_000);
+        assert_eq!(prs[0].auto_review.as_ref().and_then(|a| a.note.as_deref()), Some("Handing reviews back is off: send it from here."));
     }
 
     #[test]
@@ -2636,19 +2694,19 @@ mod tests {
     fn a_draft_review_puts_each_comment_on_its_line_where_github_takes_it() {
         let lines = commentable(DIFF);
         let comments = vec![c("src/a.rs", 2, "This panics."), c("src/a.rs", 7, "Not in the diff."), c("docs/new file.md", 1, "Typo.")];
-        let plan = draft_plan("Two problems.", comments.clone(), &lines, None, &pr(7, HEAD), HEAD, "Claude Code");
+        let plan = draft_plan("Two problems.", comments.clone(), &lines, None, &pr(7, HEAD), HEAD, "Claude Code", NOW);
         assert_eq!(plan.add_to, None);
         assert_eq!(plan.threads, [c("src/a.rs", 2, "This panics."), c("docs/new file.md", 1, "Typo.")]);
         assert!(plan.body.starts_with("Two problems.\n\n**On other lines**\n\n**`src/a.rs` line 7**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L7\n\nNot in the diff.\n\n<sub>An agent's review (Claude Code) of 1111111, drafted by Codealong.</sub>"), "{}", plan.body);
-        assert!(plan.body.ends_with(&marker("o/r#7", HEAD)));
+        assert!(plan.body.ends_with(&draft_mark("o/r#7", HEAD, NOW)));
         // Your draft at the same commit: added to, after what you wrote.
         let mine = PendingReview { id: "R_1".into(), body: "My notes.".into(), commit: Some(HEAD.into()) };
-        let plan = draft_plan("Two problems.", comments.clone(), &lines, Some(&mine), &pr(7, HEAD), HEAD, "Claude Code");
+        let plan = draft_plan("Two problems.", comments.clone(), &lines, Some(&mine), &pr(7, HEAD), HEAD, "Claude Code", NOW);
         assert_eq!((plan.add_to.as_deref(), plan.threads.len()), (Some("R_1"), 2));
         assert!(plan.body.starts_with("My notes.\n\n---\n\nTwo problems."), "{}", plan.body);
         // Begun on another commit: every comment in its text, linked at the reviewed commit.
         let older = PendingReview { commit: Some(NEXT.into()), body: String::new(), ..mine };
-        let plan = draft_plan("Two problems.", comments, &lines, Some(&older), &pr(7, HEAD), HEAD, "Claude Code");
+        let plan = draft_plan("Two problems.", comments, &lines, Some(&older), &pr(7, HEAD), HEAD, "Claude Code", NOW);
         assert!(plan.threads.is_empty());
         assert!(plan.body.starts_with("Two problems.\n\n**On other lines**") && plan.body.contains("docs/new%20file.md#L1"), "{}", plan.body);
     }

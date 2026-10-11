@@ -91,7 +91,8 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   review then reads the whole diff again. A posted review carries an HTML comment naming
   the PR and commit (`autoreview::marker`), which GitHub doesn't show, so a review already
   posted (from another Mac, or before a restart) is found among the PR's comments and not
-  posted twice.
+  posted twice. A drafted one's mark line names its round after that (`autoreview::draft_mark`),
+  so a second review of a commit, asked for by hand, goes into the draft beside the first.
 - Your draft review, read for a PR's Review tab, and submitting it: `github.rs` (`DRAFT_QUERY`,
   `your_review`, `review`, `edit_draft`). The query asks the pending review's
   `comments(first: 100) { totalCount nodes { id path line outdated body } }` and the PR's
