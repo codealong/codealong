@@ -91,6 +91,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
         item={item}
         now={now}
         zoom={zoom}
+        apps={apps}
         lanes={live.lanes}
         usage={live.usage}
         can={can}

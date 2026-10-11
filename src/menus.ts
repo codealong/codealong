@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, doneAhead, quietAhead, seenAhead, unreadAhead } from './ahead';
-import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
+import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
 import { count } from './format';
@@ -1022,6 +1022,37 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; 
       ...some(copyItem('Copy branch name', pr.head, 'branch name', report)),
       ...(can.canvas ?? []),
     ],
+  );
+}
+
+/** One way to open a PR's changed file in an editor: the editor's name and icon, and the run. */
+export interface FileOpen {
+  editor: string;
+  icon?: MenuImage;
+  run: () => void;
+}
+
+/** What a window can do with a PR's changed file. */
+export interface PrFileCan {
+  report: Report;
+  /** As a diff, where an editor of yours opens one (the board's `apps.diffEditor`). */
+  diff?: FileOpen;
+  /** At its first change, in your editor, where a worktree on this Mac holds the PR. */
+  file?: FileOpen & { line: number | null };
+  github: () => void;
+}
+
+/** A PR's changed file's menu (PrFiles.tsx): opening it as a diff or at its first change in your
+ *  editor, on GitHub, and copying its path. */
+export function prFileMenu(path: string, can: PrFileCan): MenuSpec {
+  const { diff, file } = can;
+  return sections(
+    [
+      ...(diff ? [{ label: `Open diff in ${diff.editor}`, icon: diff.icon, run: diff.run }] : []),
+      ...(file ? [{ label: file.line ? `Open in ${file.editor} at line ${file.line}` : `Open in ${file.editor}`, icon: file.icon, run: file.run }] : []),
+      { label: 'Open on GitHub', run: can.github },
+    ],
+    some(copyItem('Copy path', path, 'path', can.report)),
   );
 }
 

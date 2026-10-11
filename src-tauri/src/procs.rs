@@ -417,6 +417,25 @@ pub fn run(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) 
     run_with_path(program, args, cwd, timeout, user_path(), false)
 }
 
+/// `run`, with `unset` left out of the program's environment.
+pub fn run_without(program: &str, args: &[&str], unset: &[&str], timeout: Duration) -> Result<String> {
+    #[cfg(test)]
+    if let Some(answer) = stand_in::run(program, args, None, timeout) {
+        return answer;
+    }
+    let mut cmd = Command::new(program);
+    cmd.args(args).env("PATH", user_path());
+    for name in unset {
+        cmd.env_remove(name);
+    }
+    let o = drive(cmd, program, None, timeout)?;
+    if o.ok {
+        Ok(o.out)
+    } else {
+        Err(anyhow!("{} {}", program, o.err.trim()))
+    }
+}
+
 /// Runs macOS's `open` with `args`: a link, a file, or an app by its name, path or bundle ID. Each
 /// caller says how long it gets and what a failure is called.
 pub fn open(args: &[&str], timeout: Duration) -> Result<()> {

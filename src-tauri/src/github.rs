@@ -869,6 +869,10 @@ pub struct PrFile {
     pub deletions: u64,
     /// The unified diff; GitHub leaves it out for very large files.
     pub patch: Option<String>,
+    /// Its path before the PR renamed it, for the side of its diff before (prdiff.rs). Only this
+    /// Mac's windows open it, so devices aren't sent it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -997,6 +1001,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             additions: f.get("additions").and_then(Value::as_u64).unwrap_or(0),
             deletions: f.get("deletions").and_then(Value::as_u64).unwrap_or(0),
             patch: f.get("patch").and_then(Value::as_str).map(String::from),
+            previous: f.get("previous_filename").and_then(Value::as_str).map(String::from),
         })
         .collect();
     Ok(PrDetail {
@@ -2048,13 +2053,15 @@ mod tests {
             {"author":{"login":"ana"},"state":"COMMENTED","submittedAt":"2026-09-23T12:00:00Z"},
             {"author":{"login":"ana"},"state":"CHANGES_REQUESTED","submittedAt":"2026-09-23T13:00:00Z"}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"gwen"}},{"requestedReviewer":{"__typename":"Team","name":"platform"}}]}}}}}"#;
-        let files = r#"[{"filename":"src/a.ts","status":"modified","additions":3,"deletions":1,"patch":"@@ -1 +1 @@"},{"filename":"big.lock","status":"modified","additions":900,"deletions":800}]"#;
+        let files = r#"[{"filename":"src/a.ts","status":"modified","additions":3,"deletions":1,"patch":"@@ -1 +1 @@"},{"filename":"big.lock","status":"modified","additions":900,"deletions":800},{"filename":"src/to.ts","previous_filename":"src/from.ts","status":"renamed","additions":0,"deletions":0}]"#;
         let d = parse_detail(graph, files).unwrap();
         let states: Vec<(&str, &str)> = d.reviews.iter().map(|r| (r.author.as_str(), r.state.as_str())).collect();
         assert_eq!(states, vec![("ken", "APPROVED"), ("ana", "CHANGES_REQUESTED")]);
         assert_eq!(d.requested, vec!["gwen".to_string(), "platform".to_string()]);
-        assert_eq!(d.files.len(), 2);
+        assert_eq!(d.files.len(), 3);
         assert!(d.files[1].patch.is_none());
+        assert_eq!(d.files[2].previous.as_deref(), Some("src/from.ts"));
+        assert_eq!(d.files[0].previous, None);
         assert_eq!(d.commits, 3);
         assert!(!d.more_files);
         assert!(d.comments.is_empty());

@@ -2745,6 +2745,7 @@ impl Engine {
             editor: editors::name(&self.cfg.apps.editor),
             editor_id: self.cfg.apps.editor.clone(),
             editors: editors::installed(),
+            diff_editor: editors::diff_editor(&self.cfg.apps.editor),
             new_terminal: self.cfg.apps.new_terminal,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();

@@ -1,5 +1,7 @@
 //! The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed,
-//! and any other app `[apps] editor` names. See README.md's Settings section.
+//! and any other app `[apps] editor` names. See README.md's Settings section. The ones with a
+//! command line inside their app (`Cli`) also open a file at a line and two files as a diff,
+//! which a PR's changed files use (prdiff.rs); the rest open a file as a folder opens.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -18,28 +20,54 @@ struct Known {
     name: &'static str,
     /// Its app's names, the first found wins: some come in editions (Community, beta).
     apps: &'static [&'static str],
+    /// Its command line, inside its app.
+    cli: Option<Cli>,
 }
+
+/// An editor's command line: where it is in its app, and how it's told a line. Both kinds take
+/// `--diff <old> <new>`: VS Code's and its forks' (`code --help`) and Zed's (`cli --help`).
+#[derive(Clone, Copy)]
+struct Cli {
+    /// A name in VS Code's `Contents/Resources/app/bin`, or a path in the app.
+    path: &'static str,
+    goto: Goto,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Goto {
+    /// `--goto <file>:<line>`: VS Code and its forks.
+    Flag,
+    /// `<file>:<line>`: Zed.
+    Suffix,
+}
+
+/// VS Code's command line, as each of its forks names it.
+const fn code(name: &'static str) -> Option<Cli> {
+    Some(Cli { path: name, goto: Goto::Flag })
+}
+
+const ZED: Option<Cli> = Some(Cli { path: "Contents/MacOS/cli", goto: Goto::Suffix });
 
 /// In the order the Open in menus list them.
 const KNOWN: &[Known] = &[
-    Known { id: "vscode", name: "VS Code", apps: &["Visual Studio Code"] },
-    Known { id: "vscode-insiders", name: "VS Code Insiders", apps: &["Visual Studio Code - Insiders"] },
-    Known { id: "cursor", name: "Cursor", apps: &["Cursor"] },
-    Known { id: "windsurf", name: "Windsurf", apps: &["Windsurf"] },
-    Known { id: "zed", name: "Zed", apps: &["Zed"] },
-    Known { id: "zed-preview", name: "Zed Preview", apps: &["Zed Preview"] },
-    Known { id: "kiro", name: "Kiro", apps: &["Kiro"] },
-    Known { id: "sublime", name: "Sublime Text", apps: &["Sublime Text"] },
-    Known { id: "nova", name: "Nova", apps: &["Nova"] },
-    Known { id: "bbedit", name: "BBEdit", apps: &["BBEdit"] },
-    Known { id: "xcode", name: "Xcode", apps: &["Xcode", "Xcode-beta"] },
-    Known { id: "intellij", name: "IntelliJ IDEA", apps: &["IntelliJ IDEA", "IntelliJ IDEA Ultimate", "IntelliJ IDEA CE", "IntelliJ IDEA Community Edition"] },
-    Known { id: "webstorm", name: "WebStorm", apps: &["WebStorm"] },
-    Known { id: "pycharm", name: "PyCharm", apps: &["PyCharm", "PyCharm Professional Edition", "PyCharm CE", "PyCharm Community Edition"] },
-    Known { id: "goland", name: "GoLand", apps: &["GoLand"] },
-    Known { id: "rustrover", name: "RustRover", apps: &["RustRover"] },
-    Known { id: "clion", name: "CLion", apps: &["CLion"] },
-    Known { id: "android-studio", name: "Android Studio", apps: &["Android Studio"] },
+    Known { id: "vscode", name: "VS Code", apps: &["Visual Studio Code"], cli: code("code") },
+    Known { id: "vscode-insiders", name: "VS Code Insiders", apps: &["Visual Studio Code - Insiders"], cli: code("code-insiders") },
+    Known { id: "cursor", name: "Cursor", apps: &["Cursor"], cli: code("cursor") },
+    Known { id: "windsurf", name: "Windsurf", apps: &["Windsurf"], cli: code("windsurf") },
+    Known { id: "zed", name: "Zed", apps: &["Zed"], cli: ZED },
+    Known { id: "zed-preview", name: "Zed Preview", apps: &["Zed Preview"], cli: ZED },
+    Known { id: "kiro", name: "Kiro", apps: &["Kiro"], cli: code("kiro") },
+    Known { id: "sublime", name: "Sublime Text", apps: &["Sublime Text"], cli: None },
+    Known { id: "nova", name: "Nova", apps: &["Nova"], cli: None },
+    Known { id: "bbedit", name: "BBEdit", apps: &["BBEdit"], cli: None },
+    Known { id: "xcode", name: "Xcode", apps: &["Xcode", "Xcode-beta"], cli: None },
+    Known { id: "intellij", name: "IntelliJ IDEA", apps: &["IntelliJ IDEA", "IntelliJ IDEA Ultimate", "IntelliJ IDEA CE", "IntelliJ IDEA Community Edition"], cli: None },
+    Known { id: "webstorm", name: "WebStorm", apps: &["WebStorm"], cli: None },
+    Known { id: "pycharm", name: "PyCharm", apps: &["PyCharm", "PyCharm Professional Edition", "PyCharm CE", "PyCharm Community Edition"], cli: None },
+    Known { id: "goland", name: "GoLand", apps: &["GoLand"], cli: None },
+    Known { id: "rustrover", name: "RustRover", apps: &["RustRover"], cli: None },
+    Known { id: "clion", name: "CLion", apps: &["CLion"], cli: None },
+    Known { id: "android-studio", name: "Android Studio", apps: &["Android Studio"], cli: None },
 ];
 
 /// Where Mac apps are installed: by hand or Homebrew, for one user (JetBrains Toolbox puts its
@@ -99,6 +127,71 @@ pub fn open(id: &str, path: &Path) -> Result<()> {
     let app = app_for(&app_dirs(), id);
     procs::open(&["-a", &app, &path.to_string_lossy()], Duration::from_secs(15))
         .map_err(|_| anyhow!("Couldn't open {}. Is it installed?", name(id)))
+}
+
+/// The command line of the editor `id` where it's installed: the program, and how it takes a
+/// line. It's the one inside the app, so nobody has to have put it on their PATH.
+fn cli_in(dirs: &[PathBuf], id: &str) -> Option<(PathBuf, Goto)> {
+    let k = KNOWN.iter().find(|k| k.id == id)?;
+    let cli = k.cli?;
+    let app = find_in(dirs, k)?;
+    let program = if cli.path.contains('/') { app.join(cli.path) } else { app.join("Contents/Resources/app/bin").join(cli.path) };
+    program.is_file().then_some((program, cli.goto))
+}
+
+/// The editor a diff opens in: yours (`[apps] editor`) when its command line takes one, else the
+/// first installed that does, in menu order; none when none does. Looked for at most once a
+/// minute for the same editor of yours, as `installed` is.
+pub fn diff_editor(yours: &str) -> Option<Profile> {
+    static FOUND: Mutex<Option<(Instant, String, Option<Profile>)>> = Mutex::new(None);
+    let mut found = FOUND.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, of, editor)) = found.as_ref() {
+        if of == yours && at.elapsed() < Duration::from_secs(60) {
+            return editor.clone();
+        }
+    }
+    let editor = diff_editor_in(&app_dirs(), yours);
+    *found = Some((Instant::now(), yours.to_string(), editor.clone()));
+    editor
+}
+
+fn diff_editor_in(dirs: &[PathBuf], yours: &str) -> Option<Profile> {
+    std::iter::once(yours).chain(KNOWN.iter().map(|k| k.id)).find(|id| cli_in(dirs, id).is_some()).map(|id| Profile { id: id.into(), name: name(id) })
+}
+
+/// What an editor's command line is given to open `file` at `line`.
+fn goto_args(goto: Goto, file: &Path, line: Option<u64>) -> Vec<String> {
+    let file = file.to_string_lossy();
+    match (goto, line) {
+        (_, None) => vec![file.into_owned()],
+        (Goto::Flag, Some(n)) => vec!["--goto".into(), format!("{file}:{n}")],
+        (Goto::Suffix, Some(n)) => vec![format!("{file}:{n}")],
+    }
+}
+
+/// What an editor's own terminal sets to hand its command line to that window: left out, so what
+/// Codealong opens goes to the app as a click there would.
+const EDITOR_HANDOFF: &[&str] = &["VSCODE_IPC_HOOK_CLI", "ELECTRON_RUN_AS_NODE"];
+
+fn run_cli(program: &Path, args: &[String], id: &str) -> Result<()> {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    procs::run_without(&program.to_string_lossy(), &args, EDITOR_HANDOFF, Duration::from_secs(20)).map(|_| ()).map_err(|e| anyhow!("Couldn't open {}: {e}", name(id)))
+}
+
+/// Opens `file` in the editor `id`, at `line`: on its command line where it has one, else as a
+/// file opens (`open`), at its top.
+pub fn open_at(id: &str, file: &Path, line: Option<u64>) -> Result<()> {
+    match cli_in(&app_dirs(), id) {
+        Some((program, goto)) => run_cli(&program, &goto_args(goto, file, line), id),
+        None => open(id, file),
+    }
+}
+
+/// Opens `old` and `new` side by side as a diff in the editor `id`, whose command line must take
+/// one (`diff_editor`).
+pub fn diff(id: &str, old: &Path, new: &Path) -> Result<()> {
+    let (program, _) = cli_in(&app_dirs(), id).ok_or_else(|| anyhow!("{} can't open a diff from Codealong.", name(id)))?;
+    run_cli(&program, &["--diff".into(), old.to_string_lossy().into_owned(), new.to_string_lossy().into_owned()], id)
 }
 
 /// The side editors' icons are drawn at, in pixels: menus show an item's image 18 points high
@@ -201,6 +294,32 @@ mod tests {
         assert_eq!(app_for(&dirs, "cursor"), "Cursor");
         // Anything else is an app's name or path, for `open -a`.
         assert_eq!(app_for(&dirs, "TextMate"), "TextMate");
+    }
+
+    #[test]
+    fn a_diff_opens_in_yours_when_it_can_else_the_first_that_can() {
+        let root = crate::fixtures::scratch("editors-diff");
+        let dirs = apps_in(&root, &["Applications/Zed.app/Contents/MacOS", "Applications/Cursor.app/Contents/Resources/app/bin", "Applications/Sublime Text.app"]);
+        std::fs::write(root.join("Applications/Zed.app/Contents/MacOS/cli"), "").unwrap();
+        // Cursor without its command line takes no diff.
+        assert_eq!(diff_editor_in(&dirs, "cursor").map(|p| p.id).as_deref(), Some("zed"));
+        std::fs::write(root.join("Applications/Cursor.app/Contents/Resources/app/bin/cursor"), "").unwrap();
+        assert_eq!(diff_editor_in(&dirs, "cursor").map(|p| p.id).as_deref(), Some("cursor"));
+        assert_eq!(diff_editor_in(&dirs, "zed").map(|p| p.name).as_deref(), Some("Zed"));
+        // Yours can't, so the first that can, in menu order.
+        assert_eq!(diff_editor_in(&dirs, "sublime").map(|p| p.id).as_deref(), Some("cursor"));
+        assert_eq!(diff_editor_in(&dirs, "TextMate").map(|p| p.id).as_deref(), Some("cursor"));
+        assert_eq!(cli_in(&dirs, "cursor").map(|(p, _)| p), Some(root.join("Applications/Cursor.app/Contents/Resources/app/bin/cursor")));
+        assert_eq!(cli_in(&dirs, "zed").map(|(_, g)| g), Some(Goto::Suffix));
+        assert_eq!(diff_editor_in(&[root.join("nowhere")], "cursor"), None);
+    }
+
+    #[test]
+    fn says_a_line_as_each_command_line_takes_it() {
+        let file = Path::new("/w/src/a b.ts");
+        assert_eq!(goto_args(Goto::Flag, file, Some(12)), ["--goto", "/w/src/a b.ts:12"]);
+        assert_eq!(goto_args(Goto::Suffix, file, Some(12)), ["/w/src/a b.ts:12"]);
+        assert_eq!(goto_args(Goto::Flag, file, None), ["/w/src/a b.ts"]);
     }
 
     #[test]

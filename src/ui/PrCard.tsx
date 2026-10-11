@@ -30,7 +30,7 @@ import * as menus from '../menus';
 import { errorText, type Report } from '../report';
 import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
-import type { Lane, Session, Usage, Verdict } from '../types';
+import type { Board, Lane, Session, Usage, Verdict } from '../types';
 import { cardZoom } from '../zoom';
 import { zoomKey } from './cardHost';
 import { PrBoxView, usePrBox } from './PrBox';
@@ -76,12 +76,14 @@ interface PrCardProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
   /** It draws at the zoom, in percent, as a session's card does (zoom.ts `cardZoom`). */
   zoom?: number;
+  /** The board's apps: its changed files open in your editors (PrInspector.tsx `fileOpener`). */
+  apps?: Board['apps'];
 }
 
 /** How the window says the PR left with each verdict. */
 const LEFT: Record<Verdict, menus.Left> = { approve: 'approved', comment: 'commented on', 'request-changes': 'changes requested' };
 
-export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom }: PrCardProps) {
+export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom, apps }: PrCardProps) {
   const { pr } = item;
   const { report } = can;
   const box = usePrBox(pr, { report, usage, now, autoFocus, onSent: (verdict) => can.left?.(LEFT[verdict]), onFailed: can.failed });
@@ -179,7 +181,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
         <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, review with, pin, copy and more" onClick={(e) => menu(below(e.currentTarget))} />
       </div>
       <div className="ca-prreview-body ca-prinsp">
-        <PrDetails item={item} now={now} keys goesOn={goesOn} tabs={tabs} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
+        <PrDetails item={item} now={now} keys goesOn={goesOn} tabs={tabs} report={report} apps={apps} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
       </div>
       <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} goesOn={!!can.left} onShowReview={() => tabs.show('review')} />
     </div>

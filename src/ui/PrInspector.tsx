@@ -21,18 +21,21 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { openingTab, type PrTab } from '../agentReview';
-import { below } from '../contextMenu';
-import { openUrl, prCommentAsks, prDetail } from '../api';
+import { below, showContextMenu } from '../contextMenu';
+import { openPrFile, openUrl, prCommentAsks, prDetail } from '../api';
+import { useEditorIcons } from '../editors';
 import { absolute, ago, middleTruncate } from '../format';
+import { prFileMenu } from '../menus';
+import { fileOnGitHub, firstChanged, parsePatch } from '../prFiles';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
 import { useYourReview, verdictWords } from '../prDraft';
 import type { Report } from '../report';
-import type { Lane, PrComment, PrDetail, PrItem, Session, Usage } from '../types';
+import type { Board, Lane, PrComment, PrDetail, PrFile, PrItem, Session, Usage } from '../types';
 import { PrReview } from './AgentReview';
 import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { DetailsButton, PanelPlaces, PR_PRIMARY, useDetailsOpen } from './PanelSession';
-import { PrFiles, type FilesFinder } from './PrFiles';
+import { PrFiles, type FileOpener, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
 import { BranchLabel, Button, cx, headerMenu, Icon, Tabs } from './primitives';
 import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
@@ -152,6 +155,42 @@ export interface PrDetailsProps {
   /** In PRs: whether the panel takes the whole window, and the way to switch. */
   maximized?: boolean;
   onMaximize?: () => void;
+  /** How a window says something it did didn't work: with it, a changed file opens on GitHub,
+   *  and with the board's `apps` too, in your editors (`fileOpener`). */
+  report?: Report;
+  apps?: Board['apps'];
+}
+
+/** How the PR's changed files open outside the window: as a diff in the editor that opens one,
+ *  at a line in yours where a worktree here holds the PR, and on GitHub. */
+function fileOpener(item: PrRowItem, apps: Board['apps'] | undefined, icons: ReturnType<typeof useEditorIcons>, report: Report): FileOpener {
+  const { pr } = item;
+  const holds = item.places.find((p) => p.holds);
+  const diff = apps?.diffEditor ?? null;
+  const yours = holds && apps ? { id: apps.editorId, name: apps.editor } : null;
+  const failed = (e: unknown) => report.error(errorText(e));
+  const open = (f: PrFile, how: 'diff' | 'file', line?: number | null) => {
+    if (how === 'diff' && diff) report.info(`Opening the diff of ${f.path.split('/').pop()} in ${diff.name}…`);
+    openPrFile({ pr: pr.key, path: f.path, previous: f.previous, status: f.status, how, line }).catch(failed);
+  };
+  const github = (f: PrFile) => void fileOnGitHub(pr.url, f.path).then(openUrl).catch(failed);
+  return {
+    diff: diff && { name: diff.name, icon: icons[diff.id]?.url },
+    file: yours && { name: yours.name, icon: icons[yours.id]?.url },
+    after: holds ? `your copy in ${holds.lane.callsign}` : 'the PR’s',
+    open,
+    github,
+    menu: (f) => {
+      const line = f.patch ? firstChanged(parsePatch(f.patch)) : null;
+      const spec = prFileMenu(f.path, {
+        report,
+        diff: diff ? { editor: diff.name, icon: icons[diff.id]?.menu, run: () => open(f, 'diff') } : undefined,
+        file: yours ? { editor: yours.name, icon: icons[yours.id]?.menu, line, run: () => open(f, 'file', line) } : undefined,
+        github: () => github(f),
+      });
+      void showContextMenu(spec).catch(failed);
+    },
+  };
 }
 
 interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail' | 'tabs'> {
@@ -197,7 +236,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
   return (
     <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`}>
       <div className="ca-prinsp ca-prpanel-body">
-        <PrDetails {...details} tabs={tabs} lead={lead} trail={trail} />
+        <PrDetails {...details} report={report} tabs={tabs} lead={lead} trail={trail} />
       </div>
       <PrBoxView pr={pr} box={box} keys={{ approve: '⌘⏎', comment: '⌥⌘⏎' }} ownKeys onShowReview={() => tabs.show('review')} />
     </aside>
@@ -206,10 +245,12 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
 
 /** The PR itself: its header with where it lives on this Mac, the merge box, its details when
  *  they're open, then its tabs: its description and comments, its files, your review. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize }: PrDetailsProps) {
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, report, apps }: PrDetailsProps) {
   const { pr } = item;
   // Its details, open or not as you left them for every PR.
   const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
+  const icons = useEditorIcons(apps);
+  const opener = report && fileOpener(item, apps, icons, report);
   const files = useRef<FilesFinder>(null);
   const idBase = `prtab${useId().replace(/:/g, '')}`;
 
@@ -480,7 +521,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
       <div ref={(el) => void (panels.current.changes = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-changes`} aria-labelledby={`${idBase}-changes-tab`} hidden={tab !== 'changes'}>
         {detail ? (
-          <PrFiles key={pr.key} ref={files} prKey={pr.key} files={detail.files} total={pr.changedFiles} more={detail.moreFiles} keys={keys} onShow={() => pick('changes')} />
+          <PrFiles key={pr.key} ref={files} prKey={pr.key} files={detail.files} total={pr.changedFiles} more={detail.moreFiles} keys={keys} onShow={() => pick('changes')} opener={opener} />
         ) : (
           <section className="ca-insp-sec">{error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Loading…</p>}</section>
         )}

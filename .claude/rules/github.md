@@ -32,6 +32,14 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   its alias, with a `NOT_FOUND` error) and still prints the rest: `github.rs` (`glance_some`).
   `gh api rate_limit` isn't to go by: it disagreed with the queries' own `rateLimit`, a second
   counter that one query in ten lands on.
+- A PR's file opened as a diff in your editor (`prdiff.rs`) reads its two sides with REST, no
+  GraphQL points: `pulls/<n>` for `.head.sha` and `.base.sha`, `compare/<base>...<head>` for
+  `.merge_base_commit.sha` (the side before, as GitHub's own diff has it), and
+  `contents/<path, each part percent-encoded>?ref=<sha>` with `Accept: application/vnd.github.raw`
+  for a file's bytes as they are. `pulls/<n>/files` gives a renamed file's old path as
+  `previous_filename`. Read for real on 2026-10-11 (atlas #1182: its head, its merge base, and a
+  file of 474 lines before and 447 after, matching its +14 −41): `prdiff_reads_github`, an
+  ignored test.
 - REST `repos/<owner>/<name>` answers to a repo's old names with the repo as it is now:
   `github.rs` (`current_slug`), `ghpoll.rs` (`Names`), and the lane's `repo_slug_now`
   (`src-tauri/peer/src/model.rs`), which other devices line a checkout with an old remote up

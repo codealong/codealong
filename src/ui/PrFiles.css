@@ -102,11 +102,26 @@
   display: grid;
   gap: 2px;
 }
-.ca-prfile-head {
+/* A file's row: its head, which opens its diff, then the ways to open it elsewhere, which show as
+   the pointer comes onto the row or the keyboard is on it, and always keep their room. */
+.ca-prfile-bar {
   display: flex;
   align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-xs);
+}
+.ca-prfile-bar:hover,
+.ca-prfile.is-active > .ca-prfile-bar {
+  background: var(--surface-hover);
+}
+.ca-prfile.is-active > .ca-prfile-bar {
+  box-shadow: inset 2px 0 0 var(--ink-3);
+}
+.ca-prfile-head {
+  display: flex;
+  flex: 1;
+  align-items: center;
   gap: 6px;
-  width: 100%;
   min-width: 0;
   padding: 4px 6px;
   border: 0;
@@ -117,12 +132,50 @@
   text-align: left;
   cursor: pointer;
 }
-.ca-prfile-head:hover,
-.ca-prfile.is-active > .ca-prfile-head {
-  background: var(--surface-hover);
+.ca-prfile-head:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
-.ca-prfile.is-active > .ca-prfile-head {
-  box-shadow: inset 2px 0 0 var(--ink-3);
+.ca-prfile-acts {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding-right: 3px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease-out;
+}
+.ca-prfile-bar:hover > .ca-prfile-acts,
+.ca-prfile.is-active .ca-prfile-acts,
+.ca-prfile-acts:focus-within {
+  opacity: 1;
+}
+.ca-prfile-act {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-prfile-act:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-prfile-act:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+/* A file GitHub shows no diff of: the ways to see it, in the line that says so. */
+.ca-prfile-nodiff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-3);
+  padding: 4px 6px 8px 26px;
 }
 .ca-prfile-head > .ca-icon {
   flex: none;
@@ -184,28 +237,122 @@
   color: inherit;
   font-weight: 600;
 }
+/* A diff: one grid, so every line's numbers line up, its rows and halves no boxes of their own
+   (`display: contents`), each cell taking its line's tint. Unified, a line's numbers before and
+   after, its sign, its text; its long lines scroll sideways with the whole diff, or wrap. Split,
+   the line before and the line after side by side, a line down the middle, a side with no line
+   there hatched; its lines always wrap, each in its half. */
 .ca-patch {
+  display: grid;
   margin: 2px 0 8px;
   overflow-x: auto;
-  padding: 6px 0;
+  padding: 4px 0;
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   font: var(--type-code-block);
   color: var(--ink-2);
 }
-.ca-patch > span {
-  display: block;
-  padding: 0 8px;
+.ca-patch.is-unified {
+  grid-template-columns: auto auto auto minmax(max-content, 1fr);
+}
+.ca-patch.is-unified.is-wrap {
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+}
+.ca-patch.is-split {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto minmax(0, 1fr);
+}
+.ca-patch-row,
+.ca-patch-half {
+  display: contents;
+}
+.ca-patch-num {
+  min-width: 2ch;
+  padding: 0 4px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+/* A line's number after opens the file there, in the worktree that holds the PR. */
+.ca-patch-num.is-link {
+  cursor: pointer;
+}
+.ca-patch-num.is-link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.ca-patch-num.is-link:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-patch-sign {
+  width: 1ch;
+  padding: 0 6px 0 4px;
+  color: var(--ink-3);
+  user-select: none;
+}
+.ca-patch-code {
+  padding-right: 10px;
   white-space: pre;
 }
-.ca-patch > .is-add {
+.ca-patch.is-wrap .ca-patch-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-patch-row.is-add > *,
+.ca-patch-half.is-add > * {
   background: var(--pr-open-tint);
   color: var(--ink);
 }
-.ca-patch > .is-del {
+.ca-patch-row.is-del > *,
+.ca-patch-half.is-del > * {
   background: var(--alert-tint);
   color: var(--ink);
 }
-.ca-patch > .is-hunk {
+.ca-patch-row.is-add > .ca-patch-num,
+.ca-patch-row.is-del > .ca-patch-num,
+.ca-patch-half > .ca-patch-num {
   color: var(--ink-3);
+}
+/* A hunk's header and git's note about a newline go across the whole diff. */
+.ca-patch-across {
+  grid-column: 1 / -1;
+  padding: 1px 10px;
+  color: var(--ink-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-patch-row.is-hunk > .ca-patch-across {
+  margin: 4px 0 2px;
+  background: var(--neutral-tint);
+}
+.ca-patch-row.is-hunk:first-child > .ca-patch-across {
+  margin-top: 0;
+}
+.ca-patch-row.is-note > .ca-patch-across {
+  font-style: italic;
+}
+.ca-patch-none {
+  grid-column: span 3;
+  background: repeating-linear-gradient(135deg, transparent 0 5px, var(--line) 5px 6px);
+}
+.ca-patch-half + .ca-patch-half > :first-child {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+/* How diffs are drawn, beside the filter: small switches of icons, as the Sessions bar has. */
+.ca-prfiles-view {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.ca-prfiles-view .ca-segctl button {
+  justify-content: center;
+  width: 26px;
+  height: 20px;
+  padding: 0;
 }

@@ -46,6 +46,10 @@ pub struct AppNames {
     /// `editor_id`, and a folder opens in one with the target `l|editor|<id>`.
     #[serde(default)]
     pub editors: Vec<crate::config::Profile>,
+    /// The editor a PR's changed file opens in as a diff (editors.rs `diff_editor`): yours when it
+    /// can, else the first installed that can; none when none can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_editor: Option<crate::config::Profile>,
     /// `[apps] new_terminal`: where a terminal Codealong opens goes.
     pub new_terminal: crate::config::NewTerminal,
 }

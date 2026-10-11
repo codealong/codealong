@@ -235,6 +235,26 @@ export async function openUrl(url: string): Promise<void> {
   await invoke('open_url', { url });
 }
 
+/** What opening one of a PR's changed files in your editor asks (prdiff.rs `Ask`). */
+export interface PrFileAsk {
+  /** The PR, `owner/name#number`. */
+  pr: string;
+  path: string;
+  /** Its path before a rename. */
+  previous?: string | null;
+  status: string;
+  /** As a diff beside where its branch began, or the file at `line` in the worktree that holds the PR. */
+  how: 'diff' | 'file';
+  line?: number | null;
+}
+
+/** Opens one of a PR's changed files in your editor (prdiff.rs): it can wait on GitHub for the
+ *  file's two sides. */
+export async function openPrFile(ask: PrFileAsk): Promise<void> {
+  if (!inTauri) return;
+  await invoke('open_pr_file', { ask });
+}
+
 /** Types a block of shell commands from a session's conversation into a new terminal in `cwd`
  *  (runcode.rs): what it runs leaves out the comments. */
 export async function runInTerminal(cwd: string, text: string): Promise<void> {

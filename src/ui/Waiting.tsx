@@ -336,6 +336,7 @@ export function Waiting() {
           item={reviewItem(reviewing)}
           now={now}
           zoom={board?.zoom}
+          apps={apps}
           lanes={board?.lanes ?? []}
           usage={board?.usage ?? []}
           can={reviewCan(reviewing)}

@@ -563,6 +563,23 @@ that made the worktree from another folder, with each one's title and what it's 
 of those sessions, here or in a todo's panel, shows it in the panel (its conversation, a box to
 answer it) with a link back; in the tree, double-click or its arrow opens it where it runs.
 
+#### Diffs
+
+A file's diff numbers its lines before and after. The switches beside the filter draw it one
+under the other (Unified) or, where the list is wide enough (the panel expanded to the window, say),
+side by side (Split), and wrap long lines or let them scroll sideways; both stay as you left them,
+for every PR. As the pointer comes onto a file's row, two buttons show at its end: its diff in your
+editor, under the editor's own icon, and the file on GitHub, at its place on Files changed. Its
+right-click menu has those, the file at its first change in your editor, and Copy path. Where a
+worktree on this Mac holds the PR, a line's number after opens the file at that line.
+
+The diff in your editor is the file where the PR's branch left its base (their merge base, as
+GitHub's own diff has it) beside your copy in the worktree that holds the PR, so what you change
+there is the real thing and has what you haven't pushed; with no such worktree it's beside the
+file at the PR's head. The sides read from GitHub are kept read-only in the system's temp folder
+for a week. VS Code, Cursor, Windsurf, Kiro and Zed open diffs this way, through the command line
+inside their app: yours (`[apps] editor`) when it's one of them, else the first of them installed.
+
 ### Todo
 
 Work you mean to hand an agent. Each todo has a title, a description that can hold screenshots and

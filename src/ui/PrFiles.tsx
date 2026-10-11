@@ -9,13 +9,53 @@
 // window says so (`keys`), and so does a click on the file count over the details
 // (`FilesFinder`), each showing the tab first (`onShow`). What's typed is kept for each PR while
 // the window shows another.
+//
+// A diff has each line's numbers before and after (prFiles.ts `parsePatch`), one under the other
+// (unified) or, where the list is wide enough, side by side (split), and its long lines wrap or
+// scroll sideways; both are kept as you left them, for every PR. Where the window can open files
+// (`FileOpener`), each row has, at its end, its diff in your editor (the editor's own icon; its
+// side before is where the PR's branch began, its side after your copy in the worktree that
+// holds the PR, else the PR's) and the file on GitHub, which show as the pointer comes onto the
+// row; a right-click gives those and the file at its first change (menus.ts `prFileMenu`), and a
+// line's number after opens the file at that line, in the worktree that holds the PR.
 
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { useLatest } from '../latest';
-import { filterFiles, fileQuery, marks, pieces, splitPath, type FileHit } from '../prFiles';
+import { filterFiles, fileQuery, marks, parsePatch, pieces, splitPath, splitRows, type DiffLine, type FileHit } from '../prFiles';
+import { flag, oneOf, useStored } from '../stored';
 import type { PrFile } from '../types';
-import { cx, Icon, Kbd } from './primitives';
+import { cx, Icon, Kbd, Seg } from './primitives';
+
+/** How diffs are drawn, as you left them, for every PR. */
+const LAYOUT_KEY = 'codealong.diffLayout';
+const WRAP_KEY = 'codealong.diffWrap';
+const LAYOUTS = ['unified', 'split'] as const;
+type Layout = (typeof LAYOUTS)[number];
+const LAYOUT_CODEC = oneOf(LAYOUTS);
+
+/** The narrowest the list is offered side by side at: less leaves each side too little. */
+const SPLIT_FROM = 760;
+
+/** An editor a file opens in, as its button shows it: its name and its app's icon. */
+export interface FileEditor {
+  name: string;
+  icon?: string;
+}
+
+/** How a window opens a PR's changed files outside it (PrInspector.tsx `PrDetails` builds it). */
+export interface FileOpener {
+  /** The editor a diff opens in, where one of yours can. */
+  diff: FileEditor | null;
+  /** Your editor, where a worktree on this Mac holds the PR: a file opens there at a line. */
+  file: FileEditor | null;
+  /** Where a diff's side after comes from, for its button's tooltip. */
+  after: string;
+  open: (file: PrFile, how: 'diff' | 'file', line?: number | null) => void;
+  github: (file: PrFile) => void;
+  /** Its right-click menu, with the line it opens at. */
+  menu: (file: PrFile) => void;
+}
 
 /** The fewest files the filter is offered for: fewer read at a glance. */
 const FILTER_FROM = 8;
@@ -37,29 +77,81 @@ function Marked({ text, ranges, from, to }: { text: string; ranges: [number, num
   );
 }
 
-/** A file's diff. Opened for what its changes mention (`seek`), the first mention comes into view. */
-function Patch({ text, words, seek }: { text: string; words: string[]; seek: boolean }) {
+/** How a diff is drawn: one under the other or side by side, and whether long lines wrap. */
+interface View {
+  layout: Layout;
+  wrap: boolean;
+}
+
+const SIGN: Record<DiffLine['kind'], string> = { add: '+', del: '−', ctx: '', hunk: '', note: '' };
+
+/** A file's diff, numbered (`parsePatch`). Opened for what its changes mention (`seek`), the first
+ *  mention comes into view. With `onLine`, a line's number after opens the file at that line. */
+function Patch({ text, words, seek, view, onLine }: { text: string; words: string[]; seek: boolean; view: View; onLine?: { title: (line: number) => string; run: (line: number) => void } }) {
   const [all, setAll] = useState(false);
-  const pre = useRef<HTMLPreElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (seek) pre.current?.querySelector('mark')?.scrollIntoView({ block: 'center' });
+    if (seek) box.current?.querySelector('mark')?.scrollIntoView({ block: 'center' });
     // Only as it opens: the words changing later move nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const lines = text.split('\n');
+  const lines = useMemo(() => parsePatch(text), [text]);
   // A file opened for what its changes mention shows them all, so none of it is below a fold.
-  const mentions = words.length > 0 && lines.slice(PATCH_LINES).some((l) => marks(l, words).length > 0);
+  const mentions = words.length > 0 && lines.slice(PATCH_LINES).some((l) => marks(l.text, words).length > 0);
   const shown = all || mentions ? lines : lines.slice(0, PATCH_LINES);
+  const code = (l: DiffLine) => (words.length > 0 ? <Marked text={l.text} ranges={marks(l.text, words)} /> : l.text);
+  const num = (n: number | null, after: boolean) =>
+    n !== null && after && onLine ? (
+      <button type="button" className="ca-patch-num is-link" title={onLine.title(n)} onClick={() => onLine.run(n)}>
+        {n}
+      </button>
+    ) : (
+      <span className="ca-patch-num">{n}</span>
+    );
+  // A line across the whole diff: a hunk's header, or git's note about a newline.
+  const across = (l: DiffLine, key: number) => (
+    <div key={key} className={`ca-patch-row is-${l.kind}`}>
+      <span className="ca-patch-across">{l.text}</span>
+    </div>
+  );
+  const side = (l: DiffLine | null, after: boolean): ReactNode =>
+    l ? (
+      <>
+        {num(after ? l.new : l.old, after)}
+        <span className="ca-patch-sign">{SIGN[l.kind]}</span>
+        <span className="ca-patch-code">{code(l)}</span>
+      </>
+    ) : (
+      <span className="ca-patch-none" />
+    );
+  const split = view.layout === 'split';
   return (
     <>
-      <pre className="ca-patch" ref={pre}>
-        {shown.map((l, i) => (
-          <span key={i} className={l.startsWith('@@') ? 'is-hunk' : l.startsWith('+') ? 'is-add' : l.startsWith('-') ? 'is-del' : undefined}>
-            {words.length > 0 ? <Marked text={l} ranges={marks(l, words)} /> : l || ' '}
-            {'\n'}
-          </span>
-        ))}
-      </pre>
+      <div className={cx('ca-patch', split ? 'is-split' : 'is-unified', (split || view.wrap) && 'is-wrap')} ref={box}>
+        {split
+          ? splitRows(shown).map((r, i) =>
+              r.kind === 'pair' ? (
+                <div key={i} className={cx('ca-patch-row', r.left === r.right ? 'is-ctx' : 'is-change')}>
+                  <span className={cx('ca-patch-half', r.left && `is-${r.left.kind}`)}>{side(r.left, false)}</span>
+                  <span className={cx('ca-patch-half', r.right && `is-${r.right.kind}`)}>{side(r.right, true)}</span>
+                </div>
+              ) : (
+                across(r.line, i)
+              ),
+            )
+          : shown.map((l, i) =>
+              l.kind === 'hunk' || l.kind === 'note' ? (
+                across(l, i)
+              ) : (
+                <div key={i} className={`ca-patch-row is-${l.kind}`}>
+                  {num(l.old, false)}
+                  {num(l.new, true)}
+                  <span className="ca-patch-sign">{SIGN[l.kind]}</span>
+                  <span className="ca-patch-code">{code(l)}</span>
+                </div>
+              ),
+            )}
+      </div>
       {shown.length < lines.length && (
         <button type="button" className="ca-more-btn" onClick={() => setAll(true)}>
           Show all {lines.length.toLocaleString('en-US')} lines
@@ -72,38 +164,86 @@ function Patch({ text, words, seek }: { text: string; words: string[]; seek: boo
 const STATUS_LETTER: Record<string, string> = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M' };
 const STATUS_WORD: Record<string, string> = { added: 'Added', removed: 'Deleted', modified: 'Changed', renamed: 'Renamed', copied: 'Copied', changed: 'Changed' };
 
-function FileRow({ hit, open, active, words, onToggle }: { hit: FileHit; open: boolean; active: boolean; words: string[]; onToggle: () => void }) {
+/** An editor's own icon, else a line icon in its place. */
+function EditorMark({ editor, icon }: { editor: FileEditor; icon: string }) {
+  return editor.icon ? <img className="ca-appicon" src={editor.icon} alt="" /> : <Icon name={icon} size={14} />;
+}
+
+function FileRow({ hit, open, active, words, view, opener, onToggle }: { hit: FileHit; open: boolean; active: boolean; words: string[]; view: View; opener?: FileOpener; onToggle: () => void }) {
   const { file, inPath, lines } = hit;
   const { dir, name } = splitPath(file.path);
   const row = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (active) row.current?.scrollIntoView({ block: 'nearest' });
   }, [active]);
+  const editor = opener?.file;
+  const onLine = opener && editor ? { title: (n: number) => `Open in ${editor.name} at line ${n}`, run: (n: number) => opener.open(file, 'file', n) } : undefined;
+  const diffTitle = opener?.diff && `Open the diff in ${opener.diff.name}: where its branch began, beside ${opener.after}`;
   return (
     <div ref={row} className={cx('ca-prfile', open && 'is-open', active && 'is-active')}>
-      <button type="button" className="ca-prfile-head" aria-expanded={open} onClick={onToggle} title={file.path}>
-        <Icon name="chevron-right" size={12} stroke={2} />
-        <span className={`ca-prfile-status is-${file.status}`} title={STATUS_WORD[file.status]}>
-          {STATUS_LETTER[file.status] ?? '·'}
-        </span>
-        <span className="ca-prfile-path">
-          <span className="ca-prfile-name">
-            <Marked text={file.path} ranges={inPath} from={file.path.length - name.length} />
+      <div
+        className="ca-prfile-bar"
+        onContextMenu={
+          opener &&
+          ((e) => {
+            e.preventDefault();
+            opener.menu(file);
+          })
+        }
+      >
+        <button type="button" className="ca-prfile-head" aria-expanded={open} onClick={onToggle} title={file.previous ? `${file.previous} → ${file.path}` : file.path}>
+          <Icon name="chevron-right" size={12} stroke={2} />
+          <span className={`ca-prfile-status is-${file.status}`} title={STATUS_WORD[file.status]}>
+            {STATUS_LETTER[file.status] ?? '·'}
           </span>
-          {dir && (
-            <span className="ca-prfile-dir">
-              <bdi>
-                <Marked text={file.path} ranges={inPath} to={dir.length} />
-              </bdi>
+          <span className="ca-prfile-path">
+            <span className="ca-prfile-name">
+              <Marked text={file.path} ranges={inPath} from={file.path.length - name.length} />
             </span>
-          )}
-        </span>
-        {lines > 0 && <span className="ca-prfile-mentions">{lines === 1 ? '1 line' : `${lines} lines`}</span>}
-        <span className="ca-diff">
-          +{file.additions} −{file.deletions}
-        </span>
-      </button>
-      {open && (file.patch ? <Patch text={file.patch} words={words} seek={lines > 0} /> : <p className="ca-empty">GitHub doesn't show a diff for this file here. Open it on GitHub.</p>)}
+            {dir && (
+              <span className="ca-prfile-dir">
+                <bdi>
+                  <Marked text={file.path} ranges={inPath} to={dir.length} />
+                </bdi>
+              </span>
+            )}
+          </span>
+          {lines > 0 && <span className="ca-prfile-mentions">{lines === 1 ? '1 line' : `${lines} lines`}</span>}
+          <span className="ca-diff">
+            +{file.additions} −{file.deletions}
+          </span>
+        </button>
+        {opener && (
+          <span className="ca-prfile-acts">
+            {opener.diff && (
+              <button type="button" className="ca-prfile-act" aria-label={`Open diff in ${opener.diff.name}`} title={diffTitle || undefined} onClick={() => opener.open(file, 'diff')}>
+                <EditorMark editor={opener.diff} icon="git-compare" />
+              </button>
+            )}
+            <button type="button" className="ca-prfile-act" aria-label="Open on GitHub" title="Open on GitHub" onClick={() => opener.github(file)}>
+              <Icon name="external" size={13} />
+            </button>
+          </span>
+        )}
+      </div>
+      {open &&
+        (file.patch ? (
+          <Patch text={file.patch} words={words} seek={lines > 0} view={view} onLine={onLine} />
+        ) : (
+          <p className="ca-empty ca-prfile-nodiff">
+            GitHub doesn’t show a diff for this file here.
+            {opener?.diff && (
+              <button type="button" className="ca-linkbtn" onClick={() => opener.open(file, 'diff')}>
+                Open diff in {opener.diff.name}
+              </button>
+            )}
+            {opener && (
+              <button type="button" className="ca-linkbtn" onClick={() => opener.github(file)}>
+                Open on GitHub
+              </button>
+            )}
+          </p>
+        ))}
     </div>
   );
 }
@@ -132,9 +272,32 @@ interface PrFilesProps {
   keys?: boolean;
   /** Shows the tab the files are on, before the filter's gone to. */
   onShow?: () => void;
+  /** Where the window can open the files outside it. */
+  opener?: FileOpener;
 }
 
-export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ prKey, files, total, more, keys = false, onShow }, ref) {
+/** Whether `el` is at least `px` wide, as it's drawn and as it changes. It's measured again as it
+ *  draws, too: a list drawn while its tab was hidden is nothing wide until the tab shows, and
+ *  WebKit holds back a resize's word while a window is hidden. */
+function useWide(el: { readonly current: Element | null }, px: number): boolean {
+  const [wide, setWide] = useState(false);
+  // On every draw: the same answer again draws nothing more, so it can't go round.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const at = el.current;
+    if (at) setWide(at.getBoundingClientRect().width >= px);
+  });
+  useLayoutEffect(() => {
+    const at = el.current;
+    if (!at) return;
+    const watch = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= px));
+    watch.observe(at);
+    return () => watch.disconnect();
+  }, [el, px]);
+  return wide;
+}
+
+export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ prKey, files, total, more, keys = false, onShow, opener }, ref) {
   const [query, setQuery] = useState(() => queries.get(prKey) ?? '');
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [active, setActive] = useState(-1);
@@ -142,6 +305,8 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   const input = useRef<HTMLInputElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const filterable = files.length >= FILTER_FROM;
+  const [layout, setLayout] = useStored<Layout>(LAYOUT_KEY, LAYOUT_CODEC, 'unified');
+  const [wrap, setWrap] = useStored(WRAP_KEY, flag, false);
 
   useEffect(() => {
     queries.set(prKey, query);
@@ -153,6 +318,9 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   const rows = useMemo(() => [...named, ...mentioned], [named, mentioned]);
 
   const section = useRef<HTMLElement>(null);
+  // Side by side only where there's room for both sides; your choice is kept for when there is.
+  const wide = useWide(section, SPLIT_FROM);
+  const view: View = { layout: wide ? layout : 'unified', wrap };
   const find = () => {
     // Shown at once, so what follows finds the list where it's drawn.
     if (onShow) flushSync(onShow);
@@ -204,7 +372,7 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   // What the filter found is counted against the files it looked through, which can be fewer than
   // the PR's (the first hundred) or, read later than the board, more.
   const count = filtering ? `${rows.length} of ${files.length}` : `${total}${more ? ` (first ${files.length} shown)` : ''}`;
-  const row = (h: FileHit, i: number) => <FileRow key={h.file.path} hit={h} open={open.has(h.file.path)} active={focused && i === active} words={words} onToggle={() => toggle(h.file.path)} />;
+  const row = (h: FileHit, i: number) => <FileRow key={h.file.path} hit={h} open={open.has(h.file.path)} active={focused && i === active} words={words} view={view} opener={opener} onToggle={() => toggle(h.file.path)} />;
 
   return (
     <section className="ca-insp-sec ca-prfiles-sec" aria-label="Files changed" ref={section}>
@@ -215,6 +383,23 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
             {allOpen ? 'Close all' : 'Open all'}
           </button>
         )}
+        <span className="ca-prfiles-view">
+          {wide && (
+            <Seg<Layout>
+              look="icon"
+              label="How diffs are drawn"
+              value={layout}
+              onPick={setLayout}
+              options={[
+                { id: 'unified', label: 'Unified', icon: 'layout-rows', title: 'Unified: what it removed over what it added' },
+                { id: 'split', label: 'Split', icon: 'layout-columns', title: 'Split: before on the left, after on the right' },
+              ]}
+            />
+          )}
+          {view.layout === 'unified' && (
+            <Seg<'wrap'> look="icon" toggles label="Long lines" value={wrap ? 'wrap' : null} onPick={() => setWrap((w) => !w)} options={[{ id: 'wrap', label: 'Wrap long lines', icon: 'text-wrap', title: wrap ? 'Long lines wrap. Click to scroll them sideways' : 'Long lines scroll sideways. Click to wrap them' }]} />
+          )}
+        </span>
         {filterable && (
           <label className="ca-prfiles-filter" title="Words a file’s path holds, any order; -word leaves out the paths that hold it. Files whose changes mention them come after.">
             <Icon name="search" size={12} />

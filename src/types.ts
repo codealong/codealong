@@ -674,7 +674,7 @@ export interface Board {
   /** App-wide status from the engine; view and project filters do not change the logo. */
   logoStatus: LogoStatus;
   /** `editors`: the editors installed here, in menu order (editors.ts). */
-  apps: { terminal: string; terminalId: string; editor: string; editorId: string; editors?: Profile[]; newTerminal?: NewTerminal };
+  apps: { terminal: string; terminalId: string; editor: string; editorId: string; editors?: Profile[]; diffEditor?: Profile | null; newTerminal?: NewTerminal };
   projects: ProjectSummary[];
   lanes: Lane[];
   /** What isn't working in the background (notices.ts). */
@@ -1057,6 +1057,8 @@ export interface PrFile {
   additions: number;
   deletions: number;
   patch: string | null;
+  /** Its path before the PR renamed it. */
+  previous?: string | null;
 }
 
 export interface PrDetail {

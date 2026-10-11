@@ -176,6 +176,7 @@ export function MainPanel(props: MainPanelProps) {
       onApprove={() => approve(item.pr)}
       report={{ error: setToast, info: setToast }}
       usage={board?.usage ?? []}
+      apps={board?.apps}
       onReview={(el) => reviewMenuFrom(item.pr, el)}
       onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
       onMenu={(at) => prMenu(item, at)}

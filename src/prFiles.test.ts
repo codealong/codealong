@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileQuery, filterFiles, marks, pieces, splitPath } from './prFiles';
+import { fileOnGitHub, fileQuery, filterFiles, firstChanged, marks, parsePatch, pieces, splitPath, splitRows } from './prFiles';
 import type { PrFile } from './types';
 
 const file = (path: string, patch: string | null = null): PrFile => ({ path, status: 'modified', additions: 1, deletions: 0, patch });
@@ -75,5 +75,43 @@ describe('marks and pieces', () => {
   it('says a path as its name and folder', () => {
     expect(splitPath('a/b/c.ts')).toEqual({ dir: 'a/b', name: 'c.ts' });
     expect(splitPath('README.md')).toEqual({ dir: '', name: 'README.md' });
+  });
+});
+
+describe('parsePatch', () => {
+  const patch = '@@ -3,4 +3,5 @@ function a() {\n   one\n-  two\n+  Two\n+  three\n   four\n\\ No newline at end of file\n@@ -20 +21,2 @@\n-x\n+y\n+z\n';
+
+  it('numbers each line on the sides it is on, from its hunk', () => {
+    expect(parsePatch(patch).map((l) => [l.kind, l.old, l.new, l.text])).toEqual([
+      ['hunk', null, null, '@@ -3,4 +3,5 @@ function a() {'],
+      ['ctx', 3, 3, '  one'],
+      ['del', 4, null, '  two'],
+      ['add', null, 4, '  Two'],
+      ['add', null, 5, '  three'],
+      ['ctx', 5, 6, '  four'],
+      ['note', null, null, 'No newline at end of file'],
+      ['hunk', null, null, '@@ -20 +21,2 @@'],
+      ['del', 20, null, 'x'],
+      ['add', null, 21, 'y'],
+      ['add', null, 22, 'z'],
+    ]);
+  });
+
+  it('pairs each run of removed lines with the added ones after it, side by side', () => {
+    const said = (p: string) => splitRows(parsePatch(p)).map((r) => (r.kind === 'pair' ? `${r.left?.text ?? '·'}|${r.right?.text ?? '·'}` : r.kind));
+    expect(said(patch)).toEqual(['hunk', '  one|  one', '  two|  Two', '·|  three', '  four|  four', 'note', 'hunk', 'x|y', '·|z']);
+    // Removed lines after added ones aren't put beside them.
+    expect(said('@@ -1,2 +1,2 @@\n+a\n-b\n')).toEqual(['hunk', '·|a', 'b|·']);
+  });
+
+  it('names a file on GitHub by the SHA-256 of its path', async () => {
+    // sha256("README.md"), as `printf README.md | shasum -a 256` gives it.
+    expect(await fileOnGitHub('https://github.com/a/b/pull/7', 'README.md')).toBe('https://github.com/a/b/pull/7/files#diff-b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5');
+  });
+
+  it('opens a file at its first added line, else where its first hunk starts', () => {
+    expect(firstChanged(parsePatch(patch))).toBe(4);
+    expect(firstChanged(parsePatch('@@ -10,3 +10,2 @@\n a\n-b\n c'))).toBe(10);
+    expect(firstChanged([])).toBeNull();
   });
 });
