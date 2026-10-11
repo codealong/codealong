@@ -1,6 +1,7 @@
 // A todo in the right panel: its title, status and labels, when it's due, what it waits on (other
 // todos, and what it's marked as waiting for), the description with its screenshots, and the
-// worktrees and sessions it's linked to, drawn like the sidebar's tree.
+// worktrees and sessions it's linked to, as chips or with their details as a tree, as a PR's panel
+// shows them (PanelSession.tsx `PanelPlaces`).
 // Everything saves as you go. Start session opens the new-session sheet with the todo as the
 // prompt, and the session it starts is linked to the todo.
 // With `[jev] todos` on, Jev's suggestions for its project, labels and what it waits on show as
@@ -17,11 +18,14 @@ import { branchLabel } from '../lanes';
 import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
-import { PanelPlace, TODO_PRIMARY } from './PanelSession';
+import { DetailsButton, PanelPlaces, TODO_PRIMARY, useDetailsOpen } from './PanelSession';
 import { PickList, PickPanel, PickRow } from './PickPanel';
 import { Button, Chip, cx, headerMenu, Icon, Kbd, Seg } from './primitives';
 import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 import { useDismiss } from './useDismiss';
+
+/** Whether a todo's worktrees and sessions show their details, for every todo, as you left them. */
+const PLACES_KEY = 'codealong.todoPlacesOpen';
 
 /** How long the title and description have to rest before Jev is asked about them. */
 const SUGGEST_AFTER_MS = 800;
@@ -393,11 +397,11 @@ function TodoRef({ todo, onShow, onRemove }: { todo: Todo; onShow: (t: Todo) => 
   );
 }
 
-/** What a linked worktree says after its name: its PR, else its branch when that says more. */
-function PlaceNote({ lane }: { lane: Lane }) {
+/** What a linked worktree says of itself: its PR, else its branch when that says more. */
+function placeNote(lane: Lane): string | null {
   const branch = branchLabel(lane);
-  if (lane.pr) return <span className="ca-tree-note">#{lane.pr.number}</span>;
-  return branch && branch !== lane.callsign ? <span className="ca-tree-note">{middleTruncate(branch, 28)}</span> : null;
+  if (lane.pr) return `#${lane.pr.number}`;
+  return branch && branch !== lane.callsign ? middleTruncate(branch, 28) : null;
 }
 
 interface TodoPanelProps {
@@ -465,6 +469,8 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
   const waiting = todo.pending.map((p) => ({ p, lane: lanes.get(p.lane) }));
   const suggested = useSuggested(todo, suggest);
   const offer = suggested ? todoSuggestions(suggested, todo, labels, todos, projects) : null;
+  // Its worktrees and sessions as chips, or with their details as a tree, as you left them.
+  const [placesOpen, togglePlaces] = useDetailsOpen(PLACES_KEY);
 
   return (
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
@@ -625,29 +631,25 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
       <section className="ca-insp-sec">
         <h4 className="ca-label ca-todoinsp-linkhead">
           <span>Worktrees and sessions</span>
+          {item.places.length > 0 && <DetailsButton open={placesOpen} says="each session’s title and what it’s doing" onToggle={togglePlaces} className="ca-todoinsp-details" />}
           <button type="button" className="ca-linkbtn" onClick={(e) => onLinkMenu(below(e.currentTarget))}>
             <Icon name="link" size={12} />
             Link
           </button>
         </h4>
         {item.places.length > 0 && (
-          <div className="ca-tree" role="tree" aria-label="Worktrees and sessions">
-            {item.places.map((place) => (
-              <PanelPlace
-                key={place.lane.id}
-                lane={place.lane}
-                sessions={place.sessions}
-                note={<PlaceNote lane={place.lane} />}
-                now={now}
-                onShowLane={onShowLane}
-                onLaneMenu={(lane) => onLaneMenu(lane, place.linked)}
-                onShowSession={onShowSession}
-                onOpenSession={onOpenSession}
-                onSessionMenu={onSessionMenu}
-                primary={item.primary && { key: item.primary.session.key, means: TODO_PRIMARY }}
-              />
-            ))}
-          </div>
+          <PanelPlaces
+            places={item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p.lane) }))}
+            open={placesOpen}
+            label="Worktrees and sessions"
+            now={now}
+            onShowLane={onShowLane}
+            onLaneMenu={(lane) => onLaneMenu(lane, !!item.places.find((p) => p.lane.id === lane.id)?.linked)}
+            onShowSession={onShowSession}
+            onOpenSession={onOpenSession}
+            onSessionMenu={onSessionMenu}
+            primary={item.primary && { key: item.primary.session.key, means: TODO_PRIMARY }}
+          />
         )}
         {waiting.map(({ p, lane }) => (
           <p key={`${p.lane}@${p.at}`} className="ca-todoinsp-waiting">

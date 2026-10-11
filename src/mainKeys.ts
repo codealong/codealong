@@ -108,6 +108,8 @@ export interface MainKeys<V extends string> {
   openRow: (row: ListRow | null) => void;
   setView: (view: V) => void;
   togglePanelMax: () => void;
+  /** A PR's panel takes the whole window, or gives the list its place back. */
+  togglePrPanelMax: () => void;
   movePinnedSession: (key: string, index: number) => void;
   movePinnedLane: (id: string, index: number) => void;
   move: (delta: number) => void;
@@ -125,7 +127,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   const mod = e.metaKey;
   const key = e.key.toLowerCase();
@@ -165,9 +167,11 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     else listRef.current?.focus();
     return;
   }
+  // ⇧⌘F from a PR panel's own fields (its review box, the files' filter), which have no use for it.
+  const prMaxKey = view === 'prs' && mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && !!document.activeElement?.closest('.ca-prpanel');
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
   // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !toTerminal && !toView && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !historyChord(e) && !toTerminal && !toView && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -350,6 +354,11 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     togglePanelMax();
     return;
   }
+  if (mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && view === 'prs' && selected?.kind === 'pr' && !picking) {
+    e.preventDefault();
+    togglePrPanelMax();
+    return;
+  }
   // P, A and R run the selected row's menu actions (menus.ts `KEYS`), plain outside Sessions and
   // with ⌃⌘ anywhere, so each applies where the menu's would; ⌃⌘W closes a session's terminal
   // and ⌃⌘1 to ⌃⌘4 snooze it for one of its menu's times, which no letter alone does. P pins what the view lists: worktrees on the board, sessions
@@ -458,10 +467,10 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
  *  ⌘.) keeps hearing a key before this one does. */
 export function useMainKeys<V extends string>(keys: MainKeys<V>): void {
   const latest = useLatest(keys);
-  const { visible, selected, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel } = keys;
+  const { visible, selected, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, togglePrPanelMax, actionsRef, todoKeys, travel } = keys;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => onMainKey(e, latest.current);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [latest, visible, selected, pickedRows, listPicks?.count, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, actionsRef, todoKeys, travel]);
+  }, [latest, visible, selected, pickedRows, listPicks?.count, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, togglePrPanelMax, actionsRef, todoKeys, travel]);
 }

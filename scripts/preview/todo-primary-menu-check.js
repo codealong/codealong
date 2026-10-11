@@ -6,11 +6,12 @@
 // The sample's first todo names the project's latest session as its primary one; the check needs
 // that session to be running.
 until(function () {
-  return q('.ca-todoinsp .ca-psess');
+  return q('.ca-todoinsp .ca-places');
 }, 30000)
-  .then(function (row) {
-    var tag = q('.ca-psess-primary', row);
-    if (!tag) return stopped('the sample todo’s primary session isn’t running on this board');
+  .then(function (places) {
+    // The panel names its sessions as chips, the primary one saying so.
+    var row = all('.ca-chip', places).filter(function (c) { return !!q('.ca-places-primary', c); })[0];
+    if (!row) return stopped('the sample todo’s primary session isn’t running on this board');
     var buttons = all('.ca-todoinsp-actions .ca-btn').map(function (b) { return b.textContent.trim(); });
     check('the panel offers its primary session first, and another start after it', buttons[0] === 'Show session' && buttons[1] === 'Start another', buttons.join(' | '));
     rightClick(row);

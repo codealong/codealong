@@ -525,7 +525,15 @@ copies its PR's link too. Colored pills say where each PR stands: its review, it
 conflicts or an out-of-date branch, or one green Ready to merge when GitHub says it can be merged
 now. Rows that are your move are marked at the left edge: amber for a review asked of you or
 something to fix, red for failing checks, green for your PRs that are ready to merge. Selecting a PR
-shows where it stands (its checks, who reviewed it and who's asked to) and then its parts as tabs,
+shows a short header: its number and title, one line of its repo, branch, author and last update,
+its pills and size, and the worktrees and sessions behind it on this Mac as chips (a worktree's
+chip, then its sessions', the PR's primary session marked; a click on a session shows it in the
+panel, on a worktree shows it in Worktrees, and a right-click gives either's menu). The chevron
+beside the title opens its details, and they stay open for the next PR until you close them: the
+whole title, its repo, branch, author, when it was opened and its commits, who reviewed it and who's
+asked to, and the chips as a tree. ⇧⌘F (or the button beside the chevron) expands the panel to the
+whole window, as a session's does in Sessions, for reading its description and diffs at the
+window's width. Under the merge box are its parts as tabs,
 which stay at the top as what's under them scrolls (← → between them): Description, its description
 then its comments (with `[jev] pull_requests`, the ones asking the author for a change or an answer
 are marked and listed first); Changes, its changed files with their diffs (each file's name, then
@@ -534,12 +542,11 @@ tabs as the list scrolls, narrows them to the paths holding every word typed, `-
 out, then lists the files whose changes mention the words, which are marked in the paths and diffs;
 ↑ ↓ and ⏎ open one, Escape clears it, ⌘F comes back to it on a PR's card); and Review (see *Your
 review*). A PR opens on the tab it showed last, else on Review when the agent's review is there to
-read and the PR waits on yours, else on Description. Under On this Mac are the worktrees and
-sessions behind it, drawn as a small tree: whether the worktree
-has anything GitHub doesn't, and the agents that worked on the PR, including one that made the
-worktree from another folder. Clicking one of those sessions, here or in a todo's panel, shows it in
-the panel (its conversation, a box to answer it) with a link back; double-click or its arrow opens
-it where it runs.
+read and the PR waits on yours, else on Description. The tree under On this Mac says whether the
+worktree has anything GitHub doesn't, and lists the agents that worked on the PR, including one
+that made the worktree from another folder, with each one's title and what it's doing. Clicking one
+of those sessions, here or in a todo's panel, shows it in the panel (its conversation, a box to
+answer it) with a link back; in the tree, double-click or its arrow opens it where it runs.
 
 ### Todo
 
@@ -563,7 +570,9 @@ act on all of them.
 
 Link worktrees and sessions you already have from the todo, or from a session's or worktree's
 right-click menu (Add to todo). A session or worktree on a todo shows the todo's chip; double-click
-it (click it in a panel) to go to the todo.
+it (click it in a panel) to go to the todo. The todo's panel lists its worktrees and sessions as a
+PR's does: as chips, or, with the chevron beside Link, as a tree with each session's title and what
+it's doing, which stays so for the next todo.
 
 #### The primary session
 

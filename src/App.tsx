@@ -95,6 +95,7 @@ const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
 const SESSION_PANEL_WIDTH_KEY = 'codealong.sessionPanelWidth';
 const SESSION_PANEL_MAX_KEY = 'codealong.sessionPanelMax';
+const PR_PANEL_MAX_KEY = 'codealong.prPanelMax';
 // Each window has its own way back.
 const HISTORY_KEY = WINDOW_PROJECT ? `codealong.sessionHistory:${WINDOW_PROJECT}` : 'codealong.sessionHistory';
 const DAY = 24 * 60 * 60 * 1000;
@@ -182,6 +183,10 @@ export function App() {
   // after another with the list out of the way; it stays as you left it.
   const [panelMax, setPanelMax] = useStored(SESSION_PANEL_MAX_KEY, flag, false);
   const togglePanelMax = useCallback(() => setPanelMax((m) => !m), [setPanelMax]);
+  // A PR's panel in PRs can too, for reading its description and its diffs at the window's width;
+  // apart from the session's, since each view is used for its own.
+  const [prPanelMax, setPrPanelMax] = useStored(PR_PANEL_MAX_KEY, flag, false);
+  const togglePrPanelMax = useCallback(() => setPrPanelMax((m) => !m), [setPrPanelMax]);
   const [savedViews, setSavedViews] = useState<SavedView[]>(loadSaved);
   useEffect(() => onSavedChange(setSavedViews), []);
   const keepSaved = (next: SavedView[]) => {
@@ -870,7 +875,7 @@ export function App() {
       canvas: canvasItem('pr', p.key),
     });
   };
-  const prMenu = (r: PrRowItem) => void showContextMenu(prMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
+  const prMenu = (r: PrRowItem, at?: { x: number; y: number }) => void showContextMenu(prMenuSpec(r), at).catch((e: unknown) => setToast(String(e)));
   /** Opens a worktree's PR on GitHub: a click on its chip, or Open PR in a menu. */
   const openLanePr = (lane: Lane) => {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
@@ -1044,6 +1049,7 @@ export function App() {
     openRow,
     setView,
     togglePanelMax,
+    togglePrPanelMax,
     movePinnedSession,
     movePinnedLane,
     move,
@@ -1194,6 +1200,8 @@ export function App() {
   const panelKind = view === 'canvas' ? (canvasPick?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : view === 'sessions' && selected?.kind === 'agent' ? 'session' : 'lane';
   const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, lane: inspectorWidth };
   const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, lane: setInspectorWidth };
+  // The panel takes the whole window: one session's in Sessions, one PR's in PRs (⇧⌘F).
+  const maxed = (panelKind === 'session' && panelMax && picks.sessions.rows.length === 0) || (view === 'prs' && selected?.kind === 'pr' && prPanelMax && picks.prs.rows.length === 0);
   // The worktree the preview URL sheet is for, as the latest board has it.
   const previewLane = previewFor ? board?.lanes.find((l) => l.id === previewFor) : undefined;
   // The session the rename sheet is for, in its own worktree.
@@ -1360,7 +1368,7 @@ export function App() {
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && picks.sessions.rows.length === 0 && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -1672,6 +1680,8 @@ export function App() {
           boxFocus={boxFocus}
           panelMax={panelMax}
           togglePanelMax={togglePanelMax}
+          prPanelMax={prPanelMax}
+          togglePrPanelMax={togglePrPanelMax}
           actionsRef={actionsRef}
           open={open}
           newSession={newSession}

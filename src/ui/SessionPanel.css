@@ -9,12 +9,6 @@
   overflow: hidden;
 }
 
-.ca-win--app .ca-win-body.is-panel-max > :not(.ca-sessinsp) {
-  display: none;
-}
-.ca-win--app .ca-win-body.is-panel-max .ca-insp.ca-sessinsp {
-  border-left: 0;
-}
 .ca-win-body.is-panel-max .ca-sessinsp > * {
   padding-inline: max(var(--space-4), (100% - 860px) / 2);
 }

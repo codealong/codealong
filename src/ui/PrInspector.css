@@ -18,6 +18,13 @@
   overflow: auto;
 }
 
+/* Expanded to the whole window (⇧⌘F, App.css): what scrolls and the box at its foot keep to a
+   column in the middle, wider than a conversation's, for the diffs; the lines and backgrounds still
+   reach the edges. */
+.ca-win-body.is-panel-max .ca-prpanel > * {
+  padding-inline: max(var(--space-4), (100% - 1120px) / 2);
+}
+
 /* Its tabs stay at the top of what scrolls, over what's under them, where the files' filter sticks
    under them (PrFiles.css). A tab picked there shows from its start, under them. What's stuck is
    held below the scroller's padding (`--prtabs-inset`, the panel's or a card's), so the bar
@@ -60,22 +67,81 @@
   margin-right: 0;
 }
 
-/* The PR panel. The pills sit beside the number when they fit, else on their own lines below
-   it, one by one; the number keeps its width. */
-.ca-prinsp .ca-insp-title {
-  flex-wrap: wrap;
-  row-gap: 6px;
+/* Its header, kept to a few lines so the tabs are near the top: the number and title with the
+   panel's buttons beside them, as a session's header has them (SessionHeader.css); one line of
+   where it comes from, which gives way at the branch; a line of where it stands; and where it
+   lives on this Mac, as chips (PanelSession.css). With its details open the title is whole, and
+   the rest is under the merge box. */
+.ca-prinsp-head {
+  display: grid;
+  gap: 6px;
 }
-.ca-prinsp .ca-insp-call {
+.ca-prinsp-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.ca-prinsp-top > .ca-lane-pricon {
+  flex: none;
+  margin-top: 3px;
+}
+.ca-prinsp-top > .ca-insp-call {
+  flex: none;
+  font: var(--type-heading-lg);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-prinsp-title {
+  flex: 1 1 0;
+  min-width: 110px;
+  margin: 0;
+  font: var(--type-heading-lg);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.ca-prinsp-head.is-open .ca-prinsp-title {
+  display: block;
+  overflow: visible;
+}
+.ca-prinsp-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin: -2px 0 -2px auto;
+}
+.ca-prinsp-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font: var(--type-meta);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ca-prinsp-meta > * {
   flex: none;
 }
+.ca-prinsp-meta > .ca-branch {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-prinsp-base {
+  font: var(--type-code);
+  color: var(--ink-2);
+}
+/* Where it stands: its review, its pills, its checks and its size, a chip's gap apart. */
 .ca-prinsp-status {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-1) var(--chip-gap);
   min-width: 0;
-  margin-left: auto;
 }
 .ca-prinsp-status .ca-prpills {
   display: contents;
@@ -83,30 +149,11 @@
 .ca-prinsp-status .ca-tag {
   margin-left: 0;
 }
-.ca-prinsp header {
-  display: grid;
-  gap: 6px;
+.ca-prinsp-size {
+  white-space: nowrap;
 }
-.ca-prinsp-title {
-  margin: 0;
-  font: var(--type-heading-lg);
-  color: var(--ink);
-}
-.ca-prinsp-meta {
-  display: grid;
-  gap: 2px;
-  font: var(--type-meta);
-  color: var(--ink-3);
-}
-.ca-prinsp-meta .ca-ic {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.ca-prinsp-checks {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+.ca-prinsp-head .ca-prcard-failing {
+  margin-top: -2px;
 }
 /* The file count goes to the files. */
 .ca-prinsp-files {
@@ -122,7 +169,7 @@
 .ca-prinsp-reviews {
   display: grid;
   gap: var(--space-1);
-  margin: 10px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
   font: var(--type-meta);

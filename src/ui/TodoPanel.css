@@ -110,6 +110,11 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
+/* Its details button sits beside Link, at the heading's end, and takes no more height than the
+   heading's line. */
+.ca-todoinsp-linkhead .ca-todoinsp-details {
+  margin: -4px 0 -4px auto;
+}
 .ca-todoinsp-linkhead .ca-linkbtn {
   display: inline-flex;
   align-items: center;

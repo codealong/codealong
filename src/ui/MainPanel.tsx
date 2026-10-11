@@ -91,6 +91,9 @@ export interface MainPanelProps {
   boxFocus: string | null;
   panelMax: boolean;
   togglePanelMax: () => void;
+  /** A PR's panel in PRs takes the whole window. */
+  prPanelMax: boolean;
+  togglePrPanelMax: () => void;
   actionsRef: { readonly current: { session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.SessionActions } };
   open: (lane: Lane | null, targetId: string | null | undefined) => void;
   newSession: (at: { laneId: string | null }) => void;
@@ -101,8 +104,8 @@ export interface MainPanelProps {
   sessionMenu: (lane: Lane, s: Session, pin: 'session' | 'worktree') => void;
   sessionMenuSpec: (lane: Lane, s: Session, pin: 'session' | 'worktree') => MenuSpec;
   lanePrMenu: (lane: Lane) => void;
-  /** A PR's right-click menu, as its row in PRs has it. */
-  prMenu: (r: PrRowItem) => void;
+  /** A PR's right-click menu, as its row in PRs has it: at the pointer, or `at` (below a button). */
+  prMenu: (r: PrRowItem, at?: { x: number; y: number }) => void;
   prChipMenu: (lane: Lane, pr: Pr) => void;
   approve: (pr: PrItem) => void;
   reviewMenuFrom: (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, el: Element) => void;
@@ -115,7 +118,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -162,7 +165,8 @@ export function MainPanel(props: MainPanelProps) {
       onMoreMenu={(at) => pickMenu(rows, at)}
     />
   );
-  const prPanel = (item: PrRowItem) =>
+  /** A PR's panel; in PRs it can take the whole window (`maximizes`). */
+  const prPanel = (item: PrRowItem, maximizes = false) =>
     drilledPanel(item.key, `PR #${item.pr.number}`) ?? (
     <PrInspector
       key={item.pr.key}
@@ -174,12 +178,14 @@ export function MainPanel(props: MainPanelProps) {
       usage={board?.usage ?? []}
       onReview={(el) => reviewMenuFrom(item.pr, el)}
       onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
-      onMenu={() => prMenu(item)}
+      onMenu={(at) => prMenu(item, at)}
       onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
       onLaneMenu={laneMenu}
       onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
+      maximized={maximizes && prPanelMax}
+      onMaximize={maximizes ? togglePrPanelMax : undefined}
     />
   );
   const inspector = (lane: Lane | null, focusKey: string | null) => (
@@ -288,7 +294,7 @@ export function MainPanel(props: MainPanelProps) {
     picks.prs.rows.length > 0 ? (
       <PrPickPanel items={picks.prs.rows} actions={picks.prs.actions()} onShow={(r) => picks.prs.select(r, 'one')} onLeaveOut={(r) => picks.prs.select(r, 'toggle')} onMoreMenu={picks.prs.menu} />
     ) : selected?.kind === 'pr' ? (
-      prPanel(selected)
+      prPanel(selected, true)
     ) : (
       <aside className="ca-insp ca-insp--empty">
         <p>Select a PR to see its description, reviews and changes.</p>

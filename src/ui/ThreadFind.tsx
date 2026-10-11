@@ -394,7 +394,7 @@ export function ThreadFind({ host, children }: { host: FindHost; children: React
   }, [owner]);
 
   // ⌘F opens it (or takes the keyboard back to it), and ⌘G and ⇧⌘G step while it's open, ahead
-  // of the window's own keys. ⇧⌘F is the window's (it expands the panel in Sessions).
+  // of the window's own keys. ⇧⌘F is the window's (it expands the panel in Sessions and PRs).
   const openNow = useLatest(open);
   const stepNow = useLatest(step);
   useEffect(() => {

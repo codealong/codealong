@@ -10,7 +10,7 @@
 import { absolute, ago, count } from '../format';
 import { selectHow, type SelectHow } from '../picks';
 import { heldForAgent, prFlag } from '../prStatus';
-import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
+import type { GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
 import { PrPills } from './PrPills';
 import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, Row, WorktreeChip } from './primitives';
@@ -99,34 +99,6 @@ export function prSections(rows: PrRowItem[]): PrSection[] {
     { id: 'done', label: 'Merged & closed', rows: done },
   ];
   return sections.filter((s) => s.rows.length > 0);
-}
-
-export function ChecksSummary({ checks: c }: { checks: Checks }) {
-  if (c.failed > 0) {
-    return (
-      <span className="ca-checks is-fail" title={c.failing.join(', ')}>
-        <Icon name="x" size={11} stroke={2.25} />
-        <span>{c.failed} failing</span>
-      </span>
-    );
-  }
-  if (c.pending > 0) {
-    return (
-      <span className="ca-checks is-pending" title={`${c.pending} running`}>
-        <Icon name="circle-dashed" size={11} stroke={2} />
-        <span>{c.pending} running</span>
-      </span>
-    );
-  }
-  if (c.passed > 0) {
-    return (
-      <span className="ca-checks is-pass" title={`${c.passed} passed`}>
-        <Icon name="check" size={11} stroke={2.25} />
-        <span>{c.passed}</span>
-      </span>
-    );
-  }
-  return null;
 }
 
 export function PrGlyph({ pr }: { pr: PrItem }) {

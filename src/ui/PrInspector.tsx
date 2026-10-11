@@ -1,8 +1,12 @@
-// A PR in the right sidebar: where it lives on this Mac first (worktrees and the sessions that
-// worked on it, drawn like the sidebar's tree), then where it stands, then its parts as tabs, one
-// shown at a time: Description (its description as GitHub renders it, then its comments), Changes
-// (its changed files with their diffs, PrFiles.tsx, which the file count under Checks and reviews
-// and ⌘F go to) and Review (your review: the agent's, your draft on GitHub, AgentReview.tsx). The
+// A PR in the right sidebar: a short header first, as a session's is (SessionHeader.tsx): its
+// number and title with the panel's buttons, one line of where it comes from, its pills and size,
+// and where it lives on this Mac as chips (the worktrees and the sessions that worked on it,
+// PanelSession.tsx `PanelPlaces`). Its details, open for every PR once you open them, add the
+// whole title, its times and commits, its reviews and the chips as a tree, under the merge box.
+// Then its parts as tabs, one shown at a time: Description (its description as GitHub renders it,
+// then its comments), Changes (its changed files with their diffs, PrFiles.tsx, which the file
+// count in the header and ⌘F go to) and Review (your review: the agent's, your draft on GitHub,
+// AgentReview.tsx). In PRs the panel can take the whole window (⇧⌘F, App.tsx). The
 // tabs stay at the top as what's under them scrolls. A PR opens on the tab it showed last, else on
 // its review when the agent's is there to read and the PR waits on yours (agentReview.ts
 // `openingTab`), else its description; a window keeps which (`usePrTab`), so the line over its box
@@ -17,6 +21,7 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { openingTab, type PrTab } from '../agentReview';
+import { below } from '../contextMenu';
 import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
@@ -26,15 +31,18 @@ import type { Lane, PrComment, PrDetail, PrItem, Session, Usage } from '../types
 import { PrReview } from './AgentReview';
 import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
-import { PanelPlace, PR_PRIMARY } from './PanelSession';
+import { DetailsButton, PanelPlaces, PR_PRIMARY, useDetailsOpen } from './PanelSession';
 import { PrFiles, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
-import { Button, headerMenu, Icon, Tabs } from './primitives';
-import { ChecksSummary, PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import { BranchLabel, Button, cx, headerMenu, Icon, Tabs } from './primitives';
+import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
+
+/** Whether a PR's details are open, for every PR, as you left them. */
+const DETAILS_KEY = 'codealong.prDetailsOpen';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
 const cache = new Map<string, PrDetail>();
@@ -104,21 +112,12 @@ function Comments({ comments, asks, now }: { comments: PrComment[]; asks: Set<st
 
 const REVIEW_WORD: Record<string, string> = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Requested changes', COMMENTED: 'Commented', DISMISSED: 'Dismissed' };
 
-/** What the worktree says next to its name: how it stands against GitHub when it holds the PR,
- *  otherwise what it has moved on to, when that's known. */
-function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace; prNumber: number; head: string }) {
-  if (holds) {
-    const words = syncWords(lane.git);
-    return words ? <span className="ca-tree-note">{words}</span> : null;
-  }
-  if (lane.pr && lane.pr.number !== prNumber) return <span className="ca-tree-note">now on #{lane.pr.number}</span>;
-  if (lane.branch && lane.branch !== head) {
-    return (
-      <span className="ca-tree-note">
-        now on <code className="ca-ic">{lane.branch}</code>
-      </span>
-    );
-  }
+/** What the worktree says of itself: how it stands against GitHub when it holds the PR, otherwise
+ *  what it has moved on to, when that's known. */
+function placeNote({ lane, holds }: PrPlace, prNumber: number, head: string): string | null {
+  if (holds) return syncWords(lane.git);
+  if (lane.pr && lane.pr.number !== prNumber) return `now on #${lane.pr.number}`;
+  if (lane.branch && lane.branch !== head) return `now on ${lane.branch}`;
   return null;
 }
 
@@ -131,9 +130,10 @@ export interface PrDetailsProps {
    *  Approve before them, the rest after. */
   lead?: ReactNode;
   trail?: ReactNode;
-  /** Right-click on its header: the PR's menu, as its row has it. A PR's card takes the
-   *  right-click anywhere on it (PrCard.tsx), so it passes none. */
-  onMenu?: () => void;
+  /** The PR's menu, as its row has it: from the ⋯ button, below it, and at the pointer from a
+   *  right-click on the header. A PR's card takes the right-click anywhere on it and has its own
+   *  ⋯ (PrCard.tsx), so it passes none. */
+  onMenu?: (at?: { x: number; y: number }) => void;
   /** Shows a session in the panel, in place of the PR until you go back. */
   onShowSession: (lane: Lane, session: Session) => void;
   /** Opens a session where it runs. */
@@ -149,6 +149,9 @@ export interface PrDetailsProps {
   goesOn?: MergeGoesOn;
   /** Which tab shows (`usePrTab`). */
   tabs: PrTabs;
+  /** In PRs: whether the panel takes the whole window, and the way to switch. */
+  maximized?: boolean;
+  onMaximize?: () => void;
 }
 
 interface PrInspectorProps extends Omit<PrDetailsProps, 'lead' | 'trail' | 'tabs'> {
@@ -201,10 +204,12 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
   );
 }
 
-/** The PR itself: its header, then where it lives on this Mac, its checks and reviews, its
- *  comments, its description and its files. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs }: PrDetailsProps) {
+/** The PR itself: its header with where it lives on this Mac, the merge box, its details when
+ *  they're open, then its tabs: its description and comments, its files, your review. */
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize }: PrDetailsProps) {
   const { pr } = item;
+  // Its details, open or not as you left them for every PR.
+  const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
   const files = useRef<FilesFinder>(null);
   const idBase = `prtab${useId().replace(/:/g, '')}`;
 
@@ -287,6 +292,10 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   const error = state.key === cacheKey ? state.error : undefined;
   const requested = pr.reviewRequested && prIsOpen(pr);
 
+  // Where it lives on this Mac: chips under the header, the tree with its details.
+  const places = item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p, pr.number, pr.head) }));
+  const placesProps = { places, label: 'On this Mac', now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: PR_PRIMARY } : null };
+
   // Links in the description open in the browser rather than inside the app.
   const onBodyClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     const a = (e.target as Element).closest('a');
@@ -298,71 +307,57 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
   return (
     <>
-      <header onContextMenu={headerMenu(onMenu)}>
-        <div className="ca-insp-title">
+      <header className={cx('ca-prinsp-head', open && 'is-open')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
+        <div className="ca-prinsp-top">
           <PrGlyph pr={pr} />
           <span className="ca-insp-call">#{pr.number}</span>
-          <span className="ca-prinsp-status">
-            {reviewSnoozed(pr) ? (
-              <span className="ca-tag" title="Out of Review requested and off the floating bar until then">
-                <Icon name="zzz" size={12} />
-                Review snoozed until {untilWords(pr.snoozedUntil, now)}
-              </span>
-            ) : (
-              requested && <span className="ca-tag is-attn">Review requested</span>
-            )}
-            <PrPills pr={pr} />
-          </span>
-        </div>
-        <h3 className="ca-prinsp-title">{pr.title}</h3>
-        <div className="ca-prinsp-meta">
-          <span>{pr.repoSlug}</span>
-          <span>
-            <code className="ca-ic">{pr.head}</code>
-            {pr.base && (
-              <>
-                {' → '}
-                <code className="ca-ic">{pr.base}</code>
-              </>
-            )}
-          </span>
-          <span>
-            by {pr.mine ? 'you' : (pr.author ?? 'unknown')} · opened <span title={absolute(pr.createdAt)}>{ago(pr.createdAt, now)}</span> ago · updated{' '}
-            <span title={absolute(pr.updatedAt)}>{ago(pr.updatedAt, now)}</span> ago
-          </span>
-        </div>
-      </header>
-      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} goesOn={goesOn} />
-
-      {item.places.length > 0 && (
-        <section className="ca-insp-sec">
-          <h4 className="ca-label">On this Mac</h4>
-          <div className="ca-tree" role="tree" aria-label="On this Mac">
-            {item.places.map((place) => (
-              <PanelPlace
-                key={place.lane.id}
-                lane={place.lane}
-                sessions={place.sessions}
-                note={<PlaceNote place={place} prNumber={pr.number} head={pr.head} />}
-                now={now}
-                onShowLane={onShowLane}
-                onLaneMenu={onLaneMenu}
-                onShowSession={onShowSession}
-                onOpenSession={onOpenSession}
-                onSessionMenu={onSessionMenu}
-                primary={pr.primary ? { key: pr.primary, means: PR_PRIMARY } : null}
+          <h3 className="ca-prinsp-title" title={open ? undefined : pr.title}>
+            {pr.title}
+          </h3>
+          <div className="ca-prinsp-tools">
+            {onMaximize && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={maximized ? 'minimize' : 'maximize'}
+                aria-label={maximized ? 'Show the list' : 'Expand to the window'}
+                aria-pressed={maximized}
+                title={maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)'}
+                onClick={onMaximize}
               />
-            ))}
+            )}
+            <DetailsButton open={open} says="when it was opened, its commits and reviews, and what each session on it is doing" onToggle={toggleOpen} />
+            {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Review with, approve, snooze, pin, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
           </div>
-        </section>
-      )}
-
-      <section className="ca-insp-sec">
-        <h4 className="ca-label">Checks and reviews</h4>
-        <div className="ca-prinsp-checks">
-          <ChecksSummary checks={pr.checks} />
-          {pr.checks.pending > 0 && pr.checks.failed > 0 && <span className="ca-meta">{pr.checks.pending} running</span>}
-          <span className="ca-meta">
+        </div>
+        <div className="ca-prinsp-meta">
+          <span title={pr.repoSlug}>{pr.repo}</span>
+          <span aria-hidden="true">·</span>
+          <BranchLabel branch={pr.head} />
+          {pr.base && (
+            <>
+              <span aria-hidden="true">→</span>
+              <span className="ca-prinsp-base" title={`Into ${pr.base}`}>
+                {pr.base}
+              </span>
+            </>
+          )}
+          <span aria-hidden="true">·</span>
+          <span>by {pr.mine ? 'you' : (pr.author ?? 'unknown')}</span>
+          <span aria-hidden="true">·</span>
+          <span title={`Opened ${absolute(pr.createdAt)}, updated ${absolute(pr.updatedAt)}`}>updated {ago(pr.updatedAt, now)} ago</span>
+        </div>
+        <div className="ca-prinsp-status">
+          {reviewSnoozed(pr) ? (
+            <span className="ca-tag" title="Out of Review requested and off the floating bar until then">
+              <Icon name="zzz" size={12} />
+              Review snoozed until {untilWords(pr.snoozedUntil, now)}
+            </span>
+          ) : (
+            requested && <span className="ca-tag is-attn">Review requested</span>
+          )}
+          <PrPills pr={pr} />
+          <span className="ca-meta ca-prinsp-size">
             +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in{' '}
             {detail ? (
               <button type="button" className="ca-linkbtn ca-prinsp-files" title="Go to the files, under Changes" onClick={() => files.current?.find()}>
@@ -371,7 +366,6 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             ) : (
               `${pr.changedFiles} ${pr.changedFiles === 1 ? 'file' : 'files'}`
             )}
-            {detail ? ` · ${detail.commits} ${detail.commits === 1 ? 'commit' : 'commits'}` : ''}
           </span>
         </div>
         {pr.checks.failing.length > 0 && (
@@ -383,7 +377,37 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             ))}
           </div>
         )}
-        {detail && (detail.reviews.length > 0 || detail.requested.length > 0) && (
+        {places.length > 0 && !open && <PanelPlaces {...placesProps} open={false} />}
+      </header>
+      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} goesOn={goesOn} />
+
+      {open && (
+        <dl className="ca-kv ca-prinsp-kv">
+          <dt>Repo</dt>
+          <dd>{pr.repoSlug}</dd>
+          <dt>Branch</dt>
+          <dd className="ca-code">
+            {pr.head}
+            {pr.base ? ` → ${pr.base}` : ''}
+          </dd>
+          <dt>Author</dt>
+          <dd>{pr.mine ? 'you' : (pr.author ?? 'unknown')}</dd>
+          <dt>Opened</dt>
+          <dd title={absolute(pr.createdAt)}>{ago(pr.createdAt, now)} ago</dd>
+          <dt>Updated</dt>
+          <dd title={absolute(pr.updatedAt)}>{ago(pr.updatedAt, now)} ago</dd>
+          {detail && (
+            <>
+              <dt>Commits</dt>
+              <dd>{detail.commits}</dd>
+            </>
+          )}
+        </dl>
+      )}
+
+      {open && detail && (detail.reviews.length > 0 || detail.requested.length > 0) && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label">Reviews</h4>
           <ul className="ca-prinsp-reviews">
             {detail.reviews.map((r) => (
               <li key={r.author} className={`is-${r.state.toLowerCase()}`}>
@@ -399,8 +423,15 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
+
+      {open && places.length > 0 && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label">On this Mac</h4>
+          <PanelPlaces {...placesProps} open />
+        </section>
+      )}
 
       <div ref={bar} className="ca-prtabs">
         <Tabs

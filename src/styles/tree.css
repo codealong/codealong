@@ -66,7 +66,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Words beside a worktree's name, in the PR panel: prose, not a callsign. */
+/* Words beside a worktree's name, in the PR and todo panels: prose, not a callsign. */
 .ca-tree-note {
   flex: none;
   font: var(--type-caption);

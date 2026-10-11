@@ -534,13 +534,23 @@ export function MoreChip({ names, className }: { names: string[]; className?: st
 }
 
 /** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
- *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it. */
-export function HarnessChip({ session, withStatus = true, onOpen, inRow = false, className }: { session: Session; withStatus?: boolean; onOpen?: () => void; inRow?: boolean; className?: string }) {
+ *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it.
+ *  A panel that lists it (PanelSession.tsx `PanelPlaces`) shows it in its place instead
+ *  (`onShow`), with its menu on a right-click, and says more of it on hover (`detail`). */
+export function HarnessChip({ session, withStatus = true, onOpen, onShow, onMenu, inRow = false, className, detail, children }: { session: Session; withStatus?: boolean; onOpen?: () => void; onShow?: () => void; onMenu?: () => void; inRow?: boolean; className?: string; detail?: string; children?: ReactNode }) {
   return (
-    <Chip className={className} title={`${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`} does={`open in ${sessionPlace(session, 'terminal')}`} act={onOpen} inRow={inRow}>
+    <Chip
+      className={className}
+      title={`${session.account} · ${session.title} · ${STATUS_WORD[session.status]}${detail ? `\n${detail}` : ''}`}
+      does={onShow ? 'show it here, right-click for its menu' : `open in ${sessionPlace(session, 'terminal')}`}
+      act={onShow ?? onOpen}
+      inRow={inRow}
+      onMenu={onMenu}
+    >
       {withStatus && <StatusGlyph status={session.status} size={10} />}
       <Icon name={SURFACE_ICON[session.surface]} size={12} />
       <span>{session.account}</span>
+      {children}
     </Chip>
   );
 }
@@ -559,13 +569,21 @@ export function AccountLabel({ session }: { session: Session }) {
 /** A worktree as a chip, wherever a row names one: its name, after its repo when it has a name of
  *  its own (the main worktree is its repo, then `main`), and after its device, in that device's
  *  color, when it's on another of yours. `short` leaves it at the one name that tells it apart,
- *  and a lane short of room does the same (see .ca-wtchip-more). */
-export function WorktreeChip({ lane, short = false }: { lane: Lane; short?: boolean }) {
+ *  and a lane short of room does the same (see .ca-wtchip-more). A panel that lists it
+ *  (PanelSession.tsx `PanelPlaces`) shows it on a click and gives its menu on a right-click, and
+ *  adds what it says of it on hover (`note`: how it stands against the PR, say). */
+export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { lane: Lane; short?: boolean; note?: string | null; onShow?: () => void; onMenu?: () => void }) {
   const branch = branchLabel(lane);
   const main = lane.origin === 'main';
   const own = !main && lane.callsign !== lane.repo;
   return (
-    <Chip className="ca-wtchip" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
+    <Chip
+      className="ca-wtchip"
+      title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}${note ? `\n${note}` : ''}`}
+      does="show it in Worktrees, right-click for its menu"
+      act={onShow}
+      onMenu={onMenu}
+    >
       <Icon name="folder" size={12} />
       {lane.device && (
         <span className="ca-wtchip-device">

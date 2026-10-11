@@ -276,8 +276,15 @@
   --panel-w: min(520px, 42vw);
 }
 
-/* Expanded to the whole window (F): the sidebar and the list step aside, and the panel's parts
-   keep to a readable width in the middle, their backgrounds and lines still reaching the edges. */
+/* Expanded to the whole window (⇧⌘F; a session's panel in Sessions, a PR's in PRs): the sidebar
+   and the list step aside, and the panel's parts keep to a column in the middle (SessionPanel.css,
+   PrInspector.css), their backgrounds and lines still reaching the edges. */
 .ca-win--app .ca-win-body.is-panel-max {
   grid-template-columns: minmax(0, 1fr);
+}
+.ca-win--app .ca-win-body.is-panel-max > :not(.ca-insp) {
+  display: none;
+}
+.ca-win--app .ca-win-body.is-panel-max > .ca-insp {
+  border-left: 0;
 }

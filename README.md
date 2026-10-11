@@ -382,7 +382,7 @@ In Codealong:
 | ⌘F | Find in a conversation |
 | ⌃- / ⌃⇧- | Back / forward through the sessions you looked at |
 | ⌃` | A new terminal in the folder of what's shown |
-| ⇧⌘F | Expand the session panel to the whole window |
+| ⇧⌘F | Expand the session panel (in Sessions) or the PR panel (in PRs) to the whole window |
 | ⌃⌘S | Fold the sidebar |
 | ⌘= · ⌘- · ⌘0 | Zoom in, out, actual size |
 | ⌘, | Settings |

@@ -1,4 +1,40 @@
-/* A session's row in a panel (PanelSession.tsx): under a worktree in the PR and todo panels. */
+/* The worktrees and sessions behind a PR or a todo, in their panels (PanelSession.tsx): chips, or
+   with the details open a tree with a row for each session. The button that opens the details. */
+
+/* The chips: each worktree's, then its sessions', a chip's gap apart; the worktrees are a little
+   further apart, so each reads as a group. They wrap, so none is cut off. */
+.ca-places {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.ca-places-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--chip-gap);
+  min-width: 0;
+  max-width: 100%;
+}
+.ca-places-group > .ca-chip.ca-wtchip {
+  max-width: 100%;
+}
+.ca-places-group > .ca-chip.is-visitor > span {
+  color: var(--ink-3);
+}
+/* The todo's or PR's primary session says so in its chip. */
+.ca-places-primary {
+  font: var(--type-caption);
+  color: var(--ink-3);
+}
+.ca-detailsbtn.is-on {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+/* A session's row in the tree: under a worktree in the PR and todo panels. */
 
 /* A session in a PR's or todo's panel: title over who runs it and what it's doing. The arrow
    that opens it where it runs shows on hover, as the row's other way out of the app. */

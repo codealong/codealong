@@ -140,9 +140,10 @@
       check('and closes the card', !card());
       // Its session, shown in the PR panel's place: Show in Codealong on the PR's chip in that
       // session's header goes back to the PR, which is still the one selected.
-      var sess = Array.prototype.filter.call(document.querySelectorAll('.ca-prinsp .ca-psess'), function (el) { return el.querySelector('.ca-psess-title').textContent === picked.title; })[0];
+      // The panel names its sessions as chips, each with its title on hover.
+      var sess = Array.prototype.filter.call(document.querySelectorAll('.ca-prinsp .ca-places .ca-chip'), function (el) { return (el.getAttribute('title') || '').indexOf(' · ' + picked.title + ' · ') >= 0; })[0];
       check('the PR panel lists its session', !!sess);
-      sess.querySelector('.ca-psess-main').click();
+      sess.click();
       return until(function () { return !document.querySelector('.ca-prinsp') && document.querySelector('.ca-sessinsp-back') && title() === picked.title; }, 3000, 'the session in the PR panel’s place');
     })
     .then(function () {
