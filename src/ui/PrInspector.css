@@ -120,16 +120,24 @@
   align-items: center;
   gap: 5px;
   min-width: 0;
+  overflow: hidden;
   font: var(--type-meta);
   color: var(--ink-3);
   white-space: nowrap;
 }
+/* Short of room, the branch gives way first, then the rest, each cut short with an ellipsis; the
+   dots and the arrow between them stay. */
 .ca-prinsp-meta > * {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-prinsp-meta > [aria-hidden='true'] {
   flex: none;
 }
 .ca-prinsp-meta > .ca-branch {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex-shrink: 8;
 }
 .ca-prinsp-base {
   font: var(--type-code);

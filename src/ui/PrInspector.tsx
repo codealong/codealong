@@ -357,6 +357,8 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             requested && <span className="ca-tag is-attn">Review requested</span>
           )}
           <PrPills pr={pr} />
+          {/* The pills say a failing check over the ones still running: these say they run. */}
+          {pr.checks.pending > 0 && pr.checks.failed > 0 && <span className="ca-meta">{pr.checks.pending} running</span>}
           <span className="ca-meta ca-prinsp-size">
             +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in{' '}
             {detail ? (

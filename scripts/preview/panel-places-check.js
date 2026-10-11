@@ -76,6 +76,16 @@
           return wait(100);
         }).then(function () {
           check('its button gives the list back', !q('.ca-win-body.is-panel-max'));
+          // At the narrowest the panel gets, its header still keeps to its width.
+          q('.ca-win-body').style.setProperty('--panel-w', '300px');
+          return wait(100);
+        }).then(function () {
+          var body = q('.ca-prpanel-body');
+          var meta = q('.ca-prinsp-meta');
+          check('the panel is 300px wide', Math.abs(q('.ca-prpanel').getBoundingClientRect().width - 300) < 2, String(q('.ca-prpanel').getBoundingClientRect().width));
+          check('at 300px nothing in it scrolls sideways', body.scrollWidth <= body.clientWidth + 1, body.scrollWidth + ' in ' + body.clientWidth);
+          var last = meta.lastElementChild.getBoundingClientRect().right;
+          check('and its one line of where it comes from fits, cut short rather than cut off', meta.getBoundingClientRect().right <= body.getBoundingClientRect().right + 1 && last <= meta.getBoundingClientRect().right + 1, Math.round(last) + ' in ' + Math.round(meta.getBoundingClientRect().right));
         });
       });
   };
