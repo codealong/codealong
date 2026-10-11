@@ -250,6 +250,9 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
         let fresh = |at: Option<i64>| at.is_some_and(|t| t > since);
         // A review's own words come as a comment at the same time by the same author.
         let mut said: Vec<&str> = Vec::new();
+        // With feedback only, an approval or a dismissal isn't told, nor its words: the latest
+        // review's, nor an earlier one's (`PrComment::review`), which the detail keeps as a comment.
+        let not_feedback = |state: &str| about != NudgeAbout::Everything && matches!(state, "APPROVED" | "DISMISSED");
         for r in d.reviews.iter().filter(|r| fresh(r.at) && Some(r.author.as_str()) != login) {
             let body = d.comments.iter().find(|c| c.author == r.author && c.at == r.at && c.path.is_none()).map(|c| c.id.as_str());
             said.extend(body);
@@ -265,8 +268,7 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
                 "DISMISSED" => "had a review dismissed",
                 _ => "reviewed it",
             };
-            // Its words are left out with it, not told as a comment of their own.
-            if about != NudgeAbout::Everything && matches!(r.state.as_str(), "APPROVED" | "DISMISSED") {
+            if not_feedback(&r.state) {
                 continue;
             }
             match body.and_then(|id| d.comments.iter().find(|c| c.id == id)) {
@@ -274,7 +276,7 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
                 None => items.push(format!("{} {words}.", r.author)),
             }
         }
-        let mut comments: Vec<_> = d.comments.iter().filter(|c| fresh(c.at) && !c.mine && !said.contains(&c.id.as_str())).collect();
+        let mut comments: Vec<_> = d.comments.iter().filter(|c| fresh(c.at) && !c.mine && !said.contains(&c.id.as_str()) && !c.review.as_deref().is_some_and(not_feedback)).collect();
         comments.sort_by_key(|c| c.at);
         for c in comments {
             match &c.path {
@@ -430,7 +432,7 @@ mod tests {
     const B: &str = "claude:claude:b";
 
     fn comment(id: &str, author: &str, body: &str, at: i64, path: Option<&str>, mine: bool) -> PrComment {
-        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), resolved: false, mine }
+        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), resolved: false, mine, review: None }
     }
 
     fn detail(reviews: Vec<PrReview>, comments: Vec<PrComment>) -> PrDetail {
@@ -704,6 +706,17 @@ mod tests {
         let only = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
         assert_eq!(words(&approved, &why, Some(&only), Some("me"), NudgeAbout::Feedback), None);
         assert_eq!(words(&merged, &Why { since: Some(UPDATED), ended: Some(PrState::Merged), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::FeedbackAndChecks), None);
+        // Two approvals by one reviewer since: the detail keeps the latest as the review, and the
+        // earlier one's words aren't told as a comment either.
+        let graph = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"bodyHTML":"","mergeable":null,"commits":{"totalCount":1},
+          "reviews":{"nodes":[
+            {"id":"R1","author":{"login":"ken"},"state":"APPROVED","submittedAt":"2026-09-23T10:00:00Z","body":"Looks good.","url":"u1"},
+            {"id":"R2","author":{"login":"ken"},"state":"APPROVED","submittedAt":"2026-09-23T11:00:00Z","body":"Still good.","url":"u2"}]},
+          "reviewRequests":{"nodes":[]},"comments":{"nodes":[]},"reviewThreads":{"nodes":[]}}}}}"#;
+        let twice = crate::github::parse_detail(graph, "[]").unwrap();
+        let since = Why { since: Some(0), ..Why::default() };
+        assert_eq!(words(&approved, &since, Some(&twice), Some("me"), NudgeAbout::Feedback), None);
+        assert!(words(&approved, &since, Some(&twice), Some("me"), NudgeAbout::Everything).unwrap().contains("- ken approved it: “Still good.”\n"));
     }
 
     #[test]

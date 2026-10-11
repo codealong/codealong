@@ -852,6 +852,11 @@ pub struct PrComment {
     pub resolved: bool,
     /// Written by whoever `gh` is signed in as.
     pub mine: bool,
+    /// A review's own text: that review's state (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`,
+    /// `DISMISSED`). `PrDetail::reviews` keeps only each author's latest, and this tells an
+    /// earlier approval's words from a comment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -967,10 +972,13 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             url: n.get("url").and_then(Value::as_str).map(String::from),
             path,
             resolved,
+            review: None,
         })
     };
     let nodes = |at: &str| pr.pointer(at).and_then(Value::as_array).cloned().unwrap_or_default();
-    let mut comments: Vec<PrComment> = nodes("/comments/nodes").iter().chain(nodes("/reviews/nodes").iter()).filter_map(|n| comment(n, None, false)).collect();
+    let mut comments: Vec<PrComment> = nodes("/comments/nodes").iter().filter_map(|n| comment(n, None, false)).collect();
+    let review_state = |n: &Value| Some(n.get("state").and_then(Value::as_str).unwrap_or("COMMENTED").to_string());
+    comments.extend(nodes("/reviews/nodes").iter().filter_map(|n| Some(PrComment { review: review_state(n), ..comment(n, None, false)? })));
     for t in nodes("/reviewThreads/nodes") {
         let path = t.get("path").and_then(Value::as_str).map(String::from);
         let resolved = t.get("isResolved").and_then(Value::as_bool).unwrap_or(false);
@@ -2065,6 +2073,9 @@ mod tests {
         let got: Vec<(&str, bool, bool, Option<&str>)> = d.comments.iter().map(|c| (c.id.as_str(), c.mine, c.resolved, c.path.as_deref())).collect();
         // The approval with nothing written is left out.
         assert_eq!(got, vec![("C1", true, false, None), ("R1", false, false, None), ("T1", false, true, Some("src/a.ts"))]);
+        // A review's own text says which review it was.
+        let reviews: Vec<Option<&str>> = d.comments.iter().map(|c| c.review.as_deref()).collect();
+        assert_eq!(reviews, vec![None, Some("CHANGES_REQUESTED"), None]);
     }
 
     /// What a conversation about a PR reads of it: the description as written, where reviews
