@@ -148,7 +148,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
 
   // The verdict that submits the agent's review in one press, what it suggests asking or saying:
   // it needs nothing written, the review saying it (agentReview.ts `agentsVerdict`).
-  const agents = agentsVerdict(pr);
+  const agents = agentsVerdict(pr, !!draft);
   const review = (verdict: Verdict) => {
     if (sent.current || sending) return;
     const body = reviewText.trim();

@@ -500,7 +500,12 @@ fn without_draft(r: &Round, pr: &PrItem, head: &str, verdict: Verdict) -> Option
     }
     let p = r.parts.iter().find(|p| p.state == PartState::Done)?;
     match r.stage {
-        ReviewStage::Posted => r.comment.as_ref().map(|link| signed(&format!("The agent's review asks for changes: {link}"), pr, head, &p.label(), "submitted")),
+        // The line that points to it says what the agent said: one that asks for changes says so,
+        // one that couldn't tell (submitted as a comment by hand, `submit_now`) doesn't.
+        ReviewStage::Posted => {
+            let says = if round_verdict(r) == Some(Verdict::RequestChanges) { "The agent's review asks for changes" } else { "The agent's review" };
+            r.comment.as_ref().map(|link| signed(&format!("{says}: {link}"), pr, head, &p.label(), "submitted"))
+        }
         ReviewStage::Kept => {
             let (summary, comments) = parse_reply(p.review.as_deref()?);
             Some(review_text(&summary, &comments, pr, head, &p.label(), "submitted"))
@@ -2122,6 +2127,12 @@ mod tests {
         let mut r = reviewed(&changes, "Two problems.\n\nVerdict: request changes", Went::Kept(None));
         let Some(Job::Submit { text: Some(text), .. }) = r.due(&done, &changes, NOW + 64_000).pop() else { panic!("a submit") };
         assert!(text.starts_with("Two problems.\n\n<sub>An agent's review (Codex) of 1111111, submitted by Codealong.</sub>"), "{text}");
+        // One whose agent couldn't tell, submitted as a comment by hand, doesn't say it asks for
+        // changes.
+        let r = reviewed(&changes, "Hm.\n\nVerdict: comment", Went::Posted("https://github.com/o/r/pull/7#issuecomment-1".into()));
+        let round = r.store.prs.values().next().and_then(|t| t.rounds.last()).unwrap();
+        let text = without_draft(round, &pr(7, HEAD), HEAD, Verdict::Comment).unwrap();
+        assert!(text.starts_with("The agent's review: https://github.com/o/r/pull/7#issuecomment-1\n\n"), "{text}");
         // One that isn't for you to submit now says why, and isn't tried again.
         for (submit, verdict, says) in [
             (ReviewSubmit::Approve, "approve", "It wasn't approved for you"),

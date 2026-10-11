@@ -3,8 +3,9 @@
 // PR's at waits to be submitted, Request changes is the filled button, Approve steps back, the line
 // under the box says so, and a press with nothing written submits the agent's review as that verdict
 // (review_pr with `agents`), what you wrote going first when there's some; where it suggests
-// commenting, Comment is, and ⌥⌘⏎ in the box does the same; where it suggests approving, the box is
-// as it always is, Request changes needing something written.
+// commenting, Comment is, and ⌥⌘⏎ in the box does the same; where it suggests approving, or its
+// review went into a draft that has gone from GitHub since, the box is as it always is, Request
+// changes needing something written.
 //   scripts/preview.sh prs '' scripts/preview/agent-submit-check.js
 (function () {
   ['codealong.prPanelMax', 'codealong.prDetailsOpen'].forEach(function (k) { localStorage.removeItem(k); });
@@ -16,13 +17,13 @@
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
-      var suggests = ['request-changes', 'comment', 'approve'];
+      var suggests = ['request-changes', 'comment', 'approve', 'request-changes'];
       board.prs = (board.prs || []).map(function (x, i) {
         if (i >= suggests.length) return Object.assign({}, x, { reviewRequested: false });
         var pr = Object.assign({}, x, {
           state: 'open', mine: false, author: 'ana', reviewRequested: true, requestedAt: Date.now() - 3600e3, snoozedUntil: null, mergedAt: null, closedAt: null, updatedAt: Date.now() - i * 1000,
           headOid: HEAD,
-          autoReview: { stage: 'posted', head: HEAD, at: Date.now() - 600e3, rounds: 1, suggests: suggests[i], comment: x.url + '#issuecomment-1' },
+          autoReview: { stage: i === 3 ? 'drafted' : 'posted', head: HEAD, at: Date.now() - 600e3, rounds: 1, suggests: suggests[i], comment: x.url + '#issuecomment-1' },
         });
         picked[i] = pr;
         return pr;
@@ -45,7 +46,7 @@
   var lastReview = function () { return last('review_pr'); };
 
   say('agent submit check: waiting for the PRs');
-  until(function () { return picked.length === 3 && rowOf(picked[2]); }, 20000, 'three PRs asking for your review')
+  until(function () { return picked.length === 4 && rowOf(picked[3]); }, 20000, 'four PRs asking for your review')
     .then(function () { return show(picked[0]); })
     .then(function () {
       var changes = button('Request changes');
@@ -91,6 +92,11 @@
     .then(function () {
       check('where it suggests approving, the box is as it always is', button('Approve').classList.contains('ca-btn--primary') && button('Request changes').disabled && !button('Request changes').classList.contains('ca-btn--primary'), button('Approve').className);
       check('its line says ⌘⏎ approves', /^⌘⏎ approves/.test(note()), note());
+      return show(picked[3]);
+    })
+    .then(function () {
+      // Its agent's review went into a draft that's gone from GitHub (no PR has one here).
+      check('a drafted review whose draft has gone leaves the box as it always is', button('Approve').classList.contains('ca-btn--primary') && button('Request changes').disabled && !button('Request changes').classList.contains('ca-btn--primary'), button('Request changes').className);
     })
     .then(done, stopped);
 })();

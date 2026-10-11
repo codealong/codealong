@@ -215,7 +215,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
   // Approve is for any open PR but yours, asked for or not; it's filled when it's asked of you,
   // unless the agent suggests otherwise and its review goes from the box in one press.
   const lead = mayApprove(pr) && (
-    <Button variant={requested && !agentsVerdict(pr) ? 'primary' : 'secondary'} icon="check" disabled={approving} title={verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for')} onClick={onApprove}>
+    <Button variant={requested && !agentsVerdict(pr, !!draft) ? 'primary' : 'secondary'} icon="check" disabled={approving} title={verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for')} onClick={onApprove}>
       {approving ? 'Approving…' : 'Approve'}
     </Button>
   );

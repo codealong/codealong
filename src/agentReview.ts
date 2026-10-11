@@ -71,12 +71,15 @@ export function openingTab(pr: Pick<PrItem, 'reviewRequested' | 'state' | 'autoR
  *  `submit_now`): the one it suggests, when that's a request for changes or a comment (an approval
  *  needs no text of its own, so its button is as it always is), while its latest review is of the
  *  commit the PR's at, there to submit (drafted, posted or kept), not submitted yet, and of
- *  someone else's open PR. Null otherwise. */
-export function agentsVerdict(pr: Pick<PrItem, 'state' | 'mine' | 'headOid' | 'autoReview'>): Verdict | null {
+ *  someone else's open PR that still asks for your review. A drafted one needs its draft still on
+ *  GitHub (`hasDraft`, your draft review as read): one submitted or thrown away there has nothing
+ *  to submit, and the box goes back to its own verdicts. Null otherwise. */
+export function agentsVerdict(pr: Pick<PrItem, 'state' | 'mine' | 'reviewRequested' | 'headOid' | 'autoReview'>, hasDraft: boolean): Verdict | null {
   const a = pr.autoReview;
-  if (!a?.suggests || a.suggests === 'approve' || a.submitted || a.own || pr.mine) return null;
+  if (!a?.suggests || a.suggests === 'approve' || a.submitted || a.own || pr.mine || !pr.reviewRequested) return null;
   if (pr.state === 'merged' || pr.state === 'closed' || !pr.headOid || a.head !== pr.headOid) return null;
-  return a.stage === 'drafted' || a.stage === 'posted' || a.stage === 'kept' ? a.suggests : null;
+  if (a.stage === 'drafted') return hasDraft ? a.suggests : null;
+  return a.stage === 'posted' || a.stage === 'kept' ? a.suggests : null;
 }
 
 /** What the agent's review goes as, in its button's words: "with your draft review and its 3

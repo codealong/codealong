@@ -42,23 +42,26 @@ describe('openingTab', () => {
 });
 
 describe('agentsVerdict', () => {
-  const pr = (a: Record<string, unknown>, more: Record<string, unknown> = {}) => ({ state: 'open' as const, mine: false, headOid: 'abc', autoReview: { stage: 'posted' as const, head: 'abc', at: 0, rounds: 1, suggests: 'request-changes' as const, ...a }, ...more });
+  const pr = (a: Record<string, unknown>, more: Record<string, unknown> = {}) => ({ state: 'open' as const, mine: false, reviewRequested: true, headOid: 'abc', autoReview: { stage: 'posted' as const, head: 'abc', at: 0, rounds: 1, suggests: 'request-changes' as const, ...a }, ...more });
   it('is what the agent suggests asking or saying, while its review of the commit the PR is at waits to be submitted', () => {
-    expect(agentsVerdict(pr({}))).toBe('request-changes');
-    expect(agentsVerdict(pr({ suggests: 'comment', stage: 'kept' }))).toBe('comment');
-    expect(agentsVerdict(pr({ stage: 'drafted' }))).toBe('request-changes');
+    expect(agentsVerdict(pr({}), false)).toBe('request-changes');
+    expect(agentsVerdict(pr({ suggests: 'comment', stage: 'kept' }), false)).toBe('comment');
+    expect(agentsVerdict(pr({ stage: 'drafted' }), true)).toBe('request-changes');
   });
 
-  it('is nothing for an approval, a review of an earlier commit, one submitted, one under way, or a PR of yours or closed', () => {
-    expect(agentsVerdict(pr({ suggests: 'approve' }))).toBeNull();
-    expect(agentsVerdict(pr({ head: 'old' }))).toBeNull();
-    expect(agentsVerdict(pr({ submitted: 'request-changes' }))).toBeNull();
-    expect(agentsVerdict(pr({ stage: 'reviewing' }))).toBeNull();
-    expect(agentsVerdict(pr({ suggests: null }))).toBeNull();
-    expect(agentsVerdict(pr({ own: true }))).toBeNull();
-    expect(agentsVerdict(pr({}, { mine: true }))).toBeNull();
-    expect(agentsVerdict(pr({}, { state: 'merged' }))).toBeNull();
-    expect(agentsVerdict(pr({}, { headOid: undefined }))).toBeNull();
+  it('is nothing for an approval, a review of an earlier commit, one submitted, one under way, or a PR of yours, closed or reviewed', () => {
+    expect(agentsVerdict(pr({ suggests: 'approve' }), false)).toBeNull();
+    expect(agentsVerdict(pr({ head: 'old' }), false)).toBeNull();
+    expect(agentsVerdict(pr({ submitted: 'request-changes' }), false)).toBeNull();
+    expect(agentsVerdict(pr({ stage: 'reviewing' }), false)).toBeNull();
+    expect(agentsVerdict(pr({ suggests: null }), false)).toBeNull();
+    expect(agentsVerdict(pr({ own: true }), false)).toBeNull();
+    expect(agentsVerdict(pr({}, { mine: true }), false)).toBeNull();
+    expect(agentsVerdict(pr({}, { state: 'merged' }), false)).toBeNull();
+    expect(agentsVerdict(pr({}, { headOid: undefined }), false)).toBeNull();
+    // A review of yours settled the request, or the agent's draft went from GitHub.
+    expect(agentsVerdict(pr({}, { reviewRequested: false }), false)).toBeNull();
+    expect(agentsVerdict(pr({ stage: 'drafted' }), false)).toBeNull();
   });
 
   it('says what goes with it', () => {
