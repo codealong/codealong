@@ -189,7 +189,7 @@
       var labels = all('.ca-prinsp .ca-tab').map(function (t) { return t.firstChild.textContent; });
       check('the PR’s parts are tabs: Description, Changes and Review', labels.join(' | ') === 'Description | Changes | Review', labels.join(' | '));
       check('it opens on Review, as the agent’s review waits there', shownTab() === 'Review' && !hidden(auto()) && hidden(q('.ca-prinsp [aria-label="Description"]')), shownTab());
-      var fileCount = q('.ca-prinsp .ca-prinsp-files') || q('.ca-prinsp-checks .ca-meta');
+      var fileCount = q('.ca-prinsp .ca-prinsp-files') || q('.ca-prinsp .ca-prinsp-size');
       check('Changes counts its files', !!tabCount('Changes') && fileCount.textContent.indexOf(tabCount('Changes') + ' file') >= 0, tabCount('Changes') + ' / ' + fileCount.textContent);
       var says = q('.ca-prinsp-auto-says').textContent;
       check('it says the round and its commit', says === 'Agent drafted a review of 309811a', says);

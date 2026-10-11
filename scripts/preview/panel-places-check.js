@@ -90,9 +90,11 @@
         check('the todo’s worktree is a chip, then its sessions', chips.length >= 2 && chips[0].classList.contains('ca-wtchip'), chips.map(function (c) { return c.textContent; }).join(' | '));
         var primary = chips.filter(function (c) { return !!q('.ca-places-primary', c); });
         check('its primary session’s chip says so', primary.length === 1, String(primary.length));
+        var sessions = chips.filter(function (c) { return !c.classList.contains('ca-wtchip'); }).length;
         press(q('.ca-todoinsp .ca-detailsbtn'));
         return until(function () { return q('.ca-todoinsp .ca-tree'); }, 3000, 'the todo’s tree').then(function () {
-          check('its chevron makes them a tree', all('.ca-todoinsp .ca-psess').length === chips.length - all('.ca-wtchip', places).length && !q('.ca-todoinsp .ca-places'));
+          var rows = all('.ca-todoinsp .ca-psess').length;
+          check('its chevron makes them a tree', rows === sessions && !q('.ca-todoinsp .ca-places'), rows + ' rows, ' + sessions + ' chips');
           check('the primary one tagged there', all('.ca-todoinsp .ca-psess-primary').length === 1);
         });
       });
