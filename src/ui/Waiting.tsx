@@ -339,6 +339,7 @@ export function Waiting() {
           apps={apps}
           lanes={board?.lanes ?? []}
           usage={board?.usage ?? []}
+          reviews={board?.reviews}
           can={reviewCan(reviewing)}
           autoFocus
           queue={way.queue}

@@ -1,35 +1,35 @@
-// Review with…: a PR's review started on any account. Codex's app has a review page of its own
-// (`codex://review`); every other account gets a session in a worktree of the PR's repo, on a
-// prompt that asks for a review. And the account that answers questions about a PR in its card's
-// box (Ask, PrCard.tsx): the one picked there, else Auto's.
+// Review with…: Codealong's own review of a PR (autoreview.rs), started by hand on the account
+// picked: the same round `[reviews] auto` starts, the PR written out for the reviewer, told what
+// Settings says, its review posted and submitted as Settings says, and shown on the PR's card and
+// in its Review tab (`review_pr_now`). Codex's app has a review page of its own (`codex://review`),
+// offered beside it. And the account that answers questions about a PR in its card's box (Ask,
+// PrCard.tsx): the one picked there, else Auto's.
 
-import { reviewInCodex, startSession } from './api';
+import { reviewInCodex, reviewNow } from './api';
 import type { MenuAction } from './contextMenu';
 import { FRESH_SIDES } from './harness';
 import { commentsWord, submittedWord } from './prDraft';
 import { errorText, type Report } from './report';
-import { AUTO, autoPick, initialPlace, remembered, type Choice } from './start';
-import type { AutoReview, Draft, Lane, PrItem, StartAccount, StartPlace, StartSpec, Started, Usage, Verdict } from './types';
+import { autoPick } from './start';
+import type { AutoReview, Draft, Lane, PrItem, ReviewsCfg, StartAccount, Usage, Verdict } from './types';
 
-/** One entry of the Review with menu. */
-export type ReviewPick =
-  | { kind: 'codex-app'; label: string }
-  | { kind: 'start'; label: string; account: string; place: StartPlace };
+/** One entry of the Review with menu: a round on `account`, or on the reviewer Settings names for
+ *  none; or Codex's own review page. */
+export type ReviewPick = { kind: 'codex-app'; label: string } | { kind: 'review'; label: string; account: string | null };
 
-/** What a review session is asked. It reads the PR through `gh`, so it works from any checkout of
- *  the repo, and leaves the code and GitHub alone: what to do with the findings is yours to say. */
-export function reviewPrompt(pr: Pick<PrItem, 'number' | 'repoSlug' | 'url' | 'title'>, checkedOut: boolean): string {
-  return [
-    `Review pull request #${pr.number} in ${pr.repoSlug}, “${pr.title}”: ${pr.url}`,
-    '',
-    `Read its description, discussion and changes (\`gh pr view ${pr.number} -R ${pr.repoSlug} --comments\`, \`gh pr diff ${pr.number} -R ${pr.repoSlug}\`) and the code around them.${checkedOut ? ' This worktree has its branch checked out.' : ''}`,
-    'Report bugs, risks and anything that doesn’t do what the PR says, most serious first, each with where it is.',
-    'Don’t change files, push, or comment on GitHub.',
-  ].join('\n');
+/** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
+ *  its harness's background service, else in Codealong, else in a terminal behind your windows.
+ *  Null for an account that can start none of those, which can't review. */
+export function reviewsRunIn(a: StartAccount): string | null {
+  const background = a.places.find((p) => p.place === 'background');
+  if (background && !background.behind) return 'in the background';
+  if (a.places.some((p) => p.place === 'codealong')) return 'in Codealong';
+  return background ? 'in a terminal behind your windows' : null;
 }
 
-/** The worktree on this Mac a review of the PR starts in: one that holds it, else the repo's main
- *  checkout, else any worktree of the repo. Null when this Mac has no checkout of it. */
+/** Whether this Mac has a checkout a review of the PR can start in, as side.rs `pr_lane` picks
+ *  one: a worktree that holds it, else the repo's main checkout, else any worktree of the repo.
+ *  Null when it has none. */
 export function reviewLane(pr: Pick<PrItem, 'repoSlug' | 'lanes'>, lanes: Lane[]): { lane: Lane; checkedOut: boolean } | null {
   const here = lanes.filter((l) => !l.id.startsWith('@'));
   const holding = here.find((l) => pr.lanes.includes(l.id));
@@ -39,61 +39,65 @@ export function reviewLane(pr: Pick<PrItem, 'repoSlug' | 'lanes'>, lanes: Lane[]
   return lane ? { lane, checkedOut: false } : null;
 }
 
-/** Where a start runs, as the menu says it: `label` is the terminal's name for a terminal start. */
-function placeWords(place: StartPlace, label: string): string {
-  if (place === 'background') return 'in the background';
-  if (place === 'claude-app') return 'in the Claude app';
-  return `in ${label}`;
+/** The reviewer Settings names for a PR (autoreview.rs `seat_for`): `[reviews.own]`'s for a PR of
+ *  yours, whose Auto keeps off the harness of the session that opened it, else `[reviews]`'s. */
+function settingsReviewer(reviews: ReviewsCfg | null | undefined, mine: boolean): { account: string; model: string; avoids: boolean } {
+  const r = mine ? reviews?.own : reviews;
+  const account = r?.account?.trim() ?? '';
+  return { account, model: r?.model?.trim() ?? '', avoids: mine && !account };
 }
 
 /**
- * The menu's entries: Auto (the account the quick panel's Auto would start) when there's a choice,
- * then every account that can start a session. A Codex account whose place is the Codex app opens
- * its review page, which needs no checkout; the others need one (`hasLane`). Each starts where the
- * quick panel would start it.
+ * The menu's entries, each a round of Codealong's own reviews (`review_pr_now`): first the
+ * reviewer Settings names, else Auto's (the quick panel's pick among the accounts that can review,
+ * another harness than the opener's for a PR of yours), when there's a choice; then each account
+ * that can start a session out of sight, which is where reviews run (`reviewsRunIn`). They need a
+ * checkout of the repo (`hasLane`); Codex's own review page, last, doesn't.
  */
-export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: number, hasLane: boolean, lastPlaces: Record<Choice, StartPlace> = {}): ReviewPick[] {
-  const pick = autoPick(accounts, usage, now);
-  const entry = (choice: Choice, label: string): ReviewPick | null => {
-    const place = initialPlace(choice, accounts, pick, lastPlaces[choice]);
-    const account = choice === AUTO ? pick?.account : choice;
-    const a = accounts.find((x) => x.name === account);
-    if (!place || !a) return null;
-    if (place === 'codex-app') return { kind: 'codex-app', label: `${label} in the Codex app` };
-    if (!hasLane) return null;
-    const where = a.places.find((p) => p.place === place)?.label ?? place;
-    return { kind: 'start', label: `${label} ${placeWords(place, where)}`, account: a.name, place };
-  };
-  const own = accounts.filter((a) => a.places.length > 0).flatMap((a) => entry(a.name, a.name) ?? []);
-  const auto = pick && own.length > 1 ? entry(AUTO, `Auto (${pick.account})`) : null;
-  return auto ? [auto, ...own] : own;
+export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: number, hasLane: boolean, reviews?: ReviewsCfg | null, mine = false): ReviewPick[] {
+  const can = hasLane ? accounts.filter((a) => reviewsRunIn(a)) : [];
+  const each: ReviewPick[] = can.map((a) => ({ kind: 'review', label: `${a.name} ${reviewsRunIn(a)}`, account: a.name }));
+  const named = settingsReviewer(reviews, mine);
+  const set = named.account ? can.find((a) => a.name === named.account) : undefined;
+  const pick = named.account || named.avoids ? null : autoPick(can, usage, now);
+  const picked = pick ? can.find((a) => a.name === pick.account) : undefined;
+  const first: ReviewPick | null = set
+    ? { kind: 'review', label: `${set.name}${named.model ? `, ${named.model}` : ''} ${reviewsRunIn(set)}, as Settings says`, account: null }
+    : named.avoids && can.length > 1
+      ? { kind: 'review', label: 'Auto (another harness than its session’s)', account: null }
+      : picked && can.length > 1
+        ? { kind: 'review', label: `Auto (${picked.name}) ${reviewsRunIn(picked)}`, account: null }
+        : null;
+  const app: ReviewPick[] = accounts.some((a) => a.places.some((p) => p.place === 'codex-app')) ? [{ kind: 'codex-app', label: 'The Codex app’s own review' }] : [];
+  return [...(first ? [first] : []), ...each, ...app];
 }
 
 /**
  * Review with…'s items, as every window builds them (`reviewPicks` says which): each starts a
- * review of the PR on an account, in the worktree `reviewLane` picks, on the review prompt, or
- * opens the PR's review page in the Codex app. How it went is reported the window's way (a start
- * under way through `report.busy`, where the window shows one), and `started` hears that the
- * review is under way, where the window goes on to the next thing that waits on you.
+ * round of Codealong's own reviews of the PR now (autoreview.rs `review_now`), whatever `[reviews]
+ * auto` says, its progress and its review on the PR's card and in its Review tab, posted and
+ * submitted as Settings says; or opens the PR's review page in the Codex app. A PR the board
+ * doesn't list (no `key`) has only that. How it went is reported the window's way (a start under
+ * way through `report.busy`, where the window shows one), and `started` hears that the review is
+ * under way, where the window goes on to the next thing that waits on you.
  */
-export function reviewItems(pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, lanes: Lane[], accounts: StartAccount[], usage: Usage[], report: Report, started?: () => void, now = Date.now()): MenuAction[] {
-  const at = reviewLane(pr, lanes);
-  const picks = reviewPicks(accounts, usage, now, !!at, remembered().places);
+export function reviewItems(pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, lanes: Lane[], accounts: StartAccount[], usage: Usage[], report: Report, started?: () => void, now = Date.now(), reviews?: ReviewsCfg | null): MenuAction[] {
+  const key = pr.key;
+  const picks = reviewPicks(accounts, usage, now, !!key && !!reviewLane(pr, lanes), reviews, !!pr.mine);
   return picks.map((pick) => ({
     label: pick.label,
     run: () => {
-      if (pick.kind === 'codex-app' || !at) {
+      if (pick.kind === 'codex-app' || !key) {
         reviewInCodex(pr.url).then(
           () => started?.(),
           (e: unknown) => report.error(errorText(e)),
         );
         return;
       }
-      const spec: StartSpec = { laneId: at.lane.id, account: pick.account, place: pick.place, prompt: reviewPrompt(pr, at.checkedOut), model: null, effort: null, worktree: false, todos: [] };
-      const work: Promise<Started | null> = startSession(spec);
-      (report.busy ? report.busy(`Starting a review of #${pr.number} on ${pick.account}…`, work) : work)
-        .then((started_) => {
-          if (started_?.message) report.info(started_.message);
+      const work = reviewNow(key, pick.account);
+      (report.busy ? report.busy(`Starting a review of #${pr.number}…`, work) : work)
+        .then(() => {
+          report.info(`Reviewing #${pr.number}: its card says how it goes.`);
           started?.();
         })
         .catch((e: unknown) => report.error(errorText(e)));

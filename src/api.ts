@@ -178,6 +178,13 @@ export async function sendAgentReview(key: string): Promise<void> {
   await invoke('send_agent_review', { key });
 }
 
+/** Starts Codealong's own review of a PR now, as Review with… asks (autoreview.rs `review_now`):
+ *  on `account`, else on the reviewer Settings names. */
+export async function reviewNow(key: string, account: string | null): Promise<void> {
+  if (!inTauri) throw new Error('Reviewing needs the app.');
+  await invoke('review_pr_now', { key, account });
+}
+
 /** Your review of a PR on GitHub: your draft with its comments, and the agent's you submitted. */
 export async function prDraft(repo: string, number: number): Promise<YourReview> {
   if (!inTauri) return { draft: null, submitted: null };

@@ -53,7 +53,7 @@ export interface LiveSession {
 export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   const [live, setLive] = useState<{ under: Told; lane: Lane; session: Session; theme: Theme; zoom: number | null } | null>(null);
   const [board, setBoard] = useState<CardBoard | null>(null);
-  const takeBoard = useCallback((b: Board) => setBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, pinned: b.pinned, nudgeAbout: b.nudgeAbout })), []);
+  const takeBoard = useCallback((b: Board) => setBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, pinned: b.pinned, nudgeAbout: b.nudgeAbout, reviews: b.reviews })), []);
   const toldNow = useRef(told);
   toldNow.current = told;
 
@@ -129,7 +129,7 @@ export function useLivePr(key: string | null, shown: boolean): LivePr {
   const [told, setTold] = useState<{ key: string; pr: PrItem | null; lanes: Lane[]; apps: Board['apps'] | null } | null>(null);
   const [now, setNow] = useState<{ board: CardBoard; lanes: Lane[]; usage: Usage[]; apps: Board['apps'] } | null>(null);
   const take = useCallback((b: Board) => {
-    setNow((prev) => ({ board: reuse<CardBoard>(prev?.board ?? { prs: [], lanes: [], todos: [] }, { prs: b.prs, lanes: b.lanes, todos: b.todos, pinned: b.pinned, nudgeAbout: b.nudgeAbout }), lanes: b.lanes, usage: b.usage, apps: b.apps }));
+    setNow((prev) => ({ board: reuse<CardBoard>(prev?.board ?? { prs: [], lanes: [], todos: [] }, { prs: b.prs, lanes: b.lanes, todos: b.todos, pinned: b.pinned, nudgeAbout: b.nudgeAbout, reviews: b.reviews }), lanes: b.lanes, usage: b.usage, apps: b.apps }));
   }, []);
 
   useEffect(() => {

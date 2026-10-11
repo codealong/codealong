@@ -30,7 +30,7 @@ import * as menus from '../menus';
 import { errorText, type Report } from '../report';
 import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
-import type { Board, Lane, Session, Usage, Verdict } from '../types';
+import type { Board, Lane, ReviewsCfg, Session, Usage, Verdict } from '../types';
 import { cardZoom } from '../zoom';
 import { zoomKey } from './cardHost';
 import { PrBoxView, usePrBox } from './PrBox';
@@ -59,6 +59,8 @@ interface PrCardProps {
   /** The board's worktrees and plan usage, for where a review starts and on which account. */
   lanes: Lane[];
   usage: Usage[];
+  /** The board's `[reviews]`, for whom Review with… starts on by default. */
+  reviews?: ReviewsCfg | null;
   can: PrWindowCan;
   /** The PR shown is on its way out: the window asked for another, which hasn't come yet. Its
    *  chords do nothing until then. */
@@ -83,7 +85,7 @@ interface PrCardProps {
 /** How the window says the PR left with each verdict. */
 const LEFT: Record<Verdict, menus.Left> = { approve: 'approved', comment: 'commented on', 'request-changes': 'changes requested' };
 
-export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom, apps }: PrCardProps) {
+export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom, apps }: PrCardProps) {
   const { pr } = item;
   const { report } = can;
   const box = usePrBox(pr, { report, usage, now, autoFocus, onSent: (verdict) => can.left?.(LEFT[verdict]), onFailed: can.failed });
@@ -94,7 +96,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
-  const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => can.left?.('review started'), now);
+  const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => can.left?.('review started'), now, reviews);
   const actions: menus.PrActions = {
     approve: reviewable ? { label: `Approve #${pr.number}`, run: () => review('approve') } : undefined,
     comment: stillOpen ? { label: 'Comment', run: () => review('comment') } : undefined,
@@ -161,7 +163,7 @@ export function PrCard({ item, now, lanes, usage, can, outgoing = false, queue, 
       <Hotkey label="Approve" keys={sign('approve')} title={actions.approve ? 'Approve it, with what’s written on Review as the review’s text, and go on' : notReviewable} run={actions.approve && (() => actions.approve?.run())} />
       <Hotkey label="Comment" keys={sign('comment')} title={actions.comment ? 'Comment on it with what’s written on Review, and go on' : 'It’s closed'} run={actions.comment && (() => actions.comment?.run())} />
       <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'The review can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
-      <Hotkey label="Review with" keys={sign('review')} title={actions.review ? `Start a review on an account; the key starts it ${actions.review.items[0] && actions.review.items[0] !== 'separator' && !('items' in actions.review.items[0]) ? actions.review.items[0].label.replace(/^Auto \([^)]*\) /, 'on Auto ') : ''}` : 'No account can start a review here'} run={actions.review && ((el) => void showContextMenu(actions.review?.items ?? [], below(el)).catch(() => {}))} />
+      <Hotkey label="Review with" keys={sign('review')} title={actions.review ? `Start Codealong’s review of it on an account${actions.review.items[0] && actions.review.items[0] !== 'separator' && !('items' in actions.review.items[0]) ? `; the key starts it: ${actions.review.items[0].label}` : ''}` : 'No account can start a review here'} run={actions.review && ((el) => void showContextMenu(actions.review?.items ?? [], below(el)).catch(() => {}))} />
       <Hotkey label="GitHub" keys={sign('github')} title="Open it on GitHub" run={() => actions.github.run()} />
     </>
   );

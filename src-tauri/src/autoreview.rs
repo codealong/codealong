@@ -206,12 +206,16 @@ pub struct Round {
     /// it wasn't. `approved` in files from when only approvals were.
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "approved")]
     pub submitted: Option<Submission>,
+    /// Asked for with Review with… (`review_now`): it goes on, and is posted and submitted, with
+    /// `[reviews] auto` off too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_hand: bool,
 }
 
 impl Round {
     fn new(head: &str, stage: ReviewStage, at: i64) -> Round {
         let ended_at = (stage != ReviewStage::Reviewing).then_some(at);
-        Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new(), sent: None, submitted: None }
+        Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new(), sent: None, submitted: None, by_hand: false }
     }
 }
 
@@ -314,8 +318,9 @@ fn seat_for(cfg: &ReviewsCfg, t: Option<&Tracked>, lanes: &[Lane], pr: &PrItem) 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Job {
     /// Start a round at `head`, asking `seat`. `since`: the commit the PR's last review that got
-    /// done was of.
-    Review { pr: PrItem, head: String, since: Option<String>, seat: Seat },
+    /// done was of. `by_hand`: asked for with Review with… (`review_now`), which needs no
+    /// `[reviews] auto` and reviews a commit again.
+    Review { pr: PrItem, head: String, since: Option<String>, seat: Seat, by_hand: bool },
     /// The round's part `part` ended its turn in `session`: read the review it wrote after `at`.
     Read { pr: PrItem, head: String, part: usize, session: String, at: i64 },
     /// Post the round's review, written by `agent`.
@@ -482,12 +487,12 @@ pub fn to_submit(submit: ReviewSubmit, verdict: Verdict) -> Option<Verdict> {
     }
 }
 
-/// What's to be submitted as your review for round `r`, its review of `head`, if anything:
-/// reviews are on, the PR still waits on your review at that commit, the round's review was posted
-/// where config.toml says (or kept), `[reviews] submit` takes its agent's verdict (`to_submit`),
-/// and it hasn't been tried.
+/// What's to be submitted as your review for round `r`, its review of `head`, if anything: the PR
+/// still waits on your review at that commit, the round's review was posted where config.toml
+/// says (or kept), `[reviews] submit` takes its agent's verdict (`to_submit`), and it hasn't been
+/// tried; and reviews are on, or the round was asked for by hand, which goes the same way.
 fn submit_due(cfg: &ReviewsCfg, pr: &PrItem, r: &Round, head: &str) -> Option<Verdict> {
-    if !(cfg.auto && wants(pr) && r.head == head && r.submitted.is_none() && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept)) {
+    if !((cfg.auto || r.by_hand) && wants(pr) && r.head == head && r.submitted.is_none() && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept)) {
         return None;
     }
     to_submit(cfg.submit, round_verdict(r)?)
@@ -609,7 +614,9 @@ impl Reviewer {
     /// `AT_ONCE` rounds are under way. Nothing for a PR with a job under way, or whose wait after
     /// a try isn't over.
     pub fn due(&mut self, board: &Board, cfg: &ReviewsCfg, now: i64) -> Vec<Job> {
-        if !(cfg.auto || cfg.own.auto) || board.github_login.is_none() {
+        // With reviews off, only what was asked for by hand goes on.
+        let on = cfg.auto || cfg.own.auto;
+        if !(on || self.store.prs.values().any(|t| t.rounds.last().is_some_and(|r| r.by_hand))) || board.github_login.is_none() {
             return Vec::new();
         }
         let mut changed = false;
@@ -618,7 +625,7 @@ impl Reviewer {
         // its part.
         for (key, t) in self.store.prs.iter_mut() {
             let url = listed.get(key).map(|pr| pr.url.as_str()).unwrap_or_default();
-            let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { continue };
+            let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) else { continue };
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
                 let Some(pending) = p.pending.clone() else { continue };
                 if let Some(s) = found(board, &pending, url).filter(|_| !url.is_empty()) {
@@ -658,7 +665,7 @@ impl Reviewer {
                 continue;
             }
             let want = wanted(cfg, &board.lanes, pr);
-            if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing) {
+            if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) {
                 match next(r, board, pr, &head, want, now) {
                     Next::Job(job) => {
                         self.busy.insert(key);
@@ -693,7 +700,7 @@ impl Reviewer {
             }
             running += 1;
             self.busy.insert(key);
-            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), seat: seat_for(cfg, t, &board.lanes, pr) });
+            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), seat: seat_for(cfg, t, &board.lanes, pr), by_hand: false });
         }
         if changed {
             self.save();
@@ -725,7 +732,7 @@ impl Reviewer {
         let t = self.store.prs.entry(key.clone()).or_default();
         let mut said = Ok(());
         match (job, went) {
-            (Job::Review { head, .. }, Went::Started(parts)) => {
+            (Job::Review { head, by_hand, .. }, Went::Started(parts)) => {
                 for p in &parts {
                     if let Some(s) = &p.session {
                         t.sessions.insert(p.who.clone(), s.clone());
@@ -739,6 +746,7 @@ impl Reviewer {
                     said = Err(format!("Codealong couldn't start a review of {}: {}", pr.key, failed.join("; ")));
                 }
                 r.parts = parts;
+                r.by_hand = *by_hand;
                 t.rounds.push(r);
             }
             (Job::Review { head, .. }, Went::NotStarted(why)) => {
@@ -1095,7 +1103,8 @@ pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, l
     let by = pr.author.as_deref().map(|a| format!(", by {a}")).unwrap_or_default();
     let why = match goes {
         Goes::Back(who) => format!("Codealong started you to review it for {login}, who opened it with another agent ({who}): your review goes back to that agent, to act on."),
-        Goes::Post(_) => format!("Codealong started you to review it for {login}, whose review it waits on."),
+        Goes::Post(_) if pr.review_requested => format!("Codealong started you to review it for {login}, whose review it waits on."),
+        Goes::Post(_) => format!("Codealong started you to review it for {login}, who asked for a review of it."),
     };
     let mut out = format!(
         "Review pull request #{} in {}, “{}” ({}){by}: it merges {} into {base}, and is at commit {}. {why}\n\n",
@@ -1304,6 +1313,8 @@ pub struct DraftPlan {
     pub add_to: Option<String>,
     pub body: String,
     pub threads: Vec<LineComment>,
+    /// The review's own part of `body`, signed, which a draft that has it already holds.
+    pub ours: String,
 }
 
 /// How a review goes into a draft on your account. A comment goes on its line when the PR's diff
@@ -1317,11 +1328,18 @@ pub fn draft_plan(summary: &str, comments: Vec<LineComment>, lines: &HashMap<Str
     let others = written_in(pr, head, &rest);
     let others = if others.is_empty() { others } else { format!("**On other lines**\n\n{others}") };
     let text = [summary.trim(), others.as_str()].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
-    let mut body = signed(&text, pr, head, agent, "drafted");
-    if let Some(mine) = pending.map(|p| p.body.trim()).filter(|b| !b.is_empty()) {
-        body = format!("{mine}\n\n---\n\n{body}");
-    }
-    DraftPlan { add_to: pending.map(|p| p.id.clone()), body, threads }
+    let ours = signed(&text, pr, head, agent, "drafted");
+    let body = match pending.map(|p| p.body.trim()).filter(|b| !b.is_empty()) {
+        Some(mine) => format!("{mine}\n\n---\n\n{ours}"),
+        None => ours.clone(),
+    };
+    DraftPlan { add_to: pending.map(|p| p.id.clone()), body, threads, ours }
+}
+
+/// Whether a draft's text holds `ours` already, line endings and trailing spaces aside.
+fn holds_text(body: &str, ours: &str) -> bool {
+    let norm = |t: &str| t.replace("\r\n", "\n").lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+    norm(body).contains(norm(ours).trim())
 }
 
 /// Where a PR's draft review is seen: its files, beside the lines it comments on.
@@ -1330,8 +1348,9 @@ fn draft_link(pr: &PrItem) -> String {
 }
 
 /// Puts a review into a draft on your account (`draft_plan`), reading the PR's diff and your draft
-/// as they are now. A draft that has the review already (its mark) is left as it is: a post tried
-/// again after adding part of it doesn't add it twice.
+/// as they are now. A draft that has this review already (its own signed text) is left as it is: a
+/// post tried again after adding part of it doesn't add it twice. Another review of the same commit,
+/// asked for by hand, goes in after it.
 fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, agent: &str) -> Went {
     let diff = match crate::github::pr_diff(&pr.repo_slug, pr.number) {
         Ok(d) => d,
@@ -1341,10 +1360,10 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
         Ok(p) => p,
         Err(e) => return Went::PostFailed(format!("{e:#}")),
     };
-    if pending.as_ref().is_some_and(|p| p.body.contains(&marker(&pr.key, head))) {
+    let plan = draft_plan(summary, comments, &commentable(&diff), pending.as_ref(), pr, head, agent);
+    if pending.as_ref().is_some_and(|p| holds_text(&p.body, &plan.ours)) {
         return Went::Drafted(draft_link(pr));
     }
-    let plan = draft_plan(summary, comments, &commentable(&diff), pending.as_ref(), pr, head, agent);
     let done = match &plan.add_to {
         None => crate::github::draft_review(&id, head, &plan.body, &plan.threads),
         Some(review) => crate::github::add_to_draft(review, &plan.body, &plan.threads),
@@ -1447,15 +1466,17 @@ fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, si
     }
 }
 
-/// Starts a round: reads the PR, then asks the reviewer (`ask`).
-fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &Seat) -> Went {
+/// Starts a round: reads the PR, then asks the reviewer (`ask`). One asked for `by_hand` starts
+/// whatever `[reviews] auto` says, while the PR is open, and reviews a commit reviewed already.
+fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &Seat, by_hand: bool) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
         Ok(c) => c,
         Err(e) => return Went::NotStarted(format!("{e:#}")),
     };
     let Some(pr) = board.prs.iter().find(|p| p.key == pr.key) else { return Went::Later };
-    if pr.head_oid.as_deref() != Some(head) || !wanted(&cfg.reviews, &board.lanes, pr) {
+    let still = if by_hand { pr.state.is_open() } else { wanted(&cfg.reviews, &board.lanes, pr) };
+    if pr.head_oid.as_deref() != Some(head) || !still {
         return Went::Later;
     }
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
@@ -1465,7 +1486,7 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
     };
     // Reviewed already, from another Mac or before a restart.
     let mark = marker(&pr.key, head);
-    if let Some(c) = detail.comments.iter().find(|c| !pr.mine && c.mine && c.body.contains(&mark)) {
+    if let Some(c) = detail.comments.iter().find(|c| !by_hand && !pr.mine && c.mine && c.body.contains(&mark)) {
         return match cfg.reviews.post {
             ReviewPost::Draft => Went::Drafted(draft_link(pr)),
             _ => Went::Posted(c.url.clone().unwrap_or_else(|| pr.url.clone())),
@@ -1749,6 +1770,61 @@ fn send(engine: &Handle, job: &Job, any_head: bool) -> Went {
     }
 }
 
+/// Starts a review of PR `key` now, as Review with… asks: a round of the same reviews `[reviews]
+/// auto` starts (`Job::Review`), the PR written out for it, told what `[reviews] prompt` says, its
+/// review posted where `[reviews] post` says and submitted as `[reviews] submit` does, but
+/// whatever `[reviews] auto` says, and of a commit reviewed already too. It runs on `account`, on
+/// its own model, else on the reviewer config.toml names (`seat_for`: Auto's account for none).
+/// That reviewer's session for the PR is asked again when it has one; else a new one starts out
+/// of sight. Not while a round of the PR is under way. One that doesn't start is said where it
+/// was asked for, and leaves the PR's reviews as they were.
+pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, account: Option<&str>) -> Result<(), String> {
+    let board = engine.board();
+    let cfg = crate::config::current().map_err(|e| format!("{e:#}"))?;
+    let pr = board.prs.iter().find(|p| p.key.eq_ignore_ascii_case(key)).ok_or("Codealong reviews only the pull requests it lists, and it doesn't list this one.")?;
+    if !pr.state.is_open() {
+        return Err("It's closed.".into());
+    }
+    let head = pr.head_oid.clone().ok_or("GitHub hasn't said which commit it's at yet.")?;
+    let k = pr_key(&pr.key);
+    let job = {
+        let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+        let t = r.store.prs.get(&k);
+        if r.busy.contains(&k) || t.and_then(|t| t.rounds.last()).is_some_and(|x| x.stage == ReviewStage::Reviewing) {
+            return Err("A review of it is under way: its card says how that goes.".into());
+        }
+        let seat = match account.map(str::trim).filter(|a| !a.is_empty()) {
+            Some(a) => named_seat(a, "", t),
+            None => seat_for(&cfg.reviews, t, &board.lanes, pr),
+        };
+        let since = t.and_then(|t| t.done_head()).filter(|h| *h != head).map(String::from);
+        let job = Job::Review { pr: pr.clone(), head, since, seat, by_hand: true };
+        r.busy.insert(k.clone());
+        job
+    };
+    let Job::Review { head, since, seat, .. } = &job else { unreachable!() };
+    let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| review(engine, pr, head, since.as_deref(), seat, true))).unwrap_or_else(|_| Went::NotStarted("It stopped partway.".into()));
+    let failed = match &went {
+        Went::NotStarted(why) => Some(why.clone()),
+        Went::Later => Some("It moved on as it was asked: try again.".into()),
+        Went::Started(parts) if parts.iter().all(|p| p.state == PartState::Failed) => Some(parts.iter().filter_map(|p| p.note.as_deref()).collect::<Vec<_>>().join(" ")),
+        _ => None,
+    };
+    let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+    match failed {
+        Some(why) => {
+            r.busy.remove(&k);
+            Err(format!("Codealong couldn't start a review of #{}: {why}", pr.number))
+        }
+        None => {
+            let said = r.told(&job, went, now_ms());
+            drop(r);
+            engine.reviewed(said);
+            Ok(())
+        }
+    }
+}
+
 /// Hands a PR of yours' latest review to the session that opened it now, as its Review tab's Send
 /// asks: whether or not sending is on, and one that found nothing to raise too.
 pub fn send_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Result<(), String> {
@@ -1798,7 +1874,7 @@ pub fn send_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Resul
 /// until a later job goes through.
 pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
-        Job::Review { pr, head, since, seat } => review(engine, pr, head, since.as_deref(), seat),
+        Job::Review { pr, head, since, seat, by_hand } => review(engine, pr, head, since.as_deref(), seat, *by_hand),
         Job::Read { session, at, .. } => read(engine, session, *at),
         Job::Post { pr, head, review, agent } => post(engine, pr, head, review, agent),
         Job::Send { .. } => send(engine, &job, false),
@@ -1880,9 +1956,10 @@ mod tests {
     fn kinds(jobs: &[Job]) -> Vec<String> {
         jobs.iter()
             .map(|j| match j {
-                Job::Review { pr, head, since, seat } => {
+                Job::Review { pr, head, since, seat, by_hand } => {
                     let session = seat.session.as_deref().map(|k| format!(" in {k}")).unwrap_or_default();
-                    format!("review {} {} since {:?} by {}{session}", pr.number, short(head), since.as_deref().map(short), seat.who)
+                    let hand = if *by_hand { " by hand" } else { "" };
+                    format!("review {} {} since {:?} by {}{session}{hand}", pr.number, short(head), since.as_deref().map(short), seat.who)
                 }
                 Job::Read { pr, part, session, .. } => format!("read {} part {part} in {session}", pr.number),
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
@@ -2175,6 +2252,40 @@ mod tests {
         assert!(codealongs_only("Fine.\n<!-- codealong-review o/r#7 abc -->"));
         assert!(codealongs_only("Round one.\n<!-- codealong-review o/r#7 abc -->\n\n---\n\nRound two.\n<!-- codealong-review o/r#7 def -->"));
         assert!(!codealongs_only("My own notes.\n\n---\n\nFine.\n<!-- codealong-review o/r#7 abc -->"));
+    }
+
+    #[test]
+    fn a_review_asked_for_by_hand_goes_on_with_reviews_off_and_is_posted_and_submitted_the_same_way() {
+        // Reviews off, submitting approvals: only the round asked for by hand goes on.
+        let off = ReviewsCfg { submit: ReviewSubmit::Approve, ..ReviewsCfg::default() };
+        let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
+        let mut r = Reviewer::default();
+        assert!(r.due(&done, &off, NOW).is_empty(), "nothing starts by itself");
+        let seat = named_seat("claude", "", None);
+        let job = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat: seat.clone(), by_hand: true };
+        r.told(&job, Went::Started(vec![started("claude", S, NOW)]), NOW).unwrap();
+        assert!(r.store.prs["o/r#7"].rounds[0].by_hand);
+        read(&mut r, &done, &off, NOW + 61_000, "Fine.\n\nVerdict: approve", "Claude Code");
+        let post = r.due(&done, &off, NOW + 62_000).pop().unwrap();
+        assert!(matches!(post, Job::Post { .. }), "{post:?}");
+        r.told(&post, Went::Drafted("https://github.com/o/r/pull/7/files".into()), NOW + 63_000).unwrap();
+        assert_eq!(kinds(&r.due(&done, &off, NOW + 64_000)), ["approve 7 1111111 saying \"\""]);
+        // Its card has it, as an automatic one's.
+        let mut prs = vec![pr(7, HEAD)];
+        apply(&mut prs, &r.store, &off, &[], NOW + 64_000);
+        assert_eq!(prs[0].auto_review.as_ref().map(|a| (a.stage, a.suggests)), Some((ReviewStage::Drafted, Some(Verdict::Approve))));
+        // A round reviews turned off left under way stays as it is.
+        let mut r = Reviewer::default();
+        let auto = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat, by_hand: false };
+        r.told(&auto, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        assert!(r.due(&done, &off, NOW + 61_000).is_empty());
+        assert_eq!(kinds(&r.due(&done, &on(), NOW + 61_000)), [format!("read 7 part 0 in {S}")]);
+        // A draft that holds this review already isn't given it again; another review of the
+        // commit goes in after it.
+        let plan = draft_plan("Fine.", vec![], &HashMap::new(), None, &pr(7, HEAD), HEAD, "Claude Code");
+        assert!(holds_text(&format!("Mine.\r\n\r\n---\r\n\r\n{}  ", plan.ours.replace('\n', "\r\n")), &plan.ours));
+        let other = draft_plan("Two problems.", vec![], &HashMap::new(), None, &pr(7, HEAD), HEAD, "Codex");
+        assert!(!holds_text(&plan.body, &other.ours));
     }
 
     #[test]

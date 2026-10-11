@@ -108,7 +108,7 @@ export interface MainPanelProps {
   prMenu: (r: PrRowItem, at?: { x: number; y: number }) => void;
   prChipMenu: (lane: Lane, pr: Pr) => void;
   approve: (pr: PrItem) => void;
-  reviewMenuFrom: (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, el: Element) => void;
+  reviewMenuFrom: (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, el: Element) => void;
   /** Drops Snooze review's times from a button. */
   snoozeMenuFrom: (pr: PrItem, el: Element) => void;
   reviewedPr: (lane: Lane, pr: Pr) => Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>;

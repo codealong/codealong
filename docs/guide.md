@@ -423,6 +423,16 @@ and post nothing, and how to lay out its last message: a summary, then its comme
 lines. The session is linked to the PR, and is a helper of it (see *Helpers*): out of Sessions,
 the bar and the queues while it doesn't need you, its turns never Your turn.
 
+Review with… on a PR (its panel's header, its menu, its card's strip, ⌃⌘R) starts the same review
+by hand, whatever `[reviews] auto` says: first the reviewer Settings names (Auto's account when it
+names none), then each account that can run one out of sight, where it would run. It's a round like
+any other, on the PR's card and in its Review tab, its review posted where `[reviews] post` says and
+submitted as `[reviews] submit` does; it reviews a commit reviewed already too, a second review going
+into your draft after the first. That account's session for the PR, when it has one, is asked again.
+One that can't start says why where you asked for it. So Settings › Automation shows the reviewer,
+where reviews go and what's submitted with automatic reviews off as well. The Codex app's own review
+page is offered last, apart from Codealong's.
+
 When its turn ends, its review goes where `[reviews] post` says. By default (`"draft"`) it's a
 review on your GitHub account left as a draft that only you see, each comment on its line where the
 PR's diff shows it (the rest written into the text, each under a link to its line), added after
@@ -951,8 +961,8 @@ session shows as the card the bar's peek shows: the same header (the ways to ope
 check, ⋯), the session's whole menu on ⋯ and on a right-click, its conversation, and a box that
 sends it a message where it runs (⏎ sends and stays, to watch the reply; ⌘⏎ sends and goes on to the
 next), or what it waits on you to allow, with Allow and Deny (⌘⏎ allows, ⌘⌫ denies). A PR shows with
-its details and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts a review
-session on an account). The box's other side, Ask (or `/side` and a question on Review), puts
+its details and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts Codealong's
+review on an account, as below). The box's other side, Ask (or `/side` and a question on Review), puts
 questions about the PR to an agent on a Claude Code or Codex account (Auto's, or the one picked
 beside Ask): Codealong hands it the PR's description, discussion and whole diff, it runs in a
 checkout of the repo here (the PR's own worktree when there is one), and it reads and runs only what
@@ -1084,7 +1094,7 @@ panel in Sessions has: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4),
 (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
 sessions that need you and before the turns that ended, so the keys go from a session to a review
 and on. On a review the strip has Approve (⌘⏎, with what's in the box as the review's text), Comment
-(⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘4), Review with (⌃⌘R starts one on the Auto account; the
+(⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘4), Review with (⌃⌘R starts one on the reviewer Settings names, else Auto's; the
 button picks) and GitHub (⌃⌘G); Request changes is a button in the box, with no key, and needs text
 too. Any of those settles GitHub's request to you, so the PR leaves what waits on you and the next
 takes its place at once, the review going to GitHub behind it; one GitHub refuses comes back round

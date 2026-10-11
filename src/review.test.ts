@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewPrompt, suggestWords } from './review';
+import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, suggestWords } from './review';
 import * as fx from './testing/fixtures';
 import type { AutoReview, Lane, StartAccount } from './types';
 
@@ -84,28 +84,25 @@ describe('reviewLane', () => {
 });
 
 describe('reviewPicks', () => {
-  it('lists Auto, then each account that can start, where it starts', () => {
-    expect(reviewPicks(ACCOUNTS, [], 0, true)).toEqual([
-      { kind: 'start', label: 'Auto (claude) in Ghostty', account: 'claude', place: 'terminal' },
-      { kind: 'start', label: 'claude in Ghostty', account: 'claude', place: 'terminal' },
-      { kind: 'codex-app', label: 'codex in the Codex app' },
+  // claude reviews in the background, codex only opens its app; claude2 isn't signed in.
+  const behind = { place: 'background' as const, label: 'Background', behind: true };
+  const more = [...ACCOUNTS, fx.startAccount({ name: 'opencode', harness: 'opencode', places: [ghostty, behind] })];
+  it('lists Auto, then each account that can review out of sight, then Codex’s own review page', () => {
+    expect(reviewPicks(more, [], 0, true)).toEqual([
+      { kind: 'review', label: 'Auto (claude) in the background', account: null },
+      { kind: 'review', label: 'claude in the background', account: 'claude' },
+      { kind: 'review', label: 'opencode in a terminal behind your windows', account: 'opencode' },
+      { kind: 'codex-app', label: 'The Codex app’s own review' },
     ]);
   });
-  it('goes where the account last started', () => {
-    expect(reviewPicks(ACCOUNTS, [], 0, true, { claude: 'background' })[1]).toEqual({ kind: 'start', label: 'claude in the background', account: 'claude', place: 'background' });
+  it('names the reviewer Settings has first, and Auto for one of yours as another harness', () => {
+    const reviews = { auto: false, account: 'opencode', model: 'big', own: { auto: false } };
+    expect(reviewPicks(more, [], 0, true, reviews)[0]).toEqual({ kind: 'review', label: 'opencode, big in a terminal behind your windows, as Settings says', account: null });
+    expect(reviewPicks(more, [], 0, true, reviews, true)[0]).toEqual({ kind: 'review', label: 'Auto (another harness than its session’s)', account: null });
   });
-  it('without a checkout offers only the Codex app’s review page', () => {
-    expect(reviewPicks(ACCOUNTS, [], 0, false)).toEqual([{ kind: 'codex-app', label: 'codex in the Codex app' }]);
-  });
-});
-
-describe('reviewPrompt', () => {
-  it('names the PR and asks for a review that changes nothing', () => {
-    const text = reviewPrompt({ number: 12, repoSlug: 'acme/app', url: 'https://github.com/acme/app/pull/12', title: 'Fix it' }, true);
-    expect(text).toContain('#12 in acme/app');
-    expect(text).toContain('gh pr diff 12 -R acme/app');
-    expect(text).toContain('has its branch checked out');
-    expect(text).toContain('Don’t change files');
+  it('offers no choice of one, and without a checkout only Codex’s own review page', () => {
+    expect(reviewPicks(ACCOUNTS, [], 0, true).map((p) => p.label)).toEqual(['claude in the background', 'The Codex app’s own review']);
+    expect(reviewPicks(ACCOUNTS, [], 0, false)).toEqual([{ kind: 'codex-app', label: 'The Codex app’s own review' }]);
   });
 });
 

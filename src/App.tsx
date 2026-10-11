@@ -836,17 +836,17 @@ export function App() {
       .catch((e: unknown) => reportNotice(startOptionsFailed(e)));
   }, []);
   useEffect(loadStartOpts, [loadStartOpts]);
-  /** Review with…'s items for a PR: its review page in the Codex app, or a session on a review
-   *  prompt in a worktree of its repo on this Mac (review.ts). */
-  const reviewItems = (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>): MenuAction[] => {
+  /** Review with…'s items for a PR: a round of Codealong's own reviews on an account, or its
+   *  review page in the Codex app (review.ts). */
+  const reviewItems = (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>): MenuAction[] => {
     loadStartOpts();
-    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track });
+    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track }, undefined, Date.now(), board?.reviews);
   };
   /** A worktree's PR as Review with… needs it: the board's, or what the worktree knows of one
    *  the board doesn't list (on another Mac, say). */
   const reviewedPr = (lane: Lane, p: Pr) => board?.prs.find((x) => x.url === p.url) ?? { ...p, repoSlug: lane.repoSlugNow ?? lane.repoSlug ?? '', lanes: [lane.id] };
   /** Drops Review with… from a button, as the PR panels have it. */
-  const reviewMenuFrom = (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, el: Element) => {
+  const reviewMenuFrom = (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, el: Element) => {
     const items = reviewItems(pr);
     const spec = items.length > 0 ? items : [{ label: 'No account can start a review here', run: () => {}, enabled: false }];
     void showContextMenu(spec, below(el)).catch((e: unknown) => setToast(String(e)));

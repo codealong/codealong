@@ -94,6 +94,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
         apps={apps}
         lanes={live.lanes}
         usage={live.usage}
+        reviews={live.board?.reviews}
         can={can}
         outgoing={pr.key !== prKey}
         queue={queue}

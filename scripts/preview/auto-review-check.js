@@ -24,7 +24,8 @@
 // reviewed (`[reviews.own]`) with handing back off: it opens on Review, says why its review hasn't
 // gone back, and Send hands it to the session that opened it (send_agent_review). Then Settings ›
 // Automation (no longer Accounts) has the switch, off by default, with the PR nudge, the usage
-// limit and the network error; turned on it saves `[reviews]` as config.toml has it, and the
+// limit and the network error; off, the reviewer and where reviews go still show, since Review
+// with… starts the same review; turned on it saves `[reviews]` as config.toml has it, and the
 // reviewer is a box drawn as a session's (AgentPromptBox.tsx): what it's told, Codealong's own
 // instructions until you change them, and the agent chip at its foot, whose menu is the quick
 // panel's (Auto, then each account that can review out of the way with its models). Picking an
@@ -324,6 +325,32 @@
         note('no fourth open PR with a session to make yours');
       }
 
+      // Review with… starts the same review by hand (review_pr_now): on the reviewer Settings
+      // names, or an account picked, each where reviews run, out of sight.
+      var reviewWith = function () { return all('.ca-prpanel button').filter(function (b) { return b.textContent.trim() === 'Review with…'; })[0]; };
+      if (reviewWith()) {
+        var withLabels = [];
+        for (var tries = 0; tries < 5 && !withLabels.some(function (l) { return / in (the background|Codealong|a terminal behind your windows)/.test(l); }); tries++) {
+          var menusBefore = menus();
+          press(reviewWith());
+          await until(function () { return menus() > menusBefore; }, 3000, 'Review with… opens no menu');
+          withLabels = menuLabels();
+          if (withLabels.length < 2) await wait(300);
+        }
+        check('Review with… lists where each review runs, out of sight, and no terminal you’d see', withLabels.length > 0 && withLabels.every(function (l) { return / in (the background|Codealong|a terminal behind your windows)(, as Settings says)?$/.test(l) || /^Auto \(another harness/.test(l) || l === 'The Codex app’s own review'; }), withLabels.join(' | '));
+        var account = withLabels.filter(function (l) { return !/^Auto|as Settings says|Codex app/.test(l); })[0];
+        if (account) {
+          menuItem(account)();
+          await until(function () { return calls('review_pr_now').length === 1; }, 3000, 'picking an account started no review');
+          var asked = calls('review_pr_now')[0][1];
+          check('picking an account starts Codealong’s review of the PR on it', /#\d+$/.test(asked.key) && asked.account === account.split(' ')[0], JSON.stringify(asked));
+        } else {
+          note('no account to pick in Review with…: ' + withLabels.join(' | '));
+        }
+      } else {
+        note('no PR panel with Review with… open');
+      }
+
       q('.ca-side-config').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       var on = /Review pull requests that wait on your review/;
@@ -336,7 +363,7 @@
       var input = box(on).querySelector('input');
       check('reviews are off by default', !input.checked, String(input.checked));
       var field = function (words) { return all('.ca-field').filter(function (f) { return words.test((q('span', f) || {}).textContent || ''); })[0]; };
-      check('with nothing more while they’re off', !field(/^The reviewer$/) && !field(/^Where each review goes$/), '');
+      check('off, the reviewer and where its reviews go still show, for Review with…', !!field(/^The reviewer$/) && !!field(/^Where each review goes$/) && !!field(/^Submit the agent’s review for you$/) && /Off, an agent reviews one when you ask, with Review with…/.test(box(on).textContent), '');
       input.click();
       await until(function () { return calls('save_config').length > 0; }, 3000, 'turning it on saved nothing');
       var cfg = calls('save_config')[0][1].config;

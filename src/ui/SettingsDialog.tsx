@@ -9,6 +9,7 @@ import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
+import { reviewsRunIn } from '../review';
 import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -323,16 +324,6 @@ const REVIEW_SUBMITS: (Profile & { id: ReviewSubmit; says: string })[] = [
   { id: 'comment', name: 'Comment instead of requesting changes, never approve', says: `Where the agent would ask for changes, its review goes as a comment from you once it’s posted, which reaches the author without blocking the merge. A pull request it would approve is left for you to approve yourself. ${SUBMITTED_FOR_YOU}` },
 ];
 
-/** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
- *  its harness's background service, else in Codealong, else in a terminal behind your windows.
- *  Null for an account that can start none of those. */
-function reviewsRunIn(a: StartAccount): string | null {
-  const background = a.places.find((p) => p.place === 'background');
-  if (background && !background.behind) return 'in the background';
-  if (a.places.some((p) => p.place === 'codealong')) return 'in Codealong';
-  return background ? 'in a terminal behind your windows' : null;
-}
-
 /** `[reviews]`: an agent reviews the pull requests that wait on your review, on the account and
  *  model picked, told what to do in the box under them (AgentPromptBox.tsx; Codealong's own
  *  instructions until you change them: `defaultPrompt`), its review put where you say
@@ -357,46 +348,42 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
         <span>Review pull requests that wait on your review</span>
         <small>
           An agent reviews each open pull request that asks for your review, in a session of its own, and again when new commits come in while it still waits on you. It reads the pull request and the code around it and changes nothing. A pull request joins what waits on you once its
-          review is done, and its card says where that stands.
+          review is done, and its card says where that stands. Off, an agent reviews one when you ask, with Review with… on the pull request: the same review, by the reviewer below, its review going as below.
         </small>
       </label>
-      {reviews.auto && (
-        <>
-          <div className="ca-field">
-            <span>The reviewer</span>
-            <AgentPromptBox
-              accounts={accounts}
-              usage={usage}
-              now={now}
-              account={reviews.account}
-              model={reviews.model}
-              prompt={reviews.prompt}
-              defaultPrompt={defaultPrompt}
-              label="What the reviewer is told"
-              hint="What to look for, and how"
-              autoTitle="The account the quick panel’s Auto would start, picked again for each pull request: a preferred one with room, the one whose week resets soonest. Reviews keep to accounts that can start a session out of the way."
-              defaultLabel="Use Codealong’s instructions"
-              disabled={disabled}
-              onAgent={(account, model) => set({ account, model })}
-              onPrompt={(prompt) => set({ prompt })}
-            />
-            <small>
-              What it’s told: what to look for and how. It can start subagents of its own and combine what they find; in Claude Code, ask for the Task tool and name each one’s model. Codealong still tells it which pull request, where it’s written out, to change nothing, and how to lay out
-              its last message so the review can be posted. {runsIn ? `It runs ${reviewsRunIn(runsIn)}.` : 'Auto picks an account that can start a session out of the way.'} This is apart from the account new sessions start on.
-            </small>
-          </div>
-          <label className="ca-field">
-            <span>Where each review goes</span>
-            <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />
-            <small>{post.says}</small>
-          </label>
-          <label className="ca-field">
-            <span>Submit the agent’s review for you</span>
-            <ProfileSelect value={reviews.submit} profiles={REVIEW_SUBMITS} onChange={(id) => set({ submit: id as ReviewSubmit })} />
-            <small>{submit.says}</small>
-          </label>
-        </>
-      )}
+      <div className="ca-field">
+        <span>The reviewer</span>
+        <AgentPromptBox
+          accounts={accounts}
+          usage={usage}
+          now={now}
+          account={reviews.account}
+          model={reviews.model}
+          prompt={reviews.prompt}
+          defaultPrompt={defaultPrompt}
+          label="What the reviewer is told"
+          hint="What to look for, and how"
+          autoTitle="The account the quick panel’s Auto would start, picked again for each pull request: a preferred one with room, the one whose week resets soonest. Reviews keep to accounts that can start a session out of the way."
+          defaultLabel="Use Codealong’s instructions"
+          disabled={disabled}
+          onAgent={(account, model) => set({ account, model })}
+          onPrompt={(prompt) => set({ prompt })}
+        />
+        <small>
+          What it’s told: what to look for and how. It can start subagents of its own and combine what they find; in Claude Code, ask for the Task tool and name each one’s model. Codealong still tells it which pull request, where it’s written out, to change nothing, and how to lay out
+          its last message so the review can be posted. {runsIn ? `It runs ${reviewsRunIn(runsIn)}.` : 'Auto picks an account that can start a session out of the way.'} This is apart from the account new sessions start on.
+        </small>
+      </div>
+      <label className="ca-field">
+        <span>Where each review goes</span>
+        <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />
+        <small>{post.says}</small>
+      </label>
+      <label className="ca-field">
+        <span>Submit the agent’s review for you</span>
+        <ProfileSelect value={reviews.submit} profiles={REVIEW_SUBMITS} onChange={(id) => set({ submit: id as ReviewSubmit })} />
+        <small>{submit.says}</small>
+      </label>
       <OwnReviewsField reviews={reviews} accounts={accounts} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} onSave={set} />
     </fieldset>
   );
