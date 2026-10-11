@@ -441,8 +441,9 @@ export type ReviewPost = 'draft' | 'comment' | 'none';
 
 /** Which of an automatic review's verdicts are submitted as your review (config.rs
  *  `ReviewSubmit`): none, approvals, approvals and requests for changes, or approvals with those
- *  requests sent as comments. */
-export type ReviewSubmit = 'never' | 'approve' | 'approve-or-request-changes' | 'approve-or-comment';
+ *  requests sent as comments; or the requests alone, as such or as comments, approvals left to
+ *  you. */
+export type ReviewSubmit = 'never' | 'approve' | 'approve-or-request-changes' | 'approve-or-comment' | 'request-changes' | 'comment';
 
 /** Where automatic updates stand (src-tauri/src/updates.rs): this copy's version, and a state. */
 export type UpdateView = { current: string } & (

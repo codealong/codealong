@@ -448,7 +448,7 @@ account = ""                   # the account it runs on; "" for the one Auto wou
 model = ""                     # the model it starts on; "" for the account's own
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
-submit = "never"               # submit the agent's verdict as your review once posted: "approve", "approve-or-request-changes", "approve-or-comment"
+submit = "never"               # submit the agent's verdict as your review once posted: "approve", "approve-or-request-changes", "approve-or-comment"; "request-changes" or "comment" never approve
 
 [reviews.own]
 auto = false                   # an agent reviews each PR a session of yours opened here, and again on new commits (Settings › Automation)

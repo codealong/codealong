@@ -347,7 +347,7 @@
       // What of the agent's verdict is submitted for you is a select too, never by default.
       var submitField = function () { return field(/^Submit the agent’s review for you$/); };
       var submits = all('option', submitField()).map(function (o) { return o.textContent; });
-      check('the agent’s verdict is submitted for you never by default, else as an approval, with changes requested, or with a comment for them', submits.join(' | ') === 'Never: you submit each one | Approve when it finds nothing to fix | Approve, or request changes | Approve, or comment instead of requesting changes' && q('select', submitField()).value === 'never', submits.join(' | ') + ' / ' + q('select', submitField()).value);
+      check('the agent’s verdict is submitted for you never by default, else as an approval, with changes requested, or with a comment for them, or those without approving', submits.join(' | ') === 'Never: you submit each one | Approve when it finds nothing to fix | Approve, or request changes | Approve, or comment instead of requesting changes | Request changes, never approve | Comment instead of requesting changes, never approve' && q('select', submitField()).value === 'never', submits.join(' | ') + ' / ' + q('select', submitField()).value);
       var submitSaves = calls('save_config').length;
       var submitSelect = q('select', submitField());
       submitSelect.value = 'approve-or-comment';

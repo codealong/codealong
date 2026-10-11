@@ -500,7 +500,9 @@ for a PR that waits on your review: `"never"` (the default) leaves every one to 
 approves a PR the agent would approve; `"approve-or-request-changes"` does that and requests changes
 where the agent would ask for changes, a true request for changes that can block its merge;
 `"approve-or-comment"` sends that request as a comment instead, which reaches the author without
-blocking anything. When the agent can't tell (`Verdict: comment`), it's left to you whatever the
+blocking anything. `"request-changes"` and `"comment"` do the same where the agent would ask for
+changes, but never approve: a PR it would approve waits on you, for you to approve yourself.
+When the agent can't tell (`Verdict: comment`), it's left to you whatever the
 setting. Your draft is what's submitted, its comments and all, and the PR leaves what waits on you;
 it's held out of it until then, and its card says what was submitted for you. Without a draft, a
 request for changes or a comment links to the agent's review posted as a comment, or with posting

@@ -368,8 +368,9 @@ impl ReviewPost {
 /// (autoreview.rs `to_submit`). `never`: each is left for you. `approve`: a PR its agent would
 /// approve is approved. `approve-or-request-changes`: that, and one it would ask for changes on gets
 /// a request for changes from you. `approve-or-comment`: that, but the request for changes goes
-/// as a comment, which doesn't hold the PR back. An agent that can't tell (`Verdict: comment`)
-/// leaves it to you whatever this says.
+/// as a comment, which doesn't hold the PR back. `request-changes` and `comment`: those, never
+/// an approval, which stays yours to give. An agent that can't tell (`Verdict: comment`) leaves
+/// it to you whatever this says.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReviewSubmit {
@@ -378,6 +379,8 @@ pub enum ReviewSubmit {
     Approve,
     ApproveOrRequestChanges,
     ApproveOrComment,
+    RequestChanges,
+    Comment,
 }
 
 impl ReviewSubmit {
@@ -387,6 +390,8 @@ impl ReviewSubmit {
             ReviewSubmit::Approve => "approve",
             ReviewSubmit::ApproveOrRequestChanges => "approve-or-request-changes",
             ReviewSubmit::ApproveOrComment => "approve-or-comment",
+            ReviewSubmit::RequestChanges => "request-changes",
+            ReviewSubmit::Comment => "comment",
         }
     }
 }
@@ -863,8 +868,9 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 # comments on their lines, for you to finish; \"comment\", a comment on the PR from your account; \"none\",
 # it stays in the review's session. submit: which of the agent's verdicts goes as your review once it's posted,
 # your draft review submitted with it: \"never\"; \"approve\", when it would approve (nothing that needs fixing
-# before it merges); \"approve-or-request-changes\", and a request for changes when it would ask for them; or
-# \"approve-or-comment\", that request sent as a comment instead. When it can't tell, it's left for you.
+# before it merges); \"approve-or-request-changes\", and a request for changes when it would ask for them;
+# \"approve-or-comment\", that request sent as a comment instead; or \"request-changes\" or \"comment\", only that
+# request, never an approval, which stays yours to give. When it can't tell, it's left for you.
 ";
 const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
 # commits come in. account and model: what it runs on; \"\" for the account Auto would start among those of another
@@ -1974,6 +1980,10 @@ mod tests {
         assert_eq!(parse(&format!("{old}\n[reviews]\nauto_approve = false\n")).unwrap().reviews.submit, ReviewSubmit::Never);
         assert_eq!(parse(&format!("{old}\n[reviews]\nauto_approve = true\nsubmit = \"never\"\n")).unwrap().reviews.submit, ReviewSubmit::Never);
         assert_eq!(parse(&format!("{old}\n[reviews]\nsubmit = \"approve-or-request-changes\"\n")).unwrap().reviews.submit, ReviewSubmit::ApproveOrRequestChanges);
+        // Each reads back as it's written.
+        for s in [ReviewSubmit::Never, ReviewSubmit::Approve, ReviewSubmit::ApproveOrRequestChanges, ReviewSubmit::ApproveOrComment, ReviewSubmit::RequestChanges, ReviewSubmit::Comment] {
+            assert_eq!(parse(&format!("{old}\n[reviews]\nsubmit = \"{}\"\n", s.as_str())).unwrap().reviews.submit, s);
+        }
         // An account that isn't listed can't review, nor a model name that can't be typed.
         assert_eq!(check(&on), Ok(()));
         let mut bad = on.clone();

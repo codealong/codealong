@@ -466,15 +466,19 @@ fn round_verdict(r: &Round) -> Option<Verdict> {
 }
 
 /// What's submitted as your review for an agent's verdict, as `[reviews] submit` says: an
-/// approval for one that would approve; for one that would ask for changes, that request, or a
-/// comment, which doesn't hold the PR back; nothing for one that can't tell, which is yours to
-/// judge.
+/// approval for one that would approve, unless approvals are left to you; for one that would ask
+/// for changes, that request, or a comment, which doesn't hold the PR back; nothing for one that
+/// can't tell, which is yours to judge.
 pub fn to_submit(submit: ReviewSubmit, verdict: Verdict) -> Option<Verdict> {
-    match (submit, verdict) {
-        (ReviewSubmit::Never, _) | (_, Verdict::Comment) | (ReviewSubmit::Approve, Verdict::RequestChanges) => None,
-        (_, Verdict::Approve) => Some(Verdict::Approve),
-        (ReviewSubmit::ApproveOrRequestChanges, Verdict::RequestChanges) => Some(Verdict::RequestChanges),
-        (ReviewSubmit::ApproveOrComment, Verdict::RequestChanges) => Some(Verdict::Comment),
+    use ReviewSubmit as S;
+    match verdict {
+        Verdict::Approve => matches!(submit, S::Approve | S::ApproveOrRequestChanges | S::ApproveOrComment).then_some(Verdict::Approve),
+        Verdict::RequestChanges => match submit {
+            S::ApproveOrRequestChanges | S::RequestChanges => Some(Verdict::RequestChanges),
+            S::ApproveOrComment | S::Comment => Some(Verdict::Comment),
+            S::Never | S::Approve => None,
+        },
+        Verdict::Comment => None,
     }
 }
 
@@ -2108,14 +2112,30 @@ mod tests {
         apply(&mut prs, &r.store, &approving, &[], NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().suggests, Some(Verdict::RequestChanges));
         // A request for changes goes as one, or as a comment; the draft holds what it says.
-        for (submit, verb) in [(ReviewSubmit::ApproveOrRequestChanges, "request changes on"), (ReviewSubmit::ApproveOrComment, "comment on")] {
+        for (submit, verb, approves) in [
+            (ReviewSubmit::ApproveOrRequestChanges, "request changes on", true),
+            (ReviewSubmit::ApproveOrComment, "comment on", true),
+            (ReviewSubmit::RequestChanges, "request changes on", false),
+            (ReviewSubmit::Comment, "comment on", false),
+        ] {
             let mut r = reviewed(&cfg(submit), "Two problems.\n\nVerdict: request changes", drafted());
-            assert_eq!(kinds(&r.due(&done, &cfg(submit), NOW + 64_000)), [format!("{verb} 7 1111111")]);
-            // An approval goes either way, and an agent that can't tell leaves it to you.
+            assert_eq!(kinds(&r.due(&done, &cfg(submit), NOW + 64_000)), [format!("{verb} 7 1111111")], "{submit:?}");
+            // An approval goes too, unless approvals are left to you: then the PR waits on you
+            // once its review is done, the approval suggested.
             let mut r = reviewed(&cfg(submit), "Fine.\n\nVerdict: approve", drafted());
-            assert_eq!(kinds(&r.due(&done, &cfg(submit), NOW + 64_000)), ["approve 7 1111111 saying \"\""]);
+            let jobs = r.due(&done, &cfg(submit), NOW + 64_000);
+            if approves {
+                assert_eq!(kinds(&jobs), ["approve 7 1111111 saying \"\""], "{submit:?}");
+            } else {
+                assert!(jobs.is_empty(), "{submit:?}");
+                let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
+                apply(&mut prs, &r.store, &cfg(submit), &[], NOW + 64_000);
+                let a = prs[0].auto_review.clone().unwrap();
+                assert_eq!((a.suggests, a.holds, a.submitted), (Some(Verdict::Approve), false, None), "{submit:?}");
+            }
+            // An agent that can't tell leaves it to you.
             let mut r = reviewed(&cfg(submit), "Hm.\n\nVerdict: comment", drafted());
-            assert!(r.due(&done, &cfg(submit), NOW + 64_000).is_empty());
+            assert!(r.due(&done, &cfg(submit), NOW + 64_000).is_empty(), "{submit:?}");
         }
         // Without a draft, it points to the review posted as a comment, or with posting off
         // carries it.

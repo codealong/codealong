@@ -319,6 +319,8 @@ const REVIEW_SUBMITS: (Profile & { id: ReviewSubmit; says: string })[] = [
   { id: 'approve', name: 'Approve when it finds nothing to fix', says: `A pull request the agent would approve (minor points at most) is approved as you once its review is posted; one it would ask for changes on is left for you. ${SUBMITTED_FOR_YOU}` },
   { id: 'approve-or-request-changes', name: 'Approve, or request changes', says: `As the agent would: a pull request it would approve is approved as you once its review is posted, and where it would ask for changes, so do you, a request for changes that can block the merge until it’s approved. ${SUBMITTED_FOR_YOU}` },
   { id: 'approve-or-comment', name: 'Approve, or comment instead of requesting changes', says: `A pull request the agent would approve is approved as you once its review is posted; where it would ask for changes, its review goes as a comment from you instead, which reaches the author without blocking the merge. ${SUBMITTED_FOR_YOU}` },
+  { id: 'request-changes', name: 'Request changes, never approve', says: `Where the agent would ask for changes, a request for changes goes from you once its review is posted, which can block the merge until it’s approved. A pull request it would approve is left for you to approve yourself. ${SUBMITTED_FOR_YOU}` },
+  { id: 'comment', name: 'Comment instead of requesting changes, never approve', says: `Where the agent would ask for changes, its review goes as a comment from you once it’s posted, which reaches the author without blocking the merge. A pull request it would approve is left for you to approve yourself. ${SUBMITTED_FOR_YOU}` },
 ];
 
 /** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
