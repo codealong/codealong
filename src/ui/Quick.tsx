@@ -1352,7 +1352,7 @@ export function Quick() {
       void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
     },
     openLink,
-  });
+  }, board?.nudgeAbout);
 
   return (
     <div

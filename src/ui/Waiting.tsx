@@ -260,7 +260,7 @@ export function Waiting() {
         }),
       );
     },
-  });
+  }, board?.nudgeAbout);
 
   // The queue's keys, with nothing else taking them, and typing with nothing focused goes to the
   // box.

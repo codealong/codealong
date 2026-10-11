@@ -351,7 +351,7 @@
       submitSelect.dispatchEvent(new Event('change', { bubbles: true }));
       await until(function () { return calls('save_config').length > submitSaves; }, 3000, 'picking what’s submitted saved nothing');
       var submitCfg = calls('save_config')[calls('save_config').length - 1][1].config.reviews;
-      check('picked, it saves [reviews] submit, and says what it does', submitCfg.submit === 'approve-or-comment' && !('auto_approve' in submitCfg) && /goes as a comment from you, which reaches the author without blocking the merge/.test(q('small', submitField()).textContent), JSON.stringify(submitCfg) + ' / ' + q('small', submitField()).textContent);
+      check('picked, it saves [reviews] submit, and says what it does', submitCfg.submit === 'approve-or-comment' && !('auto_approve' in submitCfg) && /goes as a comment from you instead, which reaches the author without blocking the merge/.test(q('small', submitField()).textContent), JSON.stringify(submitCfg) + ' / ' + q('small', submitField()).textContent);
       // The reviewer is a box drawn as a session's: what it's told, and the agent chip at its foot.
       var agentBox = function () { return q('.ca-agentbox', field(/^The reviewer$/)); };
       var told = function () { return q('textarea', agentBox()); };

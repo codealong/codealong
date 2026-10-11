@@ -459,6 +459,7 @@ send = true                    # hand each review to the session that opened the
 
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)
+nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks
 
 [updates]
 check = true                   # look for a new version by itself (Settings › General)

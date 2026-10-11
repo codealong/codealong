@@ -87,6 +87,12 @@ describe('nudgeWords', () => {
     expect(nudgeWords(item({ state: 'approved' }), false, made)).toBe('Off for this PR. It’s approved already: turning this on tells “marketing email broadcast” that now, then of what happens on it next.');
     expect(nudgeWords(item({}), false, null)).toBe('Off for this PR. Turned on, its primary session is told of reviews, comments, an approval, a merge and failing checks.');
   });
+  it('says only what Settings has nudges tell of', () => {
+    expect(nudgeWords(item({}), true, made, 'feedback')).toBe('On for this PR. “marketing email broadcast”, its primary session, is sent a message as one of yours when someone else asks for changes or comments, never for an approval or a merge.');
+    expect(nudgeWords(item({}), true, made, 'feedback-and-checks')).toMatch(/asks for changes or comments and when its checks fail, never for an approval or a merge\.$/);
+    // An approval it has already isn't told either.
+    expect(nudgeWords(item({ state: 'approved' }), false, made, 'feedback')).toBe('Off for this PR. Turned on, “marketing email broadcast” is told of comments and requests for changes, never an approval or a merge.');
+  });
 });
 
 describe('review comments', () => {

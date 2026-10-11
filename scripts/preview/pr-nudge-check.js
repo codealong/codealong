@@ -140,6 +140,18 @@
       await until(function () { return calls('save_config').length > 0; }, 3000, 'turning it on saved nothing');
       var cfg = calls('save_config')[0][1].config;
       check('turned on, it saves [pull_requests] as config.toml has it', cfg && cfg.pull_requests && cfg.pull_requests.nudge_by_default === true, JSON.stringify(cfg && cfg.pull_requests));
+      // What a nudge tells of: everything by default, else only feedback, with checks or without.
+      var aboutField = function () { return all('.ca-field').filter(function (f) { return ((q('span', f) || {}).textContent || '') === 'What a nudge tells it about'; })[0]; };
+      await until(function () { return !!aboutField(); }, 3000, 'no choice of what a nudge tells of');
+      var abouts = all('option', aboutField()).map(function (o) { return o.textContent; });
+      check('a nudge tells of everything by default, else only comments and requests for changes, with failing checks or without', abouts.join(' | ') === 'Everything that happens on it | Only comments and requests for changes | Comments, requests for changes and failing checks' && q('select', aboutField()).value === 'everything', abouts.join(' | ') + ' / ' + q('select', aboutField()).value);
+      var aboutSaves = calls('save_config').length;
+      var aboutSelect = q('select', aboutField());
+      aboutSelect.value = 'feedback';
+      aboutSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await until(function () { return calls('save_config').length > aboutSaves; }, 3000, 'picking what a nudge tells of saved nothing');
+      var prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
+      check('picked, it saves [pull_requests] nudge_about beside nudging by default, and says what it does', prsCfg.nudge_about === 'feedback' && prsCfg.nudge_by_default === true && /^Only when someone else comments on it, asks for changes/.test(q('small', aboutField()).textContent), JSON.stringify(prsCfg) + ' / ' + q('small', aboutField()).textContent);
     } catch (e) {
       return stopped(e);
     }

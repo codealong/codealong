@@ -9,7 +9,7 @@ import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, OwnReviewsCfg, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -316,9 +316,9 @@ const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
 const SUBMITTED_FOR_YOU = 'Your draft review goes with it, comments and all, and the pull request leaves what waits on you. When the agent can’t tell, or your draft holds words of yours, it’s left for you. Never a merge.';
 const REVIEW_SUBMITS: (Profile & { id: ReviewSubmit; says: string })[] = [
   { id: 'never', name: 'Never: you submit each one', says: 'Each review ends on what the agent would do: approve, ask for changes, or comment, which the pull request’s box suggests. You submit your review yourself, and the pull request waits on you until you do.' },
-  { id: 'approve', name: 'Approve when it finds nothing to fix', says: `A pull request the agent would approve (minor points at most) is approved as you once its review is posted; one it would ask changes of is left for you. ${SUBMITTED_FOR_YOU}` },
-  { id: 'approve-or-request-changes', name: 'Approve, or request changes', says: `As the agent would: a pull request it would approve is approved as you once its review is posted, and one it would ask changes of gets a request for changes from you, which can block its merge until it’s approved. ${SUBMITTED_FOR_YOU}` },
-  { id: 'approve-or-comment', name: 'Approve, or comment instead of requesting changes', says: `A pull request the agent would approve is approved as you once its review is posted; on one it would ask changes of, its review goes as a comment from you, which reaches the author without blocking the merge. ${SUBMITTED_FOR_YOU}` },
+  { id: 'approve', name: 'Approve when it finds nothing to fix', says: `A pull request the agent would approve (minor points at most) is approved as you once its review is posted; one it would ask for changes on is left for you. ${SUBMITTED_FOR_YOU}` },
+  { id: 'approve-or-request-changes', name: 'Approve, or request changes', says: `As the agent would: a pull request it would approve is approved as you once its review is posted, and where it would ask for changes, so do you, a request for changes that can block the merge until it’s approved. ${SUBMITTED_FOR_YOU}` },
+  { id: 'approve-or-comment', name: 'Approve, or comment instead of requesting changes', says: `A pull request the agent would approve is approved as you once its review is posted; where it would ask for changes, its review goes as a comment from you instead, which reaches the author without blocking the merge. ${SUBMITTED_FOR_YOU}` },
 ];
 
 /** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
@@ -459,20 +459,34 @@ function OwnReviewsField({ reviews, accounts, defaultPrompt, usage, now, disable
 /** `[pull_requests] nudge_by_default`: every open PR of yours tells the session that opened it
  *  what happens on it, unless its own switch is off (nudges.rs). */
 function NudgeField({ cfg, disabled, onSave }: PaneProps) {
-  const on = cfg.pull_requests?.nudge_by_default ?? false;
+  const prs = { nudge_by_default: false, nudge_about: 'everything' as NudgeAbout, ...cfg.pull_requests };
+  const set = (next: Partial<typeof prs>) => void onSave({ ...cfg, pull_requests: { ...prs, ...next } });
+  const about = NUDGE_ABOUT.find((n) => n.id === prs.nudge_about) ?? NUDGE_ABOUT[0];
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={on} onChange={(e) => void onSave({ ...cfg, pull_requests: { nudge_by_default: e.target.checked } })} />
+        <input type="checkbox" checked={prs.nudge_by_default} onChange={(e) => set({ nudge_by_default: e.target.checked })} />
         <span>Nudge the session that opened a pull request</span>
         <small>
-          For every open pull request of yours, the session that opened it is sent a message, as one of yours, when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail, so it takes it from there. The message never asks it to merge: it merges only if you asked it to. Its other sessions aren’t told. A pull
+          For every open pull request of yours, the session that opened it is sent a message, as one of yours, when something happens on it (below), so it takes it from there. The message never asks it to merge: it merges only if you asked it to. Its other sessions aren’t told. A pull
           request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
         </small>
+      </label>
+      <label className="ca-field">
+        <span>What a nudge tells it about</span>
+        <ProfileSelect value={prs.nudge_about} profiles={NUDGE_ABOUT} onChange={(id) => set({ nudge_about: id as NudgeAbout })} />
+        <small>{about.says} This holds for every pull request with its nudge on, by this switch or its own.</small>
       </label>
     </fieldset>
   );
 }
+
+/** What a nudge tells of (config.rs `NudgeAbout`, nudges.rs `keep`), as the select offers it. */
+const NUDGE_ABOUT: (Profile & { id: NudgeAbout; says: string })[] = [
+  { id: 'everything', name: 'Everything that happens on it', says: 'When someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail.' },
+  { id: 'feedback', name: 'Only comments and requests for changes', says: 'Only when someone else comments on it, asks for changes, or reviews it with something to say, so it can work their feedback in. Never for an approval, a merge or a close, nor for failing checks.' },
+  { id: 'feedback-and-checks', name: 'Comments, requests for changes and failing checks', says: 'When someone else comments on it, asks for changes, or reviews it with something to say, and when its checks fail: what asks for work. Never for an approval, a merge or a close.' },
+];
 
 /** config.rs's DEFAULT_QUICK_PANEL. */
 const DEFAULT_QUICK_PANEL = 'Option+Cmd+/';

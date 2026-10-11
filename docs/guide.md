@@ -399,6 +399,13 @@ through `gh`, isn't told back. Turned on for a PR that's approved already, it's 
 (not when the setting turns it on for every PR); what happened while Codealong wasn't running
 isn't told, and a session that has stopped isn't resumed for it.
 
+Settings › Automation › What a nudge tells it about (`[pull_requests] nudge_about`) narrows that,
+for every PR with its nudge on: `"everything"` (the default) is all of the above; `"feedback"` is
+only what asks for work, someone else's comments and reviews that ask for changes or say
+something, so the session can work their feedback in; `"feedback-and-checks"` adds failing checks.
+With either, an approval (its own words with it), a dismissed review, a merge and a close aren't
+told, nor anything once the PR has ended, and the PR's card says so under its switch.
+
 #### Automatic reviews
 
 With `[reviews] auto = true` (Settings › Automation), an agent reviews each open PR that asks for your
@@ -485,7 +492,7 @@ its button in the box is marked with sparkles. `[reviews] submit` (Settings › 
 agent's review for you) has Codealong submit that verdict as your review once the review is posted,
 for a PR that waits on your review: `"never"` (the default) leaves every one to you; `"approve"`
 approves a PR the agent would approve; `"approve-or-request-changes"` does that and requests changes
-on one the agent would ask changes of, a true request for changes that can block its merge;
+where the agent would ask for changes, a true request for changes that can block its merge;
 `"approve-or-comment"` sends that request as a comment instead, which reaches the author without
 blocking anything. When the agent can't tell (`Verdict: comment`), it's left to you whatever the
 setting. Your draft is what's submitted, its comments and all, and the PR leaves what waits on you;

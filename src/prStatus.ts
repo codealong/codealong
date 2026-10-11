@@ -2,7 +2,7 @@
 // its checks, and one for anything else that keeps GitHub from merging it. When nothing does,
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
-import type { AutoReview, Checks, Merge, PrComment, PrItem, PrState } from './types';
+import type { AutoReview, Checks, Merge, NudgeAbout, PrComment, PrItem, PrState } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
@@ -116,20 +116,29 @@ export function mayApprove(pr: Pick<PrItem, 'state' | 'mine'>): boolean {
 
 /* ---- Nudges ---- */
 
+/** When a nudge sends its message, and what it tells of, as `[pull_requests] nudge_about` says
+ *  (nudges.rs `keep`). */
+const NUDGED_WHEN: Record<NudgeAbout, { when: string; of: string }> = {
+  everything: { when: 'when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail', of: 'reviews, comments, an approval, a merge and failing checks' },
+  feedback: { when: 'when someone else asks for changes or comments, never for an approval or a merge', of: 'comments and requests for changes, never an approval or a merge' },
+  'feedback-and-checks': { when: 'when someone else asks for changes or comments and when its checks fail, never for an approval or a merge', of: 'comments, requests for changes and failing checks, never an approval or a merge' },
+};
+
 /** What a PR's card says under its nudge switch (nudges.rs): whether it's on and why, and who's
- *  told. `primary` is its primary session's title and whether it runs on this Mac, when the card
- *  has it; only that session is ever told. */
-export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean } | null): string {
+ *  told of what (`about`, `[pull_requests] nudge_about`). `primary` is its primary session's
+ *  title and whether it runs on this Mac, when the card has it; only that session is ever told. */
+export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean } | null, about: NudgeAbout = 'everything'): string {
+  const said = NUDGED_WHEN[about] ?? NUDGED_WHEN.everything;
   if (on) {
     const lead = pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.';
     if (!primary) return `${lead} No session of it is known here, so nobody is told.`;
     if (!primary.runs) return `${lead} “${primary.title}”, its primary session, isn’t running here, so nobody is told until it is.`;
-    return `${lead} “${primary.title}”, its primary session, is sent a message as one of yours when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail.`;
+    return `${lead} “${primary.title}”, its primary session, is sent a message as one of yours ${said.when}.`;
   }
   const who = primary ? `“${primary.title}”` : 'its primary session';
-  return pr.state === 'approved'
+  return pr.state === 'approved' && about === 'everything'
     ? `Off for this PR. It’s approved already: turning this on tells ${who} that now, then of what happens on it next.`
-    : `Off for this PR. Turned on, ${who} is told of reviews, comments, an approval, a merge and failing checks.`;
+    : `Off for this PR. Turned on, ${who} is told of ${said.of}.`;
 }
 
 /* ---- Review comments ---- */

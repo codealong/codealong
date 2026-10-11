@@ -10,7 +10,9 @@
 //! terminal, or its harness's own way in), on a thread of its own, since reading GitHub and a send
 //! take a moment. The PR's other sessions (helpers, reviewers, ones that came to its branch) are
 //! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
-//! never told back.
+//! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
+//! comments and reviews that ask for changes or say something, and failing checks if it says so,
+//! never an approval, a merge or a close.
 //!
 //! What's seen on the board and what's been told are kept apart: an update is owed to each
 //! session from the board it shows on until a send to that session goes through. A session
@@ -21,6 +23,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
+use crate::config::NudgeAbout;
 use crate::engine::Handle;
 use crate::github::PrDetail;
 use crate::model::{Board, Merge, PrItem, PrState};
@@ -78,6 +81,20 @@ pub struct Job {
     /// The last try: when the PR's news can't be read from GitHub, what the board knows is told
     /// rather than nothing.
     pub last: bool,
+    /// What it's told of (`[pull_requests] nudge_about`), as the board said when it was due.
+    pub about: NudgeAbout,
+}
+
+/// What of `why` a nudge tells of, as `[pull_requests] nudge_about` says: everything; or only
+/// what asks for work, the reviews and comments its detail has (`since`, which `words` sorts) and
+/// changes asked for, with failing checks for `feedback-and-checks`. Never then an approval, a
+/// merge or a close, nor anything about a PR that's no longer `open`.
+fn keep(about: NudgeAbout, open: bool, why: Why) -> Why {
+    match about {
+        NudgeAbout::Everything => why,
+        _ if !open => Why::default(),
+        _ => Why { approved: false, ended: None, failed: if about == NudgeAbout::FeedbackAndChecks { why.failed } else { Vec::new() }, ..why },
+    }
 }
 
 /// How many times a send is tried before it's given up on.
@@ -147,6 +164,7 @@ impl Nudger {
                 ended: ended.then_some(pr.state),
                 failed: if was.on && seen.failed && !was.failed { pr.checks.failing.clone() } else { Vec::new() },
             };
+            let why = keep(board.nudge_about, pr.state.is_open(), why);
             if why == Why::default() {
                 continue;
             }
@@ -172,7 +190,7 @@ impl Nudger {
             }
             let why = std::mem::take(&mut o.why);
             o.sending = Some(why.clone());
-            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES });
+            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: board.nudge_about });
         }
         out.sort_by(|a, b| (&a.pr.key, &a.session).cmp(&(&b.pr.key, &b.session)));
         out
@@ -222,8 +240,10 @@ pub const NOT_A_MERGE: &str = "This message doesn't ask you to merge it: merge i
 /// session's to take on, but not to merge: a message that came by itself, as one of yours, must
 /// never read as your go-ahead to merge (asked 2026-10-09), so an open PR's always says it
 /// doesn't ask that. None when nothing new was by someone else (the PR's own agent pushed, say). `detail` is the PR as GitHub has it now, read when `why.since` says to; `login` is who
-/// `gh` is signed in as, whose reviews aren't news.
-pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>) -> Option<String> {
+/// `gh` is signed in as, whose reviews aren't news. Only what `about` tells of is said (`keep`):
+/// with feedback only, an approval or a dismissal among the reviews isn't either.
+pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&str>, about: NudgeAbout) -> Option<String> {
+    let why = &keep(about, pr.state.is_open(), why.clone());
     let mut items: Vec<String> = Vec::new();
     let (mut approved_said, mut changes_said) = (false, false);
     if let (Some(since), Some(d)) = (why.since, detail) {
@@ -245,6 +265,10 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
                 "DISMISSED" => "had a review dismissed",
                 _ => "reviewed it",
             };
+            // Its words are left out with it, not told as a comment of their own.
+            if about != NudgeAbout::Everything && matches!(r.state.as_str(), "APPROVED" | "DISMISSED") {
+                continue;
+            }
             match body.and_then(|id| d.comments.iter().find(|c| c.id == id)) {
                 Some(c) => items.push(format!("{} {words}: “{}”", r.author, excerpt(&c.body))),
                 None => items.push(format!("{} {words}.", r.author)),
@@ -310,7 +334,7 @@ fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&st
         Some(Ok(d)) => Some(d),
         _ => None,
     };
-    Ok(words(&job.pr, &job.why, detail, login))
+    Ok(words(&job.pr, &job.why, detail, login, job.about))
 }
 
 /// Does each job in turn: reads the PR's detail from GitHub where its `updatedAt` moved (once
@@ -575,7 +599,7 @@ mod tests {
     #[test]
     fn news_that_cant_be_read_is_tried_again_before_its_left_out() {
         let p = pr("o/r#1", PrState::Approved, &[A]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything };
         let e = message(&job, Some(Err("gh timed out after 30s")), Some("me")).unwrap_err();
         assert_eq!(e, "What's new on o/r#1 couldn't be read: gh timed out after 30s");
         // The last try says what the board knows.
@@ -603,40 +627,83 @@ mod tests {
             ],
         );
         let why = Why { since: Some(UPDATED), changes: true, ..Why::default() };
-        let text = words(&p, &why, Some(&d), Some("me")).unwrap();
+        let text = words(&p, &why, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         assert_eq!(
             text,
             "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ana asked for changes: “Please add a test.”\n- ana commented on src/a.ts: “This can be a map.”\nTake it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."
         );
         // Only your own push moved it: nothing to say.
-        assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me")), None);
+        assert_eq!(words(&p, &Why { since: Some(UPDATED + 30), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything), None);
         // The detail couldn't be read: what the board knows is said.
-        assert!(words(&p, &why, None, Some("me")).unwrap().contains("- Changes were asked for.\n"));
+        assert!(words(&p, &why, None, Some("me"), NudgeAbout::Everything).unwrap().contains("- Changes were asked for.\n"));
     }
 
     #[test]
     fn says_an_approval_a_merge_and_failing_checks() {
         let approved = PrItem { merge: Merge::Clean, ..pr("o/r#1", PrState::Approved, &[A]) };
         let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
-        let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me")).unwrap();
+        let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         // The approval is news, never a go-ahead to merge.
         assert_eq!(text, "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
         // Turned on for one approved already, with nothing read: said in the board's words.
-        assert!(words(&approved, &Why { approved: true, ..Why::default() }, None, None).unwrap().contains("- It was approved.\n"));
+        assert!(words(&approved, &Why { approved: true, ..Why::default() }, None, None, NudgeAbout::Everything).unwrap().contains("- It was approved.\n"));
         let merged = off(PrItem { state: PrState::Merged, mine: false, ..pr("o/r#1", PrState::Open, &[A]) });
         assert_eq!(
-            words(&merged, &Why { ended: Some(PrState::Merged), ..Why::default() }, None, None).unwrap(),
+            words(&merged, &Why { ended: Some(PrState::Merged), ..Why::default() }, None, None, NudgeAbout::Everything).unwrap(),
             "On PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise."
         );
         let failing = PrItem { checks: Checks { failed: 2, failing: vec!["lint".into(), "test".into()], ..Checks::default() }, ..pr("o/r#1", PrState::Open, &[A]) };
-        let text = words(&failing, &Why { failed: vec!["lint".into(), "test".into()], ..Why::default() }, None, None).unwrap();
+        let text = words(&failing, &Why { failed: vec!["lint".into(), "test".into()], ..Why::default() }, None, None, NudgeAbout::Everything).unwrap();
         assert!(text.contains("- Its checks failed: lint, test.\nSome of its checks failed. Take it from there"), "{text}");
         // No open PR's message reads as a go-ahead to merge, whatever came in.
         let open = PrItem { merge: Merge::Clean, ..pr("o/r#1", PrState::Approved, &[A]) };
         for why in [Why { approved: true, ..Why::default() }, Why { changes: true, ..Why::default() }, Why { failed: vec!["lint".into()], ..Why::default() }] {
-            let text = words(&open, &why, None, None).unwrap();
+            let text = words(&open, &why, None, None, NudgeAbout::Everything).unwrap();
             assert!(text.ends_with(NOT_A_MERGE) && !text.contains("merging it"), "{text}");
         }
+    }
+
+    #[test]
+    fn with_feedback_only_it_tells_of_comments_and_changes_asked_for_never_an_approval_or_a_merge() {
+        let mut nudger = Nudger::default();
+        let feedback = |prs: Vec<PrItem>, about: NudgeAbout| Board { nudge_about: about, ..board(prs, vec![live(A)]) };
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        sent(&mut nudger, &feedback(vec![open.clone()], NudgeAbout::Feedback));
+        // Approved, merged, or checks failing: nothing, unless checks are asked for too.
+        let approved = PrItem { state: PrState::Approved, ..open.clone() };
+        assert!(sent(&mut nudger, &feedback(vec![approved.clone()], NudgeAbout::Feedback)).is_empty());
+        let failing = PrItem { checks: Checks { failed: 1, failing: vec!["lint".into()], ..Checks::default() }, ..approved.clone() };
+        assert!(sent(&mut nudger, &feedback(vec![failing.clone()], NudgeAbout::Feedback)).is_empty());
+        let passing = PrItem { checks: Checks::default(), ..failing.clone() };
+        sent(&mut nudger, &feedback(vec![passing], NudgeAbout::FeedbackAndChecks));
+        let jobs = sent(&mut nudger, &feedback(vec![failing.clone()], NudgeAbout::FeedbackAndChecks));
+        assert_eq!((jobs[0].why.clone(), jobs[0].about), (Why { failed: vec!["lint".into()], ..Why::default() }, NudgeAbout::FeedbackAndChecks));
+        // Changes asked for are told, and so is what moved the PR, for its comments.
+        let changes = PrItem { state: PrState::Changes, updated_at: UPDATED + 5, ..failing.clone() };
+        assert_eq!(sent(&mut nudger, &feedback(vec![changes.clone()], NudgeAbout::Feedback))[0].why, Why { since: Some(UPDATED), changes: true, ..Why::default() });
+        let merged = off(PrItem { state: PrState::Merged, updated_at: UPDATED + 9, ..changes });
+        assert!(sent(&mut nudger, &feedback(vec![merged.clone()], NudgeAbout::Feedback)).is_empty(), "a merge isn't feedback");
+        // Its words: an approval and a dismissal are left out, their text with them; the rest is
+        // said.
+        let d = detail(
+            vec![
+                PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) },
+                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 2) },
+                PrReview { author: "bo".into(), state: "DISMISSED".into(), at: Some(UPDATED + 3) },
+            ],
+            vec![comment("c1", "ken", "Looks good.", UPDATED + 1, None, false), comment("c2", "ken", "Nit: a map.", UPDATED + 1, Some("src/a.ts"), false), comment("c3", "ana", "Add a test.", UPDATED + 2, None, false)],
+        );
+        let why = Why { since: Some(UPDATED), approved: true, ..Why::default() };
+        let text = words(&approved, &why, Some(&d), Some("me"), NudgeAbout::Feedback).unwrap();
+        assert_eq!(
+            text,
+            "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ana asked for changes: “Add a test.”\n- ken commented on src/a.ts: “Nit: a map.”\nTake it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."
+        );
+        assert!(words(&approved, &why, Some(&d), Some("me"), NudgeAbout::Everything).unwrap().contains("- ken approved it: “Looks good.”\n"));
+        // Only an approval: nothing to say. Nor anything about a PR that ended.
+        let only = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
+        assert_eq!(words(&approved, &why, Some(&only), Some("me"), NudgeAbout::Feedback), None);
+        assert_eq!(words(&merged, &Why { since: Some(UPDATED), ended: Some(PrState::Merged), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::FeedbackAndChecks), None);
     }
 
     #[test]

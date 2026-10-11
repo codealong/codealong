@@ -2774,6 +2774,7 @@ impl Engine {
         });
         board.usage = usage;
         board.when_limited = self.cfg.limits.when_hit;
+        board.nudge_about = self.cfg.pull_requests.nudge_about;
         board.reviews = self.cfg.reviews.clone();
 
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();

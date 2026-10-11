@@ -393,9 +393,14 @@ export interface Config {
   /** Reviewing the PRs that wait on your review without being asked. Older files have none: off. */
   reviews?: ReviewsCfg;
   /** Your PRs. Older files have none: no nudges until turned on PR by PR. */
-  pull_requests?: { nudge_by_default: boolean };
+  pull_requests?: { nudge_by_default: boolean; nudge_about?: NudgeAbout };
   debug: { perf_log: boolean };
 }
+
+/** What a PR whose nudge is on tells its session about (config.rs `NudgeAbout`): everything, or
+ *  only what asks for work (comments and requests for changes), with failing checks or without.
+ *  Older files have none: everything. */
+export type NudgeAbout = 'everything' | 'feedback' | 'feedback-and-checks';
 
 /** `[reviews]` (config.rs `ReviewsCfg`, autoreview.rs). */
 export interface ReviewsCfg {
@@ -712,6 +717,9 @@ export interface Board {
   devices?: DevicesCfg;
   /** `[limits] when_hit`: whether a session a usage limit stopped is moved by itself. */
   whenLimited?: WhenLimited;
+  /** `[pull_requests] nudge_about`: what a PR's nudge tells its session about. Missing on older
+   *  boards: everything. */
+  nudgeAbout?: NudgeAbout;
 }
 
 /** Why a todo looks done: how sure Jev is, and what showed it. */

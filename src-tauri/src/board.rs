@@ -1687,6 +1687,7 @@ pub fn compose(inp: Inputs) -> Board {
         devices: Default::default(),
         project_rules: Vec::new(),
         when_limited: Default::default(),
+        nudge_about: Default::default(),
 
 
     }

@@ -1271,7 +1271,7 @@ export function App() {
       if (pr) prMenu(prRowOf(pr));
       else void showContextMenu(menus.prMenu({ url, number: prRefOf(url)?.number ?? 0 }, { report })).catch((e: unknown) => setToast(String(e)));
     },
-  });
+  }, board?.nudgeAbout);
 
   return (
     <div className="ca-win ca-win--app">

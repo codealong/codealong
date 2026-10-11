@@ -366,7 +366,7 @@ impl ReviewPost {
 
 /// Which of an automatic review's verdicts are submitted as your review once it's posted
 /// (autoreview.rs `to_submit`). `never`: each is left for you. `approve`: a PR its agent would
-/// approve is approved. `approve-or-request-changes`: that, and one it would ask changes of gets
+/// approve is approved. `approve-or-request-changes`: that, and one it would ask for changes on gets
 /// a request for changes from you. `approve-or-comment`: that, but the request for changes goes
 /// as a comment, which doesn't hold the PR back. An agent that can't tell (`Verdict: comment`)
 /// leaves it to you whatever this says.
@@ -399,6 +399,32 @@ pub struct PullRequestsCfg {
     /// it. Off, a PR tells nobody until turned on for it.
     #[serde(default)]
     pub nudge_by_default: bool,
+    /// What a PR whose nudge is on tells its session about.
+    #[serde(default)]
+    pub nudge_about: NudgeAbout,
+}
+
+/// What a nudge tells a PR's session about (nudges.rs `NudgeAbout::keep`). `everything`: reviews,
+/// comments, an approval, a merge or close, and failing checks. `feedback`: only what asks for
+/// work: comments, and reviews that ask for changes or say something, never an approval, a merge
+/// or a close. `feedback-and-checks`: that, and failing checks.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum NudgeAbout {
+    #[default]
+    Everything,
+    Feedback,
+    FeedbackAndChecks,
+}
+
+impl NudgeAbout {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NudgeAbout::Everything => "everything",
+            NudgeAbout::Feedback => "feedback",
+            NudgeAbout::FeedbackAndChecks => "feedback-and-checks",
+        }
+    }
 }
 
 /// Automatic updates (updates.rs). Only release builds update themselves.
@@ -829,7 +855,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n";
-const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks), as a message of yours. A PR's own switch wins either way.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks), as a message of yours. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that and failing checks.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
 # model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
@@ -1256,6 +1282,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "pull_requests", after);
         }
         set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
+        set_value(&mut doc["pull_requests"]["nudge_about"], Value::from(cfg.pull_requests.nudge_about.as_str()));
     }
 
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
@@ -1457,6 +1484,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(PULL_REQUESTS_COMMENT);
         s.push_str("[pull_requests]\n");
         s.push_str(&format!("nudge_by_default = {}\n", cfg.pull_requests.nudge_by_default));
+        s.push_str(&format!("nudge_about = {}\n", q(cfg.pull_requests.nudge_about.as_str())));
     }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
@@ -1536,7 +1564,7 @@ mod tests {
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() },
-            pull_requests: PullRequestsCfg { nudge_by_default: true },
+            pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1845,7 +1873,7 @@ mod tests {
         let kept = with_config(&format!("{old}theirs = 1\n"), &full()).unwrap();
         assert!(kept.contains("[pull_requests]\ntheirs = 1") && !kept.contains("when_approved"), "{kept}");
         // Nudging by default takes its place.
-        let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true }, ..full() };
+        let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true, ..Default::default() }, ..full() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains("[pull_requests]\nnudge_by_default = true\n") && !out.contains("when_approved"), "{out}");
     }
@@ -1856,7 +1884,7 @@ mod tests {
         let old = render(&full());
         assert!(!old.contains("[pull_requests]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[pull_requests]"));
-        let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true }, reviews: ReviewsCfg { auto: true, ..ReviewsCfg::default() }, ..full() };
+        let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true, ..Default::default() }, reviews: ReviewsCfg { auto: true, ..ReviewsCfg::default() }, ..full() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{PULL_REQUESTS_COMMENT}[pull_requests]\nnudge_by_default = true\n")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[pull_requests]").unwrap(), "{out}");
@@ -1866,6 +1894,14 @@ mod tests {
         // Turned off again, the table stays, saying so.
         let off = with_config(&out, &Config { reviews: on.reviews.clone(), ..full() }).unwrap();
         assert!(off.contains("[pull_requests]\nnudge_by_default = false"), "{off}");
+        // What a nudge tells of is everything until the file says otherwise, with or without
+        // nudging by default.
+        assert_eq!(toml::from_str::<Config>("").unwrap().pull_requests.nudge_about, NudgeAbout::Everything);
+        let feedback = Config { pull_requests: PullRequestsCfg { nudge_by_default: false, nudge_about: NudgeAbout::Feedback }, ..full() };
+        let out = with_config(&old, &feedback).unwrap();
+        assert!(out.contains("[pull_requests]\nnudge_by_default = false\nnudge_about = \"feedback\"\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), feedback);
+        assert_eq!(parse(&render(&feedback)).unwrap(), feedback);
     }
 
 

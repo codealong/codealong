@@ -148,6 +148,10 @@ pub struct Board {
     /// (limits.rs) or only offered a move.
     #[serde(default)]
     pub when_limited: crate::config::WhenLimited,
+    /// `[pull_requests] nudge_about`: what a PR whose nudge is on tells its session about
+    /// (nudges.rs), which its card says.
+    #[serde(default)]
+    pub nudge_about: crate::config::NudgeAbout,
 
 }
 
