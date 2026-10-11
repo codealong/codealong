@@ -181,9 +181,12 @@ the session's box, and the user sends one with a click or types their own.
    replied since you read it, the suggestions are turned down (they'd answer the turn before),
    and so they are while it takes a turn. Read it again and suggest for where it stands. Write
    each reply as the user would send it, in their words and ready to go as it is: one or two
-   sentences, the best first, at most six. The note is for the user, not the session: what it
-   asks, what you checked, what's risky. A reply goes to the session as the user's own message,
-   so never write one that needs more than the user would say (no "As the supervisor…").
+   sentences, the best first, at most six. Suggest only where the user has something to decide
+   or a next step to give: no thanks, "looks good" or "that's all for now", and none for a
+   session that only reports finished work, since sending one starts a turn for nothing. The
+   note is for the user, not the session: what it asks, what you checked, what's risky. A reply
+   goes to the session as the user's own message, so never write one that needs more than the
+   user would say (no "As the supervisor…").
    A session that asks the user questions (`session pending` shows `Asks:` with each question's
    header and choices, and their id) takes no replies, which would only decline them: pick one
    of its own choices instead, `codealong session suggest <key> --pick "<choice>" --pending
@@ -197,7 +200,8 @@ the session's box, and the user sends one with a click or types their own.
 
 Suggesting sends nothing and needs no say-so, but don't message, answer or stop the sessions
 you supervise unless the user asks. A supervisor that runs on a loop goes over the waiting list
-each time and skips the sessions whose suggestions still stand.
+each time and skips the sessions whose suggestions still stand, and the ones with nothing to
+decide.
 
 ## PRs
 
