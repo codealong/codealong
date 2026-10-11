@@ -2,7 +2,7 @@
 // with them and for helpers-check.js: across every project, the most recent session is made idle,
 // and the next three its helpers (started by it as helpers), one working, one waiting on you to
 // allow a call and one finished, which Sessions counts on its row but doesn't list. What was
-// picked is in window.__helpers: the session's key and title, and each helper's.
+// picked is in window.__helpers: the session's key, title and worktree (lane id), and each helper's.
 //   PREVIEW_INIT=scripts/preview/helpers-init.js scripts/preview.sh sessions
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -33,7 +33,10 @@
         helper(keys[2], { status: 'needs', statusSince: now - 2 * min, lastActivity: now - 2 * min, lastPromptAt: now - 4 * min, excerpt: 'Bash · `gh pr diff 12`', title: 'Check the migration on staging' }),
         helper(keys[3], { status: 'idle', statusSince: now - 5 * min, lastActivity: now - 5 * min, lastPromptAt: now - 8 * min, title: 'Second opinion on the API shape' }),
       ];
-      window.__helpers = { boss: { key: boss.key, title: boss.title }, kids: kids.map(function (s) { return { key: s.key, title: s.title, status: s.status }; }) };
+      var laneOf = function (s) {
+        return board.lanes.filter(function (l) { return l.sessions.indexOf(s) >= 0; })[0].id;
+      };
+      window.__helpers = { boss: { key: boss.key, title: boss.title, lane: laneOf(boss) }, kids: kids.map(function (s) { return { key: s.key, title: s.title, status: s.status, lane: laneOf(s) }; }) };
       board.pinned = [];
       return board;
     });

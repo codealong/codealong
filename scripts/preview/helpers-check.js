@@ -1,9 +1,10 @@
 // Checks helpers in Sessions (SessionsView.tsx `sessionSections`, boardLists.ts `placeHelpers`),
 // on the board helpers-init.js makes: the helpers that work or wait on you are listed under the
-// session that started them, set in, and the finished one isn't; the session's row says one of
-// its helpers waits on you, and the helper that does takes the session into Needs you with it.
-// The session's panel lists its helpers under its title, and a helper's panel names the session
-// as the one it helps.
+// session that started them, set in, each on one line with no divider above it and a thread from
+// the session's status into its own (LaneRow.css), and the finished one isn't; the session's row
+// says one of its helpers waits on you, and the helper that does takes the session into Needs you
+// with it. The session's panel lists its helpers under its title, and a helper's panel names the
+// session as the one it helps.
 //   PREVIEW_INIT=scripts/preview/helpers-init.js PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/helpers-check.js
 (function () {
   var rowOf = function (title) {
@@ -26,6 +27,32 @@
       var bossGlyph = q('.ca-seg-glyph .ca-glyph', boss).getBoundingClientRect();
       var kidGlyph = kidRows[1] && q('.ca-seg-glyph .ca-glyph', kidRows[1]).getBoundingClientRect();
       check('their status sits in from the session’s', kidGlyph && kidGlyph.left > bossGlyph.left + 8, kidGlyph && Math.round(kidGlyph.left - bossGlyph.left) + 'px');
+      var shown = kidRows.slice(0, 2);
+      check('each on one line, with no PR or diff', shown.every(function (r) { return r && !q('.ca-lane-line2', r) && !q('.ca-diff', r); }));
+      check('naming its worktree only when it isn’t the session’s', shown.every(function (r) {
+        var kid = h.kids.filter(function (k) { return r && rowOf(k.title) === r; })[0];
+        return !!kid && !!q('.ca-wtchip', r) === (kid.lane !== h.boss.lane);
+      }), h.kids.map(function (k) { return k.lane === h.boss.lane ? 'same' : 'other'; }).join(' '));
+      // One block: no divider between the session and its helpers, only after the last.
+      var clear = function (r) { return getComputedStyle(r).borderBottomColor === 'rgba(0, 0, 0, 0)'; };
+      check('no divider between the session and its helpers, only after the last', clear(listed[at]) && clear(listed[at + 1]) && !clear(listed[at + 2]));
+      // The thread: down from under the session's glyph, and into each helper's at its middle.
+      var line = function (r, which) {
+        var seg = q('.ca-seg-glyph', r);
+        var st = getComputedStyle(seg, which);
+        return st.content === 'none' ? null : { x: seg.getBoundingClientRect().left + parseFloat(st.left) + parseFloat(st.borderLeftWidth) / 2, style: st };
+      };
+      var down = line(boss, '::after');
+      var bossMid = bossGlyph.left + bossGlyph.width / 2;
+      check('a thread runs down from under the session’s status', !!down && Math.abs(down.x - bossMid) < 1, down && (down.x - bossMid).toFixed(2) + 'px off');
+      check('and turns into each helper’s', shown.every(function (r) {
+        var hook = line(r, '::before');
+        var g = q('.ca-seg-glyph .ca-glyph', r).getBoundingClientRect();
+        var seg = q('.ca-seg-glyph', r).getBoundingClientRect();
+        var end = hook && seg.top + parseFloat(hook.style.top) + parseFloat(hook.style.height) + parseFloat(hook.style.borderBottomWidth) / 2;
+        return !!hook && Math.abs(hook.x - bossMid) < 1 && Math.abs(end - (g.top + g.height / 2)) < 1;
+      }));
+      check('past the first helper to the last', !!line(listed[at + 1], '::after') && !line(listed[at + 2], '::after'));
       check('the finished one isn’t listed', !kidRows[2]);
       var chip = q('.ca-helperschip', boss);
       check('the session’s row says a helper waits on you', !!chip && chip.classList.contains('is-waiting') && /1 waiting/.test(chip.textContent), chip && chip.textContent);

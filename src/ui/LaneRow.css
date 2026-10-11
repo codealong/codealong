@@ -155,34 +155,55 @@
   color: var(--attn);
 }
 
-/* A helper under the session it works for (SessionsView.tsx): set in by its status column, with
-   an elbow hanging from the row above, as the panel's header hangs what came of a session. */
+/* A helper under the session it works for (SessionsView.tsx): on one line (it's .is-slim on two
+   too), set in so its status sits under the session's title, its title quieter than a session's,
+   and joined to the session by a thread that runs down from under the session's status and turns
+   into its own. The session and its helpers read as one block: no divider between them, only
+   after the last. */
 .ca-lane.is-agent.is-nested {
-  grid-template-columns: 56px minmax(0, 1fr) 52px;
+  grid-template-columns: 48px minmax(0, 1fr) 64px;
 }
-.ca-lane.is-agent.is-slim.is-nested {
-  grid-template-columns: 56px minmax(0, 1fr) 64px;
+.ca-lane.is-agent:has(+ .ca-lane.is-nested) {
+  border-bottom-color: transparent;
 }
-/* Its status where the session's would be, a column in; the elbow runs from under the session's
-   status to its own, at its middle. */
+.ca-lane.is-agent.is-nested .ca-seg-glyph {
+  padding-left: var(--space-4);
+}
+.ca-lane.is-agent.is-nested .ca-agentline-title {
+  font: var(--type-body);
+}
+/* The thread, down the middle of the session's status column (32px), and across the divider its
+   row keeps the room of: from under the session's glyph, through each helper but the last, and
+   into each helper's glyph at its middle. */
+.ca-lane.is-agent:has(+ .ca-lane.is-nested) .ca-seg-glyph,
 .ca-lane.is-agent.is-nested .ca-seg-glyph {
   position: relative;
-  padding-left: var(--space-6);
 }
+.ca-lane.is-agent:has(+ .ca-lane.is-nested) .ca-seg-glyph::after,
 .ca-lane.is-agent.is-nested .ca-seg-glyph::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 15px;
-  width: 13px;
-  height: 17px;
+  left: 15.25px;
   border-left: 1.5px solid var(--line-strong);
-  border-bottom: 1.5px solid var(--line-strong);
-  border-bottom-left-radius: 4px;
   pointer-events: none;
 }
-.ca-lane.is-agent.is-slim.is-nested .ca-seg-glyph::before {
-  height: 16px;
+.ca-lane.is-agent:has(+ .ca-lane.is-nested) .ca-seg-glyph::after {
+  top: 27px;
+  bottom: -1px;
+}
+.ca-lane.is-agent.is-slim:has(+ .ca-lane.is-nested) .ca-seg-glyph::after {
+  top: calc(50% + 10px);
+}
+/* After the one above, which a helper also is. */
+.ca-lane.is-agent.is-nested:has(+ .ca-lane.is-nested) .ca-seg-glyph::after {
+  top: 0;
+}
+.ca-lane.is-agent.is-nested .ca-seg-glyph::before {
+  top: 0;
+  width: 6px;
+  height: calc(50% - 0.75px);
+  border-bottom: 1.5px solid var(--line-strong);
+  border-bottom-left-radius: 5px;
 }
 .ca-agentrow-line1 {
   display: flex;

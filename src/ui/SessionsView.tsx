@@ -23,6 +23,8 @@ export interface SessionItem {
   session: Session;
   /** A helper listed under the session that started it (`sessionSections`). */
   nested?: boolean;
+  /** A helper listed under a session in another worktree than its own, which its row then names. */
+  elsewhere?: boolean;
 }
 
 /** How the sessions that aren't pinned are ordered. */
@@ -157,7 +159,7 @@ function families(rows: SessionItem[]): { top: SessionItem[]; under: Map<string,
   for (const r of rows) {
     const head = headOf(r);
     if (!head) top.push(r);
-    else under.set(head.session.key, [...(under.get(head.session.key) ?? []), { ...r, nested: true }]);
+    else under.set(head.session.key, [...(under.get(head.session.key) ?? []), { ...r, nested: true, elsewhere: r.lane.id !== head.lane.id }]);
   }
   for (const kids of under.values()) kids.sort((a, b) => bySession(a.session, b.session));
   return { top, under };
@@ -256,6 +258,7 @@ export function SessionsView(props: SessionsViewProps) {
       todos={todosFor?.(r.session.key)}
       helpers={helpersOf?.(r.session.key)}
       nested={r.nested}
+      elsewhere={r.elsewhere}
       onShowTodo={onShowTodo}
       drag={held}
     />

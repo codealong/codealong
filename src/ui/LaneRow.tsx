@@ -317,8 +317,6 @@ interface SessionLinesProps {
   onOpen: () => void;
   /** The helpers its agent started, in Sessions. */
   helpers?: HelperCount;
-  /** A helper listed under the session it works for, which says what it is. */
-  nested?: boolean;
 }
 
 /**
@@ -326,7 +324,7 @@ interface SessionLinesProps {
  * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
  * quiet, todo and Jev's read, then its account), with `end` at the second line's end.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, nested }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
@@ -335,7 +333,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
       <div className="ca-lane-line2">
         <span className="ca-chips ca-lane-lead ca-agentrow-chips">
           {where}
-          <HelperChip session={s} nested={nested} />
+          <HelperChip session={s} />
           <HelpersChip helpers={helpers} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
@@ -422,8 +420,10 @@ interface AgentRowProps {
   onShowTodo?: (todo: Todo) => void;
   /** The helpers its agent started (boardLists.ts `helperCounts`). */
   helpers?: HelperCount;
-  /** A helper listed under the session it works for: set in from the left. */
+  /** A helper listed under the session it works for: set in from the left, on one line. */
   nested?: boolean;
+  /** A nested helper in another worktree than its session's, which its row names. */
+  elsewhere?: boolean;
 }
 
 /** A snooze's chip: how long until it's back, as short as the age beside it, and the time and
@@ -501,16 +501,19 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * One session in the Sessions view. On two lines: what it's about first (its title, what it waits
  * on you for, and what it's doing or said last), then where and why (its worktree, todo and
  * insights, its account, and the worktree's PR and diff). On one line (`slim`): what it's about,
- * then its worktree and PR at the line's end.
+ * then its worktree and PR at the line's end. A helper under the session it works for is on one
+ * line either way, and says only what the session's row doesn't: its worktree only when it works
+ * in another, and no PR or diff.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo, helpers, nested }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo, helpers, nested, elsewhere }: AgentRowProps) {
   const started = age === 'started';
+  const oneLine = slim || nested;
   const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />;
   return (
     <Row
       id={domId}
       selected={selected}
-      className={cx('ca-lane', 'is-agent', slim && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested')}
+      className={cx('ca-lane', 'is-agent', oneLine && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested')}
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}
@@ -520,10 +523,10 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
       onMenu={onContextMenu}
     >
       {/* One line leaves the account out: the status says it when pointed at. */}
-      <div className="ca-seg ca-seg-glyph" title={slim ? `${STATUS_WORD[s.status]} · ${s.account}` : undefined}>
+      <div className="ca-seg ca-seg-glyph" title={oneLine ? `${STATUS_WORD[s.status]} · ${s.account}` : undefined}>
         <SessionGlyph s={s} />
       </div>
-      {slim ? (
+      {oneLine ? (
         <div className="ca-seg ca-seg-main">
           <div className="ca-agentrow-line1">
             <SessionText s={s} now={now} />
@@ -534,9 +537,9 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />
               <InsightChips session={s} />
-              <WorktreeChip lane={lane} short />
+              {(!nested || elsewhere) && <WorktreeChip lane={lane} short />}
             </span>
-            {pr}
+            {!nested && pr}
           </div>
         </div>
       ) : (
@@ -555,7 +558,6 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             onShowTodo={onShowTodo}
             onOpen={onOpen}
             helpers={helpers}
-            nested={nested}
           />
         </div>
       )}

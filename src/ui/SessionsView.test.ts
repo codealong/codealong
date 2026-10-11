@@ -143,6 +143,13 @@ describe('helpers in Sessions', () => {
     const list = [helper(item('alone', at(14), 'needs', at(10), at(11)), 'gone'), item('boss', at(13), 'idle', at(13)), helper(item('kid', at(14), 'working', at(12), at(12)), 'boss'), helper(item('grandkid', at(14), 'needs', at(12), at(12)), 'kid')];
     expect(rows(sessionSections(list, 'status', now))).toEqual(['needs alone', 'needs boss', 'needs   grandkid', 'needs   kid']);
   });
+
+  it('says which helpers work in another worktree than their session’s, which their rows name', () => {
+    const elsewhere = helper(item('there', at(14), 'working', at(12), at(12)), 'boss');
+    const list = [item('boss', at(13), 'idle', at(13)), helper(item('here', at(14), 'working', at(11), at(11)), 'boss'), { ...elsewhere, lane: fx.lane({ id: 'other' }) }];
+    const under = sessionSections(list, 'status', now).flatMap((s) => s.rows).filter((r) => r.nested);
+    expect(under.map((r) => `${r.session.key} ${r.elsewhere ? 'elsewhere' : 'here'}`)).toEqual(['there elsewhere', 'here here']);
+  });
 });
 
 describe('waitingQueue', () => {
