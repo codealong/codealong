@@ -481,13 +481,21 @@ Ask (see *Waiting on you*) at its foot, and over it, always, a line saying where
 stands: the agent's round, your draft and its comments, or that there's none yet; a click on it
 shows the Review tab. Every agent review ends on what the agent would do with the PR, a `Verdict:`
 line (approve, request changes or comment) that isn't posted: the line says what it suggests, and
-its button in the box is marked with sparkles. With `[reviews] auto_approve` (Settings › Automation,
-Approve for you when the agent finds nothing that needs fixing), a PR that waits on your review
-whose agent would approve it is approved as you once its review is posted, your draft submitted with
-it, and it leaves what waits on you; it's held out of it until then. Not when your draft holds words
-of yours (the part of its text that isn't the agent's), which is said instead; a draft of only your
-own line comments isn't told apart. It never merges. A review of a PR of yours whose agent would
-approve it isn't handed back to its session.
+its button in the box is marked with sparkles. `[reviews] submit` (Settings › Automation, Submit the
+agent's review for you) has Codealong submit that verdict as your review once the review is posted,
+for a PR that waits on your review: `"never"` (the default) leaves every one to you; `"approve"`
+approves a PR the agent would approve; `"approve-or-request-changes"` does that and requests changes
+on one the agent would ask changes of, a true request for changes that can block its merge;
+`"approve-or-comment"` sends that request as a comment instead, which reaches the author without
+blocking anything. When the agent can't tell (`Verdict: comment`), it's left to you whatever the
+setting. Your draft is what's submitted, its comments and all, and the PR leaves what waits on you;
+it's held out of it until then, and its card says what was submitted for you. Without a draft, a
+request for changes or a comment links to the agent's review posted as a comment, or with posting
+off carries the review itself; one whose draft went (submitted or thrown away) isn't submitted. Not
+when your draft holds words of yours (the part of its text that isn't the agent's), which is said
+instead; a draft of only your own line comments isn't told apart. It never merges. A config.toml
+from before, with `auto_approve = true`, reads as `submit = "approve"`. A review of a PR of yours
+whose agent would approve it isn't handed back to its session.
 
 #### Pins, approvals and snoozes
 

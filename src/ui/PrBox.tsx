@@ -233,7 +233,7 @@ function ReviewLine({ pr, draft, onShowReview }: { pr: PrItem; draft: Draft | nu
     <button type="button" className={cx('ca-prbox-line', busy && 'is-busy')} title="Show its Review tab" onClick={onShowReview}>
       <Icon name={icon} size={12} />
       <span className="ca-prbox-line-says">{says}</span>
-      {suggests && !pr.autoReview?.approved && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
+      {suggests && !pr.autoReview?.submitted && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
       <span className="ca-prbox-line-go">
         Review
         <Icon name="chevron-right" size={11} />
@@ -261,7 +261,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
   const { asking, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, note, sending } = b;
   const text = asking ? b.askText : b.reviewText;
   const setText = asking ? b.setAskText : b.setReviewText;
-  const suggests = pr.autoReview && !pr.autoReview.approved ? pr.autoReview.suggests : null;
+  const suggests = pr.autoReview && !pr.autoReview.submitted ? pr.autoReview.suggests : null;
   // The button the agent's suggestion is, marked as such.
   const suggested = (v: Verdict) => (suggests === v ? { icon: 'sparkles', why: `The agent suggests this. ` } : null);
   const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';

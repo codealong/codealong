@@ -409,8 +409,9 @@ export interface ReviewsCfg {
   prompt?: string;
   /** Where each review goes. Older files have none: a draft. */
   post?: ReviewPost;
-  /** Approve a PR as you once its review is posted, when its agent would approve it. */
-  auto_approve?: boolean;
+  /** Which of the agent's verdicts goes as your review once it's posted. Older files have none:
+   *  never. */
+  submit?: ReviewSubmit;
   /** The pull requests your sessions open (`[reviews.own]`). */
   own?: OwnReviewsCfg;
 }
@@ -432,6 +433,11 @@ export interface OwnReviewsCfg {
 /** Where an automatic review goes (config.rs `ReviewPost`): a draft review on your GitHub account
  *  for you to finish, a comment on the PR, or nowhere but its sessions. */
 export type ReviewPost = 'draft' | 'comment' | 'none';
+
+/** Which of an automatic review's verdicts are submitted as your review (config.rs
+ *  `ReviewSubmit`): none, approvals, approvals and requests for changes, or approvals with those
+ *  requests sent as comments. */
+export type ReviewSubmit = 'never' | 'approve' | 'approve-or-request-changes' | 'approve-or-comment';
 
 /** Where automatic updates stand (src-tauri/src/updates.rs): this copy's version, and a state. */
 export type UpdateView = { current: string } & (
@@ -1019,8 +1025,9 @@ export interface AutoReview {
   sendable?: string | null;
   /** What this round's agent would do with the PR, which its windows suggest. */
   suggests?: Verdict | null;
-  /** When the PR was approved as you for it (`[reviews] auto_approve`). */
-  approved?: number | null;
+  /** What its review was submitted as yours as (`[reviews] submit`), and when. */
+  submitted?: Verdict | null;
+  submittedAt?: number | null;
 }
 
 /** A session that worked on a PR. */

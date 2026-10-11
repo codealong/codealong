@@ -295,9 +295,11 @@ pub struct AutoReview {
     /// What this round's agent would do with the PR, which its windows suggest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggests: Option<crate::github::Verdict>,
-    /// When the PR was approved as you for it (`[reviews] auto_approve`).
+    /// What its review was submitted as yours as (`[reviews] submit`), and when.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved: Option<i64>,
+    pub submitted: Option<crate::github::Verdict>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submitted_at: Option<i64>,
 }
 
 /// Where the reviewer's part in a round stands (autoreview.rs).

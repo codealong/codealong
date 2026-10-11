@@ -17,7 +17,8 @@
 //! post` says: by default a review on your GitHub account left as a draft, which only you see,
 //! its comments on their lines where the PR's diff shows them (`draft_plan`), for you to finish and
 //! submit; or a comment on the PR, each line comment under a link to its line; or nowhere. Never a
-//! submitted review, which would settle the request to you. What's posted says an agent wrote it
+//! submitted review, which would settle the request to you, unless `[reviews] submit` says to
+//! (below). What's posted says an agent wrote it
 //! and which commit it read, with a hidden mark (`marker`) so a review already there for that
 //! commit, from another Mac or before a restart, isn't posted twice. An agent that can't review
 //! it says `SKIP:` and why.
@@ -50,10 +51,14 @@
 //! the session it goes back to.
 //!
 //! Every review ends on what its agent would do with the PR, a `Verdict:` line (`verdict_of`):
-//! approve, ask for changes, or comment, which the PR's windows suggest beside its verdicts. With
-//! `[reviews] auto_approve`, a PR that waits on your review whose agent would approve it is
-//! approved as you once its review is posted (`Job::Approve`), your draft review submitted with it,
-//! unless that draft holds words of yours; it's held out of what waits on you until then.
+//! approve, ask for changes, or comment, which the PR's windows suggest beside its verdicts.
+//! `[reviews] submit` says which of them goes as your review once the review is posted
+//! (`to_submit`, `Job::Submit`): an approval, a request for changes, or that request as a comment,
+//! which doesn't hold the PR back. Your draft review is what's submitted, unless it holds words of
+//! yours; without one, a comment or a request for changes points to the review posted as a comment,
+//! or carries the review with posting off (`without_draft`). A PR that waits on your review is held
+//! out of what waits on you until its review is submitted, when it's to be. An agent that can't
+//! tell leaves it to you.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -61,7 +66,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{support_dir, Config, ReviewPost, ReviewsCfg};
+use crate::config::{support_dir, Config, ReviewPost, ReviewSubmit, ReviewsCfg};
 use crate::engine::Handle;
 use crate::github::{LineComment, PendingReview, Verdict};
 use crate::model::{AutoReview, Board, Harness, Lane, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
@@ -196,26 +201,33 @@ pub struct Round {
     /// Where a review of a PR of yours went back to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sent: Option<Sent>,
-    /// When the PR was approved as you for this round's review (`[reviews] auto_approve`), or why
-    /// it wasn't.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved: Option<Approval>,
+    /// When this round's review was submitted as yours (`[reviews] submit`), and as what, or why
+    /// it wasn't. `approved` in files from when only approvals were.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "approved")]
+    pub submitted: Option<Submission>,
 }
 
 impl Round {
     fn new(head: &str, stage: ReviewStage, at: i64) -> Round {
         let ended_at = (stage != ReviewStage::Reviewing).then_some(at);
-        Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new(), sent: None, approved: None }
+        Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new(), sent: None, submitted: None }
     }
 }
 
-/// A PR approved as you for its round's review (`Job::Approve`), or not, and why.
+/// A round's review submitted as yours (`Job::Submit`), as `verdict`, or not, and why.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct Approval {
+pub struct Submission {
     pub at: i64,
+    /// What it was submitted as; an approval in files from when only approvals were.
+    #[serde(default = "approval")]
+    pub verdict: Verdict,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
+}
+
+fn approval() -> Verdict {
+    Verdict::Approve
 }
 
 /// A review of a PR of yours sent to the session that opened it (`Job::Send`), or given up on
@@ -310,14 +322,16 @@ pub enum Job {
     /// Hand a PR of yours' review of commit `head`, written by `agent`, to `session`, the one
     /// that opened it.
     Send { pr: PrItem, head: String, session: String, review: String, agent: String },
-    /// Approve a PR that waits on your review as you, its round's review of `head` saying to.
-    Approve { pr: PrItem, head: String },
+    /// Submit a review of a PR that waits on your review as you, as `verdict`, for its round's
+    /// review of `head` (`to_submit`): your draft review, else `text` (`without_draft`; none
+    /// when only the draft would do).
+    Submit { pr: PrItem, head: String, verdict: Verdict, text: Option<String> },
 }
 
 impl Job {
     fn pr(&self) -> &PrItem {
         match self {
-            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Approve { pr, .. } => pr,
+            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Submit { pr, .. } => pr,
         }
     }
 }
@@ -351,10 +365,10 @@ pub enum Went {
     PostFailed(String),
     /// Its review was sent to this session.
     Sent(String),
-    /// The PR was approved as you.
-    Approved,
-    /// It wasn't approved, and won't be for this round: why.
-    NotApproved(String),
+    /// Its review was submitted as yours.
+    Submitted,
+    /// It wasn't submitted, and won't be for this round: why.
+    NotSubmitted(String),
 }
 
 /// What's next for a round under way.
@@ -450,11 +464,48 @@ fn round_verdict(r: &Round) -> Option<Verdict> {
     r.parts.iter().find(|p| p.state == PartState::Done).and_then(|p| p.review.as_deref()).and_then(verdict_of)
 }
 
-/// Whether the PR is to be approved as you for round `r`, its review of `head`: auto-approve is
-/// on, the PR still waits on your review at that commit, the round's review was posted where
-/// config.toml says (or kept), its agent would approve it, and it hasn't been tried.
-fn approve_due(cfg: &ReviewsCfg, pr: &PrItem, r: &Round, head: &str) -> bool {
-    cfg.auto && cfg.auto_approve && wants(pr) && r.head == head && r.approved.is_none() && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept) && round_verdict(r) == Some(Verdict::Approve)
+/// What's submitted as your review for an agent's verdict, as `[reviews] submit` says: an
+/// approval for one that would approve; for one that would ask for changes, that request, or a
+/// comment, which doesn't hold the PR back; nothing for one that can't tell, which is yours to
+/// judge.
+pub fn to_submit(submit: ReviewSubmit, verdict: Verdict) -> Option<Verdict> {
+    match (submit, verdict) {
+        (ReviewSubmit::Never, _) | (_, Verdict::Comment) | (ReviewSubmit::Approve, Verdict::RequestChanges) => None,
+        (_, Verdict::Approve) => Some(Verdict::Approve),
+        (ReviewSubmit::ApproveOrRequestChanges, Verdict::RequestChanges) => Some(Verdict::RequestChanges),
+        (ReviewSubmit::ApproveOrComment, Verdict::RequestChanges) => Some(Verdict::Comment),
+    }
+}
+
+/// What's to be submitted as your review for round `r`, its review of `head`, if anything:
+/// reviews are on, the PR still waits on your review at that commit, the round's review was posted
+/// where config.toml says (or kept), `[reviews] submit` takes its agent's verdict (`to_submit`),
+/// and it hasn't been tried.
+fn submit_due(cfg: &ReviewsCfg, pr: &PrItem, r: &Round, head: &str) -> Option<Verdict> {
+    if !(cfg.auto && wants(pr) && r.head == head && r.submitted.is_none() && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept)) {
+        return None;
+    }
+    to_submit(cfg.submit, round_verdict(r)?)
+}
+
+/// What a review submitted as `verdict` for round `r` says when there's no draft review of yours
+/// on the PR to submit: nothing, for an approval. A comment or a request for changes needs words:
+/// a link to the review, posted as a comment, or the review itself with posting off, signed as a
+/// posted one is. None for a review that went into a draft, which has gone since (submitted or
+/// thrown away), so there's nothing of the agent's to submit.
+fn without_draft(r: &Round, pr: &PrItem, head: &str, verdict: Verdict) -> Option<String> {
+    if verdict == Verdict::Approve {
+        return Some(String::new());
+    }
+    let p = r.parts.iter().find(|p| p.state == PartState::Done)?;
+    match r.stage {
+        ReviewStage::Posted => r.comment.as_ref().map(|link| signed(&format!("The agent's review asks for changes: {link}"), pr, head, &p.label(), "submitted")),
+        ReviewStage::Kept => {
+            let (summary, comments) = parse_reply(p.review.as_deref()?);
+            Some(review_text(&summary, &comments, pr, head, &p.label(), "submitted"))
+        }
+        _ => None,
+    }
 }
 
 /// A round's review that's still to go back to its session: done, of commit `head`, not sent or
@@ -613,9 +664,10 @@ impl Reviewer {
                 jobs.push(job);
                 continue;
             }
-            if self.store.prs.get(&key).and_then(|t| t.rounds.last()).is_some_and(|r| approve_due(cfg, pr, r, &head)) {
+            if let Some((r, verdict)) = self.store.prs.get(&key).and_then(|t| t.rounds.last()).and_then(|r| Some((r, submit_due(cfg, pr, r, &head)?))) {
+                let text = without_draft(r, pr, &head, verdict);
                 self.busy.insert(key);
-                jobs.push(Job::Approve { pr: pr.clone(), head });
+                jobs.push(Job::Submit { pr: pr.clone(), head, verdict, text });
                 continue;
             }
             if !want {
@@ -738,31 +790,31 @@ impl Reviewer {
                 said = Err(format!("Codealong couldn't hand its review of {} to the session that opened it: {why}", pr.key));
             }
             (Job::Send { .. }, _) => {}
-            (Job::Approve { head, .. }, Went::Approved) => {
+            (Job::Submit { head, verdict, .. }, Went::Submitted) => {
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
-                    r.approved = Some(Approval { at: now, failed: None });
+                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: None });
                 }
             }
-            (Job::Approve { head, .. }, Went::NotApproved(why)) => {
+            (Job::Submit { head, verdict, .. }, Went::NotSubmitted(why)) => {
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
-                    r.approved = Some(Approval { at: now, failed: Some(why) });
+                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: Some(why) });
                 }
             }
-            (Job::Approve { head, .. }, Went::PostFailed(why)) => {
+            (Job::Submit { head, verdict, .. }, Went::PostFailed(why)) => {
                 let failures = self.post_failures.entry(key.clone()).or_default();
                 *failures += 1;
                 if *failures < POST_TRIES {
                     self.next_at.insert(key, now + (RETRY_MS << (*failures - 1)));
-                    return Err(format!("Codealong couldn't approve {} for you: {why} It tries again in a minute or two.", pr.key));
+                    return Err(format!("Codealong couldn't {} {} for you: {why} It tries again in a minute or two.", verdict.verb(), pr.key));
                 }
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
-                    r.approved = Some(Approval { at: now, failed: Some(why.clone()) });
+                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: Some(why.clone()) });
                 }
-                said = Err(format!("Codealong couldn't approve {} for you: {why}", pr.key));
+                said = Err(format!("Codealong couldn't {} {} for you: {why}", verdict.verb(), pr.key));
             }
-            (Job::Approve { .. }, _) => {}
+            (Job::Submit { .. }, _) => {}
             (Job::Post { .. }, Went::NotYet) => {
                 self.next_at.insert(key, now + RETRY_MS);
                 return Ok(());
@@ -862,8 +914,8 @@ pub fn apply(prs: &mut [PrItem], store: &Store, cfg: &ReviewsCfg, lanes: &[Lane]
         let holds = wanted
             && !own
             && match t.and_then(|t| t.rounds.iter().rev().find(|r| r.head == head)) {
-                // Until it's approved as you, when it's to be.
-                Some(r) => (r.stage == ReviewStage::Reviewing && now - r.at < HOLD_MS) || (approve_due(cfg, pr, r, &head) && now - r.at < HOLD_MS),
+                // Until its review is submitted as yours, when it's to be.
+                Some(r) => (r.stage == ReviewStage::Reviewing && now - r.at < HOLD_MS) || (submit_due(cfg, pr, r, &head).is_some() && now - r.at < HOLD_MS),
                 None => now - since < HOLD_MS,
             };
         pr.auto_review = match t.and_then(|t| t.rounds.last().map(|r| (t, r))) {
@@ -873,9 +925,10 @@ pub fn apply(prs: &mut [PrItem], store: &Store, cfg: &ReviewsCfg, lanes: &[Lane]
                 parts: r.parts.iter().map(|p| ReviewPart { who: p.who.clone(), session: p.session.clone(), state: p.state, note: p.note.clone() }).collect(),
                 at: r.ended_at.unwrap_or(r.at),
                 comment: r.comment.clone().or_else(|| t.rounds.iter().rev().find_map(|r| r.comment.clone())),
-                note: if own { back_note(r, cfg, &head) } else { r.approved.as_ref().and_then(|a| a.failed.as_ref()).map(|why| format!("It wasn't approved for you: {why}")).or_else(|| r.note.clone()) },
+                note: if own { back_note(r, cfg, &head) } else { r.submitted.as_ref().and_then(not_submitted).or_else(|| r.note.clone()) },
                 suggests: round_verdict(r),
-                approved: r.approved.as_ref().filter(|a| a.failed.is_none()).map(|a| a.at),
+                submitted: r.submitted.as_ref().filter(|s| s.failed.is_none()).map(|s| s.verdict),
+                submitted_at: r.submitted.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
                 rounds: t.rounds.len(),
                 behind: wanted && head != r.head,
                 holds,
@@ -884,10 +937,20 @@ pub fn apply(prs: &mut [PrItem], store: &Store, cfg: &ReviewsCfg, lanes: &[Lane]
                 sent_at: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
                 sendable: (own && r.stage == ReviewStage::Kept).then(|| origin(lanes, pr)).flatten().filter(|(_, s)| can_take(s)).map(|(_, s)| s.key.clone()),
             }),
-            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, parts: Vec::new(), at: since, comment: None, note: None, rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approved: None }),
+            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, parts: Vec::new(), at: since, comment: None, note: None, rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, submitted: None, submitted_at: None }),
             None => None,
         };
     }
+}
+
+/// Why a round's review wasn't submitted as yours, when it was to be and wasn't.
+fn not_submitted(s: &Submission) -> Option<String> {
+    let why = s.failed.as_ref()?;
+    Some(match s.verdict {
+        Verdict::Approve => format!("It wasn't approved for you: {why}"),
+        Verdict::RequestChanges => format!("Changes weren't requested for you: {why}"),
+        Verdict::Comment => format!("It wasn't submitted as a comment for you: {why}"),
+    })
 }
 
 /// Why a review of a PR of yours hasn't gone back to its session, while it hasn't: what the
@@ -1214,9 +1277,14 @@ fn signed(text: &str, pr: &PrItem, head: &str, agent: &str, how: &str) -> String
 /// The comment posted for a review: its text, then its comments on particular lines, each under a
 /// link to its line.
 pub fn comment_body(summary: &str, comments: &[LineComment], pr: &PrItem, head: &str, agent: &str) -> String {
+    review_text(summary, comments, pr, head, agent, "posted")
+}
+
+/// A review's text with its comments on particular lines written in, signed as `how` it went.
+fn review_text(summary: &str, comments: &[LineComment], pr: &PrItem, head: &str, agent: &str, how: &str) -> String {
     let lines = written_in(pr, head, comments);
     let text = [summary.trim(), lines.as_str()].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
-    signed(&text, pr, head, agent, "posted")
+    signed(&text, pr, head, agent, how)
 }
 
 /// What a draft review does on GitHub: begins one, or adds to the draft you have (`add_to`), with
@@ -1554,24 +1622,30 @@ fn codealongs_only(whole: &str) -> bool {
     whole.split("\n\n---\n\n").all(|part| part.contains(crate::github::REVIEW_MARK))
 }
 
-/// Approves a PR as you for a round's review of `head` (`[reviews] auto_approve`), submitting your
-/// draft review with it: while it still waits on your review at that commit, and unless your draft
-/// holds words of yours.
-fn approve(engine: &Handle, pr: &PrItem, head: &str) -> Went {
+/// Submits a review of a PR as you for a round's review of `head` (`[reviews] submit`), as
+/// `verdict`: your draft review, its text and comments, else `text` (`without_draft`). Only while
+/// the PR still waits on your review at that commit, and not when your draft holds words of yours.
+/// The draft found is the one submitted, so what's checked is what goes.
+fn submit(engine: &Handle, pr: &PrItem, head: &str, verdict: Verdict, text: Option<&str>) -> Went {
     let board = engine.board();
     let Some(pr) = board.prs.iter().find(|p| p.key == pr.key) else { return Went::Later };
     if !wants(pr) || pr.head_oid.as_deref() != Some(head) {
         return Went::Later;
     }
-    match crate::github::your_review(&pr.repo_slug, pr.number) {
-        Ok(y) if y.draft.as_ref().is_some_and(|d| !codealongs_only(&d.whole)) => return Went::NotApproved("your draft review on it has words of yours, so it's yours to submit.".into()),
-        Ok(_) => {}
+    let draft = match crate::github::your_review(&pr.repo_slug, pr.number) {
+        Ok(y) => y.draft,
         Err(e) => return Went::PostFailed(format!("{e:#}")),
-    }
-    match crate::github::review(&pr.repo_slug, pr.number, Verdict::Approve, "") {
+    };
+    let body = match (&draft, text) {
+        (Some(d), _) if !codealongs_only(&d.whole) => return Went::NotSubmitted("your draft review on it has words of yours, so it's yours to submit.".into()),
+        (Some(_), _) => "",
+        (None, Some(text)) => text,
+        (None, None) => return Went::NotSubmitted("the agent's draft review isn't on GitHub any more: it was submitted or thrown away.".into()),
+    };
+    match crate::github::review_with(&pr.repo_slug, pr.number, verdict, body, draft.as_ref()) {
         Ok(_) => {
             engine.approved(&pr.repo_slug, pr.number);
-            Went::Approved
+            Went::Submitted
         }
         Err(e) => Went::PostFailed(format!("{e:#}")),
     }
@@ -1655,7 +1729,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
         Job::Read { session, at, .. } => read(engine, session, *at),
         Job::Post { pr, head, review, agent } => post(engine, pr, head, review, agent),
         Job::Send { .. } => send(engine, &job, false),
-        Job::Approve { pr, head } => approve(engine, pr, head),
+        Job::Submit { pr, head, verdict, text } => submit(engine, pr, head, *verdict, text.as_deref()),
     }))
     .unwrap_or_else(|_| Went::Failed("It stopped partway.".into()));
     let said = reviewer.lock().unwrap_or_else(|e| e.into_inner()).told(&job, went, now_ms());
@@ -1740,7 +1814,7 @@ mod tests {
                 Job::Read { pr, part, session, .. } => format!("read {} part {part} in {session}", pr.number),
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
                 Job::Send { pr, head, session, agent, .. } => format!("send {} {} by {agent} to {session}", pr.number, short(head)),
-                Job::Approve { pr, head } => format!("approve {} {}", pr.number, short(head)),
+                Job::Submit { pr, head, verdict, text } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
             })
             .collect()
     }
@@ -1928,49 +2002,80 @@ mod tests {
     }
 
     #[test]
-    fn a_pr_whose_agent_would_approve_it_is_approved_as_you_when_thats_on() {
-        let cfg = ReviewsCfg { auto_approve: true, ..on() };
+    fn the_agents_verdict_is_submitted_as_yours_as_config_toml_says() {
+        let cfg = |submit: ReviewSubmit| ReviewsCfg { submit, ..on() };
+        let approving = cfg(ReviewSubmit::Approve);
         let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
-        let reviewed = |cfg: &ReviewsCfg, review: &str| {
+        let drafted = || Went::Drafted("https://github.com/o/r/pull/7/files".into());
+        let reviewed = |cfg: &ReviewsCfg, review: &str, posted: Went| {
             let mut r = Reviewer::default();
             let job = r.due(&done, cfg, NOW).pop().unwrap();
             r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
             read(&mut r, &done, cfg, NOW + 61_000, review, "Codex");
             let post = r.due(&done, cfg, NOW + 62_000).pop().unwrap();
-            r.told(&post, Went::Drafted("https://github.com/o/r/pull/7/files".into()), NOW + 63_000).unwrap();
+            r.told(&post, posted, NOW + 63_000).unwrap();
             r
         };
-        let mut r = reviewed(&cfg, "Fine.\n\nVerdict: approve");
+        let mut r = reviewed(&approving, "Fine.\n\nVerdict: approve", drafted());
         // Held out of what waits on you until it's approved.
         let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-        apply(&mut prs, &r.store, &cfg, &[], NOW + 63_500);
+        apply(&mut prs, &r.store, &approving, &[], NOW + 63_500);
         let a = prs[0].auto_review.clone().unwrap();
-        assert_eq!((a.suggests, a.holds, a.approved), (Some(Verdict::Approve), true, None));
-        let jobs = r.due(&done, &cfg, NOW + 64_000);
-        assert_eq!(kinds(&jobs), ["approve 7 1111111"]);
-        r.told(&jobs[0], Went::Approved, NOW + 65_000).unwrap();
-        assert!(r.due(&done, &cfg, NOW + 66_000).is_empty(), "once");
+        assert_eq!((a.suggests, a.holds, a.submitted), (Some(Verdict::Approve), true, None));
+        let jobs = r.due(&done, &approving, NOW + 64_000);
+        assert_eq!(kinds(&jobs), ["approve 7 1111111 saying \"\""]);
+        r.told(&jobs[0], Went::Submitted, NOW + 65_000).unwrap();
+        assert!(r.due(&done, &approving, NOW + 66_000).is_empty(), "once");
         let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-        apply(&mut prs, &r.store, &cfg, &[], NOW + 66_000);
+        apply(&mut prs, &r.store, &approving, &[], NOW + 66_000);
         let a = prs[0].auto_review.clone().unwrap();
-        assert_eq!((a.approved, a.holds), (Some(NOW + 65_000), false));
-        // Off, or an agent that wouldn't approve it: suggested, not done.
-        let mut r = reviewed(&on(), "Fine.\n\nVerdict: approve");
+        assert_eq!((a.submitted, a.submitted_at, a.holds), (Some(Verdict::Approve), Some(NOW + 65_000), false));
+        // Never, or an agent that wouldn't approve it while only approvals are: suggested, not done.
+        let mut r = reviewed(&on(), "Fine.\n\nVerdict: approve", drafted());
         assert!(r.due(&done, &on(), NOW + 64_000).is_empty());
-        let mut r = reviewed(&cfg, "Two problems.\n\nVerdict: request changes");
-        assert!(r.due(&done, &cfg, NOW + 64_000).is_empty());
+        let mut r = reviewed(&approving, "Two problems.\n\nVerdict: request changes", drafted());
+        assert!(r.due(&done, &approving, NOW + 64_000).is_empty());
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &cfg, &[], NOW + 64_000);
+        apply(&mut prs, &r.store, &approving, &[], NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().suggests, Some(Verdict::RequestChanges));
-        // One that isn't for you to approve now says why, and isn't tried again.
-        let mut r = reviewed(&cfg, "Fine.\nVerdict: approve");
-        let job = r.due(&done, &cfg, NOW + 64_000).pop().unwrap();
-        r.told(&job, Went::NotApproved("your draft review on it has words of yours, so it's yours to submit.".into()), NOW + 65_000).unwrap();
-        assert!(r.due(&done, &cfg, NOW + 66_000).is_empty());
-        let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &cfg, &[], NOW + 66_000);
-        let a = prs[0].auto_review.clone().unwrap();
-        assert_eq!((a.approved, a.note.as_deref()), (None, Some("It wasn't approved for you: your draft review on it has words of yours, so it's yours to submit.")));
+        // A request for changes goes as one, or as a comment; the draft holds what it says.
+        for (submit, verb) in [(ReviewSubmit::ApproveOrRequestChanges, "request changes on"), (ReviewSubmit::ApproveOrComment, "comment on")] {
+            let mut r = reviewed(&cfg(submit), "Two problems.\n\nVerdict: request changes", drafted());
+            assert_eq!(kinds(&r.due(&done, &cfg(submit), NOW + 64_000)), [format!("{verb} 7 1111111")]);
+            // An approval goes either way, and an agent that can't tell leaves it to you.
+            let mut r = reviewed(&cfg(submit), "Fine.\n\nVerdict: approve", drafted());
+            assert_eq!(kinds(&r.due(&done, &cfg(submit), NOW + 64_000)), ["approve 7 1111111 saying \"\""]);
+            let mut r = reviewed(&cfg(submit), "Hm.\n\nVerdict: comment", drafted());
+            assert!(r.due(&done, &cfg(submit), NOW + 64_000).is_empty());
+        }
+        // Without a draft, it points to the review posted as a comment, or with posting off
+        // carries it.
+        let changes = cfg(ReviewSubmit::ApproveOrRequestChanges);
+        let mut r = reviewed(&changes, "Two problems.\n\nVerdict: request changes", Went::Posted("https://github.com/o/r/pull/7#issuecomment-1".into()));
+        let Some(Job::Submit { verdict, text: Some(text), .. }) = r.due(&done, &changes, NOW + 64_000).pop() else { panic!("a submit") };
+        assert_eq!(verdict, Verdict::RequestChanges);
+        assert!(text.starts_with("The agent's review asks for changes: https://github.com/o/r/pull/7#issuecomment-1\n\n<sub>An agent's review (Codex) of 1111111, submitted by Codealong.</sub>"), "{text}");
+        let mut r = reviewed(&changes, "Two problems.\n\nVerdict: request changes", Went::Kept(None));
+        let Some(Job::Submit { text: Some(text), .. }) = r.due(&done, &changes, NOW + 64_000).pop() else { panic!("a submit") };
+        assert!(text.starts_with("Two problems.\n\n<sub>An agent's review (Codex) of 1111111, submitted by Codealong.</sub>"), "{text}");
+        // One that isn't for you to submit now says why, and isn't tried again.
+        for (submit, verdict, says) in [
+            (ReviewSubmit::Approve, "approve", "It wasn't approved for you"),
+            (ReviewSubmit::ApproveOrRequestChanges, "request changes", "Changes weren't requested for you"),
+            (ReviewSubmit::ApproveOrComment, "request changes", "It wasn't submitted as a comment for you"),
+        ] {
+            let mut r = reviewed(&cfg(submit), &format!("Fine.\nVerdict: {verdict}"), drafted());
+            let job = r.due(&done, &cfg(submit), NOW + 64_000).pop().unwrap();
+            r.told(&job, Went::NotSubmitted("your draft review on it has words of yours, so it's yours to submit.".into()), NOW + 65_000).unwrap();
+            assert!(r.due(&done, &cfg(submit), NOW + 66_000).is_empty());
+            let mut prs = vec![pr(7, HEAD)];
+            apply(&mut prs, &r.store, &cfg(submit), &[], NOW + 66_000);
+            let a = prs[0].auto_review.clone().unwrap();
+            assert_eq!((a.submitted, a.note), (None, Some(format!("{says}: your draft review on it has words of yours, so it's yours to submit."))));
+        }
+        // What reviews.json said when only approvals were reads as an approval.
+        let old: Round = serde_json::from_str(r#"{"head":"1111111","stage":"drafted","at":1,"approved":{"at":5}}"#).unwrap();
+        assert_eq!(old.submitted, Some(Submission { at: 5, verdict: Verdict::Approve, failed: None }));
         // A draft of only Codealong's rounds is submitted; one with words of yours isn't.
         assert!(codealongs_only("Fine.\n<!-- codealong-review o/r#7 abc -->"));
         assert!(codealongs_only("Round one.\n<!-- codealong-review o/r#7 abc -->\n\n---\n\nRound two.\n<!-- codealong-review o/r#7 def -->"));

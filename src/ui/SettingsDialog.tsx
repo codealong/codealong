@@ -9,7 +9,7 @@ import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, OwnReviewsCfg, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, OwnReviewsCfg, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -302,13 +302,23 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
 
 /** `[reviews]` when config.toml has none (config.rs `ReviewsCfg`). */
 const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true };
-const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft', auto_approve: false, own: OWN_REVIEWS_OFF };
+const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft', submit: 'never', own: OWN_REVIEWS_OFF };
 
 /** Where each review goes (config.rs `ReviewPost`), as the select offers it. */
 const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
   { id: 'draft', name: 'A draft review for you to finish', says: 'A review on your GitHub account with its comments on the lines they’re about, left as a draft that only you see. You finish it from the pull request’s box in Codealong or on GitHub, approving or asking for changes, and your review is still asked for until you do.' },
   { id: 'comment', name: 'A comment on the pull request', says: 'A comment from your GitHub account that says an agent wrote it and which commit it read, each line comment under a link to its line. A comment leaves your review still asked for.' },
-  { id: 'none', name: 'Nowhere: it stays in its session', says: 'Each review is in its session for you to read; nothing goes on GitHub.' },
+  { id: 'none', name: 'Nowhere: it stays in its session', says: 'Each review is in its session for you to read; nothing goes on GitHub but what’s submitted for you (below).' },
+];
+
+/** What of the agent's verdict is submitted as your review (config.rs `ReviewSubmit`,
+ *  autoreview.rs `to_submit`), as the select offers it. */
+const SUBMITTED_FOR_YOU = 'Your draft review goes with it, comments and all, and the pull request leaves what waits on you. When the agent can’t tell, or your draft holds words of yours, it’s left for you. Never a merge.';
+const REVIEW_SUBMITS: (Profile & { id: ReviewSubmit; says: string })[] = [
+  { id: 'never', name: 'Never: you submit each one', says: 'Each review ends on what the agent would do: approve, ask for changes, or comment, which the pull request’s box suggests. You submit your review yourself, and the pull request waits on you until you do.' },
+  { id: 'approve', name: 'Approve when it finds nothing to fix', says: `A pull request the agent would approve (minor points at most) is approved as you once its review is posted; one it would ask changes of is left for you. ${SUBMITTED_FOR_YOU}` },
+  { id: 'approve-or-request-changes', name: 'Approve, or request changes', says: `As the agent would: a pull request it would approve is approved as you once its review is posted, and one it would ask changes of gets a request for changes from you, which can block its merge until it’s approved. ${SUBMITTED_FOR_YOU}` },
+  { id: 'approve-or-comment', name: 'Approve, or comment instead of requesting changes', says: `A pull request the agent would approve is approved as you once its review is posted; on one it would ask changes of, its review goes as a comment from you, which reaches the author without blocking the merge. ${SUBMITTED_FOR_YOU}` },
 ];
 
 /** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
@@ -337,6 +347,7 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
   const set = (next: Partial<ReviewsCfg>) => void onSave({ ...cfg, reviews: { ...reviews, ...next } });
   const runsIn = accounts.find((a) => a.name === reviews.account);
   const post = REVIEW_POSTS.find((p) => p.id === reviews.post) ?? REVIEW_POSTS[0];
+  const submit = REVIEW_SUBMITS.find((s) => s.id === reviews.submit) ?? REVIEW_SUBMITS[0];
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
@@ -377,13 +388,10 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
             <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />
             <small>{post.says}</small>
           </label>
-          <label className="ca-field ca-settings-check">
-            <input type="checkbox" checked={reviews.auto_approve} onChange={(e) => set({ auto_approve: e.target.checked })} />
-            <span>Approve for you when the agent finds nothing that needs fixing</span>
-            <small>
-              Each review ends on what the agent would do: approve, ask for changes, or comment, which the pull request’s box suggests. With this on, a pull request whose agent would approve it (minor points at most) is approved as you once its review is posted, your draft review submitted
-              with it, comments and all, and it leaves what waits on you. Not when your draft holds words of yours, and never a merge.
-            </small>
+          <label className="ca-field">
+            <span>Submit the agent’s review for you</span>
+            <ProfileSelect value={reviews.submit} profiles={REVIEW_SUBMITS} onChange={(id) => set({ submit: id as ReviewSubmit })} />
+            <small>{submit.says}</small>
           </label>
         </>
       )}

@@ -341,6 +341,17 @@
       await until(function () { return !!field(/^The reviewer$/); }, 3000, 'no reviewer once it’s on');
       var where = all('option', field(/^Where each review goes$/)).map(function (o) { return o.textContent; });
       check('each review goes to a draft first, else a comment or nowhere', where.join(' | ') === 'A draft review for you to finish | A comment on the pull request | Nowhere: it stays in its session', where.join(' | '));
+      // What of the agent's verdict is submitted for you is a select too, never by default.
+      var submitField = function () { return field(/^Submit the agent’s review for you$/); };
+      var submits = all('option', submitField()).map(function (o) { return o.textContent; });
+      check('the agent’s verdict is submitted for you never by default, else as an approval, with changes requested, or with a comment for them', submits.join(' | ') === 'Never: you submit each one | Approve when it finds nothing to fix | Approve, or request changes | Approve, or comment instead of requesting changes' && q('select', submitField()).value === 'never', submits.join(' | ') + ' / ' + q('select', submitField()).value);
+      var submitSaves = calls('save_config').length;
+      var submitSelect = q('select', submitField());
+      submitSelect.value = 'approve-or-comment';
+      submitSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await until(function () { return calls('save_config').length > submitSaves; }, 3000, 'picking what’s submitted saved nothing');
+      var submitCfg = calls('save_config')[calls('save_config').length - 1][1].config.reviews;
+      check('picked, it saves [reviews] submit, and says what it does', submitCfg.submit === 'approve-or-comment' && !('auto_approve' in submitCfg) && /goes as a comment from you, which reaches the author without blocking the merge/.test(q('small', submitField()).textContent), JSON.stringify(submitCfg) + ' / ' + q('small', submitField()).textContent);
       // The reviewer is a box drawn as a session's: what it's told, and the agent chip at its foot.
       var agentBox = function () { return q('.ca-agentbox', field(/^The reviewer$/)); };
       var told = function () { return q('textarea', agentBox()); };

@@ -125,7 +125,7 @@ function Standing({ pr, review, now, onGitHub, sessions, onShowSession }: { pr: 
           {ago(review.at, now)}
         </span>
         {/* A draft read from GitHub has its own way there, or is gone. */}
-        {review.suggests && !review.approved && <span className={cx('ca-prbox-suggests', `is-${review.suggests}`)}>{suggestWords(review.suggests)}</span>}
+        {review.suggests && !review.submitted && <span className={cx('ca-prbox-suggests', `is-${review.suggests}`)}>{suggestWords(review.suggests)}</span>}
         <Links link={review.stage === 'drafted' && onGitHub ? null : review.comment} session={review.parts?.find((p) => p.session)?.session} sessions={sessions} onShowSession={onShowSession} />
         {to && (
           <button type="button" className="ca-linkbtn" disabled={sending} title="Hand the review to the session that opened the pull request, as a file it reads, to fix what holds up" onClick={send}>

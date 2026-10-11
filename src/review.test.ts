@@ -19,8 +19,11 @@ describe('autoReviewWords', () => {
     // Not "posting is off": it never posts.
     expect(autoReviewWords(r('kept', { own: true })).note).toBe(null);
   });
-  it('says the agent approved it for you, when it did', () => {
-    expect(autoReviewWords(r('drafted', { approved: 5, suggests: 'approve' }))).toEqual({ icon: 'check', says: 'Agent approved 309811a for you', note: 'Only you see it until you submit it.' });
+  it('says what the agent’s review was submitted for you as, when it was', () => {
+    expect(autoReviewWords(r('drafted', { submitted: 'approve', submittedAt: 5, suggests: 'approve' }))).toEqual({ icon: 'check', says: 'Agent approved 309811a for you', note: null });
+    expect(autoReviewWords(r('drafted', { submitted: 'request-changes', suggests: 'request-changes' }), { draft: false, submitted: 'CHANGES_REQUESTED' })).toEqual({ icon: 'alert', says: 'Agent requested changes on 309811a for you', note: null });
+    expect(autoReviewWords(r('posted', { submitted: 'comment', suggests: 'request-changes' })).says).toBe('Agent commented on 309811a for you');
+    expect(autoReviewWords(r('kept', { submitted: 'approve' })).note).toBe('Its review is in its session: posting is off.');
     expect(suggestWords('request-changes')).toBe('Suggests changes');
   });
   it('says over the box where the review stands, with your draft', () => {

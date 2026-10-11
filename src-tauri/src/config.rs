@@ -134,6 +134,13 @@ fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
         }
     }
     cfg.reviews.reviewers.clear();
+    if cfg.reviews.auto_approve && cfg.reviews.submit == ReviewSubmit::Never {
+        let doc = text.parse::<toml_edit::DocumentMut>().ok();
+        if !doc.as_ref().is_some_and(|d| d.get("reviews").and_then(|r| r.get("submit")).is_some()) {
+            cfg.reviews.submit = ReviewSubmit::Approve;
+        }
+    }
+    cfg.reviews.auto_approve = false;
     if let Some(old) = cfg.router.take() {
         let has_jev = text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("jev").is_some());
         if !has_jev {
@@ -273,9 +280,12 @@ pub struct ReviewsCfg {
     /// Where each review goes once it's done.
     #[serde(default)]
     pub post: ReviewPost,
-    /// Approve a PR as you once its review is posted, when its agent would approve it (nothing
-    /// that needs fixing before it merges), submitting your draft review with it.
+    /// Which of the agents' verdicts are submitted as your review once its review is posted.
     #[serde(default)]
+    pub submit: ReviewSubmit,
+    /// `auto_approve = true`, from before `submit` (2026-10-11): `submit = "approve"` where the
+    /// file has no `submit` (`from_text`). Read and never written.
+    #[serde(default, skip_serializing)]
     pub auto_approve: bool,
     /// `reviewers = [{ account, model }]`, from the day several could review (2026-10-09): the
     /// first becomes `account` and `model` where those aren't set (`from_text`). Read and never
@@ -289,7 +299,7 @@ pub struct ReviewsCfg {
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() }
     }
 }
 
@@ -350,6 +360,33 @@ impl ReviewPost {
             ReviewPost::Draft => "draft",
             ReviewPost::Comment => "comment",
             ReviewPost::None => "none",
+        }
+    }
+}
+
+/// Which of an automatic review's verdicts are submitted as your review once it's posted
+/// (autoreview.rs `to_submit`). `never`: each is left for you. `approve`: a PR its agent would
+/// approve is approved. `approve-or-request-changes`: that, and one it would ask changes of gets
+/// a request for changes from you. `approve-or-comment`: that, but the request for changes goes
+/// as a comment, which doesn't hold the PR back. An agent that can't tell (`Verdict: comment`)
+/// leaves it to you whatever this says.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewSubmit {
+    #[default]
+    Never,
+    Approve,
+    ApproveOrRequestChanges,
+    ApproveOrComment,
+}
+
+impl ReviewSubmit {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReviewSubmit::Never => "never",
+            ReviewSubmit::Approve => "approve",
+            ReviewSubmit::ApproveOrRequestChanges => "approve-or-request-changes",
+            ReviewSubmit::ApproveOrComment => "approve-or-comment",
         }
     }
 }
@@ -798,8 +835,10 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 # model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
 # Codealong's own. post: where each review goes: \"draft\", a draft review on your GitHub account with its
 # comments on their lines, for you to finish; \"comment\", a comment on the PR from your account; \"none\",
-# it stays in the review's session. auto_approve: approve the PR as you once its review is posted, when the
-# agent would approve it (nothing that needs fixing before it merges), your draft review submitted with it.
+# it stays in the review's session. submit: which of the agent's verdicts goes as your review once it's posted,
+# your draft review submitted with it: \"never\"; \"approve\", when it would approve (nothing that needs fixing
+# before it merges); \"approve-or-request-changes\", and a request for changes when it would ask for them; or
+# \"approve-or-comment\", that request sent as a comment instead. When it can't tell, it's left for you.
 ";
 const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
 # commits come in. account and model: what it runs on; \"\" for the account Auto would start among those of another
@@ -1170,11 +1209,12 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["reviews"]["model"], Value::from(cfg.reviews.model.trim()));
         set_value(&mut doc["reviews"]["prompt"], Value::from(cfg.reviews.prompt.trim()));
         set_value(&mut doc["reviews"]["post"], Value::from(cfg.reviews.post.as_str()));
-        set_value(&mut doc["reviews"]["auto_approve"], Value::from(cfg.reviews.auto_approve));
+        set_value(&mut doc["reviews"]["submit"], Value::from(cfg.reviews.submit.as_str()));
         // What said who reviewed and where it went for a day (2026-10-09): `comment`, then
-        // `reviewers` (folded into `account` and `model` as it's read) and `combine`.
+        // `reviewers` (folded into `account` and `model` as it's read) and `combine`; and
+        // `auto_approve`, folded into `submit` (2026-10-11).
         if let Some(t) = doc.get_mut("reviews").and_then(Item::as_table_like_mut) {
-            for old in ["comment", "reviewers", "combine"] {
+            for old in ["comment", "reviewers", "combine", "auto_approve"] {
                 t.remove(old);
             }
         }
@@ -1399,7 +1439,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("model = {}\n", q(cfg.reviews.model.trim())));
         s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(cfg.reviews.prompt.trim())));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
-        s.push_str(&format!("auto_approve = {}\n", cfg.reviews.auto_approve));
+        s.push_str(&format!("submit = {}\n", q(cfg.reviews.submit.as_str())));
         let own = &cfg.reviews.own;
         if *own != OwnReviewsCfg::default() {
             s.push('\n');
@@ -1495,7 +1535,7 @@ mod tests {
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() },
             pull_requests: PullRequestsCfg { nudge_by_default: true },
             debug: DebugCfg::default(),
         };
@@ -1873,7 +1913,7 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
@@ -1889,6 +1929,15 @@ mod tests {
         assert_eq!((read.account.as_str(), read.model.as_str(), read.reviewers.len()), ("codex", "gpt-5.5", 0));
         let saved = with_config(&then, &parse(&then).unwrap()).unwrap();
         assert!(!saved.contains("reviewers =") && !saved.contains("combine =") && !saved.contains("comment =") && saved.contains("account = \"codex\""), "{saved}");
+        // A file from before `submit`: auto-approving is `submit = "approve"`, written so as it's
+        // saved, unless the file says `submit` itself.
+        let then = format!("{old}\n[reviews]\nauto = true\nauto_approve = true\n");
+        assert_eq!(parse(&then).unwrap().reviews.submit, ReviewSubmit::Approve);
+        let saved = with_config(&then, &parse(&then).unwrap()).unwrap();
+        assert!(!saved.contains("auto_approve") && saved.contains("submit = \"approve\""), "{saved}");
+        assert_eq!(parse(&format!("{old}\n[reviews]\nauto_approve = false\n")).unwrap().reviews.submit, ReviewSubmit::Never);
+        assert_eq!(parse(&format!("{old}\n[reviews]\nauto_approve = true\nsubmit = \"never\"\n")).unwrap().reviews.submit, ReviewSubmit::Never);
+        assert_eq!(parse(&format!("{old}\n[reviews]\nsubmit = \"approve-or-request-changes\"\n")).unwrap().reviews.submit, ReviewSubmit::ApproveOrRequestChanges);
         // An account that isn't listed can't review, nor a model name that can't be typed.
         assert_eq!(check(&on), Ok(()));
         let mut bad = on.clone();
