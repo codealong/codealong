@@ -103,9 +103,25 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-/* The lines around it, numbered by the file's new version; its own line marked. */
-.ca-agentrev-code {
+/* The lines around it, numbered by the file's new version; its own line marked. A diff's box
+   (PrFiles.css) drawn as lines of text, each a line of its own, not its grid. */
+.ca-patch.ca-agentrev-code {
+  display: block;
   margin: 0;
+  padding: 6px 0;
+}
+.ca-agentrev-code > span {
+  display: block;
+  padding: 0 8px;
+  white-space: pre;
+}
+.ca-agentrev-code > .is-add {
+  background: var(--pr-open-tint);
+  color: var(--ink);
+}
+.ca-agentrev-code > .is-del {
+  background: var(--alert-tint);
+  color: var(--ink);
 }
 .ca-agentrev-code > .is-at {
   box-shadow: inset 2px 0 var(--attn);

@@ -132,18 +132,24 @@ fn pr_folder(store: &Path, slug: &str, number: u64) -> PathBuf {
     store.join(format!("{}-{number}", slug.replace('/', "-")))
 }
 
+/// A path as a file of its own under a folder: its name, in a folder named for the whole path as
+/// written (FNV-1a, the same every run). So two paths the Mac's disk would take for one (`Foo.ts`
+/// and `foo.ts`, which differ only in case), or a file at one and a folder at the other (`lib`,
+/// `lib/util.ts`), never meet, and the editor still has the file's name and kind.
+fn named(path: &Path) -> PathBuf {
+    let hash = path.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
+    PathBuf::from(format!("{hash:016x}")).join(path.file_name().unwrap_or_default())
+}
+
 /// Where the file at `path` as of commit `sha` is kept, for PR `slug#number`.
 fn kept_at(store: &Path, slug: &str, number: u64, sha: &str, path: &Path) -> PathBuf {
     let short: String = sha.chars().take(7).collect();
-    pr_folder(store, slug, number).join(short).join(path)
+    pr_folder(store, slug, number).join(short).join(named(path))
 }
 
-/// The empty file a side with no file stands in for `path` with: in a folder of its own, named
-/// for the path, so it's never where a commit's own file or folder of that name goes.
+/// The empty file that stands in for `path` on a side with no file.
 fn empty_at(store: &Path, slug: &str, number: u64, path: &Path) -> PathBuf {
-    // FNV-1a: the same folder for the same path, every run.
-    let hash = path.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
-    pr_folder(store, slug, number).join("none").join(format!("{hash:016x}")).join(path.file_name().unwrap_or_default())
+    pr_folder(store, slug, number).join("none").join(named(path))
 }
 
 /// Writes `bytes` at `file`, read-only, unless it's there already: a file at a commit never
@@ -279,13 +285,27 @@ mod tests {
             Ok(format!("{path} at {sha}\n").into_bytes())
         };
         let (old, new) = sides(&ask("src/a.ts", "modified", None), "acme/app", 7, &e, None, &store, &read).unwrap();
-        assert_eq!(old, store.join("acme-app-7/aaaaaaa/src/a.ts"));
-        assert_eq!(new, store.join("acme-app-7/bbbbbbb/src/a.ts"));
+        assert_eq!(old, kept_at(&store, "acme/app", 7, "aaaaaaa1", Path::new("src/a.ts")));
+        assert_eq!(new, kept_at(&store, "acme/app", 7, "bbbbbbb1", Path::new("src/a.ts")));
         assert_eq!(std::fs::read_to_string(&new).unwrap(), "src/a.ts at bbbbbbb1\n");
         assert!(std::fs::metadata(&old).unwrap().permissions().readonly());
         // Again, nothing's read: a file at a commit never changes.
         sides(&ask("src/a.ts", "modified", None), "acme/app", 7, &e, None, &store, &read).unwrap();
         assert_eq!(*asked.borrow(), ["src/a.ts@aaaaaaa1", "src/a.ts@bbbbbbb1"]);
+        // Each under its PR and commit, by its name, in a folder of its own.
+        assert!(old.starts_with(store.join("acme-app-7/aaaaaaa")) && old.file_name().unwrap() == "a.ts", "{}", old.display());
+        make_writable(&store);
+    }
+
+    #[test]
+    fn two_paths_that_differ_only_in_case_are_two_files() {
+        let store = crate::fixtures::scratch("prdiff-case");
+        let e = Ends { head: "bbbbbbb1".into(), base: "aaaaaaa1".into() };
+        let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n").into_bytes());
+        let (upper, _) = sides(&ask("src/Foo.ts", "modified", None), "acme/app", 7, &e, None, &store, &read).unwrap();
+        let (lower, _) = sides(&ask("src/foo.ts", "modified", None), "acme/app", 7, &e, None, &store, &read).unwrap();
+        assert_eq!(std::fs::read_to_string(upper).unwrap(), "src/Foo.ts at aaaaaaa1\n");
+        assert_eq!(std::fs::read_to_string(lower).unwrap(), "src/foo.ts at aaaaaaa1\n");
         make_writable(&store);
     }
 
@@ -301,13 +321,13 @@ mod tests {
         assert_eq!(new, wt.join("src/a.ts").canonicalize().unwrap());
         // A file the worktree doesn't have (removed there, say) is read from the PR's head.
         let (_, gone) = sides(&ask("src/b.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
-        assert_eq!(gone, store.join("acme-app-7/bbbbbbb/src/b.ts"));
+        assert_eq!(gone, kept_at(&store, "acme/app", 7, "bbbbbbb1", Path::new("src/b.ts")));
         // Nor is a link in the repo followed out of the worktree.
         let outside = crate::fixtures::scratch("prdiff-outside");
         std::fs::write(outside.join("secret"), "theirs\n").unwrap();
         std::os::unix::fs::symlink(outside.join("secret"), wt.join("src/link.ts")).unwrap();
         let (_, linked) = sides(&ask("src/link.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
-        assert_eq!(linked, store.join("acme-app-7/bbbbbbb/src/link.ts"));
+        assert_eq!(linked, kept_at(&store, "acme/app", 7, "bbbbbbb1", Path::new("src/link.ts")));
         assert!(in_worktree(&wt, Path::new("src/link.ts")).is_none());
         make_writable(&store);
     }

@@ -15,6 +15,8 @@
     { path: 'src/teams/teamValues.ts', previous: 'src/teams/values.ts', status: 'renamed', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' },
     { path: 'yarn.lock', status: 'modified', additions: 900, deletions: 800, patch: null },
   ];
+  // Enough files for the filter, which marks what it finds in a hunk's header too.
+  ['a', 'b', 'c', 'd', 'e'].forEach(function (n) { FILES.push({ path: 'docs/' + n + '.md', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-x\n+y' }); });
   var pr = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
@@ -114,6 +116,13 @@
     .then(function (none) {
       var ways = all('.ca-linkbtn', none).map(function (b) { return b.textContent; });
       check('a file GitHub shows no diff of says so, with the ways to see it', /GitHub doesn’t show a diff/.test(none.textContent) && ways.join() === 'Open diff in Cursor,Open on GitHub', ways.join());
+      type(q('.ca-prfiles-filter input'), 'export');
+      return wait(100);
+    })
+    .then(function () {
+      var mark = q('.ca-patch-row.is-hunk mark');
+      check('what the filter finds in a hunk’s header is marked there', !!mark && mark.textContent.toLowerCase() === 'export', mark ? mark.textContent : 'no mark');
+      type(q('.ca-prfiles-filter input'), '');
       key(window, { key: 'F', code: 'KeyF', metaKey: true, shiftKey: true });
       return wait(100);
     })

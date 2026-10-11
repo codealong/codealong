@@ -108,10 +108,11 @@ function Patch({ text, words, seek, view, onLine }: { text: string; words: strin
     ) : (
       <span className="ca-patch-num">{n}</span>
     );
-  // A line across the whole diff: a hunk's header, or git's note about a newline.
+  // A line across the whole diff: a hunk's header (with the function it's in, which the filter
+  // finds too), or git's note about a newline.
   const across = (l: DiffLine, key: number) => (
     <div key={key} className={`ca-patch-row is-${l.kind}`}>
-      <span className="ca-patch-across">{l.text}</span>
+      <span className="ca-patch-across">{code(l)}</span>
     </div>
   );
   const side = (l: DiffLine | null, after: boolean): ReactNode =>

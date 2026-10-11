@@ -215,6 +215,9 @@
       await until(function () { return !!q('.ca-agentrev-code', first); }, 5000, 'no lines around the first comment');
       var at = q('.ca-agentrev-code .is-at', first);
       check('with the lines around it, its own marked', all('.ca-agentrev-code > span', first).length === 5 && !!at && /\+    new\(\);/.test(at.textContent), q('.ca-agentrev-code', first).textContent);
+      // Each a line of its own, an added one tinted as a diff's are (PrFiles.css draws the box).
+      var plain = getComputedStyle(q('.ca-agentrev-code', first)).backgroundColor;
+      check('each a line of its own, an added one tinted', getComputedStyle(at).display === 'block' && getComputedStyle(at).backgroundColor !== plain && getComputedStyle(at).backgroundColor !== 'rgba(0, 0, 0, 0)', getComputedStyle(at).display + ' ' + getComputedStyle(at).backgroundColor);
       press(q('.ca-agentrev-where', first));
       check('its place opens that line on GitHub at the draft’s commit', calls('open_url').some(function (c) { return /\/blob\/309811aaaabbbbcccc\/src\/a\.rs#L2$/.test(c[1].url); }), JSON.stringify(calls('open_url').slice(-1)));
       var second = all('.ca-agentrev-comment')[1];
