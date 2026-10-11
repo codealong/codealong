@@ -560,7 +560,36 @@ const LINGER: Duration = Duration::from_millis(100);
 /// before it reads its input, or prints a lot before it exits, never waits on Codealong. The
 /// deadline covers the writing, the reading and the exit; once the program has exited its
 /// pipes get `LINGER` more, whoever else holds them.
-fn drive(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration) -> Result<Output> {
+fn drive(cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration) -> Result<Output> {
+    let raw = drive_raw(cmd, program, input, timeout)?;
+    Ok(Output { ok: raw.ok, out: String::from_utf8_lossy(&raw.out).into_owned(), err: String::from_utf8_lossy(&raw.err).into_owned() })
+}
+
+/// What a program wrote, as it wrote it.
+struct Raw {
+    ok: bool,
+    out: Vec<u8>,
+    err: Vec<u8>,
+}
+
+/// Runs a program with the user's PATH and returns its stdout as the bytes it wrote, for what
+/// isn't necessarily text (a file read from GitHub). Fails as `run` does.
+pub fn run_bytes(program: &str, args: &[&str], timeout: Duration) -> Result<Vec<u8>> {
+    #[cfg(test)]
+    if let Some(answer) = stand_in::run(program, args, None, timeout) {
+        return answer.map(String::into_bytes);
+    }
+    let mut cmd = Command::new(program);
+    cmd.args(args).env("PATH", user_path());
+    let raw = drive_raw(cmd, program, None, timeout)?;
+    if raw.ok {
+        Ok(raw.out)
+    } else {
+        Err(anyhow!("{} {}", program, String::from_utf8_lossy(&raw.err).trim()))
+    }
+}
+
+fn drive_raw(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration) -> Result<Raw> {
     use std::io::{ErrorKind, Write};
     use std::os::fd::AsRawFd;
 
@@ -605,7 +634,7 @@ fn drive(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duratio
         match exited {
             Some((status, at)) => {
                 if (!out.open() && !err.open()) || now >= (at + LINGER).min(deadline) {
-                    return Ok(Output { ok: status.success(), out: String::from_utf8_lossy(&out.got).into_owned(), err: String::from_utf8_lossy(&err.got).into_owned() });
+                    return Ok(Raw { ok: status.success(), out: out.got, err: err.got });
                 }
             }
             None if now >= deadline => {

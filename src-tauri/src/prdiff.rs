@@ -127,50 +127,82 @@ fn make_writable(dir: &Path) {
     }
 }
 
+/// The folder of PR `slug#number`'s files.
+fn pr_folder(store: &Path, slug: &str, number: u64) -> PathBuf {
+    store.join(format!("{}-{number}", slug.replace('/', "-")))
+}
+
 /// Where the file at `path` as of commit `sha` is kept, for PR `slug#number`.
 fn kept_at(store: &Path, slug: &str, number: u64, sha: &str, path: &Path) -> PathBuf {
     let short: String = sha.chars().take(7).collect();
-    store.join(format!("{}-{number}", slug.replace('/', "-"))).join(short).join(path)
+    pr_folder(store, slug, number).join(short).join(path)
 }
 
-/// Writes `text` at `file`, read-only, unless it's there already: a file at a commit never changes.
-fn keep(file: &Path, text: impl FnOnce() -> Result<String>) -> Result<()> {
+/// The empty file a side with no file stands in for `path` with: in a folder of its own, named
+/// for the path, so it's never where a commit's own file or folder of that name goes.
+fn empty_at(store: &Path, slug: &str, number: u64, path: &Path) -> PathBuf {
+    // FNV-1a: the same folder for the same path, every run.
+    let hash = path.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
+    pr_folder(store, slug, number).join("none").join(format!("{hash:016x}")).join(path.file_name().unwrap_or_default())
+}
+
+/// Writes `bytes` at `file`, read-only, unless it's there already: a file at a commit never
+/// changes.
+fn keep(file: &Path, bytes: impl FnOnce() -> Result<Vec<u8>>) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     if file.is_file() {
         return Ok(());
     }
-    let text = text()?;
+    let bytes = bytes()?;
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(file, text)?;
+    std::fs::write(file, bytes)?;
     std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o444))?;
     Ok(())
 }
 
-/// The file at `path` as of commit `sha`, as GitHub has it.
-fn from_github(slug: &str, path: &str, sha: &str) -> Result<String> {
-    procs::run("gh", &["api", "-H", "Accept: application/vnd.github.raw", &format!("repos/{slug}/contents/{}?ref={sha}", url_path(path))], None, Duration::from_secs(30)).with_context(|| format!("Reading {path} from GitHub"))
+/// The file at `path` as of commit `sha`, as GitHub has it: its bytes as they are, text or not.
+fn from_github(slug: &str, path: &str, sha: &str) -> Result<Vec<u8>> {
+    procs::run_bytes("gh", &["api", "-H", "Accept: application/vnd.github.raw", &format!("repos/{slug}/contents/{}?ref={sha}", url_path(path))], Duration::from_secs(30)).with_context(|| format!("Reading {path} from GitHub"))
+}
+
+/// The file at `path` in `worktree`, if it's a file there and inside it: a link in the repo to
+/// somewhere else isn't followed out of it.
+fn in_worktree(worktree: &Path, path: &Path) -> Option<PathBuf> {
+    let root = worktree.canonicalize().ok()?;
+    let file = worktree.join(path).canonicalize().ok()?;
+    (file.starts_with(&root) && file.is_file()).then_some(file)
 }
 
 /// The two sides of a file's diff, given where its PR is read from (`ends`), the worktree that
 /// holds the PR, if one does, and how the file is read from GitHub (`read`, by path and commit).
 /// A side the PR has no file on (added, removed) is an empty file.
-fn sides(ask: &Ask, slug: &str, number: u64, e: &Ends, worktree: Option<&Path>, store: &Path, read: &dyn Fn(&str, &str) -> Result<String>) -> Result<(PathBuf, PathBuf)> {
+fn sides(ask: &Ask, slug: &str, number: u64, e: &Ends, worktree: Option<&Path>, store: &Path, read: &dyn Fn(&str, &str) -> Result<Vec<u8>>) -> Result<(PathBuf, PathBuf)> {
     let path = relative(&ask.path)?;
     let before = match ask.previous.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => p.to_string(),
         None => ask.path.clone(),
     };
-    let added = ask.status == "added";
-    let removed = ask.status == "removed";
-    let old = kept_at(store, slug, number, &e.base, &relative(&before)?);
-    keep(&old, || if added { Ok(String::new()) } else { read(&before, &e.base) })?;
-    let new = match worktree.map(|w| w.join(&path)) {
-        Some(file) if file.is_file() => file,
-        _ => {
+    let old = if ask.status == "added" {
+        let file = empty_at(store, slug, number, &path);
+        keep(&file, || Ok(Vec::new()))?;
+        file
+    } else {
+        let file = kept_at(store, slug, number, &e.base, &relative(&before)?);
+        keep(&file, || read(&before, &e.base))?;
+        file
+    };
+    let new = match worktree.and_then(|w| in_worktree(w, &path)) {
+        Some(file) => file,
+        None if ask.status == "removed" => {
+            let file = empty_at(store, slug, number, &path);
+            keep(&file, || Ok(Vec::new()))?;
+            file
+        }
+        None => {
             let file = kept_at(store, slug, number, &e.head, &path);
-            keep(&file, || if removed { Ok(String::new()) } else { read(&ask.path, &e.head) })?;
+            keep(&file, || read(&ask.path, &e.head))?;
             file
         }
     };
@@ -199,10 +231,7 @@ pub fn open(place: Place, yours: &str, ask: &Ask) -> Result<()> {
     match ask.how.as_str() {
         "file" => {
             let worktree = worktree.ok_or_else(|| anyhow!("No worktree on this Mac holds #{number}, so there's no file of it to open."))?;
-            let file = worktree.join(relative(&ask.path)?);
-            if !file.is_file() {
-                bail!("{} isn't in {} now.", ask.path, worktree.display());
-            }
+            let file = in_worktree(&worktree, &relative(&ask.path)?).ok_or_else(|| anyhow!("{} isn't in {} now.", ask.path, worktree.display()))?;
             editors::open_at(yours, &file, ask.line)
         }
         "diff" => {
@@ -247,7 +276,7 @@ mod tests {
         let asked = RefCell::new(Vec::new());
         let read = |path: &str, sha: &str| {
             asked.borrow_mut().push(format!("{path}@{sha}"));
-            Ok(format!("{path} at {sha}\n"))
+            Ok(format!("{path} at {sha}\n").into_bytes())
         };
         let (old, new) = sides(&ask("src/a.ts", "modified", None), "acme/app", 7, &e, None, &store, &read).unwrap();
         assert_eq!(old, store.join("acme-app-7/aaaaaaa/src/a.ts"));
@@ -267,12 +296,30 @@ mod tests {
         std::fs::create_dir_all(wt.join("src")).unwrap();
         std::fs::write(wt.join("src/a.ts"), "mine\n").unwrap();
         let e = Ends { head: "bbbbbbb1".into(), base: "aaaaaaa1".into() };
-        let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n"));
+        let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n").into_bytes());
         let (_, new) = sides(&ask("src/a.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
-        assert_eq!(new, wt.join("src/a.ts"));
+        assert_eq!(new, wt.join("src/a.ts").canonicalize().unwrap());
         // A file the worktree doesn't have (removed there, say) is read from the PR's head.
         let (_, gone) = sides(&ask("src/b.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
         assert_eq!(gone, store.join("acme-app-7/bbbbbbb/src/b.ts"));
+        // Nor is a link in the repo followed out of the worktree.
+        let outside = crate::fixtures::scratch("prdiff-outside");
+        std::fs::write(outside.join("secret"), "theirs\n").unwrap();
+        std::os::unix::fs::symlink(outside.join("secret"), wt.join("src/link.ts")).unwrap();
+        let (_, linked) = sides(&ask("src/link.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
+        assert_eq!(linked, store.join("acme-app-7/bbbbbbb/src/link.ts"));
+        assert!(in_worktree(&wt, Path::new("src/link.ts")).is_none());
+        make_writable(&store);
+    }
+
+    #[test]
+    fn keeps_a_files_bytes_as_they_are() {
+        let store = crate::fixtures::scratch("prdiff-bytes");
+        let e = Ends { head: "bbbbbbb1".into(), base: "aaaaaaa1".into() };
+        let png = vec![0x89, b'P', b'N', b'G', 0xff, 0x00, 0xfe];
+        let read = |_: &str, _: &str| Ok(png.clone());
+        let (old, _) = sides(&ask("logo.png", "modified", None), "acme/app", 7, &e, None, &store, &read).unwrap();
+        assert_eq!(std::fs::read(old).unwrap(), png);
         make_writable(&store);
     }
 
@@ -280,7 +327,7 @@ mod tests {
     fn an_added_file_has_nothing_before_and_a_renamed_one_its_old_name() {
         let store = crate::fixtures::scratch("prdiff-status");
         let e = Ends { head: "bbbbbbb1".into(), base: "aaaaaaa1".into() };
-        let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n"));
+        let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n").into_bytes());
         let (old, _) = sides(&ask("src/new.ts", "added", None), "acme/app", 7, &e, None, &store, &read).unwrap();
         assert_eq!(std::fs::read_to_string(old).unwrap(), "");
         let (_, new) = sides(&ask("src/gone.ts", "removed", None), "acme/app", 7, &e, None, &store, &read).unwrap();
@@ -289,6 +336,11 @@ mod tests {
         assert_eq!(std::fs::read_to_string(old).unwrap(), "src/from.ts at aaaaaaa1\n");
         assert_eq!(std::fs::read_to_string(new).unwrap(), "src/to.ts at bbbbbbb1\n");
         assert!(sides(&ask("../x", "modified", None), "acme/app", 7, &e, None, &store, &read).is_err());
+        // A file the PR makes a folder: each empty side is out of the other's way.
+        let (none, util) = sides(&ask("lib/util.ts", "added", None), "acme/app", 7, &e, None, &store, &read).unwrap();
+        let (lib, gone) = sides(&ask("lib", "removed", None), "acme/app", 7, &e, None, &store, &read).unwrap();
+        assert!([&none, &util, &lib, &gone].iter().all(|f| f.is_file()), "{} {} {} {}", none.display(), util.display(), lib.display(), gone.display());
+        assert_eq!(std::fs::read_to_string(&lib).unwrap(), "lib at aaaaaaa1\n");
         make_writable(&store);
     }
 
@@ -296,7 +348,7 @@ mod tests {
     fn clears_what_was_read_more_than_a_week_ago() {
         let store = crate::fixtures::scratch("prdiff-clear");
         let e = Ends { head: "bbbbbbb1".into(), base: "aaaaaaa1".into() };
-        let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n"));
+        let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n").into_bytes());
         let (old, new) = sides(&ask("src/a.ts", "modified", None), "acme/app", 7, &e, None, &store, &read).unwrap();
         clear_old(&store, SystemTime::now() + Duration::from_secs(3600));
         assert!(old.is_file() && new.is_file());
