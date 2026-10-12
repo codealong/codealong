@@ -143,22 +143,37 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
                 row.last_text = text;
                 row.last_text_tail = last_text_part(&v).map(|t| crate::jev::tail(t, 600)).filter(|t| !t.is_empty());
                 row.last_tool = tool;
-                // Its whole conversation after this reply, as OpenCode's own context meter adds it up.
-                if let Some(t) = v.get("tokens") {
-                    let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
-                    let cache = t.get("cache").cloned().unwrap_or(Value::Null);
-                    let used = n(t, "input") + n(t, "output") + n(t, "reasoning") + n(&cache, "read") + n(&cache, "write");
-                    if used > 0 {
-                        row.context = Some((used, v.pointer("/model/id").and_then(Value::as_str).map(str::to_string)));
-                    }
-                }
             }
             _ => {}
         }
     }
+    for row in by_id.values_mut() {
+        row.context = context_of(db, &row.id);
+    }
     let mut out: Vec<SessionRow> = by_id.into_values().collect();
     out.sort_by(|a, b| b.last_ts.cmp(&a.last_ts));
     Ok(out)
+}
+
+/// How full a session's context is, as OpenCode's own meter has it: every token of its latest
+/// assistant message that has them, after its latest compaction. A reply has none until its step
+/// ends, so one that's streaming, or failed before it did, leaves the one before it. Looked up by
+/// the table's index on session, type and order, a few messages at a time.
+fn context_of(db: &Connection, session: &str) -> Option<(u64, Option<String>)> {
+    let compacted: i64 = db.query_row("SELECT coalesce(max(seq), -1) FROM session_message WHERE session_id = ?1 AND type = 'compaction'", [session], |r| r.get(0)).unwrap_or(-1);
+    let mut stmt = db.prepare_cached("SELECT data FROM session_message WHERE session_id = ?1 AND type = 'assistant' AND seq > ?2 ORDER BY seq DESC LIMIT 8").ok()?;
+    let rows = stmt.query_map(rusqlite::params![session, compacted], |r| r.get::<_, String>(0)).ok()?;
+    for data in rows.flatten() {
+        let Ok(v) = serde_json::from_str::<Value>(&data) else { continue };
+        let Some(t) = v.get("tokens") else { continue };
+        let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+        let cache = t.get("cache").cloned().unwrap_or(Value::Null);
+        let used = n(t, "input") + n(t, "output") + n(t, "reasoning") + n(&cache, "read") + n(&cache, "write");
+        if used > 0 {
+            return Some((used, v.pointer("/model/id").and_then(Value::as_str).map(str::to_string)));
+        }
+    }
+    None
 }
 
 /// The text of messages written since `after` (by `time_updated`, since a reply streams into
@@ -1210,6 +1225,24 @@ mod tests {
         ));
         assert_eq!(open_calls_in(&db, "ses_a"), vec![r#"{"command":"codealong whoami"}"#.to_string(), r#"{"command":"sleep 1"}"#.to_string()]);
         assert!(open_calls_in(&db, "ses_c").is_empty());
+    }
+
+    #[test]
+    fn reads_how_full_the_context_is_from_the_latest_measured_reply_since_a_compaction() {
+        let reply = |input: u64| format!(r#"{{"model":{{"id":"claude-opus-5-5"}},"tokens":{{"input":{input},"output":4,"reasoning":6,"cache":{{"read":488,"write":2}}}}}}"#);
+        let streaming = r#"{"model":{"id":"claude-opus-5-5"}}"#;
+        let db = db_with(&format!(
+            "INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1);\
+             INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES \
+             ('m1', 'ses_a', 'assistant', 1, 10, 10, '{old}'), ('m2', 'ses_a', 'assistant', 2, 20, 20, '{now}'), ('m3', 'ses_a', 'assistant', 3, 30, 30, '{streaming}');",
+            old = reply(500_000),
+            now = reply(7000),
+        ));
+        // The reply still streaming has no tokens yet: the one before it says.
+        assert_eq!(context_of(&db, "ses_a"), Some((7000 + 4 + 6 + 488 + 2, Some("claude-opus-5-5".to_string()))));
+        // After a compaction, only what came after it; nothing measured yet is none.
+        db.execute_batch("INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('c', 'ses_a', 'compaction', 4, 40, 40, '{}');").unwrap();
+        assert_eq!(context_of(&db, "ses_a"), None);
     }
 
     #[test]

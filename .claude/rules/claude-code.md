@@ -438,7 +438,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   cache_creation_input_tokens`, not its output, against the model's window, a million for a
   `[1m]` model and for the models that have a million by default, 200,000 otherwise
   (`CLAUDE_CODE_MAX_CONTEXT_TOKENS` can set it with compacting off): `claude/transcript.rs`
-  (`TranscriptInfo::context`), `prices.rs` (`context_window`).
+  (`TranscriptInfo::context`, `window_model`), `prices.rs` (`context_window`). A compaction is a
+  `system` line, `subtype: "compact_boundary"`, whose `compactMetadata` has `trigger` (`auto`,
+  `manual`), `preTokens` and `postTokens`, what's left (967,152 to 6,627 here). A reply names its
+  model without the context size a `/model` switch gave it.
 
 ## Claude app
 

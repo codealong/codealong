@@ -68,5 +68,8 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   while the session it copied is still there. Nothing indexes `time_updated`, so new and changed
   messages are looked for by `time_created` (`session_message_time_created_idx`), a week back
   from the newest write seen.
+- How full a session's context is (`opencode.rs` `context_of`): every token of the latest
+  assistant message that has them, after the latest `compaction` message, as OpenCode's own
+  meter has it. An assistant row has no `tokens` until its step ends.
 - Creating a session through the API in a folder made OpenCode point its `global` project
   (its project for folders without version control) at that folder.

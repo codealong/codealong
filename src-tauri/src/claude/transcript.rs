@@ -83,8 +83,12 @@ pub struct TranscriptInfo {
     pub model: Option<String>,
     /// How many tokens of context the latest reply's call sent: its input, cache reads and cache
     /// writes, as Claude Code's own context meter counts them (2.1.296's code: its status line's
-    /// `context_window.total_input_tokens`, `used_percentage` of the model's window).
+    /// `context_window.total_input_tokens`, `used_percentage` of the model's window). A compaction
+    /// since then says what's left (`compact_boundary`'s `compactMetadata.postTokens`).
     pub context: Option<u64>,
+    /// The model whose window that fills: `model`, or one `/model` switched to with a context
+    /// size (`claude-sonnet-4-5[1m]`) while replies name its model without it.
+    pub window_model: Option<String>,
     /// A message from another session it holds for you to allow (held.rs), until a line says
     /// it went.
     pub held: Option<super::held::Held>,
@@ -292,6 +296,10 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             Some("continued-in") => {
                 info.continued_in = str_of(&v, "continuedInSessionId").filter(|id| !id.is_empty());
             }
+            // A compaction leaves the context its summary: what's left until the next reply says.
+            Some("system") if v.get("subtype").and_then(Value::as_str) == Some("compact_boundary") => {
+                info.context = v.pointer("/compactMetadata/postTokens").and_then(Value::as_u64).filter(|t| *t > 0);
+            }
             Some("custom-title") => {
                 if let Some(t) = str_of(&v, "customTitle").filter(|t| !t.trim().is_empty()) {
                     info.title = Some(one_line(&t, 90));
@@ -317,14 +325,17 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 // A limit's refusal is written as a reply; any other reply means it went on.
                 info.limit = limit_of(&v).map(|l| SessionLimit { model: info.model.clone(), ..l });
                 info.connection_lost = connection_lost_at(&v);
-                if let Some(m) = v.pointer("/message/model").and_then(Value::as_str).filter(|m| !m.starts_with('<')) {
+                // A subagent's reply, in transcripts from before their own logs, is its model and
+                // its context, not this session's.
+                let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
+                if let Some(m) = v.pointer("/message/model").and_then(Value::as_str).filter(|m| !m.starts_with('<') && !sidechain) {
                     info.model = Some(m.to_string());
-                    // A subagent's reply, in transcripts from before their own logs, is its context, not this one's.
-                    if v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
-                        if let Some(u) = v.pointer("/message/usage") {
-                            let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
-                            info.context = Some(n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")).filter(|c| *c > 0).or(info.context);
-                        }
+                    if info.window_model.as_deref().map(|w| w.split('[').next().unwrap_or(w)) != Some(m) {
+                        info.window_model = Some(m.to_string());
+                    }
+                    if let Some(u) = v.pointer("/message/usage") {
+                        let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
+                        info.context = Some(n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")).filter(|c| *c > 0).or(info.context);
                     }
                 }
                 let Some(items) = v.pointer("/message/content").and_then(Value::as_array) else { continue };
@@ -371,6 +382,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 let content = v.pointer("/message/content");
                 let said = content.and_then(Value::as_str).or_else(|| content?.as_array()?.iter().find_map(|i| i.get("text")?.as_str()));
                 if let Some(m) = said.and_then(model_set) {
+                    info.window_model = Some(m.clone());
                     info.model = Some(m);
                 }
                 if you_typed(&v) {
@@ -863,6 +875,34 @@ mod tests {
         // Input, cache reads and cache writes; not the reply's own output, nor a subagent's call.
         let info = parse_lines("", &[reply(false, 2), reply(true, 900_000)].join("\n"));
         assert_eq!(info.context, Some(2 + 26783 + 24542));
+        // A subagent on another model leaves the session's model, and so its window, alone.
+        let haiku = r#"{"type":"assistant","isSidechain":true,"message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":5},"content":[]}}"#;
+        let info = parse_lines("", &[reply(false, 2), haiku.to_string()].join("\n"));
+        assert_eq!((info.model.as_deref(), info.window_model.as_deref()), (Some("claude-opus-5-5"), Some("claude-opus-5-5")));
+
+        // A compaction leaves what it says is left, until the next reply, read on from there.
+        let compacted = r#"{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":967152,"postTokens":6627}}"#;
+        let mut info = parse_lines("", &reply(false, 900_000));
+        let mut state = TailState::default();
+        apply_tail(&mut info, &mut state, compacted);
+        assert_eq!(info.context, Some(6627));
+        apply_tail(&mut info, &mut state, &reply(false, 1000));
+        assert_eq!(info.context, Some(1000 + 26783 + 24542));
+    }
+
+    #[test]
+    fn a_switch_to_a_models_1m_context_holds_while_its_replies_name_it_without() {
+        let line = |kind: &str, body: &str| format!(r#"{{"type":"{kind}","sessionId":"s","message":{body}}}"#);
+        let lines = [
+            line("user", r#"{"role":"user","content":"<local-command-stdout>Set model to `sonnet[1m] (claude-sonnet-4-5[1m])`</local-command-stdout>"}"#),
+            line("assistant", r#"{"model":"claude-sonnet-4-5","usage":{"input_tokens":300000},"content":[{"type":"text","text":"Hi."}]}"#),
+        ];
+        let info = parse_lines("", &lines.join("\n"));
+        assert_eq!(info.window_model.as_deref(), Some("claude-sonnet-4-5[1m]"));
+        assert_eq!(info.window_model.as_deref().and_then(crate::prices::context_window), Some(1_000_000));
+        // Another model's reply is that model's window.
+        let other = line("assistant", r#"{"model":"claude-haiku-4-5-20251001","content":[]}"#);
+        assert_eq!(parse_lines("", &[lines[0].clone(), lines[1].clone(), other].join("\n")).window_model.as_deref(), Some("claude-haiku-4-5-20251001"));
     }
 
     #[test]

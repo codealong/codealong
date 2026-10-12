@@ -363,7 +363,7 @@ pub fn claude_session(
         connection_lost,
         cut_off,
         model: tr.and_then(|t| t.model.clone()),
-        context: tr.and_then(|t| t.context).map(|used| ContextUse { used, window: tr.and_then(|t| t.model.as_deref()).and_then(crate::prices::context_window) }),
+        context: tr.and_then(|t| t.context).map(|used| ContextUse { used, window: tr.and_then(|t| t.window_model.as_deref().or(t.model.as_deref())).and_then(crate::prices::context_window) }),
         // Held only while it runs: the lock and the cleanup at exit are its process's.
         own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
         ..known
