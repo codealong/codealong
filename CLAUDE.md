@@ -73,7 +73,8 @@ After changing `cli.rs`, run `scripts/skill-reference.sh`, which rewrites `refer
 `codealong --snapshot` checks behavior without a window (snapshot.rs, whose `MODES` has each
 mode's arguments); `"$(scripts/engine.sh)" --snapshot …` runs your checkout's. A session's
 modes are the app's own actions over a board read once, asked as another device asks them. The
-ones marked real act for real, and real sessions are fine for them. Claude usage is read only with `--usage`, and its endpoint rate-limits: don't loop it.
+ones marked real act for real, and real sessions are fine for them. Claude usage is read only
+with `--usage`, and its endpoint rate-limits: don't loop it.
 
 - `--snapshot [--table] [--no-github] [--usage]`: the board; `--snapshot --bar`: the floating bar's feed.
 - `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
