@@ -236,8 +236,9 @@ pub struct GhPoll {
     merged_here: HashMap<(String, u64), (Instant, i64)>,
     /// When GitHub last answered.
     at: Option<i64>,
-    /// When its search for the PRs that wait on your review last answered.
-    requested_at: Option<i64>,
+    /// A poll has ended, so every answer it brought is in: its search for the PRs that wait on
+    /// your review and each repo's read, which come at once and in any order.
+    polled: bool,
     login: Option<String>,
     schedule: Schedule,
     names: Names,
@@ -265,7 +266,7 @@ impl GhPoll {
             approved_here: HashMap::new(),
             merged_here: HashMap::new(),
             at: None,
-            requested_at: None,
+            polled: false,
             login: None,
             schedule: Schedule::default(),
             names: Names::default(),
@@ -287,10 +288,11 @@ impl GhPoll {
         self.at
     }
 
-    /// When GitHub's search for the PRs that wait on your review last answered: before that,
-    /// `requested` is empty for want of an answer, not because nothing waits on you.
-    pub fn requested_at(&self) -> Option<i64> {
-        self.requested_at
+    /// Whether a poll has ended. Before the first, the PRs here are what's come so far: a review
+    /// requested in a repo whose read hasn't come isn't here yet, though the search's answer has
+    /// come (`board::pr_items` lists a read repo's from its read).
+    pub fn polled(&self) -> bool {
+        self.polled
     }
 
     /// Who `gh` is signed in as.
@@ -409,6 +411,7 @@ impl GhPoll {
                 self.on_requested(result, seeds, now)
             }
             Event::PollEnded => {
+                self.polled = true;
                 // A glance was answered, and what it didn't have read stands: nothing is wrong
                 // with that now, and a repo that's no longer polled isn't either.
                 let (glanced, heard) = std::mem::take(&mut self.heard);
@@ -630,7 +633,6 @@ impl GhPoll {
         }
         self.answered(github::REQUESTED, None);
         self.at = Some(now.ms);
-        self.requested_at = Some(now.ms);
         true
     }
 }
@@ -926,6 +928,25 @@ mod tests {
         assert!(!gh.on_event(Event::RepoNames(Vec::new()), &seeds, clock()));
         assert!(!gh.names.inflight);
         assert_eq!(gh.names.to_ask(slugs(), t + NAME_RETRY).map(|s| s.len()), Some(2));
+    }
+
+    #[test]
+    fn it_has_polled_only_once_a_poll_ends_whatever_answered_first() {
+        let mut gh = quiet();
+        let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
+        let asked = PrRaw { review_requested: true, ..pr(7) };
+        let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
+        // The search answers first: the board lists a read repo's reviews from its read, which
+        // is still to come.
+        let found = Requested { login: Some("gwen".into()), prs: vec![("sprucehq/spark".into(), asked.clone())] };
+        gh.on_event(Event::Requested(Ok(found), None), &seeds, clock());
+        assert_eq!(reviews(&gh), 0);
+        assert!(!gh.polled());
+        gh.on_event(Event::Repo("sprucehq/spark".into(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![asked] }), None), &seeds, clock());
+        assert_eq!(reviews(&gh), 1, "the review comes with the repo's read");
+        assert!(!gh.polled());
+        gh.on_event(Event::PollEnded, &seeds, clock());
+        assert!(gh.polled(), "and the poll that brought both has ended");
     }
 
     #[test]

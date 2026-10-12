@@ -1671,7 +1671,7 @@ pub fn compose(inp: Inputs) -> Board {
         notices,
         loading,
         github_at,
-        reviews_at: None,
+        github_polled: false,
         usage: Vec::new(),
         pinned: pinned.to_vec(),
         pinned_worktrees: Vec::new(),

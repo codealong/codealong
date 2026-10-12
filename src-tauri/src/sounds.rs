@@ -11,8 +11,8 @@
 //! for its own), and of those not a snoozed one, the end of a quieted one's turn, a helper that
 //! doesn't need you, or one in a worktree kept out of sight. And to stay out of the way:
 //!
-//! - nothing sounds for what's there already at launch, nor for the reviews GitHub's first
-//!   answer brings;
+//! - nothing sounds for what's there already at launch, nor for the reviews GitHub's first poll
+//!   brings;
 //! - a session that comes to wait on you within `WATCHED_MS` of going back to work makes none:
 //!   you just sent it something or answered it, so you're likely still looking at it;
 //! - one sound at most every `REST_MS`: a burst, as when the Mac wakes, is one sound, the most
@@ -56,9 +56,8 @@ struct Waiting {
     needs: HashSet<String>,
     turn: HashSet<String>,
     working: HashSet<String>,
-    /// None until GitHub's search for the PRs that wait on your review has answered
-    /// (`Board::reviews_at`): until then the board has only the ones its repos' own reads found,
-    /// and the rest coming in isn't news.
+    /// None until GitHub's first poll has ended (`Board::github_polled`): until then the board
+    /// has only the reviews its answers so far brought, and the rest coming in isn't news.
     reviews: Option<HashSet<String>>,
 }
 
@@ -98,7 +97,7 @@ impl Chimer {
             return None;
         }
         let now = board.generated_at;
-        let now_waiting = waiting(feed, board.reviews_at.is_some());
+        let now_waiting = waiting(feed, board.github_polled);
         let came = self.was.as_ref().map(|was| self.came(was, &now_waiting, feed)).unwrap_or_default();
         self.remember_work(feed, now);
         self.was = Some(now_waiting);
@@ -237,9 +236,9 @@ mod tests {
         Session { status, status_since: Some(since), last_activity: since, last_prompt_at: since, ..crate::fixtures::session(key) }
     }
 
-    /// The board at `at`, with GitHub's search for reviews answered.
+    /// The board at `at`, once GitHub's first poll has ended.
     fn board_at(at: i64, sessions: Vec<Session>) -> Board {
-        Board { lanes: vec![crate::fixtures::lane("/a", sessions)], generated_at: at, reviews_at: Some(NOW - 60_000), ..Board::default() }
+        Board { lanes: vec![crate::fixtures::lane("/a", sessions)], generated_at: at, github_polled: true, ..Board::default() }
     }
 
     fn board(sessions: Vec<Session>) -> Board {
@@ -350,8 +349,9 @@ mod tests {
 
     #[test]
     fn a_pr_that_asks_for_your_review_sounds_once_github_has_said_which_already_do() {
-        // Before the search answers, the reviews a repo's read found, then the rest, are no news.
-        let unread = |prs: Vec<PrItem>| Board { prs, reviews_at: None, ..board(vec![]) };
+        // Before GitHub's first poll ends, the reviews its answers bring, in whatever order, are
+        // no news (ghpoll.rs `it_has_polled_only_once_a_poll_ends_whatever_answered_first`).
+        let unread = |prs: Vec<PrItem>| Board { prs, github_polled: false, ..board(vec![]) };
         let mut c = after(vec![]);
         assert_eq!(due(&mut c, &unread(vec![review(1)]), &cfg()), None);
         assert_eq!(due(&mut c, &Board { prs: vec![review(1), review(2)], ..board(vec![]) }, &cfg()), None);

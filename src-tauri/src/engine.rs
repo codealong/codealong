@@ -2856,7 +2856,7 @@ impl Engine {
             auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
         });
         board.usage = usage;
-        board.reviews_at = self.github.requested_at();
+        board.github_polled = self.github.polled();
         board.when_limited = self.cfg.limits.when_hit;
         board.nudge_about = self.cfg.pull_requests.nudge_about;
         board.reviews = self.cfg.reviews.clone();

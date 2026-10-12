@@ -106,10 +106,10 @@ pub struct Board {
     pub loading: bool,
     /// When PRs were last loaded from GitHub.
     pub github_at: Option<i64>,
-    /// When GitHub's search for the PRs that wait on your review last answered: until it has,
-    /// the board's reviews are only the ones its repos' own reads found (sounds.rs).
+    /// GitHub's first poll has ended: until then, the PRs here, and the reviews asked of you
+    /// among them, are only what's come so far (`GhPoll::polled`, sounds.rs).
     #[serde(default)]
-    pub reviews_at: Option<i64>,
+    pub github_polled: bool,
     pub usage: Vec<Usage>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
