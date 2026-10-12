@@ -236,8 +236,10 @@ pub struct GhPoll {
     merged_here: HashMap<(String, u64), (Instant, i64)>,
     /// When GitHub last answered.
     at: Option<i64>,
-    /// A poll has ended, so every answer it brought is in: its search for the PRs that wait on
-    /// your review and each repo's read, which come at once and in any order.
+    /// Its search for the PRs that wait on your review has answered, once at least.
+    searched: bool,
+    /// A poll has ended since the search first answered, so every answer that poll brought is
+    /// in: the search and each repo's read, which come at once and in any order.
     polled: bool,
     login: Option<String>,
     schedule: Schedule,
@@ -266,6 +268,7 @@ impl GhPoll {
             approved_here: HashMap::new(),
             merged_here: HashMap::new(),
             at: None,
+            searched: false,
             polled: false,
             login: None,
             schedule: Schedule::default(),
@@ -288,9 +291,11 @@ impl GhPoll {
         self.at
     }
 
-    /// Whether a poll has ended. Before the first, the PRs here are what's come so far: a review
-    /// requested in a repo whose read hasn't come isn't here yet, though the search's answer has
-    /// come (`board::pr_items` lists a read repo's from its read).
+    /// Whether a poll has ended since GitHub's search for the PRs that wait on your review first
+    /// answered. Before that, the PRs here are what's come so far: a review requested in a repo
+    /// whose read hasn't come isn't here yet, though the search's answer has come
+    /// (`board::pr_items` lists a read repo's from its read), and a poll that failed brought
+    /// none. A repo whose read fails then is left to bring its reviews when it answers.
     pub fn polled(&self) -> bool {
         self.polled
     }
@@ -411,7 +416,9 @@ impl GhPoll {
                 self.on_requested(result, seeds, now)
             }
             Event::PollEnded => {
-                self.polled = true;
+                // The board says so at once (sounds.rs counts reviews from then).
+                let ready = self.searched && !self.polled && !self.failures.contains_key(github::REQUESTED);
+                self.polled |= ready;
                 // A glance was answered, and what it didn't have read stands: nothing is wrong
                 // with that now, and a repo that's no longer polled isn't either.
                 let (glanced, heard) = std::mem::take(&mut self.heard);
@@ -423,7 +430,7 @@ impl GhPoll {
                 if self.schedule.ended() {
                     self.poll(seeds, true, now);
                 }
-                cleared
+                cleared || ready
             }
             Event::RepoNames(names) => self.names.answered(names),
         }
@@ -633,6 +640,7 @@ impl GhPoll {
         }
         self.answered(github::REQUESTED, None);
         self.at = Some(now.ms);
+        self.searched = true;
         true
     }
 }
@@ -945,8 +953,24 @@ mod tests {
         gh.on_event(Event::Repo("sprucehq/spark".into(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![asked] }), None), &seeds, clock());
         assert_eq!(reviews(&gh), 1, "the review comes with the repo's read");
         assert!(!gh.polled());
-        gh.on_event(Event::PollEnded, &seeds, clock());
+        assert!(gh.on_event(Event::PollEnded, &seeds, clock()), "the board says so at once");
         assert!(gh.polled(), "and the poll that brought both has ended");
+        assert!(!gh.on_event(Event::PollEnded, &seeds, after(clock(), 60)), "and only once");
+    }
+
+    #[test]
+    fn a_poll_whose_search_failed_hasnt_polled_until_one_answers() {
+        let mut gh = quiet();
+        let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
+        // Offline at launch: nothing came, so what waits on you isn't known.
+        gh.on_event(Event::Requested(Err(Failure::Other("GitHub didn't answer".into())), None), &seeds, clock());
+        gh.on_event(Event::PollEnded, &seeds, clock());
+        assert!(!gh.polled());
+        // Back online, the next poll brings it.
+        gh.on_event(Event::Requested(Ok(Requested::default()), None), &seeds, after(clock(), 60));
+        assert!(!gh.polled(), "not before its poll ends");
+        gh.on_event(Event::PollEnded, &seeds, after(clock(), 60));
+        assert!(gh.polled());
     }
 
     #[test]
