@@ -41,7 +41,9 @@ interface CardDetailProps {
   terminal: string;
   /** Every todo, for the ones a session is on and what a todo waits on. */
   todos: Todo[];
-  /** A PR chip's click. */
+  /** A PR chip's click, which shows it in Codealong, and its double-click, which opens it on
+   *  GitHub; without `onShowPr`, a click opens it. */
+  onShowPr?: (pr: Pr) => void;
   onOpenPr?: (pr: Pr) => void;
   /** Every session on the board where it lives, for the one a session came from and the ones
    *  that came of it (`Session.origin`). */
@@ -62,8 +64,8 @@ export function CardPopover({ style, children, onPointerEnter, onPointerLeave }:
 }
 
 /** The popover's body for a card: everything the card leaves out. */
-export function CardDetail({ item, data, now, terminal, todos, homes, onOpenPr, onSession, onSessionMenu }: CardDetailProps) {
-  const chip = (pr: Pr) => <PrChip pr={pr} onOpen={onOpenPr && (() => onOpenPr(pr))} />;
+export function CardDetail({ item, data, now, terminal, todos, homes, onShowPr, onOpenPr, onSession, onSessionMenu }: CardDetailProps) {
+  const chip = (pr: Pr) => <PrChip pr={pr} onShow={onShowPr && (() => onShowPr(pr))} onOpen={onOpenPr && (() => onOpenPr(pr))} />;
   // A session line takes a click where the card says what one does, and a right-click for its menu.
   const line = (lane: Lane, s: Session) => {
     if (!onSession && !onSessionMenu) return <SessionLine key={s.key} s={s} now={now} />;

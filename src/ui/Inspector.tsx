@@ -172,13 +172,15 @@ interface InspectorProps {
   onMenu?: () => void;
   /** Right-click on its PR: the PR's menu (open it, copy its link…). */
   onPrMenu?: () => void;
+  /** A click on its PR's chip: the PR in PRs. A double-click opens it on GitHub. */
+  onShowPr?: () => void;
   /** Drops Review with… for its PR from the button. */
   onReviewPr?: (button: Element) => void;
   /** Opens the sheet that sets where its app opens; this device's worktrees only. */
   onSetPreview?: () => void;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onMenu, onPrMenu, onReviewPr, onSetPreview }: InspectorProps) {
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onMenu, onPrMenu, onShowPr, onReviewPr, onSetPreview }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   const icons = useEditorIcons(apps);
@@ -287,7 +289,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
             }
           >
             <div className="ca-prcard-top">
-              <PrChip pr={pr} />
+              <PrChip pr={pr} onShow={onShowPr} onOpen={() => onOpen('p|github')} />
               <span className="ca-meta" title={absolute(pr.updatedAt)}>
                 updated {ago(pr.updatedAt, now)}
               </span>

@@ -104,6 +104,8 @@ export interface MainPanelProps {
   sessionMenu: (lane: Lane, s: Session, pin: 'session' | 'worktree') => void;
   sessionMenuSpec: (lane: Lane, s: Session, pin: 'session' | 'worktree') => MenuSpec;
   lanePrMenu: (lane: Lane) => void;
+  /** A click on a PR's chip: the PR in PRs, or on GitHub when the board doesn't list it. */
+  showPr: (pr: Pr) => void;
   /** A PR's right-click menu, as its row in PRs has it: at the pointer, or `at` (below a button). */
   prMenu: (r: PrRowItem, at?: { x: number; y: number }) => void;
   prChipMenu: (lane: Lane, pr: Pr) => void;
@@ -118,7 +120,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -203,6 +205,7 @@ export function MainPanel(props: MainPanelProps) {
       onShowTodo={showTodoFromPanel}
       onMenu={lane ? () => laneMenu(lane) : undefined}
       onPrMenu={() => lane && lanePrMenu(lane)}
+      onShowPr={() => lane?.pr && showPr(lane.pr)}
       onReviewPr={lane?.pr ? (el) => lane.pr && reviewMenuFrom(reviewedPr(lane, lane.pr), el) : undefined}
       onSetPreview={lane && !lane.device ? () => setPreviewFor(lane.id) : undefined}
     />
@@ -223,6 +226,7 @@ export function MainPanel(props: MainPanelProps) {
         onOpen={(id) => open(lane, id)}
         onShowLane={showLaneFromPanel}
         prs={sessionPrs(board?.prs ?? [], lane, session)}
+        onShowPr={showPr}
         onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
         onPrMenu={(p) => prChipMenu(lane, p)}
         todos={todoLinks.bySession.get(session.key)}

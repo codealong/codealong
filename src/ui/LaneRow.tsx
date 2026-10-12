@@ -43,7 +43,9 @@ interface LaneRowProps {
   onAgentMenu?: (session: Session) => void;
   /** Right-click on its PR: the PR's menu (open it, copy its link…). */
   onPrMenu?: () => void;
-  /** A click on its PR: opens it on GitHub. */
+  /** A click on its PR: shows it in PRs. */
+  onPrShow?: () => void;
+  /** A double-click on its PR: opens it on GitHub. */
   onPrOpen?: () => void;
   /** Dragging the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
   drag?: DragProps;
@@ -129,6 +131,7 @@ interface CellProps {
   titled: boolean;
   onOpenTarget: (lane: Lane, targetId: string) => void;
   onPrMenu?: () => void;
+  onPrShow?: () => void;
   onPrOpen?: () => void;
 }
 
@@ -139,7 +142,7 @@ interface CellProps {
  * so apps and PRs line up down the board. Short of room, the name keeps its line and the chips
  * beside it give way, the app last; the repo and branch give way before the PR does.
  */
-function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrOpen }: CellProps) {
+function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrShow, onPrOpen }: CellProps) {
   const { sub, branch } = laneSub(lane);
   return (
     <>
@@ -158,7 +161,7 @@ function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrOpen }: C
           <ReuseMark lane={lane} />
           {sub}
         </span>
-        <span className="ca-chips ca-lane-own">{lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />}</span>
+        <span className="ca-chips ca-lane-own">{lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />}</span>
       </span>
     </>
   );
@@ -193,7 +196,7 @@ export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
 /** A worktree no agent has worked in: on the right, only that it has none, and its age. You
  *  select it whole. */
-function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag }: LaneRowProps) {
+function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag }: LaneRowProps) {
   const { lane } = row;
   const selected = picked || selectedKey === lane.id;
   return (
@@ -212,7 +215,7 @@ function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
         <LaneGlyph lane={lane} />
       </div>
       <div className="ca-seg ca-seg-call">
-        <WorktreeCell lane={lane} now={now} titled onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
+        <WorktreeCell lane={lane} now={now} titled onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrShow={onPrShow} onPrOpen={onPrOpen} />
       </div>
       <DeltaSeg git={lane.git} />
       <div className="ca-seg-lines">
@@ -237,7 +240,7 @@ function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
  * A worktree with agents: the worktree once on the left, and a line for each agent, which you
  * select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, todosFor, onShowTodo }: LaneRowProps) {
+function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrShow, onPrOpen, drag, todosFor, onShowTodo }: LaneRowProps) {
   const { lane, lines } = row;
   // Picked, the worktree is selected whole: each of its lines.
   const isSelected = (key: string) => picked || key === selectedKey;
@@ -258,7 +261,7 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
         <LaneGlyph lane={lane} />
       </div>
       <div className="ca-seg ca-seg-call" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} title={`${lane.path}. Double-click to open its most recent session.`}>
-        <WorktreeCell lane={lane} now={now} titled={false} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
+        <WorktreeCell lane={lane} now={now} titled={false} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrShow={onPrShow} onPrOpen={onPrOpen} />
       </div>
       <DeltaSeg git={lane.git} onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} />
       <div className="ca-seg-lines">
@@ -414,7 +417,9 @@ interface AgentRowProps {
   onContextMenu?: () => void;
   /** Right-click on its worktree's PR: the PR's menu (open it, copy its link…). */
   onPrMenu?: () => void;
-  /** A click on its worktree's PR: opens it on GitHub. */
+  /** A click on its worktree's PR: shows it in PRs. */
+  onPrShow?: () => void;
+  /** A double-click on it: opens it on GitHub. */
   onPrOpen?: () => void;
   /** Dragging the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
   drag?: DragProps;
@@ -524,10 +529,10 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * line either way, and says only what the session's row doesn't: its worktree only when it works
  * in another, and no PR or diff.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, nested, elsewhere }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, nested, elsewhere }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
-  const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />;
+  const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
   return (
     <Row
       id={domId}

@@ -2,6 +2,7 @@
 
 import type { ButtonHTMLAttributes, CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
 import { forwardRef, Fragment, useId, useRef } from 'react';
+import { CLICK_WAIT_MS } from '../bar';
 import { fieldAt, typingIn } from '../contextMenu';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
@@ -426,13 +427,40 @@ export function Tabs<T extends string>({ tabs, value, onPick, label, idBase, cla
   );
 }
 
+/** A click waiting to see whether a second comes (`chipHandlers`' `twice`). */
+export type ClickWait = { current: ReturnType<typeof setTimeout> | null };
+
 /** What a chip that does something answers to, by where it is. On a list's row (`inRow`) a
  *  click is the row's, which it selects, so a double-click does the chip's thing, in place of
  *  the row's own. Anywhere else the chip is a button: a click does its thing and nothing of
  *  what it's on (a card that takes clicks, a row that selects), once, however many clicks came
- *  in a run, so a double-click that lands on it doesn't do it twice. */
-export function chipHandlers(act: (() => void) | undefined, inRow: boolean): { onMouseDown?: (e: Pick<ReactMouseEvent, 'stopPropagation'>) => void; onClick?: (e: Pick<ReactMouseEvent, 'stopPropagation' | 'detail'>) => void; onDoubleClick?: (e: Pick<ReactMouseEvent, 'stopPropagation'>) => void } {
+ *  in a run, so a double-click that lands on it doesn't do it twice. A chip with `twice` is a
+ *  button on a row too: a click waits `CLICK_WAIT_MS` for a second, as the bar's pills do, and
+ *  then does its thing, or with the second does `twice` instead, without the first click's doing
+ *  showing first (a PR's chip: one click shows it in Codealong, two open it on GitHub). */
+export function chipHandlers(act: (() => void) | undefined, inRow: boolean, twice?: { run: () => void; wait: ClickWait }): { onMouseDown?: (e: Pick<ReactMouseEvent, 'stopPropagation'>) => void; onClick?: (e: Pick<ReactMouseEvent, 'stopPropagation' | 'detail'>) => void; onDoubleClick?: (e: Pick<ReactMouseEvent, 'stopPropagation'>) => void } {
   if (!act) return {};
+  if (twice) {
+    const { run, wait } = twice;
+    return {
+      onMouseDown: (e) => e.stopPropagation(),
+      onDoubleClick: (e) => e.stopPropagation(),
+      onClick: (e) => {
+        e.stopPropagation();
+        if (wait.current != null) clearTimeout(wait.current);
+        wait.current = null;
+        // The second click of a run is the double-click, and a third is neither. A key's click
+        // (`detail` 0) has no second coming, so it acts at once.
+        if (e.detail === 2) run();
+        else if (e.detail === 0) act();
+        else if (e.detail === 1)
+          wait.current = setTimeout(() => {
+            wait.current = null;
+            act();
+          }, CLICK_WAIT_MS);
+      },
+    };
+  }
   if (inRow) {
     return {
       onDoubleClick: (e) => {
@@ -466,6 +494,9 @@ interface ChipProps {
   /** What a click on it does, or on a list's row (`inRow`) a double-click: see `chipHandlers`. */
   act?: () => void;
   inRow?: boolean;
+  /** What a double-click does in place of `act`, which a click then waits to do, and its words
+   *  for the tooltip: `open it on GitHub`. See `chipHandlers`. */
+  twice?: { run: () => void; does: string };
   /** A right-click on it shows its own menu, in place of the menu of the row it's on. */
   onMenu?: () => void;
   /** A small ✕ at its end, which takes it away: on a chip that doesn't act itself. */
@@ -480,9 +511,15 @@ interface ChipProps {
 /** A chip: one shape and size wherever it shows, and one answer to clicks (`chipHandlers`). The
  *  named chips below and in TodoBits.tsx say what's in one; anything else a row labels goes
  *  through this too, with its own class for its fill. */
-export function Chip({ kind = 'chip', className, title, does, act, inRow = false, onMenu, remove, label, expanded, children }: ChipProps) {
+export function Chip({ kind = 'chip', className, title, does, act, inRow = false, twice, onMenu, remove, label, expanded, children }: ChipProps) {
   const base = CHIP_CLASS[kind];
-  const tip = title && act && does ? `${title}. ${inRow ? 'Double-click' : 'Click'} to ${does}.` : title;
+  const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tip =
+    title && act && does
+      ? twice
+        ? `${title}. Click to ${does}, double-click to ${twice.does}.`
+        : `${title}. ${inRow ? 'Double-click' : 'Click'} to ${does}.`
+      : title;
   const onContextMenu = onMenu
     ? (e: ReactMouseEvent) => {
         e.preventDefault();
@@ -500,7 +537,7 @@ export function Chip({ kind = 'chip', className, title, does, act, inRow = false
       )}
     </>
   );
-  if (!act || inRow) {
+  if (!act || (inRow && !twice)) {
     return (
       <span className={cx(base, className)} title={tip} onContextMenu={onContextMenu} {...chipHandlers(act, inRow)}>
         {inner}
@@ -516,7 +553,7 @@ export function Chip({ kind = 'chip', className, title, does, act, inRow = false
       aria-haspopup={expanded === undefined ? undefined : 'menu'}
       aria-expanded={expanded}
       onContextMenu={onContextMenu}
-      {...chipHandlers(act, false)}
+      {...chipHandlers(act, false, twice && { run: twice.run, wait })}
     >
       {inner}
     </button>
@@ -684,15 +721,18 @@ export function Row({ id, role = 'option', label, selected = false, className, d
 }
 
 /** A PR's number, state and checks. With `onMenu`, a right-click on it shows the PR's own menu
- *  rather than the menu of the row it's on; with `onOpen`, a click opens it (on GitHub) rather
- *  than selecting the row, or with `inRow`, on a list's row, a double-click does. Without
- *  `titled`, it has no tooltip: a card shows instead (PrLink.tsx). */
-export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen, inRow = false }: { pr: Pr; compact?: boolean; titled?: boolean; onMenu?: () => void; onOpen?: () => void; inRow?: boolean }) {
+ *  rather than the menu of the row it's on. With `onShow`, a click shows it in Codealong (its
+ *  panel in PRs) and a double-click opens it on GitHub (`onOpen`), on a list's row too, where
+ *  the click is then the chip's rather than the row's. With `onOpen` alone, a click opens it on
+ *  GitHub, or with `inRow`, on a list's row, a double-click does. Without `titled`, it has no
+ *  tooltip: a card shows instead (PrLink.tsx). */
+export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   const title = `#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`;
+  const twice = onShow && onOpen ? { run: onOpen, does: 'open it on GitHub' } : undefined;
   return (
-    <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does="open it on GitHub" act={onOpen} inRow={inRow} onMenu={onMenu}>
+    <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does={onShow ? 'show it in Codealong' : 'open it on GitHub'} act={onShow ?? onOpen} twice={twice} inRow={inRow} onMenu={onMenu}>
       <Icon name={PR_ICON[pr.state]} size={12} stroke={1.75} />
       {/* One run of text, so the word sits on the number's baseline: as two pieces of the chip,
           each centered on its own, a zoomed page put the sans word a pixel below the mono. */}

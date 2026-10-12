@@ -231,7 +231,9 @@ interface SessionsViewProps {
   onContextMenu: (row: SessionItem) => void;
   /** Right-click on the PR of a row's worktree. */
   onPrMenu: (row: SessionItem) => void;
-  /** A click on the PR of a row's worktree: opens it on GitHub. */
+  /** A click on the PR of a row's worktree: shows it in PRs. */
+  onPrShow: (row: SessionItem) => void;
+  /** A double-click on it: opens it on GitHub. */
   onPrOpen: (row: SessionItem) => void;
   /** Puts a session at insertion point `index` among the pinned ones showing: a pinned one
    *  moves there, another is pinned there. */
@@ -256,7 +258,7 @@ interface SessionsViewProps {
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, onShowTodo } = props;
+  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, onShowTodo } = props;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
@@ -286,6 +288,7 @@ export function SessionsView(props: SessionsViewProps) {
       pinned={index != null}
       onContextMenu={() => onContextMenu(r)}
       onPrMenu={() => onPrMenu(r)}
+      onPrShow={() => onPrShow(r)}
       onPrOpen={() => onPrOpen(r)}
       todos={todosFor?.(r.session.key)}
       helpers={helpersOf?.(r.session.key)}

@@ -10,8 +10,9 @@ import type { BarGroup, BarItem, BarReview } from './types';
 export type Group = BarGroup;
 /** Bar order, most urgent first. */
 export const GROUPS: Group[] = ['needs', 'unread', 'working'];
-/** How long a click on the bar or a desktop pin waits for a second one: one click stays in
- *  Codealong, two open the session where it lives, without the first click's doing showing first. */
+/** How long a click on the bar, a desktop pin or a PR's chip waits for a second one: one click
+ *  stays in Codealong, two open the session where it lives or the PR on GitHub, without the first
+ *  click's doing showing first. */
 export const CLICK_WAIT_MS = 250;
 /** The order groups fold in when the bar runs out of room. */
 const FOLD_ORDER: Group[] = ['working', 'unread', 'needs'];

@@ -39,9 +39,13 @@ letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work i
 ⌃⌘A, ⌃⌘R, ⌘E, and three with no letter of their own: ⌃⌘W closes a session's terminal, ⇧⌘E marks it
 done, and ⌃⌘1 to ⌃⌘4 snooze it for one of the Snooze menu's times); the right-click menu shows them.
 A click on a row's chips selects the row, as a click anywhere on it does, and a double-click does
-the chip's own thing (its PR on GitHub, the session where it runs, its todo, its app) in place of
-opening the row; in a panel, a click does. A right-click (or ⌃-click) opens a row's menu and leaves
-the selection where it was; the row is ringed while its menu is up. A right-click on the header of a
+the chip's own thing (the session where it runs, its todo, its app) in place of opening the row; in
+a panel, a click does. A PR's chip is the same wherever it is, a row, a panel or a card: a click
+shows the PR in Codealong (its panel in PRs, or its card on the canvas when the canvas has one), and
+a double-click opens it on GitHub; a PR Codealong doesn't list opens on GitHub on a click too. A
+click waits a quarter of a second for a second one, so a double-click doesn't show the PR first.
+A right-click (or ⌃-click) opens a row's menu and leaves the selection where it was; the row is
+ringed while its menu is up. A right-click on the header of a
 panel (a session's, a worktree's, a PR's, a todo's, or the rows picked together) is its row's menu,
 a todo's title too unless you're typing in it. In every list ⌘-click picks a row beside the selected
 one or leaves it out, ⇧-click (or ⇧↑ ⇧↓ from the list) picks a run and ⌘A picks every row: the panel
@@ -212,7 +216,8 @@ The selected session's panel keeps its top to three lines so the conversation ha
 title with the ways to open it, mark it seen, expand the panel, its details (ⓘ: account, ID, folder,
 times) and its menu (⋯, New session here among the rest); where it stands, its worktree and branch,
 and its account (its harness on hover); and the PRs it worked on (as the PRs view links them, else
-its worktree's), each a chip that opens on GitHub and shows the PR's card on hover, with the todo
+its worktree's), each a chip that shows the PR in PRs on a click, opens it on GitHub on a
+double-click and shows the PR's card on hover, with the todo
 it's on and +N for the rest. Below is its whole conversation, read from the session's own record
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the agent's replies
 as Markdown, and every tool call, which opens to its input and output; runs of calls fold into one
@@ -688,7 +693,9 @@ chips you click. Nothing is asked twice: what was asked is kept in `jev-todos.js
 
 The project's work laid out in space, to remember by where it is. Worktrees, sessions, todos and PRs
 are compact cards (status, title, where it stands); rest the pointer on one for a popover with the
-rest (move onto it to select its text, click its PR chip to open the PR, click a session in it to go
+rest (move onto it to select its text, click its PR chip to select the PR's card, or show the PR in
+PRs when the canvas has no card of it, and double-click the chip to open it on GitHub, click a
+session in it to go
 to that session, right-click one for its menu), select one for its panel on the right (a session's
 shows its whole conversation and takes messages; the rest are the ones their own views show), type
 in the filter at the top or pick a status in the sidebar to fade what doesn't match (a status, or
@@ -1178,8 +1185,8 @@ Space and over full-screen apps as the floating bar does. A dragged card follows
 where it leaves the window and stays where you let go; back over the window, the drag pins nothing.
 A pinned row dragged to the desktop leaves its list's pins: it moves there. A worktree's card lists
 its sessions that are running or waiting on you, a todo's its sessions, and a PR's the ones that
-worked on it and are running or waiting on you; a click on a PR's card shows the PR in Codealong,
-and a double-click opens it on GitHub. Drag a card where you want it; it stays there across
+worked on it and are running or waiting on you; a click on a PR's card, or on a worktree's PR chip,
+shows the PR in Codealong, and a double-click opens it on GitHub. Drag a card where you want it; it stays there across
 launches. Click a session (its card, a session line, or a todo's card) to open its peek beside the
 card, as the bar's pills do, with the keyboard in its box; click again to put it away. Double-click
 to open what it shows where it lives (a todo without a session starts one in the quick panel).

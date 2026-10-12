@@ -22,7 +22,9 @@ interface CardFaceProps {
   className?: string;
   /** Drawn under the card's two lines: a desktop card's sessions. */
   children?: ReactNode;
-  /** A click on the worktree's PR chip opens the PR: on the desktop, where a card takes clicks. */
+  /** A click on the worktree's PR chip shows the PR in Codealong, and a double-click opens it on
+   *  GitHub: on the desktop, where a card takes clicks. */
+  onPrShow?: (pr: Pr) => void;
   onPrOpen?: (pr: Pr) => void;
 }
 
@@ -36,10 +38,10 @@ export function CardWaiting({ className }: { className?: string }) {
 }
 
 /** A card's face: placed on the canvas, or pinned to the desktop (DesktopPin.tsx). */
-export function CardFace({ item, data, now, style, className, children, onPrOpen }: CardFaceProps) {
+export function CardFace({ item, data, now, style, className, children, onPrShow, onPrOpen }: CardFaceProps) {
   const cls = (kind: string, extra?: string | false) => cx('ca-cv-card', `is-${kind}`, className, extra);
   const id = `${item.ref}:${item.key}`;
-  const prChip = (pr: Pr | null | undefined) => pr && <PrChip pr={pr} compact onOpen={onPrOpen && (() => onPrOpen(pr))} />;
+  const prChip = (pr: Pr | null | undefined) => pr && <PrChip pr={pr} compact onShow={onPrShow && (() => onPrShow(pr))} onOpen={onPrOpen && (() => onPrOpen(pr))} />;
   if (!data) {
     return (
       <div className={cls(item.ref, 'is-gone')} style={style} data-id={id}>

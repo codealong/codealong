@@ -3,8 +3,8 @@
 // bar does (desktop.rs). It's the Canvas view's card (card/CardFace.tsx), and under a worktree, a
 // todo or a PR its sessions. A click on a session (the card's own, a session line, or a todo's)
 // shows it in the bar's peek beside the card, its conversation and a box to answer it (peek.rs,
-// Peek.tsx); a double-click opens it where it lives. A click on the worktree's PR chip opens the PR
-// on GitHub; a PR's own card shows the PR in Codealong on a click and opens it on GitHub on two.
+// Peek.tsx); a double-click opens it where it lives. The worktree's PR chip and a PR's own card
+// show the PR in Codealong on a click and open it on GitHub on two.
 // Dragging moves the card, and its right-click menu has the rest, with Remove from desktop. The
 // engine sends it what it shows, and only when that changed; the page sizes the window to itself.
 
@@ -18,6 +18,7 @@ import { useEditorIcons } from '../editors';
 import { sessionPlace } from '../harness';
 import * as menus from '../menus';
 import { liveOrLatest, sessionHomes } from '../lanes';
+import { prRefOf } from '../prLinks';
 import type { DesktopFeed, Label, Lane, PeekShown, Pr, PrItem, Session } from '../types';
 import { CardFace, CardWaiting } from './card/CardFace';
 import { SessionLine } from './card/CardPopover';
@@ -175,11 +176,23 @@ export function DesktopPin() {
     if (feed) unpinFromDesktop(feed.pin).catch(fail);
   };
 
-  /** Opens the worktree's PR on GitHub: a click on its chip, unless the press dragged the card. */
-  const openPr = (pr: Pr) => {
+  /** Whether the press that ended in a click on the PR's chip dragged the card instead. */
+  const dragged = () => {
     const moved = drag.current?.moved;
     drag.current = null;
-    if (!moved) openUrl(pr.url).catch(fail);
+    return !!moved;
+  };
+  /** Shows the worktree's PR in Codealong: a click on its chip, unless the press dragged the card.
+   *  The card has only its link, whose key the main window knows it by too. */
+  const showPr = (pr: Pr) => {
+    if (dragged()) return;
+    const ref = prRefOf(pr.url);
+    if (ref) void showMain({ kind: 'pr', key: ref.key });
+    else openUrl(pr.url).catch(fail);
+  };
+  /** Opens it on GitHub: a double-click on its chip. */
+  const openPr = (pr: Pr) => {
+    if (!dragged()) openUrl(pr.url).catch(fail);
   };
   /** The menus, as every window has them (menus.ts): the card's thing's, or a session's for a
    *  session line in a worktree's or todo's card. What comes of them shows on the card. */
@@ -317,7 +330,7 @@ export function DesktopPin() {
         {waiting ? (
           <CardWaiting className="is-desk" />
         ) : (
-          <CardFace item={item} data={data} now={now} className="is-desk" onPrOpen={openPr}>
+          <CardFace item={item} data={data} now={now} className="is-desk" onPrShow={showPr} onPrOpen={openPr}>
             {sessions.length > 0 && (
               <div className="ca-desk-sessions">
                 {sessions.slice(0, SESSIONS).map(({ session }) => (

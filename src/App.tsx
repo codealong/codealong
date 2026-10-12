@@ -15,7 +15,7 @@ import { homeOf, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, ty
 import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
-import { prRefOf } from './prLinks';
+import { prIndex, prRefOf } from './prLinks';
 import { archiveAhead, boardView, lanesAhead, observe, seenAhead } from './ahead';
 import { reuse } from './reuse';
 import { usePins } from './pins';
@@ -571,7 +571,8 @@ export function App() {
     // Archived fold, so it's looked for on the board as the engine sent it.
     const archivedLane = r.kind === 'session' && !session ? [...(board?.lanes ?? []), ...deviceLanes].find((l) => l.id === r.laneId) : undefined;
     const archived = archivedLane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : '') && s.archived);
-    const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
+    // A PR by the board's key, or by the one its link gives (a desktop card's chip has only that).
+    const pr = r.kind === 'pr' ? (board?.prs.find((p) => p.key === r.key) ?? prIndex(board?.prs ?? []).get(r.key.toLowerCase())) : undefined;
     const home = lane?.project ?? archivedLane?.project ?? pr?.project;
     if (!home) return;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
@@ -886,9 +887,16 @@ export function App() {
     });
   };
   const prMenu = (r: PrRowItem, at?: { x: number; y: number }) => void showContextMenu(prMenuSpec(r), at).catch((e: unknown) => setToast(String(e)));
-  /** Opens a worktree's PR on GitHub: a click on its chip, or Open PR in a menu. */
+  /** Opens a worktree's PR on GitHub: a double-click on its chip. */
   const openLanePr = (lane: Lane) => {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
+  };
+  /** Shows a PR in PRs, with its panel: a click on its chip, wherever this window shows one. A PR
+   *  the board doesn't list has no panel here, so it opens on GitHub instead. */
+  const showPrOf = (p: Pr) => {
+    const item = board?.prs.find((x) => x.url === p.url);
+    if (item) reveal.current({ kind: 'pr', key: item.key });
+    else openUrl(p.url).catch((e: unknown) => setToast(String(e)));
   };
   /** The right-click menu of a worktree's PR chip: the PR's own. */
   const lanePrMenu = (lane: Lane) => {
@@ -1200,6 +1208,7 @@ export function App() {
       onContextMenu={() => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : laneMenu(r.lane))}
       onAgentMenu={(s) => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : sessionMenu(r.lane, s, 'worktree'))}
       onPrMenu={() => lanePrMenu(r.lane)}
+      onPrShow={() => r.lane.pr && showPrOf(r.lane.pr)}
       onPrOpen={() => openLanePr(r.lane)}
       todosFor={todosFor}
       onShowTodo={showTodo}
@@ -1494,6 +1503,7 @@ export function App() {
               project={current}
               focus={canvasFocus}
               onOpen={openCard}
+              onShowPr={showPrOf}
               menuFor={cardMenu}
               onToast={setToast}
               onUndo={(message, undo, icon) => setTodoUndo({ message, undo, icon })}
@@ -1541,6 +1551,8 @@ export function App() {
                   todoMenu(r);
                 }}
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
+                onShowPr={showPrOf}
+                onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
                 onFilterLabel={(l) => setLabelFilter(labelFilter === l.id ? null : l.id)}
                 onMove={moveTodo}
                 hints={board.jev?.todos ? board.todoHints : undefined}
@@ -1614,6 +1626,7 @@ export function App() {
                   else sessionMenu(r.lane, r.session, 'session');
                 }}
                 onPrMenu={(r) => lanePrMenu(r.lane)}
+                onPrShow={(r) => r.lane.pr && showPrOf(r.lane.pr)}
                 onPrOpen={(r) => openLanePr(r.lane)}
                 onPlacePinned={(key, index) => sessionPins.place(pinnedRows.map((r) => r.session.key), key, index)}
                 onUnpin={sessionPins.remove}
@@ -1706,6 +1719,7 @@ export function App() {
           sessionMenu={sessionMenu}
           sessionMenuSpec={sessionMenuSpec}
           lanePrMenu={lanePrMenu}
+          showPr={showPrOf}
           prMenu={prMenu}
           prChipMenu={prChipMenu}
           approve={approve}

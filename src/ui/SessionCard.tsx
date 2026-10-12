@@ -113,6 +113,12 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     const item = board?.prs.find((p) => p.url === pr.url);
     show(menus.prMenu(item ?? pr, { report, reveal: item && onShowPr ? () => onShowPr(item) : undefined, desktop: onDesktop, ...(item ? prCan?.(item) : undefined) }));
   };
+  /** A click on a PR's chip: the PR in the main window, or on GitHub when the board doesn't list it. */
+  const showPr = (pr: Pr) => {
+    const item = board?.prs.find((p) => p.url === pr.url);
+    if (item && onShowPr) onShowPr(item);
+    else open(pr.url);
+  };
 
   return (
     <SessionPanel
@@ -130,6 +136,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       onThreadMenu={(items) => show([...items, 'separator', ...menus.sessionMenu(lane, session, mine)])}
       onShowLane={onShowLane}
       prs={context.prs}
+      onShowPr={onShowPr && showPr}
       onOpenPr={(pr) => open(pr.url)}
       onPrMenu={prMenu}
       todos={context.todos}

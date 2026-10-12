@@ -1,8 +1,10 @@
 // Checks the chips on the lists' rows (LaneRow.tsx): a click on one selects its row, as a click
-// anywhere on the row does, and opens nothing; a double-click does the chip's own thing (the PR
-// on GitHub, the session where it runs, the todo in Todo, the app in Chrome) in place of the
-// row's. Sessions has PR, agent and todo chips; Worktrees has agent chips on its lines, and the
-// app's and the PR's on the worktree's own part, where a click selects the row's first line.
+// anywhere on the row does, and opens nothing; a double-click does the chip's own thing (the
+// session where it runs, the todo in Todo, the app in Chrome) in place of the row's. Sessions has
+// PR, agent and todo chips; Worktrees has agent chips on its lines, and the app's and the PR's on
+// the worktree's own part, where a click selects the row's first line. A PR's chip takes its own
+// clicks: a double-click opens it on GitHub, not the session, and leaves the row and the view as
+// they were (what a click does, showing it in PRs, is pr-chip-check.js's).
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-clicks-check.js
 // A chip no row has is noted and skipped.
@@ -48,6 +50,27 @@
     };
   };
 
+  // A PR's chip: only its double-click, since its click leaves the view for PRs.
+  var prStep = function (sel) {
+    return function () {
+      var chip = chipOn(sel);
+      if (!chip) {
+        note('PR chip: no row has one, skipped');
+        return;
+      }
+      var row = rowOf(chip);
+      var view = list().getAttribute('aria-label');
+      var n = window.__calls.length;
+      check('PR chip: its tooltip says what a click and a double-click do', /Click to show it in Codealong, double-click to open it on GitHub\./.test(chip.title), chip.title);
+      dbl(chip);
+      return wait(400).then(function () {
+        var o = opens(n);
+        check('PR chip: a double-click opens the PR, not the session', o.length === 1 && o[0][0] === 'open_url', said(o));
+        check('PR chip: and leaves its row and the view as they were', !row.classList.contains('is-selected') && list().getAttribute('aria-label') === view, list().getAttribute('aria-label'));
+      });
+    };
+  };
+
   say('chip clicks check: waiting for the list');
   until(function () { return document.querySelector('[role="option"]'); }, 20000)
     .then(function () { return wait(500); })
@@ -55,9 +78,7 @@
       var label = list().getAttribute('aria-label');
       if (label === 'Sessions') {
         return Promise.resolve()
-          .then(step('PR chip', '.ca-pr', function (o) {
-            check('PR chip: a double-click opens the PR, not the session', o.length === 1 && o[0][0] === 'open_url', said(o));
-          }))
+          .then(prStep('.ca-pr'))
           .then(step('agent chip', '.ca-agentrow-chips .ca-chip[title*="to open in"]', function (o) {
             check('agent chip: a double-click opens the session once', o.length === 1 && o[0][0] === 'open_target', said(o));
           }))
@@ -71,9 +92,7 @@
         .then(step('app chip', '.ca-previewchip', function (o) {
           check('app chip: a double-click opens the app, not the session', o.length === 1 && o[0][1].targetId === 'l|preview', said(o));
         }))
-        .then(step('PR chip', '.ca-seg-call .ca-pr', function (o) {
-          check('PR chip: a double-click opens the PR, not the session', o.length === 1 && o[0][0] === 'open_url', said(o));
-        }))
+        .then(prStep('.ca-seg-call .ca-pr'))
         .then(step('agent chip', '.ca-agentline-main .ca-chip[title*="to open in"]', function (o) {
           check('agent chip: a double-click opens the session once', o.length === 1 && o[0][0] === 'open_target', said(o));
         }));

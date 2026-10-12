@@ -214,21 +214,28 @@ export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; chi
 }
 
 /** A PR's chip whose card shows on hover, as a link to it does: its title and the rest are
- *  there, so the chip needs no line of its own. A click opens it on GitHub, and a right-click
- *  has its menu. */
-export function PrChipCard({ pr, onOpen, onMenu }: { pr: Pr; onOpen?: () => void; onMenu?: () => void }) {
+ *  there, so the chip needs no line of its own. A click shows it in Codealong and a double-click
+ *  opens it on GitHub (PrChip), and a right-click has its menu. */
+export function PrChipCard({ pr, onShow, onOpen, onMenu }: { pr: Pr; onShow?: () => void; onOpen?: () => void; onMenu?: () => void }) {
   const ref = prRefOf(pr.url);
-  if (!ref) return <PrChip pr={pr} onOpen={onOpen} onMenu={onMenu} />;
-  return <HoveredChip pr={pr} prRef={ref} onOpen={onOpen} onMenu={onMenu} />;
+  if (!ref) return <PrChip pr={pr} onShow={onShow} onOpen={onOpen} onMenu={onMenu} />;
+  return <HoveredChip pr={pr} prRef={ref} onShow={onShow} onOpen={onOpen} onMenu={onMenu} />;
 }
 
-function HoveredChip({ pr, prRef, onOpen, onMenu }: { pr: Pr; prRef: PrRef; onOpen?: () => void; onMenu?: () => void }) {
+function HoveredChip({ pr, prRef, onShow, onOpen, onMenu }: { pr: Pr; prRef: PrRef; onShow?: () => void; onOpen?: () => void; onMenu?: () => void }) {
   const c = usePrCard(pr.url, prRef);
   return (
     <span ref={(el) => void (c.anchor.current = el)} className="ca-prchipcard" onMouseEnter={c.hosted ? c.show : undefined} onMouseLeave={c.hosted ? c.hide : undefined}>
       <PrChip
         pr={pr}
         titled={!c.hosted}
+        onShow={
+          onShow &&
+          (() => {
+            c.close();
+            onShow();
+          })
+        }
         onOpen={
           onOpen &&
           (() => {

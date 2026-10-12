@@ -54,9 +54,11 @@ export interface SessionHeaderProps {
   onOpen: (targetId: string) => void;
   /** Shows its worktree; without it the worktree's name is only said. */
   onShowLane?: (lane: Lane) => void;
-  /** The PRs it worked on (lanes.ts `sessionPrs`), each opening on GitHub, with its menu on a
-   *  right-click. */
+  /** The PRs it worked on (lanes.ts `sessionPrs`), each a chip that shows it in Codealong
+   *  (`onShowPr`) and opens it on GitHub on a double-click (`onOpenPr`), or on a click without
+   *  `onShowPr`, with its menu on a right-click. */
   prs?: Pr[];
+  onShowPr?: (pr: Pr) => void;
   onOpenPr?: (pr: Pr) => void;
   onPrMenu?: (pr: Pr) => void;
   todos?: Todo[];
@@ -193,7 +195,7 @@ function ReviewOf({ pr, prs, onOpenPr }: { pr: string; prs: Pr[]; onOpenPr?: (pr
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -340,7 +342,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {/* Hidden when it has nothing to show (SessionHeader.css), Jev's chip included. */}
       <div className="ca-sessinsp-links">
         {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (
-          <PrChipCard key={pr.url} pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={onPrMenu && (() => onPrMenu(pr))} />
+          <PrChipCard key={pr.url} pr={pr} onShow={onShowPr && (() => onShowPr(pr))} onOpen={onOpenPr && (() => onOpenPr(pr))} onMenu={onPrMenu && (() => onPrMenu(pr))} />
         ))}
         {!allPrs && prs.length > PRS_SHOWN && (
           <button

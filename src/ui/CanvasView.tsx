@@ -45,7 +45,7 @@ import {
 } from '../canvas/model';
 import { arrowhead, connector, polyline } from '../lineage';
 import { COLOR_WORD, newId } from '../todos';
-import { LABEL_COLORS, type Label, type LabelColor, type Theme, type Todo } from '../types';
+import { LABEL_COLORS, type Label, type LabelColor, type Pr, type Theme, type Todo } from '../types';
 import { CanvasCard } from './CanvasCard';
 import { CardDetail, CardPopover } from './card/CardPopover';
 import { cardData, cardSig } from './card/data';
@@ -84,6 +84,9 @@ export interface CanvasViewProps {
   /** Select this item and bring it into view; `n` changes each time it's asked. */
   focus: { id: string; n: number } | null;
   onOpen: (it: RefItem) => void;
+  /** A click on a PR's chip in a card's popover, for a PR the canvas has no card of: the PR in
+   *  PRs. */
+  onShowPr: (pr: Pr) => void;
   /** The item's own right-click menu, as the other views show it. */
   menuFor: (it: RefItem) => MenuSpec;
   onToast: (message: string) => void;
@@ -128,7 +131,7 @@ function readColors() {
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectItem, query, filtering, matches, fitMatches } = props;
+  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, onShowPr, menuFor, onToast, onUndo, keys, onSelectItem, query, filtering, matches, fitMatches } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -1074,6 +1077,13 @@ export function CanvasView(props: CanvasViewProps) {
             terminal={terminal}
             todos={todos}
             homes={entities.sessions}
+            // A PR with a card on the canvas is selected there, as a session is; one without
+            // shows in PRs.
+            onShowPr={(pr) => {
+              setPopover(null);
+              const item = [...entities.prs.values()].find((p) => p.url === pr.url);
+              if (!item || !showItem(refId('pr', item.key))) onShowPr(pr);
+            }}
             onOpenPr={(pr) => openUrl(pr.url).catch((err: unknown) => onToast(String(err)))}
             onSessionMenu={(_lane, s) => void showContextMenu(menuFor({ kind: 'ref', ref: 'session', key: s.key, x: 0, y: 0 })).catch((err: unknown) => onToast(String(err)))}
             // A session on the canvas is selected there; one that isn't opens where it lives.

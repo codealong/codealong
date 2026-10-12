@@ -11,7 +11,7 @@ import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
 import { selectHow, type SelectHow } from '../picks';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
-import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
+import type { Label, Lane, Pr, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, WorktreeChip } from './primitives';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
@@ -87,6 +87,9 @@ interface TodoRowProps {
   onOpen: () => void;
   onContextMenu: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
+  /** A click on its PR's chip: the PR in PRs. A double-click opens it on GitHub (`onOpenPr`). */
+  onShowPr: (pr: Pr) => void;
+  onOpenPr: (pr: Pr) => void;
   onFilterLabel: (label: Label) => void;
   /** The open todos it waits on. */
   blocked: Todo[];
@@ -97,7 +100,7 @@ interface TodoRowProps {
 
 const CHIPS_SHOWN = 3;
 
-function TodoRow({ item, section, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
+function TodoRow({ item, section, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
@@ -174,7 +177,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
               <WorktreeChip key={l.id} lane={l} short />
             ))}
             <MoreChip names={lanes.slice(2).map((l) => l.callsign)} />
-            {pr && <PrChip pr={pr} compact />}
+            {pr && <PrChip pr={pr} compact onShow={() => onShowPr(pr)} onOpen={() => onOpenPr(pr)} inRow />}
           </span>
         </div>
       </div>
@@ -201,6 +204,9 @@ interface TodoViewProps {
   onOpen: (row: TodoItem) => void;
   onContextMenu: (row: TodoItem) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
+  /** A click on a row's PR chip: the PR in PRs. A double-click opens it on GitHub (`onOpenPr`). */
+  onShowPr: (pr: Pr) => void;
+  onOpenPr: (pr: Pr) => void;
   onFilterLabel: (label: Label) => void;
   /** Moves a todo to insertion point `index` among the section's rows. */
   onMove: (section: TodoSectionId, id: string, index: number) => void;
@@ -228,7 +234,7 @@ function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hi
 }
 
 function Section({ section, props }: { section: TodoSection; props: TodoViewProps }) {
-  const { todos, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, onMove } = props;
+  const { todos, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, onMove } = props;
   const drag = useTodoDrag(section.rows, (id, index) => onMove(section.id, id, index));
   const draggable = canReorder && section.rows.length > 1;
   return (
@@ -252,6 +258,8 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
             onOpen={() => onOpen(r)}
             onContextMenu={() => onContextMenu(r)}
             onOpenSession={onOpenSession}
+            onShowPr={onShowPr}
+            onOpenPr={onOpenPr}
             onFilterLabel={onFilterLabel}
             blocked={blockedBy(r.todo, todos)}
             hint={props.hints?.[r.todo.id]}
@@ -275,7 +283,7 @@ function useTodoDrag(rows: TodoItem[], onMove?: (id: string, index: number) => v
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, todos, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
+  const { sections, todos, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done');
   const done = sections.find((s) => s.id === 'done');
   // Done todos keep no order of yours; they can still go to the desktop.
@@ -313,6 +321,8 @@ export function TodoView(props: TodoViewProps) {
                   onOpen={() => onOpen(r)}
                   onContextMenu={() => onContextMenu(r)}
                   onOpenSession={onOpenSession}
+                  onShowPr={onShowPr}
+                  onOpenPr={onOpenPr}
                   onFilterLabel={onFilterLabel}
                   blocked={blockedBy(r.todo, todos)}
                   drag={doneDrag.rowProps(r.todo.id, null, 0)}

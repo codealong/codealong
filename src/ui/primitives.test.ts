@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { CLICK_WAIT_MS } from '../bar';
 import * as fx from '../testing/fixtures';
 import type { GitInfo } from '../types';
 import { Chip, chipHandlers, driftWords, HarnessChip, MoreChip, PrChip, Row, rowMenu, Seg, selects } from './primitives';
@@ -100,6 +101,60 @@ describe('chipHandlers', () => {
     expect(act).toHaveBeenCalledTimes(1);
     expect(e.stopPropagation).toHaveBeenCalledTimes(1);
   });
+
+  describe('with something else for a double-click', () => {
+    const setup = (inRow: boolean) => {
+      const act = vi.fn();
+      const run = vi.fn();
+      return { act, run, h: chipHandlers(act, inRow, { run, wait: { current: null } }) };
+    };
+
+    it('acts on a click once no second has come', () => {
+      vi.useFakeTimers();
+      try {
+        const { act, run, h } = setup(false);
+        h.onClick?.(event(1));
+        vi.advanceTimersByTime(CLICK_WAIT_MS - 1);
+        expect(act).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(act).toHaveBeenCalledTimes(1);
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does the double-click's thing in place of the click's, once however long the run", () => {
+      vi.useFakeTimers();
+      try {
+        const { act, run, h } = setup(false);
+        h.onClick?.(event(1));
+        h.onClick?.(event(2));
+        h.onDoubleClick?.(event(2));
+        h.onClick?.(event(3));
+        vi.advanceTimersByTime(CLICK_WAIT_MS * 2);
+        expect(run).toHaveBeenCalledTimes(1);
+        expect(act).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('acts at once on a key, which no second click follows', () => {
+      const { act, h } = setup(false);
+      h.onClick?.(event(0));
+      expect(act).toHaveBeenCalledTimes(1);
+    });
+
+    it("takes the click on a list's row too, rather than leave it to the row", () => {
+      const { h } = setup(true);
+      for (const on of [h.onMouseDown, h.onClick, h.onDoubleClick]) {
+        const e = event();
+        on?.(e);
+        expect(e.stopPropagation).toHaveBeenCalledTimes(1);
+      }
+    });
+  });
 });
 
 describe('Chip', () => {
@@ -143,6 +198,10 @@ describe('the named chips', () => {
     const prChip = (props: object) => renderToStaticMarkup(createElement(PrChip, { pr, ...props }));
     expect(prChip({ onOpen: () => {} })).toMatch(/^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to open it on GitHub\.">/);
     expect(prChip({ onOpen: () => {}, inRow: true, titled: false })).toMatch(/^<span class="ca-pr ca-pr--open">/);
+    // Where Codealong can show it, a click does, on a list's row too, and two open it on GitHub.
+    const shows = /^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to show it in Codealong, double-click to open it on GitHub\.">/;
+    expect(prChip({ onShow: () => {}, onOpen: () => {} })).toMatch(shows);
+    expect(prChip({ onShow: () => {}, onOpen: () => {}, inRow: true })).toMatch(shows);
   });
 
   it('marks a PR that conflicts with its base, while it is open', () => {
