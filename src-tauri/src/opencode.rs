@@ -379,8 +379,33 @@ pub fn service_at(path: &Path) -> Option<Service> {
 pub struct Live {
     pub active: HashSet<String>,
     /// Session id → the permission or question it's waiting on.
-    pub pending: HashMap<String, String>,
+    pub pending: HashMap<String, Asked>,
     pub at: i64,
+}
+
+/// A permission or question a session waits on you for.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Asked {
+    /// The request's own id (`per_…`), or its line where the service gave none.
+    pub id: String,
+    /// The line that says it: "Run · `npm test`".
+    pub ask: String,
+    /// When a poll first saw it, kept while the session waits on the same request: the time the
+    /// session waits on you from, which nothing else in its records keeps (a rename moves the
+    /// session's own time, say).
+    pub since: i64,
+}
+
+impl Live {
+    /// This poll's answer, with the time each request was first seen from the poll before.
+    pub fn kept_from(mut self, before: Option<&Live>) -> Live {
+        for (session, asked) in self.pending.iter_mut() {
+            if let Some(b) = before.and_then(|l| l.pending.get(session)).filter(|b| b.id == asked.id) {
+                asked.since = b.since;
+            }
+        }
+        self
+    }
 }
 
 /// Asks the service what's running and what's waiting. Three short local requests at most:
@@ -391,16 +416,22 @@ pub fn poll(svc: &Service, now: i64) -> Option<Live> {
     if let Some(map) = active.get("data").and_then(Value::as_object) {
         live.active = map.keys().cloned().collect();
     }
+    let asked = |list: &Value, ask: String| Asked { id: first_id(list).unwrap_or_else(|| ask.clone()), ask, since: now };
     for id in &live.active {
-        if let Some(ask) = get(svc, &format!("/api/session/{id}/permission")).and_then(|v| permission_ask(&v)) {
-            live.pending.insert(id.clone(), ask);
+        if let Some((list, ask)) = get(svc, &format!("/api/session/{id}/permission")).and_then(|v| permission_ask(&v).map(|a| (v, a))) {
+            live.pending.insert(id.clone(), asked(&list, ask));
             continue;
         }
-        if let Some(ask) = get(svc, &format!("/api/session/{id}/form")).and_then(|v| form_ask(&v)) {
-            live.pending.insert(id.clone(), ask);
+        if let Some((list, ask)) = get(svc, &format!("/api/session/{id}/form")).and_then(|v| form_ask(&v).map(|a| (v, a))) {
+            live.pending.insert(id.clone(), asked(&list, ask));
         }
     }
     Some(live)
+}
+
+/// The id of the first request in a list the service gave.
+fn first_id(list: &Value) -> Option<String> {
+    list.get("data")?.as_array()?.first()?.get("id")?.as_str().map(String::from)
 }
 
 /// The first pending permission request, as a line: "Run · `npm test`".
@@ -736,7 +767,10 @@ impl crate::harness::Reader for Reader {
                 polled.inflight = false;
                 for (account, live) in results {
                     match live {
-                        Some(l) => polled.live.insert(account, l),
+                        Some(l) => {
+                            let l = l.kept_from(polled.live.get(&account));
+                            polled.live.insert(account, l)
+                        }
                         None => polled.live.remove(&account),
                     };
                 }
@@ -1027,6 +1061,19 @@ fn permission_request(svc: &Service, session: &str) -> Option<PermissionRequest>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A request the session still waits on keeps the time it was first seen, whatever else
+    /// changes; a new one takes the time of the poll that saw it.
+    #[test]
+    fn a_request_waited_on_keeps_when_it_was_first_seen() {
+        let asked = |id: &str, since: i64| Asked { id: id.into(), ask: "Bash · `npm test`".into(), since };
+        let live = |pending: Vec<(&str, Asked)>| Live { pending: pending.into_iter().map(|(s, a)| (s.to_string(), a)).collect(), ..Default::default() };
+        let before = live(vec![("s1", asked("per_1", 1_000)), ("s2", asked("per_2", 1_500))]);
+        let now = live(vec![("s1", asked("per_1", 4_000)), ("s2", asked("per_3", 4_000)), ("s3", asked("per_4", 4_000))]).kept_from(Some(&before));
+        let since = |s: &str| now.pending[s].since;
+        assert_eq!((since("s1"), since("s2"), since("s3")), (1_000, 4_000, 4_000));
+        assert_eq!(live(vec![("s1", asked("per_1", 4_000))]).kept_from(None).pending["s1"].since, 4_000);
+    }
 
     /// The tables read, with the columns read.
     const SCHEMA: &str = "CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT 'p', parent_id TEXT, directory TEXT NOT NULL, title TEXT, \

@@ -55,7 +55,7 @@
   var approval = function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); };
   var approvalNote = function () { var a = approval(); var n = a && a.querySelector('.ca-composer-note'); return n ? n.textContent : ''; };
   var button = function (text) { var a = approval(); return a && Array.prototype.filter.call(a.querySelectorAll('button'), function (b) { return b.textContent.indexOf(text) === 0; })[0]; };
-  var picked = function (label) { var b = button(label); return !!(b && b.classList.contains('is-on')); };
+  var isOn = function (label) { var b = button(label); return !!(b && b.classList.contains('is-on')); };
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var rowSays = function (status) { var r = row(); return !!(r && r.querySelector('.ca-glyph--' + status)); };
   var answers = function () { return window.__calls.filter(function (c) { return c[0] === 'session_answer'; }).map(function (c) { return c[1]; }); };
@@ -141,7 +141,7 @@
       return until(function () { return button('Blue'); }, 3000).then(function () { return wait(200); });
     })
     .then(function () {
-      check('answers that didn’t go come back picked as they were', picked('Blue') && !picked('Red'), approval() && approval().textContent);
+      check('answers that didn’t go come back picked as they were', isOn('Blue') && !isOn('Red'), approval() && approval().textContent);
       check('saying why', /isn’t waiting on that any more/.test(approvalNote()), approvalNote());
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })

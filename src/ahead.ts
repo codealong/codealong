@@ -135,7 +135,7 @@ function settledBySeen(s: { status: Status; asks?: boolean }): boolean {
 
 /** Whether it still shows waiting on the call an answer was for: a call asked after it began
  *  waiting is another, which the answer doesn't touch. A session that needs you does so from when
- *  it asked what it asks now (acp.rs `overlay`, board.rs `opencode_session`, Codex's oldest call,
+ *  it asked what it asks now (acp.rs `overlay`, opencode.rs `Asked::since`, Codex's oldest call,
  *  Claude Code's request or registry), so the next call shows by its time; where a harness can't
  *  say, `ANSWER_MS` keeps it from staying hidden long. */
 function stillAsked(s: { status: Status; asks?: boolean }, since: number | null, c: Extract<Change, { kind: 'answer' }>): boolean {

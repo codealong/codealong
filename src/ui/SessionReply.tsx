@@ -90,7 +90,7 @@ import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
-import { nextQuestion, picksOf, QuestionList, QuestionWhy } from './QuestionList';
+import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
@@ -888,16 +888,20 @@ function useUnanswered(s: Session): Unanswered | null {
   return said && said.since === (s.statusSince ?? null) ? said : null;
 }
 
-/** The picks and words of answers that didn't go, for the questions' box to have again. */
+/** The picks and words of answers that didn't go, for the questions' box to have again. The box
+ *  sent each choice as its own label and your words as one more (`Questions`), so they're taken
+ *  apart as that, never split. */
 export function givenBack(questions: Question[], given: Answers | undefined): { picks: Record<string, string[]>; own: Record<string, string> } {
   const picks: Record<string, string[]> = {};
   const own: Record<string, string> = {};
   for (const q of questions) {
     const a = given?.[q.question];
     if (a === undefined) continue;
-    const back = picksOf(q, Array.isArray(a) ? a : [a]);
-    picks[q.question] = [...back.picked];
-    if (back.own.length) own[q.question] = back.own.join(', ');
+    const labels = new Set(q.options.map((o) => o.label));
+    const values = Array.isArray(a) ? a : [a];
+    picks[q.question] = values.filter((v) => labels.has(v));
+    const words = values.filter((v) => !labels.has(v));
+    if (words.length) own[q.question] = words.join(', ');
   }
   return { picks, own };
 }

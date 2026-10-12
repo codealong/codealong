@@ -447,6 +447,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         None => row.turn_open() && now - row.last_ts < OPENCODE_STALE_MS,
     };
     let pending = live.and_then(|l| l.pending.get(&row.id)).cloned();
+    let asked_since = pending.as_ref().map(|p| p.since);
     // A run's end is news until you open the session here or look at it in OpenCode.
     let unseen = row.idle_at.filter(|_| !running).map(|t| t > seen_at && row.viewed_at.map(|v| v < t).unwrap_or(true)).unwrap_or(false);
     let status = if pending.is_some() {
@@ -462,7 +463,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
     };
     let title = row.title.clone().or_else(|| row.last_prompt.clone()).unwrap_or_else(|| "OpenCode session".to_string());
     let excerpt = match status {
-        Status::Needs => pending,
+        Status::Needs => pending.map(|p| p.ask),
         Status::Working => row.last_tool.clone().or_else(|| row.last_prompt.clone()),
         _ => row.last_text.clone().or_else(|| row.last_prompt.clone()),
     };
@@ -479,9 +480,9 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         cwd: row.directory.clone(),
         reply_tail: row.last_text_tail.clone(),
         started_at: Some(row.created_at),
-        // Waiting on you since it last wrote, which is when it asked: each call of a run has a time
-        // of its own, so a window that answered one can tell the next from it (ahead.ts).
-        status_since: if status == Status::Needs { Some(row.last_ts) } else if running { row.last_prompt_at } else { row.idle_at },
+        // Waiting on you since it asked what it asks now (`Asked::since`): each request of a run
+        // has a time of its own, so a window that answered one can tell the next from it (ahead.ts).
+        status_since: if status == Status::Needs { asked_since } else if running { row.last_prompt_at } else { row.idle_at },
         last_prompt_at: row.last_prompt_at.unwrap_or(row.created_at),
         last_activity: row.last_ts,
         excerpt,
@@ -2996,9 +2997,9 @@ mod tests {
         let mut busy = Live::default();
         busy.active.insert("ses_abc1234567".into());
         assert_eq!(opencode_session(&a, &row, Some(&busy), Some(42), 0, NOW).open_target, "s|opencode:opencode:ses_abc1234567|focus");
-        busy.pending.insert("ses_abc1234567".into(), "Bash · `npm install`".into());
+        busy.pending.insert("ses_abc1234567".into(), crate::opencode::Asked { id: "per_1".into(), ask: "Bash · `npm install`".into(), since: NOW - 3_000 });
         let s = opencode_session(&a, &row, Some(&busy), None, 0, NOW);
-        assert_eq!((s.status, s.excerpt.as_deref(), s.status_since), (Status::Needs, Some("Bash · `npm install`"), Some(NOW - 1_000)));
+        assert_eq!((s.status, s.excerpt.as_deref(), s.status_since), (Status::Needs, Some("Bash · `npm install`"), Some(NOW - 3_000)));
         assert_eq!(session_headline(&s).0, format!("`opencode` asks for approval · {}", s.title));
         // A run that ended is news until seen here or viewed in OpenCode.
         row.idle_at = Some(NOW - 500);

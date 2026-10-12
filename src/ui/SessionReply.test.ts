@@ -34,6 +34,8 @@ describe('givenBack', () => {
       own: { 'Which color?': 'Green', 'Which days?': 'only mornings' },
     });
     expect(givenBack([color], { 'Which color?': 'Blue' })).toEqual({ picks: { 'Which color?': ['Blue'] }, own: {} });
+    // Words of your own that name a choice stay words: the answer is sent again as it was.
+    expect(givenBack([days], { 'Which days?': ['Tue', 'Mon, only mornings'] })).toEqual({ picks: { 'Which days?': ['Tue'] }, own: { 'Which days?': 'Mon, only mornings' } });
     expect(givenBack([color, days], undefined)).toEqual({ picks: {}, own: {} });
   });
 });
