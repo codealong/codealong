@@ -160,31 +160,66 @@ fn in_dir(name: &str) -> Option<String> {
     fine.then(|| format!("{DIR}/{name}"))
 }
 
+/// Why a link in `.codealong/` isn't read: a committed link is only where it points, and one in a
+/// checkout could reach outside the repo.
+const LINK: &str = "is a link; the team's settings are read from files themselves";
+
+/// What `git ls-tree -r` lists of `.codealong/` at a commit, by path: whether each is a file of its
+/// own (a link is mode 120000, a file 100644 or 100755).
+fn tree_files(listed: &str) -> HashMap<&str, bool> {
+    listed
+        .lines()
+        .filter_map(|l| {
+            let (meta, path) = l.split_once('\t')?;
+            Some((path.trim(), meta.split_whitespace().next()?.starts_with("100")))
+        })
+        .collect()
+}
+
 /// The team's file at `commit` in the repo checked out at `root`: none when there's none there,
 /// else what it came to. An error when git couldn't be asked.
 pub fn read_at(root: &Path, commit: &str) -> Result<Option<Parsed>, String> {
-    let listed = git(root, &["ls-tree", "-r", "--name-only", commit, "--", &format!("{DIR}/")])?;
-    let files: HashSet<&str> = listed.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    if !files.contains(FILE) {
-        return Ok(None);
+    let listed = git(root, &["ls-tree", "-r", commit, "--", &format!("{DIR}/")])?;
+    let files = tree_files(&listed);
+    match files.get(FILE) {
+        None => return Ok(None),
+        Some(false) => return Ok(Some(Err(format!("{FILE} {LINK}.")))),
+        Some(true) => {}
     }
     let text = git(root, &["cat-file", "blob", &format!("{commit}:{FILE}")])?;
-    let file = |path: &str| if files.contains(path) { git(root, &["cat-file", "blob", &format!("{commit}:{path}")]).map(Some) } else { Ok(None) };
+    let file = |path: &str| match files.get(path) {
+        Some(true) => git(root, &["cat-file", "blob", &format!("{commit}:{path}")]).map(Some),
+        Some(false) => Err(format!("{path} {LINK}.")),
+        None => Ok(None),
+    };
     Ok(Some(parse(&text, &file)))
 }
 
 /// The team's file as a folder's working tree has it, for `codealong config check --repo`: none
-/// when it has none.
+/// when it has none. A link on the way to a file, `.codealong` itself too, is refused, as a
+/// committed one is.
 pub fn read_folder(folder: &Path) -> Option<Parsed> {
-    let text = std::fs::read_to_string(folder.join(FILE)).ok()?;
-    let file = |path: &str| {
-        let p = folder.join(path);
-        if !p.is_file() {
+    let plain = |rel: &str| -> Result<Option<String>, String> {
+        let mut at = folder.to_path_buf();
+        for part in Path::new(rel).components() {
+            at.push(part);
+            match std::fs::symlink_metadata(&at) {
+                Ok(m) if m.file_type().is_symlink() => return Err(format!("{} {LINK}.", at.strip_prefix(folder).unwrap_or(&at).display())),
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(e) => return Err(format!("reading {rel}: {e}")),
+            }
+        }
+        if !at.is_file() {
             return Ok(None);
         }
-        std::fs::read_to_string(&p).map(Some).map_err(|e| format!("reading {path}: {e}"))
+        std::fs::read_to_string(&at).map(Some).map_err(|e| format!("reading {rel}: {e}"))
     };
-    Some(parse(&text, &file))
+    match plain(FILE) {
+        Ok(None) => None,
+        Ok(Some(text)) => Some(parse(&text, &plain)),
+        Err(e) => Some(Err(e)),
+    }
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
@@ -309,6 +344,8 @@ pub struct TeamFiles {
     stale: HashSet<String>,
     /// Why a repo couldn't be read, by repo; what was read before stays.
     failed: BTreeMap<String, String>,
+    /// The repos checked out here, as `due` was last told.
+    here: HashSet<String>,
     running: bool,
     last: Option<Instant>,
 }
@@ -319,22 +356,25 @@ impl TeamFiles {
         self.stale.insert(slug.to_string());
     }
 
-    /// What to read now, at `now`: the repos whose refs moved, or all of them once `EVERY` has
-    /// passed; nothing while a read is under way. `bases` are the branches open PRs merge into,
-    /// by repo, read with each repo's default branch. Marks a read under way when it hands one
-    /// out; `on_read` takes the mark off.
+    /// What to read now, at `now`: the repos whose refs moved, ones with a branch not read yet (a
+    /// PR into a new branch), or all of them once `EVERY` has passed; nothing while a read is
+    /// under way. `bases` are the branches open PRs merge into, by repo, read with each repo's
+    /// default branch. A repo that couldn't be read waits for the next time round. Marks a read
+    /// under way when it hands one out; `on_read` takes the mark off.
     pub fn due(&mut self, repos: &[Repo], bases: &HashMap<String, HashSet<String>>, now: Instant) -> Vec<Ask> {
+        self.here = repos.iter().map(|r| r.slug.clone()).collect();
         if self.running {
             return Vec::new();
         }
         let all = self.last.is_none_or(|t| now.duration_since(t) >= EVERY);
         let mut asks = Vec::new();
         for r in repos {
-            if !(all || self.stale.contains(&r.slug)) {
-                continue;
-            }
             let mut branches: Vec<String> = r.default.iter().cloned().chain(bases.get(&r.slug).into_iter().flatten().cloned()).collect::<HashSet<_>>().into_iter().collect();
             branches.sort();
+            let unread = !self.failed.contains_key(&r.slug) && branches.iter().any(|b| !self.reads.get(&r.slug).is_some_and(|read| read.contains_key(b)));
+            if !(all || unread || self.stale.contains(&r.slug)) {
+                continue;
+            }
             if let Some(d) = &r.default {
                 self.defaults.insert(r.slug.clone(), d.clone());
             }
@@ -364,8 +404,11 @@ impl TeamFiles {
         let mut changed = false;
         for a in answers {
             let reads = self.reads.entry(a.slug.clone()).or_default();
+            // A branch the checkout doesn't have is read too: it has no file.
             for branch in &a.gone {
-                changed |= reads.remove(branch).is_some();
+                let none = Read { commit: String::new(), file: None };
+                changed |= reads.get(branch) != Some(&none);
+                reads.insert(branch.clone(), none);
             }
             for (branch, read) in a.reads {
                 if reads.get(&branch) != Some(&read) {
@@ -392,7 +435,8 @@ impl TeamFiles {
                 }
             }
         }
-        RepoSettings { mine: mine.clone(), team, defaults: self.defaults.clone() }
+        let read = self.reads.iter().flat_map(|(slug, branches)| branches.keys().map(move |b| (slug.clone(), b.clone()))).collect();
+        RepoSettings { mine: mine.clone(), team, defaults: self.defaults.clone(), read, here: self.here.clone(), unread: self.last.is_none() }
     }
 
     /// Every team file read, as the windows get them; `offers` left empty for the engine.
@@ -442,9 +486,32 @@ pub struct RepoSettings {
     pub team: HashMap<(String, String), TeamCfg>,
     /// Each repo's default branch, for a PR that names no base.
     pub defaults: HashMap<String, String>,
+    /// The branches read, by repo slug and branch, with a file or without one (`pending`).
+    pub read: HashSet<(String, String)>,
+    /// The repos checked out here, whose files are read.
+    pub here: HashSet<String>,
+    /// Nothing has been read yet: the engine has only just started.
+    pub unread: bool,
 }
 
 impl RepoSettings {
+    /// Whether what `pr`'s repo's team says hasn't been read yet: nothing has been read since
+    /// Codealong started, or its repo is checked out here and its base branch hasn't been read
+    /// (with a file or without). What the team sets for a review (words for its reviewer, verdicts
+    /// never submitted) goes for it, so it waits for this (autoreview.rs `due`).
+    pub fn pending(&self, pr: &PrItem) -> bool {
+        if self.unread {
+            return true;
+        }
+        if !self.here.contains(&pr.repo_slug) {
+            return false;
+        }
+        match pr.base.as_deref().or_else(|| self.defaults.get(&pr.repo_slug).map(String::as_str)) {
+            Some(branch) => !self.read.contains(&(pr.repo_slug.clone(), branch.to_string())),
+            None => false,
+        }
+    }
+
     /// The team's settings for a PR into `base` of repo `slug`: its base branch's file.
     pub fn team_of(&self, slug: &str, base: Option<&str>) -> Option<&TeamCfg> {
         let branch = base.or_else(|| self.defaults.get(slug).map(String::as_str))?;
@@ -593,10 +660,8 @@ nudge_about = "feedback-and-checks"
     /// uncommitted, or a PR's branch has, goes for nobody until it's merged.
     #[test]
     fn reads_the_branch_as_fetched_not_the_working_tree() {
-        let dir = std::env::temp_dir().join(format!("codealong-teamfile-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let root = dir.as_path();
+        let scratch = crate::fixtures::scratch("teamfile");
+        let root = scratch.as_path();
         sh(root, &["init", "-q", "-b", "main"]);
         std::fs::create_dir(root.join(DIR)).unwrap();
         std::fs::write(root.join(FILE), "[reviews]\ninstructions_file = \"review.md\"\n").unwrap();
@@ -625,7 +690,6 @@ nudge_about = "feedback-and-checks"
         sh(root, &["commit", "-q", "-m", "no settings"]);
         sh(root, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
         assert_eq!(read(&ask).reads["main"].file, None);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn files() -> TeamFiles {
@@ -651,14 +715,16 @@ nudge_about = "feedback-and-checks"
         // One at a time.
         assert!(t.due(&repos, &bases, t0).is_empty());
         let team = TeamCfg { review_instructions: "Words.".into(), ..TeamCfg::default() };
-        assert!(t.on_read(Some(vec![answer("o/a", "main", "c1", Some(Ok((team.clone(), Vec::new()))))])));
+        // Every branch asked about is read: main with a file, the rest without.
+        let all_read = |team: &TeamCfg| vec![answer("o/a", "main", "c1", Some(Ok((team.clone(), Vec::new())))), answer("o/a", "release", "c2", None), answer("o/b", "main", "c3", None)];
+        assert!(t.on_read(Some(all_read(&team))));
         let set = t.settings(&BTreeMap::new());
         assert_eq!(set.team_of("o/a", None), Some(&team));
         assert_eq!(set.team_of("o/a", Some("main")), Some(&team));
         assert_eq!(set.team_of("o/a", Some("release")), None);
         // The same again changes nothing.
         assert!(t.due(&repos, &bases, t0 + EVERY).len() == 2);
-        assert!(!t.on_read(Some(vec![answer("o/a", "main", "c1", Some(Ok((team.clone(), Vec::new()))))])));
+        assert!(!t.on_read(Some(all_read(&team))));
         // Nothing's due until a fetch moves a repo's refs, or the time comes round again.
         assert!(t.due(&repos, &bases, t0 + EVERY + Duration::from_secs(1)).is_empty());
         t.on_refs_moved("o/b");
@@ -670,7 +736,118 @@ nudge_about = "feedback-and-checks"
         // What was asked knows the commit each branch was read at.
         t.on_read(None);
         let asks = t.due(&repos, &bases, t0 + EVERY * 3);
-        assert_eq!(asks[0].known, HashMap::from([("main".to_string(), "c1".to_string())]));
+        assert_eq!(asks[0].known, HashMap::from([("main".to_string(), "c1".to_string()), ("release".to_string(), "c2".to_string())]));
+    }
+
+    fn pr_into(slug: &str, base: &str) -> PrItem {
+        use crate::model::{Checks, Merge, PrState};
+        PrItem {
+            key: format!("{slug}#1"),
+            repo_slug: slug.into(),
+            repo: "r".into(),
+            project: "P".into(),
+            number: 1,
+            title: "Add teams".into(),
+            url: format!("https://github.com/{slug}/pull/1"),
+            state: PrState::Open,
+            author: Some("ana".into()),
+            mine: false,
+            review_requested: true,
+            requested_by: None,
+            requested_at: None,
+            snoozed_until: None,
+            nudge: false,
+            nudge_by_default: false,
+            primary: None,
+            head: "teams".into(),
+            base: Some(base.into()),
+            checks: Checks::default(),
+            merge: Merge::Unknown,
+            additions: 1,
+            deletions: 0,
+            changed_files: 1,
+            created_at: 0,
+            updated_at: 0,
+            merged_at: None,
+            closed_at: None,
+            lanes: Vec::new(),
+            sessions: Vec::new(),
+            head_oid: Some("1111111".into()),
+            auto_review: None,
+        }
+    }
+
+    /// What a PR's repo's team sets waits to be read before anything acts on it: from launch until
+    /// the first read, and for a branch a PR newly merges into, which is read at once rather than
+    /// when the time comes round. A branch the checkout doesn't have counts as read, with no file;
+    /// a repo that couldn't be read is asked again only when the time comes round.
+    #[test]
+    fn a_prs_team_settings_are_pending_until_its_base_branch_is_read() {
+        let mut t = files();
+        let t0 = Instant::now();
+        let repos = [repo("o/a")];
+        let pr = pr_into("o/a", "main");
+        assert!(t.settings(&BTreeMap::new()).pending(&pr), "nothing's read at launch");
+        assert!(t.settings(&BTreeMap::new()).pending(&pr_into("o/elsewhere", "main")), "nor for a repo that isn't here, yet");
+        assert_eq!(t.due(&repos, &HashMap::new(), t0).len(), 1);
+        assert!(t.settings(&BTreeMap::new()).pending(&pr), "asked, not answered");
+        assert!(!t.settings(&BTreeMap::new()).pending(&pr_into("o/elsewhere", "main")), "a repo that isn't here has nothing to read");
+        t.on_read(Some(vec![answer("o/a", "main", "c1", None)]));
+        assert!(!t.settings(&BTreeMap::new()).pending(&pr), "read, with no file");
+
+        // A PR into a new branch: read at once.
+        let hotfix = pr_into("o/a", "hotfix");
+        assert!(t.settings(&BTreeMap::new()).pending(&hotfix));
+        let bases = bases([("o/a", Some("hotfix"))]);
+        let asks = t.due(&repos, &bases, t0 + Duration::from_secs(1));
+        assert_eq!(asks.iter().map(|a| a.branches.clone()).collect::<Vec<_>>(), [vec!["hotfix".to_string(), "main".to_string()]]);
+        // The checkout has no such branch: read, with no file.
+        t.on_read(Some(vec![Answer { slug: "o/a".into(), reads: HashMap::new(), gone: vec!["hotfix".into()], failed: None }]));
+        assert!(!t.settings(&BTreeMap::new()).pending(&hotfix));
+        assert!(t.due(&repos, &bases, t0 + Duration::from_secs(2)).is_empty(), "nothing's left to read");
+
+        // A repo that couldn't be read stays pending, and is asked again when the time comes.
+        let release = bases_with(&bases, "o/a", "release");
+        assert_eq!(t.due(&repos, &release, t0 + Duration::from_secs(3)).len(), 1);
+        t.on_read(Some(vec![Answer { slug: "o/a".into(), reads: HashMap::new(), gone: Vec::new(), failed: Some("git timed out".into()) }]));
+        assert!(t.settings(&BTreeMap::new()).pending(&pr_into("o/a", "release")));
+        assert!(t.due(&repos, &release, t0 + Duration::from_secs(4)).is_empty(), "not again at once");
+        assert_eq!(t.due(&repos, &release, t0 + EVERY).len(), 1);
+    }
+
+    fn bases_with(bases: &HashMap<String, HashSet<String>>, slug: &str, branch: &str) -> HashMap<String, HashSet<String>> {
+        let mut out = bases.clone();
+        out.entry(slug.to_string()).or_default().insert(branch.to_string());
+        out
+    }
+
+    /// A link in `.codealong/` is refused, committed or in a checkout: committed, it's only where
+    /// it points; in a checkout, it could read a file outside the repo.
+    #[test]
+    fn a_link_in_the_folder_is_refused() {
+        let scratch = crate::fixtures::scratch("teamlink");
+        let dir = scratch.to_path_buf();
+        std::fs::create_dir_all(dir.join(DIR)).unwrap();
+        let outside = dir.join("outside.md");
+        std::fs::write(&outside, "Secret words.").unwrap();
+        std::fs::write(dir.join(FILE), "[reviews]\ninstructions_file = \"review.md\"\n").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join(".codealong/review.md")).unwrap();
+        let e = read_folder(&dir).unwrap().unwrap_err();
+        assert!(e.contains(".codealong/review.md is a link"), "{e}");
+        sh(&dir, &["init", "-q", "-b", "main"]);
+        sh(&dir, &["add", "."]);
+        sh(&dir, &["commit", "-q", "-m", "a link"]);
+        let commit = git(&dir, &["rev-parse", "HEAD"]).unwrap();
+        let e = read_at(&dir, commit.trim()).unwrap().unwrap().unwrap_err();
+        assert!(e.contains(".codealong/review.md is a link"), "{e}");
+        // The folder itself a link: refused too.
+        let real = dir.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("config.toml"), "").unwrap();
+        let linked = dir.join("linked");
+        std::fs::create_dir_all(&linked).unwrap();
+        std::os::unix::fs::symlink(&real, linked.join(DIR)).unwrap();
+        assert!(read_folder(&linked).unwrap().unwrap_err().contains(".codealong is a link"));
     }
 
     #[test]

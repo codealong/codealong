@@ -1659,16 +1659,21 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
         ];
         let own_values = [("auto", own.auto.map(Value::from)), ("account", text(&own.account)), ("model", text(&own.model)), ("prompt", text(&own.prompt)), ("send", own.send.map(Value::from))];
         let prs = [("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)), ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str())))];
-        if let Some(t) = sync_table(repo, "reviews", &reviews, &mut comment) {
-            sync_table(t, "own", &own_values, &mut comment);
+        // `reviews` holds `own`, so it's made for an `own` value alone; with no value of its own
+        // it has no header of its own either.
+        let own_any = own_values.iter().any(|(_, v)| v.is_some());
+        if let Some(t) = sync_table(repo, "reviews", &reviews, &mut comment, own_any) {
+            sync_table(t, "own", &own_values, &mut comment, false);
             if t.get("own").and_then(Item::as_table).is_some_and(Table::is_empty) {
                 t.remove("own");
             }
+            let values = t.iter().any(|(_, item)| !item.is_table());
+            t.set_implicit(!values);
             if t.is_empty() {
                 repo.remove("reviews");
             }
         }
-        sync_table(repo, "pull_requests", &prs, &mut comment);
+        sync_table(repo, "pull_requests", &prs, &mut comment, false);
         if repo.get("pull_requests").and_then(Item::as_table).is_some_and(Table::is_empty) {
             repo.remove("pull_requests");
         }
@@ -1676,17 +1681,20 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
 }
 
 /// `parent`'s table `name` with each of `values` set, or taken out where it's none: added when
-/// something's set (with `comment` over it, the first time), left alone when it isn't there and
-/// nothing is. The table, unless it's not there.
-fn sync_table<'a>(parent: &'a mut toml_edit::Table, name: &str, values: &[(&str, Option<toml_edit::Value>)], comment: &mut Option<&str>) -> Option<&'a mut toml_edit::Table> {
+/// something's set, or `inner` (a table inside it has something), with `comment` over the first
+/// header written; left alone when it isn't there and nothing is. The table, unless it's not there.
+fn sync_table<'a>(parent: &'a mut toml_edit::Table, name: &str, values: &[(&str, Option<toml_edit::Value>)], comment: &mut Option<&str>, inner: bool) -> Option<&'a mut toml_edit::Table> {
     use toml_edit::{Item, Table};
     let any = values.iter().any(|(_, v)| v.is_some());
     if !parent.get(name).is_some_and(Item::is_table) {
-        if !any {
+        if !any && !inner {
             return None;
         }
         let mut t = Table::new();
-        t.decor_mut().set_prefix(format!("\n{}", comment.take().unwrap_or_default()));
+        // A table with no value of its own has no header: the comment goes over the next one.
+        if any {
+            t.decor_mut().set_prefix(format!("\n{}", comment.take().unwrap_or_default()));
+        }
         parent.insert(name, Item::Table(t));
     }
     let t = parent[name].as_table_mut()?;
@@ -2422,6 +2430,31 @@ mod tests {
         let gone = with_config(&again, &next).unwrap();
         assert!(!gone.contains("[repos."), "{gone}");
         assert_eq!(parse(&gone).unwrap().repos, BTreeMap::new());
+    }
+
+    /// A table with only `[reviews.own]` values, as turning on reviews of your own PRs for one repo
+    /// makes, is written whole, under a header of its own.
+    #[test]
+    fn a_repos_table_with_only_reviews_of_your_own_prs_is_saved() {
+        let mut on = full();
+        let key = repo_key("sprucehq/web");
+        on.repos.insert(key.clone(), RepoCfg { reviews: ReviewsPatch { own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, ..RepoCfg::default() });
+        let out = with_config(&render(&full()), &on).unwrap();
+        assert!(out.contains(&format!("\n{REPOS_COMMENT}[repos.\"github.com/sprucehq/web\".reviews.own]\nauto = true\n")), "{out}");
+        assert!(!out.contains("[repos.\"github.com/sprucehq/web\".reviews]\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        let taken = with_suggestions(&render(&full()), "sprucehq/web", &on.repos[&key]).unwrap();
+        assert_eq!(parse(&taken).unwrap().repos, on.repos);
+        // A value of its own later gives [reviews] its header.
+        let mut more = on.clone();
+        more.repos.get_mut(&key).unwrap().reviews.post = Some(ReviewPost::None);
+        let again = with_config(&out, &more).unwrap();
+        assert!(again.contains("[repos.\"github.com/sprucehq/web\".reviews]\npost = \"none\"\n"), "{again}");
+        assert_eq!(parse(&again).unwrap(), more);
+        // And losing it takes the header away again.
+        let back = with_config(&again, &on).unwrap();
+        assert!(!back.contains("[repos.\"github.com/sprucehq/web\".reviews]\n"), "{back}");
+        assert_eq!(parse(&back).unwrap(), on);
     }
 
     #[test]

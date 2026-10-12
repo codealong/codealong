@@ -375,26 +375,31 @@ function SourceTag({ field, scope }: { field: Field; scope?: Scope }) {
   if (!scope) return null;
   const from = scope.source(field);
   const title = from === 'repo' ? `Set for ${scope.repo} in your config.toml` : from === 'team' ? `${scope.repo}’s .codealong/config.toml sets this for its team` : 'As it goes everywhere';
+  // The space keeps the label's words apart from the tag for a screen reader; without a repo
+  // picked, the label is its words alone.
   return (
-    <span className="ca-settings-source">
-      <span className={cx('ca-settings-from', `is-${from}`)} title={title}>
-        {SOURCE_WORDS[from]}
+    <>
+      {' '}
+      <span className="ca-settings-source">
+        <span className={cx('ca-settings-from', `is-${from}`)} title={title}>
+          {SOURCE_WORDS[from]}
+        </span>
+        {from === 'repo' && (
+          <button
+            type="button"
+            className="ca-linkbtn"
+            title="Go back to what goes without your setting for this repo"
+            onClick={(e) => {
+              // Inside a label: the click is the button's, not the checkbox's.
+              e.preventDefault();
+              scope.reset(field);
+            }}
+          >
+            Reset
+          </button>
+        )}
       </span>
-      {from === 'repo' && (
-        <button
-          type="button"
-          className="ca-linkbtn"
-          title="Go back to what goes without your setting for this repo"
-          onClick={(e) => {
-            // Inside a label: the click is the button's, not the checkbox's.
-            e.preventDefault();
-            scope.reset(field);
-          }}
-        >
-          Reset
-        </button>
-      )}
-    </span>
+    </>
   );
 }
 
@@ -496,7 +501,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={reviews.auto} onChange={(e) => set({ auto: e.target.checked })} />
         <span>
-          Review pull requests that wait on your review <SourceTag field="reviews.auto" scope={scope} />
+          Review pull requests that wait on your review<SourceTag field="reviews.auto" scope={scope} />
         </span>
         <small>
           An agent reviews each open pull request that asks for your review, in a session of its own, and again when new commits come in while it still waits on you. It reads the pull request and the code around it and changes nothing. A pull request joins what waits on you once its
@@ -505,7 +510,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
       </label>
       <div className="ca-field">
         <span>
-          The reviewer <SourceTag field="reviews.reviewer" scope={scope} />
+          The reviewer<SourceTag field="reviews.reviewer" scope={scope} />
           {scope && scope.source('reviews.prompt') === 'repo' && <SourceTag field="reviews.prompt" scope={scope} />}
         </span>
         <AgentPromptBox
@@ -532,14 +537,14 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
       </div>
       <label className="ca-field">
         <span>
-          Where each review goes <SourceTag field="reviews.post" scope={scope} />
+          Where each review goes<SourceTag field="reviews.post" scope={scope} />
         </span>
         <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />
         <small>{post.says}</small>
       </label>
       <label className="ca-field">
         <span>
-          Submit the agent’s review for you <SourceTag field="reviews.submit" scope={scope} />
+          Submit the agent’s review for you<SourceTag field="reviews.submit" scope={scope} />
         </span>
         <ProfileSelect value={reviews.submit} profiles={REVIEW_SUBMITS} onChange={(id) => set({ submit: id as ReviewSubmit })} />
         <small>
@@ -562,7 +567,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, defaultPrompt, us
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={own.auto} onChange={(e) => setOwn({ auto: e.target.checked })} />
         <span>
-          Review the pull requests your sessions open <SourceTag field="own.auto" scope={scope} />
+          Review the pull requests your sessions open<SourceTag field="own.auto" scope={scope} />
         </span>
         <small>
           An agent on another model reviews each open pull request a session of yours opened here, in a session of its own, and again when new commits come in. It reads the pull request and the code around it and changes nothing. Its review stays in Codealong, in the pull request’s Review
@@ -573,7 +578,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, defaultPrompt, us
         <>
           <div className="ca-field">
             <span>
-              Reviewer of your pull requests <SourceTag field="own.reviewer" scope={scope} />
+              Reviewer of your pull requests<SourceTag field="own.reviewer" scope={scope} />
               {scope && scope.source('own.prompt') === 'repo' && <SourceTag field="own.prompt" scope={scope} />}
             </span>
             <AgentPromptBox
@@ -601,7 +606,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, defaultPrompt, us
           <label className="ca-field ca-settings-check">
             <input type="checkbox" checked={own.send} onChange={(e) => setOwn({ send: e.target.checked })} />
             <span>
-              Hand each review to the session that opened the pull request <SourceTag field="own.send" scope={scope} />
+              Hand each review to the session that opened the pull request<SourceTag field="own.send" scope={scope} />
             </span>
             <small>
               Once that session runs here and doesn’t wait on you, it’s sent a message naming the review, kept as a file it reads, to fix what holds up and say what it leaves. A review that finds nothing to raise isn’t sent, nor one of commits it has moved on from. Off, send one from the pull
@@ -624,7 +629,7 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={prs.nudge_by_default} onChange={(e) => set({ nudge_by_default: e.target.checked })} />
         <span>
-          Nudge the session that opened a pull request <SourceTag field="prs.nudge_by_default" scope={scope} />
+          Nudge the session that opened a pull request<SourceTag field="prs.nudge_by_default" scope={scope} />
         </span>
         <small>
           For every open pull request of yours, the session that opened it is sent a message, as one of yours, when something happens on it (below), so it takes it from there. The message never asks it to merge: it merges only if you asked it to. Its other sessions aren’t told. A pull
@@ -633,7 +638,7 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
       </label>
       <label className="ca-field">
         <span>
-          What a nudge tells it about <SourceTag field="prs.nudge_about" scope={scope} />
+          What a nudge tells it about<SourceTag field="prs.nudge_about" scope={scope} />
         </span>
         <ProfileSelect value={prs.nudge_about} profiles={NUDGE_ABOUT} onChange={(id) => set({ nudge_about: id as NudgeAbout })} />
         <small>{about.says} This holds for every pull request with its nudge on, by this switch or its own.</small>

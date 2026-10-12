@@ -696,6 +696,11 @@ impl Reviewer {
                 jobs.push(job);
                 continue;
             }
+            // What its repo's team sets for it (words for its reviewer, verdicts never submitted)
+            // isn't read yet: its review and what's submitted for you wait for it.
+            if settings.pending(pr) {
+                continue;
+            }
             if let Some((r, verdict)) = self.store.prs.get(&key).and_then(|t| t.rounds.last()).and_then(|r| Some((r, submit_due(cfg, pr, r, &head)?))) {
                 let text = without_draft(r, pr, &head, verdict);
                 self.busy.insert(key);
@@ -955,8 +960,8 @@ pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
 /// hasn't, and whether the session that opened it can be sent it now.
 pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &crate::teamfile::RepoSettings, lanes: &[Lane], now: i64) {
     for pr in prs {
-        let cfg = settings.reviews(global, pr).into_owned();
-        let cfg = &cfg;
+        let cfg = settings.reviews(global, pr);
+        let cfg = cfg.as_ref();
         let wanted = wanted(cfg, lanes, pr);
         let t = store.prs.get(&pr_key(&pr.key));
         let head = pr.head_oid.clone().unwrap_or_default();
@@ -1827,6 +1832,9 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
         return Err("It's closed.".into());
     }
     let head = pr.head_oid.clone().ok_or("GitHub hasn't said which commit it's at yet.")?;
+    if board.repo_settings.pending(pr) {
+        return Err(format!("Codealong is still reading {}'s team settings ({}): try again in a moment.", pr.repo_slug, crate::teamfile::FILE));
+    }
     let k = pr_key(&pr.key);
     let job = {
         let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
@@ -2047,6 +2055,16 @@ mod tests {
         };
         assert!(reviewed("Fine.\n\nVerdict: approve").due(&done, &approving, NOW + 64_000).is_empty());
         assert_eq!(kinds(&reviewed("Two problems.\n\nVerdict: request changes").due(&done, &approving, NOW + 64_000)), ["comment on 7 1111111"]);
+
+        // While its base branch's team file isn't read, nothing starts or is submitted: what the
+        // team sets would be missed.
+        let mut unread = done.clone();
+        unread.repo_settings.here.insert("o/r".into());
+        let mut r = reviewed("Two problems.\n\nVerdict: request changes");
+        assert!(r.due(&unread, &approving, NOW + 64_000).is_empty(), "no submit");
+        assert!(Reviewer::default().due(&unread, &approving, NOW).is_empty(), "no review");
+        unread.repo_settings.read.insert(("o/r".into(), "main".into()));
+        assert_eq!(kinds(&Reviewer::default().due(&unread, &approving, NOW)).len(), 1);
     }
 
     fn read(r: &mut Reviewer, b: &Board, cfg: &ReviewsCfg, when: i64, review: &str, agent: &str) {
