@@ -158,6 +158,18 @@ fn said(probe: &PageProbe) -> String {
     format!("the page has the pointer at {:.0},{:.0} ({:.0} ms old) on {:?}, zoom {}; lists: {}", probe.x, probe.y, probe.age, probe.under, probe.zoom, if lists.is_empty() { "none".to_string() } else { lists.join("; ") })
 }
 
+/// Where macOS has the pointer, `p` in screen points, as a page in `host` (its box on the screen)
+/// at `zoom` counts it, in its CSS pixels from its top left: none when it's off the page, where
+/// a report the page made before it left would compare with nothing.
+pub fn page_pointer(host: Rect, p: (f64, f64), zoom: f64) -> Option<(f64, f64)> {
+    if !host.contains(p) {
+        return None;
+    }
+    let z = if zoom > 0.0 { zoom } else { 1.0 };
+    let (x, y) = host.page_point(p);
+    Some((x / z, y / z))
+}
+
 /// The first report agreeing is logged, to say the probe runs; a disagreement at most this often.
 static SAID_AGREE: AtomicBool = AtomicBool::new(false);
 static LAST_OFF: Mutex<Option<Instant>> = Mutex::new(None);
@@ -177,9 +189,8 @@ pub fn compare(w: &WebviewWindow, probe: PageProbe) {
         // the page counts it, in its CSS pixels.
         let host = panel::rect(ns.convertRectToScreen(view.convertRect_toView(view.bounds(), None)));
         let p = NSEvent::mouseLocation();
-        let z = if probe.zoom > 0.0 { probe.zoom } else { 1.0 };
-        let (px, py) = host.page_point((p.x, p.y));
-        let pointer = Some((px / z, py / z));
+        let Some(pointer) = page_pointer(host, (p.x, p.y), probe.zoom) else { return };
+        let pointer = Some(pointer);
         // A testing SPI, so asked for only where WebKit answers to it.
         let tree: Option<Retained<NSString>> = if page.respondsToSelector(sel!(_scrollingTreeAsText)) {
             // SAFETY: WKWebView's `_scrollingTreeAsText` takes nothing and returns an NSString;
@@ -301,6 +312,17 @@ mod tests {
         let nodes = scroll_nodes(TREE);
         let line = disagreement(&probe(90.0), Some((300.0, 334.0)), &nodes).unwrap();
         assert!(line.contains("+0,-66 from the page's"), "{line}");
+    }
+
+    #[test]
+    fn counts_the_pointer_from_the_pages_top_left_and_not_off_it() {
+        // A page 1000 by 800 whose bottom left is at 100,50 on the screen.
+        let host = Rect { x: 100.0, y: 50.0, w: 1000.0, h: 800.0 };
+        assert_eq!(page_pointer(host, (400.0, 650.0), 1.0), Some((300.0, 200.0)));
+        assert_eq!(page_pointer(host, (400.0, 650.0), 1.25), Some((240.0, 160.0)));
+        // Left the window after the page's last pointer event: nothing to compare with.
+        assert_eq!(page_pointer(host, (1200.0, 650.0), 1.0), None);
+        assert_eq!(page_pointer(host, (400.0, 900.0), 1.0), None);
     }
 
     #[test]

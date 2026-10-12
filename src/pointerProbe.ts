@@ -53,6 +53,12 @@ export function usePointerProbe(on: boolean) {
       window.clearTimeout(timer);
       timer = window.setTimeout(report, REST_MS);
     };
+    // Out of the page, the last place the page had the pointer is nowhere macOS has it.
+    const onOut = (e: PointerEvent) => {
+      if (e.relatedTarget !== null) return;
+      last = null;
+      window.clearTimeout(timer);
+    };
     const onScroll = (e: Event) => {
       const t = e.target;
       if (!(t instanceof Element)) return;
@@ -61,11 +67,13 @@ export function usePointerProbe(on: boolean) {
       recent.set(t, list.slice(-RECENT));
     };
     window.addEventListener('pointermove', onMove, { capture: true, passive: true });
+    window.addEventListener('pointerout', onOut, { capture: true, passive: true });
     // A list's scroll doesn't bubble, but it's heard on its way down.
     document.addEventListener('scroll', onScroll, { capture: true, passive: true });
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener('pointermove', onMove, { capture: true });
+      window.removeEventListener('pointerout', onOut, { capture: true });
       document.removeEventListener('scroll', onScroll, { capture: true });
     };
   }, [on]);
