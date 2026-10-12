@@ -218,11 +218,32 @@ interface BoxTextProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>,
  *  wide as its box times a card's CSS zoom (zoom.ts), so in a card drawn at a zoom the empty box
  *  scrolled sideways and a long hint was cut off, and no CSS on `::placeholder` takes it out of
  *  the layout (checked in a WKWebView on 2026-10-06). The hint is the textarea's
- *  `aria-placeholder`, for a screen reader. */
-export const BoxText = forwardRef<HTMLTextAreaElement, BoxTextProps>(function BoxText({ value, hint, lines, ...rest }, ref) {
+ *  `aria-placeholder`, for a screen reader.
+ *
+ *  The first time it's focused, the caret goes to the end of what's in it. WebKit puts it at the
+ *  start of a box focused for the first time without being told where, as a key pressed with
+ *  nothing focused does in the peek, the notch and the waiting window, so the key went in before
+ *  the draft. After that WebKit puts the caret back where it was left, and a click places it
+ *  where it lands, after the focus (checked in a WKWebView on 2026-10-12). */
+export const BoxText = forwardRef<HTMLTextAreaElement, BoxTextProps>(function BoxText({ value, hint, lines, onFocus, ...rest }, ref) {
+  const placed = useRef(false);
   return (
     <div className="ca-composer-text" style={{ '--ca-box-lines': lines } as CSSProperties}>
-      <textarea ref={ref} value={value} rows={1} aria-placeholder={hint} {...rest} />
+      <textarea
+        ref={ref}
+        value={value}
+        rows={1}
+        aria-placeholder={hint}
+        {...rest}
+        onFocus={(e) => {
+          if (!placed.current) {
+            placed.current = true;
+            const end = e.currentTarget.value.length;
+            e.currentTarget.setSelectionRange(end, end);
+          }
+          onFocus?.(e);
+        }}
+      />
       {/* The space after the text gives a last line that's empty its height. */}
       <span className={cx('ca-composer-copy', value === '' && 'ca-composer-hint')} aria-hidden="true">
         {value === '' ? hint : `${value} `}
