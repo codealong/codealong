@@ -1756,7 +1756,7 @@ pub fn run() {
                 // A sound for what came to wait on you (sounds.rs), on a thread of its own, since
                 // the first one waits on macOS's audio to start.
                 if let (Ok(mut chimer), Ok(cfg)) = (chimer.lock(), config::current()) {
-                    if let Some(kind) = chimer.due(&feed, &cfg.sounds, board.generated_at) {
+                    if let Some(kind) = chimer.due(board, &feed, &cfg.sounds) {
                         let (name, volume) = (kind.sound(&cfg.sounds).to_string(), cfg.sounds.volume);
                         std::thread::spawn(move || {
                             if let Err(e) = sounds::play(&name, volume) {

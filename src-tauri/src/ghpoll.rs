@@ -236,6 +236,8 @@ pub struct GhPoll {
     merged_here: HashMap<(String, u64), (Instant, i64)>,
     /// When GitHub last answered.
     at: Option<i64>,
+    /// When its search for the PRs that wait on your review last answered.
+    requested_at: Option<i64>,
     login: Option<String>,
     schedule: Schedule,
     names: Names,
@@ -263,6 +265,7 @@ impl GhPoll {
             approved_here: HashMap::new(),
             merged_here: HashMap::new(),
             at: None,
+            requested_at: None,
             login: None,
             schedule: Schedule::default(),
             names: Names::default(),
@@ -282,6 +285,12 @@ impl GhPoll {
     /// When GitHub last answered.
     pub fn at(&self) -> Option<i64> {
         self.at
+    }
+
+    /// When GitHub's search for the PRs that wait on your review last answered: before that,
+    /// `requested` is empty for want of an answer, not because nothing waits on you.
+    pub fn requested_at(&self) -> Option<i64> {
+        self.requested_at
     }
 
     /// Who `gh` is signed in as.
@@ -621,6 +630,7 @@ impl GhPoll {
         }
         self.answered(github::REQUESTED, None);
         self.at = Some(now.ms);
+        self.requested_at = Some(now.ms);
         true
     }
 }

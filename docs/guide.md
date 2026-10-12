@@ -1201,12 +1201,13 @@ notch's count already show what came (*Queues, pills and the mark*), and the sou
 aren't looking at them.
 
 The sounds follow the bar's pills, whether the bar is up or not, so a snoozed session, the end of a
-quieted one's turn, a helper that doesn't need you and a worktree kept out of sight make none, and a
-session on another of your Macs makes one here as it would there. To stay out of the way:
+quieted one's turn, a helper that doesn't need you and a worktree kept out of sight make none. Each
+Mac sounds for its own sessions: one on another of your Macs sounds there. To stay out of the way:
 
-- nothing sounds for what already waits when Codealong opens;
-- a session that comes back to you within 15 seconds of starting to work makes none: you just sent
-  it something or answered it, and are likely still looking at it;
+- nothing sounds for what already waits when Codealong opens, nor for the reviews already asked of
+  you that GitHub's first answer brings;
+- a session that comes back to you within 15 seconds of going back to work makes none: you just
+  sent it something or answered it, and are likely still looking at it;
 - a few at once make one sound, the most urgent's (a session that needs you, then a review, then a
   turn that ended), and there's one at most every 10 seconds.
 

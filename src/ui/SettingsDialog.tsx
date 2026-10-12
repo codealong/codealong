@@ -354,7 +354,7 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
           <small>Of the Mac’s own volume.</small>
         </label>
         <p className="ca-settings-lede">
-          To stay out of the way, nothing sounds for what already waits when Codealong opens, nor for a session that comes back to you within 15 seconds of starting to work (you just sent it something or answered it, so you’re likely watching), nor for a snoozed
+          To stay out of the way, nothing sounds for what already waits when Codealong opens, nor for a session that comes back to you within 15 seconds of going back to work (you just sent it something or answered it, so you’re likely watching), nor for a snoozed
           session or the end of a quieted one’s turn. A few at once make one sound, the most urgent’s, and there’s one at most every 10 seconds. Sounds you put in ~/Library/Sounds are listed too.
         </p>
       </fieldset>
