@@ -67,7 +67,7 @@
   var card = function () { return document.querySelector('.ca-prhover'); };
   var toggle = function () { return card() && card().querySelector('.ca-prhover-nudge'); };
   var on = function () { return toggle().getAttribute('aria-checked') === 'true'; };
-  var says = function () { return toggle().parentNode.querySelector('.ca-prhover-meta').textContent; };
+  var says = function () { return toggle().parentNode.querySelector('.ca-hovercard-meta').textContent; };
   var hover = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };
   var leave = function (el) { el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); };
   var push = function (change) {

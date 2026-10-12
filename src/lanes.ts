@@ -236,7 +236,9 @@ function headlineFor(bay: Bay, own: Session[], pr: Pr | null, since: string): [s
   return [`No agents active ${since}`, null];
 }
 
-/** One helper as its session's row shows it: a status glyph on the chip, a line in its tooltip. */
+/** One helper as its session's row shows it: a status glyph on the chip, and a row on the chip's
+ *  card (HelpersCard.tsx). Values, not the session, so the row draws again only when one of them
+ *  changes (memoRow.ts). */
 export interface HelperGlance {
   key: string;
   title: string;
@@ -247,20 +249,37 @@ export interface HelperGlance {
   since: number;
   /** The PR it reviews (`#204`), for an automatic review. */
   review: string | null;
+  /** What it's doing, asking you, or last said (`Session.excerpt`). */
+  excerpt: string | null;
+  /** Who runs it, on which model when that's known. */
+  account: string;
+  model: string | null;
+  /** Its worktree, where it isn't its session's. */
+  worktree: string | null;
+  /** Its session is told when its turn ends (`codealong start --helper --report`). */
+  reports: boolean;
 }
 
-/** A helper's line in its session's chip's tooltip: what it is, and where it stands since when. */
-export function helperLine(g: HelperGlance, now: number): string {
-  const name = g.review ? `Review of ${g.review}` : g.title;
-  const stands =
-    g.status === 'working'
-      ? `working for ${duration(g.since, now)}`
-      : g.status === 'needs'
-        ? `waits on you, ${agoPhrase(g.since, now)}`
-        : g.status === 'error'
-          ? `stopped with an error ${agoPhrase(g.since, now)}`
-          : `done ${agoPhrase(g.since, now)}`;
-  return `${name} · ${stands}`;
+/** What a helper is called on its session's chip: an automatic review by the PR it reviews. */
+export function helperName(g: Pick<HelperGlance, 'title' | 'review'>): string {
+  return g.review ? `Review of ${g.review}` : g.title;
+}
+
+/** Where a helper stands, since when: `working for 3m`, `done 12m ago`. */
+export function helperStands(g: Pick<HelperGlance, 'status' | 'since'>, now: number): string {
+  return g.status === 'working'
+    ? `working for ${duration(g.since, now)}`
+    : g.status === 'needs'
+      ? `waits on you, ${agoPhrase(g.since, now)}`
+      : g.status === 'error'
+        ? `stopped with an error ${agoPhrase(g.since, now)}`
+        : `done ${agoPhrase(g.since, now)}`;
+}
+
+/** A helper's line in its session's chip's tooltip, where the chip has no card: what it is, and
+ *  where it stands since when. */
+export function helperLine(g: Pick<HelperGlance, 'title' | 'review' | 'status' | 'since'>, now: number): string {
+  return `${helperName(g)} · ${helperStands(g, now)}`;
 }
 
 /** Text in backticks, as the engine's `code` writes it: shown as code. */

@@ -1334,10 +1334,14 @@ mark. Started without `--in`, it runs out of sight, as automatic reviews do.
 In Sessions a helper is listed under the session it works for while it works or waits on you: on
 one line, set in, joined to the session by a thread from the session's status, and naming its
 worktree only when it isn't the session's. The session's row has a chip with each of its
-helpers' status glyphs, the most urgent first (three, then +N), whose tooltip has a line for each:
-*Review of #204 · done 12m ago*, *Review the diff · working for 3m*. A double-click on the chip
-lists all its helpers under it, finished ones too, until another double-click; Codealong remembers
-that across launches. Its panel lists them all under its title, as *Its helper*. The helper's own panel
+helpers' status glyphs, the most urgent first (three, then +N). Resting the pointer on the chip
+brings up a card with every one of them: what it's called (*Review of #204* for an automatic
+review), where it stands since when (*Working for 3m*, *Done 12m ago*), what it's doing, asking you
+or last said, and who runs it, on which model, in which worktree when it isn't the session's. A
+click on one shows it, listed under the session (a finished one too), with its conversation in the
+panel; its arrow opens it where it runs, and a right-click has its menu. A double-click on the
+chip, or the card's *List them all under it*, lists all its helpers under it, finished ones too,
+until another; Codealong remembers that across launches. Its panel lists them all under its title, as *Its helper*. The helper's own panel
 says *Helper of* that session over its title, and an automatic review's says *Review of* its PR.
 A helper whose session isn't listed (filtered out, or a review of a PR that waits on your review,
 which has no session of yours) is listed on its own only while it waits on you, with a *Helper* or

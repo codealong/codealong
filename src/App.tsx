@@ -29,6 +29,7 @@ import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/Settings
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
+import type { HelperActions } from './ui/HelpersCard';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection } from './ui/PinnedSection';
 import { useRowDrag, type DragProps } from './ui/useRowDrag';
@@ -67,7 +68,7 @@ import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, toggleShown, useBoardLists } from './boardLists';
+import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, sessionItemOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
 import { inProject } from './quick';
 import { setPageZoom, type ZoomStep } from './zoom';
 
@@ -949,6 +950,33 @@ export function App() {
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
+  // A helpers chip's card (HelpersCard.tsx): a helper shown in Sessions, under its session, which
+  // lists it first when it doesn't yet (a finished one), with its conversation in the panel;
+  // opened where it runs, listed so too, since one Codealong runs opens in its panel here; its
+  // menu.
+  const helperRow = (key: string): SessionItem | null => {
+    const home = homes.get(key);
+    return home ? sessionItemOf(home) : null;
+  };
+  const helperActions: HelperActions = {
+    show: (key) => {
+      const r = helperRow(key);
+      if (!r) return;
+      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r));
+      picks.sessions.select(r, 'one');
+      focusBox();
+    },
+    open: (key) => {
+      const r = helperRow(key);
+      if (!r) return;
+      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r));
+      openRow(r);
+    },
+    menu: (key) => {
+      const r = helperRow(key);
+      if (r) sessionMenu(r.lane, r.session, 'session');
+    },
+  };
 
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
   const laneCan = (lane: Lane): menus.LaneCan => ({
@@ -1639,6 +1667,7 @@ export function App() {
                 helpersOf={helpersOf}
                 helpersShown={helpersShown}
                 onToggleHelpers={toggleHelpers}
+                helperActions={helperActions}
                 onShowTodo={showTodo}
               />
             )}

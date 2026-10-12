@@ -12,6 +12,7 @@ import { bySession, byStatusTime, startedOf, waitingSince } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount } from '../boardLists';
 import type { Bay, DesktopPinned, Lane, Session, Status, Todo } from '../types';
+import type { HelperActions } from './HelpersCard';
 import { AgentRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
 import { BAY_WORD, BayHeader, SectionHeader, Seg } from './primitives';
@@ -254,11 +255,13 @@ interface SessionsViewProps {
    *  turns on and off (`onToggleHelpers`). */
   helpersShown?: ReadonlySet<string>;
   onToggleHelpers?: (sessionKey: string) => void;
+  /** What a helpers chip's card does with a helper (HelpersCard.tsx). */
+  helperActions?: HelperActions;
   onShowTodo?: (todo: Todo) => void;
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, onShowTodo } = props;
+  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, helperActions, onShowTodo } = props;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
@@ -294,6 +297,7 @@ export function SessionsView(props: SessionsViewProps) {
       helpers={helpersOf?.(r.session.key)}
       helpersShown={!!helpersShown?.has(r.session.key)}
       onToggleHelpers={onToggleHelpers && (() => onToggleHelpers(r.session.key))}
+      helperActions={helperActions}
       nested={r.nested}
       elsewhere={r.elsewhere}
       onShowTodo={onShowTodo}

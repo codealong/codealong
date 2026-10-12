@@ -2,10 +2,12 @@
 // on the board helpers-init.js makes: the helpers that work or wait on you are listed under the
 // session that started them, set in, each on one line with no divider above it and a thread from
 // the session's status into its own (LaneRow.css), and the finished one isn't; the session's chip
-// has each helper's status glyph, the one waiting on you first, in the attention color, and a
-// line for each in its tooltip (LaneRow.tsx `HelpersChip`); a double-click on it lists the
-// finished one too and remembers that, and another takes it away; the helper that waits on you
-// takes the session into Needs you with it. The session's panel lists its helpers under its
+// has each helper's status glyph, the one waiting on you first, in the attention color (LaneRow.tsx
+// `HelpersChip`); a double-click on it lists the finished one too and remembers that, and another
+// takes it away; resting on it brings up its card (HelpersCard.tsx), a row for each helper saying
+// where it stands and who runs it, whose right-click is that helper's menu and whose click lists
+// the finished one under the session and shows it; the helper that waits on you takes the session
+// into Needs you with it. The session's panel lists its helpers under its
 // title, and a helper's panel names the session as the one it helps.
 //   PREVIEW_INIT=scripts/preview/helpers-init.js PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/helpers-check.js
 (function () {
@@ -60,8 +62,6 @@
       var glyphs = chip ? all('.ca-helperschip-glyphs .ca-glyph', chip) : [];
       check('the session’s chip has each helper’s status, the one waiting on you first', glyphs.length === 3 && glyphs[0].classList.contains('ca-glyph--needs') && glyphs[1].classList.contains('ca-glyph--working'), glyphs.map(function (g) { return g.getAttribute('class'); }).join(' | '));
       check('in the attention color while one waits on you', !!chip && chip.classList.contains('is-waiting'));
-      var tip = chip ? chip.title.split('\n') : [];
-      check('its tooltip has a line for each, saying where it stands', tip[0] === 'Its 3 helpers:' && /^· Check the migration on staging · waits on you/.test(tip[1]) && /^· Review the diff for races · working for /.test(tip[2]) && /^· Second opinion on the API shape · done /.test(tip[3]) && /^Double-click to list them all/.test(tip[4]), chip && chip.title);
       // A double-click lists them all under the session, the finished one too, and again lists
       // only the ones at work.
       chip.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
@@ -71,6 +71,66 @@
       q('.ca-helperschip', boss).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
       await until(function () { return !rowOf(h.kids[2].title); }, 5000, 'the finished helper gone again');
       check('another lists only the ones at work again', !q('.ca-helperschip', boss).classList.contains('is-shown') && !!rowOf(h.kids[0].title));
+
+      // Resting on the chip brings up its card, which says what its tooltip would.
+      var anchor = q('.ca-helperschip-anchor', boss);
+      check('the chip leaves its tooltip to its card', !!anchor && !q('.ca-helperschip', boss).title);
+      anchor.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+      var card = await until(function () { return q('.ca-helperscard'); }, 3000, 'the helpers card');
+      var text = function (el, sel) { var x = el && q(sel, el); return x ? x.textContent : ''; };
+      var cardRows = all('.ca-helperscard-row', card);
+      var kidBy = function (title) { return h.kids.filter(function (k) { return k.title === title; })[0]; };
+      var chipBox = q('.ca-helperschip', boss).getBoundingClientRect();
+      var cardBox = card.getBoundingClientRect();
+      check('beside the chip, inside the window', (cardBox.top >= chipBox.bottom || cardBox.bottom <= chipBox.top) && cardBox.left >= 0 && cardBox.right <= innerWidth && cardBox.bottom <= innerHeight, JSON.stringify([Math.round(chipBox.bottom), Math.round(cardBox.top), Math.round(cardBox.bottom)]));
+      check('its card names them', /^Its 3 helpers/.test(text(card, '.ca-hovercard-head')), text(card, '.ca-hovercard-head'));
+      check('a row for each, the one waiting on you first, saying where it stands', cardRows.length === 3 && text(cardRows[0], '.ca-helperscard-name') === 'Check the migration on staging' && /^Waits on you, /.test(text(cardRows[0], '.ca-helperscard-stands')) && text(cardRows[1], '.ca-helperscard-name') === 'Review the diff for races' && /^Working for /.test(text(cardRows[1], '.ca-helperscard-stands')) && /^Done /.test(text(cardRows[2], '.ca-helperscard-stands')), cardRows.map(function (r) { return text(r, '.ca-helperscard-name') + ' / ' + text(r, '.ca-helperscard-stands'); }).join(' | '));
+      check('and who runs it, naming its worktree only when it isn’t the session’s', cardRows.every(function (r) {
+        var kid = kidBy(text(r, '.ca-helperscard-name'));
+        var runs = text(r, '.ca-helperscard-runs');
+        return !!kid && runs.indexOf(kid.account) === 0 && (runs.indexOf(' · in ') >= 0) === (kid.lane !== h.boss.lane);
+      }), cardRows.map(function (r) { return text(r, '.ca-helperscard-runs'); }).join(' | '));
+      check('with a way to list them all under it', /List them all under it/.test(text(card, '.ca-hovercard-foot')), text(card, '.ca-hovercard-foot'));
+      // A right-click on a row is that helper's menu, not the session's.
+      var menus = function () { return window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; }).length; };
+      var before = menus();
+      cardRows[2].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }));
+      await until(function () { return menus() > before; }, 3000, 'the helper’s menu');
+      var items = window.__menu().map(function (i) { return i[0]; });
+      check('a right-click on one is its menu', items.indexOf('Make it my own') >= 0, items.join(' | '));
+      // A click on the finished one lists it under the session and shows it.
+      var selectedBefore = q('.ca-sessionlist .is-selected');
+      anchor.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+      card = await until(function () { return q('.ca-helperscard'); }, 3000, 'the helpers card again');
+      q('.ca-helperscard-main', all('.ca-helperscard-row', card)[2]).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      var picked = await until(function () { var r = rowOf(h.kids[2].title); return r && r.classList.contains('is-selected') && r; }, 5000, 'the finished helper listed and selected after a click on it in the card');
+      check('a click on one lists it under the session and selects it', picked.classList.contains('is-nested') && !q('.ca-helperscard') && !boss.classList.contains('is-selected'), picked.className + ' / was ' + (selectedBefore && selectedBefore.className));
+      q('.ca-helperschip', boss).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+      await until(function () { return !rowOf(h.kids[2].title); }, 5000, 'the finished helper gone again');
+      // Its arrow opens it where it runs: Codealong runs this one, so in its panel here, listed.
+      anchor.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+      card = await until(function () { return q('.ca-helperscard'); }, 3000, 'the helpers card once more');
+      q('.ca-helperscard-open', all('.ca-helperscard-row', card)[2]).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      var opened = await until(function () { var r = rowOf(h.kids[2].title); return r && r.classList.contains('is-selected') && r; }, 5000, 'the finished helper Codealong runs, opened from its arrow');
+      check('its arrow opens one Codealong runs in its panel, listed under the session', opened.classList.contains('is-nested'));
+      q('.ca-helperschip', boss).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+      await until(function () { return !rowOf(h.kids[2].title); }, 5000, 'the finished helper gone once more');
+      // So too when a search lists it: opening it clears the search, and it stays listed.
+      var search = q('input[placeholder^="Filter"]');
+      type(search, 'zqhelpers');
+      await until(function () { return rowOf(h.kids[2].title) && rowOf(h.boss.title); }, 5000, 'the session and its finished helper found by a search');
+      boss = rowOf(h.boss.title);
+      anchor = q('.ca-helperschip-anchor', boss);
+      anchor.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+      card = await until(function () { return q('.ca-helperscard'); }, 3000, 'the helpers card while searching');
+      q('.ca-helperscard-open', all('.ca-helperscard-row', card)[2]).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      var found = await until(function () { var r = rowOf(h.kids[2].title); return search.value === '' && r && r.classList.contains('is-selected') && r; }, 5000, 'the found helper, opened, with the search cleared');
+      check('found by a search and opened from its arrow, it stays listed once the search clears', found.classList.contains('is-nested'));
+      boss = rowOf(h.boss.title);
+      q('.ca-helperschip', boss).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+      await until(function () { return !rowOf(h.kids[2].title); }, 5000, 'the finished helper gone after the search');
+      // The search took the other rows away and drew them again.
+      kidRows = h.kids.map(function (k) { return rowOf(k.title); });
       var section = boss.closest('section');
       check('and they’re in Needs you together', !!section && /Needs you/.test(section.textContent.slice(0, 40)) && kidRows[1].closest('section') === section, section && section.textContent.slice(0, 40));
       check('a nested helper has no helper chip of its own', !q('.ca-helperchip', kidRows[1]));

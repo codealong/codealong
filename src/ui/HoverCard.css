@@ -1,0 +1,57 @@
+/* A card that opens beside what the pointer rests on (HoverCard.tsx): a PR's (PrLink.css) or a
+   session's helpers (HelpersCard.css). It takes the pointer, so its rows and buttons can be used;
+   the hover of what it's beside and the card's are one. Its parts: a head, lines of detail, a
+   section under a rule, and buttons at its foot. */
+.ca-hovercard {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  overflow: auto;
+  padding: var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: var(--type-meta);
+  text-align: left;
+}
+.ca-hovercard p {
+  margin: 0;
+}
+.ca-hovercard-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.ca-hovercard-meta {
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.ca-hovercard-error {
+  color: var(--alert);
+}
+.ca-hovercard-sec {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+.ca-hovercard-sec > .ca-label {
+  margin-bottom: 2px;
+}
+.ca-hovercard-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: var(--space-2);
+}

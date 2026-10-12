@@ -1,0 +1,97 @@
+/* A session's helpers' card (HelpersCard.tsx): a row for each helper, its name over where it
+   stands and what it's doing, then who runs it. A click on the row shows the helper; the arrow
+   that opens it where it runs shows on hover, as on a panel's session (PanelSession.css). */
+.ca-helperscard-count {
+  font: var(--type-meta-strong);
+}
+.ca-helperscard-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  margin: var(--space-1) calc(0px - var(--space-2)) 0;
+}
+.ca-helperscard-row {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+}
+.ca-helperscard-row:hover {
+  background: var(--surface-hover);
+}
+.ca-helperscard-main {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 5px 4px 5px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-helperscard-main .ca-glyph {
+  flex: none;
+  margin-top: 3px;
+}
+.ca-helperscard-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ca-helperscard-name {
+  font: var(--type-meta-strong);
+  overflow-wrap: anywhere;
+}
+.ca-helperscard-stands {
+  font: var(--type-caption);
+  color: var(--ink-2);
+}
+/* What it's doing, asking or last said: two lines at most. */
+.ca-helperscard-says {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font: var(--type-caption);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ca-helperscard-runs {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-caption);
+  color: var(--ink-3);
+}
+.ca-helperscard-open {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+}
+.ca-helperscard-row:hover .ca-helperscard-open,
+.ca-helperscard-open:focus-visible {
+  opacity: 1;
+}
+.ca-helperscard-open:hover {
+  color: var(--ink);
+  background: var(--surface-selected);
+}
+.ca-helperscard-main:focus-visible,
+.ca-helperscard-open:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}

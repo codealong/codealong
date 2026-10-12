@@ -7,7 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, bySession, filterByAge, helping, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, bySession, filterByAge, helping, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
@@ -133,7 +133,12 @@ export function archivedIn(lanes: Lane[], project: string, query = ''): SessionI
 
 /** Each session once, in the worktree it runs in: the Sessions view's rows. */
 export function sessionItemsOf(lanes: Lane[]): SessionItem[] {
-  return lanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s })));
+  return lanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((session) => sessionItemOf({ lane, session })));
+}
+
+/** A session's row in Sessions, by where it lives. */
+export function sessionItemOf({ lane, session }: Placed): SessionItem {
+  return { kind: 'agent', key: `${lane.id}::${session.key}`, lane, session };
 }
 
 /** A session's helpers on the board, for the chip on its row: how many, how many of them work or
@@ -148,20 +153,50 @@ export interface HelperCount {
 
 /** Each session's helpers (`Session.helper`), by the session's key: the ones not archived. */
 export function helperCounts(items: SessionItem[]): Map<string, HelperCount> {
-  const of = new Map<string, Session[]>();
-  for (const { session: s } of items) {
-    const parent = s.helper?.parent;
-    if (!parent || s.archived) continue;
-    of.set(parent, [...(of.get(parent) ?? []), s]);
+  const of = new Map<string, SessionItem[]>();
+  const laneOf = new Map(items.map((r) => [r.session.key, r.lane.id]));
+  for (const r of items) {
+    const parent = r.session.helper?.parent;
+    if (!parent || r.session.archived) continue;
+    of.set(parent, [...(of.get(parent) ?? []), r]);
   }
   const out = new Map<string, HelperCount>();
-  for (const [parent, list] of of) {
-    const each = [...list].sort(bySession).map(
-      (s): HelperGlance => ({ key: s.key, title: s.title, status: s.status, background: s.background, since: s.statusSince ?? s.lastActivity, review: s.helper?.pr ? `#${s.helper.pr.split('#')[1]}` : null }),
-    );
+  for (const [parent, rows] of of) {
+    const each = [...rows]
+      .sort((a, b) => bySession(a.session, b.session))
+      .map(
+        ({ lane, session: s }): HelperGlance => ({
+          key: s.key,
+          title: s.title,
+          status: s.status,
+          background: s.background,
+          since: s.statusSince ?? s.lastActivity,
+          review: s.helper?.pr ? `#${s.helper.pr.split('#')[1]}` : null,
+          excerpt: s.excerpt,
+          account: s.account,
+          model: s.model ?? null,
+          worktree: lane.id === laneOf.get(parent) ? null : worktreeName(lane),
+          reports: !!s.helper?.report,
+        }),
+      );
+    const list = rows.map((r) => r.session);
     out.set(parent, { count: list.length, working: list.filter((s) => s.status === 'working').length, waiting: list.filter((s) => s.status === 'needs' || s.status === 'error').length, each });
   }
   return out;
+}
+
+/** The sessions whose every helper Sessions lists under them, with what it takes to list
+ *  `helper`, which its session's chip's card shows or opens: its session added unless `rows`
+ *  (what Sessions lists now) have the helper and it's at work or waiting on you, so stays listed
+ *  under its session (`placeHelpers`) once opening one Codealong runs clears the search and the
+ *  filters (App.tsx `reveal`). A finished one a search lists now would go with the search; an
+ *  active one the search or a filter leaves out is listed from all of them (`placeHelpers`'s
+ *  `all`). Unchanged otherwise, so the list stays as it is. */
+export function showingHelper(shown: string[], rows: readonly ListRow[], helper: SessionItem): string[] {
+  const parent = helper.session.helper?.parent;
+  const listed = rows.some((r) => 'session' in r && r.session.key === helper.session.key);
+  if (!parent || shown.includes(parent) || (listed && AGENT_BAY[helper.session.status] != null)) return shown;
+  return toggleShown(shown, parent);
 }
 
 /**

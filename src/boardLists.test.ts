@@ -14,6 +14,8 @@ import {
   pinnedLaneRowsOf,
   placeHelpers,
   toggleShown,
+  sessionItemOf,
+  showingHelper,
   prIn,
   prInDone,
   prInFilter,
@@ -261,6 +263,47 @@ describe('the Sessions view’s lists', () => {
       expect(toggleShown(['a', 'b'], 'a')).toEqual(['b']);
       const full = Array.from({ length: HELPERS_SHOWN_MAX }, (_, i) => `s${i}`);
       expect(toggleShown(full, 'new')).toEqual([...full.slice(1), 'new']);
+    });
+
+    it('says on its chip’s card who runs each and where, if not in its session’s worktree', () => {
+      const reports = helper('codex:codex:reports', 'working', { parent: boss.key, report: true });
+      const away = { ...done, model: 'gpt-5.5', account: 'codex' };
+      const items = sessionItemsOf([lane('/r/a', [boss, reports]), lane('/r/b', [away], { callsign: 'elsewhere' })]);
+      const [a, b] = helperCounts(items).get(boss.key)?.each ?? [];
+      expect([a.key, a.worktree, a.reports, a.model]).toEqual([reports.key, null, true, null]);
+      expect([b.key, b.worktree, b.reports, b.model, b.account]).toEqual([away.key, 'elsewhere', false, 'gpt-5.5', 'codex']);
+      expect(a.excerpt).toBe(reports.excerpt);
+    });
+
+    it('lists a helper its card shows under its session, unless it’s listed there anyway', () => {
+      const items = sessionItemsOf([lane('/r/a', [boss, busy, done, asks])]);
+      const row = (s: Session) => items.find((r) => r.session.key === s.key)!;
+      const listed = placeHelpers(items, false);
+      expect(showingHelper(['x'], listed, row(done))).toEqual(['x', boss.key]);
+      // Listed, at work or waiting on you, or its session's helpers all listed: as it was.
+      const shown = ['x'];
+      expect(showingHelper(shown, listed, row(busy))).toBe(shown);
+      expect(showingHelper(shown, listed, row(asks))).toBe(shown);
+      const all = [boss.key];
+      expect(showingHelper(all, listed, row(done))).toBe(all);
+      // A search that finds a finished one lists it, but opening one Codealong runs clears the
+      // search, which would leave it out: its session is added all the same.
+      const searched = placeHelpers(items, true);
+      expect(keysOf(searched)).toContain(done.key);
+      expect(keysOf(placeHelpers(items, false, new Set(showingHelper([], searched, row(done)))))).toContain(done.key);
+      // A search that finds only its session leaves an active one out, which its card still
+      // shows: a click lists it, the search still there.
+      for (const status of ['working', 'needs', 'error', 'unread'] as const) {
+        const parent = { ...boss, title: 'Implement feature' };
+        const kid = { ...helper('codex:codex:kid', status), title: 'Review changes' };
+        const both = sessionItemsOf([lane('/r/a', [parent, kid])]);
+        const found = placeHelpers(shownSessionsOf(both, 0, new Set(), 'Implement feature', []), true, new Set(), both);
+        expect(keysOf(found)).toEqual([parent.key]);
+        const after = showingHelper([], found, both[1]);
+        expect(keysOf(placeHelpers(shownSessionsOf(both, 0, new Set(), 'Implement feature', []), true, new Set(after), both))).toEqual([parent.key, kid.key]);
+      }
+      // A row of its own made as the list makes them.
+      expect(sessionItemOf({ lane: row(done).lane, session: done })).toEqual(row(done));
     });
 
     it('lists a helper’s own helpers under it in turn, and all of them when it’s asked to', () => {

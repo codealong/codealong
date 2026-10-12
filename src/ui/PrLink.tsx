@@ -12,8 +12,7 @@
 // GitHub once its card shows (pr_card, which matches it to sessions as the board does), and the
 // answer is kept a while for every link to it.
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { prIndex, prRefOf, type PrRef } from '../prLinks';
@@ -21,10 +20,10 @@ import { nudgeWords } from '../prStatus';
 import { errorText } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
+import { HoverCard, useHoverCard, type HoverCardState } from './HoverCard';
 import { PanelSession, PR_PRIMARY } from './PanelSession';
 import { PrPills } from './PrPills';
 import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
-import { useDismiss } from './useDismiss';
 
 /** What a window does with a PR link's card: showing and opening what's on it, and menus. */
 export interface PrLinkActions {
@@ -113,64 +112,22 @@ export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly L
   useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.repos, nudges?.teamFiles]);
 }
 
-const SHOW_MS = 350;
-const HIDE_MS = 200;
-/** After a card closes, another link's shows at once for this long. */
-const WARM_MS = 500;
-/** The one card that's up, so a new one closes it. */
-let shown: (() => void) | null = null;
-let warmUntil = 0;
-
 /** A PR's card for what shows the PR, a link or a chip: the handlers its anchor takes, and the
  *  card while it's up. Without a window that says what to do with it (a page that never called
  *  usePrLinks), there's no card. */
 function usePrCard(url: string, ref: PrRef) {
   const hosted = host.actions !== null;
-  const anchor = useRef<HTMLElement | null>(null);
-  const [open, setOpen] = useState(false);
-  const timer = useRef(0);
-  const closeRef = useRef(() => setOpen(false));
-
-  useEffect(
-    () => () => {
-      window.clearTimeout(timer.current);
-      if (shown === closeRef.current) shown = null;
-    },
-    [],
-  );
-
-  const show = () => {
-    window.clearTimeout(timer.current);
-    const go = () => {
-      if (shown && shown !== closeRef.current) shown();
-      shown = closeRef.current;
-      setOpen(true);
-    };
-    if (performance.now() < warmUntil) go();
-    else timer.current = window.setTimeout(go, SHOW_MS);
-  };
-  const close = () => {
-    window.clearTimeout(timer.current);
-    if (shown === closeRef.current) {
-      shown = null;
-      warmUntil = performance.now() + WARM_MS;
-    }
-    setOpen(false);
-  };
-  const hide = () => {
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(close, HIDE_MS);
-  };
+  const c = useHoverCard();
 
   const follow = () => {
-    close();
+    c.close();
     const openLink = host.actions?.openLink;
     if (openLink) openLink(url);
     else void openUrl(url);
   };
 
-  const card = open && anchor.current ? <PrCard anchor={anchor.current} prRef={ref} url={url} onEnter={show} onLeave={hide} onClose={close} onFollow={follow} /> : null;
-  return { hosted, anchor, show, hide, close, follow, card };
+  const card = c.open && c.anchor.current ? <PrCard card={c} prRef={ref} url={url} onFollow={follow} /> : null;
+  return { hosted, anchor: c.anchor, show: c.show, hide: c.hide, close: c.close, follow, card };
 }
 
 export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; children: ReactNode }) {
@@ -258,22 +215,15 @@ function HoveredChip({ pr, prRef, onShow, onOpen, onMenu }: { pr: Pr; prRef: PrR
 
 /** Sessions listed before "and N more". */
 const SESSIONS_SHOWN = 5;
-/** Room kept between the card and the window's edges, and between it and the link. */
-const EDGE = 8;
-const GAP = 4;
 
 interface CardProps {
-  anchor: HTMLElement;
+  card: HoverCardState;
   prRef: PrRef;
   url: string;
-  onEnter: () => void;
-  onLeave: () => void;
-  onClose: () => void;
   onFollow: () => void;
 }
 
-function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }: CardProps) {
-  const card = useRef<HTMLDivElement>(null);
+function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
   const listed = useSyncExternalStore(subscribe, () => host.index.get(ref.key));
   const lanes = useSyncExternalStore(subscribe, lanesNow);
   const asked = useSyncExternalStore(subscribe, () => fetched.get(ref.key));
@@ -286,47 +236,6 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
     if (hasBoard || !host.actions?.needBoard) fetchCard(ref);
     else host.actions.needBoard();
   }, [listed, hasBoard, ref]);
-
-  // Under the link, or over it when there's more room there; inside the window either way, and
-  // scrolling within itself when the window is short of room.
-  const place = useRef(() => {});
-  place.current = () => {
-    const el = card.current;
-    if (!el) return;
-    const rects = anchor.isConnected ? anchor.getClientRects() : null;
-    if (!rects || rects.length === 0) return onClose();
-    const first = rects[0];
-    const last = rects[rects.length - 1];
-    el.style.maxHeight = '';
-    const natural = el.offsetHeight;
-    const below = window.innerHeight - last.bottom - GAP - EDGE;
-    const above = first.top - GAP - EDGE;
-    const under = natural <= below || below >= above;
-    const height = Math.max(0, Math.min(natural, under ? below : above));
-    const at = under ? last : first;
-    el.style.maxHeight = `${height}px`;
-    el.style.top = `${under ? last.bottom + GAP : first.top - GAP - height}px`;
-    el.style.left = `${Math.max(EDGE, Math.min(at.left, window.innerWidth - el.offsetWidth - EDGE))}px`;
-  };
-  useLayoutEffect(() => place.current());
-
-  // It goes on a key (which still does what it does), a press elsewhere, or when the window goes
-  // to the background; and it follows the link as the conversation scrolls.
-  useDismiss(card, onClose, { inside: (t) => anchor.contains(t), keys: 'any', blur: true });
-  useEffect(() => {
-    let frame = 0;
-    const onMove = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => place.current());
-    };
-    window.addEventListener('scroll', onMove, true);
-    window.addEventListener('resize', onMove);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', onMove, true);
-      window.removeEventListener('resize', onMove);
-    };
-  }, []);
 
   const laneById = new Map(lanes.map((l) => [l.id, l]));
   // Its primary session first, the one a nudge tells.
@@ -359,13 +268,13 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
   };
   // Doing something from the card closes it first.
   const act = (f: (a: PrLinkActions) => void) => {
-    onClose();
+    card.close();
     if (host.actions) f(host.actions);
   };
 
-  return createPortal(
-    <div ref={card} className="ca-prhover" role="dialog" aria-label={`${ref.slug}#${ref.number}`} onMouseEnter={onEnter} onMouseLeave={onLeave}>
-      <div className="ca-prhover-head">
+  return (
+    <HoverCard card={card} label={`${ref.slug}#${ref.number}`} className="ca-prhover">
+      <div className="ca-hovercard-head">
         <span className={cx('ca-lane-pricon', pr && `ca-pr--${pr.state}`)}>
           <Icon name={pr ? PR_ICON[pr.state] : 'pr'} size={14} stroke={1.75} title={pr ? PR_WORD[pr.state] : undefined} />
         </span>
@@ -377,7 +286,7 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
       {pr ? (
         <>
           <p className="ca-prhover-title">{pr.title}</p>
-          <p className="ca-prhover-meta">
+          <p className="ca-hovercard-meta">
             <code className="ca-ic">{pr.head}</code>
             {pr.base && (
               <>
@@ -386,7 +295,7 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
               </>
             )}
           </p>
-          <p className="ca-prhover-meta">
+          <p className="ca-hovercard-meta">
             by {pr.mine ? 'you' : (pr.author ?? 'unknown')} ·{' '}
             {ended != null ? (
               <span title={absolute(ended)}>
@@ -398,18 +307,18 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
             · +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in {count(pr.changedFiles, 'file')}
           </p>
           {holding.length > 0 && (
-            <p className="ca-prhover-meta">
+            <p className="ca-hovercard-meta">
               Checked out in <span className="ca-prhover-lanes">{holding.map((l) => l.callsign).join(', ')}</span>
             </p>
           )}
         </>
       ) : asked?.error ? (
-        <p className="ca-prhover-error">{asked.error}</p>
+        <p className="ca-hovercard-error">{asked.error}</p>
       ) : (
-        <p className="ca-prhover-meta">Asking GitHub…</p>
+        <p className="ca-hovercard-meta">Asking GitHub…</p>
       )}
       {sessions.length > 0 && (
-        <div className="ca-prhover-sec">
+        <div className="ca-hovercard-sec">
           <h4 className="ca-label">{sessions.length === 1 ? 'Its session' : `Sessions · ${sessions.length}`}</h4>
           <div className="ca-tree" role="tree" aria-label="Sessions">
             {sessions.slice(0, SESSIONS_SHOWN).map(({ lane, session }) => (
@@ -425,22 +334,22 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
               />
             ))}
           </div>
-          {sessions.length > SESSIONS_SHOWN && <p className="ca-prhover-meta">and {sessions.length - SESSIONS_SHOWN} more</p>}
+          {sessions.length > SESSIONS_SHOWN && <p className="ca-hovercard-meta">and {sessions.length - SESSIONS_SHOWN} more</p>}
         </div>
       )}
       {canNudge && listed && (
-        <div className="ca-prhover-sec">
+        <div className="ca-hovercard-sec">
           <button type="button" className="ca-prhover-nudge" role="switch" aria-checked={nudges} onClick={() => setNudge(listed.key, !nudges)}>
             <span>Nudge {sessions.length > 1 ? 'its primary session' : 'its session'} on updates</span>
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
-          <p className="ca-prhover-meta">
+          <p className="ca-hovercard-meta">
             {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device } : null, nudgeAboutFor(host.nudges, listed))}
           </p>
-          {nudgeError && <p className="ca-prhover-error">{nudgeError}</p>}
+          {nudgeError && <p className="ca-hovercard-error">{nudgeError}</p>}
         </div>
       )}
-      <div className="ca-prhover-foot">
+      <div className="ca-hovercard-foot">
         {listed && host.actions?.showPr && (
           <Button size="sm" icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed))}>
             Show in Codealong
@@ -450,7 +359,6 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
           Open on GitHub
         </Button>
       </div>
-    </div>,
-    document.body,
+    </HoverCard>
   );
 }

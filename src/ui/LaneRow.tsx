@@ -18,6 +18,8 @@ import type { GitInfo, Lane, Session, Suggestions, Todo } from '../types';
 import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
+import { HelpersCard, type HelperActions } from './HelpersCard';
+import { useHoverCard } from './HoverCard';
 import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
 
@@ -319,10 +321,11 @@ interface SessionLinesProps {
   /** Opens it where it lives: a double-click on its account's chip. */
   onOpen: () => void;
   /** The helpers its agent started, in Sessions, and whether all of them are listed under it,
-   *  which `onToggleHelpers` turns on and off. */
+   *  which `onToggleHelpers` turns on and off; what their chip's card does with one. */
   helpers?: HelperCount;
   helpersShown?: boolean;
   onToggleHelpers?: () => void;
+  helperActions?: HelperActions;
 }
 
 /**
@@ -330,7 +333,7 @@ interface SessionLinesProps {
  * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
  * quiet, todo and Jev's read, then its account), with `end` at the second line's end.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
@@ -340,7 +343,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
         <span className="ca-chips ca-lane-lead ca-agentrow-chips">
           {where}
           <HelperChip session={s} />
-          <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} />
+          <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
           <SuggestedChip suggestions={s.suggestions} />
@@ -427,10 +430,12 @@ interface AgentRowProps {
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
   /** The helpers its agent started (boardLists.ts `helperCounts`), and whether all of them are
-   *  listed under it, which its chip's double-click turns on and off (`onToggleHelpers`). */
+   *  listed under it, which its chip's double-click turns on and off (`onToggleHelpers`); what
+   *  their chip's card does with one. */
   helpers?: HelperCount;
   helpersShown?: boolean;
   onToggleHelpers?: () => void;
+  helperActions?: HelperActions;
   /** A helper listed under the session it works for: set in from the left, on one line. */
   nested?: boolean;
   /** A nested helper in another worktree than its session's, which its row names. */
@@ -482,17 +487,18 @@ const HELPER_GLYPHS = 3;
 
 /** The chip on a session's row for its helpers (the ones its agent started, and the automatic
  *  reviews of a PR it opened): each one's status glyph, the most urgent first, in the attention
- *  color while one waits on you; each one's line in its tooltip (boardLists.ts `helperLine`). A
- *  double-click lists them all under the row, finished ones too, or only the ones at work again
- *  (`shown`). */
-export function HelpersChip({ helpers: h, now, shown = false, onToggle }: { helpers: HelperCount | undefined; now: number; shown?: boolean; onToggle?: () => void }) {
+ *  color while one waits on you. Resting the pointer on it brings up its card (HelpersCard.tsx),
+ *  every helper in full, to show or open; where there's no card (`actions`), each one's line is
+ *  in its tooltip (lanes.ts `helperLine`). A double-click lists them all under the row, finished
+ *  ones too, or only the ones at work again (`shown`). */
+export function HelpersChip({ helpers: h, now, shown = false, onToggle, actions }: { helpers: HelperCount | undefined; now: number; shown?: boolean; onToggle?: () => void; actions?: HelperActions }) {
+  const card = useHoverCard();
   if (!h || h.count === 0) return null;
   const more = h.count - HELPER_GLYPHS;
   const lines = h.each.map((g) => `· ${helperLine(g, now)}`).join('\n');
   const how = onToggle ? `\nDouble-click to list ${shown ? 'only the ones at work or waiting on you' : 'them all'} under it.` : '';
-  const title = `${h.count === 1 ? 'Its helper' : `Its ${h.count} helpers`}:\n${lines}${how}`;
-  return (
-    <Chip className={cx('ca-helperschip', h.waiting > 0 && 'is-waiting', shown && 'is-shown')} title={title} act={onToggle} inRow>
+  const chip = (
+    <Chip className={cx('ca-helperschip', h.waiting > 0 && 'is-waiting', shown && 'is-shown')} title={actions ? undefined : `${h.count === 1 ? 'Its helper' : `Its ${h.count} helpers`}:\n${lines}${how}`} act={onToggle} inRow>
       <Icon name="subtask" size={12} />
       <span className="ca-helperschip-glyphs">
         {h.each.slice(0, HELPER_GLYPHS).map((g) => (
@@ -501,6 +507,13 @@ export function HelpersChip({ helpers: h, now, shown = false, onToggle }: { help
       </span>
       {more > 0 && `+${more}`}
     </Chip>
+  );
+  if (!actions) return chip;
+  return (
+    <span ref={(el) => void (card.anchor.current = el)} className="ca-helperschip-anchor" onMouseEnter={card.show} onMouseLeave={card.hide}>
+      {chip}
+      {card.open && <HelpersCard card={card} helpers={h} now={now} shown={shown} onToggle={onToggle} actions={actions} />}
+    </span>
   );
 }
 
@@ -529,7 +542,7 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * line either way, and says only what the session's row doesn't: its worktree only when it works
  * in another, and no PR or diff.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, nested, elsewhere }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, nested, elsewhere }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
   const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
@@ -556,7 +569,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             <SessionText s={s} now={now} />
             <span className="ca-chips ca-agentline-tags">
               <HelperChip session={s} nested={nested} />
-              <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} />
+              <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />
@@ -584,6 +597,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             helpers={helpers}
             helpersShown={helpersShown}
             onToggleHelpers={onToggleHelpers}
+            helperActions={helperActions}
           />
         </div>
       )}

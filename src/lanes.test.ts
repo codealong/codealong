@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, helperLine, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -255,6 +255,8 @@ describe('a helper', () => {
     expect(helperLine(g('error'), NOW)).toBe('Review the diff · stopped with an error 3m ago');
     expect(helperLine(g('idle', '#204'), NOW)).toBe('Review of #204 · done 3m ago');
     expect(helperLine(g('unread'), NOW)).toBe('Review the diff · done 3m ago');
+    // Its card says each part on a line of its own.
+    expect([helperName(g('idle', '#204')), helperStands(g('working'), NOW)]).toEqual(['Review of #204', 'working for 3m']);
   });
 
   it('is in Needs you like any session once it waits on you', () => {

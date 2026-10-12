@@ -10,36 +10,8 @@
   vertical-align: -2px;
 }
 
-/* A PR link's card (PrLink.tsx): the PR on GitHub, then the sessions that worked on it. It takes
-   the pointer, so its rows and buttons can be used; the link's hover and the card's are one. */
-.ca-prhover {
-  position: fixed;
-  z-index: var(--z-popover);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-1);
-  width: 360px;
-  max-width: calc(100vw - 16px);
-  overflow: auto;
-  padding: var(--space-3);
-  box-sizing: border-box;
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-popover);
-  color: var(--ink);
-  font: var(--type-meta);
-  text-align: left;
-}
-.ca-prhover p {
-  margin: 0;
-}
-.ca-prhover-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-}
+/* A PR link's card (PrLink.tsx, its shell in HoverCard.css): the PR on GitHub, then the sessions
+   that worked on it. */
 .ca-prhover-ref {
   color: var(--ink-2);
   font: var(--type-meta-strong);
@@ -49,34 +21,9 @@
   font: var(--type-heading-sm);
   overflow-wrap: anywhere;
 }
-.ca-prhover-meta {
-  color: var(--ink-3);
-  overflow-wrap: anywhere;
-}
 .ca-prhover-lanes {
   color: var(--ink-2);
   font: var(--type-meta-strong);
-}
-.ca-prhover-error {
-  color: var(--alert);
-}
-.ca-prhover-sec {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
-  margin-top: 6px;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--line);
-}
-.ca-prhover-sec > .ca-label {
-  margin-bottom: 2px;
-}
-.ca-prhover-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: var(--space-2);
 }
 
 /* The card's switch for an open PR: its sessions are told when it's approved (nudges.rs). */

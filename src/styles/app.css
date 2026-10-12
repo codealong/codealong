@@ -66,7 +66,9 @@
 @import '../ui/card/CardPopover.css';
 @import '../ui/CanvasTidy.css';
 @import '../ui/Markdown.css';
+@import '../ui/HoverCard.css';
 @import '../ui/PrLink.css';
+@import '../ui/HelpersCard.css';
 @import '../ui/SessionPanel.css';
 @import '../ui/SessionThread.css';
 @import '../ui/ThreadFind.css';

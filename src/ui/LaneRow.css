@@ -155,6 +155,11 @@
   color: var(--attn);
 }
 /* Each helper's status, closer together than the chip's own parts, so they read as one run. */
+/* What the chip's card is beside (HelpersCard.tsx): the chip, as the lane lays it out. */
+.ca-helperschip-anchor {
+  display: inline-flex;
+  min-width: 0;
+}
 .ca-helperschip-glyphs {
   display: inline-flex;
   align-items: center;
