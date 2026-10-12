@@ -4,8 +4,10 @@
 // `-word` leaves some out; the files whose changes mention the words come after, under their own
 // heading with how many lines do; ↑ ↓ pick a file and ⏎ opens it, the words marked in its diff;
 // Open all opens what the filter lists; Escape clears the filter, then leaves it; ⌘F comes back to
-// it; and a filter nothing matches says so, with a way to clear it.
+// it, and in the main window's PRs ⌘F from the list goes to the filter at the top instead
+// (findKeys.ts); and a filter nothing matches says so, with a way to clear it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-files-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-files-check.js
 (function () {
   var file = function (path, patch, status) { return { path: path, status: status || 'modified', additions: 3, deletions: 1, patch: patch === undefined ? '@@ -1,2 +1,3 @@\n context\n-old\n+new' : patch }; };
   var FILES = [
@@ -107,6 +109,15 @@
     })
     .then(function () {
       check('⌘F comes back to it', document.activeElement === input());
+      var list = q('.ca-board-list');
+      if (!list) return;
+      list.focus();
+      key(list, { key: 'f', metaKey: true });
+      return wait(100).then(function () {
+        check('⌘F from the list goes to the filter at the top', document.activeElement === q('.ca-search input'), document.activeElement && document.activeElement.className);
+      });
+    })
+    .then(function () {
       return filter('zzz');
     })
     .then(function () {

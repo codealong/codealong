@@ -239,7 +239,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
   return (
     <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`} data-find="files">
       <div className="ca-prinsp ca-prpanel-body">
-        <PrDetails {...details} report={report} tabs={tabs} lead={lead} trail={trail} />
+        <PrDetails {...details} keys report={report} tabs={tabs} lead={lead} trail={trail} />
       </div>
       <PrBoxView pr={pr} box={box} keys={{ approve: '⌘⏎', comment: '⌥⌘⏎' }} ownKeys onShowReview={() => tabs.show('review')} />
     </aside>
