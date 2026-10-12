@@ -311,6 +311,7 @@ export function sessionHeadline(s: Session): [string, string | null] {
       return [`${acct} asks for approval · ${s.title}`, s.excerpt];
     case 'error':
       if (s.limit) return [`${acct} hit its usage limit · ${s.title}`, s.excerpt];
+      if (s.cutOff != null) return [`${acct} was cut off · ${s.title}`, s.excerpt];
       return [`${acct} stopped with an error · ${s.title}`, s.excerpt];
     case 'working': {
       // How long it has worked on what you last asked, as the engine counts it.
@@ -352,6 +353,13 @@ export function connectionLostWords(lost: ConnectionLost): string {
   return `Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. ${then}`;
 }
 
+/** What a cut-off turn comes to (`Session.cutOff`), and how it goes on (left out where a button
+ *  beside it offers that). */
+export function cutOffWords(offered = false): string {
+  const then = offered ? '' : ' Resume it, or send it something, to carry on.';
+  return `Its last turn was cut off partway: what ran it ended (its terminal closed, the Mac restarted, or it was killed).${then}`;
+}
+
 /**
  * What a session waits on you for, as a label beside its title: the words its headline puts
  * before the title. A session's row leads with its title, and its glyph and bay already say it
@@ -361,6 +369,7 @@ export function sessionFlag(s: Session): InsightLabel | null {
   if (s.stalledSince != null) return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
   if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now()) };
   if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: connectionLostWords(s.connectionLost) };
+  if (s.cutOff != null && s.status !== 'working') return { label: 'Cut off', tone: 'bad', title: cutOffWords() };
   if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };
   if (s.status !== 'needs') return null;
   if (s.asks) return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };

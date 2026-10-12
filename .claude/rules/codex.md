@@ -15,6 +15,17 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - Turns (`task_started` … `task_complete` or `turn_aborted`), reading back for the event that
   opened one, and how prompts are recorded and wrapped: `codex/rollout.rs` (`parse_rollout`,
   `prompt_of`, `request_of`).
+- A turn cut off partway, and how Codealong knows nothing is running it any more: a terminal UI
+  killed in a command (0.157.1 run without the daemon, in tmux, 2026-10-12) leaves its rollout
+  after `task_started`, the call and its output, and a `token_count`: no `task_complete` or
+  `turn_aborted`, and its command runs on. Whatever has a thread loaded holds its rollout open:
+  the terminal UI without the daemon, the daemon behind one with it, the app's app-server (every
+  thread it has loaded), the app-server under codex-acp. `codex/terminals.rs` (`held_rollouts`),
+  `codex/mod.rs` (`let_go_now`), `board.rs` (`codex_session`'s `cut_off`). Not said there: the
+  0.157.1 CLI couldn't use the 0.162.1 daemon here ("Cannot use the background server ·
+  Experimental feature request failed", offering "Run without daemon this time"), so whether the
+  daemon finishes a turn whose terminal UI died is unchecked; it holds the rollout while it runs
+  one, so it isn't taken as cut off meanwhile.
 - Approvals aren't recorded anywhere on disk: not in the rollout, `logs_2.sqlite` or the app's
   logs. A call left without its output past its tool's limit is taken as Needs you:
   `codex/rollout.rs` (`ThreadInfo::pending_calls`, `call_limit_ms`), `board.rs`

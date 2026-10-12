@@ -1,7 +1,8 @@
-//! Codex's terminal UIs on this Mac and the threads they show, and its command as a terminal
-//! can run it.
+//! Codex's terminal UIs on this Mac and the threads they show, the threads Codex's processes
+//! have loaded, and its command as a terminal can run it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// A Codex terminal UI running on this Mac.
@@ -12,6 +13,36 @@ pub struct Terminal {
     /// The thread it was started on (`codex resume <id>`), when it was.
     pub thread: Option<String>,
     pub started_at: i64,
+}
+
+/// The rollouts Codex's processes hold open, by file name. A thread is loaded in one of them for
+/// as long as its rollout is: its terminal UI (without the daemon), the daemon behind the CLI,
+/// the app's app-server, an agent Codealong runs. A turn left open in a rollout none holds was
+/// cut off: a terminal UI killed partway through a command wrote nothing more, and its command
+/// ran on (0.157.1 in tmux, 2026-10-12). None when one of them couldn't be read, so nothing is
+/// taken as let go.
+///
+/// Codex's processes are the ones whose executable is called `codex`, which the command line
+/// can't always tell: the one Codealong runs agents through is under "Application Support".
+pub fn held_rollouts(processes: &[crate::procs::PsLine]) -> Option<HashSet<OsString>> {
+    let mut held = HashSet::new();
+    for p in processes.iter().filter(|p| p.command.contains("codex")) {
+        if !crate::procs::parent_and_name(p.pid).is_some_and(|(_, name)| name == "codex") {
+            continue;
+        }
+        match crate::procs::open_files(p.pid) {
+            Some(files) => held.extend(files.iter().filter_map(|f| f.file_name()).filter(|n| is_rollout(n)).map(OsString::from)),
+            // Gone since the list was made: it holds nothing now.
+            None if !crate::procs::pid_alive(p.pid) => {}
+            None => return None,
+        }
+    }
+    Some(held)
+}
+
+/// Whether a file's name is a rollout's (`rollout-<time>-<thread>.jsonl`).
+pub fn is_rollout(name: &std::ffi::OsStr) -> bool {
+    name.to_str().is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
 }
 
 /// Codex's interactive terminals on this Mac. Its daemon, `exec` runs and the app's own

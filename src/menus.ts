@@ -19,10 +19,10 @@ import { chromeLabel, openLabel } from './open';
 import { closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
-import { rememberResumed, resumeAccount } from './start';
+import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
-import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, Todo } from './types';
+import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, StartPlace, Todo } from './types';
 import { mayApprove } from './prStatus';
 import { errorText, type Report } from './report';
 
@@ -174,6 +174,9 @@ export interface SessionActions {
   moveFolder?: MenuGroup;
   /** The move a usage limit's stop suggests: to the account with room (`Session.limit`). */
   moveOn?: MenuAction;
+  /** A turn that was cut off goes on where its account's last session did, told to carry on
+   *  (`Session.cutOff`, start.rs `CARRY_ON`). */
+  carryOn?: MenuAction;
   stop?: MenuAction;
   rename?: MenuAction;
   seen?: MenuAction;
@@ -236,6 +239,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   // One that isn't running goes on where its account's sessions can (start.rs `resume`), as its
   // box offers, where there's more than the terminal Open resumes it in.
   const resumeTo = here && !s.live && !s.hosted && s.surface === 'cli' ? resumePlaces(s) : [];
+  // Resumed with nothing to say, a turn that was cut off is told to carry on (start.rs `resume`).
+  const cutOff = s.cutOff != null && s.status !== 'working';
   const resume = (to: StartAccount['places'][number]) =>
     busy(`Resuming ${s.title}…`, resumeSession(s.key, { place: to.place, model: null, effort: null }))
       .then((sent) => {
@@ -270,7 +275,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
-    resume: resumeTo.length > 1 ? { label: 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
+    resume: resumeTo.length > 1 ? { label: cutOff ? 'Carry on in' : 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
     terminal: opensInEditor(lane) ? { label: `Open folder in ${can.terminal}`, run: () => can.open(lane, terminalTarget(s.key)) } : undefined,
     folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key, accelerator: can.keys ? CHORDS.terminal : undefined })) : undefined,
     pr: prItem(lane, report),
@@ -290,6 +295,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
           : undefined,
     moveFolder: movesFolders ? folderMoves(lane, can.worktrees ?? [], (to) => void moveFolder(to)) : undefined,
     moveOn: suggested ? moveItem(suggested, `Move to ${suggested} and go on`) : undefined,
+    carryOn: cutOff && resumeTo.length > 0 ? { label: 'Carry on', run: () => void resume(carryOnIn(resumeTo, resumedIn(s.account))) } : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
@@ -363,6 +369,13 @@ function held(key: string, now: number): boolean {
   const at = holding.get(key);
   holding.delete(key);
   return at !== undefined && now - at <= DONE_HOLD_MS;
+}
+
+/** Where Carry on resumes a session, as its box would with no place picked (start.ts
+ *  `resumeChoice`): where its account's sessions last went on from here, else a terminal, else
+ *  the first place there is. */
+export function carryOnIn(places: StartAccount['places'], last: StartPlace | undefined): StartAccount['places'][number] {
+  return places.find((p) => p.place === last) ?? places.find((p) => p.place === 'terminal') ?? places[0];
 }
 
 /** Where a session of this Mac's that isn't running can go on: its account's places for that. */

@@ -15,6 +15,7 @@ mod terminals;
 mod usage;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -29,7 +30,7 @@ use conversation::open_calls;
 use ipc::{codex_interrupt_turn, codex_start_turn};
 use rollout::{app_project_roots, archived_rollout_files, chats_dir, parse_meta, parse_rollout, prose_of, read_index, rollout_files, thread_id_of};
 use side::{last_turn, SideThread};
-use terminals::{codex_cli, latest_day, pair_terminals, terminals, Terminal};
+use terminals::{codex_cli, held_rollouts, latest_day, pair_terminals, terminals, Terminal};
 
 pub use conversation::{conversation_items, with_images_before};
 #[cfg(test)]
@@ -448,9 +449,35 @@ pub struct Reader {
     rollouts: HashMap<PathBuf, (String, Option<(ThreadInfo, u64)>)>,
     /// Codex's terminal UIs: which threads are open in a terminal, and which one.
     terminals: Vec<Terminal>,
+    /// When Codex's processes were last looked at, and the rollouts of open turns none of them
+    /// held then, by file name (`let_go_now`); None when that couldn't be told.
+    let_go: Option<(i64, HashSet<OsString>)>,
 }
 
 impl Reader {
+    /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
+    /// this look. Codex's processes are looked at only while some turn is open.
+    fn let_go_now(&self, look: &Look) -> Option<(i64, HashSet<OsString>)> {
+        let open: Vec<&std::ffi::OsStr> = self
+            .rollouts
+            .iter()
+            .filter(|(_, (_, parsed))| parsed.as_ref().is_some_and(|(th, _)| th.turn_open))
+            .filter_map(|(path, _)| path.file_name())
+            .collect();
+        if open.is_empty() {
+            return Some((look.now, HashSet::new()));
+        }
+        let held = held_rollouts(look.ps.all())?;
+        Some((look.now, open.into_iter().filter(|n| !held.contains(*n)).map(OsString::from).collect()))
+    }
+
+    /// Whether a Codex process held a thread's rollout when last looked, None when that isn't
+    /// known. One written since the look is taken as held: something is running it.
+    fn held(&self, path: &Path, th: &ThreadInfo) -> Option<bool> {
+        let (at, gone) = self.let_go.as_ref()?;
+        Some(th.last_ts > *at || !path.file_name().is_some_and(|n| gone.contains(n)))
+    }
+
     /// Loads the threads archived from Codealong from `archived_sessions`, so its Archived list
     /// can show them, and drops ones that were unarchived or are no longer listed.
     fn refresh_archived(&mut self, accounts: &[AccountCfg], look: &Look) {
@@ -545,6 +572,7 @@ impl crate::harness::Reader for Reader {
         }
         if !accounts.is_empty() {
             self.terminals = terminals(look.ps.all());
+            self.let_go = self.let_go_now(look);
         }
         self.refresh_archived(accounts, look);
     }
@@ -578,6 +606,9 @@ impl crate::harness::Reader for Reader {
             let fresh = terminals(look.ps.all());
             out.dirty |= fresh != self.terminals;
             self.terminals = fresh;
+            let let_go = self.let_go_now(look);
+            out.dirty |= let_go.as_ref().map(|(_, g)| g) != self.let_go.as_ref().map(|(_, g)| g);
+            self.let_go = let_go;
         }
         out
     }
@@ -597,7 +628,7 @@ impl crate::harness::Reader for Reader {
             .map(|(path, th)| {
                 let key = Session::key_for(Harness::Codex, &account.name, &th.id);
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
-                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), look.seen.seen_at(&key), look.now);
+                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), look.seen.seen_at(&key), look.now);
                 s.archived = path.starts_with(&archived_dir);
                 s
             })

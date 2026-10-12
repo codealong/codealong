@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
 import type { Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { chordLetter, chordSigns, chorded, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
@@ -51,6 +51,19 @@ const lane = (over: Partial<Lane> = {}): Lane =>
   });
 
 const base: SessionCan = { report, open: noop, terminal: 'Ghostty' };
+
+describe('carryOnIn', () => {
+  it('goes on where the account’s last session did, else in a terminal, as the box would', () => {
+    const terminal = { place: 'terminal' as const, label: 'Terminal' };
+    const background = { place: 'background' as const, label: 'Background' };
+    const app = { place: 'codex-app' as const, label: 'Codex app' };
+    expect(carryOnIn([background, terminal], 'background')).toBe(background);
+    expect(carryOnIn([background, terminal], undefined)).toBe(terminal);
+    // Where it last went on, if it can't go there now, isn't the place.
+    expect(carryOnIn([background, terminal], 'codealong')).toBe(terminal);
+    expect(carryOnIn([app], undefined)).toBe(app);
+  });
+});
 
 describe('sessionMenu', () => {
   it('reads the same in every window, less what a window can’t do', () => {

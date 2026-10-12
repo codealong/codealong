@@ -266,6 +266,11 @@ pub struct Session {
     /// Macs before 2026-10-08.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_lost: Option<ConnectionLost>,
+    /// Its last turn was cut off: what ran it ended partway through (its terminal closed, the
+    /// Mac restarted, it was killed), and nothing has gone on since. When the turn last did
+    /// something. None from Macs before 2026-10-12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cut_off: Option<i64>,
     /// The model it's on, as its harness names it (`claude-opus-5-5`, `gpt-5.5`): the one its
     /// latest reply came from, or one it was switched to since. None where the harness doesn't
     /// say, and from Macs before 2026-10-06.
@@ -383,6 +388,7 @@ impl Session {
             chrome: None,
             limit: None,
             connection_lost: None,
+            cut_off: None,
             model: None,
             own_worktree: None,
             helper: None,

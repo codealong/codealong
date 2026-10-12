@@ -140,6 +140,17 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   line says the limit lifted, and a background task's notification wakes the session into
   another refusal each time. The usage endpoint's meters show no spend limit (2.1.257 to
   2.1.287, 2026-10-02).
+- How a turn ends in the transcript, and what one cut off partway leaves (a hangup in a foreground
+  command, and Escape there, in tmux on 2.1.296, 2026-10-12): `claude/transcript.rs`
+  (`turn_step`), `board.rs` (`claude_session`'s `cut_off`). Not said there: only the terminal
+  (entrypoint `cli`, background jobs too) writes `system` / `turn_duration` as each turn ends; the
+  Claude app (`claude-desktop`) and headless runs (`sdk-cli`, `sdk-ts`) never do, which is why
+  only terminal sessions are read for it. A reply is written as one line per part (thinking,
+  text, call), each with the message's `stop_reason`, so a finished reply's last line says
+  `end_turn` (or `stop_sequence` in older versions) where a call's says `tool_use`. Across 503
+  terminal transcripts here, a few turns had no `turn_duration` after a finished reply, never
+  after a call or a result. A long foreground `sleep` is refused by Claude Code itself and run in
+  the background instead; a `python3 -c 'time.sleep(…)'` isn't.
 - A turn ended for want of a connection is an `assistant` line with `isApiErrorMessage`,
   `error: "server_error"` and no `apiErrorStatus`, its text "API Error: " and Claude Code's words
   ("Can't reach the API server — check your internet or DNS (ENOTFOUND)", "Your computer went to

@@ -180,6 +180,18 @@ for each time, and leaves it for you (with a notice) when it loses the connectio
 after a few times running; `[sessions] continue_after_network_error = false` (Settings › Automation)
 turns that off.
 
+#### Cut off
+
+A Claude Code or Codex session whose turn stopped partway because what ran it ended (its terminal
+closed or quit, the Mac restarted, it was killed) says so (Cut off), and waits on you until you've
+seen it; a session that had finished its turn when that happened lost nothing, and is just stopped.
+Its panel has Carry on, which resumes it where its account's sessions last went on from here, else
+in a terminal, and tells it to carry on, checking first what its last step did, since a command it
+ran may have been stopped partway. Resume in, in its menu, says Carry on in and does the same
+anywhere it can go on; sending it something resumes it with what you send. A Claude Code session is
+read so in a terminal or a background job (its transcript ends partway through a turn, with no
+process running it); a Codex thread when its turn is open and no Codex process has it loaded.
+
 #### Move to another worktree
 
 Move to worktree, in the same menu (in the main window, the quick panel and the waiting window),

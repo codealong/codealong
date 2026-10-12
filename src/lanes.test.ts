@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -347,6 +347,17 @@ describe('sessionFlag', () => {
     expect(connectionLostWords({ at: NOW })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Send it something to carry on.');
     // Carried on, it's working: nothing to flag.
     expect(sessionFlag({ ...lost, status: 'working', excerpt: null })).toBeNull();
+  });
+
+  it('says a turn was cut off, as news until seen and as a flag after', () => {
+    const cut = s({ status: 'error', cutOff: NOW - 60_000, excerpt: 'running `yarn test`' });
+    expect(sessionFlag(cut)).toMatchObject({ label: 'Cut off', tone: 'bad' });
+    expect(sessionHeadline(cut)).toEqual(['`claude2` was cut off · Fix the test', 'running `yarn test`']);
+    expect(sessionFlag({ ...cut, status: 'stopped' })).toMatchObject({ label: 'Cut off' });
+    expect(cutOffWords()).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, the Mac restarted, or it was killed). Resume it, or send it something, to carry on.');
+    expect(cutOffWords(true)).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, the Mac restarted, or it was killed).');
+    // Resumed, it's working: nothing to flag.
+    expect(sessionFlag({ ...cut, status: 'working' })).toBeNull();
   });
 
   it('says which usage limit stopped a session, when it lifts and where it could go on', () => {

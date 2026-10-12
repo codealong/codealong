@@ -20,6 +20,7 @@ import * as menus from '../menus';
 import { errorText, type Report } from '../report';
 import { useLatest } from '../latest';
 import { sessionContext } from '../sessionContext';
+import { useStartAccounts } from '../startAccounts';
 import type { Board, Lane, Pr, PrItem, Session, Todo } from '../types';
 import { zoomKey } from './cardHost';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
@@ -79,6 +80,9 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   /** A window's part for a session, with the card's: the same menu in every window. */
   const whole = (s: Session, base: WindowCan): menus.SessionCan => ({ ...base, terminal: apps.terminal, editors: { apps, icons }, desktop: onDesktop, pin: pinItem(board, s, report), keys: 'chords' });
   const mine = whole(session, can);
+  // Where one that isn't running goes on (Resume in, Carry on) is its account's places, which a
+  // window reads once: the card shows them as they come in.
+  useStartAccounts(!session.live);
   const actions = menus.sessionActions(lane, session, mine);
   const context = useMemo(() => sessionContext(board, lane, session), [board, lane, session]);
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));

@@ -545,15 +545,15 @@ fn to_send(r: &Round, head: &str) -> Option<(String, String)> {
 }
 
 /// A session's turn ended after `at`: it's done, or waits on you only because its reply asks you
-/// something. One stopped by a usage limit or an error, or waiting on you to allow something,
-/// isn't done.
+/// something. One stopped by a usage limit, a lost connection, an error or what ran it ending
+/// partway (cut off), or waiting on you to allow something, isn't done.
 fn turn_ended(s: &Session, at: i64) -> bool {
     let ended = match s.status {
         Status::Unread | Status::Idle | Status::Stopped => true,
         Status::Needs => s.asks,
         Status::Working | Status::Error => false,
     };
-    ended && s.last_activity >= at && s.limit.is_none() && s.connection_lost.is_none()
+    ended && s.last_activity >= at && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none()
 }
 
 /// The session a start that named none made: the first of its account in its worktree started
@@ -2660,6 +2660,13 @@ mod tests {
         assert!(r.told(&job, Went::PostFailed("gh: Not Found".into()), when).unwrap_err().contains("Not Found"));
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
         assert!(r.due(&done, &on(), when + 10 * QUIET_MS).is_empty());
+    }
+
+    #[test]
+    fn a_review_cut_off_partway_isnt_done_even_once_seen() {
+        assert!(turn_ended(&session(Status::Stopped, NOW + 1), NOW));
+        let cut = Session { cut_off: Some(NOW + 1), ..session(Status::Stopped, NOW + 1) };
+        assert!(!turn_ended(&cut, NOW));
     }
 
     #[test]

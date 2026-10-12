@@ -76,6 +76,9 @@ pub struct TranscriptInfo {
     /// When the last turn ended for want of a connection to the API (`connection_lost_at`),
     /// until a reply or a prompt of yours comes after.
     pub connection_lost: Option<i64>,
+    /// When the last turn last did something, while it hasn't ended (`turn_step`). A session
+    /// whose process is gone with one was cut off partway through it.
+    pub unfinished: Option<i64>,
     /// The model the latest reply came from.
     pub model: Option<String>,
     /// A message from another session it holds for you to allow (held.rs), until a line says
@@ -278,6 +281,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         if let Some(hold) = super::held::hold_of(&v) {
             super::held::apply(&mut info.held, hold);
         }
+        if let Some(step) = turn_step(&v) {
+            info.unfinished = step;
+        }
         match kind {
             Some("continued-in") => {
                 info.continued_in = str_of(&v, "continuedInSessionId").filter(|id| !id.is_empty());
@@ -459,6 +465,53 @@ pub(super) fn connection_lost_at(v: &Value) -> Option<i64> {
     let text = v.pointer("/message/content")?.as_array()?.iter().find_map(|i| i.get("text")?.as_str())?;
     let said = text.strip_prefix("API Error: ")?;
     CONNECTION_LOST.iter().any(|w| said.starts_with(w)).then(|| str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0))
+}
+
+/// What a line says about whether the turn it's in has ended (`TranscriptInfo::unfinished`):
+/// `Some(Some(at))` for a step that waits on another, `Some(None)` for one that ends the turn or
+/// starts a new one, None for a line that says neither.
+///
+/// A step waits on another when it's a tool call, its line written with `stop_reason:
+/// "tool_use"`, or a tool's result, which the agent answers next. A turn ends with a reply
+/// written with any other `stop_reason` (`end_turn`, `stop_sequence`), an API error, the
+/// `turn_duration` line the terminal writes as each turn ends, or Escape's "[Request interrupted
+/// by user" (after the refused call's result); a prompt you typed starts a new one.
+///
+/// A process killed partway through a turn (a hangup, as its tab closing gives) writes none of
+/// those: its transcript ends with the call and the result Claude Code gives the command it
+/// killed ("Exit code 137"), then the metadata it writes as it exits (`last-prompt`, `ai-title`,
+/// `agent-name`, `mode`). Checked in tmux on 2.1.296, killed in a foreground command and stopped
+/// with Escape there (2026-10-12). A prompt typed and killed before any reply isn't caught, nor
+/// is one Escape takes back before the agent wrote anything, which writes nothing either.
+fn turn_step(v: &Value) -> Option<Option<i64>> {
+    if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let at = || str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms);
+    match v.get("type").and_then(Value::as_str)? {
+        "assistant" if v.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true) => Some(None),
+        // A line still being written has no stop_reason yet, and says nothing.
+        "assistant" => match v.pointer("/message/stop_reason").and_then(Value::as_str)? {
+            "tool_use" => at().map(Some),
+            _ => Some(None),
+        },
+        "system" if str_of(v, "subtype").as_deref() == Some("turn_duration") => Some(None),
+        "user" => {
+            let content = v.pointer("/message/content");
+            let items = content.and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+            let mut texts = content.and_then(Value::as_str).into_iter().chain(items.iter().filter_map(|i| i.get("text")?.as_str()));
+            if texts.any(|t| t.starts_with("[Request interrupted")) {
+                Some(None)
+            } else if items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result")) {
+                at().map(Some)
+            } else if you_typed(v) {
+                Some(None)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }
 
 /// The worktree a `worktree-state` line says the session made and holds. Claude Code writes one
@@ -1079,6 +1132,42 @@ mod tests {
         assert_eq!(parse_lines(HEAD, &format!("{error}\n{prompt}\n")).connection_lost, None);
         let reply = r#"{"type":"assistant","timestamp":"2026-10-08T00:23:46.497Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
         assert_eq!(parse_lines(HEAD, &format!("{error}\n{notice}\n{reply}\n")).connection_lost, None);
+    }
+
+    /// A turn killed in a foreground command and one stopped with Escape there, as Claude Code
+    /// 2.1.296 wrote them in tmux, cut to the fields that matter here.
+    const CALL: &str = r#"{"type":"assistant","timestamp":"2026-10-12T18:21:20.000Z","message":{"model":"claude-haiku-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"python3 -c 'import time; time.sleep(120)'"}}]}}"#;
+    const KILLED: &str = r#"{"type":"user","timestamp":"2026-10-12T18:23:22.000Z","message":{"role":"user","content":[{"type":"tool_result","content":"Exit code 137","is_error":true,"tool_use_id":"toolu_1"}]}}
+{"type":"last-prompt","lastPrompt":"Run exactly this"}
+{"type":"ai-title","aiTitle":"Run a long command"}"#;
+
+    #[test]
+    fn a_turn_says_when_it_last_did_something_until_it_ends() {
+        let called = parse_rfc3339_ms("2026-10-12T18:21:20.000Z");
+        let killed = parse_rfc3339_ms("2026-10-12T18:23:22.000Z");
+        // The prompt that opened the turn is HEAD's; nothing has happened in it yet.
+        assert_eq!(parse_lines(HEAD, "").unfinished, None);
+        assert_eq!(parse_lines(HEAD, &format!("{CALL}\n")).unfinished, called);
+        assert_eq!(parse_lines(HEAD, &format!("{CALL}\n{KILLED}\n")).unfinished, killed);
+        // Ended by a reply, whatever stopped it, by the terminal's own mark, or by an API error.
+        for end in [
+            r#"{"type":"assistant","timestamp":"2026-10-12T18:23:30.000Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"It printed 42."}]}}"#,
+            r#"{"type":"assistant","timestamp":"2026-10-12T18:23:30.000Z","message":{"stop_reason":"stop_sequence","content":[{"type":"text","text":"Done."}]}}"#,
+            r#"{"type":"system","subtype":"turn_duration","timestamp":"2026-10-12T18:23:31.000Z"}"#,
+            &lost("API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"),
+        ] {
+            assert_eq!(parse_lines(HEAD, &format!("{CALL}\n{KILLED}\n{end}\n")).unfinished, None, "{end}");
+        }
+        // Stopped with Escape: the refused call's result, then the interruption.
+        let escaped = r#"{"type":"user","timestamp":"2026-10-12T18:24:03.000Z","message":{"role":"user","content":[{"type":"tool_result","content":"The user doesn't want to proceed with this tool use.","is_error":true,"tool_use_id":"toolu_1"}]}}
+{"type":"user","timestamp":"2026-10-12T18:24:03.000Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{CALL}\n{escaped}\n")).unfinished, None);
+        // A prompt of yours starts a new turn; a line still being written, and a subagent's, say nothing.
+        let prompt = r#"{"type":"user","timestamp":"2026-10-12T18:30:00.000Z","origin":{"kind":"human"},"message":{"content":"Try again"}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{CALL}\n{KILLED}\n{prompt}\n")).unfinished, None);
+        let writing = r#"{"type":"assistant","timestamp":"2026-10-12T18:23:40.000Z","message":{"stop_reason":null,"content":[{"type":"text","text":"It"}]}}"#;
+        let helper = r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-12T18:23:40.000Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Found it."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{CALL}\n{KILLED}\n{writing}\n{helper}\n")).unfinished, killed);
     }
 
     #[test]

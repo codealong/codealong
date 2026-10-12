@@ -184,30 +184,9 @@ pub fn listeners() -> Vec<Listener> {
             (got == size).then_some(info)
         };
         let Some(short) = short.filter(|i| i.pbsi_uid == me) else { continue };
-        let mut listed = 0usize;
-        loop {
-            // SAFETY: proc_pidinfo writes at most the capacity's worth of `proc_fdinfo`s and
-            // says how many bytes it wrote; `set_len` covers only those.
-            let got = unsafe {
-                let bytes = (fds.capacity() * std::mem::size_of::<libc::proc_fdinfo>()) as libc::c_int;
-                let got = libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr() as *mut libc::c_void, bytes);
-                fds.set_len(0);
-                if got <= 0 {
-                    break;
-                }
-                got as usize / std::mem::size_of::<libc::proc_fdinfo>()
-            };
-            if got < fds.capacity() {
-                // SAFETY: proc_pidinfo just wrote `got` entries.
-                unsafe { fds.set_len(got) };
-                listed = got;
-                break;
-            }
-            // Full: there may be more than fit.
-            fds.reserve(fds.capacity() * 2);
-        }
+        list_fds(pid, &mut fds);
         let mut ports: Vec<(u16, std::net::IpAddr)> = Vec::new();
-        for fd in &fds[..listed] {
+        for fd in &fds {
             if fd.proc_fdtype as libc::c_int != libc::PROX_FDTYPE_SOCKET {
                 continue;
             }
@@ -251,6 +230,69 @@ pub fn listeners() -> Vec<Listener> {
         out.extend(ports.into_iter().map(|(port, addr)| Listener { pid, port, addr, name: name.clone(), cwd: cwd.clone(), started_ms }));
     }
     out
+}
+
+/// Fills `fds` with a process's open file descriptors, from the kernel. False, and `fds` empty,
+/// when the kernel doesn't answer: another user's process, or one that has gone.
+fn list_fds(pid: libc::c_int, fds: &mut Vec<libc::proc_fdinfo>) -> bool {
+    if fds.capacity() == 0 {
+        fds.reserve(256);
+    }
+    loop {
+        // SAFETY: proc_pidinfo writes at most the capacity's worth of `proc_fdinfo`s and says
+        // how many bytes it wrote; `set_len` covers only those.
+        let got = unsafe {
+            let bytes = (fds.capacity() * std::mem::size_of::<libc::proc_fdinfo>()) as libc::c_int;
+            let got = libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr() as *mut libc::c_void, bytes);
+            fds.set_len(0);
+            if got <= 0 {
+                return false;
+            }
+            got as usize / std::mem::size_of::<libc::proc_fdinfo>()
+        };
+        if got < fds.capacity() {
+            // SAFETY: proc_pidinfo just wrote `got` entries.
+            unsafe { fds.set_len(got) };
+            return true;
+        }
+        // Full: there may be more than fit.
+        fds.reserve(fds.capacity() * 2);
+    }
+}
+
+/// The files one of your processes has open, from the kernel, starting no `lsof`. None when the
+/// kernel doesn't answer: another user's process, or one that has gone.
+pub fn open_files(pid: u32) -> Option<Vec<std::path::PathBuf>> {
+    use std::os::unix::ffi::OsStrExt;
+    // `struct vnode_fdinfowithpath` (sys/proc_info.h): a 24-byte `proc_fileinfo`, then the
+    // vnode's details and its path. `open_files_are_found` checks the layout against a file the
+    // test opens.
+    const PROC_PIDFDVNODEPATHINFO: libc::c_int = 2;
+    #[repr(C)]
+    struct WithPath {
+        file: [u8; 24],
+        vnode: libc::vnode_info_path,
+    }
+    let mut fds = Vec::new();
+    if !list_fds(pid as libc::c_int, &mut fds) {
+        return None;
+    }
+    let mut out = Vec::new();
+    for fd in fds.iter().filter(|fd| fd.proc_fdtype as libc::c_int == libc::PROX_FDTYPE_VNODE) {
+        // SAFETY: all zeroes is a valid WithPath, and proc_pidfdinfo writes at most its size.
+        let mut info: WithPath = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<WithPath>() as libc::c_int;
+        // SAFETY: as above; the call says how many bytes it wrote.
+        let got = unsafe { libc::proc_pidfdinfo(pid as libc::c_int, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &mut info as *mut _ as *mut libc::c_void, size) };
+        if got != size {
+            continue;
+        }
+        let bytes: Vec<u8> = info.vnode.vip_path.iter().flatten().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+        if !bytes.is_empty() {
+            out.push(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes)));
+        }
+    }
+    Some(out)
 }
 
 /// The folder one of your processes runs in, from the kernel; None once it's gone.
@@ -792,6 +834,22 @@ mod tests {
         assert_eq!(mine(v6.local_addr().unwrap().port()).expect("the IPv6 port").addr, std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST));
         // Every address is reached through loopback.
         assert_eq!(mine(any.local_addr().unwrap().port()).expect("the port on every address").addr, std::net::IpAddr::from([127, 0, 0, 1]));
+    }
+
+    #[test]
+    fn open_files_are_found() {
+        let dir = std::env::temp_dir().join(format!("codealong-open-files-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout-test.jsonl");
+        let held = std::fs::File::create(&path).unwrap();
+        // The kernel names a file by its real path: /private/var/folders/… for $TMPDIR.
+        let real = std::fs::canonicalize(&path).unwrap();
+        assert!(open_files(std::process::id()).unwrap().contains(&real));
+        drop(held);
+        assert!(!open_files(std::process::id()).unwrap().contains(&real));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Launchd's files aren't yours to read.
+        assert_eq!(open_files(1), None);
     }
 
     #[test]

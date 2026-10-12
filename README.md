@@ -244,7 +244,8 @@ OpenCode's service. Paste screenshots or files into it. From there you can also:
 
 Out of room mid-task? A Claude Code session stopped by its usage limit offers to move to an
 account with room and carry on, or moves by itself if you let it. Lid closed and the network
-dropped? Codealong tells the session to carry on once the connection is back.
+dropped? Codealong tells the session to carry on once the connection is back. Terminal quit
+partway through a turn? The session says it was cut off, and Carry on picks it up.
 
 ### Pull requests, with their agents
 

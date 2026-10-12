@@ -600,6 +600,10 @@ fn tuning<'a>(adapter: &dyn Adapter, place: Place, model: Option<&'a str>, effor
     Ok((model, effort))
 }
 
+/// What a session whose last turn was cut off (`Session::cut_off`) is told as it's resumed with
+/// nothing else to say. A command its last step ran may have been stopped partway.
+pub const CARRY_ON: &str = "Your last turn was cut off partway: what was running you ended (its terminal closed, the Mac restarted, or it was killed). Check what your last step did, since a command it ran may have been stopped, then carry on where you left off.";
+
 /// How a session that wasn't running went on: the key it goes on under (a copy's, where its
 /// harness copied it; none where the harness hasn't said yet), and what to say of it, as a send
 /// says how it went.
@@ -613,7 +617,8 @@ pub struct Resumed {
 /// sessions in (`resume_places`): a new terminal; Background, under the harness's background
 /// service where it has one, else in a terminal behind your windows; its app; or Codealong,
 /// which runs it from then on. On the model and effort where the place takes them, as a start
-/// is, and on `prompt` when there's one, else waiting for one. What a box's send to a session
+/// is, and on `prompt` when there's one, else waiting for one; one whose last turn was cut off
+/// is told to carry on instead (`CARRY_ON`). What a box's send to a session
 /// that isn't running comes to (send.rs `Route::Resume`), and Resume in, in its menu. Only as
 /// `sender` may: never for an agent (`send::ensure_may_resume`).
 pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &str, sender: &crate::send::Sender) -> Result<Resumed> {
@@ -632,6 +637,7 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
         bail!("{title} can't go on {} from here.", place_words(how.place, cfg));
     }
     let (model, effort) = tuning(adapter, how.place, how.model.as_deref(), how.effort.as_deref())?;
+    let (prompt, carries_on) = resume_prompt(prompt, s);
     let dirs = (attachments::images_dir(), attachments::files_dir());
     let ask = asked(adapter, prompt, &s.id, model, effort, false, (&dirs.0, &dirs.1));
     let ctx = crate::harness::Ctx { account };
@@ -645,7 +651,8 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
                 crate::origins::record(copy, key, crate::model::OriginHow::Fork);
             }
             let copy_note = if copied { " Claude Code copies a session a background job had before into a new job, so the copy takes its place." } else { "" };
-            (job, format!("{title} goes on in the background{on}. Attach a terminal any time.{copy_note}"))
+            let carry = if carries_on { ", carrying on the turn that was cut off" } else { "" };
+            (job, format!("{title} goes on in the background{on}{carry}. Attach a terminal any time.{copy_note}"))
         }
         Place::Terminal | Place::Background => {
             let behind = how.place == Place::Background;
@@ -655,7 +662,12 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
             launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind, label: label.as_deref() }, &cwd, &input, &env)?;
             let terminal = launch::terminal_name(&cfg.apps.terminal);
             let behind = if behind { " behind your windows" } else { "" };
-            (Some(key.to_string()), format!("Resumed {title} in {terminal}{behind}{on}{}.", if prompted { " with this prompt" } else { "" }))
+            let with = match (carries_on, prompted) {
+                (true, _) => ", told to carry on the turn that was cut off",
+                (false, true) => " with this prompt",
+                (false, false) => "",
+            };
+            (Some(key.to_string()), format!("Resumed {title} in {terminal}{behind}{on}{with}."))
         }
         Place::ClaudeApp | Place::CodexApp => {
             let Some(crate::send::Route::Own(app)) = adapter.app_way() else { bail!("{title} can't go on in {} from here.", adapter.app()) };
@@ -669,6 +681,16 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
         }
     };
     Ok(Resumed { key: goes_on, sent: crate::send::sent(message) })
+}
+
+/// What a resume goes on with: the prompt given, else `CARRY_ON` for a session whose last turn
+/// was cut off; and whether it's that.
+fn resume_prompt<'a>(prompt: &'a str, s: &crate::model::Session) -> (&'a str, bool) {
+    if prompt.trim().is_empty() && s.cut_off.is_some() {
+        (CARRY_ON, true)
+    } else {
+        (prompt, false)
+    }
 }
 
 /// Where a place is, as "can't go on …" says it.
@@ -1226,6 +1248,16 @@ mod tests {
         // What's asked of the command line is checked as a start's is.
         assert!(refused("stopped", ResumeIn { model: Some("opus; rm -rf ~".into()), ..to(Place::Terminal) }).contains("isn't a model name"));
         assert!(refused("stopped", ResumeIn { effort: Some("ludicrous".into()), ..to(Place::Background) }).contains("isn't an effort level"));
+    }
+
+    #[test]
+    fn a_session_cut_off_is_told_to_carry_on_unless_youve_more_to_say() {
+        let stopped = crate::model::Session { live: false, ..crate::fixtures::session("stopped") };
+        let cut = crate::model::Session { cut_off: Some(1), ..stopped.clone() };
+        assert_eq!(resume_prompt("", &cut), (CARRY_ON, true));
+        assert_eq!(resume_prompt("  ", &cut), (CARRY_ON, true));
+        assert_eq!(resume_prompt("Try the other fix", &cut), ("Try the other fix", false));
+        assert_eq!(resume_prompt("", &stopped), ("", false));
     }
 
     #[test]

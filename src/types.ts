@@ -130,6 +130,10 @@ export interface Session {
   /** Its last turn ended because its harness couldn't reach its API (the Mac slept, or the
    *  network dropped), and nothing has been said since. Missing from older Macs. */
   connectionLost?: ConnectionLost;
+  /** Its last turn was cut off: what ran it ended partway through (its terminal closed, the Mac
+   *  restarted, it was killed), and nothing has gone on since. When the turn last did something.
+   *  Missing from older Macs. */
+  cutOff?: number;
   /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
    *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
   model?: string;

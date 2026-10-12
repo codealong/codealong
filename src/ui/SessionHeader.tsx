@@ -25,7 +25,7 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { sessionName, sessionPlace } from '../harness';
-import { limitWords, seenable } from '../lanes';
+import { cutOffWords, limitWords, seenable } from '../lanes';
 import { cameWord, originWord, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, type SessionActions } from '../menus';
 import { untilWords } from '../snooze';
@@ -335,6 +335,17 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           {actions?.moveOn && (
             <Button size="sm" title="Its conversation goes on under that account, told to carry on where it stopped; this one is closed and archived" onClick={() => actions.moveOn?.run()}>
               {actions.moveOn.label}
+            </Button>
+          )}
+        </div>
+      )}
+      {s.cutOff != null && s.status !== 'working' && (
+        <div className="ca-sessinsp-limit" role="note">
+          <Icon name="alert" size={12} />
+          <span className="ca-sessinsp-limit-words">{cutOffWords(!!actions?.carryOn)}</span>
+          {actions?.carryOn && (
+            <Button size="sm" title="It goes on where its account’s last session did, told to carry on the turn that was cut off" onClick={() => actions.carryOn?.run()}>
+              {actions.carryOn.label}
             </Button>
           )}
         </div>
