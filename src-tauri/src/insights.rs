@@ -90,6 +90,12 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
     if s.archived || s.visitor.is_some() {
         return None;
     }
+    // When it began waiting: each call a session waits on you for has a time of its own
+    // (`status_since` while it Needs you), so two calls that show the same line (the same tool,
+    // other arguments) are two moments, and the risk read for one, from the whole call, isn't
+    // kept for the other. A call replaced while its question waits has a new time too, so an
+    // answer read for the old one never applies.
+    let since = s.status_since.filter(|_| s.status == Status::Needs).map(|t| t.to_string()).unwrap_or_default();
     let (kind, basis): (Kind, Vec<&str>) = if let Some(cmd) = s.background.as_deref() {
         let cmd = cmd.trim();
         if cmd.is_empty() {
@@ -100,7 +106,7 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
         (Kind::Quiet, vec![command_in(s.excerpt.as_deref()?)?])
     } else if s.status == Status::Needs && !s.asks {
         let excerpt = s.excerpt.as_deref()?;
-        (Kind::Approval, vec![command_in(excerpt).unwrap_or(excerpt)])
+        (Kind::Approval, vec![command_in(excerpt).unwrap_or(excerpt), since.as_str()])
     } else if turn_ended(s) {
         // A helper's last reply is for its agent to read: what it asks isn't asked of you. A turn
         // its harness ended (the connection lost, a usage limit, cut off) has an error for a
@@ -479,6 +485,17 @@ mod tests {
         let mut again = session(Status::Unread);
         again.last_prompt = Some("Now the docs too".into());
         assert_ne!(ask(&again, NOW).unwrap().1, a);
+        // Each call a session waits on is a moment of its own, by when it began waiting: the
+        // same line shown for another call (the same tool, other arguments) isn't the same
+        // moment, so the risk read for one, from the whole call, isn't kept for the other.
+        let mut first = session(Status::Needs);
+        first.status_since = Some(NOW - 50_000);
+        let mut second = first.clone();
+        second.status_since = Some(NOW - 10_000);
+        let (p, q) = (ask(&first, NOW).unwrap().1, ask(&second, NOW).unwrap().1);
+        assert_ne!(p, q);
+        assert_eq!(ask(&first.clone(), NOW).unwrap().1, p, "the same call, seen again");
+        assert_eq!(kind_of(&p), Some(Kind::Approval));
         assert_eq!(kind_of(&a), Some(Kind::Turn));
     }
 
