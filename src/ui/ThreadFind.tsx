@@ -1,5 +1,6 @@
-// Finding words in a session's conversation: ⌘F over its panel opens a bar above the conversation
-// (SessionThread.tsx), wherever the panel shows, and what's typed there is marked wherever the
+// Finding words in a session's conversation: ⌘F in its panel (the keyboard there, or a click there
+// last: findKeys.ts) opens a bar above the conversation (SessionThread.tsx), wherever the panel
+// shows, in place of the prompt pinned over its top, and what's typed there is marked wherever the
 // conversation says it, the one you're on more strongly, and brought into view. ⏎ goes to the
 // match before, back through the conversation as ⌘⇧↑ goes back through your prompts, and ⇧⏎ to
 // the one after; ⌘G and ⇧⌘G do the same from anywhere in the window, and Escape closes the bar and
@@ -15,6 +16,7 @@
 
 import { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useLatest } from '../latest';
+import { findsAt } from '../findKeys';
 import { chainFrom, countWords, findPattern, pageHits } from '../threadFind';
 import type { TranscriptPage } from '../types';
 import { scaleOf } from '../zoom';
@@ -115,7 +117,8 @@ function unpaint(owner: object) {
   reg.delete('ca-find-at');
 }
 
-/** The visible conversation ⌘F is for: the one whose panel has the keyboard, else the first. */
+/** The visible conversation ⌘G and ⇧⌘G step through: the one whose panel has the keyboard, else
+ *  the first. ⌘F goes where you are (findKeys.ts). */
 function threadFor(): Element | null {
   const shown = [...document.querySelectorAll('.ca-thread')].filter((el) => el.getClientRects().length > 0);
   const at = document.activeElement;
@@ -393,8 +396,9 @@ export function ThreadFind({ host, children }: { host: FindHost; children: React
     if (to?.isConnected) to.focus();
   }, [owner]);
 
-  // ⌘F opens it (or takes the keyboard back to it), and ⌘G and ⇧⌘G step while it's open, ahead
-  // of the window's own keys. ⇧⌘F is the window's (it expands the panel in Sessions and PRs).
+  // ⌘F opens it (or takes the keyboard back to it) when it's for this conversation's panel
+  // (findKeys.ts), and ⌘G and ⇧⌘G step while it's open, ahead of the window's own keys. ⇧⌘F is
+  // the window's (it expands the panel in Sessions and PRs).
   const openNow = useLatest(open);
   const stepNow = useLatest(step);
   useEffect(() => {
@@ -403,7 +407,7 @@ export function ThreadFind({ host, children }: { host: FindHost; children: React
       const key = e.key.toLowerCase();
       if (!(key === 'f' && !e.shiftKey) && key !== 'g') return;
       const el = hostNow.current.scroller.current;
-      if (!el || el !== threadFor()) return;
+      if (!el || (key === 'f' ? !findsAt(el) : el !== threadFor())) return;
       // Settings and the rename sheet keep the keys while they're open.
       const modal = document.querySelector('[aria-modal="true"]');
       if (modal && !modal.contains(el)) return;

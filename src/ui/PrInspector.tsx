@@ -237,7 +237,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
     </>
   );
   return (
-    <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`}>
+    <aside className="ca-insp ca-prpanel" aria-label={`#${pr.number} details`} data-find="files">
       <div className="ca-prinsp ca-prpanel-body">
         <PrDetails {...details} report={report} tabs={tabs} lead={lead} trail={trail} />
       </div>

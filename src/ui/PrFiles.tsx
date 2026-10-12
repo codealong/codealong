@@ -6,9 +6,9 @@
 // where the PR changed it as well as where it lives. The words are marked in the paths and in the
 // diffs. ↑ ↓ pick a file, ⏎ opens or closes it, Escape clears the filter, then leaves it; while
 // it filters, the files it lists open and close together. ⌘F goes to the filter where the
-// window says so (`keys`), and so does a click on the file count over the details
-// (`FilesFinder`), each showing the tab first (`onShow`). What's typed is kept for each PR while
-// the window shows another.
+// window says so (`keys`) and it's for the PR's panel or card (findKeys.ts), and so does a click
+// on the file count over the details (`FilesFinder`), each showing the tab first (`onShow`).
+// What's typed is kept for each PR while the window shows another.
 //
 // A diff has each line's numbers before and after (prFiles.ts `parsePatch`), one under the other
 // (unified) or, where the list is wide enough, side by side (split), and its long lines wrap or
@@ -21,6 +21,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
+import { findsAt } from '../findKeys';
 import { useLatest } from '../latest';
 import { filterFiles, fileQuery, marks, parsePatch, pieces, splitPath, splitRows, type DiffLine, type FileHit } from '../prFiles';
 import { flag, oneOf, useStored } from '../stored';
@@ -341,6 +342,7 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || !finding.current) return;
       if (e.key.toLowerCase() !== 'f' || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (!findsAt(section.current)) return;
       e.preventDefault();
       finding.current();
     };

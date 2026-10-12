@@ -38,7 +38,8 @@
 // scrolling up) until one does: it's pinned from the start.
 //
 // ⌘F finds words in it (ThreadFind.tsx): what `FIND_IN` names is what's searched, the whole
-// conversation's pages read for it, and a run of calls opens to show the ones it finds.
+// conversation's pages read for it, and a run of calls opens to show the ones it finds. The
+// pinned prompt makes way for its bar while it's open.
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';

@@ -7,8 +7,11 @@
 // the count, ⇧⏎ comes forward, ⌘G and ⇧⌘G step from outside the bar, and Escape closes it,
 // clears the marks, folds the run again and gives the box its keyboard back. ⌘F opens it again
 // with the words ready to type over. A second session says "needle" only two pages back: typing
-// it goes there by itself. Words said nowhere say so. In the waiting window it works the same
-// from the card's box, and Escape closes only the bar.
+// it goes there by itself. Words said nowhere say so. The bar takes the place of the prompt pinned
+// over the top while it's open. ⌘F finds where you are (findKeys.ts): from the list it goes to the
+// filter at the top, after a click on the conversation it finds there, and with the panel taking
+// the whole window too; ⌥⌘F goes to the filter from the box, and ⌘K opens the quick panel. In the
+// waiting window it works the same from the card's box, and Escape closes only the bar.
 //   scripts/preview.sh sessions '' scripts/preview/thread-find-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/thread-find-check.js
 //   scripts/preview.sh waiting '' scripts/preview/thread-find-check.js
@@ -81,6 +84,9 @@
   var box = function () { return q('.ca-sessinsp .ca-composer textarea, .ca-reply .ca-composer textarea'); };
   var thread = function () { return q('.ca-sessinsp .ca-thread, .ca-reply .ca-thread'); };
   var bar = function () { return q('.ca-thread-find'); };
+  var filter = function () { return q('.ca-search input'); };
+  // The holder of the prompt pinned over the top, which makes way for the bar.
+  var pinShown = function () { var p = q('.ca-sessinsp .ca-thread-pin'); return !!p && getComputedStyle(p).display !== 'none'; };
   var field = function () { return q('.ca-thread-find input'); };
   var count = function () { var c = q('.ca-thread-findcount'); return c ? c.textContent : null; };
   var button = function (label) { return q('.ca-thread-find button[aria-label="' + label + '"]'); };
@@ -99,7 +105,7 @@
     var box = thread().getBoundingClientRect();
     var rect = r.getBoundingClientRect();
     var pin = q('.ca-thread-pinned');
-    var top = pin ? pin.getBoundingClientRect().bottom : box.top;
+    var top = pin && pin.getClientRects().length > 0 ? pin.getBoundingClientRect().bottom : box.top;
     return rect.height > 0 && rect.top >= top && rect.bottom <= box.bottom;
   };
   var within = function (sel) { var r = at(); return !!r && !!r.startContainer.parentElement.closest(sel); };
@@ -147,6 +153,7 @@
     .then(function (e) {
       check('⌘F in the box opens the bar', !!bar() && e.defaultPrevented);
       check('with the keyboard in it', document.activeElement === field(), document.activeElement && document.activeElement.className);
+      check('in place of the pinned prompt', !pinShown());
       var el = thread();
       check('and the conversation still at its end', el.scrollHeight - el.scrollTop - el.clientHeight < 2, String(el.scrollHeight - el.scrollTop - el.clientHeight));
       type(field(), 'lighthouse');
@@ -203,6 +210,7 @@
       check('the run folds again', !/src\/lighthouse\.ts/.test(thread().textContent));
       check('the box has the keyboard back', document.activeElement === box(), document.activeElement && document.activeElement.className);
       check('the session’s still shown', title() === 'Find A', title());
+      check('and the pinned prompt is back', pinShown());
       return press(box(), { key: 'f', metaKey: true });
     })
     .then(function () {
@@ -239,6 +247,52 @@
       check('reading back the pages between', pagesRead(B).slice(hadB).join(',') === 'null,800,700', pagesRead(B).join(','));
       check('the keyboard stays in the bar', document.activeElement === field());
       return press(field(), { key: 'Escape' });
+    })
+    // ⌘F finds where you are (findKeys.ts): from the list, the filter at the top.
+    .then(function () {
+      var list = q('.ca-board-list');
+      list.focus();
+      return press(list, { key: 'f', metaKey: true });
+    })
+    .then(function (e) {
+      check('⌘F from the list goes to the filter', e.defaultPrevented && document.activeElement === filter() && !bar(), document.activeElement && document.activeElement.className);
+      return press(filter(), { key: 'Escape' });
+    })
+    .then(function () {
+      // A click on the conversation's text leaves the keyboard with nothing.
+      q('.ca-sessinsp .ca-thread-agent').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      return press(document.body, { key: 'f', metaKey: true });
+    })
+    .then(function (e) {
+      check('after a click on the conversation it finds there', e.defaultPrevented && !!bar() && document.activeElement === field(), document.activeElement && document.activeElement.className);
+      return press(field(), { key: 'Escape' });
+    })
+    .then(function () {
+      box().focus();
+      return press(box(), { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true });
+    })
+    .then(function (e) {
+      check('⌥⌘F goes to the filter from the box', e.defaultPrevented && document.activeElement === filter() && !bar(), document.activeElement && document.activeElement.className);
+      return press(filter(), { key: 'Escape' });
+    })
+    .then(function () {
+      var before = calls('show_quick').length;
+      return press(document.body, { key: 'k', metaKey: true }).then(function (e) {
+        check('⌘K opens the quick panel', e.defaultPrevented && calls('show_quick').length === before + 1 && document.activeElement !== filter());
+      });
+    })
+    .then(function () {
+      // The filter had the keyboard last, but with the panel taking the whole window there's no
+      // list for it to filter.
+      return press(document.body, { key: 'f', metaKey: true, shiftKey: true });
+    })
+    .then(function () {
+      check('the panel takes the whole window', !!q('.ca-win-body.is-panel-max'));
+      return press(document.body, { key: 'f', metaKey: true });
+    })
+    .then(function (e) {
+      check('where ⌘F finds in the conversation', e.defaultPrevented && !!bar() && document.activeElement === field(), document.activeElement && document.activeElement.className);
+      return press(field(), { key: 'Escape' }).then(function () { return press(document.body, { key: 'f', metaKey: true, shiftKey: true }); });
     })
     .then(done)
     .catch(function (e) {

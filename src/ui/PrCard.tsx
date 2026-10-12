@@ -173,6 +173,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   return (
     <div
       className={cx('ca-reply', 'ca-prreview')}
+      data-find="files"
       style={cardZoom(zoom)}
       onContextMenu={(e) => {
         if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;

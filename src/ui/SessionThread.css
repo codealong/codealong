@@ -74,6 +74,11 @@
   height: 0;
   margin-bottom: -10px;
 }
+/* Not while the find bar is up over the conversation (ThreadFind.tsx): under its field the prompt
+   reads as something the field suggests, and the match you're on says where you are. */
+.ca-thread-find + .ca-thread .ca-thread-pin {
+  display: none;
+}
 .ca-thread-pinned {
   position: absolute;
   top: 0;

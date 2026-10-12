@@ -1330,6 +1330,8 @@ export function App() {
           <Icon name="search" size={14} />
           <input
             ref={searchRef}
+            // ⌘F comes here from the list (findKeys.ts), but not while a panel takes the whole window.
+            data-find={maxed ? undefined : 'window'}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={`Filter ${current === ALL_PROJECTS ? 'all projects' : current}`}
@@ -1350,7 +1352,7 @@ export function App() {
               <Icon name="x" size={12} />
             </button>
           ) : (
-            <Kbd keys={['⌘', 'K']} />
+            <Kbd keys={['⌥', '⌘', 'F']} />
           )}
         </label>
         <div className="ca-bar-tools" data-tauri-drag-region>

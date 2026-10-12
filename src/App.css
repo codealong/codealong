@@ -45,7 +45,7 @@
 .ca-search input::placeholder {
   color: var(--ink-3);
 }
-/* Clears the filter; stands where the ⌘K hint does while there's text. */
+/* Clears the filter; stands where the ⌥⌘F hint does while there's text. */
 .ca-search-clear {
   flex: none;
   display: grid;

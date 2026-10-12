@@ -7,6 +7,7 @@
 import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
 import type { ListRow } from './boardLists';
 import type { MenuAction } from './contextMenu';
+import { findsAt } from './findKeys';
 import { historyChord } from './history';
 import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
 import { useLatest } from './latest';
@@ -164,9 +165,11 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // ⇧⌘F from a PR panel's own fields (its review box, the files' filter), which have no use for it.
   const prMaxKey = view === 'prs' && mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && !!document.activeElement?.closest('.ca-prpanel');
+  // ⌘F, and ⌥⌘F, which goes by the key's code, as ⌥ changes the character.
+  const findKey = mod && !e.ctrlKey && !e.shiftKey && (e.altKey ? e.code === 'KeyF' : key === 'f');
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
   // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !historyChord(e) && !toTerminal && !toView && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -236,10 +239,20 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     runQueue(queueStep, queueStep === 'seen' ? inBox : true);
     return;
   }
-  if (mod && key === 'k') {
+  // ⌘F goes to the filter from wherever nothing else finds, the list say, and a session's or
+  // a PR's panel keeps it for its own find (findKeys.ts); ⌥⌘F goes to the filter from anywhere,
+  // as in Mail and Notes.
+  if (findKey) {
+    if (!e.altKey && !findsAt(searchRef.current)) return;
     e.preventDefault();
     searchRef.current?.focus();
     searchRef.current?.select();
+    return;
+  }
+  // ⌘K opens the quick panel, to find a session, a todo or a PR, or to start one where ⌘N would.
+  if (mod && !e.ctrlKey && !e.altKey && !e.shiftKey && key === 'k') {
+    e.preventDefault();
+    newSession({ laneId: startLaneId });
     return;
   }
   if (mod && !e.ctrlKey && key === 'p') {

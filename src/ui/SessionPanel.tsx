@@ -428,6 +428,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     return (
       <div
         className="ca-reply"
+        data-find="conversation"
         style={cardZoom(zoom)}
         onContextMenu={(e) => {
           // The box keeps its own menu, for copy and paste, as does anything inside with one.
@@ -441,7 +442,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     );
   }
   return (
-    <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`}>
+    <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`} data-find="conversation">
       {body}
     </aside>
   );

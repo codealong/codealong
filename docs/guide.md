@@ -29,7 +29,12 @@ list. ⇧⌘S, ⇧⌘W,
 often a clipboard manager's), from a text field too, and a view in the sidebar shows its keys while
 you point at it (the folded rail says them); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
-what's pinned. ⌃- goes back to the session you were looking at before and ⌃⇧- forward again, as in
+what's pinned. ⌘F finds where you are, as VS Code's does: from a session's panel (the keyboard in
+it, or a click in it last) the words in its conversation, from a PR's panel its files, and from
+anywhere else, the list say, the filter at the top, which narrows the view's list. ⌥⌘F goes to the
+filter from anywhere, as in Mail and Notes, and ⌘K opens the quick panel, to find a session, a todo
+or a PR or to start one. ⌃- goes back to the session you were looking at before and ⌃⇧- forward
+again, as in
 VS Code, from any view or text field; the two arrows beside the sidebar's toggle do the same and say
 where they go. ⌃` opens a new terminal in the folder of what's shown, as VS Code opens its terminal,
 from any view or text field and in every window that shows a session: the session's own folder, else
@@ -245,12 +250,13 @@ brings it up.
 
 #### Find
 
-⌘F finds words in it, wherever the panel shows: a bar over the conversation marks every match and
-counts them across the whole conversation (the pages further back are read for it), starting from
-the one nearest where you're reading; ⏎ goes to the match before, on into earlier pages, ⇧⏎ to the
-one after (⌘G and ⇧⌘G from anywhere in the window), a run of tool calls opens to show a call it
-finds, and Escape closes the bar and gives the keyboard back. It finds what shows: prompts, replies
-and the calls' lines, and a call's input and output once you've opened it.
+⌘F in its panel finds words in it, wherever the panel shows: a bar over the conversation, in place
+of the prompt pinned there, marks every match and counts them across the whole conversation (the
+pages further back are read for it), starting from the one nearest where you're reading; ⏎ goes to
+the match before, on into earlier pages, ⇧⏎ to the one after (⌘G and ⇧⌘G from anywhere in the
+window), a run of tool calls opens to show a call it finds, and Escape closes the bar and gives the
+keyboard back. It finds what shows: prompts, replies and the calls' lines, and a call's input and
+output once you've opened it.
 
 #### Copy and Run
 
@@ -621,7 +627,7 @@ are marked and listed first); Changes, its changed files with their diffs (each 
 its folder; a filter beside Files changed, which the file count goes to and which stays under the
 tabs as the list scrolls, narrows them to the paths holding every word typed, `-word` leaving some
 out, then lists the files whose changes mention the words, which are marked in the paths and diffs;
-↑ ↓ and ⏎ open one, Escape clears it, ⌘F comes back to it on a PR's card); and Review (see *Your
+↑ ↓ and ⏎ open one, Escape clears it, ⌘F in the PR's panel or card comes back to it); and Review (see *Your
 review*). A PR opens on the tab it showed last, else on Review when the agent's review is there to
 read and the PR waits on yours, else on Description. The tree under On this Mac says whether the
 worktree has anything GitHub doesn't, and lists the agents that worked on the PR, including one
@@ -810,7 +816,7 @@ anything the form doesn't cover, and says what's wrong when it doesn't parse.
 
 ### Quick panel
 
-*⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the inspector, or a worktree's or
+*⌥⌘/ from any app, over full-screen ones too; ⌘K, ⌘N, the title bar, the inspector, or a worktree's or
 session's right-click menu in Codealong*
 
 One input, and below it what you can do next: it finds and starts, and answering is the waiting
