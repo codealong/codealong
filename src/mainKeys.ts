@@ -412,6 +412,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     move(-1);
     if (inBox && selected !== visible[0]) focusBox();
   } else if (e.key === 'Enter' && !mod) {
+    // A button with the keyboard (a row's PR chip, reached by Tab) takes its own Enter.
+    if (e.target instanceof HTMLButtonElement) return;
     e.preventDefault();
     openRow(selected);
   } else if (e.key === 'Enter' && mod) {

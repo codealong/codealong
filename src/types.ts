@@ -1523,7 +1523,8 @@ export interface DesktopFeed {
    *  worktrees that hold the PR and its sessions'. A worktree keeps all its sessions, the others
    *  only the ones the card shows. */
   lanes: Lane[];
-  /** The PR, for a PR's card. Missing on feeds from before PRs could be pinned. */
+  /** The PR, for a PR's card; for a worktree's or a session's, its worktree's PR when the board
+   *  lists it (desktop.rs `listed_pr`). Missing on feeds from before PRs could be pinned. */
   prs?: PrItem[];
   /** The todo, for a todo's card. */
   todos: Todo[];

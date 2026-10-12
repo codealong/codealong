@@ -18,7 +18,6 @@ import { useEditorIcons } from '../editors';
 import { sessionPlace } from '../harness';
 import * as menus from '../menus';
 import { liveOrLatest, sessionHomes } from '../lanes';
-import { prRefOf } from '../prLinks';
 import type { DesktopFeed, Label, Lane, PeekShown, Pr, PrItem, Session } from '../types';
 import { CardFace, CardWaiting } from './card/CardFace';
 import { SessionLine } from './card/CardPopover';
@@ -183,11 +182,12 @@ export function DesktopPin() {
     return !!moved;
   };
   /** Shows the worktree's PR in Codealong: a click on its chip, unless the press dragged the card.
-   *  The card has only its link, whose key the main window knows it by too. */
+   *  The feed has it when the board lists it (desktop.rs `listed_pr`); any other has no panel
+   *  there, so it opens on GitHub. */
   const showPr = (pr: Pr) => {
     if (dragged()) return;
-    const ref = prRefOf(pr.url);
-    if (ref) void showMain({ kind: 'pr', key: ref.key });
+    const listed = feed?.prs?.find((p) => p.url === pr.url);
+    if (listed) void showMain({ kind: 'pr', key: listed.key });
     else openUrl(pr.url).catch(fail);
   };
   /** Opens it on GitHub: a double-click on its chip. */

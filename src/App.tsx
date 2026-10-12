@@ -15,7 +15,7 @@ import { homeOf, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, ty
 import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
-import { prIndex, prRefOf } from './prLinks';
+import { prRefOf } from './prLinks';
 import { archiveAhead, boardView, lanesAhead, observe, seenAhead } from './ahead';
 import { reuse } from './reuse';
 import { usePins } from './pins';
@@ -571,8 +571,7 @@ export function App() {
     // Archived fold, so it's looked for on the board as the engine sent it.
     const archivedLane = r.kind === 'session' && !session ? [...(board?.lanes ?? []), ...deviceLanes].find((l) => l.id === r.laneId) : undefined;
     const archived = archivedLane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : '') && s.archived);
-    // A PR by the board's key, or by the one its link gives (a desktop card's chip has only that).
-    const pr = r.kind === 'pr' ? (board?.prs.find((p) => p.key === r.key) ?? prIndex(board?.prs ?? []).get(r.key.toLowerCase())) : undefined;
+    const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
     const home = lane?.project ?? archivedLane?.project ?? pr?.project;
     if (!home) return;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);

@@ -2,13 +2,15 @@
 // Codealong, once no second click has come, and a double-click opens it on GitHub. In the
 // Sessions and Worktrees views, where a click on a row is the row's: its tooltip says so; a
 // double-click on a row's PR chip opens the PR once, and not the session, nor selects the row;
-// the row's right-click menu has Open PR; a click on the chip opens nothing at once, then shows
-// the PR in PRs, selected, or opens it on GitHub when the board doesn't list it (the project's
-// latest worktrees are given a PR if they have none: one the board lists in their project where
-// there is one). On a session's or worktree's card pinned to the desktop (given a PR and an app
-// if its worktree has none): the card shows the PR, a click on it asks the main window to show
-// it, by its link's key, without the peek or opening the card's session, a double-click opens it
-// on GitHub once, and the card's menu has Open PR, and on a worktree's Open preview.
+// the row's right-click menu has Open PR; Enter on the chip with the keyboard is the chip's, not
+// the window's; a click on the chip opens nothing at once, then shows the PR in PRs, selected, or
+// opens it on GitHub when the board doesn't list it (the project's latest worktrees are given a
+// PR if they have none: one the board lists in their project where there is one). On a
+// session's or worktree's card pinned to the desktop (given a PR and an app if its worktree has
+// none): the card shows the PR, a click on it asks the main window to show it, by the board's
+// key, without the peek or opening the card's session, a double-click opens it on GitHub once, a
+// click opens on GitHub a PR the board doesn't list, and the card's menu has Open PR, and on a
+// worktree's Open preview.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-chip-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/pr-chip-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/pr-chip-check.js
@@ -29,8 +31,6 @@
   };
   // The chip's number, before its checks' count.
   var number = function (chip) { return (chip.querySelector(':scope > span').textContent.match(/#(\d+)/) || [])[1]; };
-  // The key a PR's link gives it, as prLinks.ts `prRefOf` has it.
-  var linkKey = function (url) { var m = /github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url); return m && (m[1] + '#' + m[2]).toLowerCase(); };
   var SAYS = /Click to show it in Codealong, double-click to open it on GitHub\./;
 
   if (window.__CODEALONG_DESKTOP__) {
@@ -38,6 +38,9 @@
     var preview = { id: 'l|preview', icon: 'world', label: 'Open preview', detail: 'app.test', kbd: null, disabled: false, group: 'lane' };
     var kind = null;
     var laneId = null;
+    var feed = null;
+    var key = null;
+    var chip = function () { return document.querySelector('.ca-desk .ca-cv-card .ca-pr'); };
     say('pr chip check: waiting for the card');
     until(function () { return document.querySelector('.ca-desk .ca-cv-card.is-session, .ca-desk .ca-cv-card.is-worktree'); }, 20000)
       .then(function () { return window.__TAURI_INTERNALS__.invoke('desktop_feed'); })
@@ -51,28 +54,40 @@
         });
         pr = lanes[0].pr;
         laneId = lanes[0].id;
-        window.__emit('desktop-feed', Object.assign({}, f, { lanes: lanes }));
+        // The PR as the board lists it, which the feed carries then (desktop.rs `listed_pr`):
+        // the board's own, else one made for it under a key of its own.
+        var listed = (f.prs || []).filter(function (p) { return p.url === pr.url; })[0] || Object.assign({}, pr, { key: 'Example/App#' + pr.number, repoSlug: 'Example/App', repo: 'App' });
+        key = listed.key;
+        feed = Object.assign({}, f, { lanes: lanes });
+        window.__emit('desktop-feed', Object.assign({}, feed, { prs: [listed] }));
         return wait(200);
       })
       .then(function () {
-        var chip = document.querySelector('.ca-desk .ca-cv-card .ca-pr');
-        check("a " + kind + "'s card shows its worktree's PR", !!chip && number(chip) === String(pr.number), chip && chip.textContent);
-        check('its tooltip says what a click and a double-click do', SAYS.test(chip.title), chip.title);
+        check("a " + kind + "'s card shows its worktree's PR", !!chip() && number(chip()) === String(pr.number), chip() && chip().textContent);
+        check('its tooltip says what a click and a double-click do', SAYS.test(chip().title), chip().title);
         var peeks = calls('peek_open').length;
         var opens = calls('open_from_bar').length;
-        click(chip, 1);
+        click(chip(), 1);
         check('a click on it waits for a second', calls('open_url').length === 0 && calls('show_main').length === 0, JSON.stringify(window.__calls.slice(-2)));
         return wait(500).then(function () {
           var s = last('show_main');
-          check('then shows the PR in Codealong', calls('show_main').length === 1 && !!s && !!s.reveal && s.reveal.kind === 'pr' && s.reveal.key === linkKey(pr.url), JSON.stringify(s));
+          check('then shows the PR in Codealong, by the board’s key', calls('show_main').length === 1 && !!s && !!s.reveal && s.reveal.kind === 'pr' && s.reveal.key === key, JSON.stringify(s));
           check('and opens nothing', calls('open_url').length === 0, JSON.stringify(last('open_url')));
           check('nor the peek', calls('peek_open').length === peeks, String(calls('peek_open').length));
-          twice(chip);
+          twice(chip());
           return wait(500);
         }).then(function () {
           var o = last('open_url');
           check('a double-click on it opens it on GitHub once', calls('open_url').length === 1 && o.url === pr.url, JSON.stringify(sent('open_url')));
           check('and not the ' + kind + ', nor shows it again', calls('open_from_bar').length === opens && calls('show_main').length === 1, String(calls('open_from_bar').length) + ', ' + String(calls('show_main').length));
+          // A PR the board doesn't list has no panel in Codealong: a click opens it on GitHub.
+          window.__emit('desktop-feed', Object.assign({}, feed, { prs: [] }));
+          return wait(200);
+        }).then(function () {
+          click(chip(), 1);
+          return wait(500);
+        }).then(function () {
+          check('a click on a PR the board doesn’t list opens it on GitHub', calls('open_url').length === 2 && last('open_url').url === pr.url && calls('show_main').length === 1, JSON.stringify(sent('open_url')) + ', ' + String(calls('show_main').length));
           rightClick(document.querySelector('.ca-desk-card'));
           return wait(200);
         });
@@ -82,7 +97,7 @@
         var item = find(menu, 'Open PR #' + pr.number + ' on GitHub');
         check("the card's menu opens the PR", !!item, texts(menu).join('|'));
         pick(item);
-        check('on GitHub', calls('open_url').length === 2 && last('open_url').url === pr.url, JSON.stringify(last('open_url')));
+        check('on GitHub', calls('open_url').length === 3 && last('open_url').url === pr.url, JSON.stringify(last('open_url')));
         if (kind === 'worktree') {
           var p = find(menu, 'Open preview');
           check("a worktree's menu opens its app", !!p, texts(menu).join('|'));
@@ -189,6 +204,13 @@
     .then(function () {
       check('on GitHub', calls('open_url').length === 2 && new RegExp('/pull/' + n + '$').test(last('open_url').url), JSON.stringify(last('open_url')));
       var opens = calls('open_target').length;
+      // Enter on the chip, reached by Tab, is the chip's: the window doesn't open the selected row.
+      var c = chip();
+      c.focus();
+      var enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      c.dispatchEvent(enter);
+      check('Enter on the chip with the keyboard is its own, not the selected row’s', !enter.defaultPrevented && calls('open_target').length === opens, String(calls('open_target').length));
+      c.blur();
       click(chip(), 1);
       return wait(100)
         .then(function () {

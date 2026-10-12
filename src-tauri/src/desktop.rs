@@ -175,7 +175,8 @@ pub struct Feed {
     /// worktrees that hold the PR and its sessions'. A worktree keeps all its sessions, the
     /// others only the ones the card shows.
     pub lanes: Vec<Lane>,
-    /// The PR, for a PR's card.
+    /// The PR, for a PR's card; for a worktree's or a session's, its worktree's PR when the board
+    /// lists it, which a click on its chip shows in Codealong (`listed_pr`).
     pub prs: Vec<PrItem>,
     /// The todo, for a todo's card.
     pub todos: Vec<Todo>,
@@ -191,6 +192,14 @@ fn session_lane(board: &Board, key: &str) -> Option<Lane> {
     Some(lane)
 }
 
+/// The board's PR a worktree has, when the board lists it. A click on its chip on a card shows
+/// it in the main window, which has a panel only for those; the card opens any other on GitHub
+/// (DesktopPin.tsx `showPr`).
+fn listed_pr(board: &Board, lane: &Lane) -> Option<PrItem> {
+    let pr = lane.pr.as_ref()?;
+    board.prs.iter().find(|p| p.url == pr.url).cloned()
+}
+
 /// What a card shows, cut from the board.
 pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
     let mut lanes: Vec<Lane> = Vec::new();
@@ -200,10 +209,12 @@ pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
     let title = match pin.kind {
         Kind::Session => session_lane(board, &pin.key).map(|l| {
             let title = l.sessions[0].title.clone();
+            prs.extend(listed_pr(board, &l));
             lanes.push(l);
             title
         }),
         Kind::Worktree => board.lanes.iter().find(|l| l.id == pin.key).map(|l| {
+            prs.extend(listed_pr(board, l));
             lanes.push(l.clone());
             l.callsign.clone()
         }),
@@ -914,17 +925,43 @@ mod tests {
         assert_eq!(f.labels.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["l1"]);
     }
 
-    #[test]
-    fn a_pr_comes_with_the_worktrees_that_hold_it_and_the_sessions_that_worked_on_it() {
-        let mut b = board();
-        b.prs = vec![serde_json::from_value(serde_json::json!({
+    /// PR 7 in o/r, held by /c and worked on by s2 from /a.
+    fn pr7() -> PrItem {
+        serde_json::from_value(serde_json::json!({
             "key": "o/r#7", "repoSlug": "o/r", "repo": "r", "project": "P", "number": 7, "title": "Fix it", "url": "https://github.com/o/r/pull/7",
             "state": "open", "author": "me", "mine": true, "reviewRequested": false, "head": "fix", "base": "main",
             "checks": {"passed": 1, "failed": 0, "pending": 0, "skipped": 0, "failing": []}, "merge": "clean",
             "additions": 1, "deletions": 0, "changedFiles": 1, "createdAt": 0, "updatedAt": 0, "mergedAt": null, "closedAt": null,
             "lanes": ["/c"], "sessions": [{"key": "s2", "lane": "/a"}]
         }))
-        .expect("a PR")];
+        .expect("a PR")
+    }
+
+    #[test]
+    fn a_worktree_or_session_comes_with_its_worktrees_pr_only_when_the_board_lists_it() {
+        let mut b = board();
+        let pr = |url: &str| serde_json::from_value(serde_json::json!({
+            "number": 7, "title": "Fix it", "url": url, "state": "open",
+            "checks": {"passed": 1, "failed": 0, "pending": 0, "skipped": 0, "failing": []}, "merge": "clean",
+            "updatedAt": 0, "mergedAt": null, "closedAt": null
+        }))
+        .expect("a lane's PR");
+        b.lanes[0].pr = Some(pr("https://github.com/o/r/pull/7"));
+        b.lanes[1].pr = Some(pr("https://github.com/o/r/pull/8"));
+        b.prs = vec![pr7()];
+        let prs = |kind: Kind, key: &str| feed(&b, &Pinned { kind, key: key.into() }, None).prs.into_iter().map(|p| p.key).collect::<Vec<_>>();
+        assert_eq!(prs(Kind::Worktree, "/a"), ["o/r#7"]);
+        assert_eq!(prs(Kind::Session, "s1"), ["o/r#7"]);
+        // #8 isn't on the board: the card opens it on GitHub.
+        assert!(prs(Kind::Worktree, "/b").is_empty());
+        assert!(prs(Kind::Session, "s3").is_empty());
+        assert!(prs(Kind::Worktree, "/c").is_empty());
+    }
+
+    #[test]
+    fn a_pr_comes_with_the_worktrees_that_hold_it_and_the_sessions_that_worked_on_it() {
+        let mut b = board();
+        b.prs = vec![pr7()];
         let f = feed(&b, &Pinned { kind: Kind::Pr, key: "o/r#7".into() }, None);
         assert_eq!(f.title.as_deref(), Some("#7 Fix it"));
         assert_eq!(f.prs.len(), 1);
