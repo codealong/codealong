@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user mentions a todo or asks to note work for later, when you take on or finish a piece of work, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when asked to go over the sessions that wait on the user and suggest replies, or when choosing which account to start something on.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when asked to go over the sessions that wait on the user and suggest replies, or when choosing which account to start something on.
 ---
 
 # Codealong
@@ -22,18 +22,24 @@ however many sessions worked there before. In a checkout several agents share, a
 only to the worktree is another agent's. `me` and `.` in other commands mean that session and
 that worktree. If it finds no session, todo commands still work, and `todo start` and `todo
 done` say on stderr that no session was linked; give a session key when you want one linked.
+A todo it lists is for your information, not a request to work on it (see *Todos*).
 
 ## Todos
 
-- **Record work the user mentions for later** rather than losing it in the conversation:
-  `codealong todo add "<title>" --description "<what and why>" --worktree .` The description is
-  plain text; Markdown reads fine in the app. `--label <name>` adds a label (made if new);
-  `--attach <file>` copies a screenshot or log into the todo. Read a long description from a
-  file with `--description-file`, or from stdin with `--description-file -`.
-- **When you take on a todo:** `codealong todo start <id>`. It marks the todo in progress and
-  links your session and worktree, so the app shows the todo on both. A session started from a
-  todo gets a prompt that names it ("This is Codealong todo <id>"); that session is already
-  linked, and that id is the one to mark done.
+Use todos only when the user explicitly asks you to: to add one, take one on, change one or
+mark one done, or when your session was started on one (its prompt names the todo). Otherwise
+leave the list alone: don't add a todo for work the user mentions or work you leave unfinished,
+don't start one because it's linked to your worktree or shows in `whoami`, and don't look
+through the list for something to do. What follows is for when they've asked.
+
+- **Adding one:** `codealong todo add "<title>" --description "<what and why>" --worktree .`
+  The description is plain text; Markdown reads fine in the app. `--label <name>` adds a label
+  (made if new); `--attach <file>` copies a screenshot or log into the todo. Read a long
+  description from a file with `--description-file`, or from stdin with `--description-file -`.
+- **When you're asked to take on a todo:** `codealong todo start <id>`. It marks the todo in
+  progress and links your session and worktree, so the app shows the todo on both. A session
+  started from a todo gets a prompt that names it ("This is Codealong todo <id>"); that session
+  is already linked, and that id is the one to mark done.
 - **One primary session per todo.** The first session on a todo is its primary one (`primary`
   in the JSON), where the work on it goes on. While another session is that and is running,
   `todo start` is turned down and names it: send it what you have (`codealong session send`)
@@ -55,9 +61,10 @@ done` say on stderr that no session was linked; give a session key when you want
   without being asked. A todo can wait on others: `todo add … --depends-on <id>`, `todo
   update <id> --add-dependency <id>` or `--remove-dependency <id>`. It's blocked until
   every todo it waits on is done; `blockedBy` in the JSON lists the ones still open, and a
-  dependency that would make a loop is refused. When splitting work into steps, add a todo
-  per step with each waiting on the one before. `todo list --ready` shows the todos under
-  Ready (not started, waiting on nothing): pick the next piece of work from there, top first.
+  dependency that would make a loop is refused. When the user asks you to split work into
+  todos, add one per step with each waiting on the one before. `todo list --ready` shows the
+  todos under Ready (not started, waiting on nothing): asked for the next one, take it from
+  there, top first.
 - **Waiting on something outside the list.** When a todo can't go on until something
   Codealong can't see happens (a person's answer, a release, a date), mark it: `codealong
   todo wait <id> --for "<what>"` (or `todo add … --wait-for "<what>"`). It shows under
@@ -342,4 +349,5 @@ grows.
 - Don't edit `todos.json` by hand; the command exists so the app and you never write over
   each other.
 - Don't loop `accounts --usage`, `sessions` or `session send`; ask when you need to know.
-- Don't mark todos done, delete them, or start sessions without the user's say-so.
+- Don't add, start, change, mark done or delete todos unless the user explicitly asks (or
+  your session was started on one), and don't start sessions without their say-so.
