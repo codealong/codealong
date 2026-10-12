@@ -543,7 +543,9 @@ Codealong reads it from the branch a pull request merges into, as this Mac last 
 branch, and a PR mustn't write its own reviewer's instructions or turn on what goes for it. So a
 change to the file goes for the team once it's merged; `codealong config check --repo <folder>`
 checks the file as a checkout has it, before you push. It's read again when a checkout's refs move
-(a fetch) and every few minutes. What it sets goes for everyone: `[reviews] instructions` (or
+(a fetch) and every few minutes, and a branch a PR newly merges into is read at once; until a PR's
+branch has been read (at launch, say), its review and what's submitted for you wait for it, so
+nothing the team sets is missed. A link in `.codealong/` isn't followed, and the file goes unused. What it sets goes for everyone: `[reviews] instructions` (or
 `instructions_file`, a Markdown file in `.codealong/`), added after each person's own instructions
 for reviews of PRs that wait on their review, and the same under `[reviews.own]` for reviews of
 their own PRs, the reviewer told it's the team's; `[reviews] never_submit`, the verdicts
