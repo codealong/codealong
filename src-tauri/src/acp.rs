@@ -94,6 +94,8 @@ struct Hosted {
     cwd: String,
     /// Loaded in the account's current process.
     loaded: bool,
+    /// Being deleted there (`delete_held`): nothing goes to it until that's over.
+    deleting: bool,
     running: bool,
     /// The running turn's claim on the prompt it's sending: none between turns.
     turn: Option<Claim>,
@@ -714,6 +716,9 @@ pub fn set_model(a: &AccountCfg, key: &str, model: &str) -> Result<()> {
     let (id, cwd, loaded) = {
         let st = state();
         let h = st.sessions.get(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
+        if h.deleting {
+            bail!("It's being archived.");
+        }
         (h.id.clone(), h.cwd.clone(), h.loaded && alive(&st, &a.name))
     };
     let ag = agent(a)?;
@@ -784,6 +789,9 @@ pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
         let st = &mut *guard;
         let alive = alive(st, &a.name);
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
+        if h.deleting {
+            bail!("It's being archived.");
+        }
         if h.running {
             h.queue.push(text.to_string());
             None
@@ -968,20 +976,28 @@ pub fn cancel(key: &str) -> Result<()> {
 pub fn delete_held(account: &str, harness: Harness, id: &str) -> Result<bool> {
     let key = key_of(harness, account, id);
     let ag = {
-        let st = state();
-        let Some(h) = st.sessions.get(&key).filter(|h| h.loaded) else { return Ok(false) };
+        let mut guard = state();
+        let st = &mut *guard;
+        let Some(ag) = st.agents.get(account).filter(|a| !a.client.is_closed() && a.can("delete")).cloned() else { return Ok(false) };
+        let Some(h) = st.sessions.get_mut(&key).filter(|h| h.loaded) else { return Ok(false) };
+        if h.deleting {
+            bail!("It's being archived.");
+        }
         if h.running {
             bail!("It's taking a turn in Codealong: stop it first.");
         }
-        match st.agents.get(account).filter(|a| !a.client.is_closed()) {
-            Some(ag) if ag.can("delete") => ag.clone(),
-            _ => return Ok(false),
-        }
+        // Taken out of the process from here, under the lock a send takes too: a send meanwhile
+        // is refused rather than written to a session being closed, and one after picks it up
+        // again from its history, as it must after a delete that failed part way (codex-acp
+        // closes the session before it archives the thread).
+        h.loaded = false;
+        h.deleting = true;
+        ag
     };
-    ag.request("session/delete", json!({ "sessionId": id }), Some(REQUEST_TIMEOUT))?;
-    // Picked up again, from its history, if it's sent to after.
-    set(&key, |h| h.loaded = false);
+    let deleted = ag.request("session/delete", json!({ "sessionId": id }), Some(REQUEST_TIMEOUT));
+    set(&key, |h| h.deleting = false);
     notify(Change::Board);
+    deleted?;
     Ok(true)
 }
 
@@ -1588,6 +1604,32 @@ mod tests {
         assert!(delete_held(account, Harness::Codex, "s1").unwrap());
         assert_eq!(heard(&dir), [r#"{"id":1,"jsonrpc":"2.0","method":"session/delete","params":{"sessionId":"s1"}}"#]);
         assert!(!state().sessions[&key].loaded);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A send while a session is being deleted in its process is refused, not written to it; and
+    /// a delete that fails leaves it to be picked up again, as the adapter may have closed it.
+    #[test]
+    fn a_session_being_deleted_takes_no_send_and_a_failed_delete_lets_it_go() {
+        init(|_| {});
+        let dir = store::test_dir("acp-delete-send");
+        // It takes a while over the delete, then fails it.
+        let script = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"method":"session/delete"'*) sleep 1; echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"code\":-32603,\"message\":\"archive failed\"}}";; esac; done"#;
+        let account = "test-adapter-delete-send";
+        let key = key_of(Harness::Codex, account, "s1");
+        let ag = stand_in(account, script, &dir);
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "delete": {} } });
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, ..Default::default() });
+        let deleting = std::thread::spawn(move || delete_held(account, Harness::Codex, "s1"));
+        wait_until("the delete to be sent", 10, || heard(&dir).len() == 1);
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "codex", "home": "/h" })).unwrap();
+        assert_eq!(send(&a, &key, "Go on").unwrap_err().to_string(), "It's being archived.");
+        assert!(deleting.join().unwrap().unwrap_err().to_string().contains("archive failed"));
+        let h = state().sessions[&key].clone();
+        assert_eq!((h.loaded, h.deleting, h.running), (false, false, false));
+        assert_eq!(heard(&dir).len(), 1, "nothing but the delete was written");
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
