@@ -108,10 +108,14 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
     let file = keep.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("codealong-ledger-check-{}.sqlite", std::process::id())));
     let db = crate::ledger::open(&file).map_err(failed)?;
     let since = util::now_ms() - (days as i64 + 1) * util::DAY_MS;
-    crate::ledger::catch_up_since(&db, &cfg.accounts, if args.option("--session").is_some() { 0 } else { since });
+    let caught = crate::ledger::catch_up_since(&db, &cfg.accounts, if args.option("--session").is_some() { 0 } else { since });
     let out = match args.option("--session") {
         Some(key) => pretty(&crate::ledger::session_in(&db, &cfg, key).map_err(failed)?),
-        None => pretty(&crate::ledger::report_in(&db, &cfg, days, args.option("--account"), util::now_ms()).map_err(failed)?),
+        None => {
+            let mut r = crate::ledger::report_in(&db, &cfg, days, args.option("--account"), util::now_ms()).map_err(failed)?;
+            r.problem = caught.problem();
+            pretty(&r)
+        }
     };
     drop(db);
     if keep.is_none() {

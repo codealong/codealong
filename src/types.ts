@@ -397,6 +397,8 @@ export interface TokenReport {
   /** When the ledger last caught up; 0 before its first read ends. */
   asOf: number;
   filling: boolean;
+  /** What the last read of the records couldn't read, which the numbers leave out. */
+  problem?: string;
 }
 
 /** What one session used and cost, by model (ledger.rs `SessionSpent`). */

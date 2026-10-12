@@ -207,6 +207,10 @@ pub fn token_use(line: &[u8], st: &mut crate::ledger::TokenState) -> Option<crat
     match (v.get("type").and_then(Value::as_str)?, payload.get("type").and_then(Value::as_str)) {
         ("session_meta", _) => {
             st.folder = str_of(payload, "cwd").unwrap_or(std::mem::take(&mut st.folder));
+            // A spawned agent's work is the thread's that spawned it.
+            if let Some(parent) = payload.pointer("/source/subagent/thread_spawn/parent_thread_id").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+                st.parent = parent.to_string();
+            }
             None
         }
         ("turn_context", _) => {
@@ -236,7 +240,7 @@ pub fn token_use(line: &[u8], st: &mut crate::ledger::TokenState) -> Option<crat
             Some(crate::ledger::TokenUse {
                 id: format!("{ts}:{total}"),
                 at: parse_rfc3339_ms(&ts).unwrap_or(0),
-                session: st.session.clone(),
+                session: st.owner(),
                 folder: st.folder.clone(),
                 model: if st.model.is_empty() { "codex".to_string() } else { st.model.clone() },
                 input: input - cached - written,
@@ -912,5 +916,21 @@ mod tests {
         let u = &uses[0];
         assert_eq!((u.input, u.cache_read, u.output, u.reasoning), (124888 - 123392, 123392, 212, 10));
         assert_eq!((u.model.as_str(), u.fast, u.folder.as_str(), u.id.as_str()), ("gpt-6-astra", true, "/Users/me/app", "2026-10-12T18:03:57.247Z:125100"));
+        assert_eq!(u.session, "codex:codex:t");
+    }
+
+    #[test]
+    fn a_spawned_agents_calls_are_its_threads() {
+        let meta = r#"{"timestamp":"2026-10-12T16:23:32.736Z","type":"session_meta","payload":{"id":"child","cwd":"/w","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1}}}}}"#;
+        let count = r#"{"timestamp":"2026-10-12T16:23:39.303Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":26270},"last_token_usage":{"input_tokens":26000,"cached_input_tokens":0,"output_tokens":270,"total_tokens":26270}}}}"#;
+        let mut st = crate::ledger::TokenState { session: "codex:codex:child".into(), ..Default::default() };
+        assert_eq!(token_use(meta.as_bytes(), &mut st), None);
+        // Read on later from where it stopped, the file's session is set afresh; the parent stays.
+        st.session = "codex:codex:child".into();
+        assert_eq!(token_use(count.as_bytes(), &mut st).unwrap().session, "codex:codex:parent");
+        // A guardian review names no parent and is its own.
+        let mut guard = crate::ledger::TokenState { session: "codex:codex:g".into(), ..Default::default() };
+        token_use(r#"{"type":"session_meta","payload":{"source":{"subagent":{"other":"guardian"}}}}"#.as_bytes(), &mut guard);
+        assert_eq!(token_use(count.as_bytes(), &mut guard).unwrap().session, "codex:codex:g");
     }
 }

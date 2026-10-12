@@ -93,6 +93,21 @@ pub struct TokenState {
     pub fast: bool,
     #[serde(default)]
     pub total: u64,
+    /// The session whose work this record's calls are, when that's another's than the file's
+    /// own: a subagent's, by its parent's ID.
+    #[serde(default)]
+    pub parent: String,
+}
+
+impl TokenState {
+    /// The key of the session the calls go to: the file's, or its parent's when it has one, in
+    /// the same harness and account.
+    pub fn owner(&self) -> String {
+        match (self.parent.is_empty(), self.session.rsplit_once(':')) {
+            (false, Some((prefix, _))) => format!("{prefix}:{}", self.parent),
+            _ => self.session.clone(),
+        }
+    }
 }
 
 /// The ledger's file.
@@ -167,10 +182,10 @@ fn with_db<R>(f: impl FnOnce(&Connection) -> Result<R>) -> Result<R> {
     f(slot.as_ref().expect("opened above"))
 }
 
-/// When the ledger last caught up with every record, and whether its first read of them all
-/// is still going.
+/// When the ledger last caught up with every record this launch, and whether its first read of
+/// them all ever is still going: a ledger that wasn't there at launch is being filled.
 static CAUGHT_UP: AtomicI64 = AtomicI64::new(0);
-static FILLING: AtomicBool = AtomicBool::new(true);
+static FILLING: AtomicBool = AtomicBool::new(false);
 
 fn nudger() -> &'static Mutex<Option<Sender<()>>> {
     static TX: OnceLock<Mutex<Option<Sender<()>>>> = OnceLock::new();
@@ -181,6 +196,7 @@ fn nudger() -> &'static Mutex<Option<Sender<()>>> {
 pub fn spawn(delay: Duration) {
     let (tx, rx) = channel::<()>();
     *nudger().lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+    FILLING.store(!path().exists(), Ordering::Relaxed);
     std::thread::spawn(move || {
         crate::procs::utility_thread();
         std::thread::sleep(delay);
@@ -196,11 +212,12 @@ pub fn spawn(delay: Duration) {
         loop {
             let t = Instant::now();
             let accounts = crate::config::current().map(|c| c.accounts).unwrap_or_default();
-            let read = catch_up(&db, &accounts);
+            let caught = catch_up(&db, &accounts);
+            *problem_slot().lock().unwrap_or_else(|e| e.into_inner()) = caught.problem();
             CAUGHT_UP.store(now_ms(), Ordering::Relaxed);
             FILLING.store(false, Ordering::Relaxed);
-            if read > 0 {
-                crate::perf::log(&format!("token ledger: read {} MB in {:?}", read / (1024 * 1024), t.elapsed()));
+            if caught.read > 0 {
+                crate::perf::log(&format!("token ledger: read {} MB in {:?}", caught.read / (1024 * 1024), t.elapsed()));
             }
             match rx.recv_timeout(Duration::from_secs(60)) {
                 Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -209,6 +226,17 @@ pub fn spawn(delay: Duration) {
             while rx.try_recv().is_ok() {}
         }
     });
+}
+
+fn problem_slot() -> &'static Mutex<Option<String>> {
+    static SLOT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// What the last read of the records couldn't read, in words, for a notice and the Usage
+/// window: its numbers leave those records out until a read gets them.
+pub fn problem() -> Option<String> {
+    problem_slot().lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// Asks the background thread to read what's new now: the Usage window is opening.
@@ -240,16 +268,33 @@ fn file_row(db: &Connection, path: &str) -> Result<Option<FileRow>> {
         .optional()?)
 }
 
-/// Reads every account's records into `db`, each file from where it was left, and returns how
-/// many bytes it read. Each file's calls go in with one transaction, so a report never waits
-/// long on it.
-pub fn catch_up(db: &Connection, accounts: &[AccountCfg]) -> u64 {
+/// What a read of every record did: how many bytes it read, and what it couldn't read.
+#[derive(Debug, Default)]
+pub struct Caught {
+    pub read: u64,
+    pub failed: Vec<String>,
+}
+
+impl Caught {
+    /// The failures in a sentence, or none.
+    pub fn problem(&self) -> Option<String> {
+        let first = self.failed.first()?;
+        Some(match self.failed.len() {
+            1 => format!("Couldn't read what a session used: {first}"),
+            n => format!("Couldn't read what sessions used from {n} records, the first {first}"),
+        })
+    }
+}
+
+/// Reads every account's records into `db`, each file from where it was left. Each file's calls
+/// go in with one transaction, so a report never waits long on it.
+pub fn catch_up(db: &Connection, accounts: &[AccountCfg]) -> Caught {
     catch_up_since(db, accounts, 0)
 }
 
 /// `catch_up`, leaving out files last written before `since`: for a check of recent days
 /// (`--snapshot --tokens`), which needn't read years of records.
-pub fn catch_up_since(db: &Connection, accounts: &[AccountCfg], since: i64) -> u64 {
+pub fn catch_up_since(db: &Connection, accounts: &[AccountCfg], since: i64) -> Caught {
     let mut files = Vec::new();
     for account in accounts {
         let Some(adapter) = crate::harness::of(account) else { continue };
@@ -264,20 +309,22 @@ pub fn catch_up_since(db: &Connection, accounts: &[AccountCfg], since: i64) -> u
     // Oldest first, every account's together: a call a later file copies (a fork, a session
     // moved to another account) stays with the session it came from.
     files.sort_by_key(|f| f.0);
-    let mut read = 0;
+    let mut caught = Caught::default();
     for (_, account, adapter, path, session) in files {
         match read_file(db, account, adapter.harness().config(), &path, &session, &|line, st| adapter.token_use(line, st)) {
-            Ok(n) => read += n,
-            Err(e) => eprintln!("The token ledger couldn't read {}: {e:#}", path.display()),
+            Ok(n) => caught.read += n,
+            // Deleted since it was listed, as Claude Code deletes old transcripts: nothing to read.
+            Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) => {}
+            Err(e) => caught.failed.push(format!("{}: {e:#}", crate::util::tilde(&path))),
         }
     }
     for account in accounts {
         let Some(adapter) = crate::harness::of(account) else { continue };
         if let Err(e) = read_rows(db, account, adapter.harness().config(), &|after| adapter.token_uses_since(account, after.max(since))) {
-            eprintln!("The token ledger couldn't read {}'s calls: {e:#}", account.name);
+            caught.failed.push(format!("{}'s calls: {e:#}", account.name));
         }
     }
-    read
+    caught
 }
 
 /// Reads one file from where the last read stopped, a line at a time, up to its last whole
@@ -325,10 +372,10 @@ fn read_file(db: &Connection, account: &AccountCfg, tag: &str, path: &Path, sess
 }
 
 /// Reads the calls a harness keeps in a database, from the newest write the last read saw.
-fn read_rows(db: &Connection, account: &AccountCfg, tag: &str, since: &dyn Fn(i64) -> (Vec<TokenUse>, i64)) -> Result<()> {
+fn read_rows(db: &Connection, account: &AccountCfg, tag: &str, since: &dyn Fn(i64) -> std::result::Result<(Vec<TokenUse>, i64), String>) -> Result<()> {
     let key = format!("{tag}:{}#rows", account.name);
     let after = file_row(db, &key)?.map(|f| f.offset as i64).unwrap_or(0);
-    let (uses, newest) = since(after);
+    let (uses, newest) = since(after).map_err(anyhow::Error::msg)?;
     if uses.is_empty() && newest == after {
         return Ok(());
     }
@@ -526,6 +573,9 @@ pub struct Report {
     /// When the ledger last caught up with every record; 0 before its first read ends.
     pub as_of: i64,
     pub filling: bool,
+    /// What the last read of the records couldn't read (`problem`), which these numbers leave out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
 }
 
 const SESSIONS: usize = 200;
@@ -547,30 +597,36 @@ struct Group {
     last_at: i64,
 }
 
-/// The prompt sizes long-context prices start above (prices.rs `Above`): a group's calls are
-/// summed by which of these their prompt passed, and priced as a prompt just past it.
-const PROMPT_STEPS: [u64; 3] = [100_000, 200_000, 272_000];
+/// Which calls a report sums: those since a time, for one account or all, or one session's.
+enum Calls<'a> {
+    Since(i64, Option<&'a str>),
+    Session(&'a str),
+}
 
-fn groups(db: &Connection, from: i64, account: Option<&str>, session: Option<&str>) -> Result<Vec<Group>> {
-    let step = format!(
-        "CASE WHEN c.prompt > {} THEN {} WHEN c.prompt > {} THEN {} WHEN c.prompt > {} THEN {} ELSE 0 END",
-        PROMPT_STEPS[2],
-        PROMPT_STEPS[2] + 1,
-        PROMPT_STEPS[1],
-        PROMPT_STEPS[1] + 1,
-        PROMPT_STEPS[0],
-        PROMPT_STEPS[0] + 1
-    );
+/// The calls, summed by day, session, model, speed, how far their prompts went past the sizes
+/// some model's prices change above (prices.rs `thresholds`: priced as a prompt just past the
+/// last one passed) and whether the harness recorded a cost, so each sum is priced one way.
+fn groups(db: &Connection, calls: Calls, thresholds: &[u64]) -> Result<Vec<Group>> {
+    let step = match thresholds {
+        [] => "0".to_string(),
+        _ => format!("CASE {} ELSE 0 END", thresholds.iter().rev().map(|t| format!("WHEN c.prompt > {t} THEN {}", t + 1)).collect::<Vec<_>>().join(" ")),
+    };
+    // Written out for each, so SQLite looks a session's calls up by its index.
+    let (filter, args): (&str, Vec<rusqlite::types::Value>) = match calls {
+        Calls::Since(from, None) => ("c.at >= ?1", vec![from.into()]),
+        Calls::Since(from, Some(account)) => ("c.at >= ?1 AND s.account = ?2", vec![from.into(), account.to_string().into()]),
+        Calls::Session(key) => ("c.session = (SELECT id FROM sessions WHERE key = ?1)", vec![key.to_string().into()]),
+    };
     let sql = format!(
         "SELECT date(c.at / 1000, 'unixepoch', 'localtime') AS day, s.key, s.account, s.folder, c.model, c.fast, {step} AS step,
                 sum(c.input), sum(c.cache_read), sum(c.cache_write), sum(c.cache_write_1h), sum(c.output), sum(c.reasoning),
-                sum(c.searches), count(*), sum(c.cost), max(c.at)
+                sum(c.searches), count(*), sum(c.cost), max(c.at), coalesce(c.cost, 0) > 0 AS recorded
          FROM calls c JOIN sessions s ON s.id = c.session
-         WHERE c.at >= ?1 AND (?2 IS NULL OR s.account = ?2) AND (?3 IS NULL OR s.key = ?3)
-         GROUP BY day, c.session, c.model, c.fast, step"
+         WHERE {filter}
+         GROUP BY day, c.session, c.model, c.fast, step, recorded"
     );
     let mut stmt = db.prepare(&sql)?;
-    let rows = stmt.query_map(params![from, account, session], |r| {
+    let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
         let cache_write: i64 = r.get(9)?;
         let cache_write_1h: i64 = r.get(10)?;
         Ok(Group {
@@ -591,7 +647,7 @@ fn groups(db: &Connection, from: i64, account: Option<&str>, session: Option<&st
             cache_write_1h: cache_write_1h as u64,
             searches: r.get::<_, i64>(13)? as u64,
             calls: r.get::<_, i64>(14)? as u64,
-            recorded: r.get(15)?,
+            recorded: r.get::<_, Option<f64>>(15)?.filter(|_| r.get::<_, i64>(17).is_ok_and(|x| x != 0)),
             last_at: r.get(16)?,
         })
     })?;
@@ -678,6 +734,7 @@ pub fn report(days: u32, account: Option<&str>) -> Result<Report> {
     let mut r = with_db(|db| report_in(db, &cfg, days, account, now_ms()))?;
     r.as_of = CAUGHT_UP.load(Ordering::Relaxed);
     r.filling = FILLING.load(Ordering::Relaxed);
+    r.problem = problem();
     Ok(r)
 }
 
@@ -702,7 +759,7 @@ pub fn report_in(db: &Connection, cfg: &crate::config::Config, days: u32, accoun
         .map(|a| (a.name.clone(), Paid { account: a.name.clone(), monthly: a.monthly, per_token: a.per_token, ..Default::default() }))
         .collect();
 
-    for g in groups(db, from, account, None)? {
+    for g in groups(db, Calls::Since(from, account), &prices::thresholds(&cfg.prices))? {
         if g.day < first {
             continue;
         }
@@ -757,6 +814,12 @@ pub fn report_in(db: &Connection, cfg: &crate::config::Config, days: u32, accoun
             }
             p.extra_now = Some((*used, *limit));
         }
+        // An account's row says all it paid, its plan and extra usage with what it paid by the
+        // token, as the days do; an account that used nothing in them still paid for its plan.
+        let more = p.plan + p.extra;
+        if more > 0.0 {
+            by_account.entry(a.name.clone()).or_insert_with(|| Spent { key: a.name.clone(), ..Default::default() }).paid += more;
+        }
     }
 
     let paid = by_day.values().map(|d| d.paid).sum();
@@ -782,6 +845,7 @@ pub fn report_in(db: &Connection, cfg: &crate::config::Config, days: u32, accoun
         untracked,
         as_of: 0,
         filling: false,
+        problem: None,
     })
 }
 
@@ -801,7 +865,7 @@ pub fn session(key: &str) -> Result<SessionSpent> {
 pub fn session_in(db: &Connection, cfg: &crate::config::Config, key: &str) -> Result<SessionSpent> {
     let mut total = Spent { key: key.to_string(), ..Default::default() };
     let mut models: BTreeMap<String, Spent> = BTreeMap::new();
-    for g in groups(db, 0, None, Some(key))? {
+    for g in groups(db, Calls::Session(key), &prices::thresholds(&cfg.prices))? {
         let per_token = cfg.accounts.iter().any(|a| a.name == g.account && a.per_token);
         let s = price_group(&g, prices::price_of(&g.model, &cfg.prices).as_ref(), per_token);
         total.add(&s);
@@ -896,6 +960,65 @@ mod tests {
         let work = r.paying.iter().find(|p| p.account == "work").unwrap();
         assert!((work.tokens - 4.0).abs() < 1e-9);
         assert!((r.paid - (share + 7.0 + 4.0)).abs() < 1e-9, "{}", r.paid);
+    }
+
+    #[test]
+    fn a_recorded_cost_prices_its_own_calls_alone() {
+        // One call a provider charged for, one a subscription's sign-in recorded as 0: the second
+        // is priced from its tokens.
+        let db = db();
+        let now = now_ms();
+        let mut paid = call("a", "opencode:opencode:s", now, 1_000_000, 0);
+        paid.cost = Some(0.5);
+        let mut free = call("b", "opencode:opencode:s", now, 1_000_000, 0);
+        free.cost = Some(0.0);
+        put_uses(&db, &account("opencode"), "opencode", &[paid, free]).unwrap();
+        let r = report_in(&db, &Config { accounts: vec![account("opencode")], ..Default::default() }, 1, None, now).unwrap();
+        assert!((r.total.api - (0.5 + 4.0)).abs() < 1e-9, "{}", r.total.api);
+        assert!((r.total.paid - 0.5).abs() < 1e-9, "{}", r.total.paid);
+    }
+
+    #[test]
+    fn a_long_prompt_threshold_from_config_toml_prices_by_it() {
+        let db = db();
+        let now = now_ms();
+        let mut c = call("a", "claude:claude:s", now, 80_000, 0);
+        c.model = "my-model".into();
+        put_uses(&db, &account("claude"), "claude", &[c]).unwrap();
+        let mut cfg = Config { accounts: vec![account("claude")], ..Default::default() };
+        let rates = |input: f64| prices::Rates { input: Some(input), output: Some(1.0), ..Default::default() };
+        cfg.prices.insert("my-model".into(), Price { rates: rates(1.0), above: Some(prices::Above { tokens: 64_000, rates: rates(10.0), priority: None }), ..Default::default() });
+        let r = report_in(&db, &cfg, 1, None, now).unwrap();
+        assert!((r.total.api - 0.8).abs() < 1e-9, "{}", r.total.api);
+    }
+
+    #[test]
+    fn an_accounts_row_says_all_it_paid() {
+        let db = db();
+        let now = now_ms();
+        let mut plan = account("claude");
+        plan.monthly = Some(310.0);
+        let idle = AccountCfg { monthly: Some(31.0), ..account("spare") };
+        put_uses(&db, &plan, "claude", &[call("a", "claude:claude:s", now, 10, 10)]).unwrap();
+        let r = report_in(&db, &Config { accounts: vec![plan, idle], ..Default::default() }, 1, None, now).unwrap();
+        let today = r.days.last().unwrap().day.clone();
+        let row = |name: &str| r.accounts.iter().find(|a| a.key == name).unwrap().paid;
+        assert!((row("claude") - plan_share(&today, 310.0)).abs() < 1e-9);
+        // An account that used nothing still paid its plan.
+        assert!((row("spare") - plan_share(&today, 31.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_sessions_calls_are_looked_up_by_its_index() {
+        let db = db();
+        let plan: Vec<String> = db
+            .prepare("EXPLAIN QUERY PLAN SELECT * FROM calls c JOIN sessions s ON s.id = c.session WHERE c.session = (SELECT id FROM sessions WHERE key = ?1)")
+            .unwrap()
+            .query_map(["k"], |r| r.get::<_, String>(3))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert!(plan.iter().any(|p| p.contains("calls_session")), "{plan:?}");
     }
 
     #[test]

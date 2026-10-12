@@ -433,9 +433,10 @@ pub trait Adapter: Sync {
     }
 
     /// What model calls used, where the harness keeps them in a database rather than files: the
-    /// ones written after `after` (ms), and when the newest of them was written.
-    fn token_uses_since(&self, _account: &AccountCfg, after: i64) -> (Vec<crate::ledger::TokenUse>, i64) {
-        (Vec::new(), after)
+    /// ones written after `after` (ms), and when the newest of them was written; or why the
+    /// database couldn't be read, which the Usage window and a notice say.
+    fn token_uses_since(&self, _account: &AccountCfg, after: i64) -> std::result::Result<(Vec<crate::ledger::TokenUse>, i64), String> {
+        Ok((Vec::new(), after))
     }
 
     // ---- Its records read as text, for where sessions worked and the PRs they made ----

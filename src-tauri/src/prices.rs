@@ -41,6 +41,9 @@ pub struct Above {
     pub tokens: u64,
     #[serde(flatten)]
     pub rates: Rates,
+    /// What they cost then in OpenAI's priority tier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Rates>,
 }
 
 /// A model's prices: `prices.json`'s entry, or `[prices."<model>"]` in config.toml.
@@ -107,6 +110,15 @@ fn names(model: &str) -> Vec<String> {
     out
 }
 
+/// Every prompt size some model's prices change above, the bundled list's and config.toml's,
+/// smallest first: a report sums calls by which of these their prompts passed (ledger.rs).
+pub fn thresholds(overrides: &BTreeMap<String, Price>) -> Vec<u64> {
+    let mut out: Vec<u64> = bundled().values().chain(overrides.values()).filter_map(|p| p.above.as_ref().map(|a| a.tokens)).filter(|t| *t > 0).collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// A model's prices: config.toml's, over the bundled list's where it names the same model.
 pub fn price_of(model: &str, overrides: &BTreeMap<String, Price>) -> Option<Price> {
     for name in names(model) {
@@ -142,17 +154,26 @@ fn over(base: Price, mine: &Price) -> Price {
 /// A cache price it lacks is taken as the input price, which errs on the high side; an hour's
 /// cache write it lacks, as a five-minute one.
 pub fn cost(price: &Price, used: &Used) -> Option<f64> {
-    let mut r = price.rates.clone();
+    let with = |base: &Rates, top: &Rates| over(Price { rates: base.clone(), ..Default::default() }, &Price { rates: top.clone(), ..Default::default() }).rates;
+    let long = price.above.as_ref().filter(|a| a.tokens > 0 && used.prompt > a.tokens);
+    let mut r = match long {
+        Some(a) => with(&price.rates, &a.rates),
+        None => price.rates.clone(),
+    };
     let mut times = 1.0;
     if used.fast {
-        match (&price.priority, price.fast) {
-            (Some(p), _) => r = over(Price { rates: r, ..Default::default() }, &Price { rates: p.clone(), ..Default::default() }).rates,
-            (None, Some(f)) => times = f,
-            (None, None) => {}
+        let fast = match long {
+            Some(a) => a.priority.as_ref(),
+            None => price.priority.as_ref(),
+        };
+        match (fast, &price.priority, price.fast) {
+            (Some(p), _, _) => r = with(&r, p),
+            // A long prompt where only a short one's priority prices are known: the long prices
+            // times priority's multiple of the short ones.
+            (None, Some(p), _) => times = p.input.zip(price.rates.input).filter(|(_, b)| *b > 0.0).map_or(1.0, |(p, b)| p / b),
+            (None, None, Some(f)) => times = f,
+            (None, None, None) => {}
         }
-    }
-    if let Some(a) = price.above.as_ref().filter(|a| a.tokens > 0 && used.prompt > a.tokens) {
-        r = over(Price { rates: r, ..Default::default() }, &Price { rates: a.rates.clone(), ..Default::default() }).rates;
     }
     let input = r.input?;
     let output = r.output?;
@@ -227,6 +248,29 @@ mod tests {
         let p = price_of("gpt-6-astra", &BTreeMap::new()).unwrap();
         let fast = cost(&p, &Used { fast: true, ..used(0, 0, 0, 0, 1_000_000) }).unwrap();
         assert!(near(fast, p.priority.as_ref().unwrap().output.unwrap()), "{fast}");
+    }
+
+    #[test]
+    fn a_long_prompt_in_fast_mode_has_its_own_prices() {
+        // GPT-5.6 Sol over 272,000 tokens in priority: $16 in, $60 out a million (OpenAI's
+        // fast-mode pricing).
+        let p = price_of("gpt-5.6-sol", &BTreeMap::new()).unwrap();
+        let c = cost(&p, &Used { fast: true, ..used(300_000, 0, 0, 0, 1_000) }).unwrap();
+        assert!(near(c, 0.3 * 16.0 + 0.001 * 60.0), "{c}");
+        // Without long-prompt priority prices, the long ones times priority's multiple.
+        let mut short_only = p.clone();
+        short_only.above.as_mut().unwrap().priority = None;
+        let c = cost(&short_only, &Used { fast: true, ..used(300_000, 0, 0, 0, 0) }).unwrap();
+        assert!(near(c, 0.3 * 8.0 * 2.0), "{c}");
+    }
+
+    #[test]
+    fn thresholds_take_in_config_tomls() {
+        let mut mine = BTreeMap::new();
+        mine.insert("x".to_string(), Price { above: Some(Above { tokens: 64_000, ..Default::default() }), ..Default::default() });
+        let t = thresholds(&mine);
+        assert!(t.contains(&64_000) && t.contains(&272_000) && t.contains(&100_000), "{t:?}");
+        assert!(t.windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]

@@ -95,15 +95,15 @@
   "gpt-5.5-cyber": {"input":12.5,"output":75,"cache_read":1.25},
   "gpt-5.5-pro": {"input":30,"output":180,"search":0.01,"above":{"tokens":272000,"input":60,"output":270}},
   "gpt-5.5-pro-2026-04-23": {"input":30,"output":180,"search":0.01,"above":{"tokens":272000,"input":60,"output":270}},
-  "gpt-5.6": {"input":4,"output":20,"cache_read":0.4,"cache_write":5,"search":0.01,"above":{"tokens":272000,"input":8,"output":30,"cache_read":0.8,"cache_write":10},"priority":{"input":8,"output":40,"cache_read":0.8,"cache_write":10}},
+  "gpt-5.6": {"input":4,"output":20,"cache_read":0.4,"cache_write":5,"search":0.01,"above":{"tokens":272000,"input":8,"output":30,"cache_read":0.8,"cache_write":10,"priority":{"input":16,"output":60,"cache_read":1.6,"cache_write":20}},"priority":{"input":8,"output":40,"cache_read":0.8,"cache_write":10}},
   "gpt-5.6-cyber": {"input":12.5,"output":75,"cache_read":1.25,"cache_write":15.625,"above":{"tokens":272000,"input":25,"output":112.5,"cache_read":2.5,"cache_write":31.25}},
-  "gpt-5.6-luna": {"input":0.2,"output":1.2,"cache_read":0.02,"cache_write":0.25,"search":0.01,"above":{"tokens":272000,"input":0.4,"output":1.8,"cache_read":0.04,"cache_write":0.5},"priority":{"input":0.4,"output":2.4,"cache_read":0.04,"cache_write":0.5}},
-  "gpt-5.6-sol": {"input":4,"output":20,"cache_read":0.4,"cache_write":5,"search":0.01,"above":{"tokens":272000,"input":8,"output":30,"cache_read":0.8,"cache_write":10},"priority":{"input":8,"output":40,"cache_read":0.8,"cache_write":10}},
-  "gpt-5.6-terra": {"input":2,"output":12,"cache_read":0.2,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":18,"cache_read":0.4,"cache_write":5},"priority":{"input":4,"output":24,"cache_read":0.4,"cache_write":5}},
-  "gpt-6-astra": {"input":10,"output":50,"cache_read":1,"cache_write":12.5,"search":0.01,"above":{"tokens":272000,"input":20,"output":75,"cache_read":2,"cache_write":25},"priority":{"input":20,"output":100,"cache_read":2,"cache_write":25}},
-  "gpt-6-luna": {"input":0.1,"output":0.5,"cache_read":0.01,"cache_write":0.125,"search":0.01,"above":{"tokens":272000,"input":0.2,"output":0.75,"cache_read":0.02,"cache_write":0.25},"priority":{"input":0.2,"output":1,"cache_read":0.02,"cache_write":0.25}},
-  "gpt-6-sol": {"input":2,"output":10,"cache_read":0.2,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":15,"cache_read":0.4,"cache_write":5},"priority":{"input":4,"output":20,"cache_read":0.4,"cache_write":5}},
-  "gpt-6.1-sol": {"input":2,"output":10,"cache_read":0.1,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":15,"cache_read":0.2,"cache_write":5},"priority":{"input":4,"output":20,"cache_read":0.2,"cache_write":5}},
+  "gpt-5.6-luna": {"input":0.2,"output":1.2,"cache_read":0.02,"cache_write":0.25,"search":0.01,"above":{"tokens":272000,"input":0.4,"output":1.8,"cache_read":0.04,"cache_write":0.5,"priority":{"input":0.8,"output":3.6,"cache_read":0.08,"cache_write":1}},"priority":{"input":0.4,"output":2.4,"cache_read":0.04,"cache_write":0.5}},
+  "gpt-5.6-sol": {"input":4,"output":20,"cache_read":0.4,"cache_write":5,"search":0.01,"above":{"tokens":272000,"input":8,"output":30,"cache_read":0.8,"cache_write":10,"priority":{"input":16,"output":60,"cache_read":1.6,"cache_write":20}},"priority":{"input":8,"output":40,"cache_read":0.8,"cache_write":10}},
+  "gpt-5.6-terra": {"input":2,"output":12,"cache_read":0.2,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":18,"cache_read":0.4,"cache_write":5,"priority":{"input":8,"output":36,"cache_read":0.8,"cache_write":10}},"priority":{"input":4,"output":24,"cache_read":0.4,"cache_write":5}},
+  "gpt-6-astra": {"input":10,"output":50,"cache_read":1,"cache_write":12.5,"search":0.01,"above":{"tokens":272000,"input":20,"output":75,"cache_read":2,"cache_write":25,"priority":{"input":40,"output":150,"cache_read":4,"cache_write":50}},"priority":{"input":20,"output":100,"cache_read":2,"cache_write":25}},
+  "gpt-6-luna": {"input":0.1,"output":0.5,"cache_read":0.01,"cache_write":0.125,"search":0.01,"above":{"tokens":272000,"input":0.2,"output":0.75,"cache_read":0.02,"cache_write":0.25,"priority":{"input":0.4,"output":1.5,"cache_read":0.04,"cache_write":0.5}},"priority":{"input":0.2,"output":1,"cache_read":0.02,"cache_write":0.25}},
+  "gpt-6-sol": {"input":2,"output":10,"cache_read":0.2,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":15,"cache_read":0.4,"cache_write":5,"priority":{"input":8,"output":30,"cache_read":0.8,"cache_write":10}},"priority":{"input":4,"output":20,"cache_read":0.4,"cache_write":5}},
+  "gpt-6.1-sol": {"input":2,"output":10,"cache_read":0.1,"cache_write":2.5,"search":0.01,"above":{"tokens":272000,"input":4,"output":15,"cache_read":0.2,"cache_write":5,"priority":{"input":8,"output":30,"cache_read":0.4,"cache_write":10}},"priority":{"input":4,"output":20,"cache_read":0.2,"cache_write":5}},
   "gpt-audio": {"input":2.5,"output":10},
   "gpt-audio-1.5": {"input":2.5,"output":10},
   "gpt-audio-2025-08-28": {"input":2.5,"output":10},
@@ -127,6 +127,6 @@
   "o4-mini": {"input":1.1,"output":4.4,"cache_read":0.275,"search":0.01,"priority":{"input":2,"output":8,"cache_read":0.5}},
   "o4-mini-2025-04-16": {"input":1.1,"output":4.4,"cache_read":0.275,"search":0.01,"priority":{"input":2,"output":8,"cache_read":0.5}},
   "o4-mini-deep-research": {"input":2,"output":8,"cache_read":0.5},
-  "codex-auto-review": {"input":0.2,"output":1.2,"cache_read":0.02,"cache_write":0.25,"search":0.01,"above":{"tokens":272000,"input":0.4,"output":1.8,"cache_read":0.04,"cache_write":0.5},"priority":{"input":0.4,"output":2.4,"cache_read":0.04,"cache_write":0.5}}
+  "codex-auto-review": {"input":0.2,"output":1.2,"cache_read":0.02,"cache_write":0.25,"search":0.01,"above":{"tokens":272000,"input":0.4,"output":1.8,"cache_read":0.04,"cache_write":0.5,"priority":{"input":0.8,"output":3.6,"cache_read":0.08,"cache_write":1}},"priority":{"input":0.4,"output":2.4,"cache_read":0.04,"cache_write":0.5}}
  }
 }

@@ -46,7 +46,12 @@ export function entry(name, m) {
     .filter(Boolean)
     .map((x) => Number(x[1]))
     .sort((a, b) => a - b);
-  if (tiers.length) out.above = { tokens: tiers[0] * 1000, ...price(m, `_above_${tiers[0]}k_tokens`) };
+  if (tiers.length) {
+    out.above = { tokens: tiers[0] * 1000, ...price(m, `_above_${tiers[0]}k_tokens`) };
+    // A long prompt in fast mode (OpenAI's priority tier) has prices of its own.
+    const fast = price(m, `_above_${tiers[0]}k_tokens_priority`);
+    if (fast.input !== undefined) out.above.priority = fast;
+  }
   if (typeof m.input_cost_per_token_priority === 'number') out.priority = price(m, '_priority');
   if (FAST[name]) out.fast = FAST[name];
   return { ...out, ...FIXES[name] };

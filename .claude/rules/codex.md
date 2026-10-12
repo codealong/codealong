@@ -62,8 +62,10 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   unlimited, balance}` and `plan_type`.
 - What each call used, for the token ledger: `codex/rollout.rs` (`token_use`, `all_rollouts`).
   A guardian review's rollout (`source: {subagent: {other: "guardian"}}`) and a spawned agent's
-  count from nothing (0.156, 2026-10-12), so a subagent's tokens aren't its parent's again; an
-  event that repeats the running total is the same call. The model is `turn_context`'s, and
+  count from nothing (0.156, 2026-10-12), so a subagent's tokens aren't its parent's again; a
+  spawned agent's calls count for the thread that spawned it (`session_meta`'s
+  `source.subagent.thread_spawn.parent_thread_id`), a guardian's for itself; an event that
+  repeats the running total is the same call. The model is `turn_context`'s, and
   `codex-auto-review` is a server alias priced as GPT-5.6 Luna (`scripts/prices.mjs`). The
   app-server's `account/usage/read` answers the account's daily token totals for as long as it
   has had them (`dailyUsageBuckets`, with lifetime and streak figures in `summary`), and with a

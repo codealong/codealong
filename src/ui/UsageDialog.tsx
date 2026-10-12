@@ -516,6 +516,11 @@ function Notes({ report: r }: { report: TokenReport }) {
   const extras = r.paying.filter((p) => p.extraNow);
   return (
     <div className="ca-usage-notes">
+      {r.problem && (
+        <p className="ca-usage-problem" role="alert">
+          {r.problem}. These numbers leave it out until it reads.
+        </p>
+      )}
       {extras.map((p) => (
         <p key={p.account}>
           {p.account}’s extra usage this month: {money(p.extraNow![0])}

@@ -75,3 +75,4 @@ button.ca-usage-stat-note { font: var(--type-caption-strong); color: var(--ink-2
 @media (max-width: 720px) {
   .ca-usage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.ca-usage-notes .ca-usage-problem { font: var(--type-caption-strong); color: var(--alert); }
