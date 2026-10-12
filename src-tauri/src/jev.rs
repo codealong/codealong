@@ -113,10 +113,13 @@ pub fn tail(s: &str, max: usize) -> String {
 
 /* ---- In the background ---- */
 
-/// A request for the worker, and what its answer is for: the id comes back with it.
+/// A request for the worker, and what its answer is for: the id comes back with it. `fill`
+/// finishes the body on the worker's thread just before it's sent, for state that takes a slow
+/// read (a harness's pending call, over HTTP for OpenCode): the engine's thread never waits on it.
 pub struct Job {
     pub id: String,
     pub body: Value,
+    pub fill: Option<Box<dyn FnOnce(&mut Value) + Send>>,
 }
 
 /// A thread that asks Jev one request at a time and hands each answer to `done`. The engine
@@ -127,7 +130,10 @@ pub fn worker(done: impl Fn(String, std::result::Result<Value, String>) + Send +
     std::thread::Builder::new()
         .name("jev".into())
         .spawn(move || {
-            for job in rx {
+            for mut job in rx {
+                if let Some(fill) = job.fill.take() {
+                    fill(&mut job.body);
+                }
                 let answer = ask(&job.body).map_err(|e| format!("{e:#}"));
                 // Rate limited or overloaded: wait a moment before the next one.
                 if answer.as_ref().err().is_some_and(|e| e.contains("rate limiting") || e.contains("overloaded")) {

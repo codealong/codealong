@@ -1126,8 +1126,13 @@ impl Engine {
     /// Asks Jev in the background. The answer comes back to `on_jev` under the same id; an id
     /// already waiting for its answer isn't asked again.
     fn ask_jev(&mut self, id: String, body: serde_json::Value) {
+        self.ask_jev_filled(id, body, None);
+    }
+
+    /// Asks with a body the worker finishes on its own thread first (`jev::Job::fill`).
+    fn ask_jev_filled(&mut self, id: String, body: serde_json::Value, fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>>) {
         if self.jev_pending.insert(id.clone()) {
-            let _ = self.jev_jobs.send(jev::Job { id, body });
+            let _ = self.jev_jobs.send(jev::Job { id, body, fill });
         }
     }
 
@@ -1257,24 +1262,27 @@ impl Engine {
             let Some((kind, signature)) = crate::insights::ask(s, now) else { continue };
             let id = format!("insight:{signature}|{}", s.key);
             if asks.len() < PER_BOARD && self.insights.wants(&s.key, &signature, now) && !self.jev_pending.contains(&id) {
-                let waiting = (kind == crate::insights::Kind::Approval).then(|| self.waiting_call(board, s)).flatten();
-                asks.push((id, crate::insights::request(s, kind, &self.cfg.jev.model, waiting.as_deref())));
+                let body = crate::insights::request(s, kind, &self.cfg.jev.model, None);
+                // An approval is judged by the whole call, which its harness may take a slow read
+                // to show (OpenCode's over HTTP): read on the worker's thread, never on this one.
+                let fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>> = match kind {
+                    crate::insights::Kind::Approval => {
+                        let (s, account, model) = (s.clone(), self.cfg.accounts.iter().find(|a| a.name == s.account).cloned(), self.cfg.jev.model.clone());
+                        Some(Box::new(move |body: &mut serde_json::Value| {
+                            if let Some(waiting) = Self::waiting_call(&s, account.as_ref()) {
+                                *body = crate::insights::request(&s, crate::insights::Kind::Approval, &model, Some(&waiting));
+                            }
+                        }))
+                    }
+                    _ => None,
+                };
+                asks.push((id, body, fill));
             }
         }
-        for (id, body) in asks {
-            self.ask_jev(id, body);
+        for (id, body, fill) in asks {
+            self.ask_jev_filled(id, body, fill);
         }
         self.insights.save(now);
-    }
-
-    /// The whole call a session waits on you to allow, as its harness shows it (`Pending::input`),
-    /// for Jev to judge its risk by: the arguments, not just the line the excerpt has.
-    fn waiting_call(&self, board: &Board, s: &Session) -> Option<String> {
-        if crate::acp::hosts(&s.key) {
-            return crate::acp::pending(&s.key)?.input;
-        }
-        let (s, account) = crate::harness::find(board, &self.cfg, &s.key).ok()?;
-        crate::harness::adapter(s.harness).pending(&crate::harness::Ctx { account }, s)?.input
     }
 
     /// Jev's read of a session, kept under the moment it was asked about.
@@ -1366,7 +1374,15 @@ impl Engine {
         }
     }
 
-    /// Where sessions came from by Codealong's own record (origins.rs): started by an agent's
+    /// The whole call a session waits on you to allow, as its harness shows it, with its name
+/// (`insights::waiting_words`), for Jev to judge its risk by: the arguments, not just the line the
+/// excerpt has. A read that may be slow: run on Jev's thread, not the engine's.
+fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<String> {
+    let pending = if crate::acp::hosts(&s.key) { crate::acp::pending(&s.key) } else { crate::harness::adapter(s.harness).pending(&crate::harness::Ctx { account: account? }, s) };
+    crate::insights::waiting_words(&pending?)
+}
+
+/// Where sessions came from by Codealong's own record (origins.rs): started by an agent's
     /// `codealong start`, or forked from Codealong where the harness doesn't say. What the
     /// harness recorded comes first. With it, what each helper helps (`board::helper_of`): the
     /// session that started it as one (origins.json), or the PR whose automatic review it is

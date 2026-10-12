@@ -108,7 +108,8 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
         if now - s.last_activity > RECENT_MS || s.helper.is_some() || s.connection_lost.is_some() || s.cut_off.is_some() || s.limit.is_some() {
             return None;
         }
-        (Kind::Turn, vec![s.reply_tail.as_deref().filter(|t| !t.trim().is_empty())?])
+        // The same reply to another prompt is another moment: finished is asked about the prompt.
+        (Kind::Turn, vec![s.reply_tail.as_deref().filter(|t| !t.trim().is_empty())?, s.last_prompt.as_deref().unwrap_or("")])
     } else {
         return None;
     };
@@ -160,8 +161,17 @@ pub fn landing_said(s: &Session) -> Option<&'static str> {
     [("landed:", "landed"), ("pushed:", "pushed"), ("committed:", "committed"), ("not committed:", "uncommitted")].into_iter().find(|(w, _)| lower.starts_with(w)).map(|(_, l)| l)
 }
 
+/// The call a session waits on you to allow, for Jev to judge: its name and the line the windows
+/// show (`label`, "Bash · `rm -rf build`"), then all of it (`input`), so a tool's arguments count
+/// and two tools given the same arguments still differ. None when the harness shows no more than
+/// the label, which the excerpt has already.
+pub fn waiting_words(p: &crate::harness::Pending) -> Option<String> {
+    let input = p.input.as_deref().map(str::trim).filter(|i| !i.is_empty())?;
+    Some(format!("{}\n{input}", p.label.trim()))
+}
+
 /// The request for a session's moment. `waiting` is the whole call a session waits on you to
-/// allow, when its harness shows it, for an approval's risk.
+/// allow, when its harness shows it (`waiting_words`), for an approval's risk.
 pub fn request(s: &Session, kind: Kind, model: &str, waiting: Option<&str>) -> Value {
     let mut state = Map::new();
     state.insert("session title".into(), json!(jev::clip(&s.title, 200)));
@@ -464,6 +474,11 @@ mod tests {
         let mut next = session(Status::Unread);
         next.reply_tail = Some("Done.".into());
         assert_ne!(ask(&next, NOW).unwrap().1, a);
+        // The same reply to another prompt is another moment: whether it's finished depends on
+        // what was asked.
+        let mut again = session(Status::Unread);
+        again.last_prompt = Some("Now the docs too".into());
+        assert_ne!(ask(&again, NOW).unwrap().1, a);
         assert_eq!(kind_of(&a), Some(Kind::Turn));
     }
 
@@ -519,14 +534,20 @@ mod tests {
         assert_eq!(landing_said(&s), None, "while it works, the line is the turn before's");
     }
 
-    /// The whole call goes in when the harness shows it, so the arguments count, not just the
-    /// line the excerpt has.
+    /// The whole call goes in when the harness shows it, with its name, so the arguments count,
+    /// not just the line the excerpt has.
     #[test]
     fn an_approval_is_judged_by_the_whole_call() {
         let s = session(Status::Needs);
-        let approval = request(&s, Kind::Approval, "m", Some("rm -rf build\ngit push --force origin main"));
-        assert_eq!(approval["state"]["command waiting for approval"], "rm -rf build git push --force origin main", "on one line, as Jev reads text");
-        assert_eq!(request(&s, Kind::Approval, "m", Some("  "))["state"]["command waiting for approval"], "rm -rf build");
+        let pending = |label: &str, input: Option<&str>| crate::harness::Pending { id: "toolu_1".into(), label: label.into(), input: input.map(String::from), cannot: None, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false };
+        let waiting = waiting_words(&pending("Bash · `rm -rf build`", Some("rm -rf build\ngit push --force origin main"))).unwrap();
+        assert_eq!(waiting, "Bash · `rm -rf build`\nrm -rf build\ngit push --force origin main");
+        assert_eq!(waiting_words(&pending("mcp__db__drop · `users`", Some("{\"table\": \"users\"}"))).unwrap(), "mcp__db__drop · `users`\n{\"table\": \"users\"}", "the tool's name stays with its arguments");
+        assert_eq!(waiting_words(&pending("Bash · `ls`", None)), None, "no more than the excerpt has");
+        assert_eq!(waiting_words(&pending("Bash · `ls`", Some("  "))), None);
+        let approval = request(&s, Kind::Approval, "m", Some(&waiting));
+        assert_eq!(approval["state"]["command waiting for approval"], "Bash · `rm -rf build` rm -rf build git push --force origin main", "on one line, as Jev reads text");
+        assert_eq!(request(&s, Kind::Approval, "m", None)["state"]["command waiting for approval"], "rm -rf build");
     }
 
     #[test]
