@@ -955,10 +955,11 @@ Auto, the default (and `codealong start`'s), keeps to preferred accounts (starre
 Accounts; without a star, those of the first account's agent) while one has room, judged by the
 limits its default model spends, where 90% of a limit is no room; the others only once they're all
 out. Among them it takes the one whose weekly limit resets soonest, so no week's room goes unused,
-else the one with the most room. It starts on that default model, or the next best (Opus, then
-Sonnet) when the default's own weekly limit is nearly used up. Codealong only launches: the session
-shows on the board like any other, and the panel stays on whatever you're looking at when it
-appears.
+until that one is at 85% of a limit, the last 5% before 90% being left to the sessions already
+running on it; else the one with the most room. It starts on that default model, or the next best
+(Opus, then Sonnet) when the default's own weekly limit is nearly used up. Codealong only launches:
+the session shows on the board like any other, and the panel stays on whatever you're looking at
+when it appears.
 
 #### Files in the prompt
 

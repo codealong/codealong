@@ -93,6 +93,16 @@ describe('Auto', () => {
     expect(pick([usage('claude', 10, 20, 100), usage('claude2', 0, 0, null)])?.account).toBe('claude');
   });
 
+  it('leaves the last room before a reset to the sessions already running there', () => {
+    // At 85% of a limit, its 5-hour one too, claude2's week resetting first no longer counts:
+    // claude's is the next.
+    expect(pick([usage('claude', 10, 20, 100), usage('claude2', 30, 85, 6)])).toEqual({ account: 'claude', reason: 'reset', resetsAt: NOW + 100 * HOUR });
+    expect(pick([usage('claude', 10, 20, 100), usage('claude2', 87, 40, 6)])?.account).toBe('claude');
+    expect(pick([usage('claude', 10, 20, 100), usage('claude2', 30, 84, 6)])?.reason).toBe('reset');
+    // It still has room, so it's taken when no other account has more.
+    expect(pick([usage('claude', 10, 89, 100), usage('claude2', 30, 86, 6)])).toEqual({ account: 'claude2', reason: 'room', resetsAt: null });
+  });
+
   it('without a week under way, starts the account whose fullest limit is least full', () => {
     // claude's fullest limit is 38%, claude2's is 45%: claude has more room, though its 5-hour is fuller.
     expect(pick([usage('claude', 38, 20, null), usage('claude2', 12, 45, null)])).toEqual({ account: 'claude', reason: 'room', resetsAt: null });

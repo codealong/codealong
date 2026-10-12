@@ -212,8 +212,9 @@ typing a prompt and start it, choosing:
 
 *Auto* picks the account with room: your starred accounts first while they have room (an account
 at 90% of a limit has none), and of the rest, the one whose week resets soonest, so no week's
-allowance goes unused. A question that isn't about any of your repos can go to a chat of its own.
-Type `/` to find your repos' skills by name.
+allowance goes unused, until it's at 85% and what's left is for the sessions already on it. A
+question that isn't about any of your repos can go to a chat of its own. Type `/` to find your
+repos' skills by name.
 
 **Optional suggestions.** Turn on Jev (Settings › Jev, with your own [TypeSafe](https://typesafe.ai)
 key) and the panel suggests where your prompt belongs: the agent already working on it, a free

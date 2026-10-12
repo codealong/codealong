@@ -31,6 +31,9 @@ export const AUTO: Choice = 'auto';
 const REMEMBER_KEY = 'codealong.start';
 /** An account this close to any limit could stall a new session. */
 const NEAR_LIMIT = 90;
+/** The room below `NEAR_LIMIT` that Auto leaves on the account whose week resets soonest rather
+ *  than spend it first, for the sessions already running there: start.rs's `KEPT_FOR_RUNNING`. */
+const KEPT_FOR_RUNNING = 5;
 
 export function isAuto(c: Choice | null): boolean {
   return c === AUTO;
@@ -95,9 +98,10 @@ export function preferredNames(accounts: StartAccount[]): string[] {
  * of Fable can still start Opus, and an account at 90% of one of them has no room. Preferred
  * accounts with room go first, then a preferred one without numbers yet, then the others the
  * same way, and only when all are near a limit the least full of them. Among accounts with
- * room, the one whose weekly limit resets soonest wins, so no week's room goes unused; without
- * a reset under way, the one whose fullest limit is least full. Signed-out accounts are passed
- * over. Null when no account can start a session.
+ * room, the one whose weekly limit resets soonest wins, so no week's room goes unused, while its
+ * fullest limit is under 85% (`KEPT_FOR_RUNNING`); without such a reset, the one whose fullest
+ * limit is least full. Signed-out accounts are passed over. Null when no account can start a
+ * session.
  */
 export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null): AutoPick | null {
   const preferred = preferredNames(accounts);
@@ -119,7 +123,7 @@ export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, 
   }
   const leastFull = (pool: typeof measured): AutoPick => ({ account: pool.reduce((best, m) => (m.full < best.full ? m : best)).name, reason: 'room', resetsAt: null });
   const best = (pool: typeof measured): AutoPick => {
-    const soon = pool.filter((m) => m.reset !== null).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
+    const soon = pool.filter((m) => m.reset !== null && m.full < NEAR_LIMIT - KEPT_FOR_RUNNING).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
     return soon.length > 0 ? { account: soon[0].name, reason: 'reset', resetsAt: soon[0].reset } : leastFull(pool);
   };
   for (const pref of [true, false]) {

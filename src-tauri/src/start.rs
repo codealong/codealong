@@ -218,6 +218,11 @@ pub struct Candidate<'a> {
 /// An account this close to any limit could stall a new session.
 const NEAR_LIMIT: f64 = 90.0;
 
+/// The room below `NEAR_LIMIT` that Auto leaves on the account whose week resets soonest rather
+/// than spend it first: the sessions already running there go on using it, and with every start
+/// sent their way too they'd run into the limit mid-turn (asked 2026-10-12).
+const KEPT_FOR_RUNNING: f64 = 5.0;
+
 /// A limit with no room to start or move a session onto.
 fn near(m: &Meter) -> bool {
     m.severity == Severity::Critical || m.percent >= NEAR_LIMIT
@@ -300,9 +305,9 @@ pub fn spends(model: Option<&str>, limit_model: Option<&str>) -> bool {
 /// spends count, and an account at 90% of one of them has no room. Preferred accounts with room
 /// go first, then a preferred one without numbers yet, then the others the same way, and only
 /// when all are near a limit the least full of them. Among accounts with room, the one whose
-/// weekly limit resets soonest wins, so no week's room goes unused; without a reset under way,
-/// the one whose fullest limit is least full. Signed-out accounts are passed over.
-/// `src/start.ts`'s `autoPick` has the same rule.
+/// weekly limit resets soonest wins, so no week's room goes unused, while its fullest limit is
+/// under 85% (`KEPT_FOR_RUNNING`); without such a reset, the one whose fullest limit is least
+/// full. Signed-out accounts are passed over. `src/start.ts`'s `autoPick` has the same rule.
 pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option<AutoPick> {
     struct Measured<'a> {
         name: &'a str,
@@ -333,7 +338,7 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
     }
     let least_full = |pool: &[&Measured]| pool.iter().min_by(|a, b| a.full.total_cmp(&b.full)).map(|m| AutoPick { account: m.name.to_string(), reason: AutoReason::Room, resets_at: None });
     let best = |pool: Vec<&Measured>| {
-        let soonest = pool.iter().filter(|m| m.reset.is_some()).min_by(|a, b| a.reset.cmp(&b.reset).then(a.full.total_cmp(&b.full)));
+        let soonest = pool.iter().filter(|m| m.reset.is_some() && m.full < NEAR_LIMIT - KEPT_FOR_RUNNING).min_by(|a, b| a.reset.cmp(&b.reset).then(a.full.total_cmp(&b.full)));
         match soonest {
             Some(m) => Some(AutoPick { account: m.name.to_string(), reason: AutoReason::Reset, resets_at: m.reset }),
             None => least_full(&pool),
@@ -1139,6 +1144,24 @@ mod tests {
         assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]).0, "claude");
         // All near: the least full.
         assert_eq!(pick(&cs, &[usage("claude", 92.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]), ("claude".into(), AutoReason::Room));
+    }
+
+    #[test]
+    fn auto_leaves_the_last_room_before_a_reset_to_the_sessions_running_there() {
+        let cs = [cand("claude", true), cand("claude2", true)];
+        // claude2's week resets first, but at 85% of a limit, its 5-hour one too, what's left is
+        // for the sessions already on it: claude's week is the next to reset, else the most room.
+        for (session, week) in [(30.0, 85.0), (87.0, 40.0)] {
+            assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", session, week, Some(6))]), ("claude".into(), AutoReason::Reset));
+            assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, None), usage("claude2", session, week, Some(6))]), ("claude".into(), AutoReason::Room));
+        }
+        assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 30.0, 84.0, Some(6))]), ("claude2".into(), AutoReason::Reset));
+        // The next reset to come still goes first.
+        let three = [cand("claude", true), cand("claude2", true), cand("claude3", true)];
+        let us = [usage("claude", 10.0, 20.0, None), usage("claude2", 30.0, 86.0, Some(6)), usage("claude3", 10.0, 50.0, Some(40))];
+        assert_eq!(pick(&three, &us), ("claude3".into(), AutoReason::Reset));
+        // Still room, so it's taken when no other account has more.
+        assert_eq!(pick(&cs, &[usage("claude", 10.0, 89.0, Some(100)), usage("claude2", 30.0, 86.0, Some(6))]), ("claude2".into(), AutoReason::Room));
     }
 
     #[test]
