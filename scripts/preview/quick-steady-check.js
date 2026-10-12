@@ -145,6 +145,29 @@
       hidden = hides();
       click(found());
       check('and a click does it at once', hides() === hidden + 1);
+      // A word is a search, not for Jev.
+      type(input(), 'zebrafinch');
+      return until(function () { return found() && !q('.ca-quick-glabel.is-suggested'); }, 3000, 'a search of one word');
+    })
+    .then(function () {
+      at = pointAt(found());
+      return wait(50);
+    })
+    .then(function () {
+      // A scroll, then rows moved by themselves, keeping their keys: Suggested comes in over
+      // them as the search becomes a few words for Jev.
+      q('.ca-quick-list').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -40 }));
+      type(input(), 'zebrafinch zebrafinch');
+      return until(function () { return q('.ca-quick-row.is-note') && found(); }, 3000, 'Suggested over the search');
+    })
+    .then(function () {
+      still(found(), at);
+      hidden = hides();
+      click(found());
+      return wait(50);
+    })
+    .then(function () {
+      check('a scroll aims no more once rows have moved by themselves', hides() === hidden && found().classList.contains('is-active'), 'hides ' + hidden + '→' + hides());
     })
     .then(done)
     .catch(stopped);

@@ -40,6 +40,6 @@ export const aimedAtNothing = (aim: Aim | null): Aim | null => (aim ? { ...aim, 
 /** The aim once you've scrolled the list: whichever row comes under the pointer. */
 export const aimedByScroll = (aim: Aim | null): Aim => ({ key: SCROLLED, x: aim?.x ?? NaN, y: aim?.y ?? NaN });
 
-/** The aim once the list's rows have changed by themselves: a scroll aimed at the rows as they
+/** The aim once the list's rows have moved by themselves: a scroll aimed at the rows where they
  *  were, and aims at none now. An aim at a row stays on it, wherever it went. */
 export const aimAfterChange = (aim: Aim | null): Aim | null => (aim?.key === SCROLLED ? { ...aim, key: null } : aim);

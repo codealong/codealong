@@ -761,11 +761,16 @@ export function Quick() {
     setWithArchived(!withArchived);
   };
   const keys = [...rows.map((r) => r.key), COMPOSE];
-  // Rows that change by themselves end what a scroll of yours aimed at (aim.ts).
-  const keysNow = keys.join('\n');
+  // Rows that move by themselves end what a scroll of yours aimed at (aim.ts): where each sits in
+  // the list, which scrolling doesn't change, is compared once the list and its held heights
+  // above are laid out. Rows keep their keys as a heading or a note comes in over them.
+  const rowsAt = useRef('');
   useLayoutEffect(() => {
+    const at = Array.from(list.current?.querySelectorAll<HTMLElement>('[data-row]') ?? [], (el) => `${el.dataset.row}@${el.offsetTop}`).join(' ');
+    if (at === rowsAt.current) return;
+    rowsAt.current = at;
     aim.current = aimAfterChange(aim.current);
-  }, [keysNow]);
+  });
   // A result dragged out of the panel is pinned to the desktop: a session, a todo, a PR, or the
   // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
   const rowsNow = useLatest(rows);
