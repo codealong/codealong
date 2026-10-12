@@ -77,9 +77,11 @@ fn command_in(excerpt: &str) -> Option<&str> {
     Some(&excerpt[start..end]).filter(|c| !c.trim().is_empty())
 }
 
-/// Whether its turn is over: its last reply is what it has to say.
+/// Whether its turn is over: its last reply is what it has to say. One that Needs you only
+/// because that reply asks you something (`asks`, from `board::apply_insight`) is at its prompt
+/// too: asked about again from the published board, it's the same moment, not an approval.
 fn turn_ended(s: &Session) -> bool {
-    matches!(s.status, Status::Unread | Status::Idle | Status::Stopped)
+    matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) || s.asks
 }
 
 /// What to ask about a session now, and the signature that moment is kept under: `<kind>-<hash>`
@@ -96,7 +98,7 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
         (Kind::Background, vec![cmd, s.reply_tail.as_deref().unwrap_or("")])
     } else if s.stalled_since.is_some() {
         (Kind::Quiet, vec![command_in(s.excerpt.as_deref()?)?])
-    } else if s.status == Status::Needs {
+    } else if s.status == Status::Needs && !s.asks {
         let excerpt = s.excerpt.as_deref()?;
         (Kind::Approval, vec![command_in(excerpt).unwrap_or(excerpt)])
     } else if turn_ended(s) {
@@ -451,6 +453,14 @@ mod tests {
     fn a_new_reply_is_a_new_moment_and_seeing_it_isnt() {
         let a = ask(&session(Status::Unread), NOW).unwrap().1;
         assert_eq!(ask(&session(Status::Idle), NOW).unwrap().1, a);
+        // Read as asking you, the session Needs you with the question for an excerpt; asked
+        // about again from the published board, it's still that turn, not an approval.
+        let mut flipped = session(Status::Unread);
+        flipped.reply_head = Some("Pushed: 1a2b3c4 is in origin/main.".into());
+        crate::board::apply_insight(&mut flipped, &SessionInsight { asks_you: Some(0.9), ..Default::default() });
+        assert_eq!((flipped.status, flipped.asks), (Status::Needs, true));
+        assert_eq!(ask(&flipped, NOW).unwrap().1, a);
+        assert_eq!(landing_said(&flipped), Some("pushed"));
         let mut next = session(Status::Unread);
         next.reply_tail = Some("Done.".into());
         assert_ne!(ask(&next, NOW).unwrap().1, a);
