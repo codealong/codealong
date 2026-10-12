@@ -11,6 +11,7 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
 use crate::attachments::{self, Style};
+use crate::codex::appserver;
 use crate::launch;
 use crate::procs;
 use crate::send::{opened, sent, Delivery, MayHaveArrived, Own, Sent, Way};
@@ -324,6 +325,17 @@ fn not_running(codex_home: &Path, thread: &str) -> &'static str {
     }
 }
 
+/// Whether the Codex app queues what's sent while a turn runs, to start once the turn ends,
+/// rather than steering it into the turn: `[desktop] followUpQueueMode` in the account's
+/// config.toml, the app's setting for it (26.1007), which is `steer` unless set. Its third,
+/// `interrupt`, stops the turn first, which Codealong leaves to Stop, so it steers.
+fn queues_follow_ups(codex_home: &Path) -> bool {
+    std::fs::read_to_string(codex_home.join("config.toml"))
+        .ok()
+        .and_then(|s| toml::from_str::<toml::Table>(&s).ok())
+        .is_some_and(|t| t.get("desktop").and_then(|d| d.get("followUpQueueMode")).and_then(|m| m.as_str()) == Some("queue"))
+}
+
 /// The request that stops the turn a thread is taking, sent to the window that owns it: what
 /// the app's own Stop sends from a window that doesn't (`user-stop`, which also pauses the
 /// thread's goal and stops its subagents). Without the turn's id the router expects version 3;
@@ -381,17 +393,30 @@ impl Own for InApp {
             launch::open_codex(&launch::codex_thread_url(&d.session.id))?;
             return Ok(opened(format!("Codex has {title} open.")));
         }
-        if d.now {
-            match codex_steer_turn(&d.account.home_path(), &d.session.id, &prompt, &d.session.cwd) {
-                Ok(()) => return Ok(sent(format!("Sent now to {title} in Codex: it takes it into the turn it's taking."))),
+        // While a turn runs, a send goes as the app's own box would send it (`queues_follow_ups`),
+        // and Send now into the turn. A turn started meanwhile doesn't wait for the running one:
+        // 26.1007's app-server puts it into that turn, and the window shows it twice, in the turn
+        // and as the turn it took itself to be starting.
+        let home = d.account.home_path();
+        if d.busy() && !d.now && queues_follow_ups(&home) {
+            match appserver::queue(&home, &d.session.id, &prompt) {
+                Ok(()) => return Ok(sent(format!("Queued for {title} in Codex: it starts once its current turn ends."))),
+                Err(e) if e.is::<MayHaveArrived>() => return Err(e),
+                // An app without the queue takes it into the turn instead.
+                Err(_) => {}
+            }
+        }
+        if d.busy() || d.now {
+            match codex_steer_turn(&home, &d.session.id, &prompt, &d.session.cwd) {
+                Ok(()) => return Ok(sent(format!("Sent{} to {title} in Codex: it takes it into the turn it's taking.", if d.now { " now" } else { "" }))),
                 Err(e) if e.is::<MayHaveArrived>() => return Err(e),
                 // Its turn ended meanwhile, or no window runs it: a turn starts on it, as any
                 // send does.
                 Err(_) => {}
             }
         }
-        match codex_start_turn(&d.account.home_path(), &d.session.id, &prompt, None) {
-            Ok(()) => Ok(sent(if d.busy() { format!("Sent to {title} in Codex; it takes it after its current turn.") } else { format!("Sent to {title} in Codex.") })),
+        match codex_start_turn(&home, &d.session.id, &prompt, None) {
+            Ok(()) => Ok(sent(format!("Sent to {title} in Codex."))),
             Err(e) if e.is::<MayHaveArrived>() => Err(e),
             // A prompt filled in for someone to send isn't a message an agent can leave.
             Err(e) if d.from_agent() => bail!("Codex didn't take it for {title} ({e}), so nothing was sent."),
@@ -434,8 +459,10 @@ mod tests {
             let (mut conn, _) = listener.accept().unwrap();
             let mut buf = Vec::new();
             let mut chunk = [0u8; 4096];
+            let mut asked = Vec::new();
             loop {
                 while let Some(m) = ipc_take(&mut buf) {
+                    asked.push(m["method"].as_str().unwrap_or_default().to_string());
                     let id = m["requestId"].clone();
                     let answer = match m["method"].as_str() {
                         Some("initialize") => json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "clientId": "me" } }),
@@ -575,16 +602,19 @@ mod tests {
     }
 
     /// A router that answers Codealong's join and its lookups for a thread's window with
-    /// `owner` (None: no window answers), and starts a turn with `started`, until it hangs up.
-    fn router(home: &Path, owner: Option<&'static str>, started: Value) -> std::thread::JoinHandle<()> {
+    /// `owner` (None: no window answers), and anything else with `started`, until it hangs up;
+    /// then it says what it was asked.
+    fn router(home: &Path, owner: Option<&'static str>, started: Value) -> std::thread::JoinHandle<Vec<String>> {
         std::fs::create_dir_all(home.join("ipc")).unwrap();
         let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
         std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut buf = Vec::new();
             let mut chunk = [0u8; 4096];
+            let mut asked = Vec::new();
             loop {
                 while let Some(m) = ipc_take(&mut buf) {
+                    asked.push(m["method"].as_str().unwrap_or_default().to_string());
                     let id = m["requestId"].clone();
                     let mut answer = match (m["method"].as_str(), owner) {
                         (Some("initialize"), _) => json!({ "resultType": "success", "result": { "clientId": "me" } }),
@@ -596,11 +626,11 @@ mod tests {
                     answer["requestId"] = id;
                     // Codealong may have hung up meanwhile, once it gave up on the last.
                     if conn.write_all(&ipc_frame(&answer)).is_err() {
-                        return;
+                        return asked;
                     }
                 }
                 match conn.read(&mut chunk) {
-                    Ok(0) | Err(_) => return,
+                    Ok(0) | Err(_) => return asked,
                     Ok(n) => buf.extend_from_slice(&chunk[..n]),
                 }
             }
@@ -715,6 +745,36 @@ mod tests {
         let err = codex_start_turn(&home, "t1", "hello", None).unwrap_err();
         router.join().unwrap();
         assert!(err.is::<MayHaveArrived>(), "{err}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// While a turn runs, a send goes into it, as the app's box sends one unless it's set to
+    /// queue them: a turn started meanwhile would land in the running one anyway, and show twice.
+    #[test]
+    fn a_send_to_a_codex_thread_taking_a_turn_steers_into_it() {
+        let home = scratch("codex-busy");
+        let router = router(&home, Some("window"), json!({ "resultType": "success", "result": {} }));
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": home })).unwrap();
+        let s = Session { surface: Surface::App, status: Status::Working, live: true, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Codex, "codex", "abc") };
+        let sent = InApp.deliver(&Delivery { session: &s, account: &account, text: "and the docs", agent: None, bypasses: false, now: false, untyped: None }).unwrap();
+        assert_eq!(router.join().unwrap(), ["initialize", "thread-owner-discovery", "thread-follower-steer-turn"]);
+        assert_eq!(sent.message, "Sent to \u{201c}Fix the build\u{201d} in Codex: it takes it into the turn it's taking.");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn reads_whether_the_codex_app_queues_follow_ups() {
+        let home = scratch("codex-follow-ups");
+        let set = |config: &str| {
+            std::fs::write(home.join("config.toml"), config).unwrap();
+            queues_follow_ups(&home)
+        };
+        assert!(!queues_follow_ups(&home));
+        assert!(set("model = \"gpt-6\"\n\n[desktop]\nfollowUpQueueMode = \"queue\"\n"));
+        assert!(!set("[desktop]\nfollowUpQueueMode = \"steer\"\n"));
+        assert!(!set("[desktop]\nfollowUpQueueMode = \"interrupt\"\n"));
+        assert!(!set("followUpQueueMode = \"queue\"\n"));
+        assert!(!set("[desktop\nfollowUpQueueMode = \"queue\"\n"));
         let _ = std::fs::remove_dir_all(&home);
     }
 

@@ -86,6 +86,21 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   ended ("Cannot steer conversation … because its active turn already ended"); the router's
   refusals before it hands a request on are `no-client-found`, `no-handler-for-request` and
   `request-version-mismatch` (26.924's code).
+- What's sent while a thread's turn runs in the app (26.1007): the app's box steers it in or
+  queues it to start once the turn ends, as `[desktop] followUpQueueMode` in config.toml says
+  (`steer` unless set, `queue`, or `interrupt`). The queue is the app-server's
+  (`thread/queue/add`, `list`, `delete`, `reorder`, `update` and `start`, which take
+  `capabilities.experimentalApi` at `initialize`; an addition needs a `clientUserMessageId`),
+  kept in `queue_1.sqlite`. The app-server that has the thread loaded starts its head as each
+  turn ends, and notices another process's addition within seconds while the thread is idle
+  (`PRAGMA data_version`, `queued_thread_revisions`); one that hasn't loaded it starts nothing
+  (two app-servers on one CODEX_HOME, 2026-10-12). `thread-follower-start-turn` during a turn
+  doesn't wait for it: the window shows a turn of its own holding the prompt, and its
+  `turn/start` puts the prompt into the running turn, so the window shows it twice (seen
+  2026-10-12). A follower window's queue goes to the owner whole
+  (`thread-follower-set-queued-follow-ups-state` replaces the owner's), so Codealong adds to the
+  app-server's instead: `codex/ipc.rs` (`queues_follow_ups`, `InApp::deliver`),
+  `codex/appserver.rs` (`queue`).
 - A thread made for the app to run, its first turn started through the window socket:
   `codex/appserver.rs` (`new_thread`), `codex/ipc.rs` (`codex_start_request`), `codex/mod.rs`
   (`start_in_app`). `thread/inject_items` refuses an empty list, and the app can't open a

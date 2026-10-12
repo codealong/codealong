@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 
 use crate::procs;
 use crate::rpc::{self, Failure};
+use crate::send::MayHaveArrived;
 use crate::util::truncate;
 
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -48,8 +49,7 @@ struct Server {
 
 impl Server {
     fn request(&self, method: &str, params: Value) -> Result<Value> {
-        let left = self.deadline.saturating_duration_since(Instant::now());
-        self.client.request(method, params, Some(left)).map_err(|e| match e {
+        self.answer(method, params).map_err(|e| match e {
             Failure::Timeout => anyhow!("Codex didn't answer in time."),
             Failure::Closed(said) if said.is_empty() => anyhow!("Codex stopped before it answered."),
             Failure::Closed(said) => anyhow!("Codex stopped before it answered: {}", truncate(&said.join(" "), 300)),
@@ -57,23 +57,63 @@ impl Server {
             Failure::Write(e) => e.into(),
         })
     }
+
+    /// The answer as it came, for a caller that tells a refusal from silence.
+    fn answer(&self, method: &str, params: Value) -> std::result::Result<Value, Failure> {
+        let left = self.deadline.saturating_duration_since(Instant::now());
+        self.client.request(method, params, Some(left))
+    }
 }
 
 fn with_server<T>(codex_home: &Path, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
+    serve(app_server(codex_home), f)
+}
+
+fn app_server(codex_home: &Path) -> Command {
     let mut cmd = Command::new(codex_binary());
     cmd.args(["app-server", "--listen", "stdio://"]).env("CODEX_HOME", codex_home).env("PATH", procs::user_path());
-    serve(cmd, f)
+    cmd
 }
 
 /// Runs `f` against the app-server `cmd` starts, once the handshake is done. The server ends
 /// with it: the client kills its process as it's dropped. What the server tells or asks
 /// meanwhile is left unread.
 fn serve<T>(cmd: Command, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
+    serve_as(cmd, initialize_params(), f)
+}
+
+/// `serve`, introduced with `hello` as the `initialize` params.
+fn serve_as<T>(cmd: Command, hello: Value, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
     let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, |_, _| {}).context("Couldn't start Codex. Is the Codex app installed?")?;
     let server = Server { client, deadline: Instant::now() + TIMEOUT };
-    server.request(INITIALIZE, initialize_params())?;
+    server.request(INITIALIZE, hello)?;
     server.client.notify(INITIALIZED, Value::Null)?;
     f(&server)
+}
+
+/// Queues `text` in a thread, for the Codex app to start once the turn it's taking ends, as a
+/// follow-up queued in the app is (`thread/queue/add`, 26.1007, which takes the experimental
+/// API). The queue is `queue_1.sqlite` in the account's folder: whichever app-server has the
+/// thread loaded starts what's in it as each turn ends, and notices an addition from another
+/// process within seconds while the thread is idle. This one doesn't load the thread, so nothing
+/// runs here (two app-servers on one CODEX_HOME, 2026-10-12). Once Codex has the request, no
+/// answer may mean it was queued (`MayHaveArrived`).
+pub fn queue(codex_home: &Path, thread_id: &str, text: &str) -> Result<()> {
+    serve_as(app_server(codex_home), queue_hello(), |s| add_to_queue(s, thread_id, text, &crate::start::new_session_id()))
+}
+
+fn queue_hello() -> Value {
+    json!({ "clientInfo": rpc::client_info(), "capabilities": { "experimentalApi": true } })
+}
+
+fn add_to_queue(s: &Server, thread_id: &str, text: &str, message_id: &str) -> Result<()> {
+    let params = json!({ "threadId": thread_id, "input": [{ "type": "text", "text": text, "text_elements": [] }], "clientUserMessageId": message_id });
+    match s.answer("thread/queue/add", params) {
+        Ok(_) => Ok(()),
+        Err(Failure::Refused(e)) => bail!("Codex didn't queue it: {}", e.get("message").and_then(Value::as_str).unwrap_or("unknown error")),
+        Err(Failure::Write(e)) => Err(e.into()),
+        Err(_) => Err(MayHaveArrived("Codealong asked Codex to queue this and didn't hear how it went: look there before sending it again.".into()).into()),
+    }
 }
 
 /// A thread made for the Codex app to run: its id, and the model and effort the account's
@@ -165,6 +205,28 @@ mod tests {
                 r#"{"id":3,"method":"thread/inject_items","params":{"items":[{"content":[{"text":"This thread was started from Codealong.","type":"input_text"}],"role":"developer","type":"message"}],"threadId":"t1"}}"#,
             ]
         );
+        // A follow-up queued in a thread, as `queue` asks, introduced as taking the experimental API.
+        let _ = std::fs::remove_file(&heard);
+        serve_as(stand_in(&heard, ok), queue_hello(), |s| add_to_queue(s, "t9", "and the docs", "u1")).unwrap();
+        let wrote = std::fs::read_to_string(&heard).unwrap();
+        let hello = format!(r#"{{"id":1,"method":"initialize","params":{{"capabilities":{{"experimentalApi":true}},"clientInfo":{{"name":"codealong","title":"Codealong","version":"{}"}}}}}}"#, env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            wrote.lines().collect::<Vec<_>>(),
+            [hello.as_str(), ready, r#"{"id":2,"method":"thread/queue/add","params":{"clientUserMessageId":"u1","input":[{"text":"and the docs","text_elements":[],"type":"text"}],"threadId":"t9"}}"#]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Turned down, nothing was queued; once Codex had it and said nothing, it may have been.
+    #[test]
+    fn a_follow_up_codex_went_quiet_on_may_be_queued() {
+        let dir = crate::store::test_dir("appserver-queue");
+        let heard = dir.join("heard");
+        let ask = |answer: &str| serve_as(stand_in(&heard, answer), queue_hello(), |s| add_to_queue(s, "t9", "hi", "u1")).unwrap_err();
+        let refused = ask(r#"[ "$id" = 1 ] && echo '{"id":1,"result":{}}' || echo '{"id":2,"error":{"code":-32600,"message":"ephemeral thread does not support queued submissions"}}'"#);
+        assert!(!refused.is::<MayHaveArrived>());
+        assert_eq!(refused.to_string(), "Codex didn't queue it: ephemeral thread does not support queued submissions");
+        assert!(ask(r#"[ "$id" = 1 ] && echo '{"id":1,"result":{}}' || exit 1"#).is::<MayHaveArrived>());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -194,6 +256,20 @@ mod tests {
         let model = t.model.as_deref().map(|m| (m, t.effort.as_deref()));
         crate::codex::ipc::codex_start_turn(&home, &t.id, "Reply with just the word pong.", model).unwrap();
         println!("thread {}", t.id);
+    }
+
+    /// Against the Codex app's CLI, in a CODEX_HOME of its own (no sign-in, no turn):
+    /// `cargo test queues_a_follow_up_through_codex -- --ignored`. A thread made there takes a
+    /// queued follow-up from a server that never loaded it.
+    #[test]
+    #[ignore]
+    fn queues_a_follow_up_through_codex() {
+        let home = crate::store::test_dir("appserver-real-queue");
+        let t = new_thread(&home, &home, None).unwrap();
+        queue(&home, &t.id, "and the docs").unwrap();
+        let listed = serve_as(app_server(&home), queue_hello(), |s| s.request("thread/queue/list", json!({ "threadId": t.id }))).unwrap();
+        assert_eq!(listed["data"][0]["input"], json!([{ "type": "text", "text": "and the docs", "text_elements": [] }]), "{listed}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// Against the real Codex: `CODEALONG_TEST_THREAD=<an archived thread> cargo test -- --ignored`.
