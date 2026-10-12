@@ -72,8 +72,9 @@ pub struct ScrollNode {
 
 /// The scrolled lists in WebKit's scrolling tree as `_scrollingTreeAsText` writes it: each
 /// `(overflow scrolling node` with its `(scrollable area size width=… height=…)`, `(total content
-/// size …)` and `(scroll position (x,y))`, which it leaves out while it's the same as the
-/// `(last committed scroll position (x,y))`, the one the page last sent.
+/// size …)` and `(scroll position (x,y))`, where it's drawn, which it leaves out at 0,0. The
+/// `(last committed scroll position (x,y))` beside it is the one the page last sent, not where
+/// it's drawn.
 pub fn scroll_nodes(tree: &str) -> Vec<ScrollNode> {
     tree.split("(overflow scrolling node")
         .skip(1)
@@ -94,10 +95,11 @@ pub fn scroll_nodes(tree: &str) -> Vec<ScrollNode> {
                 Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
             };
             // "(scroll position" isn't in "(last committed scroll position", nor in a proxy's
-            // "(related overflow scrolling node scroll position".
-            let live = point("(scroll position");
-            let committed = point("(last committed scroll position");
-            Some(ScrollNode { area: size("(scrollable area size")?, content: size("(total content size")?, at: live.or(committed)? })
+            // "(related overflow scrolling node scroll position". A node without it is a
+            // scrolling node all the same, drawn at the top.
+            own.contains("(last committed scroll position")
+                .then(|| Some(ScrollNode { area: size("(scrollable area size")?, content: size("(total content size")?, at: point("(scroll position").unwrap_or((0.0, 0.0)) }))
+                .flatten()
         })
         .collect()
 }
@@ -264,10 +266,21 @@ mod tests {
     #[test]
     fn reads_each_scrolled_list_where_its_drawn_not_where_the_page_last_said() {
         let nodes = scroll_nodes(TREE);
+        // The second says only where the page last had it: it's drawn at the top.
         assert_eq!(nodes, vec![
             ScrollNode { area: (639.0, 809.0), content: (639.0, 4971.0), at: (0.0, 90.0) },
-            ScrollNode { area: (263.0, 761.0), content: (263.0, 1200.0), at: (0.0, 120.0) },
+            ScrollNode { area: (263.0, 761.0), content: (263.0, 1200.0), at: (0.0, 0.0) },
         ]);
+    }
+
+    #[test]
+    fn says_a_list_drawn_at_the_top_that_the_page_has_scrolled() {
+        let nodes = scroll_nodes(TREE);
+        let mut p = probe(90.0);
+        p.scrollers.push(PageScroller { name: "ca-side".into(), top: 120.0, height: 1200.0, view_w: 263.0, view_h: 761.0, recent: vec![] });
+        let line = disagreement(&p, None, &nodes).unwrap();
+        assert!(line.contains("ca-side is drawn scrolled to 0, -120 from the page's 120"), "{line}");
+        assert!(!line.contains("ca-board is drawn"), "{line}");
     }
 
     #[test]
