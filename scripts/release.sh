@@ -151,14 +151,13 @@ fi
 
 # The tests come last of these checks: the ones above take a moment and these a few minutes,
 # still nothing beside the build and Apple's notary, which a failure here saves. The engine's
-# build where tests always do, in the shared folder, with this checkout's own crates touched
-# first so cargo doesn't link another checkout's copy of them (as relaunch.sh does), and after
-# the UI, which Tauri reads from dist/ as the engine compiles.
+# build where tests always do, in the shared folder (CODEALONG_CHECKOUT has cargo build this
+# checkout's own crates there, not link another checkout's: lib.rs CHECKOUT), and after the UI,
+# which Tauri reads from dist/ as the engine compiles.
 shared="$(scripts/target-dir.sh)"
 echo "Running the tests before anything is built."
 npm test || fail "npm test failed: nothing was built."
 npm run build >/dev/null || fail "The UI doesn't build (npm run build): nothing was built."
-touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs
 (cd src-tauri && CARGO_TARGET_DIR="$shared" cargo test) || fail "cargo test failed: nothing was built."
 
 for triple in "${triples[@]}"; do

@@ -86,10 +86,11 @@
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
 # finished: nothing read yet, and other devices' worktrees (PREVIEW_DEVICES) already in.
 #
-# Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot;
-# it's found through scripts/target-dir.sh.
+# The snapshots come from this checkout's own engine, which scripts/engine.sh builds when
+# src-tauri has changed (a debug build), or from PREVIEW_BIN. The UI is built with vite alone:
+# npm run typecheck is what checks its types.
 # PR details come from $PREVIEW_DIR/pr-detail.json if you put one there:
-#   "$(scripts/target-dir.sh)/release/codealong" --snapshot --pr owner/name 123 > .preview/pr-detail.json
+#   "$(scripts/engine.sh)" --snapshot --pr owner/name 123 > .preview/pr-detail.json
 set -euo pipefail
 cd "$(dirname "$0")/.."
 view="${1:-worktrees}"
@@ -105,18 +106,19 @@ case "${PREVIEW_SCHEME:-}" in
   light) scheme="--blink-settings=preferredColorScheme=1" ;;
 esac
 shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
-# Every checkout builds into one directory, so the engine there may be another session's build:
-# PREVIEW_BIN points at a copy of your own.
-bin="${PREVIEW_BIN:-$(scripts/target-dir.sh)/release/codealong}"
 prepare="${PREVIEW_PREPARE:-}"
-if [ ! -x "$bin" ]; then
-  echo "No engine at $bin: the snapshots come from a release build (cargo build --release in src-tauri), or PREVIEW_BIN." >&2
+bin="${PREVIEW_BIN:-}"
+if [ -z "$bin" ] && { [ "$prepare" != skip ] || [ -n "${PREVIEW_TRANSCRIPT:-}" ]; }; then
+  bin="$(scripts/engine.sh)"
+fi
+if [ -n "$bin" ] && [ ! -x "$bin" ]; then
+  echo "No engine at $bin (PREVIEW_BIN)." >&2
   exit 1
 fi
 
 # The build and the snapshots, which PREVIEW_PREPARE=skip takes from an earlier run.
 if [ "$prepare" != skip ]; then
-  npm run build >/dev/null
+  npx vite build >/dev/null
   mkdir -p "$dir"
   rm -rf "$dir/assets"
   cp -R dist/. "$dir/"

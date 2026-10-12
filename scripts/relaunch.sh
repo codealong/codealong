@@ -71,11 +71,9 @@ fi
 built=""
 clean && built="$(git rev-parse HEAD)"
 
-# The workspace's own crates build to the same files from every checkout, and cargo goes by file
-# times: a build another checkout made since this one's files last changed would pass for this
-# checkout's. Touched, they compile from here.
-touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs
-npx tauri build --config src-tauri/tauri.dev.conf.json
+# The UI is built with vite alone, in a few seconds: checking its types is npm run typecheck's job,
+# and the tsc in npm run build took half a minute of every relaunch.
+npx tauri build --config src-tauri/tauri.dev.conf.json --config '{"build": {"beforeBuildCommand": "npx vite build"}}'
 # macOS remembers what the app was allowed (controlling Ghostty, reading Documents or an external
 # drive) by its signature. The linker's ad-hoc one changes with every build, so macOS takes each
 # build for a new app and asks again; one signed with an Apple Development certificate is the same
@@ -175,6 +173,12 @@ else
   where="not in origin/main"
 fi
 clean || where="$where, with uncommitted changes"
+# The shared build directory grows by gigabytes a day, so once a day a relaunch prunes what no
+# build has used for days, in the background (prune-target.sh; its last run's line is in prune.log).
+if [ -z "$(find "$target/pruned" -mtime -1 2>/dev/null)" ]; then
+  touch "$target/pruned"
+  nohup scripts/prune-target.sh >"$target/prune.log" 2>&1 &
+fi
 # The main checkout is brought up to origin/main too (landing's step 3), and says how that went.
 scripts/catch-up-main.sh
 echo "Relaunched Codealong Dev from $(git rev-parse --short HEAD) ($where)"

@@ -38,7 +38,9 @@ Applications, so the Dock doesn't show the app as a question mark.
 
 Builds go to `codealong-target` next to the main checkout, one directory shared by every
 checkout and worktree (`.cargo/config.toml`); `scripts/target-dir.sh` prints it and has
-worktrees inside the checkout build there too.
+worktrees inside the checkout build there too. Release builds take minutes and queue on one lock,
+so only `relaunch.sh` and `release.sh` make them; the engine the checks run is a debug build of
+your checkout, with its dependencies optimized (`scripts/engine.sh`).
 
 ## Tests and checks
 
@@ -47,6 +49,7 @@ npm run typecheck                        # tsc
 npm run lint                             # eslint
 npm test                                 # vitest
 (cd src-tauri && cargo test)             # the engine and codealong-peer
+scripts/engine.sh                        # build this checkout's engine when it changed; print its path
 scripts/preview.sh [view] [project]      # render the UI in headless Chrome against your real data
 scripts/checks.sh                        # every browser check in scripts/preview/
 ```

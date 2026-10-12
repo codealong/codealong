@@ -15,6 +15,11 @@
 //! `fixtures` is the tests' own: the sessions, lanes and scratch folders they build on, which the
 //! engine's tests compile too.
 
+// The engine's checkout: reading it has cargo rebuild this crate whenever another checkout built
+// it into the shared build directory last (the engine's `CHECKOUT` says why). Other apps that
+// build on the crate don't set it.
+const _CHECKOUT: Option<&str> = option_env!("CODEALONG_CHECKOUT");
+
 pub mod api;
 pub mod client;
 pub mod feed;

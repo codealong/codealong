@@ -17,7 +17,7 @@
 #
 # The checks read whatever this Mac has, so one can fail for want of data (no session that used
 # Chrome, nothing in Your turn): it says what it was missing. preview.sh's own variables carry
-# through: PREVIEW_BIN for an engine of your own, PREVIEW_DIR, PREVIEW_SCHEME=dark.
+# through: PREVIEW_BIN for another engine than this checkout's, PREVIEW_DIR, PREVIEW_SCHEME=dark.
 #
 # Each run gets as long as its PREVIEW_WAIT and a minute and a half more (two and a half minutes
 # on virtual time), then it's stopped and fails: headless Chrome can hang on a busy Mac.

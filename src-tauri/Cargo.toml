@@ -14,7 +14,13 @@ default-members = [".", "peer"]
 
 [lib]
 name = "codealong_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Only the engine binary links the library. Tauri's template also makes a static and a dynamic
+# library for its mobile targets, which Codealong doesn't have: every build of the library wrote a
+# 600 MB archive nothing read.
+crate-type = ["rlib"]
+# The crate has no doc tests, and looking for them made rustdoc expand the whole crate on every
+# cargo test.
+doctest = false
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -61,13 +67,16 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 
-# Keep file/line backtraces without full variable/type debug information, so
-# development and test builds use less disk space across worktrees.
+# No debug information in development and test builds (the test profile inherits this one): a
+# panic still names its file and line. On macOS line tables stay in each build's object files,
+# which cargo leaves in the shared build directory: 300,000 of them, 72 GB, before this.
+# Dependencies are optimized. They compile once for every worktree, and the debug engine the
+# browser checks snapshot with (scripts/engine.sh) spends its time in them reading a board.
 [profile.dev]
-debug = "line-tables-only"
+debug = false
 
-[profile.test]
-debug = "line-tables-only"
+[profile.dev.package."*"]
+opt-level = 2
 
 # Built for rebuild speed, not the last few percent of engine speed: no LTO (thin LTO relinks
 # the whole crate for a one-line change), incremental on, default codegen units.

@@ -3,10 +3,7 @@
 # src-tauri/src/cli.rs; a cargo test fails while the file is out of date.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export PATH="$HOME/.cargo/bin:$PATH"
-target="$(scripts/target-dir.sh)"
-export CARGO_TARGET_DIR="$target"
-(cd src-tauri && cargo build --quiet)
+engine="$(scripts/engine.sh)"
 mkdir -p skills/codealong/references
-"$target/debug/codealong" reference > skills/codealong/references/reference.md
+"$engine" reference > skills/codealong/references/reference.md
 echo "Wrote skills/codealong/references/reference.md"

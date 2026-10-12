@@ -90,6 +90,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--review-plan", takes: "<owner/name> <number>", run: review_plan },
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
     Mode { flag: "--link", takes: "<url>", run: link },
+    Mode { flag: "--checkout", takes: "", run: |_, _| Ok(crate::CHECKOUT.unwrap_or_default().to_string()) },
 ];
 
 /// `codealong --snapshot [--table] [--no-github] [--usage]`: one pass over everything, printed as

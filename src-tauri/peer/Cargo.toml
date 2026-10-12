@@ -7,6 +7,10 @@ license = "Apache-2.0"
 rust-version = "1.80"
 publish = false
 
+# No doc tests, and looking for them cost a rustdoc pass on every cargo test.
+[lib]
+doctest = false
+
 [dependencies]
 anyhow = "1"
 data-encoding = "2"

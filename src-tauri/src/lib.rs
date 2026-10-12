@@ -100,6 +100,15 @@ mod zoom;
 use tauri::{Emitter, Manager, State};
 use util::words;
 
+/// The checkout this engine was built from: `.cargo/config.toml` sets `CODEALONG_CHECKOUT` to
+/// the folder it's in. Every checkout builds into one shared directory, and the workspace's crates
+/// to the same files from each, which cargo would take for fresh by their times alone. Cargo also
+/// rebuilds a crate when an environment variable it read has changed, so reading this one here
+/// (and in codealong-peer) rebuilds both whenever another checkout built them last. It's `None`
+/// in a build that didn't go through that config. `--snapshot --checkout` prints it, which is how
+/// scripts/engine.sh knows whose binary it copied.
+pub const CHECKOUT: Option<&str> = option_env!("CODEALONG_CHECKOUT");
+
 /// `Kestrel` → `project-kestrel-6f1c0e2a`. Window labels allow letters, digits, `-`, `/`, `:` and `_`,
 /// so the name is cut down to those, and the start of a hash of the whole name keeps apart two
 /// projects that cut down the same (`Foo Bar` and `Foo-Bar`, or names in a script that leaves

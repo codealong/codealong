@@ -20,8 +20,8 @@ how a check's own header names its runs, `prelude.js`'s what a check gets (`say`
 - A check's page is the size its view asks for (the bar's 1100 by 64, say), the window taller by
   Chrome's own frame; the prelude notes one that isn't (on virtual time a page is 500 wide at
   least).
-- The engine the preview runs is whatever was last built into the shared directory, possibly
-  another session's: `PREVIEW_BIN=<a copy of your build>` uses yours.
+- The engine the preview runs is this checkout's own: `scripts/engine.sh` builds it (debug) when
+  src-tauri has changed and copies it to `.preview/engine/codealong`. `PREVIEW_BIN` runs another.
 - The checks read this Mac's board, so one can fail for want of data (no session that used
   Chrome) and says what it missed.
 - Chrome doesn't drop a hidden page to background priority as WebKit does, so a window slowed by

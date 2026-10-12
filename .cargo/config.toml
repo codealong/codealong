@@ -5,3 +5,9 @@
 # (.claude/worktrees/<name>) gets a folder beside it, which scripts/target-dir.sh links here.
 [build]
 target-dir = "../codealong-target"
+
+# The checkout's own folder, wherever cargo runs in it: the engine and codealong-peer read it, so
+# cargo rebuilds them when another checkout built them into the shared directory last, rather than
+# going by file times and linking that checkout's copy (src-tauri/src/lib.rs, CHECKOUT).
+[env]
+CODEALONG_CHECKOUT = { value = ".", relative = true }

@@ -24,7 +24,7 @@ npm run typecheck                       # tsc
 npm run lint                            # eslint: only the rules of hooks and their dependency lists
 npm test                                # vitest
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
-(cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
+scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
 scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
@@ -32,12 +32,16 @@ scripts/release.sh                      # the installer for other Macs: universa
 
 Every checkout and worktree builds into one directory, `codealong-target` next to the main
 checkout, so dependencies compile once and builds queue on cargo's lock; `scripts/target-dir.sh`
-prints it (its header says how a worktree inside another gets it). The engine binary is
-`<dir>/release/codealong`. The workspace's own crates (codealong, codealong-peer) build to the
-same files from every checkout, and cargo goes by file times: once another session has built, a
-`cargo test` in your worktree can link its copy of them instead of yours (errors about what you
-just added are the sign). `touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs` before cargo
-then; `relaunch.sh` always does.
+prints it (its header says how a worktree inside another gets it). The workspace's own crates
+(codealong, codealong-peer) build to the same files from every checkout, which cargo would take
+for fresh by their times alone and link another checkout's copy. So `.cargo/config.toml` names
+the checkout (`CODEALONG_CHECKOUT`) and both crates read it: cargo rebuilds them whenever another
+checkout built them last (lib.rs `CHECKOUT`), and no touching is needed.
+
+Release builds are relaunch.sh's and release.sh's alone: every checkout's queue on one lock, and
+each takes minutes. The engine for snapshots and checks is `scripts/engine.sh`'s, a debug build
+copied into your checkout (`.preview/engine/codealong`), which `cargo test` has mostly compiled
+already; preview.sh and style-diff.mjs use it. Don't `cargo build --release` to check a change.
 
 Hand a change to the user with `scripts/relaunch.sh`: it waits its turn behind other relaunches,
 builds, and only then quits the running app and opens the new one, which it puts in Applications
@@ -67,9 +71,9 @@ After changing `cli.rs`, run `scripts/skill-reference.sh`, which rewrites `refer
 `--help`: a cargo test fails while it's stale.
 
 `codealong --snapshot` checks behavior without a window (snapshot.rs, whose `MODES` has each
-mode's arguments). A session's modes are the app's own actions over a board read once, asked as
-another device asks them. The ones marked real act for real, and real sessions are fine for
-them. Claude usage is read only with `--usage`, and its endpoint rate-limits: don't loop it.
+mode's arguments); `"$(scripts/engine.sh)" --snapshot …` runs your checkout's. A session's
+modes are the app's own actions over a board read once, asked as another device asks them. The
+ones marked real act for real, and real sessions are fine for them. Claude usage is read only with `--usage`, and its endpoint rate-limits: don't loop it.
 
 - `--snapshot [--table] [--no-github] [--usage]`: the board; `--snapshot --bar`: the floating bar's feed.
 - `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
@@ -94,7 +98,7 @@ them. Claude usage is read only with `--usage`, and its endpoint rate-limits: do
   `--snapshot --side <key> <question> [follow-ups]` and `--snapshot --pr-side <owner/name>
   <number> <account> <question> [follow-ups]` (spend usage).
 - `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`,
-  `--snapshot --shell-commands`.
+  `--snapshot --shell-commands`; `--snapshot --checkout`: the checkout the binary was built from.
 - `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app>
   [prompt] [--model <model>] [--effort <level>] [--worktree]`: what a start would run, without
   starting.

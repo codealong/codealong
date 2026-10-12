@@ -7,7 +7,7 @@
 //
 //   node scripts/preview/style-diff.mjs data <data dir>
 //       Takes the engine's snapshots once (the board, the bar's feed, accounts, settings, two
-//       sessions' conversations, one PR's detail) with the engine binary in the shared build directory. They are
+//       sessions' conversations, one PR's detail) with this checkout's engine (scripts/engine.sh). They are
 //       your real data: keep the folder out of the repo. Every recording made from one folder
 //       renders the same board, which is what makes two of them comparable; taking them again
 //       also spends GitHub API points.
@@ -69,7 +69,7 @@ const has = (name) => rest.includes(`--${name}`);
 // ---- data: the engine's snapshots, once ----
 
 function takeData(dir) {
-  const bin = process.env.PREVIEW_BIN || join(execFileSync(join(root, 'scripts/target-dir.sh'), { encoding: 'utf8' }).trim(), 'release/codealong');
+  const bin = process.env.PREVIEW_BIN || execFileSync(join(root, 'scripts/engine.sh'), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
   mkdirSync(dir, { recursive: true });
   const snap = (args, file) => {
     try {

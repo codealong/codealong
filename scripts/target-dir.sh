@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prints the build directory every checkout of Codealong shares: target-dir in .cargo/config.toml
-# as it resolves in the main checkout, the one holding the repository's .git. The engine binary is
-# <dir>/release/codealong and the bundle <dir>/release/bundle/macos.
+# as it resolves in the main checkout, the one holding the repository's .git. relaunch.sh's bundle
+# is <dir>/release/bundle/macos; the engine the checks run is scripts/engine.sh's copy of a debug
+# build.
 #
 # Cargo resolves target-dir against the checkout it runs in, so for a worktree inside another
 # (Claude Code makes its own in .claude/worktrees/<name>) it names a folder beside that worktree.
