@@ -159,9 +159,9 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
               </Chip>
             )}
             {sessions.map(({ lane, session }) => (
-              <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} />
+              <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} />
             ))}
-            <MoreChip names={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.account} · ${session.title}`)} />
+            <MoreChip names={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.title} · ${session.account}`)} />
             {waiting && (
               <Chip className="ca-todorow-waiting" title="Started in an app. The session is linked when it shows up.">
                 <Icon name="clock" size={12} />

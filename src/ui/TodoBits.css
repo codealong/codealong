@@ -1,6 +1,7 @@
 /* The chips todos show (TodoBits.tsx): labels, a todo on a session's row, due dates. */
 
 .ca-chips > .ca-chip.ca-todochip,
+.ca-chips > .ca-chip.ca-sesschip,
 .ca-chips > .ca-chip.ca-wtchip,
 .ca-prrow-fit > .ca-chip.ca-wtchip,
 .ca-chips > .ca-chip.ca-todorow-blocked {
@@ -9,7 +10,8 @@
   max-width: max-content;
   overflow: hidden;
 }
-.ca-chips > .ca-todochip .ca-todochip-title {
+.ca-chips > .ca-todochip .ca-todochip-title,
+.ca-chips > .ca-sesschip .ca-sesschip-title {
   max-width: 156px;
 }
 

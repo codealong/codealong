@@ -4,6 +4,7 @@
 // details, which list them as a tree, with a row for each session, and stay open for the next PR
 // until it's pressed again; the button beside it, and ⇧⌘F, expand the panel to the whole window
 // and back. In Todo: the todo's are chips too, and its chevron beside Link makes them a tree.
+// A session's chip, there and on the PR's or todo's row, says its title, with its account on hover.
 //   scripts/preview.sh prs '' scripts/preview/panel-places-check.js
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/panel-places-check.js
 (function () {
@@ -19,10 +20,23 @@
   var shown = function (el) { return !!el && el.getClientRects().length > 0; };
   // The rows whose PR has sessions on this Mac, which its panel lists.
   var prRows = function () { return all('.ca-prrow').filter(function (r) { return !!q('.ca-prrow-agents', r); }); };
+  // Whether each session chip says its title, and on hover its title, then its account (harness).
+  var named = function (chips) {
+    return chips.length > 0 && chips.every(function (c) {
+      var title = q('.ca-sesschip-title', c);
+      var lines = (c.getAttribute('title') || '').split('\n');
+      return c.classList.contains('ca-sesschip') && !!title && title.textContent !== '' && lines[0] === title.textContent && /^\S+ \(.+\) · /.test(lines[1] || '');
+    });
+  };
+  var sayChips = function (chips) { return chips.map(function (c) { return c.textContent + ' [' + (c.getAttribute('title') || '').split('\n').slice(0, 2).join(' / ') + ']'; }).join(' | '); };
 
   var prs = function () {
     var rows = prRows();
     if (rows.length === 0) return stopped('no PR on this board has a session on this Mac');
+    var rowChips = all('.ca-prrow-agents > .ca-chip:not(.ca-chip--more)', rows[0]);
+    check('a PR’s row names its sessions by their titles', named(rowChips), sayChips(rowChips));
+    var fit = q('.ca-prrow-fit', rows[0]).getBoundingClientRect();
+    check('and they keep inside the row’s line', rowChips.every(function (c) { return c.getBoundingClientRect().right <= fit.right + 1; }));
     press(rows[0]);
     return until(function () { return q('.ca-prinsp-head .ca-places'); }, 5000, 'the PR panel’s chips')
       .then(function (places) {
@@ -33,7 +47,9 @@
         var panel = q('.ca-prpanel').getBoundingClientRect();
         var tabs = q('.ca-prtabs').getBoundingClientRect();
         check('the tabs start near the panel’s top', tabs.top - panel.top < 360, Math.round(tabs.top - panel.top) + 'px down');
-        var sessions = all('.ca-prinsp-head .ca-places .ca-chip:not(.ca-wtchip)').length;
+        var sessionChips = all('.ca-prinsp-head .ca-places .ca-chip:not(.ca-wtchip)');
+        check('its sessions’ chips say their titles, with the account on hover', named(sessionChips), sayChips(sessionChips));
+        var sessions = sessionChips.length;
         press(q('.ca-prinsp-head .ca-detailsbtn'));
         return until(function () { return q('.ca-prinsp .ca-tree'); }, 3000, 'the tree, with the details open').then(function () {
           check('the details list each session as a row', all('.ca-prinsp .ca-tree .ca-psess').length === sessions, all('.ca-prinsp .ca-tree .ca-psess').length + ' rows, ' + sessions + ' chips');
@@ -91,6 +107,9 @@
   };
 
   var todos = function () {
+    var rowChips = all('.ca-todorow .ca-chips > .ca-chip').filter(function (c) { return !!q('.ca-sesschip-title', c) || c.classList.contains('ca-sesschip'); });
+    if (rowChips.length > 0) check('a todo’s row names its sessions by their titles', named(rowChips), sayChips(rowChips));
+    else note('no todo row here has a session');
     press(q('.ca-todorow'));
     return until(function () { return q('.ca-todoinsp .ca-places') || q('.ca-todoinsp .ca-empty'); }, 5000, 'the todo panel’s worktrees and sessions')
       .then(function () {
@@ -100,6 +119,7 @@
         check('the todo’s worktree is a chip, then its sessions', chips.length >= 2 && chips[0].classList.contains('ca-wtchip'), chips.map(function (c) { return c.textContent; }).join(' | '));
         var primary = chips.filter(function (c) { return !!q('.ca-places-primary', c); });
         check('its primary session’s chip says so', primary.length === 1, String(primary.length));
+        check('its sessions’ chips say their titles, with the account on hover', named(chips.filter(function (c) { return !c.classList.contains('ca-wtchip'); })), sayChips(chips));
         var sessions = chips.filter(function (c) { return !c.classList.contains('ca-wtchip'); }).length;
         press(q('.ca-todoinsp .ca-detailsbtn'));
         return until(function () { return q('.ca-todoinsp .ca-tree'); }, 3000, 'the todo’s tree').then(function () {

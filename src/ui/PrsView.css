@@ -78,11 +78,23 @@
   height: 20px;
   overflow: clip;
 }
+/* The agent, named by its title, and the +n: they count as 140px when they're fitted, as a long
+   chip in a lane does (see .ca-chips), then grow into the room that's left; short of it, the
+   title shortens. */
 .ca-prrow-agents {
   display: flex;
-  flex: none;
+  flex: 1000 1 140px;
   align-items: center;
   gap: var(--chip-gap);
+  min-width: 0;
+  max-width: max-content;
+}
+.ca-prrow-agents > .ca-chip.ca-sesschip {
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.ca-prrow-agents > .ca-sesschip .ca-sesschip-title {
+  max-width: 156px;
 }
 /* The diff keeps to the right edge, as in the Worktrees view. */
 .ca-prrow .ca-diff {

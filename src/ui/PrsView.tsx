@@ -127,7 +127,10 @@ function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, on
   const { pr } = item;
   const requested = waitsOnReview(pr);
   const flag = prFlag(pr);
-  const shown = item.sessions.slice(0, 2);
+  // One session, named by its title: the PR's primary one, else the first. Two titles side by side
+  // leave neither readable on a row's line; the +n names the rest, and the PR panel lists them all.
+  const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === pr.primary) - Number(a.session.key === pr.primary));
+  const shown = sessions.slice(0, 1);
   return (
     <Row
       id={domId}
@@ -167,9 +170,9 @@ function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, on
             {shown.length > 0 && (
               <span className="ca-prrow-agents">
                 {shown.map(({ lane, session }) => (
-                  <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} inRow />
+                  <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} inRow />
                 ))}
-                <MoreChip names={item.sessions.slice(shown.length).map(({ session }) => `${session.account} · ${session.title}`)} />
+                <MoreChip names={sessions.slice(shown.length).map(({ session }) => `${session.title} · ${session.account}`)} />
               </span>
             )}
             {item.lane && <WorktreeChip lane={item.lane} short />}

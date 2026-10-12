@@ -561,8 +561,10 @@ now. Rows that are your move are marked at the left edge: amber for a review ask
 something to fix, red for failing checks, green for your PRs that are ready to merge. Selecting a PR
 shows a short header: its number and title, one line of its repo, branch, author and last update,
 its pills and size, and the worktrees and sessions behind it on this Mac as chips (a worktree's
-chip, then its sessions', the PR's primary session marked; a click on a session shows it in the
-panel, on a worktree shows it in Worktrees, and a right-click gives either's menu). The chevron
+chip, then its sessions', each named by its title with its account on hover, the PR's primary
+session marked; a click on a session shows it in the panel, on a worktree shows it in Worktrees,
+and a right-click gives either's menu). A PR's row names one of its sessions the same way, its
+primary one first, and how many more; a todo's row names up to three. The chevron
 beside the title opens its details, and they stay open for the next PR until you close them: the
 whole title, its repo, branch, author, when it was opened and its commits, who reviewed it and who's
 asked to, and the chips as a tree. ⇧⌘F (or the button beside the chevron) expands the panel to the

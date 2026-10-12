@@ -536,12 +536,17 @@ export function MoreChip({ names, className }: { names: string[]; className?: st
 /** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
  *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it.
  *  A panel that lists it (PanelSession.tsx `PanelPlaces`) shows it in its place instead
- *  (`onShow`), with its menu on a right-click, and says more of it on hover (`detail`). */
-export function HarnessChip({ session, withStatus = true, onOpen, onShow, onMenu, inRow = false, className, detail, children }: { session: Session; withStatus?: boolean; onOpen?: () => void; onShow?: () => void; onMenu?: () => void; inRow?: boolean; className?: string; detail?: string; children?: ReactNode }) {
+ *  (`onShow`), with its menu on a right-click, and says more of it on hover (`detail`).
+ *  `named` says its title instead, with the account on hover, where the chip stands for the
+ *  session: on a PR's or a todo's row and in their panels, where nothing else names it. */
+export function HarnessChip({ session, withStatus = true, named = false, onOpen, onShow, onMenu, inRow = false, className, detail, children }: { session: Session; withStatus?: boolean; named?: boolean; onOpen?: () => void; onShow?: () => void; onMenu?: () => void; inRow?: boolean; className?: string; detail?: string; children?: ReactNode }) {
+  const said = named
+    ? `${session.title}\n${session.account} (${HARNESS_WORD[session.harness]}) · ${STATUS_WORD[session.status]}`
+    : `${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`;
   return (
     <Chip
-      className={className}
-      title={`${session.account} · ${session.title} · ${STATUS_WORD[session.status]}${detail ? `\n${detail}` : ''}`}
+      className={cx(named && 'ca-sesschip', className)}
+      title={`${said}${detail ? `\n${detail}` : ''}`}
       does={onShow ? 'show it here, right-click for its menu' : `open in ${sessionPlace(session, 'terminal')}`}
       act={onShow ?? onOpen}
       inRow={inRow}
@@ -549,7 +554,7 @@ export function HarnessChip({ session, withStatus = true, onOpen, onShow, onMenu
     >
       {withStatus && <StatusGlyph status={session.status} size={10} />}
       <Icon name={SURFACE_ICON[session.surface]} size={12} />
-      <span>{session.account}</span>
+      {named ? <span className="ca-sesschip-title">{session.title}</span> : <span>{session.account}</span>}
       {children}
     </Chip>
   );

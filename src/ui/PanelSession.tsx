@@ -162,6 +162,7 @@ export function PanelPlaces({ places, open, label, now, onShowLane, onLaneMenu, 
               <HarnessChip
                 key={s.key}
                 session={s}
+                named
                 className={cx(s.visitor && 'is-visitor')}
                 detail={`${s.visitor ?? sessionWhy(s.detail, s.headline, now)}${main ? `\nPrimary: ${primary.means}` : ''}`}
                 onShow={() => onShowSession(lane, s)}

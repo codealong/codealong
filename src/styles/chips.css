@@ -233,3 +233,20 @@
     display: none;
   }
 }
+
+/* A session named by its title (HarnessChip `named`), where the chip stands for it: on a PR's or
+   a todo's row and in their panels. The title is words, so it's sans where the account is mono,
+   and it shortens with an ellipsis; the account is on hover. */
+.ca-chip.ca-sesschip {
+  min-width: 0;
+  max-width: 240px;
+  font: var(--type-caption-strong);
+}
+.ca-sesschip > .ca-icon {
+  flex: none;
+}
+.ca-sesschip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

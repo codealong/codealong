@@ -134,6 +134,11 @@ describe('the named chips', () => {
     expect(chip({})).toContain('title="claude2 · Fix the build · Idle"');
     expect(chip({ onOpen: () => {}, inRow: true })).toMatch(/^<span class="ca-chip" title="claude2 · Fix the build · Idle\. Double-click to open in [^"]+\.">/);
     expect(chip({ onOpen: () => {}, className: 'is-extra' })).toMatch(/^<button type="button" class="ca-chip ca-chip--button is-extra" title="claude2 · Fix the build · Idle\. Click to open in [^"]+\.">/);
+    // Named, where the chip stands for the session: its title, with its account on hover after it.
+    const named = chip({ named: true, withStatus: false, detail: 'Primary' });
+    expect(named).toMatch(/^<span class="ca-chip ca-sesschip" title="Fix the build\nclaude2 \(Claude Code\) · Idle\nPrimary">/);
+    expect(named).toContain('<span class="ca-sesschip-title">Fix the build</span>');
+    expect(named).not.toContain('>claude2<');
     const pr = fx.pr({ number: 12, title: 'Add it', state: 'open' });
     const prChip = (props: object) => renderToStaticMarkup(createElement(PrChip, { pr, ...props }));
     expect(prChip({ onOpen: () => {} })).toMatch(/^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to open it on GitHub\.">/);
