@@ -452,22 +452,26 @@ pub struct Reader {
     /// When Codex's processes were last looked at, and the rollouts of open turns none of them
     /// held then, by file name (`let_go_now`); None when that couldn't be told.
     let_go: Option<(i64, HashSet<OsString>)>,
+    /// How long each open turn's rollout was at that look.
+    open_lens: HashMap<PathBuf, u64>,
 }
 
 impl Reader {
     /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
-    /// this look. Codex's processes are looked at only while some turn is open.
-    fn let_go_now(&self, look: &Look) -> Option<(i64, HashSet<OsString>)> {
+    /// this look, and keeps how long each open turn's rollout is for the next. Codex's processes
+    /// are looked at only while some turn is open.
+    fn let_go_now(&mut self, look: &Look) -> Option<(i64, HashSet<OsString>)> {
+        // Each as long as it was at the last look, else as far as it's been read.
         let open: Vec<(&Path, u64)> = self
             .rollouts
             .iter()
-            .filter_map(|(path, (_, parsed))| parsed.as_ref().filter(|(th, _)| th.turn_open).map(|(_, read)| (path.as_path(), *read)))
+            .filter_map(|(path, (_, parsed))| parsed.as_ref().filter(|(th, _)| th.turn_open).map(|(_, read)| (path.as_path(), self.open_lens.get(path).copied().unwrap_or(*read))))
             .collect();
-        if open.is_empty() {
-            return Some((look.now, HashSet::new()));
-        }
-        let held = held_rollouts(look.ps.all())?;
-        Some((look.now, let_go(&open, &held, |p| std::fs::metadata(p).ok().map(|m| m.len()))))
+        let len_now = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
+        let lens: HashMap<PathBuf, u64> = open.iter().filter_map(|(p, _)| Some((p.to_path_buf(), len_now(p)?))).collect();
+        let gone = if open.is_empty() { Some(HashSet::new()) } else { held_rollouts(look.ps.all()).map(|held| let_go(&open, &held, |p| lens.get(p).copied())) };
+        self.open_lens = lens;
+        Some((look.now, gone?))
     }
 
     /// Whether a Codex process held a thread's rollout when last looked, None when that isn't
@@ -649,10 +653,12 @@ impl crate::harness::Reader for Reader {
     }
 }
 
-/// The rollouts of open turns, of `open` (each with how far it's been read), that no Codex
-/// process holds (`held`), by file name. One that has grown since it was read is left out: a turn
-/// that ends writes `task_complete` and may let go of its rollout between the read and the look at
-/// the processes, and it's read again next.
+/// The rollouts of open turns, of `open` (each with how long it was when last looked at, else as
+/// far as it's been read), that no Codex process holds (`held`), by file name. One that has grown
+/// since is left out: a turn that ends writes `task_complete` and may let go of its rollout
+/// between the read and the look at the processes, and it's read again next. A writer killed
+/// partway through a line leaves a rollout longer than the lines read for good, which the next
+/// look finds the same length.
 fn let_go(open: &[(&Path, u64)], held: &HashSet<OsString>, len_now: impl Fn(&Path) -> Option<u64>) -> HashSet<OsString> {
     open.iter()
         .filter(|(path, read)| len_now(path) == Some(*read))
@@ -699,6 +705,8 @@ mod tests {
         assert_eq!(let_go(&[(a, 100), (b, 200), (c, 300)], &held, lens), [OsString::from("rollout-a.jsonl")].into());
         // Gone since it was read: nothing to say.
         assert!(let_go(&[(a, 100)], &held, |_| None).is_empty());
+        // A half-written last line that hasn't grown since the last look (a writer killed partway).
+        assert_eq!(let_go(&[(c, 350)], &held, lens), [OsString::from("rollout-c.jsonl")].into());
         // A ps that failed lists nothing, which says nothing about who holds what.
         assert_eq!(held_rollouts(&[]), None);
     }

@@ -83,6 +83,9 @@ pub struct BarItem {
     pub waiting: bool,
     /// Needs you only because its last reply asks you something: marking it seen settles it.
     pub asks: bool,
+    /// Its last turn was cut off (`Session::cut_off`): marking it seen settles it too.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cut_off: Option<i64>,
     pub title: String,
     pub account: String,
     pub lane_id: String,
@@ -182,6 +185,7 @@ pub fn feed(board: &Board) -> BarFeed {
                 status: s.status,
                 waiting: s.waits_in_background(),
                 asks: s.asks,
+                cut_off: s.cut_off,
                 title: s.title.clone(),
                 account: s.account.clone(),
                 lane_id: lane.id.clone(),

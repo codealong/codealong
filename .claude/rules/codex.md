@@ -21,8 +21,8 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `turn_aborted`, and its command runs on. Whatever has a thread loaded holds its rollout open:
   the terminal UI without the daemon, the daemon behind one with it, the app's app-server (every
   thread it has loaded), the app-server under codex-acp. `codex/terminals.rs` (`held_rollouts`),
-  `codex/mod.rs` (`let_go_now`, `let_go`: not when `ps` failed, nor for a rollout grown since it
-  was read), `board.rs` (`codex_session`'s `cut_off`). Not said there: the
+  `codex/mod.rs` (`let_go_now`, `let_go`: not when `ps` failed, nor for a rollout grown since the
+  last look, which a half-written last line from a killed writer doesn't keep doing), `board.rs` (`codex_session`'s `cut_off`). Not said there: the
   0.157.1 CLI couldn't use the 0.162.1 daemon here ("Cannot use the background server ·
   Experimental feature request failed", offering "Run without daemon this time"), so whether the
   daemon finishes a turn whose terminal UI died is unchecked; it holds the rollout while it runs

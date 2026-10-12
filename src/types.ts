@@ -1359,6 +1359,8 @@ export interface BarItem {
   /** Needs you only because its last reply asks you something: marking it seen settles it.
    *  Missing from a feed an older app sent. */
   asks?: boolean;
+  /** Its last turn was cut off (Session.cutOff): marking it seen settles it too. */
+  cutOff?: number;
   title: string;
   account: string;
   laneId: string;

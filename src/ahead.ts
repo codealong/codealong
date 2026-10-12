@@ -128,9 +128,10 @@ export interface View {
 
 /* ---- What the changes do to what a window shows ---- */
 
-/** Marking it seen settles it: a finished turn, or a reply that asks you something. */
-function settledBySeen(s: { status: Status; asks?: boolean }): boolean {
-  return s.status === 'unread' || (s.status === 'needs' && !!s.asks);
+/** Marking it seen settles it: a finished turn, a reply that asks you something, or a turn that
+ *  was cut off (lanes.ts `seenable`). */
+function settledBySeen(s: { status: Status; asks?: boolean; cutOff?: number }): boolean {
+  return s.status === 'unread' || (s.status === 'needs' && !!s.asks) || (s.status === 'error' && s.cutOff != null);
 }
 
 /** Whether it still shows waiting on the call an answer was for: a call asked after it began

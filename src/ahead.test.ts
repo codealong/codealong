@@ -71,6 +71,13 @@ describe('lanesAhead', () => {
     expect(l.bay).toBe('needs');
   });
 
+  it('settles a turn that was cut off, but not another error', () => {
+    const cut = session('a', 'error', { cutOff: NOW - 60_000 });
+    const error = session('b', 'error');
+    const [l] = lanesAhead([lane([cut, error])], [change({ kind: 'seen', keys: ['a', 'b'] })]);
+    expect(l.sessions.map((s) => s.status)).toEqual(['idle', 'error']);
+  });
+
   it('takes an archived session out of its lane’s status', () => {
     const [l] = lanesAhead([lane([session('a', 'unread'), session('b', 'idle')])], [change({ kind: 'archive', key: 'a', archived: true })]);
     expect(l.sessions[0].archived).toBe(true);
@@ -291,7 +298,7 @@ describe('barAhead', () => {
   const feed = (items: BarItem[], recent: BarRecent[] = [], snoozed: BarSnoozed[] = []): BarFeed => fx.barFeed({ items, recent, snoozed, logoStatus: 'needs' });
 
   it('takes pills marked seen off the bar, but not a permission prompt', () => {
-    const f = barAhead(feed([item('p', 'needs', NOW), item('q', 'needs', NOW, { asks: true }), item('u', 'unread', NOW)]), [change({ kind: 'seen', keys: ['p', 'q', 'u'] })]);
+    const f = barAhead(feed([item('p', 'needs', NOW), item('q', 'needs', NOW, { asks: true }), item('u', 'unread', NOW), item('c', 'needs', NOW, { status: 'error', cutOff: NOW - 60_000 })]), [change({ kind: 'seen', keys: ['p', 'q', 'u', 'c'] })]);
     expect(f.items.map((i) => i.key)).toEqual(['p']);
   });
 
