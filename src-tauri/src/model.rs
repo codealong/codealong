@@ -156,7 +156,18 @@ pub struct Board {
     /// (nudges.rs), which its card says.
     #[serde(default)]
     pub nudge_about: crate::config::NudgeAbout,
-
+    /// Your `[repos."github.com/…"]` tables from config.toml, by key: your settings for particular
+    /// repos' pull requests.
+    #[serde(default)]
+    pub repos: std::collections::BTreeMap<String, crate::config::RepoCfg>,
+    /// The team settings read from repos' `.codealong/config.toml` (teamfile.rs), by repo and
+    /// branch, each with what it offers you.
+    #[serde(default)]
+    pub team_files: Vec<crate::teamfile::TeamFile>,
+    /// Each repo's settings where they differ from yours everywhere, for what acts on its pull
+    /// requests (autoreview.rs, nudges.rs). Not sent: the windows have `repos` and `team_files`.
+    #[serde(skip)]
+    pub repo_settings: crate::teamfile::RepoSettings,
 }
 
 

@@ -728,6 +728,8 @@ export interface LaneCan {
   newSession?: () => void;
   /** Set preview URL…, where there's a dialog for it. */
   setPreview?: () => void;
+  /** Settings › Automation with the worktree's repo picked, where Settings is. */
+  automation?: (repo: string) => void;
   /** Add to todo and Remove from todo, where the todos are. */
   todos?: MenuSpec;
   /** Pins it to this window's own list. */
@@ -752,6 +754,7 @@ export interface LaneActions {
   reveal?: MenuAction;
   newSession?: MenuAction;
   setPreview?: MenuAction;
+  automation?: MenuAction;
   reuse?: MenuAction;
   pin?: MenuAction;
   desktop?: MenuAction;
@@ -784,6 +787,7 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
     reveal: can.reveal && { label: 'Show in Codealong', run: can.reveal },
     newSession: newSessionItem(lane, can.newSession),
     setPreview: can.setPreview && !lane.device ? { label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: can.setPreview } : undefined,
+    automation: can.automation && lane.repoSlug && !lane.device ? { label: `Automation for ${lane.repoSlug}…`, run: () => can.automation?.(lane.repoSlug ?? '') } : undefined,
     reuse: reuseItem(lane, report),
     pin: can.pin,
     desktop: can.desktop ? desktopItem('worktree', lane.id, can.desktop, report) : undefined,
@@ -797,7 +801,7 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
 /** The order of a worktree's menu: opening it, its PR, showing it and starting in it; the
  *  window's todos; whether it's reused; pins; copying its path, branch and links. */
 const LANE_MENU = [
-  ['open', 'terminal', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview'],
+  ['open', 'terminal', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview', 'automation'],
   ['todos'],
   ['reuse'],
   ['pin', 'desktop'],

@@ -2082,7 +2082,10 @@ Commands:
   show   The settings as the app reads them, the file's path and text, its error if it
          doesn't parse, the terminal and editor profiles, and accounts found on this Mac
          that aren't configured
-  check  Whether a config.toml parses and passes the app's checks: the live one, or FILE
+  check  Whether a config.toml parses and passes the app's checks: the live one, or
+         FILE. With --repo, a repo's team settings instead (.codealong/config.toml, as
+         FOLDER's working tree has them; they go for the team once merged into the
+         branch its pull requests merge into)
   help   Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2125,7 +2128,9 @@ Options:
 ## codealong config check
 
 ```
-Whether a config.toml parses and passes the app's checks: the live one, or FILE
+Whether a config.toml parses and passes the app's checks: the live one, or FILE. With
+--repo, a repo's team settings instead (.codealong/config.toml, as FOLDER's working tree
+has them; they go for the team once merged into the branch its pull requests merge into)
 
 Usage: codealong config check [OPTIONS] [FILE]
 
@@ -2136,6 +2141,9 @@ Arguments:
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --repo <FOLDER>
+          A checkout whose .codealong/config.toml to check
 
       --table
           Tables, even when piped

@@ -112,12 +112,14 @@ pub fn instructions(cfg: &ReviewsCfg) -> &str {
 }
 
 /// What the reviewer of `pr` is told to do: `[reviews.own] prompt` for a PR of yours, else
-/// `instructions`.
-fn instructions_for<'a>(cfg: &'a ReviewsCfg, pr: &PrItem) -> &'a str {
-    if !pr.mine {
-        return instructions(cfg);
+/// `instructions`; and after it, what the repo's team adds (`.codealong/config.toml`), said as
+/// theirs. `cfg` is as it goes for the PR's repo (`RepoSettings::reviews`).
+fn instructions_for(cfg: &ReviewsCfg, pr: &PrItem) -> String {
+    let (yours, team) = if pr.mine { (Some(cfg.own.prompt.trim()).filter(|p| !p.is_empty()).unwrap_or(INSTRUCTIONS), &cfg.own.team_instructions) } else { (instructions(cfg), &cfg.team_instructions) };
+    match team.trim() {
+        "" => yours.to_string(),
+        team => format!("{yours}\n\n{}'s team asks this of every review there ({}):\n\n{team}", pr.repo_slug, crate::teamfile::FILE),
     }
-    Some(cfg.own.prompt.trim()).filter(|p| !p.is_empty()).unwrap_or(INSTRUCTIONS)
 }
 
 /// A start that didn't say which session it made: the session is the next one of its account in
@@ -421,6 +423,12 @@ pub fn wants_own(lanes: &[Lane], pr: &PrItem) -> bool {
     pr.mine && pr.state.is_open() && pr.state != PrState::Draft && pr.head_oid.is_some() && origin(lanes, pr).is_some()
 }
 
+/// Whether reviews of any kind are on in `cfg`: a round under way goes on only while they are,
+/// or was asked for by hand.
+fn on(cfg: &ReviewsCfg) -> bool {
+    cfg.auto || cfg.own.auto
+}
+
 /// Whether `cfg` has Codealong review a PR: one that waits on your review while `[reviews] auto`
 /// is on, one of yours while `[reviews.own] auto` is.
 fn wanted(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
@@ -496,7 +504,7 @@ fn submit_due(cfg: &ReviewsCfg, pr: &PrItem, r: &Round, head: &str) -> Option<Ve
     if !((cfg.auto || r.by_hand) && wants(pr) && r.head == head && r.submitted.is_none() && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept)) {
         return None;
     }
-    to_submit(cfg.submit, round_verdict(r)?)
+    to_submit(cfg.submit, round_verdict(r)?).filter(|v| !cfg.never_submit.contains(v))
 }
 
 /// What a review submitted as `verdict` for round `r` says when there's no draft review of yours
@@ -615,17 +623,20 @@ impl Reviewer {
     /// `AT_ONCE` rounds are under way. Nothing for a PR with a job under way, or whose wait after
     /// a try isn't over.
     pub fn due(&mut self, board: &Board, cfg: &ReviewsCfg, now: i64) -> Vec<Job> {
-        // With reviews off, only what was asked for by hand goes on.
-        let on = cfg.auto || cfg.own.auto;
-        if !(on || self.store.prs.values().any(|t| t.rounds.last().is_some_and(|r| r.by_hand))) || board.github_login.is_none() {
+        // With reviews off, only what was asked for by hand goes on. Each PR goes as its repo's
+        // settings say (`RepoSettings::reviews`).
+        let settings = &board.repo_settings;
+        if !(settings.reviews_on(cfg) || self.store.prs.values().any(|t| t.rounds.last().is_some_and(|r| r.by_hand))) || board.github_login.is_none() {
             return Vec::new();
         }
+        let on_for = |pr: Option<&PrItem>| pr.map_or(cfg.auto || cfg.own.auto, |p| on(&settings.reviews(cfg, p)));
         let mut changed = false;
         let listed: HashMap<String, &PrItem> = board.prs.iter().map(|p| (pr_key(&p.key), p)).collect();
         // Sessions from starts that didn't name them, once they show; one that never does fails
         // its part.
         for (key, t) in self.store.prs.iter_mut() {
             let url = listed.get(key).map(|pr| pr.url.as_str()).unwrap_or_default();
+            let on = on_for(listed.get(key).copied());
             let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) else { continue };
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
                 let Some(pending) = p.pending.clone() else { continue };
@@ -643,7 +654,7 @@ impl Reviewer {
         }
         // PRs that no longer wait on you are forgotten a while after their last round.
         let before = self.store.prs.len();
-        self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wanted(cfg, &board.lanes, p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
+        self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wanted(&settings.reviews(cfg, p), &board.lanes, p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
         changed |= self.store.prs.len() != before;
         // A round holds a place while one of its sessions works, or is starting.
         let holds_place = |r: &Round| {
@@ -665,7 +676,10 @@ impl Reviewer {
             if self.busy.contains(&key) || self.next_at.get(&key).is_some_and(|&t| now < t) {
                 continue;
             }
+            let cfg = settings.reviews(cfg, pr);
+            let cfg = cfg.as_ref();
             let want = wanted(cfg, &board.lanes, pr);
+            let on = on(cfg);
             if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) {
                 match next(r, board, pr, &head, want, now) {
                     Next::Job(job) => {
@@ -939,8 +953,10 @@ pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
 /// is under way, for as long from when that began; a round that's done, or didn't get done, hands
 /// it to you. A PR of yours is never held: it says where its review went back to, or why it
 /// hasn't, and whether the session that opened it can be sent it now.
-pub fn apply(prs: &mut [PrItem], store: &Store, cfg: &ReviewsCfg, lanes: &[Lane], now: i64) {
+pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &crate::teamfile::RepoSettings, lanes: &[Lane], now: i64) {
     for pr in prs {
+        let cfg = settings.reviews(global, pr).into_owned();
+        let cfg = &cfg;
         let wanted = wanted(cfg, lanes, pr);
         let t = store.prs.get(&pr_key(&pr.key));
         let head = pr.head_oid.clone().unwrap_or_default();
@@ -1464,7 +1480,8 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, te
 fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Part {
     let at = now_ms();
     if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some()) {
-        match hand(engine, board, cfg, pr, key, again_prompt(pr, head, since, login, &goes(&cfg.reviews, &board.lanes, pr), instructions_for(&cfg.reviews, pr), files)) {
+        let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
+        match hand(engine, board, cfg, pr, key, again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
             Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
             // A session that can't go on is replaced by a new one.
             Err(e) => eprintln!("codealong: {}'s review of {} starts afresh: {e}", seat.who, pr.key),
@@ -1496,7 +1513,8 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
         Err(e) => return Went::NotStarted(format!("{e:#}")),
     };
     let Some(pr) = board.prs.iter().find(|p| p.key == pr.key) else { return Went::Later };
-    let still = if by_hand { pr.state.is_open() } else { wanted(&cfg.reviews, &board.lanes, pr) };
+    let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
+    let still = if by_hand { pr.state.is_open() } else { wanted(&reviews, &board.lanes, pr) };
     if pr.head_oid.as_deref() != Some(head) || !still {
         return Went::Later;
     }
@@ -1508,7 +1526,7 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
     // Reviewed already, from another Mac or before a restart.
     let mark = marker(&pr.key, head);
     if let Some(c) = detail.comments.iter().find(|c| !by_hand && !pr.mine && c.mine && c.body.contains(&mark)) {
-        return match cfg.reviews.post {
+        return match reviews.post {
             ReviewPost::Draft => Went::Drafted(draft_link(pr)),
             _ => Went::Posted(c.url.clone().unwrap_or_else(|| pr.url.clone())),
         };
@@ -1527,7 +1545,8 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
 fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Result<StartSpec, String> {
     let (account, place) = reviewer_place(cfg, board, seat.account.as_deref(), seat.avoid)?;
     let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
-    let prompt = first_prompt(pr, head, since, holds, login, &goes(&cfg.reviews, &board.lanes, pr), instructions_for(&cfg.reviews, pr), files);
+    let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
+    let prompt = first_prompt(pr, head, since, holds, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files);
     Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: seat.model.clone(), effort: None, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }
 
@@ -1572,7 +1591,7 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, rou
         return Went::Kept(clean(review).then(|| "It found nothing to raise, so it isn't sent.".to_string()));
     }
     let (summary, comments) = parse_reply(review);
-    match cfg.reviews.post {
+    match board.repo_settings.reviews(&cfg.reviews, pr).post {
         ReviewPost::None => Went::Kept(None),
         ReviewPost::Draft => draft(pr, head, &summary, comments, agent, round),
         ReviewPost::Comment => match crate::github::comment(&pr.repo_slug, pr.number, &comment_body(&summary, &comments, pr, head, agent)) {
@@ -1622,7 +1641,8 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
     let changes = since.as_deref().and_then(|s| crate::github::changes_since(&pr.repo_slug, s, &head).ok().flatten());
     let files = keep_files(pr, &head, &md, &diff, changes.as_deref()).map_err(anyhow::Error::msg)?;
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
-    let seat = seat_for(&cfg.reviews, None, &board.lanes, pr);
+    let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
+    let seat = seat_for(&reviews, None, &board.lanes, pr);
     let start = match new_start(board, cfg, pr, &head, since.as_deref(), &login, &files, &seat) {
         Ok(spec) => {
             let account = cfg.accounts.iter().find(|a| a.name == spec.account);
@@ -1632,7 +1652,7 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
         }
         Err(e) => PlannedStart { who: seat.who.clone(), spec: None, start: None, problem: Some(e) },
     };
-    let (wanted, on) = if pr.mine { (wants_own(&board.lanes, pr), cfg.reviews.own.auto) } else { (wants(pr), cfg.reviews.auto) };
+    let (wanted, on) = if pr.mine { (wants_own(&board.lanes, pr), reviews.own.auto) } else { (wants(pr), reviews.auto) };
     Ok(Plan { wanted, on, stands, start })
 }
 
@@ -1810,11 +1830,12 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
     let k = pr_key(&pr.key);
     let job = {
         let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
-        r.clear_for_hand(&k, cfg.reviews.auto || cfg.reviews.own.auto, now_ms())?;
+        let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
+        r.clear_for_hand(&k, on(&reviews), now_ms())?;
         let t = r.store.prs.get(&k);
         let seat = match account.map(str::trim).filter(|a| !a.is_empty()) {
             Some(a) => named_seat(a, "", t),
-            None => seat_for(&cfg.reviews, t, &board.lanes, pr),
+            None => seat_for(&reviews, t, &board.lanes, pr),
         };
         let since = t.and_then(|t| t.done_head()).filter(|h| *h != head).map(String::from);
         let job = Job::Review { pr: pr.clone(), head, since, seat, by_hand: true };
@@ -1989,6 +2010,45 @@ mod tests {
             .collect()
     }
 
+    /// Each PR goes as its repo's settings say: your table for the repo turns reviews on there
+    /// with them off everywhere else, on the account it names; its team's file adds words after
+    /// the instructions and keeps a verdict from being submitted for anyone.
+    #[test]
+    fn a_pr_goes_as_its_repos_settings_say() {
+        use crate::config::{repo_key, RepoCfg, ReviewsPatch};
+        use crate::teamfile::TeamCfg;
+        let off = ReviewsCfg::default();
+        let elsewhere = PrItem { key: "o/s#8".into(), repo_slug: "o/s".into(), url: "https://github.com/o/s/pull/8".into(), ..pr(8, HEAD) };
+        let mut b = board(vec![pr(7, HEAD), elsewhere], vec![]);
+        b.repo_settings.mine.insert(repo_key("o/r"), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), ..ReviewsPatch::default() }, ..RepoCfg::default() });
+        assert_eq!(kinds(&Reviewer::default().due(&b, &off, NOW)), ["review 7 1111111 since None by codex"]);
+
+        b.repo_settings.team.insert(("o/r".into(), "main".into()), TeamCfg { review_instructions: "Check migrations.".into(), ..TeamCfg::default() });
+        let words = instructions_for(&b.repo_settings.reviews(&off, &b.prs[0]), &b.prs[0]);
+        assert_eq!(words, format!("{INSTRUCTIONS}\n\no/r's team asks this of every review there (.codealong/config.toml):\n\nCheck migrations."));
+        assert_eq!(instructions_for(&b.repo_settings.reviews(&off, &b.prs[1]), &b.prs[1]), INSTRUCTIONS, "another repo's team says nothing here");
+        // A PR into another branch goes as that branch's file says: here, none.
+        let release = PrItem { base: Some("release".into()), ..pr(7, HEAD) };
+        assert_eq!(instructions_for(&b.repo_settings.reviews(&off, &release), &release), INSTRUCTIONS);
+
+        // The team never has an approval submitted, whatever yours says; a request for changes
+        // still goes as yours says.
+        let approving = ReviewsCfg { auto: true, submit: ReviewSubmit::ApproveOrComment, ..ReviewsCfg::default() };
+        let mut done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
+        done.repo_settings.team.insert(("o/r".into(), "main".into()), TeamCfg { never_submit: vec![Verdict::Approve], ..TeamCfg::default() });
+        let reviewed = |review: &str| {
+            let mut r = Reviewer::default();
+            let job = r.due(&done, &approving, NOW).pop().unwrap();
+            r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+            read(&mut r, &done, &approving, NOW + 61_000, review, "Codex");
+            let post = r.due(&done, &approving, NOW + 62_000).pop().unwrap();
+            r.told(&post, Went::Drafted("https://github.com/o/r/pull/7/files".into()), NOW + 63_000).unwrap();
+            r
+        };
+        assert!(reviewed("Fine.\n\nVerdict: approve").due(&done, &approving, NOW + 64_000).is_empty());
+        assert_eq!(kinds(&reviewed("Two problems.\n\nVerdict: request changes").due(&done, &approving, NOW + 64_000)), ["comment on 7 1111111"]);
+    }
+
     fn read(r: &mut Reviewer, b: &Board, cfg: &ReviewsCfg, when: i64, review: &str, agent: &str) {
         let job = r.due(b, cfg, when).pop().expect("a read");
         assert!(matches!(job, Job::Read { .. }), "{job:?}");
@@ -2020,7 +2080,7 @@ mod tests {
         // That commit is done.
         assert!(r.due(&done, &on(), NOW + 10 * QUIET_MS).is_empty());
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &on(), &[], NOW);
+        apply(&mut prs, &r.store, &on(), &Default::default(), &[], NOW);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.stage, a.head.as_str(), a.comment.as_deref(), a.rounds, a.behind), (ReviewStage::Drafted, HEAD, Some("https://github.com/o/r/pull/7/files"), 1, false));
         assert_eq!(a.parts, [ReviewPart { who: AUTO.into(), session: Some(S.into()), state: PartState::Done, note: None }]);
@@ -2069,7 +2129,7 @@ mod tests {
         r.told(&jobs[0], Went::Sent(MAKER.into()), NOW + 67_000).unwrap();
         assert!(r.due(&done(Status::Idle), &own(), NOW + 68_000).is_empty(), "once");
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &own(), &done(Status::Idle).lanes, NOW + 68_000);
+        apply(&mut prs, &r.store, &own(), &Default::default(), &done(Status::Idle).lanes, NOW + 68_000);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.stage, a.own, a.holds, a.sent.as_deref(), a.sent_at, a.note.as_deref(), a.sendable.as_deref()), (ReviewStage::Kept, true, false, Some(MAKER), Some(NOW + 67_000), None, Some(MAKER)));
     }
@@ -2090,14 +2150,14 @@ mod tests {
         let mut r = reviewed(&own(), "LGTM: the tests cover it.");
         assert!(r.due(&b, &own(), NOW + 64_000).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &own(), &b.lanes, NOW);
+        apply(&mut prs, &r.store, &own(), &Default::default(), &b.lanes, NOW);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It found nothing to raise, so it isn't sent."));
         let mut quiet = own();
         quiet.own.send = false;
         let mut r = reviewed(&quiet, "Two problems.");
         assert!(r.due(&b, &quiet, NOW + 64_000).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &quiet, &b.lanes, NOW);
+        apply(&mut prs, &r.store, &quiet, &Default::default(), &b.lanes, NOW);
         let a = prs[0].auto_review.clone().unwrap();
         // Sent from the Review tab instead, while its session can take it.
         assert_eq!((a.note.as_deref(), a.sendable.as_deref()), (Some("Handing reviews back is off: send it from here."), Some(MAKER)));
@@ -2111,7 +2171,7 @@ mod tests {
         }
         assert!(r.due(&b, &own(), NOW + 100 * RETRY_MS).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &own(), &b.lanes, NOW);
+        apply(&mut prs, &r.store, &own(), &Default::default(), &b.lanes, NOW);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It couldn't be handed to the session that opened the PR: the terminal is gone"));
     }
 
@@ -2189,7 +2249,7 @@ mod tests {
         let mut r = reviewed(&approving, "Fine.\n\nVerdict: approve", drafted());
         // Held out of what waits on you until it's approved.
         let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-        apply(&mut prs, &r.store, &approving, &[], NOW + 63_500);
+        apply(&mut prs, &r.store, &approving, &Default::default(), &[], NOW + 63_500);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.suggests, a.holds, a.submitted), (Some(Verdict::Approve), true, None));
         let jobs = r.due(&done, &approving, NOW + 64_000);
@@ -2197,7 +2257,7 @@ mod tests {
         r.told(&jobs[0], Went::Submitted, NOW + 65_000).unwrap();
         assert!(r.due(&done, &approving, NOW + 66_000).is_empty(), "once");
         let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-        apply(&mut prs, &r.store, &approving, &[], NOW + 66_000);
+        apply(&mut prs, &r.store, &approving, &Default::default(), &[], NOW + 66_000);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.submitted, a.submitted_at, a.holds), (Some(Verdict::Approve), Some(NOW + 65_000), false));
         // Never, or an agent that wouldn't approve it while only approvals are: suggested, not done.
@@ -2206,7 +2266,7 @@ mod tests {
         let mut r = reviewed(&approving, "Two problems.\n\nVerdict: request changes", drafted());
         assert!(r.due(&done, &approving, NOW + 64_000).is_empty());
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &approving, &[], NOW + 64_000);
+        apply(&mut prs, &r.store, &approving, &Default::default(), &[], NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().suggests, Some(Verdict::RequestChanges));
         // A request for changes goes as one, or as a comment; the draft holds what it says.
         for (submit, verb, approves) in [
@@ -2226,7 +2286,7 @@ mod tests {
             } else {
                 assert!(jobs.is_empty(), "{submit:?}");
                 let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-                apply(&mut prs, &r.store, &cfg(submit), &[], NOW + 64_000);
+                apply(&mut prs, &r.store, &cfg(submit), &Default::default(), &[], NOW + 64_000);
                 let a = prs[0].auto_review.clone().unwrap();
                 assert_eq!((a.suggests, a.holds, a.submitted), (Some(Verdict::Approve), false, None), "{submit:?}");
             }
@@ -2261,7 +2321,7 @@ mod tests {
             r.told(&job, Went::NotSubmitted("your draft review on it has words of yours, so it's yours to submit.".into()), NOW + 65_000).unwrap();
             assert!(r.due(&done, &cfg(submit), NOW + 66_000).is_empty());
             let mut prs = vec![pr(7, HEAD)];
-            apply(&mut prs, &r.store, &cfg(submit), &[], NOW + 66_000);
+            apply(&mut prs, &r.store, &cfg(submit), &Default::default(), &[], NOW + 66_000);
             let a = prs[0].auto_review.clone().unwrap();
             assert_eq!((a.submitted, a.note), (None, Some(format!("{says}: your draft review on it has words of yours, so it's yours to submit."))));
         }
@@ -2292,7 +2352,7 @@ mod tests {
         assert_eq!(kinds(&r.due(&done, &off, NOW + 64_000)), ["approve 7 1111111 saying \"\""]);
         // Its card has it, as an automatic one's.
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &off, &[], NOW + 64_000);
+        apply(&mut prs, &r.store, &off, &Default::default(), &[], NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().map(|a| (a.stage, a.suggests)), Some((ReviewStage::Drafted, Some(Verdict::Approve))));
         // A round reviews turned off left under way stays as it is.
         let mut r = Reviewer::default();
@@ -2342,7 +2402,7 @@ mod tests {
         r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
         assert!(r.due(&b, &off, NOW + 64_000).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &off, &b.lanes, NOW + 64_000);
+        apply(&mut prs, &r.store, &off, &Default::default(), &b.lanes, NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().and_then(|a| a.note.as_deref()), Some("Handing reviews back is off: send it from here."));
     }
 
@@ -2402,7 +2462,7 @@ mod tests {
         let fresh = |head: &str| PrItem { requested_at: Some(NOW - 60_000), updated_at: NOW - 60_000, ..pr(7, head) };
         let shown = |store: &Store, p: PrItem, on: bool, at: i64| {
             let mut prs = vec![p];
-            apply(&mut prs, store, &ReviewsCfg { auto: on, ..ReviewsCfg::default() }, &[], at);
+            apply(&mut prs, store, &ReviewsCfg { auto: on, ..ReviewsCfg::default() }, &Default::default(), &[], at);
             prs.remove(0)
         };
         let mut r = Reviewer::default();
@@ -2447,7 +2507,7 @@ mod tests {
         let moved = board(vec![pr(7, NEXT)], vec![session(Status::Idle, NOW + 1)]);
         assert!(r.due(&moved, &on(), NOW + 10).is_empty(), "first seen");
         let mut prs = vec![pr(7, NEXT)];
-        apply(&mut prs, &r.store, &on(), &[], NOW);
+        apply(&mut prs, &r.store, &on(), &Default::default(), &[], NOW);
         assert!(prs[0].auto_review.as_ref().unwrap().behind);
         assert!(r.due(&moved, &on(), NOW + QUIET_MS).is_empty(), "still settling");
         assert_eq!(kinds(&r.due(&moved, &on(), NOW + 10 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") by auto in {S}")]);

@@ -36,6 +36,7 @@ import { prRefOf } from '../prLinks';
 import { ALL_PROJECTS, QUEUE_READS, queueRows, reviewSince, type QueueRow } from '../quick';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
+import { repoReviews } from '../repoSettings';
 import type { Board, Lane, PrItem, Session } from '../types';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { PrCard, type PrWindowCan } from './PrCard';
@@ -260,7 +261,7 @@ export function Waiting() {
         }),
       );
     },
-  }, board?.nudgeAbout);
+  }, board);
 
   // The queue's keys, with nothing else taking them, and typing with nothing focused goes to the
   // box.
@@ -339,7 +340,8 @@ export function Waiting() {
           apps={apps}
           lanes={board?.lanes ?? []}
           usage={board?.usage ?? []}
-          reviews={board?.reviews}
+          reviews={repoReviews(board, reviewing.repoSlug)}
+          teamFiles={board?.teamFiles}
           can={reviewCan(reviewing)}
           autoFocus
           queue={way.queue}

@@ -3,14 +3,15 @@
 // stays yours: comments and order included. Accounts keep their own add, edit and remove flow
 // in AccountsSection.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, startOptions, testJev } from '../api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getConfig, onQuickShortcut, openTeamFile, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { reviewsRunIn } from '../review';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, StartAccount, Theme, Usage, WhenLimited } from '../types';
+import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -49,7 +50,8 @@ const WHEN_LIMITED: { id: WhenLimited; label: string; says: string }[] = [
 interface SettingsDialogProps {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
-  /** The account to scroll to, from a click on its usage chip. */
+  /** The account to scroll to, from a click on its usage chip; in Automation, the repo to show
+   *  (`owner/name`), from a worktree's menu. */
   focus: string | null;
   usage: Usage[];
   /** The terminal's and editor's names, for copy. */
@@ -60,11 +62,13 @@ interface SettingsDialogProps {
   onClose: () => void;
   /** Opens config.toml in the editor. */
   onOpenConfig: () => void;
-  /** The board's worktrees, for Projects' reusable ones. */
+  /** The board's worktrees, for Projects' reusable ones and the repos Automation can show. */
   lanes: Lane[];
+  /** The repos' team files as read (teamfile.rs), for Automation. */
+  teamFiles: TeamFile[];
 }
 
-export function SettingsDialog({ section, onSection, focus, usage, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes }: SettingsDialogProps) {
+export function SettingsDialog({ section, onSection, focus, usage, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes, teamFiles }: SettingsDialogProps) {
   const [view, setView] = useState<ConfigView | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What you've typed in the config.toml section, kept while you look at another section.
@@ -128,14 +132,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   } else if (section === 'general' && cfg) {
     pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'automation' && cfg) {
-    pane = (
-      <>
-        <p className="ca-settings-lede">What Codealong does by itself: for your sessions when something stops them, and for your pull requests.</p>
-        <ReviewsField cfg={cfg} disabled={!!broken} onSave={save} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} />
-        <NudgeField cfg={cfg} disabled={!!broken} onSave={save} />
-        <LimitsField cfg={cfg} disabled={!!broken} onSave={save} />
-      </>
-    );
+    pane = <AutomationPane cfg={cfg} disabled={!!broken} onSave={save} onReload={() => void load()} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} lanes={lanes} teamFiles={teamFiles} focus={focus} />;
   } else if (section === 'devices' && cfg) {
     pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'projects' && cfg) {
@@ -301,10 +298,6 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   );
 }
 
-/** `[reviews]` when config.toml has none (config.rs `ReviewsCfg`). */
-const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true };
-const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft', submit: 'never', own: OWN_REVIEWS_OFF };
-
 /** Where each review goes (config.rs `ReviewPost`), as the select offers it. */
 const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
   { id: 'draft', name: 'A draft review for you to finish', says: 'A review on your GitHub account with its comments on the lines they’re about, left as a draft that only you see. You finish it from the pull request’s box in Codealong or on GitHub, approving or asking for changes, and your review is still asked for until you do.' },
@@ -324,12 +317,170 @@ const REVIEW_SUBMITS: (Profile & { id: ReviewSubmit; says: string })[] = [
   { id: 'comment', name: 'Comment instead of requesting changes, never approve', says: `Where the agent would ask for changes, its review goes as a comment from you once it’s posted, which reaches the author without blocking the merge. A pull request it would approve is left for you to approve yourself. ${SUBMITTED_FOR_YOU}` },
 ];
 
+/** Settings › Automation: what Codealong does by itself, everywhere or for one repo's pull
+ *  requests (repoSettings.ts). With a repo picked, the same fields show what goes for it and where
+ *  each value comes from; a change is yours for that repo (`[repos."github.com/…"]`), and Reset
+ *  goes back to the team's or everywhere's. Over them, the repo's team settings, read from its
+ *  default branch: what they add, and what they suggest, to take with Use them. */
+function AutomationPane({ cfg, disabled, onSave, onReload, defaultPrompt, usage, now, lanes, teamFiles, focus }: PaneProps & { onReload: () => void; defaultPrompt: string; usage: Usage[]; now: number; lanes: Lane[]; teamFiles: TeamFile[]; focus: string | null }) {
+  const choices = useMemo(() => repoChoices(lanes, cfg.repos, teamFiles), [lanes, cfg.repos, teamFiles]);
+  const [repo, setRepo] = useState<string | null>(focus);
+  // A worktree's menu asks for its repo while Settings is open.
+  useEffect(() => setRepo(focus), [focus]);
+  const mine = repo ? mineOf(cfg.repos, repo) : undefined;
+  const file = repo ? teamFileOf(teamFiles, repo) : undefined;
+  const team = file?.settings ?? undefined;
+  const reviews = repo ? reviewsFor(cfg.reviews, mine) : reviewsEverywhere(cfg.reviews);
+  const prs = repo ? pullRequestsFor(cfg.pull_requests, team, mine) : { ...PULL_REQUESTS_OFF, ...cfg.pull_requests };
+  const saveMine = (slug: string, next: RepoCfg | undefined) => void onSave({ ...cfg, repos: withRepo(cfg.repos, slug, next) });
+  const setReviews = (next: Partial<Omit<ReviewsCfg, 'own'>>) => (repo ? saveMine(repo, withReviews(mine, next)) : void onSave({ ...cfg, reviews: { ...reviews, ...next } }));
+  const setOwn = (next: Partial<OwnReviewsCfg>) => (repo ? saveMine(repo, withOwn(mine, next)) : void onSave({ ...cfg, reviews: { ...reviews, own: { ...reviews.own, ...next } } }));
+  const setPrs = (next: Partial<PullRequestsCfg>) => (repo ? saveMine(repo, withPullRequests(mine, next)) : void onSave({ ...cfg, pull_requests: { ...prs, ...next } }));
+  const scope: Scope | undefined = repo ? { repo, source: (f) => sourceOf(f, mine, team), reset: (f) => saveMine(repo, without(mine, f)) } : undefined;
+  return (
+    <>
+      <p className="ca-settings-lede">What Codealong does by itself: for your sessions when something stops them, and for your pull requests, everywhere or in one repo.</p>
+      <RepoPicker repo={repo} choices={choices} onPick={setRepo} />
+      {repo && <TeamSettings repo={repo} file={file} disabled={disabled} onTaken={onReload} />}
+      <ReviewsField reviews={reviews} set={setReviews} setOwn={setOwn} scope={scope} team={team} disabled={disabled} defaultPrompt={defaultPrompt} usage={usage} now={now} />
+      <NudgeField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
+      {repo ? <p className="ca-settings-lede">Usage limits and lost connections go the same in every repo: pick Everywhere to change them.</p> : <LimitsField cfg={cfg} disabled={disabled} onSave={onSave} />}
+    </>
+  );
+}
+
+/** The repo Automation shows, or none for everywhere. */
+function RepoPicker({ repo, choices, onPick }: { repo: string | null; choices: { repo: string; team: boolean; mine: boolean }[]; onPick: (repo: string | null) => void }) {
+  const profiles: Profile[] = [{ id: '', name: 'Everywhere' }, ...choices.map((c) => ({ id: c.repo, name: [c.repo, c.team && 'team settings', c.mine && 'yours'].filter(Boolean).join(' · ') }))];
+  return (
+    <div className="ca-field ca-settings-scope">
+      <span>For</span>
+      <ProfileSelect value={repo ?? ''} profiles={profiles} onChange={(id) => onPick(id || null)} />
+      <small>{repo ? `What goes for ${repo}’s pull requests. What you change here is yours for this repo, over what goes everywhere and what its team sets.` : 'What goes for every repo, unless one has settings of its own: pick it to see them.'}</small>
+    </div>
+  );
+}
+
+/** A repo picked in Automation: where each value comes from, and Reset for one that's yours. */
+interface Scope {
+  repo: string;
+  source: (field: Field) => Source;
+  reset: (field: Field) => void;
+}
+
+const SOURCE_WORDS: Record<Source, string> = { repo: 'Yours here', team: 'Team', everywhere: 'Same as everywhere' };
+
+/** Where a field's value comes from, with the repo picked; nothing for everywhere. */
+function SourceTag({ field, scope }: { field: Field; scope?: Scope }) {
+  if (!scope) return null;
+  const from = scope.source(field);
+  const title = from === 'repo' ? `Set for ${scope.repo} in your config.toml` : from === 'team' ? `${scope.repo}’s .codealong/config.toml sets this for its team` : 'As it goes everywhere';
+  return (
+    <span className="ca-settings-source">
+      <span className={cx('ca-settings-from', `is-${from}`)} title={title}>
+        {SOURCE_WORDS[from]}
+      </span>
+      {from === 'repo' && (
+        <button
+          type="button"
+          className="ca-linkbtn"
+          title="Go back to what goes without your setting for this repo"
+          onClick={(e) => {
+            // Inside a label: the click is the button's, not the checkbox's.
+            e.preventDefault();
+            scope.reset(field);
+          }}
+        >
+          Reset
+        </button>
+      )}
+    </span>
+  );
+}
+
+const VERDICT_WORDS: Record<Verdict, string> = { approve: 'an approval', 'request-changes': 'a request for changes', comment: 'a comment' };
+
+/** A repo's team settings as its default branch has them: where they're from, why they aren't used
+ *  when they aren't, and what they suggest, with Use them. */
+function TeamSettings({ repo, file, disabled, onTaken }: { repo: string; file: TeamFile | undefined; disabled: boolean; onTaken: () => void }) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const [taking, setTaking] = useState(false);
+  if (!file) {
+    return (
+      <p className="ca-settings-lede">
+        {repo} has no team settings. A <code className="ca-ic">.codealong/config.toml</code> in the repo shares them with everyone who works on it: words for every review, what an agent may submit, and what to suggest turning on.
+      </p>
+    );
+  }
+  const offers = offerWords(file.offers);
+  const take = () => {
+    setTaking(true);
+    setProblem(null);
+    takeTeamSettings(file.repo, file.branch)
+      .then(onTaken)
+      .catch((e: unknown) => setProblem(errorText(e)))
+      .finally(() => setTaking(false));
+  };
+  return (
+    <section className="ca-settings-team" aria-label={`${repo}’s team settings`}>
+      <div className="ca-settings-team-head">
+        <Icon name="users" size={14} />
+        <span>
+          Team settings from <code className="ca-ic">.codealong/config.toml</code> on {file.branch} at <code className="ca-ic">{file.commit.slice(0, 7)}</code>
+        </span>
+        <Button size="sm" onClick={() => void openTeamFile(repo).catch((e: unknown) => setProblem(errorText(e)))}>
+          Open file
+        </Button>
+      </div>
+      {file.error && (
+        <p className="ca-form-error" role="alert">
+          They aren’t used: {file.error}
+        </p>
+      )}
+      {file.skipped.length > 0 && <p className="ca-settings-team-note">Passed over, as this Codealong doesn’t know them: {file.skipped.join(', ')}.</p>}
+      {file.settings && file.settings.neverSubmit.length > 0 && (
+        <p className="ca-settings-team-note">The team never has {file.settings.neverSubmit.map((v) => VERDICT_WORDS[v]).join(' or ')} submitted for anyone, whatever Submit the agent’s review for you says.</p>
+      )}
+      {offers.length > 0 && (
+        <div className="ca-settings-team-offer">
+          <p>The team suggests:</p>
+          <ul>
+            {offers.map((w) => (
+              <li key={w}>{w.charAt(0).toUpperCase() + w.slice(1)}</li>
+            ))}
+          </ul>
+          <Button variant="primary" size="sm" disabled={disabled || taking} onClick={take}>
+            Use them
+          </Button>
+        </div>
+      )}
+      {file.settings && offers.length === 0 && <p className="ca-settings-team-note">You have what the team suggests turning on, if anything. A change to the file goes for the team once it’s merged into {file.branch}.</p>}
+      {problem && (
+        <p className="ca-form-error" role="alert">
+          {problem}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** What a repo's team adds after a reviewer's instructions, to read. */
+function TeamWords({ repo, words }: { repo: string; words: string }) {
+  if (!words.trim()) return null;
+  return (
+    <details className="ca-settings-teamwords">
+      <summary>{repo}’s team adds this after it</summary>
+      <div>{words}</div>
+    </details>
+  );
+}
+
 /** `[reviews]`: an agent reviews the pull requests that wait on your review, on the account and
  *  model picked, told what to do in the box under them (AgentPromptBox.tsx; Codealong's own
  *  instructions until you change them: `defaultPrompt`), its review put where you say
- *  (autoreview.rs). Only accounts that can start a session out of the way are offered. */
-function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: PaneProps & { defaultPrompt: string; usage: Usage[]; now: number }) {
-  const reviews = { ...REVIEWS_OFF, ...cfg.reviews };
+ *  (autoreview.rs). Only accounts that can start a session out of the way are offered. `reviews`
+ *  is as it goes everywhere, or for the repo `scope` names, and `set` changes it there. */
+function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultPrompt, usage, now }: { reviews: Reviews; set: (next: Partial<Omit<ReviewsCfg, 'own'>>) => void; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; disabled: boolean; defaultPrompt: string; usage: Usage[]; now: number }) {
   const [accounts, setAccounts] = useState<StartAccount[]>([]);
   useEffect(() => {
     // Without them the box says there are no accounts, and config.toml's choice stays as it is.
@@ -337,7 +488,6 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
       .then((o) => setAccounts(o.accounts.filter((a) => reviewsRunIn(a))))
       .catch(() => {});
   }, []);
-  const set = (next: Partial<ReviewsCfg>) => void onSave({ ...cfg, reviews: { ...reviews, ...next } });
   const runsIn = accounts.find((a) => a.name === reviews.account);
   const post = REVIEW_POSTS.find((p) => p.id === reviews.post) ?? REVIEW_POSTS[0];
   const submit = REVIEW_SUBMITS.find((s) => s.id === reviews.submit) ?? REVIEW_SUBMITS[0];
@@ -345,14 +495,19 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={reviews.auto} onChange={(e) => set({ auto: e.target.checked })} />
-        <span>Review pull requests that wait on your review</span>
+        <span>
+          Review pull requests that wait on your review <SourceTag field="reviews.auto" scope={scope} />
+        </span>
         <small>
           An agent reviews each open pull request that asks for your review, in a session of its own, and again when new commits come in while it still waits on you. It reads the pull request and the code around it and changes nothing. A pull request joins what waits on you once its
           review is done, and its card says where that stands. Off, an agent reviews one when you ask, with Review with… on the pull request: the same review, by the reviewer below, its review going as below.
         </small>
       </label>
       <div className="ca-field">
-        <span>The reviewer</span>
+        <span>
+          The reviewer <SourceTag field="reviews.reviewer" scope={scope} />
+          {scope && scope.source('reviews.prompt') === 'repo' && <SourceTag field="reviews.prompt" scope={scope} />}
+        </span>
         <AgentPromptBox
           accounts={accounts}
           usage={usage}
@@ -369,22 +524,30 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
           onAgent={(account, model) => set({ account, model })}
           onPrompt={(prompt) => set({ prompt })}
         />
+        {scope && <TeamWords repo={scope.repo} words={team?.reviewInstructions ?? ''} />}
         <small>
           What it’s told: what to look for and how. It can start subagents of its own and combine what they find; in Claude Code, ask for the Task tool and name each one’s model. Codealong still tells it which pull request, where it’s written out, to change nothing, and how to lay out
           its last message so the review can be posted. {runsIn ? `It runs ${reviewsRunIn(runsIn)}.` : 'Auto picks an account that can start a session out of the way.'} This is apart from the account new sessions start on.
         </small>
       </div>
       <label className="ca-field">
-        <span>Where each review goes</span>
+        <span>
+          Where each review goes <SourceTag field="reviews.post" scope={scope} />
+        </span>
         <ProfileSelect value={reviews.post} profiles={REVIEW_POSTS} onChange={(id) => set({ post: id as ReviewPost })} />
         <small>{post.says}</small>
       </label>
       <label className="ca-field">
-        <span>Submit the agent’s review for you</span>
+        <span>
+          Submit the agent’s review for you <SourceTag field="reviews.submit" scope={scope} />
+        </span>
         <ProfileSelect value={reviews.submit} profiles={REVIEW_SUBMITS} onChange={(id) => set({ submit: id as ReviewSubmit })} />
-        <small>{submit.says}</small>
+        <small>
+          {submit.says}
+          {scope && team && team.neverSubmit.length > 0 && ` In ${scope.repo}, its team never has ${team.neverSubmit.map((v) => VERDICT_WORDS[v]).join(' or ')} submitted for anyone.`}
+        </small>
       </label>
-      <OwnReviewsField reviews={reviews} accounts={accounts} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} onSave={set} />
+      <OwnReviewsField own={reviews.own} setOwn={setOwn} scope={scope} team={team} accounts={accounts} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} />
     </fieldset>
   );
 }
@@ -392,15 +555,15 @@ function ReviewsField({ cfg, disabled, onSave, defaultPrompt, usage, now }: Pane
 /** `[reviews.own]`: the pull requests your sessions open, each reviewed by an agent on another
  *  model or provider than the session that opened it, its review kept here and handed back to
  *  that session (autoreview.rs). The reviewer is the same box as the one above. */
-function OwnReviewsField({ reviews, accounts, defaultPrompt, usage, now, disabled, onSave }: { reviews: Required<ReviewsCfg>; accounts: StartAccount[]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean; onSave: (next: Partial<ReviewsCfg>) => void }) {
-  const own = { ...OWN_REVIEWS_OFF, ...reviews.own };
-  const set = (next: Partial<OwnReviewsCfg>) => onSave({ own: { ...own, ...next } });
+function OwnReviewsField({ own, setOwn, scope, team, accounts, defaultPrompt, usage, now, disabled }: { own: Required<OwnReviewsCfg>; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; accounts: StartAccount[]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean }) {
   const runsIn = accounts.find((a) => a.name === own.account);
   return (
     <>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={own.auto} onChange={(e) => set({ auto: e.target.checked })} />
-        <span>Review the pull requests your sessions open</span>
+        <input type="checkbox" checked={own.auto} onChange={(e) => setOwn({ auto: e.target.checked })} />
+        <span>
+          Review the pull requests your sessions open <SourceTag field="own.auto" scope={scope} />
+        </span>
         <small>
           An agent on another model reviews each open pull request a session of yours opened here, in a session of its own, and again when new commits come in. It reads the pull request and the code around it and changes nothing. Its review stays in Codealong, in the pull request’s Review
           tab: nothing goes on GitHub.
@@ -409,7 +572,10 @@ function OwnReviewsField({ reviews, accounts, defaultPrompt, usage, now, disable
       {own.auto && (
         <>
           <div className="ca-field">
-            <span>Reviewer of your pull requests</span>
+            <span>
+              Reviewer of your pull requests <SourceTag field="own.reviewer" scope={scope} />
+              {scope && scope.source('own.prompt') === 'repo' && <SourceTag field="own.prompt" scope={scope} />}
+            </span>
             <AgentPromptBox
               accounts={accounts}
               usage={usage}
@@ -424,16 +590,19 @@ function OwnReviewsField({ reviews, accounts, defaultPrompt, usage, now, disable
               autoSays="another harness"
               defaultLabel="Use Codealong’s instructions"
               disabled={disabled}
-              onAgent={(account, model) => set({ account, model })}
-              onPrompt={(prompt) => set({ prompt })}
+              onAgent={(account, model) => setOwn({ account, model })}
+              onPrompt={(prompt) => setOwn({ prompt })}
             />
+            {scope && <TeamWords repo={scope.repo} words={team?.ownReviewInstructions ?? ''} />}
             <small>
               {runsIn ? `It runs ${reviewsRunIn(runsIn)}, whatever opened the pull request.` : 'Auto picks an account of another harness than the session that opened each pull request: Codex reviews what Claude Code wrote, say.'} Pick one with its model to have that review every one.
             </small>
           </div>
           <label className="ca-field ca-settings-check">
-            <input type="checkbox" checked={own.send} onChange={(e) => set({ send: e.target.checked })} />
-            <span>Hand each review to the session that opened the pull request</span>
+            <input type="checkbox" checked={own.send} onChange={(e) => setOwn({ send: e.target.checked })} />
+            <span>
+              Hand each review to the session that opened the pull request <SourceTag field="own.send" scope={scope} />
+            </span>
             <small>
               Once that session runs here and doesn’t wait on you, it’s sent a message naming the review, kept as a file it reads, to fix what holds up and say what it leaves. A review that finds nothing to raise isn’t sent, nor one of commits it has moved on from. Off, send one from the pull
               request’s Review tab.
@@ -446,23 +615,26 @@ function OwnReviewsField({ reviews, accounts, defaultPrompt, usage, now, disable
 }
 
 /** `[pull_requests] nudge_by_default`: every open PR of yours tells the session that opened it
- *  what happens on it, unless its own switch is off (nudges.rs). */
-function NudgeField({ cfg, disabled, onSave }: PaneProps) {
-  const prs = { nudge_by_default: false, nudge_about: 'everything' as NudgeAbout, ...cfg.pull_requests };
-  const set = (next: Partial<typeof prs>) => void onSave({ ...cfg, pull_requests: { ...prs, ...next } });
+ *  what happens on it, unless its own switch is off (nudges.rs). `prs` is as it goes everywhere,
+ *  or for the repo `scope` names. */
+function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsCfg>; set: (next: Partial<PullRequestsCfg>) => void; scope?: Scope; disabled: boolean }) {
   const about = NUDGE_ABOUT.find((n) => n.id === prs.nudge_about) ?? NUDGE_ABOUT[0];
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={prs.nudge_by_default} onChange={(e) => set({ nudge_by_default: e.target.checked })} />
-        <span>Nudge the session that opened a pull request</span>
+        <span>
+          Nudge the session that opened a pull request <SourceTag field="prs.nudge_by_default" scope={scope} />
+        </span>
         <small>
           For every open pull request of yours, the session that opened it is sent a message, as one of yours, when something happens on it (below), so it takes it from there. The message never asks it to merge: it merges only if you asked it to. Its other sessions aren’t told. A pull
           request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
         </small>
       </label>
       <label className="ca-field">
-        <span>What a nudge tells it about</span>
+        <span>
+          What a nudge tells it about <SourceTag field="prs.nudge_about" scope={scope} />
+        </span>
         <ProfileSelect value={prs.nudge_about} profiles={NUDGE_ABOUT} onChange={(id) => set({ nudge_about: id as NudgeAbout })} />
         <small>{about.says} This holds for every pull request with its nudge on, by this switch or its own.</small>
       </label>

@@ -16,6 +16,7 @@ import { showContextMenu } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { errorText } from '../report';
+import { repoReviews } from '../repoSettings';
 import type { Lane, Session } from '../types';
 import { useCardHost, useLivePr } from './cardHost';
 import { PrCard, type PrWindowCan } from './PrCard';
@@ -94,7 +95,8 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
         apps={apps}
         lanes={live.lanes}
         usage={live.usage}
-        reviews={live.board?.reviews}
+        reviews={repoReviews(live.board, pr.repoSlug)}
+        teamFiles={live.board?.teamFiles}
         can={can}
         outgoing={pr.key !== prKey}
         queue={queue}

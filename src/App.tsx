@@ -22,7 +22,8 @@ import { usePins } from './pins';
 import { reviewItems as reviewItemsFor } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, todoAgent, todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
-import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo } from './types';
+import { repoReviews } from './repoSettings';
+import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, TeamFile, Theme, Todo } from './types';
 import { shortOf, type DeviceFilter } from './devices';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
@@ -72,6 +73,7 @@ import { setPageZoom, type ZoomStep } from './zoom';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
+const NO_TEAM_FILES: TeamFile[] = [];
 
 declare global {
   interface Window {
@@ -848,7 +850,7 @@ export function App() {
    *  review page in the Codex app (review.ts). */
   const reviewItems = (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>): MenuAction[] => {
     loadStartOpts();
-    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track }, undefined, Date.now(), board?.reviews);
+    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track }, undefined, Date.now(), repoReviews(board, pr.repoSlug));
   };
   /** A worktree's PR as Review with… needs it: the board's, or what the worktree knows of one
    *  the board doesn't list (on another Mac, say). */
@@ -949,6 +951,7 @@ export function App() {
       editors,
       newSession: () => newSession({ laneId: lane.id }),
       setPreview: () => setPreviewFor(lane.id),
+      automation: (repo) => openSettings('automation', repo),
       todos: todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
       pin: { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
@@ -1279,7 +1282,7 @@ export function App() {
       if (pr) prMenu(prRowOf(pr));
       else void showContextMenu(menus.prMenu({ url, number: prRefOf(url)?.number ?? 0 }, { report })).catch((e: unknown) => setToast(String(e)));
     },
-  }, board?.nudgeAbout);
+  }, board);
 
   return (
     <div className="ca-win ca-win--app">
@@ -1727,6 +1730,7 @@ export function App() {
           onClose={closeSettings}
           onOpenConfig={editConfig}
           lanes={board?.lanes ?? NO_LANES}
+          teamFiles={board?.teamFiles ?? NO_TEAM_FILES}
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}

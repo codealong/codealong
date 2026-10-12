@@ -395,8 +395,70 @@ export interface Config {
   /** Reviewing the PRs that wait on your review without being asked. Older files have none: off. */
   reviews?: ReviewsCfg;
   /** Your PRs. Older files have none: no nudges until turned on PR by PR. */
-  pull_requests?: { nudge_by_default: boolean; nudge_about?: NudgeAbout };
+  pull_requests?: PullRequestsCfg;
+  /** Your settings for particular repos, `[repos."github.com/owner/name"]`, by that key
+   *  (repoSettings.ts `repoKey`). Older files have none. */
+  repos?: Record<string, RepoCfg>;
   debug: { perf_log: boolean };
+}
+
+/** `[pull_requests]` (config.rs `PullRequestsCfg`). */
+export interface PullRequestsCfg {
+  nudge_by_default: boolean;
+  nudge_about?: NudgeAbout;
+}
+
+/** Your settings for one repo's pull requests (config.rs `RepoCfg`): each value set goes for that
+ *  repo over `[reviews]`'s or `[pull_requests]`'s and over the repo's team's file; what's left out
+ *  is as they say. */
+export interface RepoCfg {
+  reviews?: ReviewsPatch;
+  pull_requests?: Partial<PullRequestsCfg>;
+}
+
+/** `[reviews]` for one repo, key by key. */
+export interface ReviewsPatch {
+  auto?: boolean;
+  account?: string;
+  model?: string;
+  prompt?: string;
+  post?: ReviewPost;
+  submit?: ReviewSubmit;
+  own?: Partial<OwnReviewsCfg>;
+}
+
+/** What a repo's `.codealong/config.toml` sets for its team (teamfile.rs `TeamCfg`). */
+export interface TeamCfg {
+  /** Added to what the reviewer of a PR that waits on your review is told. */
+  reviewInstructions: string;
+  /** Added to what the reviewer of a PR of yours is told. */
+  ownReviewInstructions: string;
+  /** Verdicts never submitted as anyone's review there. */
+  neverSubmit: Verdict[];
+  /** What a nudge tells about, for everyone. */
+  nudgeAbout?: NudgeAbout | null;
+  /** What the team suggests each person turns on. */
+  suggests: RepoCfg;
+}
+
+/** A repo's team file on one branch, as read from that branch as fetched (teamfile.rs
+ *  `TeamFile`). */
+export interface TeamFile {
+  /** `owner/name`. */
+  repo: string;
+  branch: string;
+  /** It's the repo's default branch, which Settings shows. */
+  default: boolean;
+  /** The commit it was read at. */
+  commit: string;
+  /** What it sets; none when it goes unused. */
+  settings?: TeamCfg | null;
+  /** Why it goes unused. */
+  error?: string | null;
+  /** Keys it has that this Codealong passed over. */
+  skipped: string[];
+  /** What it suggests that isn't how things go for you in its repo now: what Use them changes. */
+  offers: RepoCfg;
 }
 
 /** What a PR whose nudge is on tells its session about (config.rs `NudgeAbout`): everything, or
@@ -723,6 +785,10 @@ export interface Board {
   /** `[pull_requests] nudge_about`: what a PR's nudge tells its session about. Missing on older
    *  boards: everything. */
   nudgeAbout?: NudgeAbout;
+  /** Your `[repos."github.com/…"]` tables, by key. Missing on older boards. */
+  repos?: Record<string, RepoCfg>;
+  /** The repos' team files read from their branches. Missing on older boards. */
+  teamFiles?: TeamFile[];
 }
 
 /** Why a todo looks done: how sure Jev is, and what showed it. */

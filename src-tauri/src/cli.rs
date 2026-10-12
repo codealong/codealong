@@ -690,8 +690,13 @@ enum PlaceArg {
 enum ConfigCmd {
     /// The settings as the app reads them, the file's path and text, its error if it doesn't parse, the terminal and editor profiles, and accounts found on this Mac that aren't configured.
     Show,
-    /// Whether a config.toml parses and passes the app's checks: the live one, or FILE.
-    Check { file: Option<String> },
+    /// Whether a config.toml parses and passes the app's checks: the live one, or FILE. With --repo, a repo's team settings instead (.codealong/config.toml, as FOLDER's working tree has them; they go for the team once merged into the branch its pull requests merge into).
+    Check {
+        file: Option<String>,
+        /// A checkout whose .codealong/config.toml to check.
+        #[arg(long, value_name = "FOLDER")]
+        repo: Option<String>,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -3664,7 +3669,28 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
             }
             Ok(())
         }
-        ConfigCmd::Check { file } => {
+        ConfigCmd::Check { repo: Some(folder), .. } => {
+            let path = expand(&folder).join(crate::teamfile::FILE);
+            let Some(parsed) = crate::teamfile::read_folder(&expand(&folder)) else { bail!("{} has no {}.", tilde(&expand(&folder)), crate::teamfile::FILE) };
+            if json {
+                let (settings, skipped, error) = match &parsed {
+                    Ok((cfg, skipped)) => (Some(cfg), skipped.clone(), None),
+                    Err(e) => (None, Vec::new(), Some(e.clone())),
+                };
+                return print_json(&serde_json::json!({ "path": path, "ok": error.is_none(), "error": error, "settings": settings, "skipped": skipped })).and_then(|_| parsed.map(|_| ()).map_err(|e| anyhow!("{e}")));
+            }
+            match parsed {
+                Ok((_, skipped)) => {
+                    println!("{} reads as team settings.", tilde(&path));
+                    if !skipped.is_empty() {
+                        println!("Passed over, as this Codealong doesn't know them: {}.", skipped.join(", "));
+                    }
+                }
+                Err(e) => bail!("{}: {e}", tilde(&path)),
+            }
+            Ok(())
+        }
+        ConfigCmd::Check { file, .. } => {
             let (path, text) = match file {
                 Some(f) => (expand(&f), std::fs::read_to_string(expand(&f)).with_context(|| format!("reading {f}"))?),
                 None => (config::config_path(), std::fs::read_to_string(config::config_path()).unwrap_or_default()),

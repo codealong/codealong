@@ -503,6 +503,19 @@ export async function saveConfig(config: Config): Promise<void> {
   await invoke('save_config', { config });
 }
 
+/** Takes what a repo's team suggests in its `.codealong/config.toml` on `branch`: written into
+ *  your settings for that repo in config.toml. */
+export async function takeTeamSettings(repo: string, branch: string): Promise<void> {
+  if (!inTauri) throw new Error('Taking team settings needs the app.');
+  await invoke('take_team_settings', { repo, branch });
+}
+
+/** Opens a repo's `.codealong/config.toml` from its main checkout in the editor. */
+export async function openTeamFile(repo: string): Promise<void> {
+  if (!inTauri) throw new Error('Opening a file needs the app.');
+  await invoke('open_team_file', { repo });
+}
+
 /** Saves config.toml as typed, once it parses. */
 export async function saveConfigText(text: string): Promise<void> {
   if (!inTauri) throw new Error('Saving settings needs the app.');

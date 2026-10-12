@@ -164,7 +164,7 @@ impl Nudger {
                 ended: ended.then_some(pr.state),
                 failed: if was.on && seen.failed && !was.failed { pr.checks.failing.clone() } else { Vec::new() },
             };
-            let why = keep(board.nudge_about, pr.state.is_open(), why);
+            let why = keep(board.repo_settings.nudge_about(board.nudge_about, pr), pr.state.is_open(), why);
             if why == Why::default() {
                 continue;
             }
@@ -190,7 +190,7 @@ impl Nudger {
             }
             let why = std::mem::take(&mut o.why);
             o.sending = Some(why.clone());
-            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: board.nudge_about });
+            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: board.repo_settings.nudge_about(board.nudge_about, &o.pr) });
         }
         out.sort_by(|a, b| (&a.pr.key, &a.session).cmp(&(&b.pr.key, &b.session)));
         out
@@ -663,6 +663,30 @@ mod tests {
             let text = words(&open, &why, None, None, NudgeAbout::Everything).unwrap();
             assert!(text.ends_with(NOT_A_MERGE) && !text.contains("merging it"), "{text}");
         }
+    }
+
+    /// What a nudge tells about goes as the PR's repo says: its team's file, then your table for
+    /// the repo, over `[pull_requests] nudge_about`.
+    #[test]
+    fn what_a_nudge_tells_about_goes_as_its_repo_says() {
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let approved = PrItem { state: PrState::Approved, ..open.clone() };
+        let in_repo = |prs: Vec<PrItem>, mine: Option<NudgeAbout>| {
+            let mut b = board(prs, vec![live(A)]);
+            b.repo_settings.team.insert(("o/r".into(), "main".into()), crate::teamfile::TeamCfg { nudge_about: Some(NudgeAbout::Feedback), ..Default::default() });
+            if let Some(about) = mine {
+                let table = crate::config::RepoCfg { pull_requests: crate::config::PullRequestsPatch { nudge_about: Some(about), ..Default::default() }, ..Default::default() };
+                b.repo_settings.mine.insert(crate::config::repo_key("o/r"), table);
+            }
+            b
+        };
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &in_repo(vec![open.clone()], None));
+        assert!(sent(&mut nudger, &in_repo(vec![approved.clone()], None)).is_empty(), "the team keeps it to feedback");
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &in_repo(vec![open], Some(NudgeAbout::Everything)));
+        let jobs = sent(&mut nudger, &in_repo(vec![approved], Some(NudgeAbout::Everything)));
+        assert_eq!((jobs[0].why.approved, jobs[0].about), (true, NudgeAbout::Everything), "yours for the repo goes over the team's");
     }
 
     #[test]

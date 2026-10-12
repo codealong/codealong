@@ -177,6 +177,7 @@ export function MainPanel(props: MainPanelProps) {
       report={{ error: setToast, info: setToast }}
       usage={board?.usage ?? []}
       apps={board?.apps}
+      teamFiles={board?.teamFiles}
       onReview={(el) => reviewMenuFrom(item.pr, el)}
       onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
       onMenu={(at) => prMenu(item, at)}

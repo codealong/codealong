@@ -16,6 +16,7 @@ use crate::chrome;
 use crate::autoreview;
 use crate::chrometabs;
 use crate::prlinks;
+use crate::teamfile;
 use crate::previews;
 use crate::reusable;
 use crate::origins;
@@ -131,6 +132,9 @@ pub enum Msg {
     PrLinksChanged,
     /// The usage read is over: what it read, or none when it fell over or never started.
     UsageDone(Option<Vec<Usage>>),
+    /// The read of repos' team files is over (teamfile.rs): what it read, or none when it fell
+    /// over or never started.
+    TeamFiles(Option<Vec<teamfile::Answer>>),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
     Read,
     /// The full pinned list, in order.
@@ -554,6 +558,33 @@ impl Handle {
         editors::open(&editor, &config::config_path())
     }
 
+    /// Takes what repo `slug`'s team suggests in its file on `branch` and you don't have yet (the
+    /// file's `offers` on the board), writing it into your table for that repo in config.toml.
+    pub fn take_team_settings(&self, slug: &str, branch: &str) -> Result<()> {
+        let offers = self.read(|b| b.team_files.iter().find(|f| f.repo == slug && f.branch == branch).map(|f| f.offers.clone()));
+        let offers = offers.ok_or_else(|| anyhow!("{slug} has no team settings on {branch} to take."))?;
+        if offers.is_empty() {
+            return Ok(());
+        }
+        config::take_suggestions(slug, &offers)
+    }
+
+    /// Opens repo `slug`'s team file as its main checkout here has it, in the editor.
+    pub fn open_team_file(&self, slug: &str) -> Result<()> {
+        let (editor, root) = self.read(|b| {
+            let lanes = b.lanes.iter().filter(|l| l.device.is_none() && l.repo_slug.as_deref() == Some(slug));
+            let root = lanes.clone().find(|l| l.origin == Origin::Main).or_else(|| lanes.clone().next()).map(|l| PathBuf::from(&l.path));
+            (b.apps.editor_id.clone(), root)
+        });
+        let root = root.ok_or_else(|| anyhow!("There's no checkout of {slug} on this Mac."))?;
+        let file = root.join(teamfile::FILE);
+        if !file.is_file() {
+            bail!("{} has no {}.", tilde(&root), teamfile::FILE);
+        }
+        let editor = if editor.is_empty() { "cursor".to_string() } else { editor };
+        editors::open(&editor, &file)
+    }
+
     /// Opens a web link: one into a worktree's app where its preview opens, so the app has that
     /// Chrome profile's sign-in (`board::app_of_link`), any other in the default browser. A
     /// profile Chrome no longer has opens the link in the default browser rather than not at
@@ -781,6 +812,9 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
         }
         lap("github", &t);
     }
+    let answers = parallel_map(e.team_file_asks(), |ask| Some(teamfile::read(&ask)));
+    e.team_files.on_read(Some(answers));
+    lap("team files", &t);
     e
 }
 
@@ -967,6 +1001,8 @@ struct Engine {
     usage_inflight: bool,
     usage_last: Option<Instant>,
     usage_backoff: bool,
+    /// Each repo's team settings, `.codealong/config.toml` on its branches (teamfile.rs).
+    team_files: teamfile::TeamFiles,
     dirty: bool,
     /// Only git results changed since the last publish; they go out in batches.
     dirty_git: bool,
@@ -1069,6 +1105,7 @@ impl Engine {
             usage_inflight: false,
             usage_last: None,
             usage_backoff: false,
+            team_files: teamfile::TeamFiles::default(),
             dirty: false,
             loading: true,
             dirty_git: false,
@@ -1484,6 +1521,37 @@ impl Engine {
         });
     }
 
+    /// Reads the team files of the repos checked out here that are due (`TeamFiles::due`), on a
+    /// background thread: from each repo's default branch and the branches its open PRs merge
+    /// into.
+    fn read_team_files(&mut self) {
+        let asks = self.team_file_asks();
+        if asks.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        // `on_read` hears that the read is over however it ends, so the next one can go.
+        throttle::background("codealong-team-files", move || asks.iter().map(teamfile::read).collect(), move |answers| {
+            let _ = tx.send(Msg::TeamFiles(answers));
+        });
+    }
+
+    /// The team files due to be read now (`TeamFiles::due`), marked under way.
+    fn team_file_asks(&mut self) -> Vec<teamfile::Ask> {
+        let repos: Vec<teamfile::Repo> = self
+            .checkouts
+            .iter()
+            .filter_map(|(_, c)| {
+                let (owner, name) = c.github.clone()?;
+                let default = self.default_branch.get(&c.root).cloned().flatten().and_then(|b| b.strip_prefix("origin/").map(String::from));
+                Some(teamfile::Repo { slug: format!("{owner}/{name}"), root: c.root.clone(), default })
+            })
+            .collect();
+        let open = self.github.prs().iter().chain(self.github.requested()).flat_map(|(slug, prs)| prs.iter().filter(|p| p.state.is_open()).map(move |p| (slug.as_str(), p.base_ref.as_deref())));
+        let bases = teamfile::bases(open);
+        self.team_files.due(&repos, &bases, Instant::now())
+    }
+
     /// The usage read is over. One that fell over, or never started, read nothing: the numbers
     /// and the backoff stay as they were, and the next read goes at its usual time.
     fn on_usage(&mut self, list: Option<Vec<Usage>>) {
@@ -1710,6 +1778,7 @@ impl Engine {
                 }
                 Ok(Msg::TodoStarted { ids, lane, session, pending }) => self.todos_started(ids, lane, session, pending),
                 Ok(Msg::UsageDone(list)) => self.on_usage(list),
+                Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {
@@ -2083,6 +2152,7 @@ impl Engine {
     /// the whole of it.
     fn notices(&self) -> Vec<Notice> {
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
+        let team_files = self.team_files.notice();
         let said = |key: &str, title: &str, text: Option<&String>| Some(Notice { key: key.into(), title: title.into(), text: text?.clone(), until: None });
         [
             said("config", "config.toml has a problem", self.config_warning.as_ref()),
@@ -2100,6 +2170,7 @@ impl Engine {
             said("reconnect", "A session didn't carry on after its connection came back", self.continue_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", self.review_warning.as_ref()),
+            said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
 
         ]
         .into_iter()
@@ -2124,6 +2195,7 @@ impl Engine {
         if self.usage_last.map(|t| t.elapsed() >= every).unwrap_or(true) {
             self.fetch_usage();
         }
+        self.read_team_files();
         // A new account's folder appears when it first signs in; start reading it.
         if self.missing_homes.iter().any(|p| p.exists()) {
             self.reload();
@@ -2253,6 +2325,10 @@ impl Engine {
                 }
                 RepoEvent::Checkout(root) => {
                     lanes.extend(self.seeds.iter().filter(|s| self.lane_checkout.get(&s.path) == Some(&root)).map(|s| s.path.clone()));
+                    // A fetch may have moved the branch a team file is read from.
+                    if let Some((owner, name)) = self.checkouts.iter().find(|(_, c)| c.root == root).and_then(|(_, c)| c.github.clone()) {
+                        self.team_files.on_refs_moved(&format!("{owner}/{name}"));
+                    }
                 }
                 RepoEvent::Worktrees => reload_repos = true,
                 RepoEvent::Ignore => {}
@@ -2465,6 +2541,7 @@ impl Engine {
             nudged: self.pr_store.nudges.iter().cloned().collect(),
             not_nudged: self.pr_store.nudges_off.iter().cloned().collect(),
             nudge_by_default: self.cfg.pull_requests.nudge_by_default,
+            nudge_by_default_in: self.team_files.settings(&self.cfg.repos).nudges_by_default(),
         }
     }
 
@@ -2752,6 +2829,7 @@ impl Engine {
         let notices = self.notices();
         let usage = self.compose_usage(now);
         let pr_links = self.pr_links();
+        let repo_settings = self.team_files.settings(&self.cfg.repos);
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
@@ -2771,12 +2849,22 @@ impl Engine {
             previews: &self.previews,
             reusable: &self.reusable,
             review_snoozes: &self.seen.review_snoozes,
-            auto_reviews: (&self.reviews, &self.cfg.reviews),
+            auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
         });
         board.usage = usage;
         board.when_limited = self.cfg.limits.when_hit;
         board.nudge_about = self.cfg.pull_requests.nudge_about;
         board.reviews = self.cfg.reviews.clone();
+        board.repos = self.cfg.repos.clone();
+        board.repo_settings = repo_settings;
+        board.team_files = self.team_files.files();
+        for f in &mut board.team_files {
+            let Some(team) = &f.settings else { continue };
+            let mine = board.repo_settings.mine_of(&f.repo);
+            let reviews = config::reviews_for(&self.cfg.reviews, Some(team), mine);
+            let prs = config::pull_requests_for(&self.cfg.pull_requests, Some(team), mine);
+            f.offers = config::suggestions_left(&team.suggests, &reviews, &prs);
+        }
 
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.pinned_prs = self.seen.pinned_prs.clone();

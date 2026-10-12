@@ -265,6 +265,10 @@ checks, comments and diffs.
   reviewed by an agent on another model or provider (Codex reviews what Claude Code wrote, say),
   kept in Codealong and handed back to the session that opened it to act on. Nothing goes on
   GitHub.
+- **Settings per repo, and shared with your team**: pick a repo in Settings › Automation to set how
+  its PRs are reviewed and nudged. A `.codealong/config.toml` committed to the repo shares words
+  for every review, which verdicts an agent may never submit, and what to suggest turning on, with
+  everyone on the team; each person takes the suggestions or doesn't.
 
 ### Todos your agents can work
 
@@ -400,6 +404,30 @@ from what it finds on your Mac, and watches it, so you can edit either. The form
 in its place, keeping your comments and order, and `codealong config check` checks a file you
 edited by hand.
 
+A repo can share settings with everyone who works on it in `.codealong/config.toml`, read from the
+branch its pull requests merge into (so a change goes for the team once it's merged), and
+`codealong config check --repo <folder>` checks one before you push it:
+
+```toml
+[reviews]
+instructions_file = "review.md"  # .codealong/review.md, added after each person's own instructions; or `instructions = "…"`
+never_submit = ["approve"]       # verdicts never submitted as anyone's review, whatever their `submit` says
+auto = true                      # suggested: each person takes it in Settings or a PR's Review tab, or doesn't
+post = "comment"                 # suggested
+
+[reviews.own]
+instructions = "Check the tests cover what changed."
+auto = true                      # suggested
+send = true                      # suggested
+
+[pull_requests]
+nudge_about = "feedback-and-checks"  # for everyone
+nudge_by_default = true          # suggested
+```
+
+Accounts, models, a person's own prompt and what's submitted as them stay each person's: a file
+that sets one goes unused, with a notice saying why.
+
 <details>
 <summary>An annotated <code>config.toml</code></summary>
 
@@ -460,6 +488,10 @@ send = true                    # hand each review to the session that opened the
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)
 nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks
+
+[repos."github.com/acme/web".reviews]  # yours for one repo, over the above and its team's file (Settings › Automation, the repo picked)
+account = "claude-work"        # any of [reviews], [reviews.own] (as reviews.own) and [pull_requests]; what's left out is as they say
+post = "none"
 
 [updates]
 check = true                   # look for a new version by itself (Settings › General)

@@ -316,3 +316,80 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Settings › Automation: the repo it shows, where each value comes from with one picked, and the
+   repo's team settings over the fields. */
+.ca-settings-scope .ca-settings-select {
+  justify-self: start;
+  min-width: 260px;
+}
+.ca-settings-source {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-left: var(--space-2);
+}
+.ca-settings-from {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  font: var(--type-caption);
+  color: var(--ink-3);
+}
+.ca-settings-from.is-repo {
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+}
+.ca-settings-from.is-team {
+  background: var(--unread-tint);
+  color: var(--unread);
+}
+.ca-settings-team {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.ca-settings-team-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--type-meta-strong);
+  color: var(--ink-2);
+}
+.ca-settings-team-head > span {
+  flex: 1;
+  min-width: 0;
+}
+.ca-settings-team-note,
+.ca-settings-team-offer p {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-settings-team-offer {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.ca-settings-team-offer ul {
+  margin: 0;
+  padding-left: var(--space-5);
+  font: var(--type-meta);
+  color: var(--ink);
+}
+.ca-settings-teamwords summary {
+  font: var(--type-meta-strong);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-settings-teamwords > div {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--neutral-tint);
+  font: var(--type-meta);
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}

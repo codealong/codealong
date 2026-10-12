@@ -14,13 +14,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { excerptAt, lineLink, type ExcerptLine } from '../agentReview';
-import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews, sendAgentReview } from '../api';
+import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews, sendAgentReview, takeTeamSettings } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { changeDraft, commentsWord, draftShown, readAgain, submittedWord, type Held } from '../prDraft';
 import { splitPath } from '../prFiles';
 import { errorText } from '../report';
+import { offerFor, offerKey, offerWords, teamInstructions } from '../repoSettings';
 import { autoReviewWords, suggestWords } from '../review';
-import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Session, WrittenReview } from '../types';
+import { strings, useStored } from '../stored';
+import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Session, TeamFile, WrittenReview } from '../types';
 import { Markdown } from './Markdown';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prIsOpen } from './PrsView';
@@ -100,10 +102,12 @@ function LineNote({ comment, pr, head, detail }: { comment: LineComment; pr: PrI
 
 /** Where the PR's latest round stands, with its draft or comment and its session a click away;
  *  for a PR of yours, where it went back to, and Send while it hasn't. */
-function Standing({ pr, review, now, onGitHub, sessions, onShowSession }: { pr: PrItem; review: AutoReview; now: number; onGitHub?: { draft: boolean; submitted: string | null }; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
+function Standing({ pr, review, now, onGitHub, sessions, onShowSession, teamFiles }: { pr: PrItem; review: AutoReview; now: number; onGitHub?: { draft: boolean; submitted: string | null }; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void; teamFiles?: TeamFile[] }) {
   const titleOf = (key: string | null | undefined) => sessions.find((s) => s.session.key === key)?.session.title ?? null;
   const { icon, says, note } = autoReviewWords(review, onGitHub, titleOf(review.sent));
   const rounds = `${review.rounds} ${review.rounds === 1 ? 'round' : 'rounds'} so far`;
+  // Said on hover only: the team's words are in Settings for whoever wants them.
+  const team = teamInstructions(teamFiles, pr) ? ` Its reviewer is told what ${pr.repoSlug}’s team asks of every review there too (.codealong/config.toml).` : '';
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const to = review.own && review.stage === 'kept' && !review.sent ? review.sendable : null;
@@ -118,7 +122,7 @@ function Standing({ pr, review, now, onGitHub, sessions, onShowSession }: { pr: 
     <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
       <div className="ca-prinsp-auto-head">
         <Icon name={icon} size={12} />
-        <span className="ca-prinsp-auto-says" title={`Codealong has an agent review the pull requests that wait on your review (Settings › Automation): ${rounds}.`}>
+        <span className="ca-prinsp-auto-says" title={`Codealong has an agent review the pull requests that wait on your review (Settings › Automation): ${rounds}.${team}`}>
           {says}
         </span>
         <span className="ca-meta" title={absolute(review.at)}>
@@ -343,9 +347,50 @@ export interface PrReviewProps {
   /** The PR's sessions, each with its worktree, for showing the one that reviewed it. */
   sessions: { lane: Lane; session: Session }[];
   onShowSession: (lane: Lane, session: Session) => void;
+  /** The repos' team files: the Review tab says, once, what this PR's repo's team suggests. */
+  teamFiles?: TeamFile[];
 }
 
-export function PrReview({ pr, detail, now, yours, sessions, onShowSession }: PrReviewProps) {
+/** The team offers dismissed (repoSettings.ts `offerKey`), in every window: one comes back only
+ *  when its team comes to suggest something else. */
+const DISMISSED_KEY = 'codealong.teamOffers.dismissed';
+const NONE_DISMISSED: string[] = [];
+/** How many dismissals are kept: the latest. */
+const DISMISSED_MOST = 50;
+
+/** What a PR's repo's team suggests that you don't have, in place of what an empty Review tab
+ *  says, with Use them, until dismissed. */
+function TeamOffer({ file, onDismiss }: { file: TeamFile; onDismiss: () => void }) {
+  const [taking, setTaking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const take = () => {
+    setTaking(true);
+    setError(null);
+    takeTeamSettings(file.repo, file.branch)
+      .catch((e: unknown) => setError(errorText(e)))
+      .finally(() => setTaking(false));
+  };
+  return (
+    <div className="ca-agentrev-offer" role="note">
+      <Icon name="users" size={12} />
+      <div className="ca-agentrev-offer-body">
+        <p>
+          {file.repo}’s team suggests: {offerWords(file.offers).join('; ')}.
+        </p>
+        <p className="ca-agentrev-offer-more">Use them to have that for this repo; Settings › Automation shows them with {file.repo} picked.</p>
+        <Button size="sm" variant="primary" disabled={taking} onClick={take}>
+          Use them
+        </Button>
+        {error && <p className="ca-form-error">{error}</p>}
+      </div>
+      <button type="button" className="ca-agentrev-offer-x" aria-label="Dismiss" title="Don’t say this again, unless the team comes to suggest something else" onClick={onDismiss}>
+        <Icon name="x" size={12} />
+      </button>
+    </div>
+  );
+}
+
+export function PrReview({ pr, detail, now, yours, sessions, onShowSession, teamFiles }: PrReviewProps) {
   const review = pr.autoReview;
   const read = yours?.review;
   const draft = read?.draft ?? null;
@@ -353,9 +398,12 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession }: Pr
   const open = prIsOpen(pr);
   // What a verdict does with the draft, as the box that gives one is here or below.
   const verdicts = open ? 'Approve, Comment or Request changes in the box below submits it, with its comments.' : 'The PR is closed, so it can’t be submitted.';
+  const [dismissed, setDismissed] = useStored(DISMISSED_KEY, strings, NONE_DISMISSED);
+  const offer = !draft && !review && !yours?.loading ? offerFor(teamFiles, pr, dismissed) : undefined;
+  const dismiss = (f: TeamFile) => setDismissed((d) => [...d.filter((k) => k !== offerKey(f)), offerKey(f)].slice(-DISMISSED_MOST));
   return (
     <section className="ca-insp-sec ca-agentrev" aria-label="Review">
-      {review && <Standing pr={pr} review={review} now={now} onGitHub={onGitHub} sessions={sessions} onShowSession={onShowSession} />}
+      {review && <Standing pr={pr} review={review} now={now} onGitHub={onGitHub} sessions={sessions} onShowSession={onShowSession} teamFiles={teamFiles} />}
       {read?.submitted && !draft && (
         <p className="ca-agentrev-submitted">
           <Icon name="check" size={12} />
@@ -372,7 +420,8 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession }: Pr
       )}
       {yours?.error && <p className="ca-form-error">Couldn’t read your review on GitHub: {yours.error}</p>}
       {draft ? <DraftReview pr={pr} draft={draft} detail={detail} verdicts={verdicts} /> : review && <Written pr={pr} review={review} detail={detail} now={now} sessions={sessions} onShowSession={onShowSession} />}
-      {!draft && !review && !yours?.loading && <p className="ca-empty">{pr.mine ? 'It’s your PR: who reviewed it is under Checks and reviews, what they said under Description. Settings › Automation can have an agent on another model review the PRs your sessions open, and hand its review back to the session.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
+      {offer && <TeamOffer file={offer} onDismiss={() => dismiss(offer)} />}
+      {!offer && !draft && !review && !yours?.loading && <p className="ca-empty">{pr.mine ? 'It’s your PR: who reviewed it is under Checks and reviews, what they said under Description. Settings › Automation can have an agent on another model review the PRs your sessions open, and hand its review back to the session.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
       {!draft && !review && yours?.loading && <p className="ca-empty">Reading your review on GitHub…</p>}
     </section>
   );

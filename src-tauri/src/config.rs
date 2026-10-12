@@ -45,6 +45,9 @@ pub struct Config {
     pub reviews: ReviewsCfg,
     #[serde(default)]
     pub pull_requests: PullRequestsCfg,
+    /// Your settings for particular repos, `[repos."github.com/owner/name"]`, by repo.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub repos: BTreeMap<String, RepoCfg>,
     #[serde(default)]
     pub debug: DebugCfg,
 }
@@ -67,6 +70,7 @@ impl Default for Config {
             sessions: SessionsCfg::default(),
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
+            repos: BTreeMap::new(),
             debug: DebugCfg::default(),
         }
     }
@@ -295,11 +299,19 @@ pub struct ReviewsCfg {
     /// Your own pull requests, `[reviews.own]`.
     #[serde(default)]
     pub own: OwnReviewsCfg,
+    /// What a repo's team adds to the reviewer's instructions for its pull requests
+    /// (`.codealong/config.toml`, teamfile.rs), put in by `reviews_for`; never in config.toml.
+    #[serde(skip)]
+    pub team_instructions: String,
+    /// The verdicts a repo's team never has submitted as anyone's review, whatever `submit` says
+    /// (`reviews_for`); never in config.toml.
+    #[serde(skip)]
+    pub never_submit: Vec<crate::github::Verdict>,
 }
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
     }
 }
 
@@ -325,11 +337,15 @@ pub struct OwnReviewsCfg {
     /// you; else it's kept here, to send from the PR's Review tab.
     #[serde(default = "yes")]
     pub send: bool,
+    /// What a repo's team adds to the instructions for reviews of your pull requests there, as
+    /// `ReviewsCfg::team_instructions` is; never in config.toml.
+    #[serde(skip)]
+    pub team_instructions: String,
 }
 
 impl Default for OwnReviewsCfg {
     fn default() -> Self {
-        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), send: true }
+        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), send: true, team_instructions: String::new() }
     }
 }
 
@@ -430,6 +446,224 @@ impl NudgeAbout {
             NudgeAbout::FeedbackAndChecks => "feedback-and-checks",
         }
     }
+}
+
+/// Your settings for one repo's pull requests, `[repos."github.com/owner/name"]` (Settings ›
+/// Automation with the repo picked). Each value set here goes for that repo in place of
+/// `[reviews]`'s or `[pull_requests]`'s, and over what the repo's own `.codealong/config.toml`
+/// sets for its team (teamfile.rs); what isn't set is as they say (`reviews_for`,
+/// `pull_requests_for`). Taking what the team suggests writes it here (`take_suggestions`), so
+/// nothing the team turns on reaches you until you've said so.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct RepoCfg {
+    #[serde(default, skip_serializing_if = "ReviewsPatch::is_empty")]
+    pub reviews: ReviewsPatch,
+    #[serde(default, skip_serializing_if = "PullRequestsPatch::is_empty")]
+    pub pull_requests: PullRequestsPatch,
+}
+
+impl RepoCfg {
+    pub fn is_empty(&self) -> bool {
+        self.reviews.is_empty() && self.pull_requests.is_empty()
+    }
+
+    /// `self` with every value `over` sets put over it.
+    pub fn with(&self, over: &RepoCfg) -> RepoCfg {
+        let (r, o) = (&over.reviews, &over.reviews.own);
+        let mut out = self.clone();
+        let mine = &mut out.reviews;
+        put(&mut mine.auto, &r.auto);
+        put(&mut mine.account, &r.account);
+        put(&mut mine.model, &r.model);
+        put(&mut mine.prompt, &r.prompt);
+        put(&mut mine.post, &r.post);
+        put(&mut mine.submit, &r.submit);
+        put(&mut mine.own.auto, &o.auto);
+        put(&mut mine.own.account, &o.account);
+        put(&mut mine.own.model, &o.model);
+        put(&mut mine.own.prompt, &o.prompt);
+        put(&mut mine.own.send, &o.send);
+        put(&mut out.pull_requests.nudge_by_default, &over.pull_requests.nudge_by_default);
+        put(&mut out.pull_requests.nudge_about, &over.pull_requests.nudge_about);
+        out
+    }
+}
+
+fn put<T: Clone>(slot: &mut Option<T>, over: &Option<T>) {
+    if over.is_some() {
+        slot.clone_from(over);
+    }
+}
+
+/// `[reviews]` for one repo, key by key: none for `[reviews]`'s own.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ReviewsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post: Option<ReviewPost>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit: Option<ReviewSubmit>,
+    #[serde(default, skip_serializing_if = "OwnReviewsPatch::is_empty")]
+    pub own: OwnReviewsPatch,
+}
+
+impl ReviewsPatch {
+    pub fn is_empty(&self) -> bool {
+        *self == ReviewsPatch::default()
+    }
+}
+
+/// `[reviews.own]` for one repo, key by key.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct OwnReviewsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send: Option<bool>,
+}
+
+impl OwnReviewsPatch {
+    pub fn is_empty(&self) -> bool {
+        *self == OwnReviewsPatch::default()
+    }
+}
+
+/// `[pull_requests]` for one repo, key by key.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PullRequestsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nudge_by_default: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nudge_about: Option<NudgeAbout>,
+}
+
+impl PullRequestsPatch {
+    pub fn is_empty(&self) -> bool {
+        *self == PullRequestsPatch::default()
+    }
+}
+
+/// The key a repo's table has in `[repos]`: `github.com/owner/name`, as `[[projects]] repos`
+/// name repos.
+pub fn repo_key(slug: &str) -> String {
+    format!("github.com/{slug}")
+}
+
+/// `[reviews]` as it goes for one repo's pull requests: yours, then what the repo's team sets for
+/// everyone in its `.codealong/config.toml` (`team`: what it adds to the reviewer's instructions,
+/// and the verdicts never to submit), then yours for that repo (`mine`). What the team only
+/// suggests isn't in it: taking it writes it into `mine` (`take_suggestions`).
+pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>, mine: Option<&RepoCfg>) -> ReviewsCfg {
+    let mut r = global.clone();
+    if let Some(t) = team {
+        r.team_instructions = t.review_instructions.clone();
+        r.own.team_instructions = t.own_review_instructions.clone();
+        r.never_submit = t.never_submit.clone();
+    }
+    if let Some(m) = mine.map(|m| &m.reviews) {
+        let set = |v: &mut String, by: &Option<String>| {
+            if let Some(by) = by {
+                *v = by.trim().to_string();
+            }
+        };
+        r.auto = m.auto.unwrap_or(r.auto);
+        set(&mut r.account, &m.account);
+        set(&mut r.model, &m.model);
+        set(&mut r.prompt, &m.prompt);
+        r.post = m.post.unwrap_or(r.post);
+        r.submit = m.submit.unwrap_or(r.submit);
+        r.own.auto = m.own.auto.unwrap_or(r.own.auto);
+        set(&mut r.own.account, &m.own.account);
+        set(&mut r.own.model, &m.own.model);
+        set(&mut r.own.prompt, &m.own.prompt);
+        r.own.send = m.own.send.unwrap_or(r.own.send);
+    }
+    r
+}
+
+/// `[pull_requests]` as it goes for one repo's pull requests, as `reviews_for` has `[reviews]`:
+/// the team sets what a nudge tells about for everyone.
+pub fn pull_requests_for(global: &PullRequestsCfg, team: Option<&crate::teamfile::TeamCfg>, mine: Option<&RepoCfg>) -> PullRequestsCfg {
+    let mut p = global.clone();
+    if let Some(about) = team.and_then(|t| t.nudge_about) {
+        p.nudge_about = about;
+    }
+    if let Some(m) = mine.map(|m| &m.pull_requests) {
+        p.nudge_by_default = m.nudge_by_default.unwrap_or(p.nudge_by_default);
+        p.nudge_about = m.nudge_about.unwrap_or(p.nudge_about);
+    }
+    p
+}
+
+/// What a team suggests that isn't how things go for you in its repo now: what taking its
+/// suggestions would change (`take_suggestions`), and what the one-time offer names.
+pub fn suggestions_left(suggests: &RepoCfg, reviews: &ReviewsCfg, prs: &PullRequestsCfg) -> RepoCfg {
+    let differs = |s: &Option<bool>, now: bool| s.filter(|v| *v != now);
+    let r = &suggests.reviews;
+    RepoCfg {
+        reviews: ReviewsPatch {
+            auto: differs(&r.auto, reviews.auto),
+            post: r.post.filter(|v| *v != reviews.post),
+            own: OwnReviewsPatch { auto: differs(&r.own.auto, reviews.own.auto), send: differs(&r.own.send, reviews.own.send), ..OwnReviewsPatch::default() },
+            ..ReviewsPatch::default()
+        },
+        pull_requests: PullRequestsPatch { nudge_by_default: differs(&suggests.pull_requests.nudge_by_default, prs.nudge_by_default), nudge_about: None },
+    }
+}
+
+/// Writes what a repo's team suggests into your table for it (`[repos."github.com/…"]`),
+/// keeping everything else in config.toml as written: from then on it goes for you there, as
+/// anything else you set for that repo does.
+pub fn take_suggestions(slug: &str, suggests: &RepoCfg) -> Result<()> {
+    update(|text| Ok((with_suggestions(text, slug, suggests)?, ())))
+}
+
+/// `text` with `suggests` written into repo `slug`'s table, as `take_suggestions` saves it.
+pub fn with_suggestions(text: &str, slug: &str, suggests: &RepoCfg) -> Result<String> {
+    let key = repo_key(slug);
+    let mut cfg = from_text(text).map_err(|e| anyhow!("config.toml has an error; fix it before taking the team's settings: {}", e.to_string().trim()))?;
+    let now = cfg.repos.get(&key).cloned().unwrap_or_default();
+    cfg.repos.insert(key, now.with(suggests));
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before taking the team's settings")?;
+    set_repos(&mut doc, &cfg.repos);
+    Ok(doc.to_string())
+}
+
+/// Why the `[repos]` tables can't be saved, in words: an account that isn't one of yours, a model
+/// that can't be started on, or a key that isn't a repo's.
+pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
+    for (key, r) in &cfg.repos {
+        let Some(slug) = key.strip_prefix("github.com/").filter(|s| s.split('/').count() == 2 && !s.split('/').any(str::is_empty)) else {
+            return Err(format!("[repos.\"{key}\"] isn't a repo; name it as github.com/owner/name."));
+        };
+        let accounts = [("[reviews]", &r.reviews.account, &r.reviews.model), ("[reviews.own]", &r.reviews.own.account, &r.reviews.own.model)];
+        for (table, account, model) in accounts {
+            if let Some(a) = account.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+                if !cfg.accounts.iter().any(|x| x.name == a) {
+                    return Err(format!("{slug}'s {table} account is {a:?}, which isn't one of the [[accounts]]; use one of them, or \"\" for Auto."));
+                }
+            }
+            if let Some(m) = model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+                if !crate::start::valid_model(m) {
+                    return Err(format!("{slug}'s {table} model is {m:?}, which isn't a model name Codealong can start a session on."));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Automatic updates (updates.rs). Only release builds update themselves.
@@ -877,7 +1111,8 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # harness than the PR's session. prompt: what it's told to do; \"\" for Codealong's own. send: hand each review to
 # the session that opened the PR, once it runs and doesn't wait on you. Nothing goes on GitHub.
 ";
-const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
+const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
+const DEBUG_COMMENT: &str ="# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
@@ -972,6 +1207,14 @@ fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
     set_value(&mut doc["shortcuts"]["waiting"], Value::from(shortcuts.waiting.trim()));
 }
 
+/// Moves a table just added to right before `before` in the file's map, as `place_after` does.
+fn place_before(doc: &mut toml_edit::DocumentMut, name: &str, before: &str) {
+    let order: Vec<String> = doc.as_table().iter().map(|(k, _)| k.to_string()).collect();
+    let Some(anchor) = order.iter().position(|k| k == before) else { return };
+    let rank = |k: &str| if k == name { (anchor, 0) } else { (order.iter().position(|x| x == k).unwrap_or(usize::MAX), 1) };
+    doc.as_table_mut().sort_values_by(|a, _, b, _| rank(a.get()).cmp(&rank(b.get())));
+}
+
 /// Moves a table just added (it goes at the end of the file's map) to right after `after`, so
 /// it's written there. The tables Settings rewrites whole, accounts and projects, have no place
 /// in the file of their own and follow whatever comes before them in the map.
@@ -1056,6 +1299,7 @@ pub fn check_projects(projects: &[ProjectCfg]) -> std::result::Result<(), String
 pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     check_accounts(&cfg.accounts)?;
     check_projects(&cfg.projects)?;
+    check_repos(cfg)?;
     if cfg.scan.iter().any(|s| s.trim().is_empty()) {
         return Err("A scan folder is empty.".into());
     }
@@ -1291,6 +1535,8 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["pull_requests"]["nudge_about"], Value::from(cfg.pull_requests.nudge_about.as_str()));
     }
 
+    set_repos(&mut doc, &cfg.repos);
+
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
     set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
 
@@ -1365,6 +1611,94 @@ fn set_tables(doc: &mut toml_edit::DocumentMut, name: &str, rows: Vec<toml_edit:
         tables.push(t);
     }
     doc[name] = Item::ArrayOfTables(tables);
+}
+
+/// Sets the `[repos."github.com/…"]` tables to `repos`, value by value, so a comment beside one
+/// stays: what a table no longer sets is taken out, and a table left empty with it. A file
+/// without `[repos]` gets its comment over the first one.
+fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>) {
+    use toml_edit::{Item, Table, Value};
+    let had = doc.get("repos").is_some_and(Item::is_table_like);
+    if let Some(t) = doc.get_mut("repos").and_then(Item::as_table_like_mut) {
+        let gone: Vec<String> = t.iter().map(|(k, _)| k.to_string()).filter(|k| !repos.get(k).is_some_and(|r| !r.is_empty())).collect();
+        for k in gone {
+            t.remove(&k);
+        }
+    }
+    let repos: Vec<(&String, &RepoCfg)> = repos.iter().filter(|(_, r)| !r.is_empty()).collect();
+    if repos.is_empty() {
+        doc.remove("repos");
+        return;
+    }
+    if !had {
+        let mut t = Table::new();
+        t.set_implicit(true);
+        doc.insert("repos", Item::Table(t));
+        // Tables made here have no place in the file and follow the table before them in the
+        // map: the projects, with [debug] still last.
+        place_before(doc, "repos", "debug");
+    }
+    let text = |s: &Option<String>| s.as_deref().map(|s| Value::from(s.trim()));
+    let mut comment = (!had).then_some(REPOS_COMMENT);
+    for (key, r) in repos {
+        let Some(root) = doc["repos"].as_table_mut() else { return };
+        if !root.get(key).is_some_and(Item::is_table_like) {
+            let mut t = Table::new();
+            t.set_implicit(true);
+            root.insert(key, Item::Table(t));
+        }
+        let Some(repo) = root[key.as_str()].as_table_mut() else { continue };
+        let (rv, own) = (&r.reviews, &r.reviews.own);
+        let reviews = [
+            ("auto", rv.auto.map(Value::from)),
+            ("account", text(&rv.account)),
+            ("model", text(&rv.model)),
+            ("prompt", text(&rv.prompt)),
+            ("post", rv.post.map(|v| Value::from(v.as_str()))),
+            ("submit", rv.submit.map(|v| Value::from(v.as_str()))),
+        ];
+        let own_values = [("auto", own.auto.map(Value::from)), ("account", text(&own.account)), ("model", text(&own.model)), ("prompt", text(&own.prompt)), ("send", own.send.map(Value::from))];
+        let prs = [("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)), ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str())))];
+        if let Some(t) = sync_table(repo, "reviews", &reviews, &mut comment) {
+            sync_table(t, "own", &own_values, &mut comment);
+            if t.get("own").and_then(Item::as_table).is_some_and(Table::is_empty) {
+                t.remove("own");
+            }
+            if t.is_empty() {
+                repo.remove("reviews");
+            }
+        }
+        sync_table(repo, "pull_requests", &prs, &mut comment);
+        if repo.get("pull_requests").and_then(Item::as_table).is_some_and(Table::is_empty) {
+            repo.remove("pull_requests");
+        }
+    }
+}
+
+/// `parent`'s table `name` with each of `values` set, or taken out where it's none: added when
+/// something's set (with `comment` over it, the first time), left alone when it isn't there and
+/// nothing is. The table, unless it's not there.
+fn sync_table<'a>(parent: &'a mut toml_edit::Table, name: &str, values: &[(&str, Option<toml_edit::Value>)], comment: &mut Option<&str>) -> Option<&'a mut toml_edit::Table> {
+    use toml_edit::{Item, Table};
+    let any = values.iter().any(|(_, v)| v.is_some());
+    if !parent.get(name).is_some_and(Item::is_table) {
+        if !any {
+            return None;
+        }
+        let mut t = Table::new();
+        t.decor_mut().set_prefix(format!("\n{}", comment.take().unwrap_or_default()));
+        parent.insert(name, Item::Table(t));
+    }
+    let t = parent[name].as_table_mut()?;
+    for (key, v) in values {
+        match v {
+            Some(v) => set_value(&mut t[*key], v.clone()),
+            None => {
+                t.remove(key);
+            }
+        }
+    }
+    Some(t)
 }
 
 /// Suggests one project per GitHub owner your agents worked in, named the way GitHub names
@@ -1521,6 +1855,11 @@ pub fn render(cfg: &Config) -> String {
             s.push_str(&format!("chrome_profile = {}\n", q(c)));
         }
     }
+    if !cfg.repos.is_empty() {
+        let mut repos = toml_edit::DocumentMut::new();
+        set_repos(&mut repos, &cfg.repos);
+        s.push_str(&repos.to_string());
+    }
     s.push('\n');
     s.push_str(DEBUG_COMMENT);
     s.push_str("[debug]\n");
@@ -1569,8 +1908,9 @@ mod tests {
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
+            repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1850,6 +2190,7 @@ mod tests {
             sessions: SessionsCfg::default(),
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
+            repos: BTreeMap::new(),
             debug: DebugCfg { perf_log: true },
         }
     }
@@ -1955,7 +2296,7 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
@@ -1994,6 +2335,120 @@ mod tests {
         assert!(check(&bad).unwrap_err().contains("isn't a model name"));
     }
 
+    fn team() -> crate::teamfile::TeamCfg {
+        crate::teamfile::TeamCfg {
+            review_instructions: "Check migrations.".into(),
+            own_review_instructions: "Mind the tests.".into(),
+            never_submit: vec![crate::github::Verdict::Approve],
+            nudge_about: Some(NudgeAbout::Feedback),
+            suggests: RepoCfg {
+                reviews: ReviewsPatch { auto: Some(true), post: Some(ReviewPost::Comment), own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
+                pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None },
+            },
+        }
+    }
+
+    /// A repo's settings are yours, then what its team sets for everyone, then yours for that
+    /// repo. What the team only suggests goes for nobody until they take it.
+    #[test]
+    fn a_repos_settings_are_yours_then_the_teams_then_yours_for_it() {
+        let global = ReviewsCfg { submit: ReviewSubmit::ApproveOrComment, account: "claude".into(), ..ReviewsCfg::default() };
+        let prs = PullRequestsCfg::default();
+        assert_eq!(reviews_for(&global, None, None), global);
+
+        let r = reviews_for(&global, Some(&team()), None);
+        assert_eq!((r.auto, r.post, r.own.auto), (false, ReviewPost::Draft, false), "suggestions aren't taken by themselves");
+        assert_eq!((r.team_instructions.as_str(), r.own.team_instructions.as_str()), ("Check migrations.", "Mind the tests."));
+        assert_eq!(r.never_submit, vec![crate::github::Verdict::Approve]);
+        assert_eq!((r.submit, r.account.as_str()), (ReviewSubmit::ApproveOrComment, "claude"), "what's submitted as you and where reviews run stay yours");
+        let p = pull_requests_for(&prs, Some(&team()), None);
+        assert_eq!((p.nudge_by_default, p.nudge_about), (false, NudgeAbout::Feedback));
+
+        let mine = RepoCfg {
+            reviews: ReviewsPatch { auto: Some(true), account: Some(" codex ".into()), post: Some(ReviewPost::None), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
+            pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: Some(NudgeAbout::Everything) },
+        };
+        let r = reviews_for(&global, Some(&team()), Some(&mine));
+        assert_eq!((r.auto, r.account.as_str(), r.post, r.own.send), (true, "codex", ReviewPost::None, false));
+        assert_eq!(r.team_instructions, "Check migrations.", "the team's words are added whatever you set");
+        assert_eq!(r.model, "", "what you don't set for the repo is as [reviews] says");
+        let p = pull_requests_for(&prs, Some(&team()), Some(&mine));
+        assert_eq!((p.nudge_by_default, p.nudge_about), (true, NudgeAbout::Everything));
+    }
+
+    #[test]
+    fn what_the_team_offers_is_what_would_change() {
+        let t = team();
+        let reviews = ReviewsCfg::default();
+        let left = suggestions_left(&t.suggests, &reviews, &PullRequestsCfg::default());
+        assert_eq!(left, t.suggests);
+        // What you have already isn't offered.
+        let have = ReviewsCfg { auto: true, post: ReviewPost::Comment, ..ReviewsCfg::default() };
+        let left = suggestions_left(&t.suggests, &have, &PullRequestsCfg { nudge_by_default: true, ..PullRequestsCfg::default() });
+        assert_eq!(left, RepoCfg { reviews: ReviewsPatch { own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, ..RepoCfg::default() });
+        let all = ReviewsCfg { own: OwnReviewsCfg { auto: true, ..OwnReviewsCfg::default() }, ..have };
+        assert!(suggestions_left(&t.suggests, &all, &PullRequestsCfg { nudge_by_default: true, ..PullRequestsCfg::default() }).is_empty());
+    }
+
+    #[test]
+    fn a_repos_table_is_saved_value_by_value_and_goes_once_empty() {
+        let old = render(&full());
+        let mut on = full();
+        let key = repo_key("sprucehq/web");
+        on.repos.insert(key.clone(), RepoCfg { reviews: ReviewsPatch { post: Some(ReviewPost::None), own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, ..RepoCfg::default() });
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains(&format!("\n{REPOS_COMMENT}[repos.\"github.com/sprucehq/web\".reviews]\npost = \"none\"\n")), "{out}");
+        assert!(out.contains("[repos.\"github.com/sprucehq/web\".reviews.own]\nauto = true\n"), "{out}");
+        assert!(!out.contains("[repos]") && !out.contains("[repos.\"github.com/sprucehq/web\"]\n"), "only the tables with values get a header: {out}");
+        assert!(out.find("[[projects]]").unwrap() < out.find("[repos.").unwrap() && out.find("[repos.").unwrap() < out.find("[debug]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+
+        // A comment beside a value stays as the value changes; a value no longer set goes.
+        let commented = out.replace("post = \"none\"\n", "post = \"none\" # quiet here\n");
+        let mut next = on.clone();
+        let repo = next.repos.get_mut(&key).unwrap();
+        repo.reviews.post = Some(ReviewPost::Draft);
+        repo.reviews.own.auto = None;
+        repo.pull_requests.nudge_about = Some(NudgeAbout::Feedback);
+        let again = with_config(&commented, &next).unwrap();
+        assert!(again.contains("post = \"draft\" # quiet here\n"), "{again}");
+        assert!(!again.contains("reviews.own]"), "{again}");
+        assert!(again.contains("[repos.\"github.com/sprucehq/web\".pull_requests]\nnudge_about = \"feedback\"\n"), "{again}");
+        assert_eq!(parse(&again).unwrap(), next);
+
+        // Nothing set for it: the table goes, and [repos] with it.
+        next.repos.insert(key, RepoCfg::default());
+        let gone = with_config(&again, &next).unwrap();
+        assert!(!gone.contains("[repos."), "{gone}");
+        assert_eq!(parse(&gone).unwrap().repos, BTreeMap::new());
+    }
+
+    #[test]
+    fn taking_the_teams_suggestions_writes_them_into_your_table_for_the_repo() {
+        let text = render(&full());
+        let first = RepoCfg { reviews: ReviewsPatch { auto: Some(true), ..ReviewsPatch::default() }, ..RepoCfg::default() };
+        let out = with_suggestions(&text, "sprucehq/web", &first).unwrap();
+        assert_eq!(parse(&out).unwrap().repos[&repo_key("sprucehq/web")], first);
+        // Another later keeps what's there and adds to it.
+        let more = RepoCfg { pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None }, ..RepoCfg::default() };
+        let out = with_suggestions(&out, "sprucehq/web", &more).unwrap();
+        assert_eq!(parse(&out).unwrap().repos[&repo_key("sprucehq/web")], first.with(&more));
+        assert!(out.starts_with(&text[..text.find(DEBUG_COMMENT).unwrap()]), "the rest stays as written");
+    }
+
+    #[test]
+    fn a_repos_table_names_a_repo_and_accounts_and_models_you_have() {
+        let mut cfg = full();
+        cfg.repos.insert("github.com/sprucehq/web".into(), RepoCfg { reviews: ReviewsPatch { account: Some("codex".into()), model: Some("opus".into()), ..ReviewsPatch::default() }, ..RepoCfg::default() });
+        assert_eq!(check(&cfg), Ok(()));
+        cfg.repos.insert("github.com/sprucehq/web".into(), RepoCfg { reviews: ReviewsPatch { own: OwnReviewsPatch { account: Some("codex9".into()), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, ..RepoCfg::default() });
+        assert!(check(&cfg).unwrap_err().contains("sprucehq/web's [reviews.own] account is \"codex9\""));
+        cfg.repos.clear();
+        cfg.repos.insert("sprucehq/web".into(), RepoCfg::default());
+        assert!(check(&cfg).unwrap_err().contains("name it as github.com/owner/name"));
+    }
+
     #[test]
     fn reviews_of_your_own_prs_are_a_table_of_their_own_under_reviews() {
         let none = toml::from_str::<Config>("").unwrap().reviews.own;
@@ -2002,7 +2457,7 @@ mod tests {
         assert!(none.send && !none.auto);
         let old = render(&full());
         let mut on = full();
-        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), prompt: "Look hard at the tests.".into(), send: true };
+        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), prompt: "Look hard at the tests.".into(), send: true, team_instructions: String::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{OWN_REVIEWS_COMMENT}[reviews.own]\nauto = true\naccount = \"codex\"\nmodel = \"gpt-5.5\"\nprompt = \"Look hard at the tests.\"\nsend = true")), "{out}");
         // Right after [reviews], whose own lines stay as they were.

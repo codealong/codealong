@@ -524,6 +524,40 @@ instead; a draft of only your own line comments isn't told apart. It never merge
 from before, with `auto_approve = true`, reads as `submit = "approve"`. A review of a PR of yours
 whose agent would approve it isn't handed back to its session.
 
+#### Settings for one repo, and its team's
+
+Settings › Automation has a picker at its top: Everywhere, or one of the repos checked out here
+(also those you have settings for, and those with team settings), each saying when it has team
+settings and when you have your own for it. A worktree's menu has Automation for its repo, which
+opens Settings there. With a repo picked, the review and nudge settings show what goes for that
+repo's pull requests, each saying where its value comes from: Same as everywhere, Team, or Yours
+here, with Reset to go back. A change is yours for that repo, kept in config.toml as
+`[repos."github.com/owner/name"]` with its own `reviews`, `reviews.own` and `pull_requests` tables
+(the reviewer's account and model, its instructions, where reviews go, what's submitted for you,
+nudges), each value there over `[reviews]` and `[pull_requests]` and over the team's. Usage limits
+and lost connections go the same in every repo.
+
+A repo shares settings with everyone who works on it in `.codealong/config.toml`, committed to it.
+Codealong reads it from the branch a pull request merges into, as this Mac last fetched it
+(`origin/<branch>`), never from a worktree: a review runs in the worktree that holds the PR's
+branch, and a PR mustn't write its own reviewer's instructions or turn on what goes for it. So a
+change to the file goes for the team once it's merged; `codealong config check --repo <folder>`
+checks the file as a checkout has it, before you push. It's read again when a checkout's refs move
+(a fetch) and every few minutes. What it sets goes for everyone: `[reviews] instructions` (or
+`instructions_file`, a Markdown file in `.codealong/`), added after each person's own instructions
+for reviews of PRs that wait on their review, and the same under `[reviews.own]` for reviews of
+their own PRs, the reviewer told it's the team's; `[reviews] never_submit`, the verdicts
+(`"approve"`, `"request-changes"`, `"comment"`) never submitted as anyone's review, whatever their
+`submit` says; and `[pull_requests] nudge_about`. What spends a person's usage or posts as them
+the team only suggests: `[reviews] auto` and `post`, `[reviews.own] auto` and `send`, and
+`[pull_requests] nudge_by_default`. Settings, with the repo picked, lists the suggestions you don't
+have yet with Use them, which writes them into your table for the repo; and the first PR of the
+repo whose Review tab has nothing to show says them there once, with Use them and a cross that
+dismisses them for good (until the team comes to suggest something else). Accounts, models, a
+person's own prompt and what's submitted as them stay theirs: a file that sets one of them, or a
+value that isn't one, goes unused, and a notice says why; a key this Codealong doesn't know (a
+newer one's) is passed over and said, so teammates on other versions still read the rest.
+
 #### Pins, approvals and snoozes
 
 The PRs you pinned come first, in your order (`p`, Pin PR in its menu, or drag its row up to the
@@ -753,7 +787,8 @@ click (with the agent skill, unless you untick it); Automation has what Codealon
 the agent that reviews the pull requests that wait on your review (the account and model it runs on
 and what it's told, in a box like a session's, and where its review goes), nudging the session that
 opened a pull request, moving a session that hits its usage limit, and telling one a lost connection
-stopped to carry on; Projects groups repos by pattern; Advanced turns
+stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
+repo, and its team's*); Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are. Each change is saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.

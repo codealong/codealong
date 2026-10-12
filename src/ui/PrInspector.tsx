@@ -30,7 +30,7 @@ import { fileOnGitHub, firstChanged, parsePatch } from '../prFiles';
 import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
 import { useYourReview, verdictWords } from '../prDraft';
 import type { Report } from '../report';
-import type { Board, Lane, PrComment, PrDetail, PrFile, PrItem, Session, Usage } from '../types';
+import type { Board, Lane, PrComment, PrDetail, PrFile, PrItem, Session, TeamFile, Usage } from '../types';
 import { PrReview } from './AgentReview';
 import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
@@ -159,6 +159,8 @@ export interface PrDetailsProps {
    *  and with the board's `apps` too, in your editors (`fileOpener`). */
   report?: Report;
   apps?: Board['apps'];
+  /** The repos' team files, for the Review tab (AgentReview.tsx). */
+  teamFiles?: TeamFile[];
 }
 
 /** How the PR's changed files open outside the window: as a diff in the editor that opens one,
@@ -246,7 +248,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
 
 /** The PR itself: its header with where it lives on this Mac, the merge box, its details when
  *  they're open, then its tabs: its description and comments, its files, your review. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, report, apps }: PrDetailsProps) {
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, report, apps, teamFiles }: PrDetailsProps) {
   const { pr } = item;
   // Its details, open or not as you left them for every PR.
   const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
@@ -529,7 +531,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
       </div>
 
       <div ref={(el) => void (panels.current.review = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-review`} aria-labelledby={`${idBase}-review-tab`} hidden={tab !== 'review'}>
-        <PrReview pr={pr} detail={detail} now={now} yours={yours} sessions={item.sessions} onShowSession={onShowSession} />
+        <PrReview pr={pr} detail={detail} now={now} yours={yours} sessions={item.sessions} onShowSession={onShowSession} teamFiles={teamFiles} />
       </div>
     </>
   );

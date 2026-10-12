@@ -19,7 +19,8 @@ import { absolute, agoPhrase, count } from '../format';
 import { prIndex, prRefOf, type PrRef } from '../prLinks';
 import { nudgeWords } from '../prStatus';
 import { errorText } from '../report';
-import type { Lane, NudgeAbout, Pr, PrItem, Session } from '../types';
+import { nudgeAboutFor } from '../repoSettings';
+import type { Board, Lane, Pr, PrItem, Session } from '../types';
 import { PanelSession, PR_PRIMARY } from './PanelSession';
 import { PrPills } from './PrPills';
 import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
@@ -49,8 +50,9 @@ const host = {
   prs: undefined as readonly PrItem[] | undefined,
   index: new Map<string, PrItem>(),
   lanes: [] as readonly Lane[],
-  /** What a PR's nudge tells of (`Board.nudgeAbout`), which its card says. */
-  nudgeAbout: 'everything' as NudgeAbout,
+  /** What a PR's nudge tells of, which its card says: `[pull_requests] nudge_about`, and what its
+   *  repo's team or your table for it says (repoSettings.ts `nudgeAboutFor`). */
+  nudges: {} as NudgeSettings,
   actions: null as PrLinkActions | null,
   listeners: new Set<() => void>(),
 };
@@ -93,19 +95,22 @@ function fetchCard(ref: PrRef) {
     .catch((e: unknown) => done({ item: hit?.item, error: errorText(e) }));
 }
 
+/** What says what a PR's nudge tells of: the board's, each part as it was pushed. */
+type NudgeSettings = Partial<Pick<Board, 'nudgeAbout' | 'repos' | 'teamFiles'>>;
+
 /** Gives this window's PR links the board's PRs and lanes, and what the window does with them,
- *  with what a PR's nudge tells of (`Board.nudgeAbout`). Links rendering with it read the new
- *  board at once; links that skip rendering hear about it after, and re-render only when their
+ *  with what a PR's nudge tells of (`nudges`, from the board). Links rendering with it read the
+ *  new board at once; links that skip rendering hear about it after, and re-render only when their
  *  own PR changed. */
-export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly Lane[] | undefined, actions: PrLinkActions, nudgeAbout: NudgeAbout = 'everything') {
+export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly Lane[] | undefined, actions: PrLinkActions, nudges: NudgeSettings | null | undefined) {
   host.actions = actions;
   if (host.prs !== prs) {
     host.prs = prs;
     host.index = prIndex(prs ?? []);
   }
   host.lanes = lanes ?? [];
-  host.nudgeAbout = nudgeAbout;
-  useLayoutEffect(notify, [prs, lanes, nudgeAbout]);
+  host.nudges = { nudgeAbout: nudges?.nudgeAbout, repos: nudges?.repos, teamFiles: nudges?.teamFiles };
+  useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.repos, nudges?.teamFiles]);
 }
 
 const SHOW_MS = 350;
@@ -423,7 +428,7 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
           <p className="ca-prhover-meta">
-            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device } : null, host.nudgeAbout)}
+            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device } : null, nudgeAboutFor(host.nudges, listed))}
           </p>
           {nudgeError && <p className="ca-prhover-error">{nudgeError}</p>}
         </div>
