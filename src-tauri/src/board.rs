@@ -363,6 +363,7 @@ pub fn claude_session(
         connection_lost,
         cut_off,
         model: tr.and_then(|t| t.model.clone()),
+        context: tr.and_then(|t| t.context).map(|used| ContextUse { used, window: tr.and_then(|t| t.model.as_deref()).and_then(crate::prices::context_window) }),
         // Held only while it runs: the lock and the cleanup at exit are its process's.
         own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
         ..known
@@ -454,6 +455,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         branch: th.branch.clone(),
         origin: codex_origin(account, th),
         model: th.model.clone(),
+        context: th.context.map(|(used, window)| ContextUse { used, window: window.or_else(|| th.model.as_deref().and_then(crate::prices::context_window)) }),
         cut_off,
         ..known
     }
@@ -510,6 +512,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         resume_command: Some(format!("{} --session {}", account.command(), row.id)),
         archived: row.archived_at.is_some(),
         origin: row.fork_of.as_ref().map(|id| SessionOrigin { key: Session::key_for(Harness::Opencode, &account.name, id), how: OriginHow::Fork }),
+        context: row.context.as_ref().map(|(used, model)| ContextUse { used: *used, window: model.as_deref().and_then(crate::prices::context_window) }),
         ..known
     }
 }

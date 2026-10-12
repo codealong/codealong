@@ -42,6 +42,8 @@ pub struct SessionRow {
     pub last_text_tail: Option<String>,
     /// The tool the latest assistant message is on, e.g. "bash · `npm test`".
     pub last_tool: Option<String>,
+    /// The tokens in its context after the latest assistant message, and that message's model.
+    pub context: Option<(u64, Option<String>)>,
     /// The newest write to the session or its messages.
     pub last_ts: i64,
     /// The session it's a fork of (`fork_session_id`), which OpenCode's fork copies it from.
@@ -141,6 +143,15 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
                 row.last_text = text;
                 row.last_text_tail = last_text_part(&v).map(|t| crate::jev::tail(t, 600)).filter(|t| !t.is_empty());
                 row.last_tool = tool;
+                // Its whole conversation after this reply, as OpenCode's own context meter adds it up.
+                if let Some(t) = v.get("tokens") {
+                    let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+                    let cache = t.get("cache").cloned().unwrap_or(Value::Null);
+                    let used = n(t, "input") + n(t, "output") + n(t, "reasoning") + n(&cache, "read") + n(&cache, "write");
+                    if used > 0 {
+                        row.context = Some((used, v.pointer("/model/id").and_then(Value::as_str).map(str::to_string)));
+                    }
+                }
             }
             _ => {}
         }

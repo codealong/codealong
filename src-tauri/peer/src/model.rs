@@ -276,6 +276,11 @@ pub struct Session {
     /// say, and from Macs before 2026-10-06.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// How much of its model's context window its conversation fills now, as its latest call
+    /// sent it. None where the harness doesn't say, before its first reply, and from Macs before
+    /// 2026-10-12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<ContextUse>,
     /// The worktree its harness made for it and holds (Claude Code's `--worktree` or
     /// `EnterWorktree`), which the harness removes as the session exits its own way, or asks
     /// whether to keep when anything in it would be lost. Mark as done ends it that way
@@ -390,10 +395,21 @@ impl Session {
             connection_lost: None,
             cut_off: None,
             model: None,
+            context: None,
             own_worktree: None,
             helper: None,
         }
     }
+}
+
+/// How full a session's context window is: the tokens its latest call sent, counted as its
+/// harness counts them for its own context meter, and the window, where it's known.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUse {
+    pub used: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<u64>,
 }
 
 /// The usage limit a session's last turn ended on, as its harness recorded it.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byProject, cacheShare, cumulative, leverage, money, moneyTick, seriesColor, sessionLabel, stackOf, ticks, tokenCount } from './spend';
+import { byProject, cacheShare, contextFigure, contextLevel, contextShare, contextWords, cumulative, leverage, money, moneyTick, seriesColor, sessionLabel, stackOf, ticks, tokenCount } from './spend';
 import * as fx from './testing/fixtures';
 import type { Spent, SpendDay } from './types';
 
@@ -65,6 +65,22 @@ describe('the chart', () => {
       { account: 'codex', api: 3 },
       { account: 'Other', api: 2 },
     ]);
+  });
+});
+
+describe('the context meter', () => {
+  it('says the share of the window, or the tokens where the window isn’t known', () => {
+    expect(contextFigure({ used: 820_093, window: 1_000_000 })).toBe('82%');
+    expect(contextFigure({ used: 117_721 })).toBe('118K');
+    expect(contextWords({ used: 189_236, window: 258_400 })).toBe('189K of 258K tokens');
+    expect(contextShare({ used: 300_000, window: 200_000 })).toBe(1);
+  });
+
+  it('looks full past 80% and all but full past 95%', () => {
+    expect(contextLevel(0.5)).toBe('ok');
+    expect(contextLevel(0.82)).toBe('high');
+    expect(contextLevel(0.97)).toBe('full');
+    expect(contextLevel(null)).toBe('ok');
   });
 });
 

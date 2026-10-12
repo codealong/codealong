@@ -146,6 +146,14 @@
   align-items: center;
   gap: var(--space-2);
 }
+/* What the box has to say at the left, and how full the context is at the right
+   (ContextMeter.tsx). */
+.ca-composer-under {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .ca-composer-note {
   flex: 1;
   min-width: 0;

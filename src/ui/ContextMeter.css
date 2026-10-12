@@ -1,0 +1,28 @@
+/* How full a session's context is (ContextMeter.tsx): a pie and a figure under the reply box at
+   the right, quiet until the context is getting full, and its card above it on hover. */
+
+.ca-context { display: inline-flex; align-items: center; gap: var(--space-1); margin-left: auto; padding: 0 2px; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-3); font: var(--type-caption); font-variant-numeric: tabular-nums; cursor: default; }
+.ca-context:hover, .ca-context:focus-visible { color: var(--ink-2); }
+.ca-context:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.ca-context-pie { flex: none; }
+.ca-context-ring { fill: none; stroke: var(--line-strong); stroke-width: 1; }
+.ca-context-fill { fill: var(--ink-3); }
+.ca-context.is-high { color: var(--attn); }
+.ca-context.is-high .ca-context-fill { fill: var(--attn-solid); }
+.ca-context.is-full { color: var(--alert); }
+.ca-context.is-full .ca-context-fill { fill: var(--alert-solid); }
+
+
+.ca-context-card { position: fixed; z-index: var(--z-popover); display: grid; gap: 6px; width: 240px; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-hud); color: var(--ink-2); font: var(--type-caption); pointer-events: none; }
+.ca-context-card-head { display: flex; align-items: baseline; justify-content: space-between; font: var(--type-caption-heading); color: var(--ink); }
+.ca-context-card-share { font: var(--type-caption-strong); font-variant-numeric: tabular-nums; }
+.ca-context-track { height: 4px; border-radius: var(--radius-pill); background: var(--neutral-tint); overflow: hidden; }
+.ca-context-track > span { display: block; height: 100%; border-radius: inherit; background: var(--ink-3); }
+.ca-context-track.is-high > span { background: var(--attn-solid); }
+.ca-context-track.is-full > span { background: var(--alert-solid); }
+.ca-context-card-line { color: var(--ink); font-variant-numeric: tabular-nums; }
+.ca-context-card-note { color: var(--ink-3); }
+.ca-context-card-cost { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-2); margin: 2px 0 0; padding-top: 6px; border-top: 1px solid var(--line); }
+.ca-context-card-cost dt { color: var(--ink-3); }
+.ca-context-card-cost dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ca-context-card-cost dd.ca-context-card-note { grid-column: 1 / -1; color: var(--ink-3); }

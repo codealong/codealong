@@ -58,7 +58,9 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `prompt_images`, and `sent_images`). A pasted one's `local_image` path is
   `$TMPDIR/codex-clipboard-<uuid>.png`.
 - Plan usage, from each turn's `token_count` event: `codex/rollout.rs` (`RateLimit`,
-  `parse_rate_limit`), `codex/usage.rs`. The event's `rate_limits` also has `credits: {has_credits,
+  `parse_rate_limit`), `codex/usage.rs`. The same event's `info` has the thread's context meter:
+  `last_token_usage.total_tokens` and `model_context_window` (258,400 for gpt-6-astra on
+  0.157.1), `ThreadInfo::context`. The event's `rate_limits` also has `credits: {has_credits,
   unlimited, balance}` and `plan_type`.
 - What each call used, for the token ledger: `codex/rollout.rs` (`token_use`, `all_rollouts`).
   A guardian review's rollout (`source: {subagent: {other: "guardian"}}`) and a spawned agent's

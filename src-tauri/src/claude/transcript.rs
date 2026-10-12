@@ -81,6 +81,10 @@ pub struct TranscriptInfo {
     pub unfinished: Option<i64>,
     /// The model the latest reply came from.
     pub model: Option<String>,
+    /// How many tokens of context the latest reply's call sent: its input, cache reads and cache
+    /// writes, as Claude Code's own context meter counts them (2.1.296's code: its status line's
+    /// `context_window.total_input_tokens`, `used_percentage` of the model's window).
+    pub context: Option<u64>,
     /// A message from another session it holds for you to allow (held.rs), until a line says
     /// it went.
     pub held: Option<super::held::Held>,
@@ -315,6 +319,13 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 info.connection_lost = connection_lost_at(&v);
                 if let Some(m) = v.pointer("/message/model").and_then(Value::as_str).filter(|m| !m.starts_with('<')) {
                     info.model = Some(m.to_string());
+                    // A subagent's reply, in transcripts from before their own logs, is its context, not this one's.
+                    if v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
+                        if let Some(u) = v.pointer("/message/usage") {
+                            let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
+                            info.context = Some(n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")).filter(|c| *c > 0).or(info.context);
+                        }
+                    }
                 }
                 let Some(items) = v.pointer("/message/content").and_then(Value::as_array) else { continue };
                 // The shell's folder when the call was made: a `cd` inside the session's
@@ -842,6 +853,16 @@ mod tests {
         assert_eq!(parse_lines("", &tail.join("\n")).model.as_deref(), Some("claude-haiku-4-5-20251001"));
         let replied = [tail[1].clone(), line("assistant", r#"{"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"Hi."}]}"#)];
         assert_eq!(parse_lines("", &replied.join("\n")).model.as_deref(), Some("claude-haiku-4-5-20251001"));
+    }
+
+    #[test]
+    fn reads_how_full_the_context_is_as_claude_code_counts_it() {
+        let reply = |sidechain: bool, input: u64| {
+            format!(r#"{{"type":"assistant","isSidechain":{sidechain},"message":{{"model":"claude-opus-5-5","usage":{{"input_tokens":{input},"cache_read_input_tokens":26783,"cache_creation_input_tokens":24542,"output_tokens":280}},"content":[{{"type":"text","text":"Done."}}]}}}}"#)
+        };
+        // Input, cache reads and cache writes; not the reply's own output, nor a subagent's call.
+        let info = parse_lines("", &[reply(false, 2), reply(true, 900_000)].join("\n"));
+        assert_eq!(info.context, Some(2 + 26783 + 24542));
     }
 
     #[test]

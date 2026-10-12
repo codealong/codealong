@@ -295,6 +295,15 @@ its prompt back, so the agent never sees it: the panel shows that prompt faint, 
 and puts it back in the box, as Claude Code does in its own. The next message Codealong types into
 that terminal clears Claude Code's copy first (not in Terminal, which can't press a single key).
 
+Under the box at the right, a small pie says how full the session's context window is, as its
+latest call left it, counted as its harness counts it for its own meter: Claude Code's input,
+cache reads and cache writes against the model's window (a million tokens for the 1M models),
+Codex's tokens against the window its rollout names, OpenCode's last message. It turns amber past
+80% and red past 95%, when the agent is about to compact or run out of room; where the window
+isn't known it shows the tokens. Hovering it shows the tokens of the window, the model, and what the
+session has cost so far at API prices (see *What sessions used and cost*). Cursor and Antigravity
+don't say, so their sessions have none.
+
 #### Approvals and questions
 
 When a session waits on you to allow a tool call, the call shows above the box with Allow (⌘⏎) and

@@ -137,6 +137,10 @@ export interface Session {
   /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
    *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
   model?: string;
+  /** How full its model's context window is, as its latest call sent it (peer model.rs
+   *  `ContextUse`). Missing where the harness doesn't say, before its first reply, and from
+   *  older Macs. */
+  context?: ContextUse;
   /** The worktree its harness made for it and holds while it runs (Claude Code's `--worktree`),
    *  which the harness removes as the session exits its own way: Mark as done exits it so
    *  (idle.rs `ending`). Missing where it has none, and from older Macs. */
@@ -324,6 +328,13 @@ export interface ProjectSummary {
 }
 
 export type Severity = 'normal' | 'warning' | 'critical';
+
+/** How full a session's context window is: the tokens its latest call sent, counted as its
+ *  harness counts them for its own context meter, and the window where it's known. */
+export interface ContextUse {
+  used: number;
+  window?: number;
+}
 
 /** Tokens of each kind (ledger.rs `Tokens`): input read neither from nor into the cache, cache
  *  reads, cache writes, and output with its thinking among it. */

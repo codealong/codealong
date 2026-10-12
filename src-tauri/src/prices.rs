@@ -62,6 +62,9 @@ pub struct Price {
     /// Claude's fast mode: every price times this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast: Option<f64>,
+    /// Its context window, in tokens: what a session's context meter fills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -147,7 +150,17 @@ fn over(base: Price, mine: &Price) -> Price {
         above: mine.above.clone().or(base.above),
         priority: mine.priority.clone().or(base.priority),
         fast: mine.fast.or(base.fast),
+        context: mine.context.or(base.context),
     }
+}
+
+/// A model's context window in tokens, as the bundled list has it: a million for one named with
+/// `[1m]` (Claude Code's 1M-context variant), and none for a model the list doesn't know.
+pub fn context_window(model: &str) -> Option<u64> {
+    if model.contains("[1m]") {
+        return Some(1_000_000);
+    }
+    price_of(model, &BTreeMap::new()).and_then(|p| p.context)
 }
 
 /// What `used` costs at `price`, in dollars, or none when the price lacks input or output.
@@ -262,6 +275,14 @@ mod tests {
         short_only.above.as_mut().unwrap().priority = None;
         let c = cost(&short_only, &Used { fast: true, ..used(300_000, 0, 0, 0, 0) }).unwrap();
         assert!(near(c, 0.3 * 8.0), "{c}");
+    }
+
+    #[test]
+    fn knows_each_models_context_window() {
+        assert_eq!(context_window("claude-opus-5-5"), Some(1_000_000));
+        assert_eq!(context_window("claude-haiku-4-5-20251001"), Some(200_000));
+        assert_eq!(context_window("claude-sonnet-4-5[1m]"), Some(1_000_000));
+        assert_eq!(context_window("gpt-0-unknown"), None);
     }
 
     #[test]

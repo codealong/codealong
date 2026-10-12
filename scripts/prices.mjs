@@ -53,6 +53,8 @@ export function entry(name, m) {
     if (fast.input !== undefined) out.above.priority = fast;
   }
   if (typeof m.input_cost_per_token_priority === 'number') out.priority = price(m, '_priority');
+  // Its context window, what a session's context meter fills.
+  if (typeof m.max_input_tokens === 'number') out.context = m.max_input_tokens;
   if (FAST[name]) out.fast = FAST[name];
   return { ...out, ...FIXES[name] };
 }

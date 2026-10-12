@@ -3,7 +3,7 @@
 // would have cost at API prices, the running totals the chart draws, its axis, the colors of the
 // accounts, and the report's folders gathered into the board's projects.
 
-import type { Lane, Session, Spent, SpendDay, TokenCounts, TokenReport } from './types';
+import type { ContextUse, Lane, Session, Spent, SpendDay, TokenCounts, TokenReport } from './types';
 
 /** Dollars as the window says them: cents under $1,000, whole dollars above, and a cost too
  *  small for a cent as such rather than as nothing. */
@@ -152,6 +152,31 @@ export function sessionLabel(s: Spent, sessions: Map<string, Session>): string {
   const on = sessions.get(s.key);
   if (on) return on.title || on.excerpt || on.shortId;
   return s.folder ? shortFolder(s.folder) : s.key.split(':').pop()?.slice(0, 8) ?? s.key;
+}
+
+/** How much of its window a session's context fills, 0 to 1, or none where the window isn't
+ *  known. */
+export function contextShare(c: ContextUse): number | null {
+  return c.window ? Math.min(1, c.used / c.window) : null;
+}
+
+/** How a context meter looks: as usual, getting full (past 80%, where the harnesses start to
+ *  think of compacting), or all but full (past 95%). */
+export function contextLevel(share: number | null): 'ok' | 'high' | 'full' {
+  if (share === null || share < 0.8) return 'ok';
+  return share < 0.95 ? 'high' : 'full';
+}
+
+/** A context meter's figure: its share of the window, or its tokens where the window isn't
+ *  known. */
+export function contextFigure(c: ContextUse): string {
+  const share = contextShare(c);
+  return share === null ? tokenCount(c.used) : `${Math.round(share * 100)}%`;
+}
+
+/** What a context meter says in words: 820K of 1M tokens. */
+export function contextWords(c: ContextUse): string {
+  return c.window ? `${tokenCount(c.used)} of ${tokenCount(c.window)} tokens` : `${tokenCount(c.used)} tokens`;
 }
 
 /** What the window says it has, under its numbers: when it last read, and whether it's still

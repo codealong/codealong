@@ -42,6 +42,10 @@ pub struct ThreadInfo {
     pub forked_from: Option<String>,
     /// The model its latest turn ran on, from its `turn_context`.
     pub model: Option<String>,
+    /// The tokens in its context after its latest call and its model's window: the last
+    /// `token_count`'s `last_token_usage.total_tokens` (what went in and what came out) and
+    /// `model_context_window`, which Codex's own context meter is worked out from.
+    pub context: Option<(u64, Option<u64>)>,
     /// The thread whose agent made it (`thread_source: agent_created_thread`): the app's
     /// `create_thread` tool answers the new thread's first turn with a `<codex_delegation>` that
     /// names it in `<source_thread_id>`.
@@ -568,6 +572,9 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
                     info.rate_limits.insert(id, limit);
                 }
             }
+            if let Some(used) = payload.pointer("/info/last_token_usage/total_tokens").and_then(Value::as_u64).filter(|u| *u > 0) {
+                info.context = Some((used, payload.pointer("/info/model_context_window").and_then(Value::as_u64).filter(|w| *w > 0)));
+            }
         }
         k if k.contains("approval_request") || k == "request_user_input" => {
             let what = payload
@@ -845,6 +852,15 @@ mod tests {
         let path = dir.join("rollout-2026-09-24T11-03-57-01a0d496-a50c-7031-b515-94579a60fb35.jsonl");
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         (dir, path)
+    }
+
+    #[test]
+    fn reads_how_full_the_context_is_from_the_last_token_count() {
+        let count = r#"{"timestamp":"2026-09-24T18:32:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":1415510},"last_token_usage":{"input_tokens":124888,"cached_input_tokens":123392,"output_tokens":212,"total_tokens":125100},"model_context_window":258400}}}"#;
+        let (dir, path) = long_rollout("context", &[TURN_STARTED, PROMPT_ITEM], &[TOKEN_COUNT, count]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!(info.context, Some((125100, Some(258400))));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

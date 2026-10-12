@@ -93,6 +93,7 @@ import { BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
 import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
+import { ContextMeter } from './ContextMeter';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
@@ -796,10 +797,15 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           )}
         </div>
       </div>
-      {said && (
-        <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
-          {said}
-        </span>
+      {(said || (s.context && !aside)) && (
+        <div className="ca-composer-under">
+          {said && (
+            <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
+              {said}
+            </span>
+          )}
+          {!aside && <ContextMeter session={s} />}
+        </div>
       )}
     </div>
   );

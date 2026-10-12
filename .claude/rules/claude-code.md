@@ -433,6 +433,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   ones (`cache_creation.ephemeral_1h_input_tokens`); sessions write all theirs for an hour.
   Claude Code works out costs itself (`.claude.json` `projects.<path>.lastCost` and
   `lastModelUsage.<model>.costUSD`, the last run's), and prices.rs's test pins two of them.
+- How full a session's context is, as Claude Code's own meter has it (2.1.296's code: the status
+  line's `context_window`): the latest reply's `input_tokens + cache_read_input_tokens +
+  cache_creation_input_tokens`, not its output, against the model's window, a million for a
+  `[1m]` model and for the models that have a million by default, 200,000 otherwise
+  (`CLAUDE_CODE_MAX_CONTEXT_TOKENS` can set it with compacting off): `claude/transcript.rs`
+  (`TranscriptInfo::context`), `prices.rs` (`context_window`).
 
 ## Claude app
 
