@@ -488,6 +488,9 @@ export interface ReviewsCfg {
   model?: string;
   /** What it's told to do; empty for Codealong's own instructions (`ConfigView.reviewPrompt`). */
   prompt?: string;
+  /** Where review sessions start, of your own PRs too. Older files have none: never in a
+   *  terminal. */
+  start?: ReviewStart;
   /** Where each review goes. Older files have none: a draft. */
   post?: ReviewPost;
   /** Which of the agent's verdicts goes as your review once it's posted. Older files have none:
@@ -514,6 +517,12 @@ export interface OwnReviewsCfg {
 /** Where an automatic review goes (config.rs `ReviewPost`): a draft review on your GitHub account
  *  for you to finish, a comment on the PR, or nowhere but its sessions. */
 export type ReviewPost = 'draft' | 'comment' | 'none';
+
+/** Where a review's session starts (config.rs `ReviewStart`, autoreview.rs `review_places`):
+ *  never in a terminal (the harness's background service, else Codealong), in Codealong, as the
+ *  account's Background goes (a terminal behind your windows for a harness with neither), or in
+ *  your terminal, in front. */
+export type ReviewStart = 'no-terminal' | 'codealong' | 'background' | 'terminal';
 
 /** Which of an automatic review's verdicts are submitted as your review (config.rs
  *  `ReviewSubmit`): none, approvals, approvals and requests for changes, or approvals with those

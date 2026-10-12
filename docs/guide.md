@@ -430,8 +430,14 @@ told, nor anything once the PR has ended, and the PR's card says so under its sw
 With `[reviews] auto = true` (Settings › Automation), an agent reviews each open PR that asks for your
 review, isn't yours and isn't a draft, in a session of its own on `[reviews] account` and `model`
 (else the account Auto would start, on its own model), apart from the account new sessions start
-on. It runs out of sight: under Claude Code's background service, else in Codealong, else in a
-terminal behind your windows. It starts in the worktree that holds the PR's branch, else the repo's
+on. It runs where `[reviews] start` says (Settings › Automation, Where reviews run), which by
+default (`"no-terminal"`) never opens a terminal: under Claude Code's background service, else in
+Codealong through the account's Agent Client Protocol adapter (Codex, OpenCode), so an account that
+can do neither (Antigravity, Cursor) doesn't review. `"codealong"` runs every reviewer in Codealong,
+Claude Code too; `"background"` goes as the account's Background does, which for Antigravity and
+Cursor is a terminal opened behind your windows; `"terminal"` opens each in your terminal, a tab
+or a window as `[apps] new_terminal` says, which comes forward. Reviews of your own PRs and Review with… go there too, in every repo. It
+starts in the worktree that holds the PR's branch, else the repo's
 main checkout, and is handed the PR and its whole diff as files, each line of the diff numbered by
 its place in the file's new version (so it never stops on a permission prompt to ask `gh`, and can
 name its lines). What it's told to do is `[reviews] prompt`, which Settings shows to edit, filled
@@ -444,7 +450,7 @@ the bar and the queues while it doesn't need you, its turns never Your turn.
 
 Review with… on a PR (its panel's header, its menu, its card's strip, ⌃⌘R) starts the same review
 by hand, whatever `[reviews] auto` says: first the reviewer Settings names (Auto's account when it
-names none), then each account that can run one out of sight, where it would run. It's a round like
+names none), then each account that can run one where reviews run, saying where. It's a round like
 any other, on the PR's card and in its Review tab, its review posted where `[reviews] post` says and
 submitted as `[reviews] submit` does; it reviews a commit reviewed already too, a second review going
 into your draft after the first. That account's session for the PR, when it has one, is asked again.
@@ -461,7 +467,8 @@ comment from your account instead, each line comment under a link to its line, a
 the review in the session. Never a submitted review, which would settle the request to you. What
 goes on GitHub says an agent wrote it and which commit it read. When new commits come in while the
 PR still waits on you, the same session reviews it again once the branch has held still five
-minutes, told what changed since and asked what of its findings is fixed. Two run at once at most;
+minutes, told what changed since and asked what of its findings is fixed (a session that isn't
+running goes on where `[reviews] start` lets it, else a new one starts). Two run at once at most;
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;

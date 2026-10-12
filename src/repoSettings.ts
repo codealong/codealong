@@ -8,7 +8,7 @@
 import type { Lane, NudgeAbout, OwnReviewsCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, TeamCfg, TeamFile } from './types';
 
 export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true };
-export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', post: 'draft', submit: 'never', own: OWN_REVIEWS_OFF };
+export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', own: OWN_REVIEWS_OFF };
 export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything' };
 
 /** `[reviews]` with every value filled in, its own table too. */
@@ -32,7 +32,8 @@ export function reviewsEverywhere(global: ReviewsCfg | undefined): Reviews {
 const given = <T>(v: T | undefined | null): v is T => v !== undefined && v !== null;
 
 /** `[reviews]` as it goes for a repo: yours, then your table for it. The team adds words and keeps
- *  verdicts from being submitted, which the engine does; neither is a value here. */
+ *  verdicts from being submitted, which the engine does; neither is a value here. Where reviews
+ *  start goes for every repo. */
 export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undefined): Reviews {
   const g = reviewsEverywhere(global);
   const m = mine?.reviews ?? {};
@@ -42,6 +43,7 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
     account: given(m.account) ? m.account.trim() : g.account,
     model: given(m.model) ? m.model.trim() : g.model,
     prompt: given(m.prompt) ? m.prompt.trim() : g.prompt,
+    start: g.start,
     post: m.post ?? g.post,
     submit: m.submit ?? g.submit,
     own: {

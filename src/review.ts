@@ -11,20 +11,36 @@ import { FRESH_SIDES } from './harness';
 import { commentsWord, submittedWord } from './prDraft';
 import { errorText, type Report } from './report';
 import { autoPick } from './start';
-import type { AutoReview, Draft, Lane, PrItem, ReviewsCfg, StartAccount, Usage, Verdict } from './types';
+import type { AutoReview, Draft, Lane, PrItem, ReviewsCfg, ReviewStart, StartAccount, StartPlace, Usage, Verdict } from './types';
 
 /** One entry of the Review with menu: a round on `account`, or on the reviewer Settings names for
  *  none; or Codex's own review page. */
 export type ReviewPick = { kind: 'codex-app'; label: string } | { kind: 'review'; label: string; account: string | null };
 
-/** Where an account's reviews would run, as autoreview.rs `reviewer_place` picks: unseen under
- *  its harness's background service, else in Codealong, else in a terminal behind your windows.
- *  Null for an account that can start none of those, which can't review. */
-export function reviewsRunIn(a: StartAccount): string | null {
+/** Where a review's session may be, as `[reviews] start` says, first choice first, for a harness
+ *  with a background service of its own (`service`) or not: autoreview.rs `review_places`. */
+export function reviewPlaces(start: ReviewStart, service: boolean): StartPlace[] {
+  if (start === 'terminal') return ['terminal'];
+  if (start === 'codealong') return ['codealong'];
+  if (service) return ['background', 'codealong'];
+  return start === 'background' ? ['codealong', 'background'] : ['codealong'];
+}
+
+/** Where an account's reviews would run, as autoreview.rs `review_place` picks for `[reviews]
+ *  start`: never in a terminal by default, under its harness's background service, else in
+ *  Codealong. Null for an account that can't start one there, which doesn't review. A Background
+ *  that's a terminal behind your windows says so (`behind`), which is also how a harness without
+ *  a service shows: where Background isn't offered, which it lacks makes no difference. */
+export function reviewsRunIn(a: StartAccount, start: ReviewStart = 'no-terminal'): string | null {
   const background = a.places.find((p) => p.place === 'background');
-  if (background && !background.behind) return 'in the background';
-  if (a.places.some((p) => p.place === 'codealong')) return 'in Codealong';
-  return background ? 'in a terminal behind your windows' : null;
+  for (const place of reviewPlaces(start, !!background && !background.behind)) {
+    const offered = a.places.find((p) => p.place === place);
+    if (!offered) continue;
+    if (place === 'codealong') return 'in Codealong';
+    if (place === 'terminal') return `in ${offered.label}`;
+    return offered.behind ? 'in a terminal behind your windows' : 'in the background';
+  }
+  return null;
 }
 
 /** Whether this Mac has a checkout a review of the PR can start in, as side.rs `pr_lane` picks
@@ -51,22 +67,24 @@ function settingsReviewer(reviews: ReviewsCfg | null | undefined, mine: boolean)
  * The menu's entries, each a round of Codealong's own reviews (`review_pr_now`): first the
  * reviewer Settings names, else Auto's (the quick panel's pick among the accounts that can review,
  * another harness than the opener's for a PR of yours), when there's a choice; then each account
- * that can start a session out of sight, which is where reviews run (`reviewsRunIn`). They need a
- * checkout of the repo (`hasLane`); Codex's own review page, last, doesn't.
+ * that can start one where Settings says reviews start (`reviewsRunIn`). They need a checkout of
+ * the repo (`hasLane`); Codex's own review page, last, doesn't.
  */
 export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: number, hasLane: boolean, reviews?: ReviewsCfg | null, mine = false): ReviewPick[] {
-  const can = hasLane ? accounts.filter((a) => reviewsRunIn(a)) : [];
-  const each: ReviewPick[] = can.map((a) => ({ kind: 'review', label: `${a.name} ${reviewsRunIn(a)}`, account: a.name }));
+  const start = reviews?.start ?? 'no-terminal';
+  const runsIn = (a: StartAccount) => reviewsRunIn(a, start);
+  const can = hasLane ? accounts.filter((a) => runsIn(a)) : [];
+  const each: ReviewPick[] = can.map((a) => ({ kind: 'review', label: `${a.name} ${runsIn(a)}`, account: a.name }));
   const named = settingsReviewer(reviews, mine);
   const set = named.account ? can.find((a) => a.name === named.account) : undefined;
   const pick = named.account || named.avoids ? null : autoPick(can, usage, now);
   const picked = pick ? can.find((a) => a.name === pick.account) : undefined;
   const first: ReviewPick | null = set
-    ? { kind: 'review', label: `${set.name}${named.model ? `, ${named.model}` : ''} ${reviewsRunIn(set)}, as Settings says`, account: null }
+    ? { kind: 'review', label: `${set.name}${named.model ? `, ${named.model}` : ''} ${runsIn(set)}, as Settings says`, account: null }
     : named.avoids && can.length > 1
       ? { kind: 'review', label: 'Auto (another harness than its session’s)', account: null }
       : picked && can.length > 1
-        ? { kind: 'review', label: `Auto (${picked.name}) ${reviewsRunIn(picked)}`, account: null }
+        ? { kind: 'review', label: `Auto (${picked.name}) ${runsIn(picked)}`, account: null }
         : null;
   const app: ReviewPick[] = accounts.some((a) => a.places.some((p) => p.place === 'codex-app')) ? [{ kind: 'codex-app', label: 'The Codex app’s own review' }] : [];
   return [...(first ? [first] : []), ...each, ...app];

@@ -2,15 +2,16 @@
 //! says to (`[reviews] auto`, Settings › Automation). Every board the engine publishes is looked
 //! at for open PRs that ask for your review, aren't yours and aren't drafts. Each is reviewed in a
 //! session of its own for that PR, on `[reviews] account` and `model` (else the account Auto would
-//! start, on its own model), out of sight, started in the worktree that holds the PR's branch,
-//! else the repo's main checkout, as Review with… starts one. It's handed the PR as Markdown and
-//! its whole diff, written by Codealong (`github::for_reading`), since an agent asking `gh` itself
-//! would stop on a permission prompt; the diff has each line's number in the file's new version
-//! beside it (`numbered`), so a comment can name its line. It's told what to do by
-//! `[reviews] prompt`, else Codealong's own `INSTRUCTIONS`: a prompt of yours may have it start
-//! subagents of its own, on other models, and combine what they find. Either way it's told which
-//! PR, where it's written out, to change nothing and post nothing, and how to lay out its last
-//! message, and it's linked to the PR (pr-links.json), so the PR's card lists it.
+//! start, on its own model), where `[reviews] start` says (`review_places`: by default never in a
+//! terminal, under the harness's background service, else in Codealong), started in the worktree
+//! that holds the PR's branch, else the repo's main checkout, as Review with… starts one. It's
+//! handed the PR as Markdown and its whole diff, written by Codealong (`github::for_reading`),
+//! since an agent asking `gh` itself would stop on a permission prompt; the diff has each line's
+//! number in the file's new version beside it (`numbered`), so a comment can name its line. It's
+//! told what to do by `[reviews] prompt`, else Codealong's own `INSTRUCTIONS`: a prompt of yours
+//! may have it start subagents of its own, on other models, and combine what they find. Either
+//! way it's told which PR, where it's written out, to change nothing and post nothing, and how to
+//! lay out its last message, and it's linked to the PR (pr-links.json), so the PR's card lists it.
 //!
 //! Its review is its session's last message once its turn ends: a summary, then its comments on
 //! particular lines in a `review-comments` block (`parse_reply`). It's posted where `[reviews]
@@ -26,9 +27,9 @@
 //! When new commits come in while the PR still waits on your review, the same session reviews it
 //! again, once the branch has held still a few minutes (an author's pushes come in runs): it's
 //! sent the PR as it is now and what changed since the commit it last reviewed, and asked what of
-//! its findings is fixed; a session that isn't running goes on in the background, and one that's
-//! gone is replaced by a new one. A review whose PR moved on before it was done isn't posted: the
-//! next round covers it.
+//! its findings is fixed; a session that isn't running goes on where `[reviews] start` lets it,
+//! and one that's gone, or can't go on there, is replaced by a new one. A review whose PR moved on
+//! before it was done isn't posted: the next round covers it.
 //!
 //! A few rounds run at once at most; one whose session waits on you doesn't hold a place. A round
 //! that didn't get done isn't tried again for the same commit; the next push tries again. Until a
@@ -67,7 +68,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{support_dir, Config, ReviewPost, ReviewSubmit, ReviewsCfg};
+use crate::config::{support_dir, AccountCfg, Config, ReviewPost, ReviewStart, ReviewSubmit, ReviewsCfg};
 use crate::engine::Handle;
 use crate::github::{LineComment, PendingReview, Verdict};
 use crate::model::{AutoReview, Board, Harness, Lane, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
@@ -1418,22 +1419,63 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
 
 // ---- Doing the jobs ----
 
-/// The account a new review runs on, and where: `account`, else the one Auto would start, out
-/// of sight (`start::out_of_sight`), among the accounts of another harness than `avoid` when one
-/// of them can.
+/// Where a review's session may be, as `[reviews] start` says, first choice first, for a harness
+/// that has a background service of its own (`service`) or not. A new one starts in the first its
+/// account offers (`review_place`), and one that isn't running goes on in the first its account
+/// can go on in (`hand`). Only `background` and `terminal` ever open a terminal: `background` for
+/// a harness with neither a service nor Codealong's adapter, as the account's Background does.
+pub fn review_places(start: ReviewStart, service: bool) -> &'static [Place] {
+    match start {
+        ReviewStart::NoTerminal | ReviewStart::Background if service => &[Place::Background, Place::Codealong],
+        ReviewStart::NoTerminal | ReviewStart::Codealong => &[Place::Codealong],
+        ReviewStart::Background => &[Place::Codealong, Place::Background],
+        ReviewStart::Terminal => &[Place::Terminal],
+    }
+}
+
+/// The first of `review_places` that's among `can`.
+fn first_of(start: ReviewStart, service: bool, can: &[Place]) -> Option<Place> {
+    review_places(start, service).iter().copied().find(|p| can.contains(p))
+}
+
+fn has_service(a: &AccountCfg) -> bool {
+    crate::harness::of(a).is_some_and(|h| h.runs_in_background())
+}
+
+/// Where a new review on `a` starts, as `[reviews] start` says; none when `a` can't start one
+/// there.
+pub fn review_place(a: &AccountCfg, start: ReviewStart) -> Option<Place> {
+    first_of(start, has_service(a), &crate::start::places_of(a, &crate::util::home()).unwrap_or_default())
+}
+
+/// Where `[reviews] start` has reviews start, as "can't start a review …" says it.
+fn start_words(start: ReviewStart) -> &'static str {
+    match start {
+        ReviewStart::NoTerminal => "without a terminal",
+        ReviewStart::Codealong => "in Codealong",
+        ReviewStart::Background => "in the background",
+        ReviewStart::Terminal => "in a terminal",
+    }
+}
+
+/// The account a new review runs on, and where: `account`, else the one Auto would start among
+/// the accounts that can start one where `[reviews] start` says (`review_place`), of another
+/// harness than `avoid` when one of them can.
 fn reviewer_place(cfg: &Config, board: &Board, account: Option<&str>, avoid: Option<Harness>) -> Result<(String, Place), String> {
+    let start = cfg.reviews.start;
+    let can = |a: &AccountCfg| review_place(a, start).is_some();
     let name = match account.map(str::trim).filter(|a| !a.is_empty()) {
         None => {
-            let other = |a: &crate::config::AccountCfg| crate::harness::of(a).map(|h| h.harness()) != avoid;
+            let other = |a: &AccountCfg| crate::harness::of(a).map(|h| h.harness()) != avoid;
             avoid
-                .and_then(|_| crate::start::pick_account_where(cfg, &board.usage, &crate::start::OUT_OF_SIGHT, None, now_ms(), other))
-                .or_else(|| crate::start::pick_account(cfg, &board.usage, &crate::start::OUT_OF_SIGHT, None, now_ms()))
-                .ok_or("no account can start a session in the background")?
+                .and_then(|_| crate::start::pick_account_where(cfg, &board.usage, &[], None, now_ms(), |a| other(a) && can(a)))
+                .or_else(|| crate::start::pick_account_where(cfg, &board.usage, &[], None, now_ms(), can))
+                .ok_or_else(|| format!("no account can start a review {}; Settings › Automation says where reviews start", start_words(start)))?
         }
         Some(n) => n.to_string(),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
-    let place = crate::start::out_of_sight(a, &crate::util::home()).ok_or_else(|| format!("{name} can't start a session in the background"))?;
+    let place = review_place(a, start).ok_or_else(|| format!("{name} can't start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
     Ok((name, place))
 }
 
@@ -1457,21 +1499,22 @@ fn keep_files(pr: &PrItem, head: &str, md: &str, diff: &str, changes: Option<&st
 }
 
 /// Sends a session that has a turn to take `text`: as a message where it runs, else by going on
-/// with it in the background where its account can. The session the turn is in, which a
-/// background job's copy changes, or where to look for it (`Pending`) when that isn't said.
-fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, text: String) -> Result<(Option<String>, Option<Pending>), String> {
+/// with it where `[reviews] start` lets its account (`review_places`), on the reviewer's `model`
+/// (none for the account's own), which a resume would otherwise set back to the account's. The
+/// session the turn is in, which a background job's copy changes, or where to look for it
+/// (`Pending`) when that isn't said.
+fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, model: Option<&str>, text: String) -> Result<(Option<String>, Option<Pending>), String> {
     let Some((lane, s)) = board.session(key) else { return Err("its session is gone".into()) };
     if s.live {
         crate::send::tell(engine, key, &text).map_err(|e| format!("its session couldn't be sent it: {e:#}"))?;
         return Ok((Some(key.to_string()), None));
     }
-    let resumes = cfg.accounts.iter().find(|a| a.name == s.account).is_some_and(|a| crate::start::resume_places(a, &crate::util::home()).contains(&Place::Background));
-    if !resumes {
-        return Err("its session isn't running, and can't go on in the background".into());
-    }
+    let start = cfg.reviews.start;
+    let place = cfg.accounts.iter().find(|a| a.name == s.account).and_then(|a| first_of(start, has_service(a), &crate::start::resume_places(a, &crate::util::home())));
+    let Some(place) = place else { return Err(format!("its session isn't running, and can't go on {}", start_words(start))) };
     let at = now_ms();
-    let how = ResumeIn { place: Place::Background, model: None, effort: None };
-    let r = crate::start::resume(board, cfg, key, &how, &crate::send::by_codealong(&text), &crate::send::Sender::Codealong).map_err(|e| format!("its session couldn't go on in the background: {e:#}"))?;
+    let how = ResumeIn { place, model: model.map(str::to_string), effort: None };
+    let r = crate::start::resume(board, cfg, key, &how, &crate::send::by_codealong(&text), &crate::send::Sender::Codealong).map_err(|e| format!("its session couldn't go on {}: {e:#}", start_words(start)))?;
     if let Some(k) = r.key.as_deref().filter(|k| *k != key) {
         link(engine, pr, k);
     }
@@ -1486,7 +1529,7 @@ fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, si
     let at = now_ms();
     if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some()) {
         let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
-        match hand(engine, board, cfg, pr, key, again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
+        match hand(engine, board, cfg, pr, key, seat.model.as_deref(), again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
             Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
             // A session that can't go on is replaced by a new one.
             Err(e) => eprintln!("codealong: {}'s review of {} starts afresh: {e}", seat.who, pr.key),
@@ -1545,7 +1588,7 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
 }
 
 /// A new session's start for a review: on the reviewer's account (Auto's for none) and model,
-/// where it starts out of sight, in the worktree `side::pr_lane` picks, on the first prompt.
+/// where `[reviews] start` says, in the worktree `side::pr_lane` picks, on the first prompt.
 #[allow(clippy::too_many_arguments)]
 fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Result<StartSpec, String> {
     let (account, place) = reviewer_place(cfg, board, seat.account.as_deref(), seat.avoid)?;
@@ -2828,5 +2871,24 @@ mod tests {
         let got = reviewers(&store);
         assert_eq!(got.len(), 2);
         assert_eq!((got.get("claude:claude:first"), got.get(S)), (Some(&"o/r#7"), Some(&"o/r#7")));
+    }
+
+    #[test]
+    fn reviews_open_no_terminal_unless_settings_say_so() {
+        use Place::{Background as Bg, CodexApp, Codealong as Ca, Terminal as T};
+        // Claude Code (a background service of its own), Codex, and Antigravity (neither a service
+        // nor Codealong's adapter), each with the places it offers.
+        let (claude, codex, agy) = ((true, vec![T, Bg, Ca]), (false, vec![CodexApp, T, Bg, Ca]), (false, vec![T, Bg]));
+        let at = |start: ReviewStart| [&claude, &codex, &agy].map(|(service, can)| first_of(start, *service, can));
+        assert_eq!(ReviewStart::default(), ReviewStart::NoTerminal);
+        // Background for Codex and Antigravity is a terminal behind your windows: kept out.
+        assert_eq!(at(ReviewStart::NoTerminal), [Some(Bg), Some(Ca), None]);
+        assert_eq!(at(ReviewStart::Codealong), [Some(Ca), Some(Ca), None]);
+        assert_eq!(at(ReviewStart::Background), [Some(Bg), Some(Ca), Some(Bg)]);
+        assert_eq!(at(ReviewStart::Terminal), [Some(T), Some(T), Some(T)]);
+        // A session that isn't running goes on only where it may: Codex in Codealong, never in a
+        // terminal behind your windows, which is where it went on before.
+        assert_eq!(first_of(ReviewStart::NoTerminal, false, &[T, Bg, CodexApp, Ca]), Some(Ca));
+        assert_eq!(first_of(ReviewStart::NoTerminal, false, &[T, Bg]), None);
     }
 }

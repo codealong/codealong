@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, suggestWords } from './review';
+import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
 import * as fx from './testing/fixtures';
 import type { AutoReview, Lane, StartAccount } from './types';
 
@@ -84,25 +84,51 @@ describe('reviewLane', () => {
 });
 
 describe('reviewPicks', () => {
-  // claude reviews in the background, codex only opens its app; claude2 isn't signed in.
+  // claude reviews in the background, opencode in Codealong, codex only opens its app; claude2
+  // isn't signed in.
   const behind = { place: 'background' as const, label: 'Background', behind: true };
-  const more = [...ACCOUNTS, fx.startAccount({ name: 'opencode', harness: 'opencode', places: [ghostty, behind] })];
-  it('lists Auto, then each account that can review out of sight, then Codex’s own review page', () => {
+  const more = [...ACCOUNTS, fx.startAccount({ name: 'opencode', harness: 'opencode', places: [ghostty, behind, { place: 'codealong', label: 'Codealong' }] })];
+  it('lists Auto, then each account that can review without a terminal, then Codex’s own review page', () => {
     expect(reviewPicks(more, [], 0, true)).toEqual([
       { kind: 'review', label: 'Auto (claude) in the background', account: null },
       { kind: 'review', label: 'claude in the background', account: 'claude' },
-      { kind: 'review', label: 'opencode in a terminal behind your windows', account: 'opencode' },
+      { kind: 'review', label: 'opencode in Codealong', account: 'opencode' },
       { kind: 'codex-app', label: 'The Codex app’s own review' },
     ]);
   });
   it('names the reviewer Settings has first, and Auto for one of yours as another harness', () => {
     const reviews = { auto: false, account: 'opencode', model: 'big', own: { auto: false } };
-    expect(reviewPicks(more, [], 0, true, reviews)[0]).toEqual({ kind: 'review', label: 'opencode, big in a terminal behind your windows, as Settings says', account: null });
+    expect(reviewPicks(more, [], 0, true, reviews)[0]).toEqual({ kind: 'review', label: 'opencode, big in Codealong, as Settings says', account: null });
     expect(reviewPicks(more, [], 0, true, reviews, true)[0]).toEqual({ kind: 'review', label: 'Auto (another harness than its session’s)', account: null });
   });
   it('offers no choice of one, and without a checkout only Codex’s own review page', () => {
     expect(reviewPicks(ACCOUNTS, [], 0, true).map((p) => p.label)).toEqual(['claude in the background', 'The Codex app’s own review']);
     expect(reviewPicks(ACCOUNTS, [], 0, false)).toEqual([{ kind: 'codex-app', label: 'The Codex app’s own review' }]);
+  });
+});
+
+describe('reviewsRunIn', () => {
+  const codealong = { place: 'codealong' as const, label: 'Codealong' };
+  const behind = { place: 'background' as const, label: 'Background', behind: true };
+  const claude = fx.startAccount({ name: 'claude', places: [ghostty, background, codealong] });
+  const codex = fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp, ghostty, behind, codealong] });
+  const cursor = fx.startAccount({ name: 'cursor', harness: 'cursor', places: [ghostty, behind] });
+  const where = (start: Parameters<typeof reviewsRunIn>[1]) => [claude, codex, cursor].map((a) => reviewsRunIn(a, start));
+
+  it('never opens a terminal unless Settings says so', () => {
+    // A harness with neither a background service nor Codealong's adapter doesn't review.
+    expect(where('no-terminal')).toEqual(['in the background', 'in Codealong', null]);
+    expect(where(undefined)).toEqual(where('no-terminal'));
+    expect(where('codealong')).toEqual(['in Codealong', 'in Codealong', null]);
+  });
+  it('opens one where Background is a terminal behind your windows, or in a window when asked', () => {
+    expect(where('background')).toEqual(['in the background', 'in Codealong', 'in a terminal behind your windows']);
+    expect(where('terminal')).toEqual(['in Ghostty', 'in Ghostty', 'in Ghostty']);
+  });
+  it('keeps Review with… to the accounts that can start one there', () => {
+    const accounts = [claude, codex, cursor];
+    expect(reviewPicks(accounts, [], 0, true, { auto: false, start: 'no-terminal' }).filter((p) => p.kind === 'review' && p.account).map((p) => p.label)).toEqual(['claude in the background', 'codex in Codealong']);
+    expect(reviewPicks(accounts, [], 0, true, { auto: false, start: 'background' }).map((p) => p.label)).toContain('cursor in a terminal behind your windows');
   });
 });
 

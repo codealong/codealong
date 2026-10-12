@@ -284,6 +284,10 @@ pub struct ReviewsCfg {
     /// change and how the last message is laid out are said either way.
     #[serde(default)]
     pub prompt: String,
+    /// Where review sessions start, of your own pull requests too and with Review with…: never
+    /// in a terminal unless this says so.
+    #[serde(default)]
+    pub start: ReviewStart,
     /// Where each review goes once it's done.
     #[serde(default)]
     pub post: ReviewPost,
@@ -314,7 +318,7 @@ pub struct ReviewsCfg {
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
     }
 }
 
@@ -379,6 +383,34 @@ impl ReviewPost {
             ReviewPost::Draft => "draft",
             ReviewPost::Comment => "comment",
             ReviewPost::None => "none",
+        }
+    }
+}
+
+/// Where a review's session starts (autoreview.rs `review_places`), in the quick panel's places.
+/// `no-terminal`: under the harness's background service (Claude Code's `--bg`), else in
+/// Codealong through the account's Agent Client Protocol adapter; an account that can do neither
+/// doesn't review. `codealong`: in Codealong, Claude Code too. `background`: as the account's
+/// Background goes, which for a harness with neither (Antigravity, Cursor) is a terminal opened
+/// behind your windows: what reviews did until 2026-10-12. `terminal`: in your terminal, a tab or
+/// a window as `[apps] new_terminal` says, which comes forward.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewStart {
+    #[default]
+    NoTerminal,
+    Codealong,
+    Background,
+    Terminal,
+}
+
+impl ReviewStart {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReviewStart::NoTerminal => "no-terminal",
+            ReviewStart::Codealong => "codealong",
+            ReviewStart::Background => "background",
+            ReviewStart::Terminal => "terminal",
         }
     }
 }
@@ -1138,7 +1170,11 @@ const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours 
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
 # model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
-# Codealong's own. post: where each review goes: \"draft\", a draft review on your GitHub account with its
+# Codealong's own. start: where its session starts, for your own pull requests too: \"no-terminal\", Claude Code's
+# background service, else in Codealong through the account's Agent Client Protocol adapter (an account that can
+# do neither doesn't review); \"codealong\", in Codealong, Claude Code too; \"background\", as the account's
+# Background goes, a terminal behind your windows for a harness with neither; \"terminal\", your terminal, in front.
+# post: where each review goes: \"draft\", a draft review on your GitHub account with its
 # comments on their lines, for you to finish; \"comment\", a comment on the PR from your account; \"none\",
 # it stays in the review's session. submit: which of the agent's verdicts goes as your review once it's posted,
 # your draft review submitted with it: \"never\"; \"approve\", when it would approve (nothing that needs fixing
@@ -1540,6 +1576,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["reviews"]["account"], Value::from(cfg.reviews.account.trim()));
         set_value(&mut doc["reviews"]["model"], Value::from(cfg.reviews.model.trim()));
         set_value(&mut doc["reviews"]["prompt"], Value::from(cfg.reviews.prompt.trim()));
+        set_value(&mut doc["reviews"]["start"], Value::from(cfg.reviews.start.as_str()));
         set_value(&mut doc["reviews"]["post"], Value::from(cfg.reviews.post.as_str()));
         set_value(&mut doc["reviews"]["submit"], Value::from(cfg.reviews.submit.as_str()));
         // What said who reviewed and where it went for a day (2026-10-09): `comment`, then
@@ -1885,6 +1922,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("account = {}\n", q(cfg.reviews.account.trim())));
         s.push_str(&format!("model = {}\n", q(cfg.reviews.model.trim())));
         s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(cfg.reviews.prompt.trim())));
+        s.push_str(&format!("start = {}\n", q(cfg.reviews.start.as_str())));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
         s.push_str(&format!("submit = {}\n", q(cfg.reviews.submit.as_str())));
         let own = &cfg.reviews.own;
@@ -1995,7 +2033,7 @@ mod tests {
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
             sessions: SessionsCfg { continue_after_network_error: false },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
@@ -2413,15 +2451,18 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert!(out.contains("\nstart = \"terminal\"\npost = \"comment\""), "{out}");
         assert_eq!(parse(&out).unwrap(), on);
         assert_eq!(parse(&render(&on)).unwrap(), on);
         // Turned off again, the table stays, saying so.
         let off = with_config(&out, &full()).unwrap();
-        assert!(off.contains("[reviews]\nauto = false\naccount = \"\"\nmodel = \"\"\nprompt = \"\"\npost = \"draft\""), "{off}");
+        assert!(off.contains("[reviews]\nauto = false\naccount = \"\"\nmodel = \"\"\nprompt = \"\"\nstart = \"no-terminal\"\npost = \"draft\""), "{off}");
+        // A file from before `start` reviews where no terminal opens.
+        assert_eq!(parse(&format!("{old}\n[reviews]\nauto = true\n")).unwrap().reviews.start, ReviewStart::NoTerminal);
         // A file from the day several reviewers could be named: the first is the reviewer, and
         // what's gone is dropped as it's saved.
         let then = format!("{old}\n[reviews]\nauto = true\nreviewers = [{{ account = \"codex\", model = \"gpt-5.5\" }}, {{ account = \"claude\" }}]\ncombine = true\ncomment = false\n");

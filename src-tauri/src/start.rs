@@ -93,8 +93,8 @@ pub const OUT_OF_SIGHT: [Place; 2] = [Place::Background, Place::Codealong];
 
 /// Where one of `a`'s sessions starts out of sight: under its harness's background service, else
 /// in Codealong, else in a terminal behind your windows (Background, for a harness with no
-/// service of its own). Automatic reviews start there (autoreview.rs), and helpers
-/// (`codealong start --helper`) unless told where.
+/// service of its own). Helpers (`codealong start --helper`) start there unless told where;
+/// automatic reviews go where `[reviews] start` says (autoreview.rs `review_places`).
 pub fn out_of_sight(a: &AccountCfg, home: &Path) -> Option<Place> {
     let offered = ordered_places(a, home).unwrap_or_default();
     let service = crate::harness::of(a).is_some_and(|h| h.runs_in_background());

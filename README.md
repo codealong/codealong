@@ -483,6 +483,7 @@ auto = false                   # an agent reviews each PR that waits on your rev
 account = ""                   # the account it runs on; "" for the one Auto would start
 model = ""                     # the model it starts on; "" for the account's own
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
+start = "no-terminal"          # where its session runs, yours too: "no-terminal" (Claude Code's background service, else Codealong); "codealong"; "background" (a terminal behind your windows where the account has neither); "terminal" (in front, as new_terminal says)
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
 submit = "never"               # submit the agent's verdict as your review once posted: "approve", "approve-or-request-changes", "approve-or-comment"; "request-changes" or "comment" never approve
 

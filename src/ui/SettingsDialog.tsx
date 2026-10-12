@@ -11,7 +11,7 @@ import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -393,6 +393,15 @@ const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
   { id: 'none', name: 'Nowhere: it stays in its session', says: 'Each review is in its session for you to read; nothing goes on GitHub but what’s submitted for you (below).' },
 ];
 
+/** Where a review's session starts (config.rs `ReviewStart`, autoreview.rs `review_places`), as
+ *  the select offers it, and how "can't start a review …" says it. */
+const REVIEW_STARTS: (Profile & { id: ReviewStart; says: string; where: string })[] = [
+  { id: 'no-terminal', name: 'Never in a terminal', where: 'without a terminal', says: 'Claude Code reviews under its background service, and Codex and OpenCode in Codealong, through their Agent Client Protocol adapters: no window opens, and one running in Codealong stops if Codealong quits. Antigravity and Cursor can do neither, so they don’t review.' },
+  { id: 'codealong', name: 'In Codealong', where: 'in Codealong', says: 'Every reviewer runs in Codealong, through its account’s Agent Client Protocol adapter, Claude Code too: no window opens, and a review that’s running stops if Codealong quits.' },
+  { id: 'background', name: 'In the background, as each account starts there', where: 'in the background', says: 'As the quick panel’s Background: Claude Code under its background service, Codex and OpenCode in Codealong, and Antigravity and Cursor in a terminal opened behind your windows.' },
+  { id: 'terminal', name: 'In your terminal', where: 'in a terminal', says: 'Each review opens in your terminal to watch it in, a tab or a window as New terminals open as says (General), and comes forward when it starts.' },
+];
+
 /** What of the agent's verdict is submitted as your review (config.rs `ReviewSubmit`,
  *  autoreview.rs `to_submit`), as the select offers it. */
 const SUBMITTED_FOR_YOU = 'Your draft review goes with it, comments and all, and the pull request leaves what waits on you. When the agent can’t tell, or your draft holds words of yours, it’s left for you. Never a merge.';
@@ -571,17 +580,19 @@ function TeamWords({ repo, words }: { repo: string; words: string }) {
 /** `[reviews]`: an agent reviews the pull requests that wait on your review, on the account and
  *  model picked, told what to do in the box under them (AgentPromptBox.tsx; Codealong's own
  *  instructions until you change them: `defaultPrompt`), its review put where you say
- *  (autoreview.rs). Only accounts that can start a session out of the way are offered. `reviews`
- *  is as it goes everywhere, or for the repo `scope` names, and `set` changes it there. */
+ *  (autoreview.rs). Only accounts that can start a review where `start` says are offered, and
+ *  where reviews start goes for every repo, so it shows only without one picked. `reviews` is as
+ *  it goes everywhere, or for the repo `scope` names, and `set` changes it there. */
 function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultPrompt, usage, now }: { reviews: Reviews; set: (next: Partial<Omit<ReviewsCfg, 'own'>>) => void; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; disabled: boolean; defaultPrompt: string; usage: Usage[]; now: number }) {
-  const [accounts, setAccounts] = useState<StartAccount[]>([]);
+  const [all, setAll] = useState<StartAccount[]>([]);
   useEffect(() => {
     // Without them the box says there are no accounts, and config.toml's choice stays as it is.
     startOptions()
-      .then((o) => setAccounts(o.accounts.filter((a) => reviewsRunIn(a))))
+      .then((o) => setAll(o.accounts))
       .catch(() => {});
   }, []);
-  const runsIn = accounts.find((a) => a.name === reviews.account);
+  const start = REVIEW_STARTS.find((s) => s.id === reviews.start) ?? REVIEW_STARTS[0];
+  const accounts = all.filter((a) => reviewsRunIn(a, start.id));
   const post = REVIEW_POSTS.find((p) => p.id === reviews.post) ?? REVIEW_POSTS[0];
   const submit = REVIEW_SUBMITS.find((s) => s.id === reviews.submit) ?? REVIEW_SUBMITS[0];
   return (
@@ -620,9 +631,16 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
         {scope && <TeamWords repo={scope.repo} words={team?.reviewInstructions ?? ''} />}
         <small>
           What it’s told: what to look for and how. It can start subagents of its own and combine what they find; in Claude Code, ask for the Task tool and name each one’s model. Codealong still tells it which pull request, where it’s written out, to change nothing, and how to lay out
-          its last message so the review can be posted. {runsIn ? `It runs ${reviewsRunIn(runsIn)}.` : 'Auto picks an account that can start a session out of the way.'} This is apart from the account new sessions start on.
+          its last message so the review can be posted. <ReviewerRuns account={reviews.account} accounts={all} start={start} auto="Auto picks an account that can start one where reviews run." /> This is apart from the account new sessions start on.
         </small>
       </div>
+      {!scope && (
+        <label className="ca-field">
+          <span>Where reviews run</span>
+          <ProfileSelect value={start.id} profiles={REVIEW_STARTS} onChange={(id) => set({ start: id as ReviewStart })} />
+          <small>{start.says} Reviews of your own pull requests, and Review with…, start there too, for every repo.</small>
+        </label>
+      )}
       <label className="ca-field">
         <span>
           Where each review goes<SourceTag field="reviews.post" scope={scope} />
@@ -640,16 +658,25 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           {scope && team && team.neverSubmit.length > 0 && ` In ${scope.repo}, its team never has ${team.neverSubmit.map((v) => VERDICT_WORDS[v]).join(' or ')} submitted for anyone.`}
         </small>
       </label>
-      <OwnReviewsField own={reviews.own} setOwn={setOwn} scope={scope} team={team} accounts={accounts} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} />
+      <OwnReviewsField own={reviews.own} setOwn={setOwn} scope={scope} team={team} accounts={accounts} all={all} start={start} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} />
     </fieldset>
   );
 }
 
+/** Where the reviewer named runs (`reviewsRunIn`), or that it can't start a review where reviews
+ *  run, which has its reviews fail until one or the other changes; `auto` without one named. */
+function ReviewerRuns({ account, accounts, start, auto }: { account: string; accounts: StartAccount[]; start: (typeof REVIEW_STARTS)[number]; auto: string }) {
+  const named = accounts.find((a) => a.name === account);
+  if (!named) return <>{auto}</>;
+  const runs = reviewsRunIn(named, start.id);
+  return <>{runs ? `It runs ${runs}.` : `${named.name} can’t start a review ${start.where}: pick another reviewer, or change where reviews run.`}</>;
+}
+
 /** `[reviews.own]`: the pull requests your sessions open, each reviewed by an agent on another
  *  model or provider than the session that opened it, its review kept here and handed back to
- *  that session (autoreview.rs). The reviewer is the same box as the one above. */
-function OwnReviewsField({ own, setOwn, scope, team, accounts, defaultPrompt, usage, now, disabled }: { own: Required<OwnReviewsCfg>; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; accounts: StartAccount[]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean }) {
-  const runsIn = accounts.find((a) => a.name === own.account);
+ *  that session (autoreview.rs). The reviewer is the same box as the one above, among the same
+ *  accounts (`accounts`, of `all`), and runs where reviews run (`start`). */
+function OwnReviewsField({ own, setOwn, scope, team, accounts, all, start, defaultPrompt, usage, now, disabled }: { own: Required<OwnReviewsCfg>; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; accounts: StartAccount[]; all: StartAccount[]; start: (typeof REVIEW_STARTS)[number]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean }) {
   return (
     <>
       <label className="ca-field ca-settings-check">
@@ -688,7 +715,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, defaultPrompt, us
             />
             {scope && <TeamWords repo={scope.repo} words={team?.ownReviewInstructions ?? ''} />}
             <small>
-              {runsIn ? `It runs ${reviewsRunIn(runsIn)}, whatever opened the pull request.` : 'Auto picks an account of another harness than the session that opened each pull request: Codex reviews what Claude Code wrote, say.'} Pick one with its model to have that review every one.
+              <ReviewerRuns account={own.account} accounts={all} start={start} auto="Auto picks an account of another harness than the session that opened each pull request, among those that can start one where reviews run: Codex reviews what Claude Code wrote, say." /> Pick one with its model to have that review every one.
             </small>
           </div>
           <label className="ca-field ca-settings-check">
