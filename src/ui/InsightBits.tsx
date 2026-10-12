@@ -1,6 +1,6 @@
-// Label chips for a session and a worktree: what a session waits on you for (lanes.ts), and Jev's
-// read of them (insights.ts): how far the work got, how risky a waiting command looks, and a
-// worktree that looks finished.
+// Label chips for a session and a worktree: what a session waits on you for (lanes.ts), and the
+// read of them (insights.ts), Jev's or an agent's tag: how far the work got, how risky a waiting
+// command looks, and a worktree that looks finished.
 
 import { landingLabel, riskLabel, type InsightLabel } from '../insights';
 import { sessionFlag } from '../lanes';
@@ -32,5 +32,5 @@ export function InsightChips({ session }: { session: Session }) {
 
 export function LooksFinished({ lane }: { lane: Lane }) {
   if (!lane.looksFinished) return null;
-  return <Insight l={{ label: 'Looks finished', tone: 'quiet', title: 'Jev reads every session here as done, and nothing is running. It may be ready to clean up.' }} />;
+  return <Insight l={{ label: 'Looks finished', tone: 'quiet', title: 'Every session here reads as done (by Jev, or the agent that tagged it), and nothing is running. It may be ready to clean up.' }} />;
 }

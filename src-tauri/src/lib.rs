@@ -88,6 +88,7 @@ mod starts;
 mod state;
 mod store;
 mod suggestions;
+mod tags;
 mod tailnet;
 mod teamfile;
 mod throttle;

@@ -1,5 +1,6 @@
-// Words for Jev's read of a session (insights.rs): how far its work got, and how risky the
-// command it waits on looks. Kept free of React so the rules have tests.
+// Words for the read of a session (insights.rs): how far its work got, and how risky the
+// command it waits on looks, each saying who read it: Jev, or the agent that tagged it
+// (`codealong session tag`). Kept free of React so the rules have tests.
 
 import type { Session, SessionInsight } from './types';
 
@@ -19,11 +20,22 @@ const LANDING: Record<string, { label: string; tone: Tone; says: string }> = {
   blocked: { label: 'Blocked', tone: 'bad', says: 'the agent couldn’t finish' },
 };
 
+/** Who read the session, for a tooltip: the agent that tagged it, else Jev. */
+export function readBy(i: SessionInsight | undefined): string {
+  if (!i?.by) return 'Jev’s read';
+  return `Tagged by ${i.byTitle || 'an agent'}`;
+}
+
+/** What the agent that tagged it said, for the end of a tooltip; nothing for Jev's read. */
+function noteWords(i: SessionInsight | undefined): string {
+  return i?.by && i.note ? ` ${i.note.replace(/[.!?]?$/, '.')}` : '';
+}
+
 /** How far the work got, from the end of the last reply. None for no code change. */
 export function landingLabel(i: SessionInsight | undefined): InsightLabel | null {
   const l = i?.landing && LANDING[i.landing];
   if (!l) return null;
-  return { label: l.label, tone: l.tone, title: `Jev’s read of the last reply: ${l.says}.` };
+  return { label: l.label, tone: l.tone, title: `${readBy(i)} of the last reply: ${l.says}.${noteWords(i)}` };
 }
 
 const RISK: { label: string; tone: Tone; says: string }[] = [
@@ -38,5 +50,5 @@ export function riskLabel(s: Pick<Session, 'status' | 'insight'>): InsightLabel 
   const r = s.insight?.risk;
   if (s.status !== 'needs' || r == null) return null;
   const level = RISK[Math.max(0, Math.min(3, Math.round(r)))];
-  return { label: level.label, tone: level.tone, title: `Jev’s read of the command waiting for your approval: it ${level.says}. Check it before you approve.` };
+  return { label: level.label, tone: level.tone, title: `${readBy(s.insight)} of the command waiting for your approval: it ${level.says}. Check it before you approve.${noteWords(s.insight)}` };
 }

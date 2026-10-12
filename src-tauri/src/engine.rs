@@ -21,6 +21,7 @@ use crate::previews;
 use crate::reusable;
 use crate::origins;
 use crate::suggestions;
+use crate::tags;
 use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
 use crate::editors;
@@ -303,9 +304,9 @@ impl Handle {
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
-    /// suggestions.json was just changed here (suggestions.rs): the board shows it now rather than
-    /// with the next change it hears of. Returns the time of the board that shows it, as
-    /// `mark_seen_shown` does, waiting for it only with `wait`.
+    /// suggestions.json or tags.json was just changed here (suggestions.rs, tags.rs): the board
+    /// shows it now rather than with the next change it hears of. Returns the time of the board
+    /// that shows it, as `mark_seen_shown` does, waiting for it only with `wait`.
     pub fn suggested(&self, wait: bool) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::Suggested(tx)).ok()?;
@@ -1243,28 +1244,37 @@ impl Engine {
         }
     }
 
-    /// Asks Jev about sessions whose moment it hasn't read yet (insights.rs). A session that
-    /// shows an answer already has one for its moment. At most a few new questions per board,
-    /// so the first run after turning it on doesn't ask about every session at once.
+    /// Asks Jev about sessions whose moment it hasn't read yet (insights.rs). At most a few new
+    /// questions per board, so the first run after turning it on doesn't ask about every session
+    /// at once. What a session shows may be an agent's tag or its own status line (`with_insights`),
+    /// so whether Jev has answered is the store's to say, not the board's.
     fn look_insights(&mut self, board: &Board) {
         const PER_BOARD: usize = 20;
         let now = now_ms();
         let mut asks = Vec::new();
         for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()) {
             self.insights.seen(&s.key, now);
-            if s.insight.is_some() {
-                continue;
-            }
             let Some((kind, signature)) = crate::insights::ask(s, now) else { continue };
             let id = format!("insight:{signature}|{}", s.key);
             if asks.len() < PER_BOARD && self.insights.wants(&s.key, &signature, now) && !self.jev_pending.contains(&id) {
-                asks.push((id, crate::insights::request(s, kind, &self.cfg.jev.model)));
+                let waiting = (kind == crate::insights::Kind::Approval).then(|| self.waiting_call(board, s)).flatten();
+                asks.push((id, crate::insights::request(s, kind, &self.cfg.jev.model, waiting.as_deref())));
             }
         }
         for (id, body) in asks {
             self.ask_jev(id, body);
         }
         self.insights.save(now);
+    }
+
+    /// The whole call a session waits on you to allow, as its harness shows it (`Pending::input`),
+    /// for Jev to judge its risk by: the arguments, not just the line the excerpt has.
+    fn waiting_call(&self, board: &Board, s: &Session) -> Option<String> {
+        if crate::acp::hosts(&s.key) {
+            return crate::acp::pending(&s.key)?.input;
+        }
+        let (s, account) = crate::harness::find(board, &self.cfg, &s.key).ok()?;
+        crate::harness::adapter(s.harness).pending(&crate::harness::Ctx { account }, s)?.input
     }
 
     /// Jev's read of a session, kept under the moment it was asked about.
@@ -1281,16 +1291,24 @@ impl Engine {
         }
     }
 
-    /// Sessions with Jev's read of their moment applied, when it has one and `[jev] sessions` is
-    /// on (board::apply_insight).
+    /// Sessions with the read of their moment applied (board::apply_insight): Jev's, and the
+    /// landing their reply's status line says, when `[jev] sessions` is on; an agent's tag of
+    /// them over both, whether or not it is (tags.rs, `insights::merged`).
     fn with_insights(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
-        if !self.cfg.jev.sessions {
+        let tags = tags::current();
+        if !self.cfg.jev.sessions && tags.sessions.is_empty() {
             return sessions;
         }
         for s in &mut sessions {
-            let Some((_, signature)) = crate::insights::ask(s, now) else { continue };
-            if let Some(i) = self.insights.for_session(&s.key, &signature) {
-                board::apply_insight(s, &i.clone());
+            let tag = tags.sessions.get(&s.key).filter(|t| tags::holds(s, t)).map(|t| &t.insight);
+            let (jev, said) = if self.cfg.jev.sessions {
+                let jev = crate::insights::ask(s, now).and_then(|(_, signature)| self.insights.for_session(&s.key, &signature));
+                (jev, crate::insights::landing_said(s))
+            } else {
+                (None, None)
+            };
+            if let Some(i) = crate::insights::merged(jev, said, tag) {
+                board::apply_insight(s, &i);
                 // A turn that left a server running is over: Your turn until you've seen it.
                 if s.status == Status::Idle && s.background.is_some() && s.status_since.unwrap_or(0) > self.seen.seen_at(&s.key) {
                     s.status = Status::Unread;
@@ -1298,6 +1316,22 @@ impl Engine {
             }
         }
         sessions
+    }
+
+    /// Forgets the tags on sessions that have moved on since: something was sent to them since
+    /// they were read, or a turn of theirs started since they were tagged (`tags::holds`).
+    fn forget_stale_tags(&self, board: &Board) {
+        let store = tags::current();
+        if store.sessions.is_empty() {
+            return;
+        }
+        let stale: Vec<(String, i64)> = store.sessions.iter().filter(|(key, t)| board.session(key).is_some_and(|(_, s)| !tags::holds(s, t))).map(|(key, t)| (key.clone(), t.at)).collect();
+        if stale.is_empty() {
+            return;
+        }
+        if let Err(e) = tags::forget(&stale) {
+            eprintln!("Couldn't forget the tags on sessions that moved on: {e:#}");
+        }
     }
 
     /// The replies suggested for each session, while they still answer where it stands
@@ -2926,6 +2960,7 @@ impl Engine {
         }
         // The board already leaves them out.
         self.forget_stale_suggestions(&board);
+        self.forget_stale_tags(&board);
         self.jev_look(&board);
         let composed = t.elapsed();
         self.dirty = false;

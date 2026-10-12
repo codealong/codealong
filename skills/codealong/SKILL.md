@@ -214,6 +214,29 @@ you supervise unless the user asks. A supervisor that runs on a loop goes over t
 each time and skips the sessions whose suggestions still stand, and the ones with nothing to
 decide.
 
+## Tagging sessions
+
+When you orchestrate sessions (ones you started, or ones the user asked you to go over), tag each
+with where it stands once you've read it, so the user sees it at a glance in Codealong without
+reading the conversation themselves. A tag shows as Jev's read does, in the same chips and
+status, over Jev's for the same moment.
+
+1. `codealong sessions` lists them; `insight` on one is what it shows now: Jev's read, a tag
+   (`by` says whose) or both.
+2. Read its end: `codealong session transcript <key>`, and `codealong session pending <key>` for
+   a call it waits on the user to allow. Keep the `lastPromptAt` the transcript printed.
+3. `codealong session tag <key> --landing <landed|pushed|committed|uncommitted|blocked|none>
+   --finished <yes|no> --asks-you <yes|no> --prompt-at <lastPromptAt> --note "<why, in a
+   sentence>"`, saying only what you read: a field left out stays Jev's. `--asks-you yes` turns
+   its Your turn into Needs you, with its question; `--risk 0-3` for a call it waits on the user
+   to allow (0 reads only, 3 destructive); `--background polling|job|server|stalled` for a
+   command its turn left running. Give the `lastPromptAt` from step 2: a tag is turned down if
+   the user replied since you read it, or while the session takes a turn. Read it again and tag
+   for where it stands.
+4. Tag again to replace it; `--clear` takes it away. A tag goes by itself once anything is sent
+   to the session or a turn of its starts, so a session with none has moved on: read it again
+   before tagging more.
+
 ## PRs
 
 The app lists each PR with the sessions that worked on it. A session gets there by itself when

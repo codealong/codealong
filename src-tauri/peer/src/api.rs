@@ -72,6 +72,13 @@ pub const SESSION_DONE: &str = "session-done";
 /// never sent by themselves, so another device may suggest them as it may name a session. Macs
 /// before 2026-10-09 refuse it as a request they don't know.
 pub const SESSION_SUGGEST: &str = "session-suggest";
+/// Tags a session (`key`) with an agent's read of where it stands (`params::Tag`), which stands
+/// over Jev's for the same moment: whether its last reply asks its user something, how far the
+/// work got, whether it's finished, how risky what it waits on looks, what a command it left
+/// running does. No field takes the tag away. It changes only how the session is listed, so
+/// another device may tag it as it may name a session. Macs before 2026-10-12 refuse it as a
+/// request they don't know.
+pub const SESSION_TAG: &str = "session-tag";
 /// A PR's description, reviews, comments and changed files (`repo`, `number`), as the device's
 /// `gh` reads them from GitHub, answering `pr::Detail`. Macs before 2026-10-10 refuse it as a
 /// request they don't know, as they do the other PR requests.
@@ -253,6 +260,38 @@ pub mod params {
         pub prompt_at: Option<i64>,
     }
 
+    /// `session-tag`: an agent's read of a session, each field as `SessionInsight` has it and
+    /// left out where the agent didn't say (`asks_you` and `finished` 0 or 1, `risk` 0 to 3,
+    /// `landing` and `background` by their names), in place of any tag it had; with every field
+    /// left out, the tag is taken away. `by` and `by_title` name the tagging session as its own
+    /// device knows it, `note` is why in a sentence or two, and `prompt_at` is the session's
+    /// last prompt as the agent read it: the tag is turned down when the session's been sent
+    /// another since, and goes once it is.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct Tag {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub asks_you: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub landing: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub finished: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub risk: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub background: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub note: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub by: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub by_title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub prompt_at: Option<i64>,
+    }
+
     /// `session-fork`: the copy starts on `prompt`, or waits for one when it's empty.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -376,7 +415,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 32] = [
+pub const REQUESTS: [(&str, Reach); 33] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -397,6 +436,7 @@ pub const REQUESTS: [(&str, Reach); 32] = [
     (SESSION_ARCHIVE, Reach::Organize),
     (SESSION_RENAME, Reach::Organize),
     (SESSION_SUGGEST, Reach::Organize),
+    (SESSION_TAG, Reach::Organize),
     (PR_SNOOZE, Reach::Organize),
     (SESSION_SEND, Reach::Control),
     (SESSION_ANSWER, Reach::Control),

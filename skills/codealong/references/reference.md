@@ -1066,6 +1066,21 @@ Commands:
               instead, with why in a few words after it, and its question box shows it
               picked, with why beside it, to answer with one click. The session's
               `suggestions` in `session show` and `sessions` are the ones it has now
+  tag         Tag a session with your read of where it stands, in the words Codealong's
+              rows use, after reading its conversation (`session transcript`): whether
+              its last reply asks its user something, how far its code change got,
+              whether what was asked for is done, how risky the call it waits on looks,
+              and what a command it left running in the background does. Each shows on
+              the session in Codealong as Jev's read does (Asks you, Landed, Pushed,
+              Destructive, Looks finished…), over Jev's for the same moment, with who
+              tagged it and the note; an orchestrator going over its sessions tags them
+              so the user sees at a glance where each stands, with `[jev] sessions` on
+              or off. Say only what you read: a field left out stays Jev's. Give
+              --prompt-at the session's `lastPromptAt` as you read it: the tag is turned
+              down if the user replied since, or while it takes a turn, and goes once
+              anything is sent to it or a turn of its starts; tagging again replaces it,
+              and --clear takes it away. The session's `insight` in `session show` and
+              `sessions` is the read it shows now, Jev's, yours (`by`) or both
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
@@ -1461,6 +1476,85 @@ Options:
 
       --clear
           Take the session's suggested replies away
+
+  -h, --help
+          Print help
+```
+
+## codealong session tag
+
+```
+Tag a session with your read of where it stands, in the words Codealong's rows use,
+after reading its conversation (`session transcript`): whether its last reply asks its
+user something, how far its code change got, whether what was asked for is done, how
+risky the call it waits on looks, and what a command it left running in the background
+does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed,
+Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged
+it and the note; an orchestrator going over its sessions tags them so the user sees at a
+glance where each stands, with `[jev] sessions` on or off. Say only what you read: a
+field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read
+it: the tag is turned down if the user replied since, or while it takes a turn, and goes
+once anything is sent to it or a turn of its starts; tagging again replaces it, and
+--clear takes it away. The session's `insight` in `session show` and `sessions` is the
+read it shows now, Jev's, yours (`by`) or both
+
+Usage: codealong session tag [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: its key, its id, or a unique start of its id
+
+Options:
+      --asks-you <YES|NO>
+          Whether its last reply ends by asking the user something they must answer
+          before it can go on: a question, a choice, a request for approval or
+          information. Yes turns Your turn into Needs you, with the question
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --landing <LANDING>
+          How far its code change got, going by what you read: landed (merged, or on the
+          main branch), pushed (on a branch or PR not merged), committed (not pushed),
+          uncommitted (changed files, nothing committed), blocked (it couldn't finish)
+          or none (no code change: an answer, research, a review)
+          
+          [possible values: landed, pushed, committed, uncommitted, blocked, none]
+
+      --table
+          Tables, even when piped
+
+      --finished <YES|NO>
+          Whether the task its user asked for is complete, with nothing left for it to
+          do. A worktree whose sessions are all finished and quiet says Looks finished
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --risk <0-3>
+          How risky the call it waits on its user to allow looks: 0 reads only, 1
+          changes files or state on this Mac, 2 affects shared or remote things (pushes,
+          deploys, sends), 3 destructive or hard to undo. Shown while it waits
+
+      --background <KIND>
+          What the command its turn left running in the background does: polling (checks
+          again and again for something outside), job (one long piece of work that ends
+          by itself), server (keeps running until stopped; its turn is over) or stalled
+          (stuck, or waiting on its user)
+          
+          [possible values: polling, job, server, stalled]
+
+      --note <NOTE>
+          Why, in a sentence or two; shown with the tag
+
+      --prompt-at <MS>
+          The session's `lastPromptAt` as you read it: `session transcript` prints it
+          with what it read, as do `sessions` and `session show`. The tag is turned down
+          if it's been sent a prompt since, since it would read the turn before, and
+          shown only until it's sent another
+
+      --clear
+          Take the session's tag away
 
   -h, --help
           Print help

@@ -22,6 +22,7 @@ use crate::attachments;
 use crate::board;
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
+use crate::insights;
 use crate::model::{Board, Lane, Origin, PreviewServer, Reuse, Session, Status};
 use crate::procs;
 use crate::search;
@@ -434,6 +435,8 @@ enum SessionCmd {
     Wait(SessionWaitArgs),
     /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. A session that asks its user questions (`session pending` shows them, with their choices) takes no replies, which would only decline them: --pick picks one of a question's own choices instead, with why in a few words after it, and its question box shows it picked, with why beside it, to answer with one click. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
+    /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, and what a command it left running in the background does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts; tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
+    Tag(TagArgs),
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
         /// The session: its key, its id, a unique start of its id, or `me`.
@@ -522,6 +525,45 @@ struct SuggestArgs {
     /// Take the session's suggested replies away.
     #[arg(long, conflicts_with_all = ["replies", "picks", "note", "prompt_at"])]
     clear: bool,
+}
+
+#[derive(Args, Debug)]
+struct TagArgs {
+    /// The session: its key, its id, or a unique start of its id.
+    key: String,
+    /// Whether its last reply ends by asking the user something they must answer before it can go on: a question, a choice, a request for approval or information. Yes turns Your turn into Needs you, with the question.
+    #[arg(long, value_name = "YES|NO", value_parser = yes_no)]
+    asks_you: Option<bool>,
+    /// How far its code change got, going by what you read: landed (merged, or on the main branch), pushed (on a branch or PR not merged), committed (not pushed), uncommitted (changed files, nothing committed), blocked (it couldn't finish) or none (no code change: an answer, research, a review).
+    #[arg(long, value_name = "LANDING", value_parser = clap::builder::PossibleValuesParser::new(insights::LANDING.map(|(k, _)| k)))]
+    landing: Option<String>,
+    /// Whether the task its user asked for is complete, with nothing left for it to do. A worktree whose sessions are all finished and quiet says Looks finished.
+    #[arg(long, value_name = "YES|NO", value_parser = yes_no)]
+    finished: Option<bool>,
+    /// How risky the call it waits on its user to allow looks: 0 reads only, 1 changes files or state on this Mac, 2 affects shared or remote things (pushes, deploys, sends), 3 destructive or hard to undo. Shown while it waits.
+    #[arg(long, value_name = "0-3", value_parser = clap::value_parser!(u8).range(0..=3))]
+    risk: Option<u8>,
+    /// What the command its turn left running in the background does: polling (checks again and again for something outside), job (one long piece of work that ends by itself), server (keeps running until stopped; its turn is over) or stalled (stuck, or waiting on its user).
+    #[arg(long, value_name = "KIND", value_parser = clap::builder::PossibleValuesParser::new(insights::BACKGROUND.map(|(k, _)| k)))]
+    background: Option<String>,
+    /// Why, in a sentence or two; shown with the tag.
+    #[arg(long)]
+    note: Option<String>,
+    /// The session's `lastPromptAt` as you read it: `session transcript` prints it with what it read, as do `sessions` and `session show`. The tag is turned down if it's been sent a prompt since, since it would read the turn before, and shown only until it's sent another.
+    #[arg(long, value_name = "MS", required_unless_present = "clear")]
+    prompt_at: Option<i64>,
+    /// Take the session's tag away.
+    #[arg(long, conflicts_with_all = ["asks_you", "landing", "finished", "risk", "background", "note", "prompt_at"])]
+    clear: bool,
+}
+
+/// `yes` or `no`, as a flag's value.
+fn yes_no(s: &str) -> std::result::Result<bool, String> {
+    match s.trim().to_lowercase().as_str() {
+        "yes" | "y" | "true" => Ok(true),
+        "no" | "n" | "false" => Ok(false),
+        _ => Err("yes or no".to_string()),
+    }
 }
 
 #[derive(Args, Debug)]
@@ -1019,6 +1061,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Transcript(a) } => session_transcript(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
+        Cmd::Session { cmd: SessionCmd::Tag(a) } => session_tag(c, a, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
@@ -1479,6 +1522,11 @@ struct SessionRow {
     /// Replies suggested for its user to send (`session suggest`), while it has them.
     #[serde(skip_serializing_if = "Option::is_none")]
     suggestions: Option<crate::model::Suggestions>,
+    /// Where it stands as read from its last reply and what it waits on: Jev's read (`[jev]
+    /// sessions`) and an agent's tag (`session tag`, `by`), where there is one. `asksYou` and
+    /// `finished` are 0 to 1, `risk` 0 to 3, `landing` and `background` by name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    insight: Option<crate::model::SessionInsight>,
     /// What it helps, when it's a helper (`start --helper`, or an automatic review): `parent`,
     /// the session whose agent started it, or `pr`, the PR it reviews. Its turns are for that
     /// agent, not its user.
@@ -1513,6 +1561,7 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
         attach_command: s.attach_command.clone(),
         todos: todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| t.id.clone()).collect(),
         suggestions: s.suggestions.clone(),
+        insight: s.insight.clone(),
         helper: s.helper.clone(),
         said: None,
     }
@@ -1750,6 +1799,9 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
             let why = g.why.get(question).map(|w| format!(" ({w})")).unwrap_or_default();
             println!("  {}: {}{why}", one_line(question, 80), labels.join(", "));
         }
+    }
+    if let Some(i) = &r.insight {
+        println!("Read: {}", insight_words(i));
     }
     println!("Worktree: {} ({}{})", tilde(Path::new(&r.worktree)), out.worktree_callsign, r.branch.as_deref().map(|b| format!(", {b}")).unwrap_or_default());
     if let Some(n) = r.pr {
@@ -2153,6 +2205,65 @@ fn print_wait(s: &Session, out: WaitOut, json: bool) -> Result<()> {
     match &out.reply {
         Some(r) => println!("{}", r.trim_end()),
         None => println!("“{}” ended its turn without a reply.", s.title),
+    }
+    Ok(())
+}
+
+/// A session's read in a line: "pushed · finished 0.9 · asks you 0.1 (by Orchestrator: PR #12 is up)".
+fn insight_words(i: &crate::model::SessionInsight) -> String {
+    let mut parts = Vec::new();
+    if let Some(l) = &i.landing {
+        parts.push(l.clone());
+    }
+    if let Some(p) = i.finished {
+        parts.push(format!("finished {p:.2}"));
+    }
+    if let Some(p) = i.asks_you {
+        parts.push(format!("asks you {p:.2}"));
+    }
+    if let Some(r) = i.risk {
+        parts.push(format!("risk {r:.1}"));
+    }
+    if let Some(p) = i.waits_for_input {
+        parts.push(format!("waits for input {p:.2}"));
+    }
+    if let Some(b) = &i.background {
+        parts.push(format!("background {b}"));
+    }
+    if let Some(c) = i.confidence {
+        parts.push(format!("confidence {c:.2}"));
+    }
+    let by = match (&i.by_title, &i.by, &i.note) {
+        (None, None, _) => String::new(),
+        (title, key, note) => format!(" (by {}{})", title.clone().or_else(|| key.clone()).unwrap_or_default(), note.as_ref().map(|n| format!(": {n}")).unwrap_or_default()),
+    };
+    format!("{}{by}", parts.join(" · "))
+}
+
+/// `session tag`: asked as the session running the command, which is named with it, on
+/// whichever device the session is on. The app's windows show it at once; without the app, it's
+/// kept for it.
+fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
+    let key = resolve_session(c, &a.key)?;
+    let me = find_me(c)?.0;
+    let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
+    let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
+    let params = if a.clear {
+        params::Tag::default()
+    } else {
+        if a.asks_you.is_none() && a.landing.is_none() && a.finished.is_none() && a.risk.is_none() && a.background.is_none() {
+            bail!("Say something about it (--asks-you, --landing, --finished, --risk or --background), or --clear to take its tag away.");
+        }
+        params::Tag { asks_you: unit(a.asks_you), landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, note: a.note, prompt_at: a.prompt_at, ..Default::default() }
+    };
+    let params = params::Tag { by: me.clone(), by_title, ..params };
+    let got = c.act(api::SESSION_TAG, &key, params, me)?;
+    let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
+    if json {
+        return print_json(&out);
+    }
+    if let Some(said) = &out.said {
+        println!("{said}");
     }
     Ok(())
 }
@@ -4008,6 +4119,15 @@ mod tests {
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));
+        // A tag says each thing by the board's names, and needs the prompt that was read.
+        let cli = parse_from(["codealong", "session", "tag", "abc", "--landing", "pushed", "--finished", "yes", "--asks-you", "no", "--risk", "2", "--background", "polling", "--prompt-at", "4", "--note", "PR #12 is up"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.landing.as_deref() == Some("pushed") && a.finished == Some(true) && a.asks_you == Some(false) && a.risk == Some(2) && a.background.as_deref() == Some("polling") && a.prompt_at == Some(4)));
+        assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--landing", "merged", "--prompt-at", "4"]).is_err());
+        assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--risk", "4", "--prompt-at", "4"]).is_err());
+        assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--finished", "maybe", "--prompt-at", "4"]).is_err());
+        assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--finished", "yes"]).is_err(), "it needs the prompt that was read");
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--clear"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.clear));
+        assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--clear", "--finished", "yes"]).is_err());
         // Picks stand in for replies, never beside them.
         let cli = parse_from(["codealong", "session", "suggest", "abc", "--pick", "Read only first", "--pending", "toolu_1", "--prompt-at", "4"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Suggest(ref a) } if a.picks == ["Read only first"] && a.why == [""] && a.replies.is_empty() && a.pending.as_deref() == Some("toolu_1")));

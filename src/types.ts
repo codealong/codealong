@@ -944,6 +944,8 @@ export interface JevCfg {
 }
 
 /** Jev's read of a session (insights.rs). Each part is there only when it was asked. */
+/** How a session's turn ended: Jev's read (insights.rs), or an agent's tag of it over Jev's
+ *  (`codealong session tag`, tags.rs), which names the agent's session in `by`. */
 export interface SessionInsight {
   asksYou?: number;
   landing?: 'landed' | 'pushed' | 'committed' | 'uncommitted' | 'blocked' | 'none';
@@ -953,6 +955,13 @@ export interface SessionInsight {
   waitsForInput?: number;
   background?: 'polling' | 'job' | 'server' | 'stalled';
   backgroundP?: number;
+  /** How sure Jev was of its least sure answer, 0 to 1; none for an agent's tag. */
+  confidence?: number;
+  /** The tagging agent's session, by its key, and its title; none for Jev's own read. */
+  by?: string;
+  byTitle?: string;
+  /** Why, in a sentence or two, when the agent said. */
+  note?: string;
 }
 
 export type RouteAction = 'send' | 'start' | 'find' | 'todo';

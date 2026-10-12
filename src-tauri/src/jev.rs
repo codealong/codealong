@@ -68,6 +68,11 @@ pub fn score(response: &Value, id: &str) -> Option<f64> {
     response["answers"][id]["score"].as_f64()
 }
 
+/// How sure Jev was of an answer, 0 to 1, when the answer carries it.
+pub fn confidence(response: &Value, id: &str) -> Option<f64> {
+    response["answers"][id]["confidence"].as_f64()
+}
+
 /* ---- Words for the model ---- */
 
 /// A time as words. Jev reads dates as text and can't compare them; words it can.
@@ -298,9 +303,10 @@ mod tests {
         let v = json!({ "answers": {
             "a": { "type": "noul", "noul": 0.9 },
             "b": { "type": "choice", "choice": "x", "probabilities": { "x": 0.7, "y": 0.3 } },
-            "c": { "type": "score", "score": 1.4 },
+            "c": { "type": "score", "score": 1.4, "confidence": 0.55 },
         }});
         assert_eq!(noul(&v, "a"), Some(0.9));
+        assert_eq!((confidence(&v, "c"), confidence(&v, "a")), (Some(0.55), None));
         assert_eq!(choice(&v, "b"), vec![("x".to_string(), 0.7), ("y".to_string(), 0.3)]);
         assert_eq!(score(&v, "c"), Some(1.4));
         assert_eq!(noul(&v, "missing"), None);

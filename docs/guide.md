@@ -1336,14 +1336,32 @@ remembers.
 
 *Optional; Settings › Jev, `[jev] sessions`*
 
-Once per turn, Jev reads the end of the last reply and the command a session runs or waits on. A
-reply that asks you something turns *Your turn* into *Needs you*, with the question; a busy session
-quiet on a long build stays *Working* instead of *stuck*; a command left running in the background
-says whether it polls for something, runs a job, is a server or watcher left running (no longer
+Once per turn, Jev reads the end of the last reply, with the latest prompt it answers and the
+first prompt the session was started on, and the command a session runs or waits on. A reply that
+asks you something turns *Your turn* into *Needs you*, with the question; a busy session quiet on a
+long build stays *Working* instead of *stuck*; a command left running in the background says
+whether it polls for something, runs a job, is a server or watcher left running (no longer
 *Working*), or waits on you (a sign-in, a password). Rows show how far the work got (Landed, Pushed,
-Committed, Not committed, Blocked) and how risky a command waiting for approval looks; a worktree
-whose sessions all read as done says *Looks finished*. Answers are kept in insights.json, so a turn
-is asked about once.
+Committed, Not committed, Blocked) and how risky a command waiting for approval looks, judged from
+the whole call where its harness shows it (the arguments, not just the command's name); a worktree
+whose sessions all read as done says *Looks finished*. A reply whose first line opens with the
+status line CLAUDE.md asks agents for (`Landed:`, `Pushed:`, `Committed:`, `Not committed:`) says
+its landing itself, exactly, and Jev isn't asked it. A turn its harness ended (the connection lost,
+a usage limit, cut off) isn't read: its reply is an error. Answers are kept in insights.json, with
+how sure Jev was, so a turn is asked about once.
+
+#### Tags from an agent
+
+An agent that reads a session can say the same things itself, with `[jev] sessions` on or off: an
+orchestrator going over the sessions it started (`codealong sessions`, then `codealong session
+transcript` for each) tags each one with `codealong session tag` (asks you, how far the work got,
+finished, how risky the waiting call is, what a background command does, and why in a note). A tag
+shows exactly as Jev's read does, in the same chips and status, and stands over Jev's for the
+same moment where the agent said; a field it left out stays Jev's. The chip's tooltip says who
+tagged it and the note. A tag is for the reply the agent read: one written after you'd replied
+since, or while the session takes a turn, is turned down, and it goes once anything is sent to the
+session or a turn of its starts; tagging again replaces it. Tags are kept in tags.json; a session
+on another device keeps its tag on its Mac.
 
 ### Commands left running
 

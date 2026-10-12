@@ -343,7 +343,9 @@ pub fn claude_session(
         cwd,
         work: tr.map(|t| t.work.clone()).unwrap_or_default(),
         reply_tail: tr.and_then(|t| t.last_text_tail.clone()),
+        reply_head: tr.and_then(|t| t.last_text.clone()),
         first_prompt: tr.and_then(|t| t.first_prompt.clone()),
+        last_prompt: tr.and_then(|t| t.last_prompt.clone()),
         name: reg.and_then(|r| r.name.clone()),
         started_at: reg.and_then(|r| r.started_at).or_else(|| tr.and_then(|t| t.started_at)),
         status_since: reg.and_then(|r| r.status_updated_at),
@@ -438,6 +440,8 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         cwd: th.cwd.clone(),
         work: th.work.clone(),
         reply_tail: th.last_agent_tail.clone(),
+        reply_head: th.last_agent_message.clone(),
+        last_prompt: th.last_user_message.clone(),
         started_at: th.started_at,
         // Waiting on you since its oldest unanswered call, not since the turn before it ended:
         // Needs you is a queue by that time.
@@ -502,6 +506,8 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         title: truncate(&plain(&title), 90),
         cwd: row.directory.clone(),
         reply_tail: row.last_text_tail.clone(),
+        reply_head: row.last_text.clone(),
+        last_prompt: row.last_prompt.clone(),
         started_at: Some(row.created_at),
         // Waiting on you since it asked what it asks now (`Asked::since`): each request of a run
         // has a time of its own, so a window that answered one can tell the next from it (ahead.ts).
@@ -568,6 +574,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         cwd: c.cwd.clone().unwrap_or_default(),
         work: c.tail.work.clone(),
         reply_tail: c.tail.last_text_tail.clone(),
+        reply_head: c.tail.last_text.clone(),
         // The preview is the conversation's opening, as the app lists it.
         first_prompt: c.preview.clone(),
         status_since: if status == Status::Working { c.last_input } else { Some(c.last_modified) },
@@ -630,6 +637,7 @@ pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Op
         cwd: c.cwd.clone().unwrap_or_default(),
         work: c.tail.work.clone(),
         reply_tail: c.tail.last_text_tail.clone(),
+        reply_head: c.tail.last_text.clone(),
         first_prompt: c.tail.first_prompt.clone(),
         started_at: Some(c.created_at).filter(|t| *t > 0),
         status_since: if under_way { Some(last_prompt_at) } else { Some(c.last_updated) },
@@ -1097,11 +1105,19 @@ pub fn suggestions_hold(s: &Session, g: &Suggestions) -> bool {
 /// none when they answer where it stands. Read before you replied, they'd answer the turn before
 /// yours; suggested while it takes a turn, the reply it's writing isn't what was read.
 pub fn suggestion_refused(s: &Session, read_prompt_at: i64) -> Option<String> {
+    read_refused(s, read_prompt_at, "suggest")
+}
+
+/// Why an agent's word on a session is turned down, given the session's last prompt as the agent
+/// read it: `verb` is what the agent does (suggest, tag), for the sentence. None when its word is
+/// for where the session stands.
+pub fn read_refused(s: &Session, read_prompt_at: i64, verb: &str) -> Option<String> {
     if s.last_prompt_at > read_prompt_at {
-        return Some(format!("It's been sent a prompt since you read it (lastPromptAt {} now, {read_prompt_at} as you read it). Read it again (`codealong session transcript`) and suggest for where it stands.", s.last_prompt_at));
+        return Some(format!("It's been sent a prompt since you read it (lastPromptAt {} now, {read_prompt_at} as you read it). Read it again (`codealong session transcript`) and {verb} for where it stands.", s.last_prompt_at));
     }
     if s.status == Status::Working && !s.waits_in_background() {
-        return Some("It's taking a turn now, so what you read isn't where it stands. Suggest once it waits on its user again.".to_string());
+        let verb = format!("{}{}", verb[..1].to_uppercase(), &verb[1..]);
+        return Some(format!("It's taking a turn now, so what you read isn't where it stands. {verb} once it waits on its user again."));
     }
     None
 }

@@ -191,6 +191,8 @@ const REQUESTS: &[Request] = &[
     // Replies suggested for a session are kept on its Mac too, and only shown: nothing reaches the
     // session until someone picks one, so an agent may suggest them through the command.
     Request { name: api::SESSION_SUGGEST, here: suggest, ..ANY },
+    // A tag changes how a session is listed, as its read by Jev does, and nothing the agent does.
+    Request { name: api::SESSION_TAG, here: tag, ..ANY },
     // A PR is read from GitHub by this device's `gh`, as you: a phone has no GitHub of its own.
     // Reviewing and merging act as you there, so they need remote control (`api::REQUESTS`).
     Request { name: api::PR_DETAIL, here: pr_detail, ..ANY },
@@ -674,6 +676,39 @@ fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
         (0, _) => "It had no suggested replies.".to_string(),
         (1, _) => "Suggested a reply. It shows above the session's box in Codealong until something is sent to the session or a turn of its starts.".to_string(),
         (n, _) => format!("Suggested {n} replies. They show above the session's box in Codealong until something is sent to the session or a turn of its starts."),
+    }))
+}
+
+/// Tags a session with an agent's read of where it stands, in place of any tag it had, or with
+/// nothing said takes the tag away (tags.rs). It's the session's until something is sent to it
+/// or a turn of its starts. Says what was done, in a sentence.
+fn tag(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    let p: params::Tag = c.read()?;
+    let Some(session) = engine.read(|b| b.session(key).map(|(_, s)| s.clone())) else {
+        return Err("Codealong doesn't list that session.".into());
+    };
+    let insight = crate::tags::read(&p).map_err(words)?;
+    // What was read is where the tag speaks from; without it (an older Mac's agent), where it stands.
+    let read = p.prompt_at.unwrap_or(session.last_prompt_at);
+    if insight.is_some() {
+        if let Some(why) = crate::board::read_refused(&session, read, "tag") {
+            return Err(why);
+        }
+    }
+    let tagging = insight.is_some();
+    let tag = insight.map(|insight| crate::tags::Tag { insight, at: crate::util::now_ms(), prompt_at: read });
+    let changed = crate::tags::set(key, tag).map_err(words)?;
+    // Waited for whoever asked, so that what they read next (an agent's `codealong sessions`)
+    // has it.
+    let at = if changed { engine.suggested(true) } else { None };
+    if *c.from == From::Here {
+        return Ok(json!(at));
+    }
+    Ok(json!(match (tagging, changed) {
+        (true, _) => "Tagged. It shows on the session in Codealong, over Jev's read of it, until something is sent to the session or a turn of its starts.".to_string(),
+        (false, true) => "Took its tag away.".to_string(),
+        (false, false) => "It had no tag.".to_string(),
     }))
 }
 

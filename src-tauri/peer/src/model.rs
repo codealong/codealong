@@ -165,6 +165,13 @@ pub struct Session {
     /// The first prompt you gave it, for Jev.
     #[serde(skip)]
     pub first_prompt: Option<String>,
+    /// The latest prompt you gave it, on one line, for Jev: what its last reply answers. None
+    /// where its harness doesn't keep it (Antigravity, Cursor).
+    #[serde(skip)]
+    pub last_prompt: Option<String>,
+    /// The first line of its last reply, for Jev: where a status line says how far the work got.
+    #[serde(skip)]
+    pub reply_head: Option<String>,
     /// The registry name, which Claude Code also puts in the terminal title.
     pub name: Option<String>,
     pub started_at: Option<i64>,
@@ -213,7 +220,8 @@ pub struct Session {
     /// spinner of a turn that's running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
-    /// Jev's read of how its turn ended (insights.rs), when `[jev] sessions` is on.
+    /// How its turn ended, as Jev read it (insights.rs, when `[jev] sessions` is on) or as an
+    /// agent tagged it (`codealong session tag`, tags.rs): `by` names the agent's session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub insight: Option<SessionInsight>,
     /// Needs you only because its last reply asks you something (`board::apply_insight`): its
@@ -362,6 +370,8 @@ impl Session {
             work: Vec::new(),
             reply_tail: None,
             first_prompt: None,
+            last_prompt: None,
+            reply_head: None,
             name: None,
             started_at: None,
             status_since: None,
@@ -550,6 +560,20 @@ pub struct SessionInsight {
     pub background: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_p: Option<f64>,
+    /// How sure Jev was of its least sure answer, 0 to 1, when it said. Devices from before
+    /// 2026-10-12 don't know it, nor the three below.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    /// The session of the agent that tagged it (`codealong session tag`), by its key on its own
+    /// device, when one did: its fields then stand over Jev's read of the same moment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    /// That session's title when it tagged it, to name it by on any device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_title: Option<String>,
+    /// Why, or what to weigh, in a sentence or two, when the agent said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
