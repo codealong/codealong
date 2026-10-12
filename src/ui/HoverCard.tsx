@@ -2,8 +2,9 @@
 // session's helpers chip (HelpersCard.tsx). It shows once the pointer has rested a moment, or at
 // once while another has just closed, and takes the pointer: moving onto it keeps it up, so its
 // rows and buttons can be used. One is up at a time. It goes on a key (which still does what it
-// does), a press elsewhere, or when the window goes to the background, and it follows what it's
-// beside as the page scrolls, under it or over it, wherever there's more room.
+// does), but not on a modifier alone or ⌘C, which copies what's selected on it (useDismiss.ts
+// `keyLeavesHover`); on a press elsewhere; and when the window goes to the background. It follows
+// what it's beside as the page scrolls, under it or over it, wherever there's more room.
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';

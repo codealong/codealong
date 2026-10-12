@@ -1,10 +1,11 @@
 // The panel on the right of the main window, as the view and its selection have it: a
 // worktree's (Inspector), a session's with its conversation (SessionPanel) or the sessions picked
 // together, a PR's, a todo's or the todos picked together, the canvas's selected card, or what to
-// select. A PR's or todo's
-// panel can show one of its sessions in its place, with the way back (`drill`). The window
-// passes what the panels show and what their clicks do.
+// select. A PR's or todo's panel can show one of its sessions in its place, and a session's,
+// worktree's or todo's the PR its chip shows, with the way back (`drill`), the list staying as it
+// was. The window passes what the panels show and what their clicks do.
 
+import type { ReactNode } from 'react';
 import { dismissTodoHint, openUrl } from '../api';
 import type { Entities } from '../canvas/model';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -21,6 +22,7 @@ import type { useListPicks } from '../useListPicks';
 import type { useTodoView } from '../useTodoView';
 import { Inspector } from './Inspector';
 import { PrInspector } from './PrInspector';
+import type { PanelBackTo } from './primitives';
 import { ALL_PROJECTS } from './ProjectSwitcher';
 import type { PrRowItem } from './PrsView';
 import { SessionPanel } from './SessionPanel';
@@ -28,6 +30,14 @@ import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
 import { WorktreePickPanel } from './WorktreePickPanel';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
+
+/** A panel shown in place of another: `from` is the row whose panel it is, `key` the session it
+ *  shows, or with `pr` the PR. */
+export interface Drill {
+  from: string;
+  key: string;
+  pr?: boolean;
+}
 
 /** What the canvas's selected card is, as its panel shows it; null when nothing is selected or
  *  the card's thing is gone. */
@@ -82,9 +92,10 @@ export interface MainPanelProps {
    *  their panel shows in place of one row's. */
   picks: ReturnType<typeof useListPicks>;
   approving: Set<string>;
-  /** The session a PR's or todo's panel shows in its place, and from which. */
-  drill: { from: string; key: string } | null;
-  setDrill: (drill: { from: string; key: string } | null) => void;
+  /** What a panel shows in its place, and from which: the session a PR's or todo's panel shows, or
+   *  the PR (`pr`) a session's, worktree's or todo's does. */
+  drill: Drill | null;
+  setDrill: (drill: Drill | null) => void;
   /** Sessions' way through what waits on you, which its panel works through. */
   queue: WaitingQueue<boolean>;
   /** The row whose panel's box takes the cursor. */
@@ -168,7 +179,7 @@ export function MainPanel(props: MainPanelProps) {
     />
   );
   /** A PR's panel; in PRs it can take the whole window (`maximizes`). */
-  const prPanel = (item: PrRowItem, maximizes = false) =>
+  const prPanel = (item: PrRowItem, maximizes = false, back?: PanelBackTo): ReactNode =>
     drilledPanel(item.key, `PR #${item.pr.number}`) ?? (
     <PrInspector
       key={item.pr.key}
@@ -183,13 +194,16 @@ export function MainPanel(props: MainPanelProps) {
       onReview={(el) => reviewMenuFrom(item.pr, el)}
       onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
       onMenu={(at) => prMenu(item, at)}
-      onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
+      // Shown in another's place, a session of it shows where Sessions lists it, as one in a
+      // session's or worktree's panel does; a panel shows one thing in its place at a time.
+      onShowSession={(lane, session) => (back ? showSessionFromPanel(lane, session) : setDrill({ from: item.key, key: session.key }))}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
       onLaneMenu={laneMenu}
       onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
       maximized={maximizes && prPanelMax}
       onMaximize={maximizes ? togglePrPanelMax : undefined}
+      back={back}
     />
   );
   const inspector = (lane: Lane | null, focusKey: string | null) => (
@@ -258,12 +272,18 @@ export function MainPanel(props: MainPanelProps) {
       />
     );
   };
-  /** The session a PR's or todo's panel was asked to show, in its place, with the way back. */
-  const drilledPanel = (from: string, label: string) => {
-    if (drill?.from !== from) return null;
+  /** What the panel of `from` was asked to show in its place, with the way back: a session a PR's
+   *  or todo's panel lists, or the PR a session's, worktree's or todo's chip shows. */
+  const drilledPanel = (from: string | undefined, label: string): ReactNode => {
+    if (!drill || drill.from !== from) return null;
+    const back = { label, onBack: () => setDrill(null) };
+    if (drill.pr) {
+      const pr = board?.prs.find((p) => p.key === drill.key);
+      return pr ? prPanel(prRowOf(pr), false, back) : null;
+    }
     for (const lane of lanes) {
       const session = lane.sessions.find((x) => x.key === drill.key);
-      if (session) return sessionPanel(lane, session, { label, onBack: () => setDrill(null) });
+      if (session) return sessionPanel(lane, session, back);
     }
     return null;
   };
@@ -323,8 +343,8 @@ export function MainPanel(props: MainPanelProps) {
       onMoreMenu={picks.worktrees.menu}
     />
   ) : view === 'sessions' && selected?.kind === 'agent' ? (
-    sessionPanel(selected.lane, selected.session, undefined, selected.key)
+    (drilledPanel(selected.key, middleTruncate(selected.session.title, 40)) ?? sessionPanel(selected.lane, selected.session, undefined, selected.key))
   ) : (
-    inspector(selectedLane, selected?.kind === 'agent' ? selected.session.key : null)
+    (drilledPanel(selected?.key, selectedLane?.callsign ?? 'the worktree') ?? inspector(selectedLane, selected?.kind === 'agent' ? selected.session.key : null))
   );
 }

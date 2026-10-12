@@ -16,7 +16,7 @@ import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactN
 import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { prIndex, prRefOf, type PrRef } from '../prLinks';
-import { nudgeWords } from '../prStatus';
+import { nudgeWords, reviewersWords } from '../prStatus';
 import { errorText } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
@@ -250,6 +250,7 @@ function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
   const primary = sessions.find((x) => isPrimary(x.session));
   const holding = (pr?.lanes ?? []).flatMap((id) => laneById.get(id) ?? []);
   const ended = pr?.mergedAt ?? pr?.closedAt ?? null;
+  const reviewers = pr ? reviewersWords(pr) : null;
   // The nudge, for an open PR the board lists: shown as just set until the board says so too.
   const [wanted, setWanted] = useState<boolean | null>(null);
   const [nudgeError, setNudgeError] = useState<string | null>(null);
@@ -306,6 +307,7 @@ function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
             )}{' '}
             · +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in {count(pr.changedFiles, 'file')}
           </p>
+          {reviewers && <p className="ca-hovercard-meta ca-prhover-reviewers">{reviewers}</p>}
           {holding.length > 0 && (
             <p className="ca-hovercard-meta">
               Checked out in <span className="ca-prhover-lanes">{holding.map((l) => l.callsign).join(', ')}</span>

@@ -1,18 +1,6 @@
 /* A session's header (SessionHeader.tsx): its name and kin, tools, meta line, worktree and
    links, wherever the session shows. */
 
-.ca-sessinsp-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  align-self: flex-start;
-  margin-bottom: 6px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .ca-sessinsp-head {
   display: grid;
   gap: 6px;

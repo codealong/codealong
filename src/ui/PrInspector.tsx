@@ -37,7 +37,7 @@ import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { DetailsButton, PanelPlaces, PR_PRIMARY, useDetailsOpen } from './PanelSession';
 import { PrFiles, type FileOpener, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
-import { BranchLabel, Button, cx, headerMenu, Icon, Tabs } from './primitives';
+import { BranchLabel, Button, cx, headerMenu, Icon, PanelBack, Tabs, type PanelBackTo } from './primitives';
 import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
@@ -155,6 +155,9 @@ export interface PrDetailsProps {
   /** In PRs: whether the panel takes the whole window, and the way to switch. */
   maximized?: boolean;
   onMaximize?: () => void;
+  /** Shown in place of another panel (a session's, a worktree's, a todo's), from its PR chip:
+   *  the way back to it. */
+  back?: PanelBackTo;
   /** How a window says something it did didn't work: with it, a changed file opens on GitHub,
    *  and with the board's `apps` too, in your editors (`fileOpener`). */
   report?: Report;
@@ -248,7 +251,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
 
 /** The PR itself: its header with where it lives on this Mac, the merge box, its details when
  *  they're open, then its tabs: its description and comments, its files, your review. */
-export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, report, apps, teamFiles }: PrDetailsProps) {
+export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, back, report, apps, teamFiles }: PrDetailsProps) {
   const { pr } = item;
   // Its details, open or not as you left them for every PR.
   const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
@@ -352,6 +355,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   return (
     <>
       <header className={cx('ca-prinsp-head', open && 'is-open')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
+        {back && <PanelBack back={back} />}
         <div className="ca-prinsp-top">
           <PrGlyph pr={pr} />
           <span className="ca-insp-call">#{pr.number}</span>

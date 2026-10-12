@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, type PrFacts } from './prStatus';
+import { asksFor, commentPreview, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, reviewMark, reviewersWords, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -107,6 +107,47 @@ describe('review comments', () => {
   it('shows a comment as plain text on one line', () => {
     expect(commentPreview('**Please** add a [test](http://x)\n\n```ts\ncode\n```')).toBe('Please add a test [code]');
     expect(commentPreview('a'.repeat(300), 10)).toBe('aaaaaaaaa…');
+  });
+});
+
+describe('reviewMark', () => {
+  const key = (f: Partial<PrItem>) => reviewMark(item(f))?.key ?? null;
+
+  it('marks what the chip’s color can’t tell apart', () => {
+    expect(key({ state: 'approved' })).toBe('approved');
+    expect(key({ state: 'changes' })).toBe('changes');
+    expect(key({ state: 'open' })).toBe(null);
+  });
+
+  it('puts a review asked of you first, unless it’s snoozed, and the agent’s before that', () => {
+    expect(reviewMark(item({ state: 'approved', mine: false, reviewRequested: true, requestedBy: 'gwen' }))).toMatchObject({ key: 'asked', tone: 'attn', title: 'Your review is asked for, by gwen' });
+    expect(key({ state: 'approved', mine: false, reviewRequested: true, snoozedUntil: Date.now() + 60_000 })).toBe('approved');
+    expect(key({ mine: false, reviewRequested: true, autoReview: { stage: 'reviewing', head: 'abc', at: 0, rounds: 1, holds: true } })).toBe('agent');
+  });
+
+  it('marks nothing on a draft or a PR that’s done', () => {
+    expect(key({ state: 'draft', reviewRequested: true })).toBe(null);
+    expect(key({ state: 'merged' })).toBe(null);
+    expect(key({ state: 'closed' })).toBe(null);
+  });
+
+  it('goes by the state alone for a worktree’s PR', () => {
+    expect(reviewMark(fx.pr({ state: 'approved' }))?.key).toBe('approved');
+    expect(reviewMark(fx.pr({ state: 'open' }))).toBe(null);
+  });
+});
+
+describe('reviewersWords', () => {
+  it('says whose reviews an open PR waits on, you first', () => {
+    expect(reviewersWords(item({ mine: false, reviewRequested: true, reviewersAsked: ['ana', 'platform'] }))).toBe('Waiting on a review from you, ana and platform');
+    expect(reviewersWords(item({ reviewersAsked: ['ana'] }))).toBe('Waiting on a review from ana');
+    expect(reviewersWords(item({ mine: false, reviewRequested: true }))).toBe('Waiting on a review from you');
+  });
+
+  it('says nothing when it waits on nobody’s, or once it’s done', () => {
+    expect(reviewersWords(item({}))).toBe(null);
+    expect(reviewersWords(item({ state: 'merged', reviewersAsked: ['ana'] }))).toBe(null);
+    expect(reviewersWords(fx.pr({ state: 'open' }))).toBe(null);
   });
 });
 

@@ -220,6 +220,11 @@ pub struct PrItem {
     /// When your review was last asked for, when GitHub says: what the review waits on you since.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_at: Option<i64>,
+    /// Whose reviews it still waits on besides yours (`review_requested`), as its review requests
+    /// list them: people by their login, teams by their name. Only an open PR's, and only one the
+    /// board reads (github.rs `asked_of_whom`); its card says them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewers_asked: Vec<String>,
     /// You snoozed your review from Codealong until then (`board::apply_review_snoozes`): it's
     /// out of Review requested, the floating bar's reviews and the mark until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]

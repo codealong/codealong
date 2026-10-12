@@ -204,6 +204,18 @@ describe('the named chips', () => {
     expect(prChip({ onShow: () => {}, onOpen: () => {}, inRow: true })).toMatch(shows);
   });
 
+  it('marks its review after its number, where its state isn’t in words', () => {
+    const chip = (pr: object, compact: boolean) => renderToStaticMarkup(createElement(PrChip, { pr: fx.pr({ number: 12, ...pr }), compact }));
+    expect(chip({ state: 'approved' }, true)).toContain('<span class="ca-checks ca-prmark is-pass" title="Approved">');
+    expect(chip({ state: 'changes' }, true)).toContain('<span class="ca-checks ca-prmark is-fail" title="A reviewer asked for changes">');
+    expect(chip({ state: 'open' }, true)).not.toContain('ca-prmark');
+    // The word says it already.
+    expect(chip({ state: 'approved' }, false)).not.toContain('ca-prmark');
+    // What's asked of you, which no word says, shows either way.
+    const asked = renderToStaticMarkup(createElement(PrChip, { pr: fx.prItem({ number: 12, state: 'approved', reviewRequested: true }) }));
+    expect(asked).toContain('<span class="ca-checks ca-prmark is-attn" title="Your review is asked for">');
+  });
+
   it('marks a PR that conflicts with its base, while it is open', () => {
     const chip = (state: 'open' | 'merged', merge: 'conflicts' | 'clean') => renderToStaticMarkup(createElement(PrChip, { pr: fx.pr({ number: 12, state, merge }), compact: true }));
     expect(chip('open', 'conflicts')).toContain('<span class="ca-checks is-attn" title="Conflicts with its base: resolve them before it can merge">');

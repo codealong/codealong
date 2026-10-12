@@ -1094,6 +1094,9 @@ export interface PrItem {
   requestedBy?: string | null;
   /** When your review was last asked for, when GitHub says: what the review waits on you since. */
   requestedAt?: number | null;
+  /** Whose reviews it still waits on besides yours (`reviewRequested`): people by login, teams by
+   *  name. Only an open PR's the board reads (github.rs `asked_of_whom`). */
+  reviewersAsked?: string[];
   /** You snoozed your review until then: it's out of Review requested, the floating bar's
    *  reviews and the mark until the time comes (board.rs, `apply_review_snoozes`). */
   snoozedUntil?: number | null;

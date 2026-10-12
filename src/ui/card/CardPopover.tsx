@@ -231,7 +231,7 @@ export function CardDetail({ item, data, now, terminal, todos, homes, onShowPr, 
           </div>
           <div className="ca-cvp-meta">
             <div className="ca-cvp-row">
-              {chip({ number: p.number, title: p.title, url: p.url, state: p.state, checks: p.checks, merge: p.merge, updatedAt: p.updatedAt, mergedAt: p.mergedAt, closedAt: p.closedAt })}
+              {chip(p)}
             </div>
             <Row icon="branch">
               {p.head}

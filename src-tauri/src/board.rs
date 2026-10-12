@@ -931,6 +931,7 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         review_requested: p.review_requested,
         requested_by: p.requested_by.clone().filter(|_| p.review_requested),
         requested_at: p.requested_at.filter(|_| p.review_requested),
+        reviewers_asked: p.reviewers_asked.clone(),
         snoozed_until: None,
         nudge,
         nudge_by_default: nudge && !by_hand,
@@ -1887,6 +1888,7 @@ mod tests {
             review_requested: false,
             requested_by: None,
             requested_at: None,
+            reviewers_asked: Vec::new(),
         }
     }
 

@@ -709,6 +709,7 @@ mod tests {
             review_requested: true,
             requested_by: None,
             requested_at: None,
+            reviewers_asked: Vec::new(),
         }
     }
 

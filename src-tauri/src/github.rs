@@ -42,6 +42,8 @@ pub struct PrRaw {
     /// When the latest request to you was made, when the PR's last requests say: what a review
     /// waits on you since, for the bar's queue (barfeed.rs).
     pub requested_at: Option<i64>,
+    /// Whose reviews it still waits on (`asked_of_whom`). Asked only of open PRs.
+    pub reviewers_asked: Vec<String>,
 }
 
 /// One repo's PRs, and who `gh` is signed in as.
@@ -80,11 +82,12 @@ query($requested: String!) {
 }
 "#;
 
-/// Whose reviews an open PR still waits on (`asked_of`), and who asked for the latest of them
-/// (`asker_of`).
+/// Whose reviews an open PR still waits on (`asked_of`, `asked_of_whom`), and who asked for the
+/// latest of them (`asker_of`). A team's name costs no points: GitHub charges for connections,
+/// not fields.
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
-  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } } } }
+  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
   timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
 }
 "#;
@@ -262,6 +265,9 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
                 pr.review_requested = pr.state.is_open() && asked_of(n, login, requested.contains(&pr.number));
                 pr.requested_by = pr.review_requested.then(|| asker_of(n, login)).flatten();
                 pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
+                if pr.state.is_open() {
+                    pr.reviewers_asked = asked_of_whom(n, login);
+                }
                 prs.push(pr);
             }
         }
@@ -283,6 +289,7 @@ pub fn parse_requested(json: &str) -> Result<Requested> {
             pr.review_requested = pr.state.is_open() && asked_of(n, login, true);
             pr.requested_by = asker_of(n, login);
             pr.requested_at = asked_at(n, login);
+            pr.reviewers_asked = asked_of_whom(n, login);
             pr.review_requested.then(|| (slug.to_string(), pr))
         })
         .collect();
@@ -303,6 +310,25 @@ fn asked_of(n: &Value, login: Option<&str>, found: bool) -> bool {
             _ => false,
         }
     })
+}
+
+/// Whose reviews a PR still waits on besides yours, as its review requests list them: people by
+/// their login, teams by their name. Yours is `review_requested`, which counts a team you're on
+/// too. A reviewer GitHub doesn't let you see (an empty `requestedReviewer`) is left out.
+fn asked_of_whom(n: &Value, login: Option<&str>) -> Vec<String> {
+    let Some(requests) = n.pointer("/reviewRequests/nodes").and_then(Value::as_array) else { return Vec::new() };
+    requests
+        .iter()
+        .filter_map(|r| {
+            let who = r.get("requestedReviewer").filter(|w| !w.is_null())?;
+            let name = match who.get("__typename").and_then(Value::as_str) {
+                Some("User") => who.get("login").and_then(Value::as_str).filter(|l| !login.is_some_and(|me| l.eq_ignore_ascii_case(me))),
+                Some("Team") => who.get("name").and_then(Value::as_str),
+                _ => None,
+            };
+            name.map(String::from)
+        })
+        .collect()
 }
 
 /// Who asked for your review: whoever made the latest request to you, else the latest to a team
@@ -371,6 +397,7 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         review_requested: false,
         requested_by: None,
         requested_at: None,
+        reviewers_asked: Vec::new(),
     })
 }
 
@@ -1970,6 +1997,20 @@ mod tests {
         let json = format!(r#"{{"data":{{"viewer":{{"login":"gwen"}},"requested":{{"nodes":[{{"number":1}},{{"number":3}}]}},"repository":{{"open":{{"nodes":[{open}]}},"done":{{"nodes":[]}}}}}}}}"#);
         let asked: Vec<_> = parse(&json).unwrap().prs.iter().map(|p| (p.number, p.review_requested)).collect();
         assert_eq!(asked, vec![(1, false), (2, true), (3, true), (4, false)]);
+    }
+
+    #[test]
+    fn reads_whose_reviews_an_open_pr_waits_on() {
+        // People by login, teams by name, as the requests list them; you're `review_requested`,
+        // and one you can't see is left out.
+        let asked = r#"[{"requestedReviewer":{"__typename":"User","login":"GWen"}},{"requestedReviewer":{"__typename":"Team","name":"platform"}},{"requestedReviewer":null},{"requestedReviewer":{"__typename":"User","login":"ana"}}]"#;
+        let node = |n: u64, state: &str| format!(r#"{{"number":{n},"title":"t","url":"u","state":"{state}","isDraft":false,"reviewDecision":null,"updatedAt":"2026-09-30T20:00:00Z","headRefName":"b{n}","commits":{{"nodes":[]}},"reviewRequests":{{"nodes":{asked}}}}}"#);
+        let json = format!(r#"{{"data":{{"viewer":{{"login":"gwen"}},"requested":{{"nodes":[]}},"repository":{{"open":{{"nodes":[{}]}},"done":{{"nodes":[{}]}}}}}}}}"#, node(1, "OPEN"), node(2, "MERGED"));
+        let prs = parse(&json).unwrap().prs;
+        assert!(prs[0].review_requested);
+        assert_eq!(prs[0].reviewers_asked, ["platform", "ana"]);
+        // A merged PR waits on nobody.
+        assert!(prs[1].reviewers_asked.is_empty());
     }
 
     #[test]

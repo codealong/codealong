@@ -8,7 +8,8 @@ import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
-import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
+import { reviewMark } from '../prStatus';
+import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
 import type { Waits } from '../queue';
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
@@ -741,17 +742,39 @@ export function Row({ id, role = 'option', label, selected = false, className, d
   );
 }
 
+/** Where a panel shown in place of another goes back to, and its name. */
+export interface PanelBackTo {
+  label: string;
+  onBack: () => void;
+  title?: string;
+}
+
+/** The way back to the panel this one shows in place of, over its header: a session shown from a
+ *  PR's or todo's panel, a PR from a session's, worktree's or todo's. */
+export function PanelBack({ back }: { back: PanelBackTo }) {
+  return (
+    <button type="button" className="ca-linkbtn ca-panelback" title={back.title ?? `Back to ${back.label}`} onClick={back.onBack}>
+      <Icon name="chevron-left" size={12} />
+      {back.label}
+    </button>
+  );
+}
+
 /** A PR's number, state and checks. With `onMenu`, a right-click on it shows the PR's own menu
  *  rather than the menu of the row it's on. With `onShow`, a click shows it in Codealong (its
  *  panel in PRs) and a double-click opens it on GitHub (`onOpen`), on a list's row too, where
  *  the click is then the chip's rather than the row's. With `onOpen` alone, a click opens it on
  *  GitHub, or with `inRow`, on a list's row, a double-click does. Without `titled`, it has no
- *  tooltip: a card shows instead (PrLink.tsx). */
-export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
+ *  tooltip: a card shows instead (PrLink.tsx). Its review shows as a mark after its number
+ *  (prStatus.ts `reviewMark`), but approved or changes asked for where it says its state in
+ *  words; the board's PR (`PrItem`) also says what's asked of you. */
+export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview'>>; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   const title = `#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`;
   const twice = onShow && onOpen ? { run: onOpen, does: 'open it on GitHub' } : undefined;
+  const found = reviewMark(pr);
+  const mark = found && (compact || found.key === 'asked' || found.key === 'agent') ? found : null;
   return (
     <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does={onShow ? 'show it in Codealong' : 'open it on GitHub'} act={onShow ?? onOpen} twice={twice} inRow={inRow} onMenu={onMenu}>
       <Icon name={PR_ICON[pr.state]} size={12} stroke={1.75} />
@@ -761,6 +784,11 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onO
         #{pr.number}
         {!compact && <span className="ca-pr-word">{PR_WORD[pr.state]}</span>}
       </span>
+      {mark && (
+        <span className={`ca-checks ca-prmark is-${mark.tone}`} title={mark.title}>
+          <Icon name={mark.icon} size={11} stroke={2} />
+        </span>
+      )}
       {/* What keeps it from merging that no state says, as the PRs view's pill says it. */}
       {open && pr.merge === 'conflicts' && (
         <span className="ca-checks is-attn" title="Conflicts with its base: resolve them before it can merge">

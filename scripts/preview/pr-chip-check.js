@@ -4,10 +4,11 @@
 // double-click on a row's PR chip opens the PR once, and not the session, nor selects the row;
 // the row's right-click menu has Open PR (but a todo's); Enter on the chip with the keyboard is
 // the chip's, not the window's, which would open the selected row or, in Todo with two picked,
-// start a session on them; a click on the chip opens nothing at once, then shows the PR in PRs,
-// selected, or opens it on GitHub when the board doesn't list it (the project's latest worktrees
-// are given a PR if they have none: one the board lists in their project where there is one, and
-// its first two open todos are linked to the first of them). On a
+// start a session on them; a click on the chip opens nothing at once, then selects its row and
+// shows the PR's panel in place of the row's, the list staying as it was, with the way back to
+// the row's own; or opens it on GitHub when the board doesn't list it (the project's latest
+// worktrees are given a PR if they have none: one the board lists in their project where there
+// is one, and its first two open todos are linked to the first of them). On a
 // session's or worktree's card pinned to the desktop (given a PR and an app if its worktree has
 // none): the card shows the PR, a click on it asks the main window to show it, by the board's
 // key, without the peek or opening the card's session, a double-click opens it on GitHub once, a
@@ -245,13 +246,23 @@
         })
         .then(function () {
           check('nor opens the session', calls('open_target').length === opens, String(calls('open_target').length));
-          if (listed[url]) {
-            check('then shows the PR in PRs, selected', view() === 'Pull requests' && selected() === 'row-pr:' + listed[url], String(selected()) + ' in ' + view());
-            check('and opens nothing', calls('open_url').length === urls, JSON.stringify(last('open_url')));
-          } else {
+          if (!listed[url]) {
             note('#' + n + ' is a PR the board doesn’t list');
             check('then opens it on GitHub, having no panel to show', calls('open_url').length === urls + 1 && last('open_url').url === url && view() === from, JSON.stringify(last('open_url')));
+            return;
           }
+          // The list stays as it was: the row is selected, and its panel gives way to the PR's.
+          var shown = q('.ca-prinsp .ca-insp-call');
+          var back = q('.ca-prinsp .ca-panelback');
+          check('then shows the PR’s panel beside the list, which stays', view() === from && !!shown && shown.textContent === '#' + n, (shown && shown.textContent) + ' in ' + view());
+          check('with its row selected', selected() === hit.row.id && all('.ca-board-list [role="option"][aria-selected="true"]').length === 1, String(selected()));
+          check('and the way back to the row’s own panel', !!back && /\S/.test(back.textContent), back && back.textContent);
+          check('and opens nothing', calls('open_url').length === urls, JSON.stringify(last('open_url')));
+          if (!back) return;
+          back.click();
+          return wait(200).then(function () {
+            check('back is the row’s own panel again, the row still selected', !q('.ca-prinsp') && selected() === hit.row.id && view() === from, String(selected()) + ' in ' + view());
+          });
         });
     })
     .then(done)

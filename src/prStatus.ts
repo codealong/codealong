@@ -62,6 +62,40 @@ function reviewPill(pr: PrFacts): PrPill {
   }
 }
 
+/** Where a PR's review stands, as its chip marks it after its number (primitives.tsx PrChip):
+ *  what the chip's color can't tell apart, an approved PR being as green as an open one. `tone`
+ *  is the chip's checks' (`.ca-checks.is-…`). */
+export interface ReviewMark {
+  key: 'asked' | 'agent' | 'approved' | 'changes';
+  tone: 'attn' | 'pending' | 'pass' | 'fail';
+  icon: string;
+  title: string;
+}
+
+/** The chip's review mark: your review asked for (unless snoozed), Codealong's agent still
+ *  reviewing it, approved, or changes asked for. None while it only awaits review, for a draft,
+ *  whose icon says so, or once it's merged or closed. A worktree's PR (`Pr`) has only its state
+ *  to go by; the board's (`PrItem`) says what's asked of you. */
+export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview'>>): ReviewMark | null {
+  if (!isOpen(pr.state) || pr.state === 'draft') return null;
+  if (heldForAgent(pr)) return { key: 'agent', tone: 'pending', icon: 'hourglass', title: 'Codealong’s agent is reviewing it: it waits on your review once that’s done' };
+  if (pr.reviewRequested && !pr.snoozedUntil) return { key: 'asked', tone: 'attn', icon: 'eye', title: pr.requestedBy ? `Your review is asked for, by ${pr.requestedBy}` : 'Your review is asked for' };
+  if (pr.state === 'approved') return { key: 'approved', tone: 'pass', icon: 'user-check', title: 'Approved' };
+  if (pr.state === 'changes') return { key: 'changes', tone: 'fail', icon: 'file-diff', title: 'A reviewer asked for changes' };
+  return null;
+}
+
+/** Whose reviews an open PR still waits on, as its card says it: you first when it's asked of you,
+ *  snoozed or not, then the others as GitHub lists them. Null when it waits on nobody's, or is
+ *  done. */
+export function reviewersWords(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'reviewersAsked'>>): string | null {
+  if (!isOpen(pr.state)) return null;
+  const names = [...(pr.reviewRequested ? ['you'] : []), ...(pr.reviewersAsked ?? [])];
+  if (names.length === 0) return null;
+  const said = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+  return `Waiting on a review from ${said}`;
+}
+
 function checksPill(c: Checks): PrPill | null {
   if (c.failed > 0) {
     const names = c.failing.length > 0 ? `: ${c.failing.join(', ')}` : '';

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { escapeTopmost, pressedOutside } from './useDismiss';
+import { escapeTopmost, keyLeavesHover, pressedOutside } from './useDismiss';
 
 /** A stand-in for an element: `inside` names what it contains, `matches` what its ancestors match. */
 const node = (name: string, matches: string[] = []) => ({ name, closest: (sel: string) => (matches.includes(sel) ? {} : null) }) as unknown as Element;
@@ -56,5 +56,24 @@ describe('escapeTopmost', () => {
     const e = key();
     expect(escapeTopmost(e, [])).toBe(false);
     expect(e.preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe('keyLeavesHover', () => {
+  const press = (key: string, mods: { meta?: boolean; ctrl?: boolean; alt?: boolean } = {}) => ({ key, metaKey: !!mods.meta, ctrlKey: !!mods.ctrl, altKey: !!mods.alt });
+
+  it('keeps a hover card up for a modifier on its own and for ⌘C', () => {
+    for (const k of ['Meta', 'Shift', 'Alt', 'Control', 'CapsLock']) expect(keyLeavesHover(press(k))).toBe(true);
+    expect(keyLeavesHover(press('c', { meta: true }))).toBe(true);
+    expect(keyLeavesHover(press('C', { meta: true }))).toBe(true);
+  });
+
+  it('puts it away for any other key, chords with C included', () => {
+    expect(keyLeavesHover(press('a'))).toBe(false);
+    expect(keyLeavesHover(press('c'))).toBe(false);
+    expect(keyLeavesHover(press('Enter'))).toBe(false);
+    expect(keyLeavesHover(press('v', { meta: true }))).toBe(false);
+    expect(keyLeavesHover(press('c', { meta: true, ctrl: true }))).toBe(false);
+    expect(keyLeavesHover(press('c', { meta: true, alt: true }))).toBe(false);
   });
 });

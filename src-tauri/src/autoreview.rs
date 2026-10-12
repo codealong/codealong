@@ -2003,6 +2003,7 @@ mod tests {
             review_requested: true,
             requested_by: None,
             requested_at: Some(n as i64),
+            reviewers_asked: Vec::new(),
             snoozed_until: None,
             nudge: false,
             nudge_by_default: false,

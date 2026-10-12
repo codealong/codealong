@@ -25,7 +25,8 @@ export interface DismissOptions {
   inside?: string | ((target: Element) => boolean);
   /** The keys that close it. `escape` (the default) closes the one opened last and takes the
    *  key. `any` is for a card the pointer brought up: any key puts it away and still does what
-   *  it does. `none` leaves keys to the caller. */
+   *  it does, but a modifier alone and ⌘C, which copies what's selected on it (`keyLeavesHover`).
+   *  `none` leaves keys to the caller. */
   keys?: 'escape' | 'any' | 'none';
   /** Closes it when the window goes to the background too. */
   blur?: boolean;
@@ -82,6 +83,13 @@ export function useEscape(onClose: () => void, when = true): void {
   }, [when]);
 }
 
+/** The keys a card the pointer brought up stays up for (`keys: 'any'`): a modifier pressed on its
+ *  own, on the way to a chord or a ⌘-click, and ⌘C, which copies text selected on the card. */
+export function keyLeavesHover(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>): boolean {
+  if (e.key === 'Meta' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Control' || e.key === 'CapsLock') return true;
+  return e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'c';
+}
+
 /** Closes a popover on a press outside `ref` (anywhere at all, without a ref) and on Escape.
  *  `onClose` may be a new function every render: the latest is called. */
 export function useDismiss(ref: RefObject<Element | null> | null, onClose: () => void, options: DismissOptions = {}): void {
@@ -95,12 +103,15 @@ export function useDismiss(ref: RefObject<Element | null> | null, onClose: () =>
     const onDown = (e: PointerEvent) => {
       if (pressedOutside(e.target, ref?.current ?? null, latest.current.inside)) close();
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (!keyLeavesHover(e)) close();
+    };
     window.addEventListener('pointerdown', onDown, true);
-    if (keys === 'any') window.addEventListener('keydown', close, true);
+    if (keys === 'any') window.addEventListener('keydown', onKey, true);
     if (blur) window.addEventListener('blur', close);
     return () => {
       window.removeEventListener('pointerdown', onDown, true);
-      if (keys === 'any') window.removeEventListener('keydown', close, true);
+      if (keys === 'any') window.removeEventListener('keydown', onKey, true);
       if (blur) window.removeEventListener('blur', close);
     };
   }, [ref, when, keys, blur]);

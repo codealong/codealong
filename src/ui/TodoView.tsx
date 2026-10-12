@@ -87,7 +87,8 @@ interface TodoRowProps {
   onOpen: () => void;
   onContextMenu: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
-  /** A click on its PR's chip: the PR in PRs. A double-click opens it on GitHub (`onOpenPr`). */
+  /** A click on its PR's chip: the PR in the panel beside the list. A double-click opens it on
+   *  GitHub (`onOpenPr`). */
   onShowPr: (pr: Pr) => void;
   onOpenPr: (pr: Pr) => void;
   onFilterLabel: (label: Label) => void;
@@ -204,8 +205,9 @@ interface TodoViewProps {
   onOpen: (row: TodoItem) => void;
   onContextMenu: (row: TodoItem) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
-  /** A click on a row's PR chip: the PR in PRs. A double-click opens it on GitHub (`onOpenPr`). */
-  onShowPr: (pr: Pr) => void;
+  /** A click on a row's PR chip: the PR in the panel beside the list, the row selected. A
+   *  double-click opens it on GitHub (`onOpenPr`). */
+  onShowPr: (pr: Pr, row: TodoItem) => void;
   onOpenPr: (pr: Pr) => void;
   onFilterLabel: (label: Label) => void;
   /** Moves a todo to insertion point `index` among the section's rows. */
@@ -258,7 +260,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
             onOpen={() => onOpen(r)}
             onContextMenu={() => onContextMenu(r)}
             onOpenSession={onOpenSession}
-            onShowPr={onShowPr}
+            onShowPr={(pr) => onShowPr(pr, r)}
             onOpenPr={onOpenPr}
             onFilterLabel={onFilterLabel}
             blocked={blockedBy(r.todo, todos)}
@@ -321,7 +323,7 @@ export function TodoView(props: TodoViewProps) {
                   onOpen={() => onOpen(r)}
                   onContextMenu={() => onContextMenu(r)}
                   onOpenSession={onOpenSession}
-                  onShowPr={onShowPr}
+                  onShowPr={(pr) => onShowPr(pr, r)}
                   onOpenPr={onOpenPr}
                   onFilterLabel={onFilterLabel}
                   blocked={blockedBy(r.todo, todos)}

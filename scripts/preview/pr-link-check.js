@@ -145,7 +145,7 @@
       var sess = Array.prototype.filter.call(document.querySelectorAll('.ca-prinsp .ca-places .ca-sesschip'), function (el) { var t = el.querySelector('.ca-sesschip-title'); return !!t && t.textContent === picked.title; })[0];
       check('the PR panel lists its session', !!sess);
       sess.click();
-      return until(function () { return !document.querySelector('.ca-prinsp') && document.querySelector('.ca-sessinsp-back') && title() === picked.title; }, 3000, 'the session in the PR panel’s place');
+      return until(function () { return !document.querySelector('.ca-prinsp') && document.querySelector('.ca-panelback') && title() === picked.title; }, 3000, 'the session in the PR panel’s place');
     })
     .then(function () {
       var chip = Array.prototype.filter.call(document.querySelectorAll('.ca-sessinsp .ca-prchipcard'), function (el) { return el.textContent.indexOf('#' + picked.pr.number) >= 0; })[0];
@@ -162,11 +162,11 @@
     .then(function () {
       var shown = document.querySelector('.ca-prinsp .ca-insp-call').textContent;
       check('which goes back to the PR’s own panel', shown === '#' + picked.pr.number, shown);
-      check('with the session gone from its place', !document.querySelector('.ca-sessinsp-back'));
+      check('with the session gone from its place', !document.querySelector('.ca-panelback'));
       // A click on the chip itself does the same, once no second click has come.
       var sess = Array.prototype.filter.call(document.querySelectorAll('.ca-prinsp .ca-places .ca-sesschip'), function (el) { var t = el.querySelector('.ca-sesschip-title'); return !!t && t.textContent === picked.title; })[0];
       sess.click();
-      return until(function () { return !document.querySelector('.ca-prinsp') && document.querySelector('.ca-sessinsp-back') && title() === picked.title; }, 3000, 'the session in the PR panel’s place again');
+      return until(function () { return !document.querySelector('.ca-prinsp') && document.querySelector('.ca-panelback') && title() === picked.title; }, 3000, 'the session in the PR panel’s place again');
     })
     .then(function () {
       var chip = Array.prototype.filter.call(document.querySelectorAll('.ca-sessinsp .ca-prchipcard .ca-pr'), function (el) { return el.textContent.indexOf('#' + picked.pr.number) >= 0; })[0];

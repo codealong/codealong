@@ -47,9 +47,14 @@ done, and ⌃⌘1 to ⌃⌘4 snooze it for one of the Snooze menu's times); the 
 A click on a row's chips selects the row, as a click anywhere on it does, and a double-click does
 the chip's own thing (the session where it runs, its todo, its app) in place of opening the row; in
 a panel, a click does. A PR's chip is the same wherever it is, a row, a panel or a card: a click
-shows the PR in Codealong (its panel in PRs, or its card on the canvas when the canvas has one), and
-a double-click opens it on GitHub; a PR Codealong doesn't list opens on GitHub on a click too. A
-click waits a quarter of a second for a second one, so a double-click doesn't show the PR first.
+shows the PR in Codealong, and a double-click opens it on GitHub; a PR Codealong doesn't list opens
+on GitHub on a click too. In Sessions, Worktrees and Todo, the PR's panel shows in place of the one
+beside the list, the chip's row selected, with a link back to the row's own panel over it, so the
+list stays as it was; from PRs, the canvas (its card, when the canvas has one) and the floating
+windows, it's the PR's row in PRs. A click waits a quarter of a second for a second one, so a
+double-click doesn't show the PR first. After the number, a mark says where its review stands:
+approved, changes asked for, your review asked for (amber), or Codealong's agent still reviewing
+it; a chip that says its state in words (a session's header) marks only the last two.
 A right-click (or ⌃-click) opens a row's menu and leaves the selection where it was; the row is
 ringed while its menu is up. A right-click on the header of a
 panel (a session's, a worktree's, a PR's, a todo's, or the rows picked together) is its row's menu,
@@ -234,9 +239,9 @@ The selected session's panel keeps its top to three lines so the conversation ha
 title with the ways to open it, mark it seen, expand the panel, its details (ⓘ: account, ID, folder,
 times) and its menu (⋯, New session here among the rest); where it stands, its worktree and branch,
 and its account (its harness on hover); and the PRs it worked on (as the PRs view links them, else
-its worktree's), each a chip that shows the PR in PRs on a click, opens it on GitHub on a
-double-click and shows the PR's card on hover, with the todo
-it's on and +N for the rest. Below is its whole conversation, read from the session's own record
+its worktree's), each a chip that shows the PR's panel in place of the session's on a click (in
+the floating windows, in PRs), opens it on GitHub on a double-click and shows the PR's card on
+hover, with the todo it's on and +N for the rest. Below is its whole conversation, read from the session's own record
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the agent's replies
 as Markdown, and every tool call, which opens to its input and output; runs of calls fold into one
 line. Who said what and when heads a run of messages, not each one: your prompt, then the agent's
@@ -248,9 +253,11 @@ Codealong, pasted them into the session's terminal or attached them in the Claud
 click one to open it. It opens at the newest and loads older pages as you scroll up, and follows the
 session as it goes. A link to a GitHub PR, in a reply or a prompt, reads `name#123` with the PR's
 state as its icon; hovering it shows a card with where the PR stands (review, checks, branches,
-size), the worktrees that hold it and the sessions that worked on it, each a click from its panel,
-and its right-click menu is the PR's. A PR the board doesn't list (an older one, another repo's) is
-asked of GitHub when its card first shows.
+size, and whose reviews it still waits on, you first), the worktrees that hold it and the sessions
+that worked on it, each a click from its panel, and its right-click menu is the PR's. A PR the
+board doesn't list (an older one, another repo's) is asked of GitHub when its card first shows.
+A card the pointer brings up (a PR's, a session's helpers) goes away on a key, which still does
+what it does, but not on ⌘, ⇧, ⌥ or ⌃ alone, nor on ⌘C, which copies what you selected on it.
 
 #### Moving through a conversation
 

@@ -67,7 +67,7 @@ import { useLatest } from './latest';
 import { useMainKeys, VIEW_CHORDS } from './mainKeys';
 import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
-import { canvasPicked, MainPanel } from './ui/MainPanel';
+import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
 import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, sessionItemOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
 import { inProject } from './quick';
@@ -521,15 +521,17 @@ export function App() {
     onDesktop,
     canvasItem,
   });
-  // A session shown in a PR's or todo's panel, from its list of sessions, until you go back.
-  // It's tied to the panel it came from: selecting another PR or todo leaves it.
-  const [drill, setDrill] = useState<{ from: string; key: string } | null>(null);
+  // A session shown in a PR's or todo's panel, from its list of sessions, or a PR in a session's,
+  // worktree's or todo's panel, from its chip (`showPrOf`), until you go back. It's tied to the
+  // panel it came from: selecting another row leaves it. Rows picked together show their own
+  // panel over it (MainPanel.tsx).
+  const [drill, setDrill] = useState<Drill | null>(null);
   const panelFrom =
     view === 'canvas'
       ? canvasSel && (canvasSel.ref === 'pr' || canvasSel.ref === 'todo')
         ? `${canvasSel.ref}:${canvasSel.key}`
         : null
-      : (view === 'prs' || view === 'todo') && pickedRows.length === 0
+      : pickedRows.length === 0
         ? (selected?.key ?? null)
         : null;
   useEffect(() => {
@@ -895,12 +897,24 @@ export function App() {
   const openLanePr = (lane: Lane) => {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
   };
-  /** Shows a PR in PRs, with its panel: a click on its chip, wherever this window shows one. A PR
-   *  the board doesn't list has no panel here, so it opens on GitHub instead. */
-  const showPrOf = (p: Pr) => {
+  /** A click on a PR's chip, wherever this window shows one. In Sessions, Worktrees and Todo, the
+   *  PR's panel shows in place of the one beside the list, with the way back to it (`drill`), so
+   *  the list stays as it was; a chip on a list's row selects the row first (`row`), so the way
+   *  back is to its panel. In PRs and on the canvas, its row or card (`reveal`). A PR the board
+   *  doesn't list has no panel here, so it opens on GitHub instead. */
+  const showPrOf = (p: Pr, row?: { key: string; select: () => void }) => {
     const item = board?.prs.find((x) => x.url === p.url);
-    if (item) reveal.current({ kind: 'pr', key: item.key });
-    else openUrl(p.url).catch((e: unknown) => setToast(String(e)));
+    if (!item) {
+      openUrl(p.url).catch((e: unknown) => setToast(String(e)));
+      return;
+    }
+    const from = row?.key ?? panelFrom;
+    if ((view !== 'sessions' && view !== 'worktrees' && view !== 'todo') || !from) {
+      reveal.current({ kind: 'pr', key: item.key });
+      return;
+    }
+    row?.select();
+    setDrill({ from, key: item.key, pr: true });
   };
   /** The right-click menu of a worktree's PR chip: the PR's own. */
   const lanePrMenu = (lane: Lane) => {
@@ -1239,7 +1253,15 @@ export function App() {
       onContextMenu={() => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : laneMenu(r.lane))}
       onAgentMenu={(s) => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : sessionMenu(r.lane, s, 'worktree'))}
       onPrMenu={() => lanePrMenu(r.lane)}
-      onPrShow={() => r.lane.pr && showPrOf(r.lane.pr)}
+      // As a press on the worktree's part of the row selects: its first line, or it whole.
+      onPrShow={() => {
+        const key = r.lines[0]?.key ?? r.lane.id;
+        const select = () => {
+          picks.worktrees.clear();
+          setSelectedKey(key);
+        };
+        if (r.lane.pr) showPrOf(r.lane.pr, { key, select });
+      }}
       onPrOpen={() => openLanePr(r.lane)}
       todosFor={todosFor}
       onShowTodo={showTodo}
@@ -1585,7 +1607,7 @@ export function App() {
                   todoMenu(r);
                 }}
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
-                onShowPr={showPrOf}
+                onShowPr={(p, r) => showPrOf(p, { key: r.key, select: () => selectTodoRow(r, 'one') })}
                 onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
                 onFilterLabel={(l) => setLabelFilter(labelFilter === l.id ? null : l.id)}
                 onMove={moveTodo}
@@ -1660,7 +1682,7 @@ export function App() {
                   else sessionMenu(r.lane, r.session, 'session');
                 }}
                 onPrMenu={(r) => lanePrMenu(r.lane)}
-                onPrShow={(r) => r.lane.pr && showPrOf(r.lane.pr)}
+                onPrShow={(r) => r.lane.pr && showPrOf(r.lane.pr, { key: r.key, select: () => picks.sessions.select(r, 'one') })}
                 onPrOpen={(r) => openLanePr(r.lane)}
                 onPlacePinned={(key, index) => sessionPins.place(pinnedRows.map((r) => r.session.key), key, index)}
                 onUnpin={sessionPins.remove}

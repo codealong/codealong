@@ -13,6 +13,10 @@
    a PR's description), and the whole panel scrolls sideways with it. */
 .ca-insp-sec { display: grid; grid-template-columns: minmax(0, 1fr); }
 .ca-insp-sec > .ca-label { margin-bottom: 6px; }
+/* The way back to the panel this one shows in place of (primitives.tsx PanelBack), over its
+   header: a session shown from a PR's or todo's panel, a PR from a session's, worktree's or
+   todo's. */
+.ca-panelback { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; margin-bottom: 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Inspector */
 /* When the panel is too narrow for its buttons, the row takes most of the right padding, then

@@ -38,7 +38,7 @@ import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
 import { PrChipCard } from './PrLink';
-import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, STATUS_WORD, SessionGlyph } from './primitives';
+import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { SidesChip } from './SideStrip';
 import { TodoGlyph } from './TodoBits';
@@ -98,7 +98,7 @@ export interface SessionHeaderProps {
   /** The device it's on, when that's another of yours: it opens there. */
   device?: DeviceView | null;
   /** Shown from somewhere to go back to (a PR's or a todo's panel). */
-  back?: { label: string; onBack: () => void; title?: string };
+  back?: PanelBackTo;
   /** In Sessions: whether the panel takes the whole window, and the way to switch. */
   maximized?: boolean;
   onMaximize?: () => void;
@@ -262,12 +262,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
 
   return (
     <header className="ca-sessinsp-head" onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
-      {back && (
-        <button type="button" className="ca-linkbtn ca-sessinsp-back" title={back.title ?? `Back to ${back.label}`} onClick={back.onBack}>
-          <Icon name="chevron-left" size={12} />
-          {back.label}
-        </button>
-      )}
+      {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} prs={prs} onOpenPr={onOpenPr} />}
       <div className="ca-sessinsp-top">

@@ -392,6 +392,7 @@ mod tests {
             review_requested: false,
             requested_by: None,
             requested_at: None,
+            reviewers_asked: Vec::new(),
             snoozed_until: None,
             nudge: state.is_open(),
             nudge_by_default: false,
