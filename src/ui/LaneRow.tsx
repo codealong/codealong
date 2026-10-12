@@ -488,7 +488,7 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
   const cut = (t: string) => (t.length > 80 ? `${t.slice(0, 79)}…` : t);
   const by = g.byTitle ? `Suggested by ${g.byTitle}` : 'Suggested';
   // Replies to send from its box, or choices picked in its question box.
-  const title = g.replies.length ? `${by}, to send from its box:\n${g.replies.map((r) => `· ${cut(r)}`).join('\n')}` : `${by}, picked to answer its ${picks.length > 1 ? 'questions' : 'question'} with:\n${picks.map(([q, labels]) => `· ${cut(q)} ${labels.join(', ')}`).join('\n')}`;
+  const title = g.replies.length ? `${by}, to send from its box:\n${g.replies.map((r) => `· ${cut(r)}`).join('\n')}` : `${by}, picked to answer its ${picks.length > 1 ? 'questions' : 'question'} with:\n${picks.map(([q, labels]) => `· ${cut(q)} ${labels.join(', ')}${g.why?.[q] ? ` (${g.why[q]})` : ''}`).join('\n')}`;
   return (
     <Chip className="ca-suggestedchip" title={title}>
       <Icon name="sparkles" size={12} />

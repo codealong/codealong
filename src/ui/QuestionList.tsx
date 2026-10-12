@@ -42,9 +42,19 @@ export function nextQuestion(answered: readonly boolean[], at: number): number |
   return null;
 }
 
-/** `suggested` marks the choices another session picked for them (`Suggestions.picks`), while
- *  they wait to be answered where the session runs. */
-export function QuestionList({ questions, answers, suggested }: { questions: Question[]; answers?: Record<string, string[]>; suggested?: Record<string, string[]> }) {
+/** Why another session picked a question's choice for you (`Suggestions.why`), under it. */
+export function QuestionWhy({ why }: { why: string }) {
+  return (
+    <span className="ca-question-why">
+      <Icon name="sparkles" size={12} />
+      <span>{why}</span>
+    </span>
+  );
+}
+
+/** `suggested` marks the choices another session picked for them (`Suggestions.picks`), and
+ *  `why` says why, while they wait to be answered where the session runs. */
+export function QuestionList({ questions, answers, suggested, why }: { questions: Question[]; answers?: Record<string, string[]>; suggested?: Record<string, string[]>; why?: Record<string, string> }) {
   return (
     <div className="ca-questions">
       {questions.map((q) => {
@@ -70,6 +80,7 @@ export function QuestionList({ questions, answers, suggested }: { questions: Que
                         <Rich text={o.description} now={0} />
                       </span>
                     )}
+                    {why?.[q.question] && suggested?.[q.question]?.[0] === o.label && <QuestionWhy why={why[q.question]} />}
                   </li>
                 ))}
               </ol>

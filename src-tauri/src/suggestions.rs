@@ -31,6 +31,8 @@ pub const MOST: usize = 6;
 /// At most this many characters in a reply, and in the note.
 pub const LONGEST: usize = 4000;
 pub const NOTE_LONGEST: usize = 600;
+/// At most this many characters in why a pick: a few words, read beside the choice.
+pub const WHY_LONGEST: usize = 120;
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub struct Store {
@@ -76,14 +78,16 @@ pub fn tidy_note(note: Option<String>) -> Result<Option<String>> {
 /// shows them picked. A pick is a choice's label, or `<header>: <label>` (the question itself
 /// before the colon will do) where more than one question offers it; case, a full stop and a
 /// "(Recommended)" after it don't matter. An error says which pick doesn't name one choice, or
-/// what picks too many for a question that takes one.
-pub fn picked(questions: &[Question], picks: &[String]) -> Result<BTreeMap<String, Vec<String>>> {
+/// what picks too many for a question that takes one. `why` is why each pick, briefly, in their
+/// order (an empty one for a pick without), kept by its question: one for each question.
+pub fn picked(questions: &[Question], picks: &[String], why: &[String]) -> Result<Picked> {
     if questions.is_empty() {
         bail!("It asks no questions now, so there's no choice of its to pick: suggest replies instead.");
     }
     let all: Vec<&Question> = questions.iter().collect();
     let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for pick in picks.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
+    let mut whys: BTreeMap<String, String> = BTreeMap::new();
+    for (i, pick) in picks.iter().map(|p| p.trim()).enumerate().filter(|(_, p)| !p.is_empty()) {
         let mut found = matching(&all, pick);
         if found.is_empty() {
             if let Some((head, rest)) = pick.split_once(':') {
@@ -97,6 +101,13 @@ pub fn picked(questions: &[Question], picks: &[String]) -> Result<BTreeMap<Strin
             _ if found.iter().all(|(q, _)| q.question == found[0].0.question) => bail!("“{pick}” could be more than one of its choices: write the one you mean exactly."),
             _ => bail!("“{pick}” is a choice in more than one of its questions: write it as `<header>: {pick}`."),
         };
+        let reason = why.get(i).map(|w| w.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default();
+        if reason.chars().count() > WHY_LONGEST {
+            bail!("Why “{label}” is at most {WHY_LONGEST} characters: a few words, read beside it. Say more in --note.");
+        }
+        if !reason.is_empty() && whys.insert(q.question.clone(), reason).is_some() {
+            bail!("“{}” has a why already: give each question one.", named(q));
+        }
         let chosen = out.entry(q.question.clone()).or_default();
         if chosen.contains(&label) {
             continue;
@@ -109,7 +120,15 @@ pub fn picked(questions: &[Question], picks: &[String]) -> Result<BTreeMap<Strin
     if out.is_empty() {
         bail!("Give a choice of its to pick.");
     }
-    Ok(out)
+    Ok(Picked { picks: out, why: whys })
+}
+
+/// The choices picked for the questions a session asks, by question, and why each question's
+/// where the suggester said (`Suggestions::picks`, `Suggestions::why`).
+#[derive(Debug, PartialEq)]
+pub struct Picked {
+    pub picks: BTreeMap<String, Vec<String>>,
+    pub why: BTreeMap<String, String>,
 }
 
 /// The choices of these questions that `pick` names, with their questions: the ones it names
@@ -222,7 +241,7 @@ mod tests {
     use super::*;
 
     fn suggested(at: i64) -> Suggestions {
-        Suggestions { replies: vec!["Yes, push it".into()], picks: BTreeMap::new(), note: None, by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at, prompt_at: None }
+        Suggestions { replies: vec!["Yes, push it".into()], picks: BTreeMap::new(), why: BTreeMap::new(), note: None, by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at, prompt_at: None }
     }
 
     fn asked(question: &str, header: &str, labels: &[&str], multi_select: bool) -> Question {
@@ -235,7 +254,7 @@ mod tests {
         let scope = asked("How far should it go?", "Scope", &["Read, review and merge (Recommended)", "Read and review only", "Read only first"], false);
         let push = asked("Push it?", "Push", &["Yes", "No"], false);
         let checks = asked("Which checks?", "Checks", &["Lint", "Tests", "Yes"], true);
-        let picks = |p: &[&str]| picked(&[scope.clone(), push.clone(), checks.clone()], &p.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let picks = |p: &[&str]| picked(&[scope.clone(), push.clone(), checks.clone()], &p.iter().map(|s| s.to_string()).collect::<Vec<_>>(), &[]).map(|p| p.picks);
         let want = |pairs: &[(&str, &[&str])]| pairs.iter().map(|(q, l)| (q.to_string(), l.iter().map(|s| s.to_string()).collect())).collect::<BTreeMap<String, Vec<String>>>();
         // By label, as an agent writes it: case, a full stop and "(Recommended)" don't matter.
         assert_eq!(picks(&["read and review only."]).unwrap(), want(&[("How far should it go?", &["Read and review only"])]));
@@ -254,11 +273,27 @@ mod tests {
         // A label written exactly is that one, whatever else it could be; one that's only close to
         // two isn't either.
         let files = asked("Which file?", "File", &["README.md", "readme.md"], false);
-        let file = |p: &str| picked(std::slice::from_ref(&files), &[p.to_string()]);
+        let file = |p: &str| picked(std::slice::from_ref(&files), &[p.to_string()], &[]).map(|p| p.picks);
         assert_eq!(file("readme.md").unwrap(), want(&[("Which file?", &["readme.md"])]));
         assert_eq!(file("File: README.md").unwrap(), want(&[("Which file?", &["README.md"])]));
         assert!(file("Readme.md").unwrap_err().to_string().contains("write the one you mean exactly"));
-        assert!(picked(&[], &["Yes".into()]).unwrap_err().to_string().contains("asks no questions"));
+        assert!(picked(&[], &["Yes".into()], &[]).unwrap_err().to_string().contains("asks no questions"));
+    }
+
+    /// Why a pick goes by its question, its white space run together; a pick without one has
+    /// none, and a question takes one, briefly.
+    #[test]
+    fn why_a_pick_goes_with_its_question() {
+        let push = asked("Push it?", "Push", &["Yes", "No"], false);
+        let checks = asked("Which checks?", "Checks", &["Lint", "Tests"], true);
+        let whys = |p: &[&str], w: &[&str]| picked(&[push.clone(), checks.clone()], &p.iter().map(|s| s.to_string()).collect::<Vec<_>>(), &w.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let got = whys(&["Lint", "Tests", "Yes"], &["", " Both  pass\nnow ", ""]).unwrap();
+        assert_eq!(got.why, BTreeMap::from([("Which checks?".to_string(), "Both pass now".to_string())]));
+        assert_eq!(got.picks["Which checks?"], ["Lint", "Tests"]);
+        // Fewer whys than picks: the rest have none.
+        assert_eq!(whys(&["Yes", "Lint"], &["Its checks pass"]).unwrap().why, BTreeMap::from([("Push it?".to_string(), "Its checks pass".to_string())]));
+        assert!(whys(&["Lint", "Tests"], &["Fast", "Thorough"]).unwrap_err().to_string().contains("“Checks” has a why already"));
+        assert!(whys(&["Yes"], &[&"x".repeat(WHY_LONGEST + 1)]).unwrap_err().to_string().contains("at most 120 characters"));
     }
 
     #[test]

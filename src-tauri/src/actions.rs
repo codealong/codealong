@@ -648,7 +648,7 @@ fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
     if n > 0 && !asked.is_empty() {
         return Err("It asks you questions, which a reply would decline: pick among its choices instead (`--pick`; `codealong session pending` lists them).".into());
     }
-    let picks = if picking { crate::suggestions::picked(&asked, &p.picks).map_err(words)? } else { BTreeMap::new() };
+    let crate::suggestions::Picked { picks, why } = if picking { crate::suggestions::picked(&asked, &p.picks, &p.why).map_err(words)? } else { crate::suggestions::Picked { picks: BTreeMap::new(), why: BTreeMap::new() } };
     // What was read is where they answer from; without it (an older Mac's agent), where it stands.
     let read = p.prompt_at.unwrap_or(session.last_prompt_at);
     let suggesting = n > 0 || !picks.is_empty();
@@ -659,7 +659,7 @@ fn suggest(engine: &Handle, c: &Call) -> Result<Value, String> {
     }
     let filled = |v: Option<String>| v.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
     let questions = picks.len();
-    let suggested = suggesting.then(|| crate::model::Suggestions { replies, picks, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms(), prompt_at: Some(read) });
+    let suggested = suggesting.then(|| crate::model::Suggestions { replies, picks, why, note, by: filled(p.by), by_title: filled(p.by_title), at: crate::util::now_ms(), prompt_at: Some(read) });
     let changed = crate::suggestions::set(key, suggested).map_err(words)?;
     // Waited for whoever asked, so that what they read next (an agent's `codealong sessions`)
     // has them.

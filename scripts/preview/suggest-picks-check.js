@@ -3,6 +3,7 @@
 // why, and no list of replies; Answer goes at once, with them. A pick of yours changes them, the
 // Suggested chip stays on the suggested choice, and Dismiss takes away the ones of questions you didn't
 // touch, words you typed counting as a touch. The row's Suggested chip says what was picked.
+// Why a pick shows under its choice.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/suggest-picks-check.js
 // As PREVIEW_INIT after `window.__picks_screenshot = true` it leaves the box as it opened, for a
 // screenshot.
@@ -53,7 +54,8 @@
           s.suggestions = {
             replies: [],
             picks: { 'Which color do you prefer?': ['Blue'], 'Which days suit you?': ['Mon', 'Wed'] },
-            note: 'Blue matches the rest of the app.',
+            why: { 'Which color do you prefer?': 'It matches the rest of the app' },
+            note: 'Both are what it asked for before.',
             by: 'claude:claude:sup',
             byTitle: 'Supervisor',
             at: suggestedAt,
@@ -84,7 +86,7 @@
   until(function () { return row(); }, 20000)
     .then(function () {
       var chip = row().querySelector('.ca-suggestedchip');
-      check('the row says it has picks', !!chip && /Suggested by Supervisor, picked to answer its questions with/.test(chip.title) && /Which days suit you\? Mon, Wed/.test(chip.title), chip ? chip.title : 'no chip');
+      check('the row says it has picks', !!chip && /Suggested by Supervisor, picked to answer its questions with/.test(chip.title) && /Which days suit you\? Mon, Wed/.test(chip.title) && /Which color do you prefer\? Blue \(It matches the rest of the app\)/.test(chip.title), chip ? chip.title : 'no chip');
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       row().click();
       return until(function () { return box() && button('Blue'); }, 5000);
@@ -96,7 +98,9 @@
       check('a choice shows what it says about it', !!desc && desc.textContent === 'The color red' && !button('Blue').querySelector('.ca-question-desc'));
       var by = box().querySelector('.ca-suggest-head .ca-suggest-by');
       var note = box().querySelector('.ca-suggest-note');
-      check('who suggested it and why', !!by && by.textContent === 'Suggested by Supervisor' && !!note && note.textContent === 'Blue matches the rest of the app.', by ? by.textContent : 'no head');
+      check('who suggested it, and the note', !!by && by.textContent === 'Suggested by Supervisor' && !!note && note.textContent === 'Both are what it asked for before.', by ? by.textContent : 'no head');
+      var why = function (b) { var w = b.querySelector('.ca-question-why'); return w ? w.textContent : ''; };
+      check('why it was picked, beside it', why(button('Blue')) === 'It matches the rest of the app' && why(button('Red')) === '', why(button('Blue')));
       check('no list of replies', !document.querySelector('.ca-sessinsp .ca-suggest-reply'));
       check('the strip marks both answered, without sparkles', steps().length === 2 && steps().every(function (b) { return !!b.querySelector('svg') && !b.querySelector('.ca-suggestedchip'); }));
       check('answer at once', !!button('Answer') && !button('Answer').disabled && !button('Next'));
@@ -133,7 +137,7 @@
     })
     .then(function () {
       check('dismiss asks the engine', window.__calls.some(function (c) { return c[0] === 'dismiss_suggestions' && (c[1] || {}).key === picked.key; }));
-      check('and takes away the head and the marks', !box().querySelector('.ca-suggest-head') && !marked(button('Wed')));
+      check('and takes away the head, the marks and why', !box().querySelector('.ca-suggest-head') && !marked(button('Wed')) && !box().querySelector('.ca-question-why'));
       check('an answer you began keeps its picks', on(button('Wed')) && !on(button('Mon')));
       steps()[0].click();
       return tick();

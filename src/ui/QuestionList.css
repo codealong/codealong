@@ -149,6 +149,20 @@
 .ca-question-choice-text .ca-ic {
   white-space: normal;
 }
+/* Why another session picked it, in a few words, under what the choice says about itself: in
+   full ink, as the other session's words rather than the choice's. */
+.ca-question-why {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin-top: 2px;
+  color: var(--ink);
+  font: var(--type-meta);
+}
+.ca-question-why .ca-icon {
+  margin-top: 2px;
+  color: var(--ink-3);
+}
 .ca-question-choice-label {
   display: flex;
   flex-wrap: wrap;

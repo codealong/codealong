@@ -237,6 +237,10 @@ pub mod params {
         pub replies: Vec<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         pub picks: Vec<String>,
+        /// Why each of `picks`, briefly, in their order: empty for a pick without one, and none
+        /// at all for picks without any. Macs before 2026-10-11 ignore them.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        pub why: Vec<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub pending: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]

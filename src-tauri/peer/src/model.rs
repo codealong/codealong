@@ -439,6 +439,10 @@ pub struct Suggestions {
     /// 2026-10-10 don't show them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub picks: BTreeMap<String, Vec<String>>,
+    /// Why each question's pick, briefly, by its question, where the suggester said: its question
+    /// box shows it with the pick. Devices from before 2026-10-11 don't show them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub why: BTreeMap<String, String>,
     /// Why, or what to weigh, in a sentence or two, when the suggester said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -852,7 +856,7 @@ mod tests {
                 "branch": "login", "archived": true, "attachCommand": "claude attach j1", "continues": "claude:claude2:from",
                 "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
                 "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true,
-                "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "picks": { "Push it?": ["Yes"] }, "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
+                "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "picks": { "Push it?": ["Yes"] }, "why": { "Push it?": "Its checks pass" }, "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
                 "earlier": true,
                 "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 },
                 "helper": { "parent": "claude:claude2:from", "pr": "acme/app#7" }

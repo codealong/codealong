@@ -90,7 +90,7 @@ import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
-import { nextQuestion, QuestionList } from './QuestionList';
+import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
@@ -955,7 +955,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           <Icon name="help" size={14} />
           <span>Asks you</span>
         </div>
-        <QuestionList questions={pending.questions} suggested={picked?.picks} />
+        <QuestionList questions={pending.questions} suggested={picked?.picks} why={picked?.why} />
         {picked && <SuggestionHead suggestions={picked} onDismiss={dismissPicked} />}
         <div className="ca-composer-foot">
           <span className="ca-composer-note" title={pending.cannot}>
@@ -1208,6 +1208,8 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
         <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
           {q.options.map((o) => {
             const on = chosenFor(q).includes(o.label);
+            // Why it was suggested goes with the first choice suggested: one for each question.
+            const why = offered(q)[0] === o.label ? suggested?.why?.[q.question] : undefined;
             return (
               <button key={o.label} type="button" className={cx('ca-question-choice', on && 'is-on')} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} disabled={busy} onClick={() => pick(q, o.label)}>
                 <span className={cx('ca-question-mark', q.multiSelect && 'is-multi')} aria-hidden="true">
@@ -1231,6 +1233,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
                       <Rich text={o.description} now={0} />
                     </span>
                   )}
+                  {why && <QuestionWhy why={why} />}
                 </span>
               </button>
             );

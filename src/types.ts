@@ -40,6 +40,8 @@ export interface Suggestions {
   replies: string[];
   /** The labels of the choices picked for each question it asks, by its question. */
   picks?: Record<string, string[]>;
+  /** Why each question's pick, in a few words, by its question, where the suggester said. */
+  why?: Record<string, string>;
   /** Why, or what to weigh, when the suggester said. */
   note?: string;
   /** The session that suggested them, by its key on its own device. */

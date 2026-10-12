@@ -2714,7 +2714,7 @@ mod tests {
         let ended = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
         let ended = Session { last_prompt_at: NOW - 30 * MIN, ..ended };
         // It was read with its prompt of 30 minutes ago the last.
-        let suggested = Suggestions { replies: vec!["Yes, push it".into(), "Run the tests first".into()], picks: Default::default(), note: Some("It asks whether to push".into()), by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at: NOW - 10 * MIN, prompt_at: Some(NOW - 30 * MIN) };
+        let suggested = Suggestions { replies: vec!["Yes, push it".into(), "Run the tests first".into()], picks: Default::default(), why: Default::default(), note: Some("It asks whether to push".into()), by: Some("claude:claude:sup".into()), by_title: Some("Supervisor".into()), at: NOW - 10 * MIN, prompt_at: Some(NOW - 30 * MIN) };
         let with = |s: &Session, g: Option<&Suggestions>| {
             let mut s = s.clone();
             apply_suggestions(&mut s, g);

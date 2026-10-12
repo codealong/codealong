@@ -189,11 +189,14 @@ the session's box, and the user sends one with a click or types their own.
    user would say (no "As the supervisor…").
    A session that asks the user questions (`session pending` shows `Asks:` with each question's
    header and choices, and their id) takes no replies, which would only decline them: pick one
-   of its own choices instead, `codealong session suggest <key> --pick "<choice>" --pending
-   <their id> --prompt-at <lastPromptAt> --note "<why>"`, once for each question (more for one
-   that takes several; `--pick "<header>: <choice>"` where two questions offer the same choice).
-   Its question box shows them picked, so the user answers with one click on Answer, or picks
-   otherwise. Picks for questions it no longer asks are turned down: read them again.
+   of its own choices instead, `codealong session suggest <key> --pick "<choice>" "<why>"
+   --pending <their id> --prompt-at <lastPromptAt>`, once for each question (more for one that
+   takes several, with one why for the question; `--pick "<header>: <choice>"` where two
+   questions offer the same choice). The why goes after its choice and is brief, a few words
+   (at most 120 characters): the one fact that decides it, not the question again. Its question
+   box shows each pick picked with its why beside it, so the user answers with one click on
+   Answer, or picks otherwise; `--note` is for what goes for all of them, and needs no repeat of
+   the whys. Picks for questions it no longer asks are turned down: read them again.
 4. Suggest again to replace them; `--clear` takes them away. They go by themselves once
    anything is sent to the session or a turn of its starts, so a session with none left has
    moved on: read it again before suggesting more.

@@ -1049,9 +1049,10 @@ Sessions' list, where ⌘ and a digit open the row's places, they show their arr
 and Dismiss takes them all away. The box stays yours to type in instead, and nothing reaches the
 session until you pick. While it waits on a call to allow, a reply denies the call and is sent
 instead, as what you type would be. For questions it asks you, the agent picks among their own
-choices instead (`codealong session suggest --pick`): the question box shows them picked, each
-with a Suggested chip, and who picked them and why under the choices, so one click on Answer answers with them, and a choice of
-yours takes a pick's place (Dismiss takes away the ones you haven't touched). Its row has a
+choices instead (`codealong session suggest --pick "<choice>" "<why>"`): the question box shows
+them picked, each with a Suggested chip and its why in a few words, and who picked them and any
+note under the choices, so one click on Answer answers with them, and a choice of yours takes a
+pick's place (Dismiss takes away the ones you haven't touched). Its row has a
 Suggested chip, whose tooltip lists them. They answer the reply the agent read: one
 written after you'd replied since is turned down, as is one while the session takes a turn, so a
 suggestion for the turn before never appears after your answer. They go once anything is sent to
