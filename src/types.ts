@@ -399,7 +399,7 @@ export interface Config {
   /** Your settings for particular repos, `[repos."github.com/owner/name"]`, by that key
    *  (repoSettings.ts `repoKey`). Older files have none. */
   repos?: Record<string, RepoCfg>;
-  /** A sound when something starts to wait on you. Older files have none: Glass, Pop, none, 60. */
+  /** A sound when something starts to wait on you. Older files have none: Pop, Tink, none, 60. */
   sounds?: SoundsCfg;
   debug: { perf_log: boolean };
 }

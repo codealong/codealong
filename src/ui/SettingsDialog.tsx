@@ -281,7 +281,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
 /* ---- Sounds ---- */
 
 /** `[sounds]` when config.toml has none (config.rs `SoundsCfg`). */
-const SOUNDS_DEFAULT: SoundsCfg = { needs_you: 'Glass', your_turn: 'Pop', review_requested: '', volume: 60 };
+const SOUNDS_DEFAULT: SoundsCfg = { needs_you: 'Pop', your_turn: 'Tink', review_requested: '', volume: 60 };
 
 type SoundKind = 'needs_you' | 'your_turn' | 'review_requested';
 

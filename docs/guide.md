@@ -1200,9 +1200,9 @@ offers that once it's pinned.
 *Settings › Sounds, or `[sounds]` in config.toml*
 
 A short sound plays when something starts to wait on you, so you notice while you're in another app
-or away from the screen: Glass when a session needs you (it asks you something, waits on a call to
-allow, or stops with an error), Pop when a session's turn ends, and, once you pick one, a sound when
-a pull request asks for your review. Each can be one of macOS's sounds, one you put in
+or away from the screen: a pop when a session needs you (it asks you something, waits on a call to
+allow, or stops with an error), a lighter click when a session's turn ends (macOS's Pop and Tink),
+and, once you pick one, a sound when a pull request asks for your review. Each can be one of macOS's sounds, one you put in
 ~/Library/Sounds, or None; the button beside it plays it, and Volume sets how loud they all are, as
 a percent of the Mac's own. Codealong shows no Notification Center banners: the mark's beat and the
 notch's count already show what came (*Queues, pills and the mark*), and the sound is for when you

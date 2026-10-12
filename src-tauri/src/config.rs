@@ -670,7 +670,8 @@ pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
 }
 
 /// A sound when something starts to wait on you (sounds.rs): each the name of one of macOS's
-/// sounds or one in ~/Library/Sounds, or "" for none.
+/// sounds or one in ~/Library/Sounds, or "" for none. The defaults are a pop and a click, not
+/// chimes (asked 2026-10-12).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SoundsCfg {
     /// A session asks you something, waits on a call to allow, or stopped with an error.
@@ -694,11 +695,11 @@ impl Default for SoundsCfg {
 }
 
 fn default_needs_you_sound() -> String {
-    "Glass".into()
+    "Pop".into()
 }
 
 fn default_your_turn_sound() -> String {
-    "Pop".into()
+    "Tink".into()
 }
 
 fn default_sound_volume() -> u32 {
@@ -1151,7 +1152,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # the session that opened the PR, once it runs and doesn't wait on you. Nothing goes on GitHub.
 ";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
-const SOUNDS_COMMENT: &str = "# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. Each is the name of a sound in /System/Library/Sounds (\"Glass\", \"Pop\", \"Tink\", \"Purr\"...)\n# or ~/Library/Sounds, or \"\" for none. volume: in percent of the Mac's own.\n";
+const SOUNDS_COMMENT: &str = "# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. Each is the name of a sound in /System/Library/Sounds (\"Pop\", \"Tink\", \"Bottle\", \"Purr\"...)\n# or ~/Library/Sounds, or \"\" for none. volume: in percent of the Mac's own.\n";
 const DEBUG_COMMENT: &str ="# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
@@ -2360,10 +2361,10 @@ mod tests {
     #[test]
     fn sounds_are_on_for_what_waits_on_you_and_name_sounds_the_mac_has() {
         let d = toml::from_str::<Config>("").unwrap().sounds;
-        assert_eq!((d.needs_you.as_str(), d.your_turn.as_str(), d.review_requested.as_str(), d.volume), ("Glass", "Pop", "", 60));
+        assert_eq!((d.needs_you.as_str(), d.your_turn.as_str(), d.review_requested.as_str(), d.volume), ("Pop", "Tink", "", 60));
         // A new file says so, before the accounts.
         let new = render(&full());
-        assert!(new.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"Glass\"\nyour_turn = \"Pop\"\nreview_requested = \"\"\nvolume = 60\n")), "{new}");
+        assert!(new.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"Pop\"\nyour_turn = \"Tink\"\nreview_requested = \"\"\nvolume = 60\n")), "{new}");
         assert!(new.find("[sounds]").unwrap() < new.find("[[accounts]]").unwrap(), "{new}");
         // An older file gets the table only once a sound changes.
         let start = new.find(SOUNDS_COMMENT).unwrap();
@@ -2373,7 +2374,7 @@ mod tests {
         quieter.sounds.your_turn = String::new();
         quieter.sounds.volume = 30;
         let out = with_config(&old, &quieter).unwrap();
-        assert!(out.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"Glass\"\nyour_turn = \"\"\nreview_requested = \"\"\nvolume = 30\n")), "{out}");
+        assert!(out.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"Pop\"\nyour_turn = \"\"\nreview_requested = \"\"\nvolume = 30\n")), "{out}");
         assert!(out.find("[sounds]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), quieter);
         // A sound the Mac doesn't have, and a volume over the Mac's own, are refused.

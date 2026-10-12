@@ -1,5 +1,5 @@
 // Checks Settings › Sounds (`[sounds]`, sounds.rs): with a config.toml from before there were
-// sounds, it shows the defaults (Glass when a session needs you, Pop when a turn ends, none for a
+// sounds, it shows the defaults (Pop when a session needs you, Tink when a turn ends, none for a
 // review), lists the sounds the engine found with None first, and saves a sound picked as
 // config.toml has it, playing it as it's picked; a sound's button plays it and None's can't; and
 // the volume saves when it's let go of, playing the first sound at it. The sounds listed are put
@@ -35,24 +35,24 @@
       nav('Sounds').click();
       await until(function () { return !!field('A session needs you'); }, 5000, 'no sounds in Settings › Sounds');
 
-      check('a session needing you sounds Glass by default', select('A session needs you').value === 'Glass', select('A session needs you').value);
-      check('a turn that ended sounds Pop by default', select('A session’s turn ended').value === 'Pop', select('A session’s turn ended').value);
+      check('a session needing you sounds Pop by default', select('A session needs you').value === 'Pop', select('A session needs you').value);
+      check('a turn that ended sounds Tink by default', select('A session’s turn ended').value === 'Tink', select('A session’s turn ended').value);
       check('a review asked of you sounds nothing by default', select('A pull request asks for your review').value === '', select('A pull request asks for your review').value);
       var names = all('option', select('A session needs you')).map(function (o) { return o.textContent; });
       check('it lists None, then the sounds found', names.join(',') === 'None,Glass,Pop,Purr,Tink', names.join(','));
       check('None can’t be played', play('A pull request asks for your review').disabled);
 
       var review = select('A pull request asks for your review');
-      review.value = 'Tink';
+      review.value = 'Purr';
       review.dispatchEvent(new Event('change', { bubbles: true }));
       await until(function () { return calls('save_config').length > 0; }, 3000, 'picking a sound saved nothing');
       var saved = last('save_config').config.sounds;
-      check('a sound picked saves [sounds] whole', JSON.stringify(saved) === JSON.stringify({ needs_you: 'Glass', your_turn: 'Pop', review_requested: 'Tink', volume: 60 }), JSON.stringify(saved));
+      check('a sound picked saves [sounds] whole', JSON.stringify(saved) === JSON.stringify({ needs_you: 'Pop', your_turn: 'Tink', review_requested: 'Purr', volume: 60 }), JSON.stringify(saved));
       var heard = last('play_sound');
-      check('and plays it as it’s picked', heard && heard.name === 'Tink' && heard.volume === 60, JSON.stringify(heard));
+      check('and plays it as it’s picked', heard && heard.name === 'Purr' && heard.volume === 60, JSON.stringify(heard));
 
       play('A session needs you').click();
-      await until(function () { return (last('play_sound') || {}).name === 'Glass'; }, 3000, 'its button played nothing');
+      await until(function () { return (last('play_sound') || {}).name === 'Pop'; }, 3000, 'its button played nothing');
       check('a sound’s button plays it', true);
 
       var slider = q('.ca-settings-volume');
@@ -66,8 +66,8 @@
       await until(function () { return calls('save_config').length > saves; }, 3000, 'letting go of the volume saved nothing');
       check('letting go saves it', last('save_config').config.sounds.volume === 30, JSON.stringify(last('save_config').config.sounds));
       heard = last('play_sound');
-      check('and plays the first sound at it', heard && heard.name === 'Glass' && heard.volume === 30, JSON.stringify(heard));
-      check('keeping the sound picked before', last('save_config').config.sounds.review_requested === 'Tink', JSON.stringify(last('save_config').config.sounds));
+      check('and plays the first sound at it', heard && heard.name === 'Pop' && heard.volume === 30, JSON.stringify(heard));
+      check('keeping the sound picked before', last('save_config').config.sounds.review_requested === 'Purr', JSON.stringify(last('save_config').config.sounds));
     } catch (e) {
       return stopped(e);
     }

@@ -495,8 +495,8 @@ nudge_by_default = false       # every open PR of yours tells the session that o
 nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks
 
 [sounds]                       # a short sound when something starts to wait on you (Settings › Sounds)
-needs_you = "Glass"            # a session asks you something, waits on a call to allow, or stops with an error
-your_turn = "Pop"              # a session's turn ended
+needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error
+your_turn = "Tink"             # a session's turn ended
 review_requested = ""          # a PR asks for your review; "" is no sound
 volume = 60                    # in percent of the Mac's own; any sound in /System/Library/Sounds or ~/Library/Sounds
 
