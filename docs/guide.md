@@ -278,8 +278,9 @@ instead): OpenCode's are answered through its service, Claude Code's through the
 the Claude app), with Always too where Claude Code offers to allow calls like it from now on (its
 button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2 or tmux tab, only
 while its own record says the prompt is up for that call. Questions a Claude Code session asks you
-(its `AskUserQuestion`) show the same way through the plugin, with their choices and a box for your
-own answer, and Answer sends your picks. Claude Code's own prompt stays up all the while, and
+(its `AskUserQuestion`) show the same way through the plugin, one at a time under a strip of their
+headers, each with its choices listed as Claude Code lists them, what each says about itself under it,
+and a box for your own answer, and Answer sends your picks. Claude Code's own prompt stays up all the while, and
 whichever answer comes first counts. Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
 all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2 or tmux tab
@@ -1048,8 +1049,8 @@ Sessions' list, where ⌘ and a digit open the row's places, they show their arr
 and Dismiss takes them all away. The box stays yours to type in instead, and nothing reaches the
 session until you pick. While it waits on a call to allow, a reply denies the call and is sent
 instead, as what you type would be. For questions it asks you, the agent picks among their own
-choices instead (`codealong session suggest --pick`): the question box shows them picked and
-marked, with who picked them and why, so one click on Answer answers with them, and a choice of
+choices instead (`codealong session suggest --pick`): the question box shows them picked, each
+with a Suggested chip, and who picked them and why under the choices, so one click on Answer answers with them, and a choice of
 yours takes a pick's place (Dismiss takes away the ones you haven't touched). Its row has a
 Suggested chip, whose tooltip lists them. They answer the reply the agent read: one
 written after you'd replied since is turned down, as is one while the session takes a turn, so a

@@ -1191,7 +1191,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
         <Seg
           className="ca-question-steps"
           label="Questions"
-          options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: !answered[i] ? undefined : picks[q.question] === undefined && !own[q.question]?.trim() && offered(q).length ? 'sparkles' : 'check' }))}
+          options={questions.map((q, i) => ({ id: i, label: q.header || `Question ${i + 1}`, title: q.question, icon: answered[i] ? 'check' : undefined }))}
           value={at}
           onPick={go}
         />
@@ -1202,15 +1202,37 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAn
           {q.header && questions.length === 1 && <Chip className="ca-question-header">{q.header}</Chip>}
           <Rich text={q.question} now={0} />
         </div>
+        {/* Its choices as Claude Code's own prompt lists them, each with what it says about it.
+            As buttons, a picked one looked like Answer and the strip's question, and the words
+            that say what a choice means were hidden in a tooltip. */}
         <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
           {q.options.map((o) => {
             const on = chosenFor(q).includes(o.label);
-            // The suggested one keeps its mark once you pick another.
-            const tip = offered(q).includes(o.label) ? 'sparkles' : undefined;
             return (
-              <Button key={o.label} size="sm" variant={on ? 'primary' : 'secondary'} icon={tip} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} title={tip ? [o.description, 'Suggested'].filter(Boolean).join(' · ') : o.description} disabled={busy} onClick={() => pick(q, o.label)}>
-                {o.label}
-              </Button>
+              <button key={o.label} type="button" className={cx('ca-question-choice', on && 'is-on')} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} disabled={busy} onClick={() => pick(q, o.label)}>
+                <span className={cx('ca-question-mark', q.multiSelect && 'is-multi')} aria-hidden="true">
+                  {on && q.multiSelect && <Icon name="check" size={10} stroke={2.5} />}
+                </span>
+                <span className="ca-question-choice-text">
+                  <span className="ca-question-choice-label">
+                    <span>
+                      <Rich text={o.label} now={0} />
+                    </span>
+                    {/* The suggested one keeps its chip once you pick another. */}
+                    {offered(q).includes(o.label) && (
+                      <Chip className="ca-suggestedchip" title={suggested?.byTitle ? `Suggested by ${suggested.byTitle}` : 'Suggested'}>
+                        <Icon name="sparkles" size={12} />
+                        Suggested
+                      </Chip>
+                    )}
+                  </span>
+                  {o.description && (
+                    <span className="ca-question-desc">
+                      <Rich text={o.description} now={0} />
+                    </span>
+                  )}
+                </span>
+              </button>
             );
           })}
         </div>

@@ -72,10 +72,83 @@
   max-height: 30vh;
   overflow: auto;
 }
+/* Its choices, a row each as Claude Code's prompt lists them: a mark that says whether it takes
+   one or several, the choice, and what it says about it. Many long ones scroll, so the buttons
+   that answer stay in the panel. */
 .ca-question-choices {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 40vh;
+  overflow: auto;
+}
+.ca-question-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 6px 10px 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-question-choice:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.ca-question-choice:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-question-choice.is-on {
+  border-color: var(--ink);
+  background: var(--surface-selected);
+}
+.ca-question-choice:disabled {
+  cursor: default;
+}
+.ca-question-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--surface);
+}
+.ca-question-mark.is-multi {
+  border-radius: 4px;
+}
+.ca-question-choice.is-on .ca-question-mark {
+  border-color: var(--ink);
+}
+.ca-question-choice.is-on .ca-question-mark.is-multi {
+  background: var(--ink);
+}
+.ca-question-choice.is-on .ca-question-mark:not(.is-multi)::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.ca-question-choice-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.ca-question-choice-label {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: 2px;
+  font: var(--type-meta-strong);
 }
 .ca-question-own {
   height: 26px;

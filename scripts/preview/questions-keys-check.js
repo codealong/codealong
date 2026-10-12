@@ -59,7 +59,7 @@
   var cmdEnter = function (el) { key(el, { key: 'Enter', code: 'Enter', metaKey: true }); };
   var enter = function (el) { key(el, { key: 'Enter', code: 'Enter' }); };
   var choice = function (text) {
-    return all('.ca-question-choices button').filter(function (b) { return b.textContent.trim() === text; })[0];
+    return all('.ca-question-choices button').filter(function (b) { return b.querySelector('.ca-question-choice-label > span').textContent.trim() === text; })[0];
   };
   var declined = function (a) { return !!a && a.answer === 'deny' && a.message === words && !a.answers; };
   var hint = function () { return box() ? box().getAttribute('aria-placeholder') || '' : ''; };

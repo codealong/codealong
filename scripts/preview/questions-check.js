@@ -55,7 +55,7 @@
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer.is-questions'); };
   var button = function (text) {
-    return Array.prototype.filter.call(box().querySelectorAll('button'), function (b) { return b.textContent.trim() === text; })[0];
+    return Array.prototype.filter.call(box().querySelectorAll('button'), function (b) { var l = b.querySelector('.ca-question-choice-label > span'); return (l || b).textContent.trim() === text; })[0];
   };
   var own = function () { return box().querySelector('.ca-question-own'); };
   var tick = function () { return new Promise(function (r) { setTimeout(r, 30); }); };

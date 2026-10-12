@@ -1,7 +1,7 @@
 // Checks choices another session picked for the questions a session asks (`codealong session
 // suggest --pick`): its question box shows them picked, each marked, with who suggested them and
 // why, and no list of replies; Answer goes at once, with them. A pick of yours changes them, the
-// mark stays on the suggested choice, and Dismiss takes away the ones of questions you didn't
+// Suggested chip stays on the suggested choice, and Dismiss takes away the ones of questions you didn't
 // touch, words you typed counting as a touch. The row's Suggested chip says what was picked.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/suggest-picks-check.js
 // As PREVIEW_INIT after `window.__picks_screenshot = true` it leaves the box as it opened, for a
@@ -69,11 +69,11 @@
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer.is-questions'); };
   var button = function (text) {
-    return Array.prototype.filter.call(box().querySelectorAll('button'), function (b) { return b.textContent.trim() === text; })[0];
+    return Array.prototype.filter.call(box().querySelectorAll('button'), function (b) { var l = b.querySelector('.ca-question-choice-label > span'); return (l || b).textContent.trim() === text; })[0];
   };
   var tick = function () { return new Promise(function (r) { setTimeout(r, 30); }); };
   var on = function (b) { return b.getAttribute('aria-checked') === 'true'; };
-  var marked = function (b) { return !!b.querySelector('svg'); };
+  var marked = function (b) { return !!b.querySelector('.ca-suggestedchip'); };
   var showing = function () { var l = box().querySelector('.ca-question .ca-approval-label'); return l ? l.textContent : ''; };
   var steps = function () { return Array.prototype.slice.call(box().querySelectorAll('.ca-question-steps button')); };
   var answers = function () { return window.__calls.filter(function (c) { return c[0] === 'session_answer'; }); };
@@ -90,11 +90,13 @@
     .then(function () {
       check('the suggested choice is picked', on(button('Blue')) && !on(button('Red')) && /Which color/.test(showing()));
       check('and marked', marked(button('Blue')) && !marked(button('Red')));
+      var desc = button('Red').querySelector('.ca-question-desc');
+      check('a choice shows what it says about it', !!desc && desc.textContent === 'The color red' && !button('Blue').querySelector('.ca-question-desc'));
       var by = box().querySelector('.ca-suggest-head .ca-suggest-by');
       var note = box().querySelector('.ca-suggest-note');
       check('who suggested it and why', !!by && by.textContent === 'Suggested by Supervisor' && !!note && note.textContent === 'Blue matches the rest of the app.', by ? by.textContent : 'no head');
       check('no list of replies', !document.querySelector('.ca-sessinsp .ca-suggest-reply'));
-      check('the strip marks both as suggested', steps().length === 2 && steps().every(function (b) { return !!b.querySelector('svg'); }));
+      check('the strip marks both answered, without sparkles', steps().length === 2 && steps().every(function (b) { return !!b.querySelector('svg') && !b.querySelector('.ca-suggestedchip'); }));
       check('answer at once', !!button('Answer') && !button('Answer').disabled && !button('Next'));
       if (window.__picks_screenshot) return new Promise(function () {});
       button('Answer').click();
