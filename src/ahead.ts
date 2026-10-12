@@ -1,5 +1,6 @@
 // Changes you make that the engine takes a moment to show: sessions marked seen or unread, snoozed,
-// quieted, archived, renamed, or sent a message, reviews asked of you snoozed, and PRs merged.
+// quieted, archived, renamed, sent a message or let go on past a call they waited on, reviews asked
+// of you snoozed, and PRs reviewed or merged.
 // The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
 // board that shows them. So each window shows a change at once, on top of the board it has, and
@@ -11,7 +12,15 @@
 // again a moment later. One the engine turns down goes at once, and the caller says why.
 //
 // A merge shows as you confirm it, before GitHub has done it, and goes back with why if GitHub
-// refuses it; once it has, the engine shows the PR merged at once (ghpoll.rs `on_merged`).
+// refuses it; once it has, the engine shows the PR merged at once (ghpoll.rs `on_merged`). A
+// review you submit takes the PR out of what waits on your review the same way, any verdict, as
+// GitHub and the engine do (ghpoll.rs `on_approved`).
+//
+// An answer that lets a session go on (a call allowed, questions answered, a deny with words for
+// it to go on with) shows it working as you give it, until the board shows it no longer waits on
+// that call: the engine has no board for it, since the session's harness says it went on only
+// once it has. After a plain deny some agents end the turn and others carry on, which only the
+// engine knows, so that waits.
 //
 // A message waits for any other on its way to the same session, so they arrive in order. The box
 // clears as you send, the thread shows the message as sending, then sent, until the session's
@@ -20,12 +29,12 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, sendToSession, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
+import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
 import { relaned, sessionHeadline, unreadable } from './lanes';
-import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, MergeOp, PrItem, ResumeIn, Sent, Session, Status, TranscriptItem } from './types';
+import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, MergeOp, PrItem, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
  *  working; if the session isn't working either, the thread says it may not have reached it. */
@@ -56,9 +65,14 @@ export type Change =
   | { kind: 'review-snooze'; keys: string[]; until: number | null }
   /** A PR (by its key) merged: merged from when it was made, and waiting on no review. */
   | { kind: 'pr-merge'; key: string }
+  /** Your review of a PR (by its key) submitted: it waits on your review no more. */
+  | { kind: 'pr-review'; key: string }
   | { kind: 'archive'; key: string; archived: boolean }
   /** Named, as the board will show it. */
   | { kind: 'rename'; key: string; title: string }
+  /** The call it waited on answered so that it goes on: working from when it was answered.
+   *  `since` is when it began waiting on that call, as the board had it. */
+  | { kind: 'answer'; key: string; since: number | null }
   | {
       kind: 'send';
       key: string;
@@ -116,6 +130,12 @@ function settledBySeen(s: { status: Status; asks?: boolean }): boolean {
   return s.status === 'unread' || (s.status === 'needs' && !!s.asks);
 }
 
+/** Whether it still shows waiting on the call an answer was for: a call asked after it began
+ *  waiting is another, which the answer doesn't touch. */
+function stillAsked(s: { status: Status; asks?: boolean }, since: number | null, c: Extract<Change, { kind: 'answer' }>): boolean {
+  return s.status === 'needs' && !s.asks && !(since != null && c.since != null && since > c.since);
+}
+
 /** A message that's still showing its session as working. */
 function startsNow(a: Ahead): boolean {
   const c = a.change;
@@ -134,8 +154,8 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   const m = new Map<string, Ahead[]>();
   const add = (k: string, a: Ahead) => m.set(k, [...(m.get(k) ?? []), a]);
   for (const a of changes) {
-    // A review's snooze and a merge are a PR's, not a session's.
-    if (a.change.kind === 'review-snooze' || a.change.kind === 'pr-merge') continue;
+    // A review's snooze, a review and a merge are a PR's, not a session's.
+    if (a.change.kind === 'review-snooze' || a.change.kind === 'pr-merge' || a.change.kind === 'pr-review') continue;
     if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'quiet') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
@@ -152,6 +172,7 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
     else if (c.kind === 'unread' && unreadable(out)) out = { ...out, status: 'unread', statusSince: a.at };
     else if (c.kind === 'archive' && out.archived !== c.archived) out = { ...out, archived: c.archived };
     else if (c.kind === 'rename' && out.title !== c.title) out = { ...out, title: c.title };
+    else if (c.kind === 'answer' && stillAsked(out, out.statusSince, c)) out = { ...out, status: 'working', statusSince: a.at, stalledSince: null };
     // Quieted, a finished turn is idle (board.rs, `apply_quiet`). Made heard again, one you
     // haven't seen is Your turn again, which only the engine knows: the board brings it.
     else if (c.kind === 'quiet' && !!out.quiet !== c.quiet) out = { ...out, quiet: c.quiet, ...(c.quiet && out.status === 'unread' ? { status: 'idle' as const } : {}) };
@@ -223,6 +244,13 @@ function reviewSnoozes(changes: Ahead[]): Map<string, number | null> {
   return until;
 }
 
+/** The PRs this window's changes review, by PR key. */
+function reviewed(changes: Ahead[]): Set<string> {
+  const keys = new Set<string>();
+  for (const a of changes) if (a.change.kind === 'pr-review') keys.add(a.change.key);
+  return keys;
+}
+
 /** When each PR this window's changes merge was merged, by PR key. */
 function merges(changes: Ahead[]): Map<string, number> {
   const at = new Map<string, number>();
@@ -231,17 +259,20 @@ function merges(changes: Ahead[]): Map<string, number> {
 }
 
 /** The PRs with this window's changes: snoozes of reviews, on the ones that wait on your review,
- *  as board.rs `apply_review_snoozes` puts them, and merges, as ghpoll.rs `shown_merged` does.
- *  The same array when nothing changes. */
+ *  as board.rs `apply_review_snoozes` puts them, reviews, as ghpoll.rs `on_approved` takes them
+ *  out of what waits on yours, and merges, as ghpoll.rs `shown_merged` does. The same array when
+ *  nothing changes. */
 export function prsAhead(prs: PrItem[], changes: Ahead[]): PrItem[] {
   const until = reviewSnoozes(changes);
   const merged = merges(changes);
-  if (until.size === 0 && merged.size === 0) return prs;
+  const done = reviewed(changes);
+  if (until.size === 0 && merged.size === 0 && done.size === 0) return prs;
   let changed = false;
   const out = prs.map((p) => {
     let next = p;
     const at = merged.get(p.key);
     if (at !== undefined && p.state !== 'merged' && p.state !== 'closed') next = { ...next, state: 'merged', mergedAt: at, closedAt: at, reviewRequested: false, snoozedUntil: null };
+    if (done.has(p.key) && next.reviewRequested) next = { ...next, reviewRequested: false };
     if (until.has(p.key) && next.reviewRequested && next.state !== 'merged' && next.state !== 'closed') {
       const snooze = until.get(p.key) ?? null;
       if ((next.snoozedUntil ?? null) !== snooze) next = { ...next, snoozedUntil: snooze };
@@ -263,20 +294,22 @@ const GROUP_RANK = ['needs', 'unread', 'working'];
 
 /** The floating bar's feed with this window's changes: pills marked seen or archived go, a
  *  session sent a message moves to Working (out of the snoozed ones too, as sending ends a
- *  snooze), and a renamed one takes its name. The same feed when nothing changes. */
+ *  snooze), as does one whose call was answered so it goes on, and a renamed one takes its name.
+ *  The same feed when nothing changes. */
 export function barAhead(feed: BarFeed, changes: Ahead[]): BarFeed {
   if (changes.length === 0) return feed;
   return barReviews(barMoved(barRenamed(feed, changes), changes), changes);
 }
 
-/** The bar's feed without the reviews snoozed or merged here. One woken comes back with the
- *  engine's next feed, which has what the pill's menu says of it. The same feed when nothing
+/** The bar's feed without the reviews snoozed, given or merged here. One woken comes back with
+ *  the engine's next feed, which has what the pill's menu says of it. The same feed when nothing
  *  changes. */
 function barReviews(feed: BarFeed, changes: Ahead[]): BarFeed {
   const until = reviewSnoozes(changes);
   const merged = merges(changes);
-  if (until.size === 0 && merged.size === 0) return feed;
-  const reviews = feed.reviews.filter((r) => until.get(r.key) == null && !merged.has(r.key));
+  const done = reviewed(changes);
+  if (until.size === 0 && merged.size === 0 && done.size === 0) return feed;
+  const reviews = feed.reviews.filter((r) => until.get(r.key) == null && !merged.has(r.key) && !done.has(r.key));
   if (reviews.length === feed.reviews.length) return feed;
   return { ...feed, reviews, logoStatus: logoOfBar(feed.items, reviews.length > 0) };
 }
@@ -307,6 +340,8 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
   const by = byKey(changes);
   const archived = (key: string) => (by.get(key) ?? []).some((a) => a.change.kind === 'archive' && a.change.archived);
   const moved = (key: string) => (by.get(key) ?? []).find(startsNow);
+  /** The answer that lets a pill waiting on a call go on, if one does. */
+  const goesOn = (i: BarItem) => (by.get(i.key) ?? []).find((a) => a.change.kind === 'answer' && stillAsked(i, i.since, a.change));
   /** The last snooze or wake for a session: a time, null to wake, undefined with none. */
   const snooze = (key: string): number | null | undefined => {
     const last = (by.get(key) ?? []).filter((a) => a.change.kind === 'snooze').pop()?.change;
@@ -326,7 +361,7 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
       changed = true;
       continue;
     }
-    const m = moved(i.key);
+    const m = moved(i.key) ?? goesOn(i);
     const until = snooze(i.key);
     if (m && i.group !== 'working') {
       changed = true;
@@ -420,13 +455,14 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     if (a.doneAt == null) return a;
     if (a.shownAt != null) return v.boardAt != null && v.boardAt >= a.shownAt ? null : a;
     if (now - a.doneAt > UNANSWERED_MS) return null;
-    // A window's view finds sessions, not PRs: a review's snooze and a merge go by the board's
-    // time alone.
-    if (c.kind === 'review-snooze' || c.kind === 'pr-merge') return a;
-    const keys = c.kind === 'archive' || c.kind === 'rename' ? [c.key] : c.keys;
+    // A window's view finds sessions, not PRs: a review's snooze, a review and a merge go by the
+    // board's time alone.
+    if (c.kind === 'review-snooze' || c.kind === 'pr-merge' || c.kind === 'pr-review') return a;
+    const keys = c.kind === 'archive' || c.kind === 'rename' || c.kind === 'answer' ? [c.key] : c.keys;
     const shows = keys.every((k) => {
       const s = v.find(k);
       if (s === undefined) return false;
+      if (c.kind === 'answer') return !stillAsked(s, s.statusSince, c);
       if (c.kind === 'seen') return !settledBySeen(s);
       if (c.kind === 'unread') return !unreadable(s);
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
@@ -659,6 +695,24 @@ export function mergeAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: 
   );
 }
 
+/** Reviews a PR as you (`reviewPr`): it's out of what waits on your review in every window as
+ *  it's asked, and back, with why, if GitHub refuses it. The engine takes it out as GitHub has it
+ *  (ghpoll.rs `on_approved`) and shows that before it answers, so the change goes a while after. */
+export function reviewAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, verdict: Verdict, body: string, agents = false): Promise<Reviewed> {
+  const a = made({ kind: 'pr-review', key: pr.key });
+  put(a, true);
+  return reviewPr(pr.repoSlug, pr.number, verdict, body, agents).then(
+    (done) => {
+      answered(a.id, null);
+      return done;
+    },
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
 /** Archives or unarchives a session, in every window at once. Rejects with why when it can't:
  *  Codex didn't archive the thread, say. */
 export function archiveAhead(key: string, archived: boolean): Promise<void> {
@@ -709,6 +763,26 @@ export function renameAhead(key: string, name: string): Promise<void> {
   put(a, true);
   return renameSession(key, name).then(
     (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+/** Answers the call `id` a session waits on (`sessionAnswer`). An answer that lets it go on shows
+ *  it working in every window at once; a plain deny waits for the board. Resolves with what
+ *  happened; rejects with why it didn't go, the session showing as it was. */
+export function answerAhead(s: Session, id: string, answer: 'allow' | 'deny' | 'always', answers?: Answers, message?: string): Promise<string> {
+  const goesOn = answer !== 'deny' || !!message?.trim();
+  if (!goesOn || s.status !== 'needs' || s.asks) return sessionAnswer(s.key, id, answer, answers, message);
+  const a = made({ kind: 'answer', key: s.key, since: s.statusSince ?? null });
+  put(a, true);
+  return sessionAnswer(s.key, id, answer, answers, message).then(
+    (said) => {
+      answered(a.id, null);
+      return said;
+    },
     (e: unknown) => {
       drop(a.id, true);
       throw e;

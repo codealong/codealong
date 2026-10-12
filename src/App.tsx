@@ -12,11 +12,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewPr, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
-import { archiveAhead, boardView, lanesAhead, observe, seenAhead } from './ahead';
+import { archiveAhead, boardView, lanesAhead, observe, reviewAhead, seenAhead } from './ahead';
 import { reuse } from './reuse';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor } from './review';
@@ -643,7 +643,7 @@ export function App() {
   /** Approves a PR as you, in one click. */
   const approve = useCallback((pr: PrItem) => {
     setApproving((a) => new Set(a).add(pr.key));
-    reviewPr(pr.repoSlug, pr.number, 'approve', '')
+    reviewAhead(pr, 'approve', '')
       .then((done) => setToast(reviewedWords('approve', pr.number, done)))
       .catch((e: unknown) => setToast(errorText(e)))
       .finally(() =>
@@ -665,7 +665,7 @@ export function App() {
       const each = prs.reduce<Promise<void>>(
         (before, p) =>
           before.then(() =>
-            reviewPr(p.repoSlug, p.number, 'approve', '').then(
+            reviewAhead(p, 'approve', '').then(
               () => void approved++,
               (e: unknown) => void wrong.push(`Couldn’t approve #${p.number}: ${errorText(e).replace(/\.$/, '')}.`),
             ),

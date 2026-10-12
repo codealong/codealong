@@ -6,6 +6,8 @@ const api = vi.hoisted(() => ({
   archiveSession: vi.fn(),
   renameSession: vi.fn(),
   mergePr: vi.fn(),
+  sessionAnswer: vi.fn(),
+  reviewPr: vi.fn(),
 }));
 vi.mock('./api', () => ({
   ...api,
@@ -14,7 +16,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, sendAhead, settled, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, reviewAhead, sendAhead, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf } from './lanes';
 import * as fx from './testing/fixtures';
@@ -84,6 +86,17 @@ describe('lanesAhead', () => {
     // Once the board shows it, or it lapsed, the board has the say.
     expect(lanesAhead(lanes, [{ ...going, takenAt: NOW + 1 }])).toBe(lanes);
     expect(lanesAhead(lanes, [{ ...going, lapsed: true }])).toBe(lanes);
+  });
+
+  it('shows a session whose call was answered as working, until it waits on another', () => {
+    const lanes = [lane([session('a', 'needs', { excerpt: 'Bash: npm test', stalledSince: NOW - 5_000 })])];
+    const answer = change({ kind: 'answer', key: 'a', since: NOW - 60_000 });
+    const [l] = lanesAhead(lanes, [answer]);
+    expect([l.sessions[0].status, l.sessions[0].statusSince, l.sessions[0].stalledSince]).toEqual(['working', NOW, null]);
+    expect([l.bay, l.headline, l.detail]).toEqual(['working', '`claude` · Task a', `{for:${NOW}} · Bash: npm test`]);
+    // A call asked after the one answered is another, and a reply that asks something isn't a call.
+    expect(lanesAhead([lane([session('a', 'needs', { statusSince: NOW + 2_000 })])], [answer])[0].sessions[0].status).toBe('needs');
+    expect(lanesAhead([lane([session('a', 'needs', { asks: true })])], [answer])[0].sessions[0].status).toBe('needs');
   });
 
   it('leaves a working session as it is, and a message that opens an app instead', () => {
@@ -165,6 +178,17 @@ describe('boardAhead', () => {
     const merged = { ...board, prs: [{ ...asked, state: 'merged' as const, mergedAt: NOW - 5 }] };
     expect(boardAhead(merged, [change({ kind: 'pr-merge', key: asked.key })])).toBe(merged);
   });
+
+  it('takes a PR you reviewed out of what waits on your review as it’s asked', () => {
+    const asked = fx.prItem({ number: 1, reviewRequested: true, snoozedUntil: null });
+    const other = fx.prItem({ number: 2 });
+    const board = fx.board({ lanes: [lane([session('a', 'idle')])], prs: [asked, other], logoStatus: 'needs' });
+    const out = boardAhead(board, [change({ kind: 'pr-review', key: asked.key })]);
+    expect(out.prs[0]).toMatchObject({ reviewRequested: false, state: asked.state });
+    expect(out.prs[1]).toBe(other);
+    expect(out.logoStatus).toBe('idle');
+    expect(boardAhead(board, [change({ kind: 'pr-review', key: other.key })])).toBe(board);
+  });
 });
 
 describe('settled', () => {
@@ -196,6 +220,14 @@ describe('settled', () => {
     expect(settled(a, view(null), NOW + 61_000)).toBeNull();
   });
 
+  it('keeps a review a while after the engine answered, its board showing it by then', () => {
+    const a = change({ kind: 'pr-review', key: 'o/r#1' });
+    expect(settled(a, view(NOW + 90_000), NOW + 9_000)).toBe(a);
+    const done = { ...a, doneAt: NOW + 3_000 };
+    expect(settled(done, view(NOW + 9_000), NOW + 9_000)).toBe(done);
+    expect(settled(done, view(NOW + 9_000), NOW + 24_000)).toBeNull();
+  });
+
   it('keeps a merge until the engine’s board shows it, or a while with none', () => {
     const a = change({ kind: 'pr-merge', key: 'o/r#1' });
     expect(settled(a, view(NOW + 5_000), NOW + 5_000)).toBe(a);
@@ -213,6 +245,18 @@ describe('settled', () => {
     const q = change({ kind: 'quiet', keys: ['a'], quiet: true }, { doneAt: NOW + 100 });
     expect(settled(q, view(NOW, { status: 'unread' }), NOW + 200)).toBe(q);
     expect(settled(q, view(NOW, { status: 'idle', quiet: true }), NOW + 200)).toBeNull();
+  });
+
+  it('keeps an answer until the board shows the session past the call it was for', () => {
+    const a = change({ kind: 'answer', key: 'a', since: NOW - 60_000 }, { doneAt: NOW + 100 });
+    expect(settled({ ...a, doneAt: null }, view(NOW + 5_000, { status: 'working' }), NOW + 5_000)).not.toBeNull();
+    // Still waiting on it, or shown from an earlier time as Claude Code's registry may say it.
+    expect(settled(a, view(NOW + 500, { status: 'needs', statusSince: NOW - 60_000 }), NOW + 600)).toBe(a);
+    expect(settled(a, view(NOW + 500, { status: 'needs', statusSince: NOW - 90_000 }), NOW + 600)).toBe(a);
+    expect(settled(a, view(NOW + 500, { status: 'working', statusSince: NOW + 400 }), NOW + 600)).toBeNull();
+    expect(settled(a, view(NOW + 500, { status: 'needs', statusSince: NOW + 400 }), NOW + 600)).toBeNull();
+    // One the board never shows goes after a while, the session as the board has it.
+    expect(settled(a, view(NOW + 20_000, { status: 'needs', statusSince: NOW - 60_000 }), NOW + 21_000)).toBeNull();
   });
 
   it('marks a message taken when the board has the prompt, and lets it go a moment later', () => {
@@ -260,6 +304,15 @@ describe('barAhead', () => {
     expect(f.logoStatus).toBe('working');
   });
 
+  it('moves a session whose call was answered to Working, but not one asked about since', () => {
+    const f = feed([item('n', 'needs', NOW - 50), item('m', 'needs', NOW + 10)]);
+    const out = barAhead(f, [change({ kind: 'answer', key: 'n', since: NOW - 50 }), change({ kind: 'answer', key: 'm', since: NOW - 50 })]);
+    expect(out.items.map((i) => [i.key, i.group, i.since])).toEqual([
+      ['m', 'needs', NOW + 10],
+      ['n', 'working', NOW],
+    ]);
+  });
+
   it('keeps Needs you a queue, and takes a session you send to off the snoozed ones', () => {
     const f = feed([item('n2', 'needs', NOW - 5), item('n1', 'needs', NOW - 50), item('u', 'unread', NOW)], [], [{ ...item('z', 'needs', NOW - 9), group: 'snoozed', snoozedUntil: NOW + 3_600_000 }]);
     const out = barAhead(f, [change({ kind: 'seen', keys: ['u'] }), send('z')]);
@@ -303,6 +356,12 @@ describe('barAhead', () => {
     const both = barAhead(f, [change({ kind: 'review-snooze', keys: ['o/r#1', 'o/r#2'], until: NOW + 900_000 })]);
     expect(both.reviews).toEqual([]);
     expect(both.logoStatus).toBe('working');
+  });
+
+  it('takes a review given here off the bar', () => {
+    const f = { ...feed([item('w', 'working', NOW)]), reviews: [fx.barReview({ key: 'o/r#1' }), fx.barReview({ key: 'o/r#2' })] };
+    const out = barAhead(f, [change({ kind: 'pr-review', key: 'o/r#1' })]);
+    expect([out.reviews.map((r) => r.key), out.logoStatus]).toEqual([['o/r#2'], 'needs']);
   });
 
   it('takes a review merged here off the bar', () => {
@@ -372,6 +431,31 @@ describe('renameAhead', () => {
     expect(api.renameSession).toHaveBeenCalledWith('s', 'Use `vitest` for `ahead`');
     api.renameSession.mockRejectedValueOnce(new Error("OpenCode's service isn't running."));
     await expect(renameAhead('t', 'Other')).rejects.toThrow("OpenCode's service isn't running.");
+  });
+});
+
+describe('answerAhead', () => {
+  beforeEach(() => api.sessionAnswer.mockReset());
+
+  it('hands the engine the answer, and says why it didn’t go', async () => {
+    api.sessionAnswer.mockResolvedValueOnce('Allowed Bash(npm test).');
+    await expect(answerAhead(session('a', 'needs'), 'ask-1', 'allow')).resolves.toBe('Allowed Bash(npm test).');
+    expect(api.sessionAnswer).toHaveBeenCalledWith('a', 'ask-1', 'allow', undefined, undefined);
+    api.sessionAnswer.mockRejectedValueOnce(new Error('It isn’t waiting on that any more.'));
+    await expect(answerAhead(session('a', 'needs'), 'ask-2', 'deny', undefined, 'Use pnpm')).rejects.toThrow('It isn’t waiting on that any more.');
+    expect(api.sessionAnswer).toHaveBeenLastCalledWith('a', 'ask-2', 'deny', undefined, 'Use pnpm');
+  });
+});
+
+describe('reviewAhead', () => {
+  beforeEach(() => api.reviewPr.mockReset());
+
+  it('hands the engine the review, and says why GitHub refused it', async () => {
+    api.reviewPr.mockResolvedValueOnce({ draft: 2 });
+    await expect(reviewAhead({ key: 'o/r#7', repoSlug: 'o/r', number: 7 }, 'comment', 'Looks fine', true)).resolves.toEqual({ draft: 2 });
+    expect(api.reviewPr).toHaveBeenCalledWith('o/r', 7, 'comment', 'Looks fine', true);
+    api.reviewPr.mockRejectedValueOnce(new Error('Can not approve your own pull request.'));
+    await expect(reviewAhead({ key: 'o/r#8', repoSlug: 'o/r', number: 8 }, 'approve', '')).rejects.toThrow('your own pull request');
   });
 });
 

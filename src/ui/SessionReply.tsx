@@ -70,10 +70,10 @@
 // now, which moves a running command to the background so the agent reads the message at once,
 // and Codex's and OpenCode's steer.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
-import { sendAhead, sending, useAhead } from '../ahead';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent } from 'react';
+import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { dismissSuggestions, forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
+import { dismissSuggestions, forkSession, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -857,11 +857,36 @@ function editingText(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.isContentEditable;
 }
 
+/** Why the last answer to a session didn't go, by session, with when it began waiting on the call
+ *  it was for. An answer that lets it go on shows it working at once (`answerAhead`), which takes
+ *  its box away, so the box that shows as it waits on that call again says why. */
+const unanswered = new Map<string, { since: number | null; why: string }>();
+const unansweredHeard = new Set<() => void>();
+
+function sayUnanswered(key: string, said: { since: number | null; why: string } | null): void {
+  if (said) unanswered.set(key, said);
+  else if (!unanswered.delete(key)) return;
+  for (const heard of unansweredHeard) heard();
+}
+
+function hearUnanswered(heard: () => void): () => void {
+  unansweredHeard.add(heard);
+  return () => unansweredHeard.delete(heard);
+}
+
+/** Why the last answer to the session didn't go, while it still waits on the call it was for. */
+function useUnanswered(s: Session): string | null {
+  const said = useSyncExternalStore(hearUnanswered, () => unanswered.get(s.key));
+  return said && said.since === (s.statusSince ?? null) ? said.why : null;
+}
+
 /** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
 function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNext }: ApprovalProps) {
   const [pending, setPending] = useState<Pending | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  const [told, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  const failed = useUnanswered(s);
+  const note = told ?? (failed ? { text: failed, error: true } : null);
   useEffect(() => {
     let live = true;
     sessionPending(s.key)
@@ -873,12 +898,15 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   }, [s.key, s.statusSince]);
 
   /** Answers the call; resolves with why that didn't go, or null once it did. A deny with
-   *  `message` tells it what to do instead. */
+   *  `message` tells it what to do instead. One that lets it go on shows it working at once, so
+   *  this box may be gone before it's in; the window goes on once it is. */
   const answer = (a: 'allow' | 'deny' | 'always', then?: (said: string) => void, answers?: Answers, message?: string): Promise<string | null> => {
     if (!pending || busy) return Promise.resolve(busy ? 'It’s still answering the last one.' : 'It isn’t waiting on anything Codealong can answer.');
     setBusy(true);
     setNote(null);
-    return sessionAnswer(s.key, pending.id, a, answers, message)
+    sayUnanswered(s.key, null);
+    const since = s.statusSince ?? null;
+    return answerAhead(s, pending.id, a, answers, message)
       .then((said) => {
         setNote({ text: said, error: false });
         setPending(null);
@@ -889,6 +917,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       .catch((e: unknown) => {
         const why = errorText(e);
         setNote({ text: why, error: true });
+        sayUnanswered(s.key, { since, why });
         return why;
       })
       .finally(() => setBusy(false));

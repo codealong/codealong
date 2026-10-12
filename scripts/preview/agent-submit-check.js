@@ -54,25 +54,21 @@
       check('Approve steps back beside it', !button('Approve').classList.contains('ca-btn--primary'));
       check('its tooltip says what goes with it', /^Request changes pointing to the agent’s review on the PR\. The agent suggests this\.$/.test(changes.getAttribute('title')), changes.getAttribute('title'));
       check('the line under the box says the press, and that approving is still there', /^Request changes sends the agent’s review · ⌘⏎ approves anyway/.test(note()), note());
-      changes.click();
-      return until(function () { return lastReview(); }, 3000, 'review_pr');
-    })
-    .then(function (sent) {
-      check('a press with nothing written submits the agent’s review as that verdict', sent.verdict === 'request-changes' && sent.body === '' && sent.agents === true && sent.number === picked[0].number, JSON.stringify(sent));
-      return wait(200);
-    })
-    .then(function () {
       type(q('.ca-prreview-box textarea'), 'Also, add a test.');
       return wait(50);
     })
     .then(function () {
       check('with words written, its tooltip says they go first', /what you wrote before it/.test(button('Request changes').getAttribute('title')), button('Request changes').getAttribute('title'));
-      button('Request changes').click();
-      return until(function () { return calls('review_pr').length === 2; }, 3000, 'a second review_pr');
+      type(q('.ca-prreview-box textarea'), '');
+      return wait(50);
     })
     .then(function () {
-      var sent = lastReview();
-      check('what you wrote goes with it', sent.body === 'Also, add a test.' && sent.agents === true, JSON.stringify(sent));
+      button('Request changes').click();
+      return until(function () { return lastReview(); }, 3000, 'review_pr');
+    })
+    .then(function (sent) {
+      // Submitted, the PR no longer asks for your review, so the next press is on another.
+      check('a press with nothing written submits the agent’s review as that verdict', sent.verdict === 'request-changes' && sent.body === '' && sent.agents === true && sent.number === picked[0].number, JSON.stringify(sent));
       return show(picked[1]);
     })
     .then(function () {
@@ -80,13 +76,15 @@
       check('where it suggests commenting, Comment is the filled one, needing nothing written', comment.classList.contains('ca-btn--primary') && !comment.disabled && !button('Request changes').classList.contains('ca-btn--primary') && button('Request changes').disabled, comment.className);
       check('and the line says ⌥⌘⏎ comments with it', /^⌥⌘⏎ comments with the agent’s review/.test(note()), note());
       var box = q('.ca-prreview-box textarea');
+      type(box, 'Also, add a test.');
       box.focus();
       key(box, { key: 'Enter', metaKey: true, altKey: true });
-      return until(function () { return calls('review_pr').length === 3; }, 3000, 'review_pr from ⌥⌘⏎');
+      return until(function () { return calls('review_pr').length === 2; }, 3000, 'review_pr from ⌥⌘⏎');
     })
     .then(function () {
       var sent = lastReview();
       check('⌥⌘⏎ comments with the agent’s review', sent.verdict === 'comment' && sent.agents === true && sent.number === picked[1].number, JSON.stringify(sent));
+      check('what you wrote goes with it', sent.body === 'Also, add a test.', JSON.stringify(sent));
       return show(picked[2]);
     })
     .then(function () {

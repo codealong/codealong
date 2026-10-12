@@ -27,8 +27,9 @@
 // box sending, then empty, or saying why GitHub refused it with what was written still there.
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { reviewAhead } from '../ahead';
 import { agentsVerdict, agentsWords } from '../agentReview';
-import { prSideAsk, reviewPr } from '../api';
+import { prSideAsk } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
 import { commentsWord, readAgain, reviewedWords, saysSomething, useYourReview, verdictWords } from '../prDraft';
 import { mayApprove } from '../prStatus';
@@ -167,7 +168,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     } else {
       setSending(verdict);
     }
-    reviewPr(pr.repoSlug, pr.number, verdict, body, withAgents)
+    reviewAhead(pr, verdict, body, withAgents)
       .then(
         (done) => {
           report.info(reviewedWords(verdict, pr.number, done, withAgents));

@@ -307,7 +307,10 @@ declined the same way, so you can write back in your own words rather than pick 
 agent's turn goes on with what you wrote (an answer of your own to one question still goes in that
 question's box, and Answer sends it). Elsewhere Send
 works again once the session isn't waiting (a session run In Codealong takes it at once, after its
-current turn).
+current turn). An answer that lets the session go on (Allow, Always, Deliver, your picks, or a deny
+with words) shows it working in every window as you give it, before its agent has said it went on;
+one that doesn't go brings the call back, saying why. After a plain Deny the session shows as its
+agent has it once that's read: Claude Code ends the turn there, others carry on.
 
 #### Stop and send now
 
@@ -1165,8 +1168,9 @@ and on. On a review the strip has Approve (⌘⏎, with what's in the box as the
 (⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘4), Review with (⌃⌘R starts one on the reviewer Settings names, else Auto's; the
 button picks) and GitHub (⌃⌘G); Request changes is a button in the box, with no key, and needs text
 too. Any of those settles GitHub's request to you, so the PR leaves what waits on you and the next
-takes its place at once, the review going to GitHub behind it; one GitHub refuses comes back round
-with what you wrote, and the strip says why. What you wrote stays with the PR until it goes, so
+takes its place at once, in every window (the notch's count, the bar's pill, the mark), the review
+going to GitHub behind it; one GitHub refuses comes back round with what you wrote, and the strip
+says why. What you wrote stays with the PR until it goes, so
 skipping and coming back loses nothing. ⌘E on a review skips it, as there's nothing to mark seen.
 The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session leaves what
 waits on you and the next takes its place; with none left the notch closes. Drag the session's
