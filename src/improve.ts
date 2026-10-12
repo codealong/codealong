@@ -51,18 +51,32 @@ export function withCodealongProject(cfg: Config, source: ImproveSource): Config
 }
 
 /** Codealong's source among your other Macs' worktrees (the devices' lanes, each id `@<short>:…`),
- *  for a session to start there when this Mac has none: a main checkout first, a shown one before
- *  a hidden one. */
+ *  to say where it is when this Mac has none: a main checkout first, a shown one before a hidden
+ *  one, a connected Mac's first. The panel never starts there by itself: the pictures are kept on
+ *  this Mac, and a session there couldn't read them (`improveRemoteHold`). */
 export function remoteImproveLane(lanes: Lane[]): Lane | null {
   const sources = lanes.filter((l) => l.codealong && !l.startsChats);
-  return sources.find((l) => l.origin === 'main' && !l.hidden) ?? sources.find((l) => !l.hidden) ?? sources[0] ?? null;
+  const pick = (from: Lane[]) => from.find((l) => l.origin === 'main' && !l.hidden) ?? from.find((l) => !l.hidden) ?? from[0] ?? null;
+  return pick(sources.filter((l) => l.device?.online)) ?? pick(sources);
 }
 
-/** What the panel says when Codealong's source isn't in one of your projects: the words, and
- *  whether a project can be made for it (its source was found). Nothing while the board is still
- *  being read, when the source is in a project, or when another of your Macs has it (`remote`). */
-export function improveWords(improve: Improve | undefined, loading: boolean, remote = false): { text: string; add: boolean } | null {
-  if (loading || improve?.project || remote) return null;
+/** Why a start on another Mac with the pictures can't go: they're this Mac's files. Null when
+ *  there are no pictures, or the start is here. */
+export function improveRemoteHold(shots: Attachment[], mac: string | null): string | null {
+  if (!mac || shots.length === 0) return null;
+  return `The pictures are kept on this Mac, and a session on ${mac} can’t read them. Take them off the strip to start there, or start here.`;
+}
+
+/** What the panel says when Codealong's source isn't on this Mac's board in one of your projects:
+ *  the words, and whether a project can be made for it (its source was found here). Nothing while
+ *  the board is still being read, or when the source is in a project. `remote` is where another of
+ *  your Macs has it, when one does. */
+export function improveWords(improve: Improve | undefined, loading: boolean, remote: Lane | null = null): { text: string; add: boolean } | null {
+  if (loading || improve?.project) return null;
   if (improve?.source) return { text: `Codealong’s source is in ${improve.source.root}, in none of your projects. A project for it puts its worktrees on the board, where this session starts.`, add: true };
+  if (remote) {
+    const mac = remote.device?.name ?? 'another Mac';
+    return { text: `Codealong’s source is on ${mac}, not on this Mac, and the pictures of the windows are this Mac’s. Start there from ${mac}, or clone github.com/codealong/codealong into a folder Codealong searches here (Settings › General lists them).`, add: false };
+  }
   return { text: 'Codealong’s source isn’t in a folder Codealong searches. Clone github.com/codealong/codealong into one (Settings › General lists them), and a session can improve it from here.', add: false };
 }

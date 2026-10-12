@@ -89,7 +89,9 @@ pub fn mark(lanes: &mut [Lane], checkout_of: &HashMap<PathBuf, PathBuf>, sources
 /// identity) for a project to be made for. The board has only this device's lanes; the quick
 /// panel looks through your other Macs' worktrees itself (improve.ts).
 pub fn target(lanes: &[Lane], sources: &[(PathBuf, Option<String>)]) -> Improve {
-    let here: Vec<&Lane> = lanes.iter().filter(|l| l.codealong && !l.starts_chats && l.device.is_none()).collect();
+    // An Elsewhere lane (a session ran in a source checkout that's in none of your projects) is
+    // no place to start: the source is offered for a project instead.
+    let here: Vec<&Lane> = lanes.iter().filter(|l| l.codealong && !l.starts_chats && l.device.is_none() && l.project != crate::board::ELSEWHERE).collect();
     let pick = here.iter().find(|l| l.origin == Origin::Main && !l.hidden).or_else(|| here.iter().find(|l| !l.hidden)).or_else(|| here.first());
     if let Some(lane) = pick {
         return Improve { project: Some(lane.project.clone()), lane_id: Some(lane.id.clone()), source: None };
@@ -327,8 +329,13 @@ mod tests {
     #[test]
     fn target_offers_a_source_in_no_project() {
         let sources = vec![(PathBuf::from("/p/codealong"), Some("github.com/me/codealong".to_string()))];
-        let t = target(&[lane("/p/other", vec![])], &sources);
-        assert_eq!(t, Improve { project: None, lane_id: None, source: Some(Source { root: "/p/codealong".into(), repo: Some("github.com/me/codealong".into()) }) });
+        let offer = Improve { project: None, lane_id: None, source: Some(Source { root: "/p/codealong".into(), repo: Some("github.com/me/codealong".into()) }) };
+        assert_eq!(target(&[lane("/p/other", vec![])], &sources), offer);
+        // A session ran there: its Elsewhere lane is marked, but the source is still offered.
+        let mut elsewhere = lane("/p/codealong", vec![]);
+        elsewhere.codealong = true;
+        elsewhere.project = crate::board::ELSEWHERE.into();
+        assert_eq!(target(&[elsewhere], &sources), offer);
         assert_eq!(target(&[], &[]), Improve::default());
     }
 

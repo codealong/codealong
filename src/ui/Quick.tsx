@@ -51,7 +51,7 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
-import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
+import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveRemoteHold, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
 import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
@@ -343,6 +343,7 @@ export function Quick() {
         // board has them, with the pictures the engine took of the windows.
         const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
         setImprove(improving);
+        improveFollowed.current = false;
         const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
         setLaneId(at);
@@ -640,21 +641,24 @@ export function Quick() {
   // with a start, a send to a session, a todo saved.
   const shots = improve?.shots ?? [];
   const withShots = (words: string) => (improve ? improvePrompt(words, improve.shots) : words);
-  // Improving with Codealong's source on none of this Mac's worktrees: one of your other Macs'
-  // does (its worktrees come with the devices), and the session starts there; or the board says
-  // the source is in none of your projects (improve.ts), and a project can be made for it, after
-  // which the board lists its worktrees and the panel moves onto them.
+  // Improving with Codealong's source on none of this Mac's worktrees: the board says it's in
+  // none of your projects (improve.ts), and a project can be made for it, after which the board
+  // lists its worktrees and the panel moves onto them, once; or another of your Macs has it,
+  // which the note says. The panel never starts there by itself: the pictures are this Mac's
+  // files, which a session there couldn't read, so a start there with them is held.
   const remoteSource = improve && !board?.improve?.laneId ? remoteImproveLane(devices?.lanes ?? []) : null;
-  const improveNote = improve ? improveWords(board?.improve, !board || board.loading, !!remoteSource) : null;
+  const improveNote = improve ? improveWords(board?.improve, !board || board.loading, remoteSource) : null;
   const improveSource = board?.improve?.source ?? null;
+  // The source's worktree is taken from the board once per open: a worktree or Mac you pick
+  // after that stands.
+  const improveFollowed = useRef(false);
   useEffect(() => {
-    if (!improve || laneId) return;
-    const at = board?.improve?.laneId ? { id: board.improve.laneId, project: board.improve.project ?? null } : remoteSource ? { id: remoteSource.id, project: remoteSource.project } : null;
-    if (!at) return;
-    setLaneId(at.id);
-    setDevice(shortOf(at.id));
-    if (at.project) setProject(at.project);
-  }, [improve, laneId, board?.improve?.laneId, board?.improve?.project, remoteSource]);
+    if (!improve || improveFollowed.current || !board?.improve?.laneId) return;
+    improveFollowed.current = true;
+    setLaneId(board.improve.laneId);
+    setDevice(null);
+    if (board.improve.project) setProject(board.improve.project);
+  }, [improve, board?.improve?.laneId, board?.improve?.project]);
   const addCodealongProject = () => {
     if (!improveSource) return;
     const source = improveSource;
@@ -1070,6 +1074,12 @@ export function Quick() {
   const start = (over?: { lane: Lane; newWorktree: boolean }) => {
     const where = over?.lane ?? lane;
     if (!where || !account || !placeNow) return;
+    // Improve Codealong's pictures are this Mac's files: a session on another Mac can't read them.
+    const held = improve ? improveRemoteHold(improve.shots, shortOf(where.id) ? (deviceInfo?.name ?? 'another Mac') : null) : null;
+    if (held) {
+      setError(held);
+      return;
+    }
     const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (choice) remember(choice, placeNow);
     if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
