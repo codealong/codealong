@@ -74,9 +74,11 @@
 }
 /* Its choices, a row each as Claude Code's prompt lists them: a mark that says whether it takes
    one or several, the choice, and what it says about it. Many long ones scroll, so the buttons
-   that answer stay in the panel. */
+   that answer stay in the panel, and a long word or code span wraps rather than widening the box
+   past a narrow card. */
 .ca-question-choices {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
   max-height: 40vh;
   overflow: auto;
@@ -97,9 +99,10 @@
 .ca-question-choice:hover:not(:disabled) {
   background: var(--surface-hover);
 }
+/* Drawn inside it: the list scrolls, which cuts off a ring drawn around it. */
 .ca-question-choice:focus-visible {
   outline: none;
-  box-shadow: var(--shadow-focus);
+  box-shadow: inset 0 0 0 2px var(--focus);
 }
 .ca-question-choice.is-on {
   border-color: var(--ink);
@@ -141,6 +144,10 @@
   display: grid;
   gap: 1px;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ca-question-choice-text .ca-ic {
+  white-space: normal;
 }
 .ca-question-choice-label {
   display: flex;

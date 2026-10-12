@@ -18,7 +18,7 @@
     cannot: null,
     questions: [
       { question: 'Which color do you prefer?', header: 'Color', options: [{ label: 'Red', description: 'The color red' }, { label: 'Blue' }] },
-      { question: 'Which days suit you?', options: [{ label: 'Mon' }, { label: 'Tue' }, { label: 'Wed' }], multiSelect: true },
+      { question: 'Which days suit you?', options: [{ label: 'Mon' }, { label: 'Tue', description: 'Only `' + 'tuesday-'.repeat(80) + '`' }, { label: 'Wed' }], multiSelect: true },
     ],
   };
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -66,7 +66,9 @@
     });
   };
 
-  var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
+  // By its key alone: a session a lane of another worktree lists too (one that worked there) can
+  // show under that one.
+  var row = function () { return picked && Array.prototype.find.call(document.querySelectorAll('[id^="row-"]'), function (r) { return r.id.slice(r.id.indexOf('::') + 2) === picked.key; }); };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer.is-questions'); };
   var button = function (text) {
     return Array.prototype.filter.call(box().querySelectorAll('button'), function (b) { var l = b.querySelector('.ca-question-choice-label > span'); return (l || b).textContent.trim() === text; })[0];
@@ -113,6 +115,9 @@
     })
     .then(function () {
       check('several picked where it takes more', /Which days/.test(showing()) && on(button('Mon')) && on(button('Wed')) && !on(button('Tue')), showing());
+      // An unbroken code span in a description wraps, rather than widening the box past its card.
+      var edge = box().getBoundingClientRect().right;
+      check('a long description wraps', box().scrollWidth <= box().clientWidth + 1 && button('Decline').getBoundingClientRect().right <= edge, box().scrollWidth + ' > ' + box().clientWidth);
       button('Mon').click();
       return tick();
     })
