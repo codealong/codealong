@@ -94,6 +94,10 @@ struct Hosted {
     cwd: String,
     /// Loaded in the account's current process.
     loaded: bool,
+    /// Picked up in the account's current process since it started, so its harness may hold it
+    /// there even once it isn't `loaded`: after a delete that failed part way, its next goes
+    /// there too (`delete_held`).
+    held: bool,
     /// Being deleted there (`delete_held`): nothing goes to it until that's over.
     deleting: bool,
     running: bool,
@@ -486,8 +490,9 @@ fn stopped(account: &str, link: &rpc::Link) {
 /// Forgets the account's process, which has ended, and stops what its sessions were doing in it.
 fn let_go(st: &mut State, account: &str) {
     st.agents.remove(account);
-    for h in st.sessions.values_mut().filter(|h| h.account == account && h.loaded) {
+    for h in st.sessions.values_mut().filter(|h| h.account == account && (h.loaded || h.held)) {
         h.loaded = false;
+        h.held = false;
         if h.running {
             h.running = false;
             h.since = now_ms();
@@ -643,7 +648,7 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     let key = key_of(harness, &a.name, &id);
     let cwd_s = cwd.to_string_lossy().into_owned();
     remember(Remembered { harness, account: a.name.clone(), id: id.clone(), cwd: cwd_s.clone() });
-    let mut hosted = Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, options, ..Default::default() };
+    let mut hosted = Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, held: true, options, ..Default::default() };
     let turn = (!prompt.trim().is_empty()).then(|| begin(&mut hosted));
     state().sessions.insert(key.clone(), hosted);
     if let Some(turn) = turn {
@@ -837,6 +842,7 @@ fn load(ag: &Arc<Agent>, key: &str, id: &str, cwd: &str) -> Result<Value> {
     let options = answer.get("configOptions").cloned().unwrap_or_default();
     set(key, |h| {
         h.loaded = true;
+        h.held = true;
         h.options = options;
     });
     Ok(answer)
@@ -979,9 +985,12 @@ pub fn delete_held(account: &str, harness: Harness, id: &str) -> Result<bool> {
         let mut guard = state();
         let st = &mut *guard;
         let Some(ag) = st.agents.get(account).filter(|a| !a.client.is_closed() && a.can("delete")).cloned() else { return Ok(false) };
-        let Some(h) = st.sessions.get_mut(&key).filter(|h| h.loaded) else { return Ok(false) };
+        let Some(h) = st.sessions.get_mut(&key) else { return Ok(false) };
         if h.deleting {
             bail!("It's being archived.");
+        }
+        if !h.held {
+            return Ok(false);
         }
         if h.running {
             bail!("It's taking a turn in Codealong: stop it first.");
@@ -995,7 +1004,15 @@ pub fn delete_held(account: &str, harness: Harness, id: &str) -> Result<bool> {
         ag
     };
     let deleted = ag.request("session/delete", json!({ "sessionId": id }), Some(REQUEST_TIMEOUT));
-    set(&key, |h| h.deleting = false);
+    // The process lets go of a session it deleted. One it failed to may still be its, so trying
+    // again goes there too.
+    let ok = deleted.is_ok();
+    set(&key, |h| {
+        h.deleting = false;
+        if ok {
+            h.held = false;
+        }
+    });
     notify(Change::Board);
     deleted?;
     Ok(true)
@@ -1593,7 +1610,7 @@ mod tests {
         assert!(!delete_held(account, Harness::Codex, "s1").unwrap(), "not Codealong's");
         state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), ..Default::default() });
         assert!(!delete_held(account, Harness::Codex, "s1").unwrap(), "not picked up in this process");
-        set(&key, |h| (h.loaded, h.running) = (true, true));
+        set(&key, |h| (h.loaded, h.held, h.running) = (true, true, true));
         assert_eq!(delete_held(account, Harness::Codex, "s1").unwrap_err().to_string(), "It's taking a turn in Codealong: stop it first.");
         *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": {} });
         set(&key, |h| h.running = false);
@@ -1603,14 +1620,17 @@ mod tests {
         *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "delete": {} } });
         assert!(delete_held(account, Harness::Codex, "s1").unwrap());
         assert_eq!(heard(&dir), [r#"{"id":1,"jsonrpc":"2.0","method":"session/delete","params":{"sessionId":"s1"}}"#]);
-        assert!(!state().sessions[&key].loaded);
+        assert!(!state().sessions[&key].loaded && !state().sessions[&key].held);
+        // Deleted, it's the harness's to archive again.
+        assert!(!delete_held(account, Harness::Codex, "s1").unwrap());
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A send while a session is being deleted in its process is refused, not written to it; and
-    /// a delete that fails leaves it to be picked up again, as the adapter may have closed it.
+    /// A send while a session is being deleted in its process is refused, not written to it, as
+    /// is a second delete; a delete that fails leaves it to be picked up again, as the adapter may
+    /// have closed it, and the next delete goes to the process again, which may still hold it.
     #[test]
     fn a_session_being_deleted_takes_no_send_and_a_failed_delete_lets_it_go() {
         init(|_| {});
@@ -1621,15 +1641,19 @@ mod tests {
         let key = key_of(Harness::Codex, account, "s1");
         let ag = stand_in(account, script, &dir);
         *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "delete": {} } });
-        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, ..Default::default() });
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, held: true, ..Default::default() });
         let deleting = std::thread::spawn(move || delete_held(account, Harness::Codex, "s1"));
         wait_until("the delete to be sent", 10, || heard(&dir).len() == 1);
         let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "codex", "home": "/h" })).unwrap();
         assert_eq!(send(&a, &key, "Go on").unwrap_err().to_string(), "It's being archived.");
+        assert_eq!(delete_held(account, Harness::Codex, "s1").unwrap_err().to_string(), "It's being archived.");
         assert!(deleting.join().unwrap().unwrap_err().to_string().contains("archive failed"));
         let h = state().sessions[&key].clone();
-        assert_eq!((h.loaded, h.deleting, h.running), (false, false, false));
+        assert_eq!((h.loaded, h.held, h.deleting, h.running), (false, true, false, false));
         assert_eq!(heard(&dir).len(), 1, "nothing but the delete was written");
+        // Tried again, it goes to the process, which may still hold the session.
+        assert!(delete_held(account, Harness::Codex, "s1").unwrap_err().to_string().contains("archive failed"));
+        assert_eq!(heard(&dir).len(), 2);
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
