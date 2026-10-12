@@ -179,6 +179,9 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // Settings has the keyboard while it's open, as the preview URL and rename sheets do.
   if (settings || previewFor || renaming) return;
+  // A button with the keyboard (a row's PR chip, reached by Tab) takes its own Enter, before the
+  // list or a view's keys (the canvas's, Todo's) can open or start what's selected.
+  if (e.key === 'Enter' && !mod && !e.ctrlKey && !e.altKey && e.target instanceof HTMLButtonElement) return;
   // ⌃1 to ⌃5 go straight to a view, from any view and any field (`viewChord`).
   if (toView) {
     e.preventDefault();
@@ -412,8 +415,6 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     move(-1);
     if (inBox && selected !== visible[0]) focusBox();
   } else if (e.key === 'Enter' && !mod) {
-    // A button with the keyboard (a row's PR chip, reached by Tab) takes its own Enter.
-    if (e.target instanceof HTMLButtonElement) return;
     e.preventDefault();
     openRow(selected);
   } else if (e.key === 'Enter' && mod) {
