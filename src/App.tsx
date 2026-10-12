@@ -25,7 +25,7 @@ import { itemPrimaryHolds, todoAgent, todoInFilter, todoInQuery, todoPrompt, use
 import { repoReviews } from './repoSettings';
 import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, TeamFile, Theme, Todo } from './types';
 import { shortOf, type DeviceFilter } from './devices';
-import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
+import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
@@ -1317,7 +1317,7 @@ export function App() {
             <Icon name="chevron-right" size={16} />
           </button>
         </div>
-        <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
+        <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onAddProject={() => openSettings('projects', NEW_PROJECT)} onEditProjects={() => openSettings('projects')} />
         <label className="ca-search">
           <Icon name="search" size={14} />
           <input

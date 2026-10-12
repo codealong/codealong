@@ -51,7 +51,8 @@ interface SettingsDialogProps {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
   /** The account to scroll to, from a click on its usage chip; in Automation, the repo to show
-   *  (`owner/name`), from a worktree's menu. */
+   *  (`owner/name`), from a worktree's menu; in Projects, NEW_PROJECT opens a new project's form,
+   *  from the project switcher's Add project…. */
   focus: string | null;
   usage: Usage[];
   /** The terminal's and editor's names, for copy. */
@@ -136,7 +137,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   } else if (section === 'devices' && cfg) {
     pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'projects' && cfg) {
-    pane = <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} lanes={lanes} />;
+    pane = <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} lanes={lanes} adding={focus === NEW_PROJECT} />;
   } else if (section === 'jev' && cfg) {
     pane = <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
   } else if (section === 'advanced' && cfg) {
@@ -967,6 +968,9 @@ function ProfileSelect({ value, profiles, onChange }: { value: string; profiles:
 
 /* ---- Projects ---- */
 
+/** Settings' `focus` in Projects that opens a new project's form. */
+export const NEW_PROJECT = 'new';
+
 interface ProjectDraft {
   /** The project being edited, or null when adding one. */
   original: string | null;
@@ -977,8 +981,10 @@ interface ProjectDraft {
   chromeProfile: string;
 }
 
-function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes }: PaneProps & { chromeProfiles: ChromeProfile[]; lanes: Lane[] }) {
-  const [draft, setDraft] = useState<ProjectDraft | null>(null);
+const NO_DRAFT: ProjectDraft = { original: null, name: '', repos: [], folders: [], chromeProfile: '' };
+
+function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: PaneProps & { chromeProfiles: ChromeProfile[]; lanes: Lane[]; adding: boolean }) {
+  const [draft, setDraft] = useState<ProjectDraft | null>(adding ? NO_DRAFT : null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1112,7 +1118,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes }: PaneProp
               icon="plus"
               onClick={() => {
                 setRemoving(null);
-                setDraft({ original: null, name: '', repos: [], folders: [], chromeProfile: '' });
+                setDraft(NO_DRAFT);
               }}
             >
               Add project

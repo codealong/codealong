@@ -22,7 +22,9 @@ it is, how to install it and how to get going. The settings file is annotated in
 ## The main window
 
 **Five views** of the current project, each in a window of its own if you like (⌘⇧N). The project
-switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. ⌃1 to ⌃5 go
+switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. Add
+project… at its foot opens Settings › Projects with a new project's form, and Edit projects… the
+list. ⌃1 to ⌃5 go
 straight to Sessions, Worktrees, PRs, Todo and Canvas, from a text field too, and a view in the
 sidebar shows its keys while you point at it (the folded rail says them); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder

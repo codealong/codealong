@@ -36,10 +36,12 @@ interface ProjectSwitcherProps {
   onPick: (name: string) => void;
   /** Opens a project in a window of its own. */
   onOpenWindow: (name: string) => void;
+  /** Opens Settings › Projects with a new project's form. */
+  onAddProject: () => void;
   onEditProjects: () => void;
 }
 
-export function ProjectSwitcher({ logoStatus, projects, current, total, actions, onPick, onOpenWindow, onEditProjects }: ProjectSwitcherProps) {
+export function ProjectSwitcher({ logoStatus, projects, current, total, actions, onPick, onOpenWindow, onAddProject, onEditProjects }: ProjectSwitcherProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, () => setOpen(false), { when: open });
@@ -118,6 +120,20 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
           <div className="ca-menu-sep" role="separator" />
           {item(ALL_PROJECTS, total)}
           <div className="ca-menu-sep" role="separator" />
+          <button
+            type="button"
+            role="menuitem"
+            className="ca-menu-item"
+            onClick={() => {
+              setOpen(false);
+              onAddProject();
+            }}
+          >
+            <Icon name="plus" size={16} />
+            <span className="ca-menu-label">
+              <span>Add project…</span>
+            </span>
+          </button>
           <button
             type="button"
             role="menuitem"
