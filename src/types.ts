@@ -1893,3 +1893,30 @@ export interface HostedStream {
   /** The tool it's running, as a line. */
   tool: string | null;
 }
+
+/** A list under the pointer, as the page has it (pointer.rs `PageScroller`), in CSS pixels. */
+export interface PointerScroller {
+  /** Its first class name. */
+  name: string;
+  top: number;
+  /** Its content's height and the box it shows it in. */
+  height: number;
+  viewW: number;
+  viewH: number;
+  /** Its last scroll positions, newest last, each with how long ago. */
+  recent: string[];
+}
+
+/** Where the page has the pointer when it comes to rest (pointer.rs `PageProbe`). */
+export interface PointerProbe {
+  x: number;
+  y: number;
+  /** How long ago the pointer event was made, in ms. */
+  age: number;
+  /** Points per CSS pixel. */
+  zoom: number;
+  /** What the page finds at the pointer. */
+  under: string;
+  /** The lists that hold it, innermost first. */
+  scrollers: PointerScroller[];
+}

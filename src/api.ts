@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -26,6 +26,12 @@ export function perfMark(line: string): void {
  *  as unfocused, which hides the text cursor (caret.ts). */
 export async function pageUnfocused(): Promise<void> {
   if (inTauri) await invoke('page_unfocused');
+}
+
+/** Where the page has the pointer it rests on and its lists scrolled, for the engine to compare
+ *  with macOS and WebKit's drawing side (pointerProbe.ts, pointer.rs). */
+export async function pointerProbe(probe: PointerProbe): Promise<void> {
+  if (inTauri) await invoke('pointer_probe', { probe });
 }
 
 /** Pops up a menu made with `Menu.new` at `at` (a spot on the page) or the pointer, and

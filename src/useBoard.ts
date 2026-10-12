@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { boardAhead, useAhead, type Ahead } from './ahead';
 import { followBoard } from './followBoard';
 import { usePerf } from './perf';
+import { usePointerProbe } from './pointerProbe';
 import { reuse } from './reuse';
 import type { Board } from './types';
 
@@ -41,6 +42,7 @@ export function useBoard(): FollowedBoard {
   // When the push being drawn arrived, for the perf log.
   const arrived = useRef<number | null>(null);
   usePerf(engine, arrived);
+  usePointerProbe(engine?.perfLog ?? false);
   useEffect(() => {
     // A window that can't be seen keeps only the latest board and shows it when it's seen again:
     // the engine publishes many times a minute, and every render of a board no one sees is waste.

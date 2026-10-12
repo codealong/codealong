@@ -577,7 +577,8 @@ pub fn on_screen(w: &WebviewWindow) -> bool {
     ns(w).map(|n| n.isVisible() && n.occlusionState().contains(NSWindowOcclusionState::Visible)).unwrap_or(true)
 }
 
-fn rect(r: NSRect) -> Rect {
+/// A rectangle as AppKit gives it, in screen points.
+pub(crate) fn rect(r: NSRect) -> Rect {
     Rect { x: r.origin.x, y: r.origin.y, w: r.size.width, h: r.size.height }
 }
 

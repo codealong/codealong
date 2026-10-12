@@ -102,7 +102,14 @@ under `src-tauri/src/`.
   `preview.sh`'s page served from `.preview/`, and its testing SPI `_scrollingTreeAsText` (proxy
   nodes, and each scroll node's position on the drawing side) and `_caLayerTreeAsText` (layers),
   called with `perform`. Synthesized `NSEvent` clicks reach the page there; hover doesn't, with
-  the window hidden (checked 2026-10-10).
+  the window hidden (checked 2026-10-10). A hidden window gets no display refreshes either, so a
+  scroll's rubber band never springs back there and the two sides look out of step: put the
+  window on a screen (transparent, ignoring the mouse) before believing that (2026-10-12).
+- Hover and clicks in a list landing rows below the pointer and staying there with it still
+  (2026-10-12, Sessions) mean WebKit hit-tests somewhere other than what it draws: the page's
+  pointer or a list's scroll position isn't the app side's. With `[debug] perf_log` on,
+  `pointer.rs` compares the two each time the pointer rests and logs `pointer off:` when they
+  disagree.
 - The bar listens for `bar-feed`, never `board`, so Tauri doesn't send it the board:
   `barfeed.rs` (module header).
 - The quick panel takes the keyboard without activating Codealong: `orderFrontRegardless`,
