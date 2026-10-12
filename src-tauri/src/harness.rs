@@ -646,6 +646,11 @@ pub struct Applied {
     /// Lines sessions wrote since the last read, which the engine checks for the PRs, Chrome
     /// tabs and worktrees they worked on.
     pub lines: Vec<NewLines>,
+    /// Records read for the first time, with their sessions' keys, whose lines so far aren't in
+    /// `lines`: a copy of a session moved here, or one resumed from before the window, has its
+    /// whole conversation in it. The engine reads each once, off its thread, for what it reads
+    /// every record for (`Engine::read_found_logs`).
+    pub found: Vec<(PathBuf, String)>,
 }
 
 impl Applied {
@@ -653,6 +658,7 @@ impl Applied {
         self.dirty |= other.dirty;
         self.added |= other.added;
         self.lines.extend(other.lines);
+        self.found.extend(other.found);
     }
 }
 

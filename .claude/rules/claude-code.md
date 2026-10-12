@@ -32,7 +32,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   the background), the `ai-title` lines and `gitBranch`
   fields that repeat through them, and their deletion after about 30 days:
   `claude/transcript.rs` (module header, `TranscriptInfo`, `apply_tail`), `claude/mod.rs`
-  (`subagent_logs`), `origins.rs` (`KEEP_MS`).
+  (`subagent_logs`, `subagent_logs_under`), `origins.rs` (`KEEP_MS`). A subagent's log is under
+  the project of the folder its session was in as it started it, not always its transcript's: 3
+  of 105 sessions' here (2026-10-12).
 - Which `user` lines are prompts you typed (`origin: {kind: "human"}`, not `task-notification`,
   `peer` or `isCompactSummary`; older transcripts have no `origin`), and a prompt far behind the
   256 KB tail: `claude/transcript.rs` (`you_typed`, `user_prompt`, `parse_transcript`).

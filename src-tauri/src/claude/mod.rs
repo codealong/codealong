@@ -1050,8 +1050,10 @@ impl crate::harness::Reader for Reader {
                 let is_new = prev.is_none();
                 let from = prev.as_ref().map(|(_, _, st)| st.offset);
                 if let Some(parsed) = mtime_ms(p).and_then(|m| parse_transcript(p, m, prev)) {
-                    if let Some(from) = from {
-                        out.lines.push(NewLines { path: p.clone(), from, to: parsed.2.offset, key: Session::key_for(Harness::Claude, &account.name, &parsed.1.session_id) });
+                    let key = Session::key_for(Harness::Claude, &account.name, &parsed.1.session_id);
+                    match from {
+                        Some(from) => out.lines.push(NewLines { path: p.clone(), from, to: parsed.2.offset, key }),
+                        None => out.found.push((p.clone(), key)),
                     }
                     self.transcripts.insert(p.clone(), (account.name.clone(), parsed));
                 }
@@ -1169,14 +1171,45 @@ impl crate::harness::Reader for Reader {
 
     fn logs(&self) -> Vec<(PathBuf, String)> {
         let mut files = Vec::new();
+        // Each session's key by its projects folder and ID, for its subagents' logs.
+        let mut keys: HashMap<(&Path, &str), String> = HashMap::new();
         for (p, (a, (_, info, _))) in &self.transcripts {
             let key = Session::key_for(Harness::Claude, a, &info.session_id);
-            // A subagent works where its session sent it, so its log counts for the session.
-            files.extend(subagent_logs(p, &info.session_id).into_iter().map(|s| (s, key.clone())));
+            if let Some(projects) = p.parent().and_then(Path::parent) {
+                keys.insert((projects, info.session_id.as_str()), key.clone());
+            }
             files.push((p.clone(), key));
+        }
+        // A subagent works where its session sent it, so its log counts for the session. It's
+        // under the project of the folder the session was in as it started the subagent, which
+        // needn't be its transcript's (`helper_logs`), so each projects folder is looked through
+        // once rather than beside each transcript.
+        let folders: HashSet<&Path> = keys.keys().map(|(projects, _)| *projects).collect();
+        for projects in folders {
+            for (id, log) in subagent_logs_under(projects) {
+                if let Some(key) = keys.get(&(projects, id.as_str())) {
+                    files.push((log, key.clone()));
+                }
+            }
         }
         files
     }
+}
+
+/// Every subagent log in an account's projects folder (`<project>/<session>/subagents/*.jsonl`),
+/// with its session's ID. A transcript isn't a folder, so it's passed over without a look inside.
+fn subagent_logs_under(projects: &Path) -> Vec<(String, PathBuf)> {
+    let Ok(dirs) = std::fs::read_dir(projects) else { return Vec::new() };
+    let mut out = Vec::new();
+    for project in dirs.flatten() {
+        let Ok(entries) = std::fs::read_dir(project.path()) else { continue };
+        for e in entries.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())) {
+            let Ok(logs) = std::fs::read_dir(e.path().join("subagents")) else { continue };
+            let id = e.file_name().to_string_lossy().into_owned();
+            out.extend(logs.flatten().map(|l| l.path()).filter(|p| p.extension().and_then(|x| x.to_str()) == Some("jsonl")).map(|p| (id.clone(), p)));
+        }
+    }
+    out
 }
 
 /// The newest write to a session's subagent logs (`<transcript dir>/<id>/subagents`).
@@ -1762,6 +1795,8 @@ mod tests {
         writeln!(file, r#"{{"type":"user","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:00:00.000Z","message":{{"role":"user","content":"Fix the build"}}}}"#).unwrap();
         let first = reader.apply(&account, std::slice::from_ref(&transcript), &look);
         assert!(first.dirty && first.added && first.lines.is_empty(), "a transcript read for the first time is a new session");
+        // Its lines so far are handed on whole, for the engine to read once.
+        assert_eq!(first.found, [(transcript.clone(), "claude:claude9:s1".to_string())]);
         assert_eq!(reader.cwds(), ["/Users/me/app"]);
         let sessions = reader.sessions(&account, &look);
         assert_eq!((sessions.len(), sessions[0].key.as_str()), (1, "claude:claude9:s1"));
@@ -1770,7 +1805,7 @@ mod tests {
         let before = std::fs::metadata(&transcript).unwrap().len();
         writeln!(file, r#"{{"type":"assistant","timestamp":"2026-09-23T15:01:00.000Z","message":{{"content":[{{"type":"text","text":"Done."}}]}}}}"#).unwrap();
         let next = reader.apply(&account, std::slice::from_ref(&transcript), &look);
-        assert!(next.dirty && !next.added);
+        assert!(next.dirty && !next.added && next.found.is_empty());
         assert_eq!(next.lines.iter().map(|l| (l.key.as_str(), l.from, l.to)).collect::<Vec<_>>(), [("claude:claude9:s1", before, std::fs::metadata(&transcript).unwrap().len())]);
 
         // A subagent's log counts for its session, and each stretch of it is handed on once.
@@ -1780,5 +1815,19 @@ mod tests {
         assert_eq!(sub.lines.iter().map(|l| (l.key.as_str(), l.from, l.to)).collect::<Vec<_>>(), [("claude:claude9:s1", 0, 3)]);
         assert!(reader.apply(&account, std::slice::from_ref(&log), &look).lines.iter().all(|l| l.from == l.to));
         assert!(reader.logs().contains(&(log.clone(), "claude:claude9:s1".to_string())));
+
+        // A subagent started once the session had gone into a worktree logs under that
+        // worktree's project; a session the reader doesn't keep has none listed.
+        let elsewhere = home.join("projects/-Users-me-app-wt/s1/subagents/agent-b.jsonl");
+        let stranger = home.join("projects/-Users-me-app-wt/s2/subagents/agent-c.jsonl");
+        for f in [&elsewhere, &stranger] {
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, "{}\n").unwrap();
+        }
+        let mut logs = reader.logs();
+        logs.sort();
+        // Paths sort by their parts: the project before the one whose name runs on, a folder before
+        // the file named as it is with more after.
+        assert_eq!(logs, [(log, "claude:claude9:s1".to_string()), (transcript.clone(), "claude:claude9:s1".to_string()), (elsewhere, "claude:claude9:s1".to_string())]);
     }
 }

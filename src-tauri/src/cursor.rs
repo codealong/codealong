@@ -982,7 +982,7 @@ impl crate::harness::Reader for Reader {
         if !paths.iter().any(counts) {
             return Applied::default();
         }
-        Applied { dirty: true, added: self.reread(account, look), lines: Vec::new() }
+        Applied { dirty: true, added: self.reread(account, look), ..Applied::default() }
     }
 
     /// A process that came may have a chat that wasn't listed, and one that went leaves its chat

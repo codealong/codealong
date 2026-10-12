@@ -827,7 +827,7 @@ impl crate::harness::Reader for Reader {
         if !paths.iter().any(|p| p.parent() == Some(home.as_path()) && crate::util::file_name(p).contains(".db")) {
             return Applied::default();
         }
-        Applied { dirty: true, added: self.reread(account, look), lines: Vec::new() }
+        Applied { dirty: true, added: self.reread(account, look), ..Applied::default() }
     }
 
     /// Which sessions are live in a terminal, and where each shows.

@@ -668,7 +668,7 @@ impl crate::harness::Reader for Reader {
         if !paths.iter().any(|p| file_name(p).contains(".db") && dirs.iter().any(|f| p.parent() == Some(f.path.as_path()))) {
             return Applied::default();
         }
-        Applied { dirty: true, added: self.reread(account, look), lines: Vec::new() }
+        Applied { dirty: true, added: self.reread(account, look), ..Applied::default() }
     }
 
     /// Keeps the list of models a start can ask for at hand (`models`).

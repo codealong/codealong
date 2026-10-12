@@ -953,6 +953,9 @@ struct Engine {
     /// Session key → the pages on the web its records show it made or showed you, the latest
     /// first (artifacts.rs).
     artifacts: artifacts::Made,
+    /// The records read whole for those, the PRs and the Chrome tabs (`scan_pr_marks`,
+    /// `read_found_logs`): from then on only their new lines are.
+    logs_read: HashSet<PathBuf>,
     /// Session key → the Chrome tabs its records show it drove (chrometabs.rs).
     chrome_use: HashMap<String, chrometabs::Use>,
     /// Chrome's profiles, as of the last lookup of a session's.
@@ -1085,6 +1088,7 @@ impl Engine {
             needles: Vec::new(),
             pr_marks: HashMap::new(),
             artifacts: HashMap::new(),
+            logs_read: HashSet::new(),
             chrome_use: HashMap::new(),
             chrome_profiles: Vec::new(),
             chrome_lookups: HashMap::new(),
@@ -1534,6 +1538,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         for l in applied.lines {
             self.check_new_lines(&l.path, l.from, l.to, &l.key);
         }
+        self.read_found_logs(applied.found);
         applied.added
     }
 
@@ -1667,6 +1672,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             return;
         }
         self.scan_sessions();
+        self.read_unread_logs();
         self.load_repos();
         self.queue_git_all();
         self.github.poll(&self.seeds, true, Now::real());
@@ -2381,6 +2387,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.save_state();
                         // What's archived and pinned decides what the harnesses' readers keep.
                         self.scan_sessions();
+                        self.read_unread_logs();
                     }
                     self.dirty = true;
                 }
@@ -2536,56 +2543,48 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// Reads the PRs each session's records show it made or changed, the pages on the web it
     /// made (artifacts.rs) and the Chrome tabs it drove, subagents' logs included, in the
-    /// background unless `sync`. New lines are read as they come (`check_new_lines`).
+    /// background unless `sync`. New lines are read as they come (`check_new_lines`), and records
+    /// found after this as they're found (`read_found_logs`).
     fn scan_pr_marks(&mut self, sync: bool) {
         let files = self.session_logs();
-        let scan = move || -> (prlinks::Marks, artifacts::Made, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
-            let mut out: prlinks::Marks = HashMap::new();
-            let mut made: artifacts::Made = HashMap::new();
-            let mut used: HashMap<String, chrometabs::Use> = HashMap::new();
-            for (key, marks, pages, chrome) in parallel_map(files, |(path, key)| {
-                let (marks, pages, chrome) = file_marks(&path);
-                (!marks.is_empty() || !pages.is_empty() || !chrome.is_empty()).then(|| (key, marks, pages, chrome))
-            }) {
-                let have = out.entry(key.clone()).or_default();
-                for (pr, at) in marks {
-                    prlinks::add_mark(have, pr, at);
-                }
-                if !pages.is_empty() {
-                    let have = made.entry(key.clone()).or_default();
-                    for a in pages {
-                        artifacts::add(have, a);
-                    }
-                }
-                // A session's own log and its subagents' each have their own: the latest counts.
-                if !chrome.is_empty() && used.get(&key).map_or(true, |u| chrome.at > u.at) {
-                    used.insert(key, chrome);
-                }
-            }
-            out.retain(|_, prs| !prs.is_empty());
-            // Which profile each session's tabs are in, from one read of the extension's storage.
-            if !used.is_empty() {
-                let mut clues = chrometabs::Clues::read();
-                for u in used.values_mut() {
-                    u.profile = clues.profile_of(u);
-                }
-            }
-            (out, made, used, chrome::profiles())
-        };
+        self.logs_read.extend(files.iter().map(|(p, _)| p.clone()));
         if sync {
-            let (prs, made, used, profiles) = scan();
+            let (prs, made, used, profiles) = read_logs(files);
             self.pr_marks = prs;
             self.artifacts = made;
             self.take_chrome_use(used, profiles);
         } else {
-            let tx = self.tx.clone();
-            std::thread::spawn(move || {
-                let (prs, made, used, profiles) = scan();
-                let _ = tx.send(Msg::PrMarks(prs));
-                let _ = tx.send(Msg::Artifacts(made));
-                let _ = tx.send(Msg::ChromeUse(used, profiles));
-            });
+            self.read_logs_off_thread(files);
         }
+    }
+
+    /// Reads records the full scan didn't, as `scan_pr_marks` reads every one: a transcript a
+    /// reader came on after it (a copy of a session moved here, one resumed from before the
+    /// window), or the records of an account added since. Each is read once; what they write
+    /// after comes as new lines.
+    fn read_found_logs(&mut self, found: Vec<(PathBuf, String)>) {
+        let files: Vec<(PathBuf, String)> = found.into_iter().filter(|(p, _)| self.logs_read.insert(p.clone())).collect();
+        if !files.is_empty() {
+            self.read_logs_off_thread(files);
+        }
+    }
+
+    /// After the readers scan again, the records they keep now that weren't read whole: an
+    /// account's added since, say.
+    fn read_unread_logs(&mut self) {
+        let logs = self.session_logs();
+        self.read_found_logs(logs);
+    }
+
+    /// `read_logs` on a thread of its own, its findings sent back to be added to what's known.
+    fn read_logs_off_thread(&self, files: Vec<(PathBuf, String)>) {
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let (prs, made, used, profiles) = read_logs(files);
+            let _ = tx.send(Msg::PrMarks(prs));
+            let _ = tx.send(Msg::Artifacts(made));
+            let _ = tx.send(Msg::ChromeUse(used, profiles));
+        });
     }
 
     /// A PR the board doesn't list, matched to these lanes' worktrees and sessions.
@@ -3258,6 +3257,43 @@ fn line_time(line: &str) -> Option<i64> {
     let start = line.find("\"timestamp\":\"")? + "\"timestamp\":\"".len();
     let end = line[start..].find('"')? + start;
     crate::util::parse_rfc3339_ms(&line[start..end])
+}
+
+/// The PRs sessions' records show they made or changed, the pages on the web they made and the
+/// Chrome tabs they drove, by session key, from one read of each record (`file_marks`), with
+/// Chrome's profiles.
+fn read_logs(files: Vec<(PathBuf, String)>) -> (prlinks::Marks, artifacts::Made, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
+    let mut out: prlinks::Marks = HashMap::new();
+    let mut made: artifacts::Made = HashMap::new();
+    let mut used: HashMap<String, chrometabs::Use> = HashMap::new();
+    for (key, marks, pages, chrome) in parallel_map(files, |(path, key)| {
+        let (marks, pages, chrome) = file_marks(&path);
+        (!marks.is_empty() || !pages.is_empty() || !chrome.is_empty()).then(|| (key, marks, pages, chrome))
+    }) {
+        let have = out.entry(key.clone()).or_default();
+        for (pr, at) in marks {
+            prlinks::add_mark(have, pr, at);
+        }
+        if !pages.is_empty() {
+            let have = made.entry(key.clone()).or_default();
+            for a in pages {
+                artifacts::add(have, a);
+            }
+        }
+        // A session's own log and its subagents' each have their own: the latest counts.
+        if !chrome.is_empty() && used.get(&key).map_or(true, |u| chrome.at > u.at) {
+            used.insert(key, chrome);
+        }
+    }
+    out.retain(|_, prs| !prs.is_empty());
+    // Which profile each session's tabs are in, from one read of the extension's storage.
+    if !used.is_empty() {
+        let mut clues = chrometabs::Clues::read();
+        for u in used.values_mut() {
+            u.profile = clues.profile_of(u);
+        }
+    }
+    (out, made, used, chrome::profiles())
 }
 
 /// A log's PR marks, the pages on the web it made (in the order its lines name them) and the
