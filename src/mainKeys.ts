@@ -163,8 +163,9 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     else listRef.current?.focus();
     return;
   }
-  // ⇧⌘F from a PR panel's own fields (its review box, the files' filter), which have no use for it.
-  const prMaxKey = view === 'prs' && mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && !!document.activeElement?.closest('.ca-prpanel');
+  // ⇧⌘F from a PR panel's own fields (its review box, the files' filter), which have no use for it:
+  // in PRs, and in Sessions, where a session's PR shows in its panel's place.
+  const prMaxKey = (view === 'prs' || view === 'sessions') && mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && !!document.activeElement?.closest('.ca-prpanel');
   // ⌘F, and ⌥⌘F, which goes by the key's code, as ⌥ changes the character.
   const findKey = mod && !e.ctrlKey && !e.shiftKey && (e.altKey ? e.code === 'KeyF' : key === 'f');
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘

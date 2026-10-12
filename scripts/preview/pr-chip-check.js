@@ -145,6 +145,8 @@
       latest.forEach(function (l, i) {
         if (l.pr) return;
         var own = b.prs.filter(function (x) { return x.project === l.project; })[i];
+        // The PR's panel lists the worktrees that hold it, this one now among them.
+        if (own && own.lanes.indexOf(l.id) < 0) own.lanes = own.lanes.concat([l.id]);
         var number = 4242 + i;
         l.pr = own
           ? { number: own.number, title: own.title, url: own.url, state: own.state, checks: own.checks, merge: own.merge, updatedAt: own.updatedAt, mergedAt: own.mergedAt, closedAt: own.closedAt }
@@ -264,6 +266,65 @@
             check('back is the row’s own panel again, the row still selected', !q('.ca-prinsp') && selected() === hit.row.id && view() === from, String(selected()) + ' in ' + view());
           });
         });
+    })
+    .then(function () {
+      if (!listed[url]) return;
+      // In Worktrees, the PR's panel names the worktree it's shown from: a click there is the
+      // worktree's own panel again. Shown first from the row's chip, which selects the row's first
+      // line as the list shows it, then from the worktree's panel, whose own chip leaves the
+      // selection where showing the worktree puts it: the second click selects what's selected
+      // already.
+      if (from === 'Agents and worktrees') {
+        var laneId = hit.row.id.slice('row-'.length).split('::')[0];
+        var worktree = function () { return all('.ca-prinsp .ca-wtchip').filter(function (c) { return (c.title || '').indexOf(laneId) === 0; })[0]; };
+        var round = function (show, what) {
+          show();
+          return wait(400).then(function () {
+            var wt = worktree();
+            check(what + ': the PR’s panel names the worktree', !!wt, all('.ca-prinsp .ca-wtchip').map(function (c) { return (c.title || '').split('\n')[0]; }).join(' | '));
+            if (!wt) return false;
+            var at = selected();
+            wt.click();
+            return wait(200).then(function () {
+              check(what + ': a click on it is the worktree’s own panel again', !q('.ca-prinsp') && !!q('.ca-insp') && view() === from, String(selected()) + ' in ' + view());
+              return selected() === at;
+            });
+          });
+        };
+        return round(function () { click(chip(), 1); }, 'from its row')
+          .then(function () {
+            var own = q('.ca-insp .ca-prcard .ca-pr');
+            if (!own) return void note('no PR chip in the worktree’s panel');
+            return round(function () { click(own, 1); }, 'from its panel').then(function (same) {
+              check('the second selected what was selected already', same === true, String(same));
+            });
+          });
+      }
+      // In Sessions, with the session's panel taking the whole window, a PR from its header takes
+      // its place there and gives the list back as it would.
+      if (from === 'Sessions') {
+        var expand = q('.ca-sessinsp button[aria-label="Expand to the window"]');
+        if (!expand) return void note('no session panel to expand');
+        expand.click();
+        return wait(200)
+          .then(function () {
+            var head = all('.ca-sessinsp .ca-prchipcard .ca-pr').filter(function (c) {
+              var m = number(c);
+              return Object.keys(listed).some(function (u) { return new RegExp('/pull/' + m + '$').test(u); });
+            })[0];
+            if (!head) return void note('no PR the board lists in the session’s header');
+            click(head, 1);
+            return wait(400).then(function () {
+              var restore = q('.ca-prinsp button[aria-label="Show the list"]');
+              check('a PR shown in an expanded session’s place can give the list back', !!restore, q('.ca-prinsp') ? 'no button' : 'no PR panel');
+              if (!restore) return;
+              restore.click();
+              return wait(200).then(function () {
+                check('which it does', !!q('.ca-prinsp button[aria-label="Expand to the window"]'), String(!!q('.ca-prinsp')));
+              });
+            });
+          });
+      }
     })
     .then(done)
     .catch(stopped);

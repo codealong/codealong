@@ -178,8 +178,9 @@ export function MainPanel(props: MainPanelProps) {
       onMoreMenu={(at) => pickMenu(rows, at)}
     />
   );
-  /** A PR's panel; in PRs it can take the whole window (`maximizes`). */
-  const prPanel = (item: PrRowItem, maximizes = false, back?: PanelBackTo): ReactNode =>
+  /** A PR's panel; in PRs, or in place of a session's in Sessions, it can take the whole window
+   *  (`max`: whether it does, and the way to switch). */
+  const prPanel = (item: PrRowItem, max?: { on: boolean; toggle: () => void }, back?: PanelBackTo): ReactNode =>
     drilledPanel(item.key, `PR #${item.pr.number}`) ?? (
     <PrInspector
       key={item.pr.key}
@@ -201,8 +202,8 @@ export function MainPanel(props: MainPanelProps) {
       onShowLane={showLaneFromPanel}
       onLaneMenu={laneMenu}
       onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-      maximized={maximizes && prPanelMax}
-      onMaximize={maximizes ? togglePrPanelMax : undefined}
+      maximized={max?.on}
+      onMaximize={max?.toggle}
       back={back}
     />
   );
@@ -279,7 +280,10 @@ export function MainPanel(props: MainPanelProps) {
     const back = { label, onBack: () => setDrill(null) };
     if (drill.pr) {
       const pr = board?.prs.find((p) => p.key === drill.key);
-      return pr ? prPanel(prRowOf(pr), false, back) : null;
+      // In Sessions it takes the session's panel's place in the whole window too, and gives the
+      // list back as that panel would.
+      const max = view === 'sessions' ? { on: panelMax, toggle: togglePanelMax } : undefined;
+      return pr ? prPanel(prRowOf(pr), max, back) : null;
     }
     for (const lane of lanes) {
       const session = lane.sessions.find((x) => x.key === drill.key);
@@ -320,7 +324,7 @@ export function MainPanel(props: MainPanelProps) {
     picks.prs.rows.length > 0 ? (
       <PrPickPanel items={picks.prs.rows} actions={picks.prs.actions()} onShow={(r) => picks.prs.select(r, 'one')} onLeaveOut={(r) => picks.prs.select(r, 'toggle')} onMoreMenu={picks.prs.menu} />
     ) : selected?.kind === 'pr' ? (
-      prPanel(selected, true)
+      prPanel(selected, { on: prPanelMax, toggle: togglePrPanelMax })
     ) : (
       <aside className="ca-insp ca-insp--empty">
         <p>Select a PR to see its description, reviews and changes.</p>

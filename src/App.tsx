@@ -1048,6 +1048,8 @@ export function App() {
     setView('worktrees');
     setBayFilter([]);
     if (lane.parked) setShowParked(true);
+    // Its own panel, though its row was selected already, with a PR in that panel's place.
+    setDrill(null);
     setSelectedKey(boardRowKey(lane));
   };
 
