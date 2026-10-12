@@ -303,6 +303,27 @@ pub struct Session {
     /// 2026-10-10, whose helpers show as sessions of their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub helper: Option<Helper>,
+    /// The pages on the web it made or showed you (`Artifact`), the one it last published,
+    /// updated or opened first. Empty where its harness makes none, and from Macs before
+    /// 2026-10-12.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<Artifact>,
+}
+
+/// A page on the web a session made or showed you, as its records say: an artifact Claude Code
+/// published, made from a type or opened (`Adapter::artifact_made`). One a session published
+/// again is one artifact, as it last stood.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Artifact {
+    pub url: String,
+    /// What the page is called.
+    pub title: String,
+    /// What the session last did with it, in a word or two: "Updated · version 9".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// When it last did, or 0 where its record doesn't say.
+    pub at: i64,
 }
 
 /// What a helper session works for: the session whose agent started it, or the PR it reviews.
@@ -408,6 +429,7 @@ impl Session {
             context: None,
             own_worktree: None,
             helper: None,
+            artifacts: Vec::new(),
         }
     }
 }

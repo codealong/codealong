@@ -437,6 +437,27 @@ fn artifact_of(result: Option<&Value>) -> Option<crate::harness::Link> {
     Some(crate::harness::Link { url: url.to_string(), title: one_line(text("title").unwrap_or("Artifact"), 120), note: Some(note) })
 }
 
+/// Text a transcript line has when its result may name an artifact (`artifact_made`).
+pub(super) const ARTIFACT_NEEDLES: [&str; 2] = ["\"artifact_id\"", "\"created_from_type\""];
+
+/// The artifact a transcript line's one result names, as its call shows it in the conversation
+/// (`artifact_of`), with the line's time: for the session's list of them (artifacts.rs). Only
+/// lines with a result and one of the needles are parsed, a subagent's too: what it published
+/// is the session's work.
+pub(super) fn artifact_made(line: &str) -> Option<crate::model::Artifact> {
+    if !line.contains("\"toolUseResult\"") || !ARTIFACT_NEEDLES.iter().any(|n| line.contains(n)) {
+        return None;
+    }
+    let v: Value = serde_json::from_str(line).ok()?;
+    let parts = v.pointer("/message/content").and_then(Value::as_array)?;
+    if parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("tool_result")).count() != 1 {
+        return None;
+    }
+    let link = artifact_of(v.get("toolUseResult"))?;
+    let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+    Some(crate::model::Artifact { url: link.url, title: link.title, note: link.note, at })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

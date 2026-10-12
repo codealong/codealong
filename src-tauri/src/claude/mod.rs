@@ -725,6 +725,14 @@ impl crate::harness::Adapter for ClaudeCode {
         transcript::pr_made(line)
     }
 
+    fn artifact_needles(&self) -> &'static [&'static str] {
+        &conversation::ARTIFACT_NEEDLES
+    }
+
+    fn artifact_made(&self, line: &str) -> Option<crate::model::Artifact> {
+        conversation::artifact_made(line)
+    }
+
     // ---- Starting a session ----
 
     fn models(&self, _account: &AccountCfg) -> Vec<crate::start::ModelOption> {

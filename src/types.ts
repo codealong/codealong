@@ -149,6 +149,10 @@ export interface Session {
    *  start --helper`), or an automatic review's session. While it doesn't need you it's out of
    *  the lists and queues, under what it helps (lanes.ts `helping`). Missing from older Macs. */
   helper?: Helper;
+  /** The pages on the web it made or showed you (artifacts Claude Code published), the one it
+   *  last published, updated or opened first (artifacts.rs). Missing when it has none, and from
+   *  older Macs. */
+  artifacts?: Artifact[];
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -215,6 +219,18 @@ export interface GitInfo {
   resetAt?: number;
   /** How many times it took new work, as far back as its reflog goes. */
   newWorkCount?: number;
+}
+
+/** A page on the web a session made or showed you: an artifact Claude Code published, made from a
+ *  type or opened (peer model.rs `Artifact`), as it last stood. */
+export interface Artifact {
+  url: string;
+  /** What the page is called. */
+  title: string;
+  /** What the session last did with it, in a word or two: "Updated · version 9". */
+  note?: string;
+  /** When it last did, or 0 where its record doesn't say. */
+  at: number;
 }
 
 /** A session's tabs in Chrome, as its record last listed them. */

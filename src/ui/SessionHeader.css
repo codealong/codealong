@@ -315,7 +315,8 @@
   border-bottom: 1.5px solid var(--line-strong);
   border-bottom-left-radius: 4px;
 }
-/* One that came of it and, beside the latest, the way to the rest: quiet until it's wanted. */
+/* One that came of it and, beside the latest, the way to the rest: quiet until it's wanted. The
+   pages it made have the same way to theirs, beside the latest one's chip among the links. */
 .ca-sessinsp-kid {
   display: flex;
   align-items: center;
@@ -325,7 +326,8 @@
 .ca-sessinsp-kid > .ca-sessinsp-kin {
   flex: 0 1 auto;
 }
-.ca-sessinsp-kids-more {
+.ca-sessinsp-kids-more,
+.ca-sessinsp-artifacts-more {
   appearance: none;
   flex: none;
   height: 18px;
@@ -338,11 +340,13 @@
   white-space: nowrap;
   cursor: default;
 }
-.ca-sessinsp-kids-more:hover {
+.ca-sessinsp-kids-more:hover,
+.ca-sessinsp-artifacts-more:hover {
   background: var(--surface-hover);
   color: var(--ink);
 }
-.ca-sessinsp-kids-more:focus-visible {
+.ca-sessinsp-kids-more:focus-visible,
+.ca-sessinsp-artifacts-more:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--focus);
 }

@@ -14,6 +14,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use crate::board::{self, LaneSeed, ELSEWHERE};
 use crate::chrome;
 use crate::autoreview;
+use crate::artifacts;
 use crate::chrometabs;
 use crate::prlinks;
 use crate::teamfile;
@@ -110,6 +111,9 @@ pub enum Msg {
     /// Session key → the PRs its records show it made or changed, each with its first mark's
     /// time (prlinks.rs).
     PrMarks(prlinks::Marks),
+    /// Session key → the pages on the web its records show it made or showed you, the latest
+    /// first (artifacts.rs).
+    Artifacts(artifacts::Made),
     /// Session key → the Chrome tabs its records show it drove, their profiles looked up, and
     /// Chrome's profiles (chrometabs.rs).
     ChromeUse(HashMap<String, chrometabs::Use>, Vec<chrome::Profile>),
@@ -946,6 +950,9 @@ struct Engine {
     needles: Vec<(PathBuf, String, i64)>,
     /// Session key → the PRs its records show it made or changed, each with its first mark's time.
     pr_marks: prlinks::Marks,
+    /// Session key → the pages on the web its records show it made or showed you, the latest
+    /// first (artifacts.rs).
+    artifacts: artifacts::Made,
     /// Session key → the Chrome tabs its records show it drove (chrometabs.rs).
     chrome_use: HashMap<String, chrometabs::Use>,
     /// Chrome's profiles, as of the last lookup of a session's.
@@ -1077,6 +1084,7 @@ impl Engine {
             visitors: Visitors::default(),
             needles: Vec::new(),
             pr_marks: HashMap::new(),
+            artifacts: HashMap::new(),
             chrome_use: HashMap::new(),
             chrome_profiles: Vec::new(),
             chrome_lookups: HashMap::new(),
@@ -1409,6 +1417,16 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         sessions
     }
 
+    /// The pages on the web each session made or showed you, for its header.
+    fn with_artifacts(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        for s in &mut sessions {
+            if let Some(made) = self.artifacts.get(&s.key) {
+                s.artifacts = made.clone();
+            }
+        }
+        sessions
+    }
+
     /// The Chrome tabs each session drove, to bring back from its menu.
     fn with_chrome(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         if self.chrome_use.is_empty() {
@@ -1707,6 +1725,17 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         let have = self.pr_marks.entry(key).or_default();
                         for (pr, at) in prs {
                             prlinks::add_mark(have, pr, at);
+                        }
+                    }
+                    self.dirty = true;
+                }
+                Ok(Msg::Artifacts(found)) => {
+                    // Lines read as they were written while the scan ran are kept, or taken
+                    // over by what the scan read after them.
+                    for (key, made) in found {
+                        let have = self.artifacts.entry(key).or_default();
+                        for a in made {
+                            artifacts::add(have, a);
                         }
                     }
                     self.dirty = true;
@@ -2505,20 +2534,28 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
     }
 
-    /// Reads the PRs each session's records show it made or changed, subagents' logs included,
-    /// in the background unless `sync`. New lines are read as they come (`check_new_lines`).
+    /// Reads the PRs each session's records show it made or changed, the pages on the web it
+    /// made (artifacts.rs) and the Chrome tabs it drove, subagents' logs included, in the
+    /// background unless `sync`. New lines are read as they come (`check_new_lines`).
     fn scan_pr_marks(&mut self, sync: bool) {
         let files = self.session_logs();
-        let scan = move || -> (prlinks::Marks, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
+        let scan = move || -> (prlinks::Marks, artifacts::Made, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
             let mut out: prlinks::Marks = HashMap::new();
+            let mut made: artifacts::Made = HashMap::new();
             let mut used: HashMap<String, chrometabs::Use> = HashMap::new();
-            for (key, marks, chrome) in parallel_map(files, |(path, key)| {
-                let (marks, chrome) = file_marks(&path);
-                (!marks.is_empty() || !chrome.is_empty()).then(|| (key, marks, chrome))
+            for (key, marks, pages, chrome) in parallel_map(files, |(path, key)| {
+                let (marks, pages, chrome) = file_marks(&path);
+                (!marks.is_empty() || !pages.is_empty() || !chrome.is_empty()).then(|| (key, marks, pages, chrome))
             }) {
                 let have = out.entry(key.clone()).or_default();
                 for (pr, at) in marks {
                     prlinks::add_mark(have, pr, at);
+                }
+                if !pages.is_empty() {
+                    let have = made.entry(key.clone()).or_default();
+                    for a in pages {
+                        artifacts::add(have, a);
+                    }
                 }
                 // A session's own log and its subagents' each have their own: the latest counts.
                 if !chrome.is_empty() && used.get(&key).map_or(true, |u| chrome.at > u.at) {
@@ -2533,17 +2570,19 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     u.profile = clues.profile_of(u);
                 }
             }
-            (out, used, chrome::profiles())
+            (out, made, used, chrome::profiles())
         };
         if sync {
-            let (prs, used, profiles) = scan();
+            let (prs, made, used, profiles) = scan();
             self.pr_marks = prs;
+            self.artifacts = made;
             self.take_chrome_use(used, profiles);
         } else {
             let tx = self.tx.clone();
             std::thread::spawn(move || {
-                let (prs, used, profiles) = scan();
+                let (prs, made, used, profiles) = scan();
                 let _ = tx.send(Msg::PrMarks(prs));
+                let _ = tx.send(Msg::Artifacts(made));
                 let _ = tx.send(Msg::ChromeUse(used, profiles));
             });
         }
@@ -2630,6 +2669,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         for (pr, at) in prlinks::pr_marks(&text) {
             let have = self.pr_marks.entry(key.to_string()).or_default();
             self.dirty |= prlinks::add_mark(have, pr, at);
+        }
+        for a in artifacts::in_text(&text) {
+            let have = self.artifacts.entry(key.to_string()).or_default();
+            self.dirty |= artifacts::add(have, a);
         }
         let mut chrome = self.chrome_use.get(key).cloned().unwrap_or_default();
         if chrometabs::fold_text(&mut chrome, &text) {
@@ -2898,7 +2941,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now)), now), &usage, now)),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_artifacts(self.with_chrome(self.with_origins(self.build_sessions(now)))), now)), now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),
@@ -3217,10 +3260,12 @@ fn line_time(line: &str) -> Option<i64> {
     crate::util::parse_rfc3339_ms(&line[start..end])
 }
 
-/// A log's PR marks and the Chrome tabs it drove, from one read of it.
-fn file_marks(path: &Path) -> (Vec<(String, i64)>, chrometabs::Use) {
-    let needles: Vec<&str> = prlinks::needles().chain(chrometabs::NEEDLES.iter().copied()).collect();
+/// A log's PR marks, the pages on the web it made (in the order its lines name them) and the
+/// Chrome tabs it drove, from one read of it.
+fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<crate::model::Artifact>, chrometabs::Use) {
+    let needles: Vec<&str> = prlinks::needles().chain(artifacts::needles()).chain(chrometabs::NEEDLES.iter().copied()).collect();
     let mut marks: Vec<(String, i64)> = Vec::new();
+    let mut made = Vec::new();
     let mut chrome = chrometabs::Use::default();
     crate::util::each_line_with(path, &needles, |line| {
         if let Some(m) = prlinks::line_mark(line) {
@@ -3228,9 +3273,10 @@ fn file_marks(path: &Path) -> (Vec<(String, i64)>, chrometabs::Use) {
                 marks.push(m);
             }
         }
+        made.extend(artifacts::line_artifact(line));
         chrometabs::fold(&mut chrome, line);
     });
-    (marks, chrome)
+    (marks, made, chrome)
 }
 
 /// A hash of everything the UI shows except the timestamp, so identical boards aren't resent.

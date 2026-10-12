@@ -1,0 +1,72 @@
+/* The pages on the web a session made (ArtifactBits.tsx), in its header. */
+
+/* The latest, among the links: a neutral chip, as something you can open is, with its title in
+   words (sans) that shorten with an ellipsis. */
+.ca-chip.ca-artifactchip {
+  min-width: 0;
+  max-width: 240px;
+  font: var(--type-caption-strong);
+}
+.ca-artifactchip > .ca-icon {
+  flex: none;
+}
+.ca-artifactchip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The rest, under the links: a row each, as the sessions that came of it have under the title,
+   lit under the pointer. */
+.ca-artifacts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  margin-top: -2px;
+}
+.ca-artifact {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  height: 20px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-artifact:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-artifact:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-artifact > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-artifact-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-artifact-note,
+.ca-artifact-age {
+  flex: none;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ca-artifact-age {
+  font-variant-numeric: tabular-nums;
+}

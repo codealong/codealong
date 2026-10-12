@@ -4,12 +4,14 @@
 // the title with the ways to open it and act on it (its folder in your terminal and your editors
 // among them), one line of where it stands, where it works and, last as on a row, its account
 // (the harness's name alone didn't say which of its accounts), and one of the PRs it worked on
-// (each one's card on hover), the todo it's on, and how many side conversations it has
-// (SideStrip.tsx), which shows them above the box. The rest is in Details and the ⋯ menu.
+// (each one's card on hover), the latest page on the web it made (ArtifactBits.tsx), the todo
+// it's on, and how many side conversations it has (SideStrip.tsx), which shows them above the
+// box. The rest is in Details and the ⋯ menu.
 //
 // A session that came of another (a fork, or started by its agent) names it in a line over the
 // title, and the latest session that came of it hangs under the title with its status; a quiet
-// "+N more" beside it lists the rest. A click shows one, a right-click gives its menu.
+// "+N more" beside it lists the rest. A click shows one, a right-click gives its menu. The pages
+// it made go the same way under its links: the latest one's chip, and "+N more" for the rest.
 //
 // A window says what it can do by what it passes: the main window can expand the panel, the peek
 // can keep the session on the desktop and a session kept there can be closed, and Rename in a
@@ -33,6 +35,7 @@ import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Lane, Pr, Session, SessionSpent, Target, Todo } from '../types';
 import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
+import { ArtifactChip, ArtifactList } from './ArtifactBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
@@ -236,6 +239,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
   const [allKin, setAllKin] = useState(false);
+  const [allArtifacts, setAllArtifacts] = useState(false);
+  const artifacts = s.artifacts ?? [];
   // The latest started first: it's the one shown, and the rest open under it in the order they
   // started, so the list holds still as they work.
   const cameOf = useMemo(() => [...(lineage?.to ?? [])].sort((a, b) => (b.session.startedAt ?? b.session.lastPromptAt) - (a.session.startedAt ?? a.session.lastPromptAt)), [lineage]);
@@ -399,6 +404,25 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             +{prs.length - PRS_SHOWN}
           </button>
         )}
+        {artifacts[0] && <ArtifactChip artifact={artifacts[0]} now={now} />}
+        {artifacts.length > 1 && (
+          <button
+            type="button"
+            className="ca-sessinsp-artifacts-more"
+            aria-expanded={allArtifacts}
+            title={
+              allArtifacts
+                ? 'Show only the latest'
+                : artifacts
+                    .slice(1)
+                    .map((a) => a.title)
+                    .join('\n')
+            }
+            onClick={() => setAllArtifacts(!allArtifacts)}
+          >
+            {allArtifacts ? 'fewer' : `+${artifacts.length - 1} more`}
+          </button>
+        )}
         <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         <InsightChips session={s} />
         {!allTodos && current && (
@@ -422,6 +446,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         )}
         <SidesChip session={s} />
       </div>
+      {allArtifacts && artifacts.length > 1 && <ArtifactList artifacts={artifacts.slice(1)} now={now} />}
       {allTodos && (
         <div className="ca-insp-todos">
           {listed.map((t) => (

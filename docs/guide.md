@@ -241,7 +241,13 @@ times) and its menu (⋯, New session here among the rest); where it stands, its
 and its account (its harness on hover); and the PRs it worked on (as the PRs view links them, else
 its worktree's), each a chip that shows the PR's panel in place of the session's on a click (in
 the floating windows, in PRs), opens it on GitHub on a double-click and shows the PR's card on
-hover, with the todo it's on and +N for the rest. Below is its whole conversation, read from the session's own record
+hover, with the todo it's on and +N for the rest. Beside its PRs is the latest page on the web it
+made: an artifact Claude Code published, made from a type or opened, its subagents' included, as a
+chip with its title that opens it in the browser on a click, what it last did with it and when on
+hover. When it made more, "+N more" beside the chip (naming them on hover) lists the rest under the
+links, the latest first, each with what was last done with it and how long ago, and "fewer" puts
+them away, as the sessions that came of it go under its title. An artifact published again is one
+page, as it last stood. Below is its whole conversation, read from the session's own record
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the agent's replies
 as Markdown, and every tool call, which opens to its input and output; runs of calls fold into one
 line. Who said what and when heads a run of messages, not each one: your prompt, then the agent's

@@ -407,12 +407,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `annotations`. Declined, the result is an error, "The user doesn't want to proceed…", with
   `toolUseResult` the string "User rejected tool use".
 - An `Artifact` call's result line (`toolUseResult`) and the link the conversation shows for it:
-  `claude/conversation.rs` (`artifact_of`). The call's input is `file_path`, or `type_url` and
-  `title`, with an `action` when it isn't a publish. The result also has `version`, `path`,
-  `icon`, `audience`…; `url` is `https://claude.ai/artifact/<id>`, older versions write no
-  `seq`, and `updated` is false on the first publish. One made from a type has no
-  `artifact_id`; a read keeps `url` and `title` under `read` (beside `artifactRead`), and a list
-  has `artifacts` (2026-10-02).
+  `claude/conversation.rs` (`artifact_of`), which the session's list of them for its header
+  (`artifact_made`, artifacts.rs) goes by too, subagents' logs included. Across this Mac's
+  transcripts on 2026-10-12, only `Artifact` calls had results with `artifact_id` or
+  `created_from_type`: 169 publishes and one open, all with a `url`. The call's input is
+  `file_path`, or `type_url` and `title`, with an `action` when it isn't a publish. The result
+  also has `version`, `path`, `icon`, `audience`…; `url` is `https://claude.ai/artifact/<id>`,
+  older versions write no `seq`, and `updated` is false on the first publish. One made from a
+  type has no `artifact_id`; a read keeps `url` and `title` under `read` (beside
+  `artifactRead`), and a list has `artifacts` (2026-10-02).
 - Sign-in in the login keychain (its services, the account, reading it without a prompt) and
   never refreshing, logging or passing the token in arguments: `claude/usage.rs` (module header,
   `keychain_services`, `read_sign_in`, `fetch`).

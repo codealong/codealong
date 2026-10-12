@@ -468,6 +468,18 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Text a line of its records has when it may say the session made or showed you a page on
+    /// the web (`artifact_made`), read as `pr_needles` are.
+    fn artifact_needles(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// The page on the web a line of its records says the session published, made or opened
+    /// (an artifact Claude Code published), with the line's time (artifacts.rs).
+    fn artifact_made(&self, _line: &str) -> Option<crate::model::Artifact> {
+        None
+    }
+
     // ---- Starting a session (start.rs) ----
 
     /// The models a start can ask for, as the harness's command line takes them, when it takes

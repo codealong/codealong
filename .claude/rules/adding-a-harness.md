@@ -66,7 +66,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      show it), `databases` (the ones in WAL mode, whose `-wal` the watcher keeps), and, for its
      records read as text without parsing, `output_marks` and `folder_marks` (a tool's output,
      and what comes before the folder a command ran in) and `pr_needles` with `pr_made` (a PR
-     the session made, for prlinks.rs).
+     the session made, for prlinks.rs), and `artifact_needles` with `artifact_made` (a page on
+     the web it made, for artifacts.rs).
 3. A `harness::Reader` in the module, which `Adapter::reader` makes and the engine keeps without
    looking inside: `scan` (every account's sessions afresh, at launch and when config.toml
    changes), `watch` (the folders to watch), `owns` and `apply` (taking in the files that

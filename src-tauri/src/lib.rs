@@ -3,6 +3,7 @@
 mod acp;
 mod actions;
 mod agentdone;
+mod artifacts;
 mod attachments;
 mod autoreview;
 mod bar;
