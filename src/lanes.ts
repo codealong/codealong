@@ -83,8 +83,8 @@ export function startedOf(s: Session): number {
 
 /** A finished turn waiting on you to read it: Your turn, or a reply that asks you something.
  *  Marking it seen makes it idle, which takes it off the bar and out of its bay. */
-export function seenable(s: Pick<Session, 'status' | 'asks'>): boolean {
-  return s.status === 'unread' || !!s.asks;
+export function seenable(s: Pick<Session, 'status' | 'asks' | 'cutOff'>): boolean {
+  return s.status === 'unread' || !!s.asks || (s.status === 'error' && s.cutOff != null);
 }
 
 /** Whether a session can be marked unread: its turn is over and you've seen it (idle or

@@ -239,8 +239,16 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   // One that isn't running goes on where its account's sessions can (start.rs `resume`), as its
   // box offers, where there's more than the terminal Open resumes it in.
   const resumeTo = here && !s.live && !s.hosted && s.surface === 'cli' ? resumePlaces(s) : [];
-  // Resumed with nothing to say, a turn that was cut off is told to carry on (start.rs `resume`).
+  // Resumed with nothing to say, a turn that was cut off is told to carry on (start.rs `resume`):
+  // one of its harness's app goes on there, the rest where its box would resume it.
   const cutOff = s.cutOff != null && s.status !== 'working';
+  const carryTo = !cutOff || !here || s.live || s.hosted
+    ? undefined
+    : s.surface === 'app'
+      ? resumePlaces(s).find((p) => p.place === 'claude-app' || p.place === 'codex-app')
+      : resumeTo.length > 0
+        ? carryOnIn(resumeTo, resumedIn(s.account))
+        : undefined;
   const resume = (to: StartAccount['places'][number]) =>
     busy(`Resuming ${s.title}…`, resumeSession(s.key, { place: to.place, model: null, effort: null }))
       .then((sent) => {
@@ -295,7 +303,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
           : undefined,
     moveFolder: movesFolders ? folderMoves(lane, can.worktrees ?? [], (to) => void moveFolder(to)) : undefined,
     moveOn: suggested ? moveItem(suggested, `Move to ${suggested} and go on`) : undefined,
-    carryOn: cutOff && resumeTo.length > 0 ? { label: 'Carry on', run: () => void resume(carryOnIn(resumeTo, resumedIn(s.account))) } : undefined,
+    carryOn: carryTo ? { label: 'Carry on', run: () => void resume(carryTo) } : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,

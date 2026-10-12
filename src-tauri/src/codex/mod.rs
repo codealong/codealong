@@ -458,17 +458,16 @@ impl Reader {
     /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
     /// this look. Codex's processes are looked at only while some turn is open.
     fn let_go_now(&self, look: &Look) -> Option<(i64, HashSet<OsString>)> {
-        let open: Vec<&std::ffi::OsStr> = self
+        let open: Vec<(&Path, u64)> = self
             .rollouts
             .iter()
-            .filter(|(_, (_, parsed))| parsed.as_ref().is_some_and(|(th, _)| th.turn_open))
-            .filter_map(|(path, _)| path.file_name())
+            .filter_map(|(path, (_, parsed))| parsed.as_ref().filter(|(th, _)| th.turn_open).map(|(_, read)| (path.as_path(), *read)))
             .collect();
         if open.is_empty() {
             return Some((look.now, HashSet::new()));
         }
         let held = held_rollouts(look.ps.all())?;
-        Some((look.now, open.into_iter().filter(|n| !held.contains(*n)).map(OsString::from).collect()))
+        Some((look.now, let_go(&open, &held, |p| std::fs::metadata(p).ok().map(|m| m.len()))))
     }
 
     /// Whether a Codex process held a thread's rollout when last looked, None when that isn't
@@ -650,6 +649,19 @@ impl crate::harness::Reader for Reader {
     }
 }
 
+/// The rollouts of open turns, of `open` (each with how far it's been read), that no Codex
+/// process holds (`held`), by file name. One that has grown since it was read is left out: a turn
+/// that ends writes `task_complete` and may let go of its rollout between the read and the look at
+/// the processes, and it's read again next.
+fn let_go(open: &[(&Path, u64)], held: &HashSet<OsString>, len_now: impl Fn(&Path) -> Option<u64>) -> HashSet<OsString> {
+    open.iter()
+        .filter(|(path, read)| len_now(path) == Some(*read))
+        .filter_map(|(path, _)| path.file_name())
+        .filter(|n| !held.contains(*n))
+        .map(OsString::from)
+        .collect()
+}
+
 fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Typed {
     crate::harness::Typed { input: format!("{} fork {id}\n", account.command()), env: Vec::new(), key: None }
 }
@@ -677,6 +689,19 @@ fn walk_files(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
 mod tests {
     use super::*;
     use crate::codex::terminals::terminal_args;
+
+    #[test]
+    fn an_open_turn_no_process_holds_is_let_go_unless_its_rollout_grew_or_ps_failed() {
+        let (a, b, c) = (Path::new("/c/sessions/rollout-a.jsonl"), Path::new("/c/sessions/rollout-b.jsonl"), Path::new("/c/sessions/rollout-c.jsonl"));
+        let held: HashSet<OsString> = [OsString::from("rollout-b.jsonl")].into();
+        // c wrote its end since it was read.
+        let lens = |p: &Path| Some(if p == c { 350 } else if p == a { 100 } else { 200 });
+        assert_eq!(let_go(&[(a, 100), (b, 200), (c, 300)], &held, lens), [OsString::from("rollout-a.jsonl")].into());
+        // Gone since it was read: nothing to say.
+        assert!(let_go(&[(a, 100)], &held, |_| None).is_empty());
+        // A ps that failed lists nothing, which says nothing about who holds what.
+        assert_eq!(held_rollouts(&[]), None);
+    }
 
     #[test]
     fn forks_a_thread_in_its_accounts_terminal_ui() {

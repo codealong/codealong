@@ -1305,6 +1305,7 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
             (None, _) => (format!("{acct} needs you · {title}"), None),
         },
         Status::Error if s.limit.is_some() => (format!("{acct} hit its usage limit · {title}"), s.excerpt.clone()),
+        Status::Error if s.cut_off.is_some() => (format!("{acct} was cut off · {title}"), s.excerpt.clone()),
         Status::Error => (format!("{acct} stopped with an error · {title}"), s.excerpt.clone()),
         Status::Working => {
             // How long it has worked on what you last asked. Claude Code doesn't restart a busy
@@ -2951,6 +2952,7 @@ mod tests {
         // News until seen, with where it was when it stopped.
         assert_eq!((gone.cut_off, gone.status, gone.live), (Some(NOW - 60_000), Status::Error, false));
         assert_eq!(gone.excerpt.as_deref(), Some("running `yarn test`"));
+        assert_eq!(session_headline(&gone), ("`claude2` was cut off · Portal daily log + photo sync".to_string(), Some("running `yarn test`".to_string())));
         let seen = claude_session(&a, None, Some(&cut), NOW, NOW, &Quiet::default()).unwrap();
         assert_eq!((seen.cut_off, seen.status), (Some(NOW - 60_000), Status::Stopped));
         // Still running, the Claude app's or a headless run's, or moved to the background: not cut off.

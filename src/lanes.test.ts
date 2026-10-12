@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, seenable, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -358,6 +358,9 @@ describe('sessionFlag', () => {
     expect(cutOffWords(true)).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, the Mac restarted, or it was killed).');
     // Resumed, it's working: nothing to flag.
     expect(sessionFlag({ ...cut, status: 'working' })).toBeNull();
+    // Read and left as it is, it's marked seen as a finished turn is; another error isn't.
+    expect(seenable(cut)).toBe(true);
+    expect(seenable({ ...cut, cutOff: undefined })).toBe(false);
   });
 
   it('says which usage limit stopped a session, when it lifts and where it could go on', () => {

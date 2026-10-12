@@ -25,6 +25,11 @@ pub struct Terminal {
 /// Codex's processes are the ones whose executable is called `codex`, which the command line
 /// can't always tell: the one Codealong runs agents through is under "Application Support".
 pub fn held_rollouts(processes: &[crate::procs::PsLine]) -> Option<HashSet<OsString>> {
+    // No processes at all is a `ps` that failed or ran out of time (`procs::Listing`): this one
+    // at least is running.
+    if processes.is_empty() {
+        return None;
+    }
     let mut held = HashSet::new();
     for p in processes.iter().filter(|p| p.command.contains("codex")) {
         if !crate::procs::parent_and_name(p.pid).is_some_and(|(_, name)| name == "codex") {
