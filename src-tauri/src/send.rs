@@ -185,6 +185,23 @@ impl<'a> Message<'a> {
     }
 }
 
+/// Whether an agent's message comes from a helper the session it goes to started
+/// (`codealong start --helper`), by a start that said which session it made
+/// (`origins::Store::known_helper_of`). What such a helper says is the work its session asked of
+/// it, which the session reads with `codealong session wait` anyway, so its message claims the
+/// session's own class, as yours does, rather than being held for you. Any other agent's
+/// message still claims only what its own session has: a helper found only by matching its
+/// start to the next session in its worktree (`origins::resolve`), which may be another one
+/// started about then, and an automatic review shown under the PR's opener (autoreview.rs
+/// `nest_own`), whose reply reaches the opener only as `[reviews.own] send` says. And it must
+/// still be that session's helper on the board: one you made your own (`Session::helper` gone,
+/// state.rs `own`) is a session like any other.
+fn from_its_helper(board: &Board, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
+    let Sender::Agent(Some(from)) = sender else { return false };
+    let helps = board.session(from).is_some_and(|(_, s)| s.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(to));
+    helps && origins.known_helper_of(from) == Some(to)
+}
+
 /// How a prompt reaches a session, tried in order until one works.
 #[derive(Debug, Clone)]
 pub enum Route {
@@ -428,7 +445,10 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
         bail!("There's nothing to send.");
     }
     let account = cfg.accounts.iter().find(|a| a.name == session.account).ok_or_else(|| anyhow!("There's no account named {} in config.toml.", session.account))?;
-    let msg = Message::new(board, cfg, text, sender, now);
+    let mut msg = Message::new(board, cfg, text, sender, now);
+    if from_its_helper(board, &crate::origins::current(), sender, session_key) {
+        msg.bypasses = true;
+    }
     if session.hosted {
         // Codealong runs it: the prompt goes in over its adapter, after the running turn if
         // there is one, and a question it waits on is answered from its panel.
@@ -775,6 +795,37 @@ mod tests {
         assert!(ensure_not_waiting(&asks, &Sender::You).is_ok());
     }
 
+    /// A helper's message to the session that started it claims that session's class, as yours
+    /// does, so a session that skips prompts doesn't hold it; any other agent's claims only its own.
+    #[test]
+    fn a_helpers_message_to_its_own_session_isnt_held() {
+        use crate::model::OriginHow;
+        use crate::origins::{Entry, Store};
+        let entry = |helper: bool, known: bool| Entry { from: "claude:claude:boss".into(), how: OriginHow::Started, at: 1, helper, report: false, known };
+        let mut origins = Store::default();
+        origins.sessions.insert("codex:codex:rev".into(), entry(true, true));
+        // Matched to its start afterwards: it may be another session started about then.
+        origins.sessions.insert("codex:codex:matched".into(), entry(true, false));
+        // Started by it, not as a helper.
+        origins.sessions.insert("codex:codex:started".into(), entry(false, true));
+        // Each is a helper on the board, as the engine marks them (`with_origins`), the review too.
+        let of = |key: &str, parent: Option<&str>| Session { key: key.into(), helper: parent.map(|p| crate::model::Helper { parent: Some(p.into()), ..Default::default() }), ..Session::new(Harness::Codex, "codex", key) };
+        let helpers = ["codex:codex:rev", "codex:codex:matched", "codex:codex:started", "codex:codex:review"].map(|k| of(k, Some("claude:claude:boss")));
+        let board = Board { lanes: vec![crate::fixtures::lane("/r", [vec![of("claude:claude:boss", None)], helpers.to_vec()].concat())], ..Board::default() };
+        let from = |k: &str| Sender::Agent(Some(k.into()));
+        assert!(from_its_helper(&board, &origins, &from("codex:codex:rev"), "claude:claude:boss"));
+        // To any other session, or from any other agent, an automatic review among them: as before.
+        assert!(!from_its_helper(&board, &origins, &from("codex:codex:rev"), "codex:codex:other"));
+        assert!(!from_its_helper(&board, &origins, &from("codex:codex:matched"), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &origins, &from("codex:codex:started"), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &origins, &from("codex:codex:review"), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &origins, &Sender::Agent(None), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &origins, &Sender::Elsewhere, "claude:claude:boss"));
+        // Made your own, it's a helper no more, whatever its start said.
+        let owned = Board { lanes: vec![crate::fixtures::lane("/r", vec![of("claude:claude:boss", None), of("codex:codex:rev", None)])], ..Board::default() };
+        assert!(!from_its_helper(&owned, &origins, &from("codex:codex:rev"), "claude:claude:boss"));
+    }
+
     /// One of a harness's own ways in is sent by the harness, with whose the message is and
     /// what its sender may claim: only you, here, are taken to skip permission prompts.
     #[test]
@@ -908,7 +959,7 @@ mod tests {
     #[test]
     fn a_moved_session_is_neither_sent_to_nor_resumed() {
         let mut origins = crate::origins::Store::default();
-        origins.sessions.insert("claude:claude2:copy".into(), crate::origins::Entry { from: "claude:claude:abc".into(), how: crate::model::OriginHow::Fork, at: 1, helper: false, report: false });
+        origins.sessions.insert("claude:claude2:copy".into(), crate::origins::Entry { from: "claude:claude:abc".into(), how: crate::model::OriginHow::Fork, at: 1, helper: false, report: false, known: false });
         let moved = session(Harness::Claude, Surface::Cli, Status::Stopped, false, None);
         let copy = Session { key: "claude:claude2:copy".into(), account: "claude2".into(), ..moved.clone() };
         let board = Board { lanes: vec![crate::fixtures::lane("/w", vec![moved.clone(), copy])], ..Board::default() };

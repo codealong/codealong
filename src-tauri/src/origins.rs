@@ -52,6 +52,11 @@ pub struct Entry {
     /// (`codealong start --helper --report`, helpers.rs).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub report: bool,
+    /// The start that made it said which session it made, so this is that session for sure;
+    /// a pending start's match (`resolve`) is only likely. A helper's messages to its session
+    /// skip that session's hold only when it is (send.rs `from_its_helper`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub known: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -81,6 +86,13 @@ impl Store {
     /// whether that session is told what it does.
     pub fn helper_of(&self, key: &str) -> Option<(&str, bool)> {
         self.sessions.get(key).filter(|e| e.helper).map(|e| (e.from.as_str(), e.report))
+    }
+
+    /// The session the session with this key was started as a helper of, when the start that made
+    /// it said which session it made (`Entry::known`), not when it was only matched later. Made
+    /// your own since, it's still noted here; the board says it helps no more.
+    pub fn known_helper_of(&self, key: &str) -> Option<&str> {
+        self.sessions.get(key).filter(|e| e.helper && e.known).map(|e| e.from.as_str())
     }
 
     /// The session `key` moved to (start.rs `move_to`): a fork of it into another account of its
@@ -152,7 +164,7 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
         match pick {
             Some(s) => {
                 taken.insert(s.key.to_string());
-                store.sessions.insert(s.key.to_string(), Entry { from: p.from, how: p.how, at: p.at, helper: p.helper, report: p.report });
+                store.sessions.insert(s.key.to_string(), Entry { from: p.from, how: p.how, at: p.at, helper: p.helper, report: p.report, known: false });
                 changed = true;
             }
             None => waiting.push(p),
@@ -207,8 +219,8 @@ fn write_as(key: &str, from: &str, how: OriginHow, helper: bool, report: bool) -
     }
     let now = crate::util::now_ms();
     change(|s| {
-        let entry = Entry { from: from.to_string(), how, at: now, helper, report };
-        s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != how || old.helper != helper || old.report != report)
+        let entry = Entry { from: from.to_string(), how, at: now, helper, report, known: true };
+        s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != how || old.helper != helper || old.report != report || !old.known)
     })
 }
 
@@ -296,7 +308,7 @@ mod tests {
     #[test]
     fn a_session_moved_to_another_account_names_where_it_went() {
         let mut store = Store::default();
-        let mut entry = |key: &str, from: &str, how, at| store.sessions.insert(key.into(), Entry { from: from.into(), how, at, helper: false, report: false });
+        let mut entry = |key: &str, from: &str, how, at| store.sessions.insert(key.into(), Entry { from: from.into(), how, at, helper: false, report: false, known: false });
         // Moved to claude2, forked there, and moved back.
         entry("claude:claude2:b", "claude:claude:a", OriginHow::Fork, 10);
         entry("claude:claude2:fork", "claude:claude2:b", OriginHow::Fork, 20);
@@ -351,9 +363,15 @@ mod tests {
         assert!(resolve(&mut store, &sessions, &Repos, 1_000_300));
         assert_eq!(store.helper_of("opencode:opencode:new"), Some(("claude:claude:boss", true)));
         assert_eq!(store.origin_of("opencode:opencode:new").map(|o| o.how), Some(OriginHow::Started));
+        // Matched, not known: it could be another session started about then.
+        assert_eq!(store.known_helper_of("opencode:opencode:new"), None);
+        store.sessions.get_mut("opencode:opencode:new").unwrap().known = true;
+        assert_eq!(store.known_helper_of("opencode:opencode:new"), Some("claude:claude:boss"));
         // A session another started without it is no helper.
-        store.sessions.insert("codex:codex:b".into(), Entry { from: "claude:claude:boss".into(), how: OriginHow::Started, at: 1, helper: false, report: false });
+        store.sessions.insert("codex:codex:b".into(), Entry { from: "claude:claude:boss".into(), how: OriginHow::Started, at: 1, helper: false, report: false, known: false });
         assert_eq!(store.helper_of("codex:codex:b"), None);
+        store.sessions.get_mut("codex:codex:b").unwrap().known = true;
+        assert_eq!(store.known_helper_of("codex:codex:b"), None);
         // Written down only when it is one.
         let json = serde_json::to_value(&store.sessions).unwrap();
         assert_eq!((json["opencode:opencode:new"]["helper"].as_bool(), json["codex:codex:b"].get("helper")), (Some(true), None));
@@ -372,8 +390,8 @@ mod tests {
     #[test]
     fn old_entries_are_let_go() {
         let mut store = Store::default();
-        store.sessions.insert("a".into(), Entry { from: "x".into(), how: OriginHow::Fork, at: 0, helper: false, report: false });
-        store.sessions.insert("b".into(), Entry { from: "x".into(), how: OriginHow::Fork, at: KEEP_MS, helper: false, report: false });
+        store.sessions.insert("a".into(), Entry { from: "x".into(), how: OriginHow::Fork, at: 0, helper: false, report: false, known: false });
+        store.sessions.insert("b".into(), Entry { from: "x".into(), how: OriginHow::Fork, at: KEEP_MS, helper: false, report: false, known: false });
         store.prune(KEEP_MS + 1);
         assert_eq!(store.sessions.keys().collect::<Vec<_>>(), vec!["b"]);
     }
@@ -385,7 +403,7 @@ mod tests {
         let dir = crate::store::test_dir("origins-unreadable");
         let path = dir.join("origins.json");
         let note = |key: &'static str| {
-            change_in(&path, move |s| s.sessions.insert(key.into(), Entry { from: "claude:claude:a".into(), how: OriginHow::Fork, at: crate::util::now_ms(), helper: false, report: false }).is_none())
+            change_in(&path, move |s| s.sessions.insert(key.into(), Entry { from: "claude:claude:a".into(), how: OriginHow::Fork, at: crate::util::now_ms(), helper: false, report: false, known: false }).is_none())
         };
         // No file yet: the first note makes it.
         note("codex:codex:b").unwrap();

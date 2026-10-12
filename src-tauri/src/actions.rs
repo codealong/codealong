@@ -788,7 +788,19 @@ fn start_options(_: &Handle, _: &Call) -> Result<Value, String> {
 
 /// Starts a session in a worktree here and links it to its todos.
 fn start(engine: &Handle, c: &Call) -> Result<Value, String> {
-    to_value(crate::start::start_here(engine, &spec_of(c.params)?).map_err(words)?)
+    to_value(crate::start::start_here(engine, &asked_by(spec_of(c.params)?, c.from)).map_err(words)?)
+}
+
+/// The start as whoever asked may have it: only the `codealong` command names the session that
+/// asked for it (`StartSpec::from`), and only as the session that ran it. Another device's
+/// start names none, since an agent there could otherwise start a helper of a session here and
+/// have its messages to that session go unheld (send.rs `from_its_helper`).
+fn asked_by(spec: crate::start::StartSpec, from: &From) -> crate::start::StartSpec {
+    let ran = match from {
+        From::Command(Some(key)) => spec.from.as_deref() == Some(key.as_str()),
+        _ => false,
+    };
+    if ran { spec } else { crate::start::StartSpec { from: None, helper: false, report: false, ..spec } }
 }
 
 fn spec_of(params: &Value) -> Result<crate::start::StartSpec, String> {
@@ -1282,6 +1294,18 @@ fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the command names the session that asked for a start, and only as the one that ran
+    /// it: another device's start can't make a helper of a session here.
+    #[test]
+    fn only_the_command_names_who_asked_for_a_start() {
+        let spec = crate::start::StartSpec { lane_id: "/r/app".into(), account: "codex".into(), place: crate::start::Place::Background, prompt: String::new(), model: None, effort: None, worktree: false, todos: Vec::new(), from: Some("claude:claude:boss".into()), helper: true, report: true };
+        let named = |s: &crate::start::StartSpec| (s.from.clone(), s.helper, s.report);
+        assert_eq!(named(&asked_by(spec.clone(), &From::Command(Some("claude:claude:boss".into())))), (Some("claude:claude:boss".into()), true, true));
+        for from in [From::Command(Some("claude:claude:other".into())), From::Command(None), From::Device, From::Phone, From::Here] {
+            assert_eq!(named(&asked_by(spec.clone(), &from)), (None, false, false));
+        }
+    }
 
     #[test]
     fn a_review_from_another_device_submits_only_the_draft_it_showed() {

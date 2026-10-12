@@ -1312,6 +1312,17 @@ nothing the helper wrote is typed in as if you'd written it. It's sent while the
 this Mac and isn't waiting on you to answer a prompt, several helpers' news in one message, and a
 send that doesn't go is tried again a few times, then said in a notice.
 
+A helper's message to the session that started it (`codealong session send`) isn't held for
+you to allow when that session is a Claude Code one that skips permission prompts: it's work the
+session asked for, and would read anyway. That holds only when the start said which session it
+made, as one in Codealong, in Claude Code's background service or in Claude Code in a terminal
+does; a helper found afterwards as the next session in its worktree (Codex, OpenCode or
+Antigravity started in a terminal) could be another session started about then, so its message
+is held as any agent's is. So is an automatic review's, whose reply reaches the PR's opener only
+as `[reviews.own] send` says, and that of a helper you made your own; a start another Mac asks
+for makes no helper. A message from any other agent is held there, as before, unless the agent's
+own session skips them too.
+
 Mark as done on a session marks its helpers done too, as their work was for it: each ends as far
 as Codealong can end it and is archived, and one still at work is left to finish, unless you
 chose to stop the session's work too. *Make it my own* in a helper's menu makes it a session of
