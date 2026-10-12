@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol};
-use objc2::{msg_send, sel};
-use objc2_app_kit::{NSEvent, NSView};
+use objc2::{msg_send, sel, MainThreadMarker};
+use objc2_app_kit::{NSApplication, NSEvent, NSView};
 use objc2_foundation::NSString;
 use serde::Deserialize;
 use tauri::WebviewWindow;
@@ -188,6 +188,9 @@ pub fn compare(w: &WebviewWindow, probe: PageProbe) {
         };
         let nodes = tree.map(|t| scroll_nodes(&t.to_string())).unwrap_or_default();
         let window = panel::rect(ns.frame());
+        // A page whose app isn't frontmost has its drawing and timers slowed, which could leave
+        // it behind the app's side.
+        let active = MainThreadMarker::new().is_some_and(|mtm| NSApplication::sharedApplication(mtm).isActive());
         let line = match disagreement(&probe, pointer, &nodes) {
             Some(off) => {
                 let mut last = LAST_OFF.lock().unwrap_or_else(|e| e.into_inner());
@@ -195,7 +198,7 @@ pub fn compare(w: &WebviewWindow, probe: PageProbe) {
                     return;
                 }
                 *last = Some(Instant::now());
-                Some(format!("{off}; the page's box {}, the window {}", shown(host), shown(window)))
+                Some(format!("{off}; the page's box {}, the window {}; Codealong active {}, key window {}", shown(host), shown(window), yes(active), yes(ns.isKeyWindow())))
             }
             None if !SAID_AGREE.swap(true, Ordering::Relaxed) => Some(format!("pointer probe on, and agrees: {}", said(&probe))),
             None => None,
@@ -208,6 +211,14 @@ pub fn compare(w: &WebviewWindow, probe: PageProbe) {
 
 fn shown(r: Rect) -> String {
     format!("{:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h)
+}
+
+fn yes(b: bool) -> &'static str {
+    if b {
+        "yes"
+    } else {
+        "no"
+    }
 }
 
 #[cfg(test)]
