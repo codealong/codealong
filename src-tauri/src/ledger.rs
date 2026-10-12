@@ -147,6 +147,10 @@ CREATE TABLE IF NOT EXISTS files (
   mtime INTEGER NOT NULL,
   state TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS parents (
+  key TEXT PRIMARY KEY,
+  parent TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS extra (
   account TEXT NOT NULL,
   at INTEGER NOT NULL,
@@ -205,7 +209,7 @@ pub fn spawn(delay: Duration) {
         let db = match open(&path()) {
             Ok(db) => db,
             Err(e) => {
-                eprintln!("The token ledger couldn't open: {e:#}");
+                *problem_slot().lock().unwrap_or_else(|e| e.into_inner()) = Some(format!("The token ledger couldn't open: {e:#}"));
                 return;
             }
         };
@@ -361,6 +365,12 @@ fn read_file(db: &Connection, account: &AccountCfg, tag: &str, path: &Path, sess
         }
     }
     let tx = db.unchecked_transaction()?;
+    // A subagent's record names its parent, which may be a subagent too: the chain leads its calls
+    // to the session at its root (`put_uses`). Records are read oldest first, so a parent's own
+    // parent is known before its subagents' calls come.
+    if !state.parent.is_empty() {
+        tx.execute("INSERT OR REPLACE INTO parents (key, parent) VALUES (?1, ?2)", params![session, state.owner()])?;
+    }
     put_uses(&tx, account, tag, &uses)?;
     tx.execute(
         "INSERT INTO files (path, offset, size, mtime, state) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -391,6 +401,25 @@ fn read_rows(db: &Connection, account: &AccountCfg, tag: &str, since: &dyn Fn(i6
 }
 
 fn put_uses(db: &Connection, account: &AccountCfg, tag: &str, uses: &[TokenUse]) -> Result<()> {
+    // Each call's session, followed up its parents to the one at the root.
+    let mut roots: HashMap<String, String> = HashMap::new();
+    let mut parent_of = db.prepare_cached("SELECT parent FROM parents WHERE key = ?1")?;
+    let mut root = |key: &str| -> Result<String> {
+        if let Some(r) = roots.get(key) {
+            return Ok(r.clone());
+        }
+        let mut at = key.to_string();
+        for _ in 0..16 {
+            match parent_of.query_row([&at], |r| r.get::<_, String>(0)).optional()? {
+                Some(up) if up != at => at = up,
+                _ => break,
+            }
+        }
+        roots.insert(key.to_string(), at.clone());
+        Ok(at)
+    };
+    let uses: Vec<TokenUse> = uses.iter().map(|u| Ok(TokenUse { session: root(&u.session)?, ..u.clone() })).collect::<Result<_>>()?;
+    let uses = &uses[..];
     let mut sessions: HashMap<String, i64> = HashMap::new();
     let mut folders: HashMap<String, String> = HashMap::new();
     for u in uses {
@@ -1055,6 +1084,31 @@ mod tests {
         read_file(&db, &a, "t", &file, "k", &parse).unwrap();
         let n: i64 = db.query_row("SELECT count(*) FROM calls", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 4);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_subagents_subagent_counts_for_the_session_at_the_root() {
+        let dir = std::env::temp_dir().join(format!("codealong-ledger-tree-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = db();
+        let a = account("codex");
+        // Each file's first line names its parent, the rest are calls.
+        let parse = |line: &[u8], st: &mut TokenState| {
+            let text = std::str::from_utf8(line).ok()?.trim().to_string();
+            if let Some(parent) = text.strip_prefix("parent ") {
+                st.parent = parent.to_string();
+                return None;
+            }
+            Some(TokenUse { id: text, at: now_ms(), session: st.owner(), model: "m".into(), input: 1, ..Default::default() })
+        };
+        for (name, body) in [("child", "parent root\nc1\n"), ("grandchild", "parent child\ng1\ng2\n")] {
+            let file = dir.join(name);
+            std::fs::write(&file, body).unwrap();
+            read_file(&db, &a, "codex", &file, &format!("codex:codex:{name}"), &parse).unwrap();
+        }
+        let owners: Vec<String> = db.prepare("SELECT DISTINCT s.key FROM calls c JOIN sessions s ON s.id = c.session").unwrap().query_map([], |r| r.get(0)).unwrap().flatten().collect();
+        assert_eq!(owners, ["codex:codex:root"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

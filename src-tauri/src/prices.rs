@@ -168,9 +168,9 @@ pub fn cost(price: &Price, used: &Used) -> Option<f64> {
         };
         match (fast, &price.priority, price.fast) {
             (Some(p), _, _) => r = with(&r, p),
-            // A long prompt where only a short one's priority prices are known: the long prices
-            // times priority's multiple of the short ones.
-            (None, Some(p), _) => times = p.input.zip(price.rates.input).filter(|(_, b)| *b > 0.0).map_or(1.0, |(p, b)| p / b),
+            // A long prompt where only a short one's priority prices are listed: the long prices,
+            // as older models bill a long prompt in priority (GPT-5.4).
+            (None, Some(_), _) => {}
             (None, None, Some(f)) => times = f,
             (None, None, None) => {}
         }
@@ -257,11 +257,11 @@ mod tests {
         let p = price_of("gpt-5.6-sol", &BTreeMap::new()).unwrap();
         let c = cost(&p, &Used { fast: true, ..used(300_000, 0, 0, 0, 1_000) }).unwrap();
         assert!(near(c, 0.3 * 16.0 + 0.001 * 60.0), "{c}");
-        // Without long-prompt priority prices, the long ones times priority's multiple.
+        // Without long-prompt priority prices listed, the long prompt's own prices.
         let mut short_only = p.clone();
         short_only.above.as_mut().unwrap().priority = None;
         let c = cost(&short_only, &Used { fast: true, ..used(300_000, 0, 0, 0, 0) }).unwrap();
-        assert!(near(c, 0.3 * 8.0 * 2.0), "{c}");
+        assert!(near(c, 0.3 * 8.0), "{c}");
     }
 
     #[test]

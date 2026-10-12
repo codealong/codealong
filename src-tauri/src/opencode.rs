@@ -189,39 +189,44 @@ pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Said> {
 /// you pay charged, and 0 for a free model or a subscription's sign-in. A subagent's session
 /// counts for the session that started it. A fork's copies of the messages before it have IDs of
 /// their own and keep their first times (2.0.16, 2026-10-12), so they were started before the
-/// fork was made: they're its session's calls, not the fork's, and are left out.
+/// fork was made: while the session it copied is there, they're that session's calls and are left
+/// out; once it's gone, the fork's copies are the record of them that's left.
 pub fn token_uses(home: &Path, account: &str, after: i64) -> Result<(Vec<crate::ledger::TokenUse>, i64), String> {
     let path = home.join("opencode.db");
-    let Some(db) = open(&path) else { return Ok((Vec::new(), after)) };
+    if !path.is_file() {
+        return Ok((Vec::new(), after));
+    }
+    let Some(db) = open(&path) else { return Err(format!("{} couldn't be opened", path.display())) };
     token_uses_in(&db, account, after).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// How long before the newest write the last read saw a message may have been started and still
-/// be written to, its reply streaming into its row. Messages are looked for by when they were
-/// started, which the table has an index on; when they were last written has none, and every
-/// minute's look would read the whole table.
-const STILL_WRITING: i64 = 6 * 3600 * 1000;
+/// be written to, its reply streaming into its row: far longer than any reply takes. Messages are
+/// looked for by when they were started, which the table has an index on; when they were last
+/// written has none, and every minute's look would read the whole table.
+const STILL_WRITING: i64 = 7 * 24 * 3600 * 1000;
 
 fn token_uses_in(db: &Connection, account: &str, after: i64) -> rusqlite::Result<(Vec<crate::ledger::TokenUse>, i64)> {
-    // Databases from before 2.0.16 have no forks, nor the column.
-    let mut forks: HashSet<String> = HashSet::new();
-    if let Ok(mut stmt) = db.prepare("SELECT id FROM session_v2 WHERE fork_session_id IS NOT NULL AND fork_session_id != ''") {
-        forks.extend(stmt.query_map([], |r| r.get::<_, String>(0))?.flatten());
+    // Each fork whose session is still there, by when it was made. Databases from before 2.0.16
+    // have no forks, nor the column.
+    let mut forks: HashMap<String, i64> = HashMap::new();
+    if let Ok(mut stmt) = db.prepare("SELECT f.id, f.time_created FROM session_v2 f JOIN session_v2 o ON o.id = f.fork_session_id") {
+        forks.extend(stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?.flatten());
     }
     let mut stmt = db.prepare(
-        "SELECT m.id, COALESCE(s.parent_id, s.id), m.time_created, m.time_updated, m.data, s.directory, s.id, s.time_created FROM session_message m \
+        "SELECT m.id, COALESCE(s.parent_id, s.id), m.time_created, m.time_updated, m.data, s.directory, s.id FROM session_message m \
          JOIN session_v2 s ON s.id = m.session_id WHERE m.type = 'assistant' AND m.time_created > ?1 AND m.time_updated > ?2",
     )?;
     let started_after = if after > 0 { after - STILL_WRITING } else { 0 };
     let rows = stmt.query_map([started_after, after], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?, r.get::<_, i64>(7)?))
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?))
     })?;
     let mut newest = after;
     let mut out = Vec::new();
     for row in rows {
-        let (id, session, at, updated, data, folder, own, made) = row?;
+        let (id, session, at, updated, data, folder, own) = row?;
         newest = newest.max(updated);
-        if forks.contains(&own) && at < made {
+        if forks.get(&own).is_some_and(|made| at < *made) {
             continue;
         }
         let Ok(v) = serde_json::from_str::<Value>(&data) else { continue };
@@ -1227,6 +1232,10 @@ mod tests {
         assert_eq!((two.output, two.reasoning, two.cache_read, two.cost), (10, 6, 488, Some(0.25)));
         // Read on from there: nothing new.
         assert!(token_uses_in(&db, "opencode", newest).unwrap().0.is_empty());
+        // With the session it copied gone, the fork's copy is the record that's left.
+        db.execute_batch("DELETE FROM session_message WHERE session_id = 'ses_a'; DELETE FROM session_v2 WHERE id = 'ses_a';").unwrap();
+        let (uses, _) = token_uses_in(&db, "opencode", 0).unwrap();
+        assert!(uses.iter().any(|u| u.id == "msg_1b" && u.session == "opencode:opencode:ses_b"));
     }
 
     #[test]

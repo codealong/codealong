@@ -64,8 +64,9 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   The cost is OpenCode's, from models.dev's prices as it writes the message, and 0 for the free
   models and, by its ChatGPT plugin's code, a subscription's sign-in, so only a cost above 0 counts
   as paid. A fork copies the messages before it with IDs of their own and the first ones' times,
-  so a copy is a fork's message started before the fork was made (checked 2026-10-12). Nothing
-  indexes `time_updated`, so new and changed messages are looked for by `time_created`
-  (`session_message_time_created_idx`), a few hours back from the newest write seen.
+  so a copy is a fork's message started before the fork was made (checked 2026-10-12), left out
+  while the session it copied is still there. Nothing indexes `time_updated`, so new and changed
+  messages are looked for by `time_created` (`session_message_time_created_idx`), a week back
+  from the newest write seen.
 - Creating a session through the API in a folder made OpenCode point its `global` project
   (its project for folders without version control) at that folder.

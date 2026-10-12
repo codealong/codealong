@@ -3000,7 +3000,7 @@ mod tests {
 
     #[test]
     fn a_codex_turn_no_process_holds_was_cut_off() {
-        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let th = ThreadInfo {
             id: "01a1315d".into(),
             cwd: "/r".into(),
