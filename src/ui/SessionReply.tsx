@@ -90,7 +90,7 @@ import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
-import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
+import { nextQuestion, picksOf, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
@@ -857,13 +857,21 @@ function editingText(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.isContentEditable;
 }
 
-/** Why the last answer to a session didn't go, by session, with when it began waiting on the call
- *  it was for. An answer that lets it go on shows it working at once (`answerAhead`), which takes
- *  its box away, so the box that shows as it waits on that call again says why. */
-const unanswered = new Map<string, { since: number | null; why: string }>();
+/** An answer that didn't go: why, when the session began waiting on the call it was for, and the
+ *  answers given to its questions. */
+interface Unanswered {
+  since: number | null;
+  why: string;
+  answers?: Answers;
+}
+
+/** The last answer to each session that didn't go. An answer that lets it go on shows it working
+ *  at once (`answerAhead`), which takes its box away, so the box that shows as it waits on that
+ *  call again says why, with the picks and words it had. */
+const unanswered = new Map<string, Unanswered>();
 const unansweredHeard = new Set<() => void>();
 
-function sayUnanswered(key: string, said: { since: number | null; why: string } | null): void {
+function sayUnanswered(key: string, said: Unanswered | null): void {
   if (said) unanswered.set(key, said);
   else if (!unanswered.delete(key)) return;
   for (const heard of unansweredHeard) heard();
@@ -874,10 +882,24 @@ function hearUnanswered(heard: () => void): () => void {
   return () => unansweredHeard.delete(heard);
 }
 
-/** Why the last answer to the session didn't go, while it still waits on the call it was for. */
-function useUnanswered(s: Session): string | null {
+/** The last answer to the session that didn't go, while it still waits on the call it was for. */
+function useUnanswered(s: Session): Unanswered | null {
   const said = useSyncExternalStore(hearUnanswered, () => unanswered.get(s.key));
-  return said && said.since === (s.statusSince ?? null) ? said.why : null;
+  return said && said.since === (s.statusSince ?? null) ? said : null;
+}
+
+/** The picks and words of answers that didn't go, for the questions' box to have again. */
+export function givenBack(questions: Question[], given: Answers | undefined): { picks: Record<string, string[]>; own: Record<string, string> } {
+  const picks: Record<string, string[]> = {};
+  const own: Record<string, string> = {};
+  for (const q of questions) {
+    const a = given?.[q.question];
+    if (a === undefined) continue;
+    const back = picksOf(q, Array.isArray(a) ? a : [a]);
+    picks[q.question] = [...back.picked];
+    if (back.own.length) own[q.question] = back.own.join(', ');
+  }
+  return { picks, own };
 }
 
 /** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
@@ -886,7 +908,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   const [busy, setBusy] = useState(false);
   const [told, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const failed = useUnanswered(s);
-  const note = told ?? (failed ? { text: failed, error: true } : null);
+  const note = told ?? (failed ? { text: failed.why, error: true } : null);
   useEffect(() => {
     let live = true;
     sessionPending(s.key)
@@ -917,7 +939,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       .catch((e: unknown) => {
         const why = errorText(e);
         setNote({ text: why, error: true });
-        sayUnanswered(s.key, { since, why });
+        sayUnanswered(s.key, { since, why, answers });
         return why;
       })
       .finally(() => setBusy(false));
@@ -1047,6 +1069,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         keys={keys}
         busy={busy}
         note={note}
+        given={failed?.answers}
         suggested={picked}
         onDismissSuggested={dismissPicked}
         onAnswer={(answers, on) => answer('allow', on ? andNext : undefined, answers)}
@@ -1114,6 +1137,8 @@ interface QuestionsProps {
   keys?: boolean;
   busy: boolean;
   note: { text: string; error: boolean } | null;
+  /** Answers given before that didn't go: the box starts with their picks and words. */
+  given?: Answers;
   /** Your picks; `on` when ⌘⏎ gave them, which goes on to the next that waits on you as it
    *  does from the box. The button answers and stays. */
   onAnswer: (answers: Answers, on: boolean) => void;
@@ -1128,10 +1153,10 @@ interface QuestionsProps {
  *  question takes more, or type your own answer; your picks go back as its answer. Several show
  *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
  *  between them: all at once, a few long ones ran off the bottom of the panel. */
-function Questions({ questions, unwritten, where, onOpen, keys, busy, note, onAnswer, onDecline, suggested, onDismissSuggested }: QuestionsProps) {
+function Questions({ questions, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested }: QuestionsProps) {
   // Your picks, by question; a question you haven't touched has the ones suggested for it.
-  const [picks, setPicks] = useState<Record<string, string[]>>({});
-  const [own, setOwn] = useState<Record<string, string>>({});
+  const [picks, setPicks] = useState<Record<string, string[]>>(() => givenBack(questions, given).picks);
+  const [own, setOwn] = useState<Record<string, string>>(() => givenBack(questions, given).own);
   const offered = (q: Question): string[] => (suggested?.picks?.[q.question] ?? []).filter((l) => q.options.some((o) => o.label === l));
   const chosenFor = (q: Question): string[] => picks[q.question] ?? offered(q);
   const suggesting = !!suggested && questions.some((q) => offered(q).length > 0);

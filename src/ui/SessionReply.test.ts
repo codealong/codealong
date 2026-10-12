@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
-import type { Session } from '../types';
-import { replyPlaceholder } from './SessionReply';
+import type { Question, Session } from '../types';
+import { givenBack, replyPlaceholder } from './SessionReply';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 
@@ -21,5 +21,19 @@ describe('replyPlaceholder', () => {
 
   it('keeps its own words for a session Codealong runs', () => {
     expect(replyPlaceholder(session({ hosted: true, status: 'working' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude: it takes this after its current turn');
+  });
+});
+
+describe('givenBack', () => {
+  const color: Question = { question: 'Which color?', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] };
+  const days: Question = { question: 'Which days?', multiSelect: true, options: [{ label: 'Mon' }, { label: 'Tue' }] };
+
+  it('has the box pick again what an answer that didn’t go picked, with its words', () => {
+    expect(givenBack([color, days], { 'Which color?': 'Green', 'Which days?': ['Mon', 'only mornings'] })).toEqual({
+      picks: { 'Which color?': [], 'Which days?': ['Mon'] },
+      own: { 'Which color?': 'Green', 'Which days?': 'only mornings' },
+    });
+    expect(givenBack([color], { 'Which color?': 'Blue' })).toEqual({ picks: { 'Which color?': ['Blue'] }, own: {} });
+    expect(givenBack([color, days], undefined)).toEqual({ picks: {}, own: {} });
   });
 });

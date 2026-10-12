@@ -71,6 +71,9 @@ struct Permission {
     plan: bool,
     /// An answer to it is being written: a second isn't sent with it.
     answering: bool,
+    /// When it was asked: the session waits on you from then, not from when its turn began, so
+    /// a window that answered the call before can tell the next one from it (ahead.ts).
+    asked_at: i64,
 }
 
 /// One of the answers an agent offers to a permission request.
@@ -585,7 +588,7 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
         let mut st = state();
         let Some(h) = st.sessions.get_mut(&key) else { return };
         // A request still unanswered is overtaken: the agent only asks one at a time.
-        h.permission = Some(Permission { rpc, tool_call, label, input, options, plan, answering: false });
+        h.permission = Some(Permission { rpc, tool_call, label, input, options, plan, answering: false, asked_at: now_ms() });
     }
     notify(Change::Board);
 }
@@ -1101,10 +1104,10 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     if let Some(m) = current_option(&h.options, "model") {
         s.model = Some(m);
     }
-    if h.permission.is_some() {
+    if let Some(p) = &h.permission {
         s.status = Status::Needs;
-        s.status_since = Some(h.since);
-        s.excerpt = h.permission.as_ref().map(|p| p.label.clone());
+        s.status_since = Some(p.asked_at);
+        s.excerpt = Some(p.label.clone());
         s.stalled_since = None;
         s.asks = false;
     } else if h.running {
@@ -1138,6 +1141,27 @@ mod tests {
             assert!(std::time::Instant::now() < end, "timed out waiting for {what}");
             std::thread::sleep(Duration::from_millis(200));
         }
+    }
+
+    /// A session waits on you from when its agent asked the call, so each call of a turn has a
+    /// time of its own.
+    #[test]
+    fn a_hosted_session_needs_you_from_when_the_call_was_asked() {
+        let key = key_of(Harness::Codex, "test-needs-since", "s1");
+        let asked = |at: i64| Permission { rpc: json!(1), tool_call: "t".into(), label: "Run ls".into(), input: None, options: Vec::new(), plan: false, answering: false, asked_at: at };
+        state().sessions.insert(key.clone(), Hosted { account: "test-needs-since".into(), id: "s1".into(), cwd: "/w".into(), running: true, since: 1_000, permission: Some(asked(5_000)), ..Default::default() });
+        let mut s = crate::fixtures::session(&key);
+        overlay(&mut s, 0);
+        assert_eq!((s.status, s.status_since, s.excerpt.as_deref()), (Status::Needs, Some(5_000), Some("Run ls")));
+        // The next call in the same turn.
+        state().sessions.get_mut(&key).unwrap().permission = Some(asked(9_000));
+        overlay(&mut s, 0);
+        assert_eq!(s.status_since, Some(9_000));
+        // Answered, it's working on the turn it was taking.
+        state().sessions.get_mut(&key).unwrap().permission = None;
+        overlay(&mut s, 0);
+        assert_eq!((s.status, s.status_since), (Status::Working, Some(1_000)));
+        state().sessions.remove(&key);
     }
 
     #[test]
@@ -1413,7 +1437,7 @@ mod tests {
     /// the conversation, and Deny keeps it planning.
     #[test]
     fn a_plans_answers_keep_its_conversation() {
-        let permission = |plan: bool, options: &str| Permission { rpc: json!(1), tool_call: "t".into(), label: PLAN.into(), input: None, options: offered(&json!({ "options": serde_json::from_str::<Value>(options).unwrap() })), plan, answering: false };
+        let permission = |plan: bool, options: &str| Permission { rpc: json!(1), tool_call: "t".into(), label: PLAN.into(), input: None, options: offered(&json!({ "options": serde_json::from_str::<Value>(options).unwrap() })), plan, answering: false, asked_at: 0 };
         let picks = |p: &Permission| [Answer::Allow, Answer::Always, Answer::Deny].map(|a| pick(p, a).map(|o| o.id.clone()).map_err(String::from));
         let ok = |a: &str, b: &str, c: &str| [Ok(a.to_string()), Ok(b.to_string()), Ok(c.to_string())];
         assert_eq!(picks(&permission(true, PLAN_OPTIONS)), ok("exit-plan-default", "exit-plan-auto", "reject"));
@@ -1485,7 +1509,7 @@ mod tests {
         let keeps = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#;
         let account = "test-adapter-let-go";
         let key = key_of(Harness::Codex, account, "s1");
-        let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![Offered { id: "ok".into(), kind: "allow_once".into(), name: "Yes".into() }], plan: false, answering: false };
+        let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![Offered { id: "ok".into(), kind: "allow_once".into(), name: "Yes".into() }], plan: false, answering: false, asked_at: 0 };
         state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, permission: Some(asked), queue: vec!["And then?".into()], text: "Working".into(), ..Default::default() });
         let ag = stand_in(account, keeps, &stayed);
         let mut cmd = Command::new("/bin/sh");

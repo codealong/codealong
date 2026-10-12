@@ -47,6 +47,9 @@ export const SLACK_MS = 1_000;
 /** A seen, archive or rename the engine gave no board for (a session on another device) goes
  *  when the board shows it, or after this. */
 const UNANSWERED_MS = 20_000;
+/** An answer the board shows nothing of goes this long after the engine took it: the call may
+ *  have been followed by another the board can't tell from it, which mustn't stay hidden. */
+const ANSWER_MS = 8_000;
 /** A seen, archive or rename goes after this, whatever the board says. Mark as done waits less
  *  than this for a session's harness to remove its worktree (idle.rs `REMOVAL_WAIT`). */
 const LONGEST_MS = 60_000;
@@ -131,7 +134,10 @@ function settledBySeen(s: { status: Status; asks?: boolean }): boolean {
 }
 
 /** Whether it still shows waiting on the call an answer was for: a call asked after it began
- *  waiting is another, which the answer doesn't touch. */
+ *  waiting is another, which the answer doesn't touch. A session that needs you does so from when
+ *  it asked what it asks now (acp.rs `overlay`, board.rs `opencode_session`, Codex's oldest call,
+ *  Claude Code's request or registry), so the next call shows by its time; where a harness can't
+ *  say, `ANSWER_MS` keeps it from staying hidden long. */
 function stillAsked(s: { status: Status; asks?: boolean }, since: number | null, c: Extract<Change, { kind: 'answer' }>): boolean {
   return s.status === 'needs' && !s.asks && !(since != null && c.since != null && since > c.since);
 }
@@ -341,7 +347,7 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
   const archived = (key: string) => (by.get(key) ?? []).some((a) => a.change.kind === 'archive' && a.change.archived);
   const moved = (key: string) => (by.get(key) ?? []).find(startsNow);
   /** The answer that lets a pill waiting on a call go on, if one does. */
-  const goesOn = (i: BarItem) => (by.get(i.key) ?? []).find((a) => a.change.kind === 'answer' && stillAsked(i, i.since, a.change));
+  const goesOn = (i: Pick<BarItem, 'key' | 'status' | 'asks' | 'since'>) => (by.get(i.key) ?? []).find((a) => a.change.kind === 'answer' && stillAsked(i, i.since, a.change));
   /** The last snooze or wake for a session: a time, null to wake, undefined with none. */
   const snooze = (key: string): number | null | undefined => {
     const last = (by.get(key) ?? []).filter((a) => a.change.kind === 'snooze').pop()?.change;
@@ -374,11 +380,16 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
   const leave = <T extends BarRecent | BarSnoozed>(list: T[]): T[] =>
     list.filter((r) => {
       const m = moved(r.key);
+      const answer = goesOn(r);
       const until = snooze(r.key);
       const pill = { ...r, snoozedUntil: null } as unknown as BarItem;
       let gone = archived(r.key);
       if (!gone && m) {
         items.push({ ...pill, group: 'working', status: 'working', asks: false, since: m.at });
+        gone = true;
+      } else if (!gone && answer) {
+        // Let go on, it works through its snooze, as barfeed.rs puts a working one.
+        items.push({ ...(r as unknown as BarItem), group: 'working', status: 'working', asks: false, since: answer.at });
         gone = true;
       } else if (!gone && until != null && (r.group === 'recent' || r.snoozedUntil !== until)) {
         snoozing.push({ ...r, group: 'snoozed', snoozedUntil: until } as BarSnoozed);
@@ -454,7 +465,7 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     if (now - a.at > LONGEST_MS) return null;
     if (a.doneAt == null) return a;
     if (a.shownAt != null) return v.boardAt != null && v.boardAt >= a.shownAt ? null : a;
-    if (now - a.doneAt > UNANSWERED_MS) return null;
+    if (now - a.doneAt > (c.kind === 'answer' ? ANSWER_MS : UNANSWERED_MS)) return null;
     // A window's view finds sessions, not PRs: a review's snooze, a review and a merge go by the
     // board's time alone.
     if (c.kind === 'review-snooze' || c.kind === 'pr-merge' || c.kind === 'pr-review') return a;

@@ -255,8 +255,10 @@ describe('settled', () => {
     expect(settled(a, view(NOW + 500, { status: 'needs', statusSince: NOW - 90_000 }), NOW + 600)).toBe(a);
     expect(settled(a, view(NOW + 500, { status: 'working', statusSince: NOW + 400 }), NOW + 600)).toBeNull();
     expect(settled(a, view(NOW + 500, { status: 'needs', statusSince: NOW + 400 }), NOW + 600)).toBeNull();
-    // One the board never shows goes after a while, the session as the board has it.
-    expect(settled(a, view(NOW + 20_000, { status: 'needs', statusSince: NOW - 60_000 }), NOW + 21_000)).toBeNull();
+    // One the board never shows goes a few seconds after the engine took it, the session as the
+    // board has it: what it shows may be another call it can't tell from the one answered.
+    expect(settled(a, view(NOW + 5_000, { status: 'needs', statusSince: NOW - 60_000 }), NOW + 5_000)).toBe(a);
+    expect(settled(a, view(NOW + 8_000, { status: 'needs', statusSince: NOW - 60_000 }), NOW + 8_200)).toBeNull();
   });
 
   it('marks a message taken when the board has the prompt, and lets it go a moment later', () => {
@@ -311,6 +313,16 @@ describe('barAhead', () => {
       ['m', 'needs', NOW + 10],
       ['n', 'working', NOW],
     ]);
+  });
+
+  it('moves a snoozed session whose call was answered to Working, its snooze kept', () => {
+    const z = { ...item('z', 'needs', NOW - 9), group: 'snoozed' as const, snoozedUntil: NOW + 3_600_000 };
+    const out = barAhead(feed([item('w', 'working', NOW - 50)], [], [z]), [change({ kind: 'answer', key: 'z', since: NOW - 9 })]);
+    expect(out.items.map((i) => [i.key, i.group, i.status, i.snoozedUntil])).toEqual([
+      ['w', 'working', 'working', null],
+      ['z', 'working', 'working', NOW + 3_600_000],
+    ]);
+    expect(out.snoozed).toEqual([]);
   });
 
   it('keeps Needs you a queue, and takes a session you send to off the snoozed ones', () => {

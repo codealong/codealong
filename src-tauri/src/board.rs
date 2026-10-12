@@ -479,7 +479,9 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         cwd: row.directory.clone(),
         reply_tail: row.last_text_tail.clone(),
         started_at: Some(row.created_at),
-        status_since: if running { row.last_prompt_at } else { row.idle_at },
+        // Waiting on you since it last wrote, which is when it asked: each call of a run has a time
+        // of its own, so a window that answered one can tell the next from it (ahead.ts).
+        status_since: if status == Status::Needs { Some(row.last_ts) } else if running { row.last_prompt_at } else { row.idle_at },
         last_prompt_at: row.last_prompt_at.unwrap_or(row.created_at),
         last_activity: row.last_ts,
         excerpt,
@@ -2996,7 +2998,7 @@ mod tests {
         assert_eq!(opencode_session(&a, &row, Some(&busy), Some(42), 0, NOW).open_target, "s|opencode:opencode:ses_abc1234567|focus");
         busy.pending.insert("ses_abc1234567".into(), "Bash · `npm install`".into());
         let s = opencode_session(&a, &row, Some(&busy), None, 0, NOW);
-        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Bash · `npm install`")));
+        assert_eq!((s.status, s.excerpt.as_deref(), s.status_since), (Status::Needs, Some("Bash · `npm install`"), Some(NOW - 1_000)));
         assert_eq!(session_headline(&s).0, format!("`opencode` asks for approval · {}", s.title));
         // A run that ended is news until seen here or viewed in OpenCode.
         row.idle_at = Some(NOW - 500);

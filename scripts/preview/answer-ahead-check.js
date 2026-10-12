@@ -1,7 +1,8 @@
 // Checks that Allow shows the session working at once, before the engine has answered, and that
 // an answer that doesn't go brings the call back, saying why (ahead.ts `answerAhead`,
-// SessionReply.tsx `Approval`): one session waits on a call and nothing else waits. The engine's
-// answers are held until the check lets them go.
+// SessionReply.tsx `Approval`), and questions back with what you picked: one session waits on a
+// call, then on questions, and nothing else waits. The engine's answers are held until the check
+// lets them go.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/answer-ahead-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -10,6 +11,8 @@
   var picked = null;
   var boardNow = null;
   var asked = 0;
+  // It asks questions rather than for a call.
+  var asking = false;
   // The engine's answer to each session_answer, for the check to give when it chooses.
   var held = [];
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -17,6 +20,7 @@
     if (cmd === 'session_pending' && picked && (args || {}).key === picked.key) {
       window.__calls.push([cmd, args, options]);
       asked += 1;
+      if (asking) return Promise.resolve({ id: 'q' + asked, label: 'Asks you · Which color?', input: null, cannot: null, questions: [{ question: 'Which color?', header: 'Color', options: [{ label: 'Red' }, { label: 'Blue' }] }] });
       return Promise.resolve({ id: 'p' + asked, label: 'Run `npm test`', input: 'npm test', cannot: null });
     }
     if (cmd === 'session_answer') {
@@ -51,6 +55,7 @@
   var approval = function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); };
   var approvalNote = function () { var a = approval(); var n = a && a.querySelector('.ca-composer-note'); return n ? n.textContent : ''; };
   var button = function (text) { var a = approval(); return a && Array.prototype.filter.call(a.querySelectorAll('button'), function (b) { return b.textContent.indexOf(text) === 0; })[0]; };
+  var picked = function (label) { var b = button(label); return !!(b && b.classList.contains('is-on')); };
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var rowSays = function (status) { var r = row(); return !!(r && r.querySelector('.ca-glyph--' + status)); };
   var answers = function () { return window.__calls.filter(function (c) { return c[0] === 'session_answer'; }).map(function (c) { return c[1]; }); };
@@ -116,6 +121,28 @@
       // Answered, the box says so in place of the call.
       var said = document.querySelector('.ca-sessinsp .ca-composer.is-waiting');
       check('then says what it did', !!said && /^Denied/.test(said.textContent), said ? said.textContent : 'no box');
+      // It asks questions now.
+      asking = true;
+      push('needs', Date.now() + 1000);
+      return until(function () { return button('Blue') && button('Answer'); }, 5000).then(function () { return wait(100); });
+    })
+    .then(function () {
+      button('Blue').click();
+      return wait(50);
+    })
+    .then(function () {
+      button('Answer').click();
+      return until(function () { return answers().length === 4 && !approval(); }, 3000).then(function () { return wait(100); });
+    })
+    .then(function () {
+      var a = answers()[3];
+      check('answering shows it working at once', !approval() && rowSays('working') && a && a.answers && a.answers['Which color?'] === 'Blue', JSON.stringify(a));
+      held[3].reject('It isn’t waiting on that any more.');
+      return until(function () { return button('Blue'); }, 3000).then(function () { return wait(200); });
+    })
+    .then(function () {
+      check('answers that didn’t go come back picked as they were', picked('Blue') && !picked('Red'), approval() && approval().textContent);
+      check('saying why', /isn’t waiting on that any more/.test(approvalNote()), approvalNote());
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);
