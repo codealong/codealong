@@ -417,8 +417,15 @@ impl crate::harness::Adapter for Codex {
         rollout::pr_made(line)
     }
 
-    /// Codex archives a thread itself, so the Codex app shows it too.
+    /// Codex archives a thread itself, so the Codex app shows it too. A thread Codealong runs is
+    /// held by codex-acp's own app-server, which answers another's `thread/archive` with "thread
+    /// … already has an active writer", even after the session's `session/close` (codex-acp
+    /// 1.13.1, checked 2026-10-11); its `session/delete` archives the thread through that server
+    /// and lets go of it.
     fn archive(&self, account: &AccountCfg, id: &str, archived: bool) -> anyhow::Result<()> {
+        if archived && crate::acp::delete_held(&account.name, self.harness(), id)? {
+            return Ok(());
+        }
         appserver::set_archived(&account.home_path(), id, archived)
     }
 

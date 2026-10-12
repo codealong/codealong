@@ -959,6 +959,32 @@ pub fn cancel(key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Ends a session the account's process has picked up with the agent's `session/delete`, where
+/// it offers that, and says whether it did: false when the process doesn't hold the session,
+/// which is then the harness's to act on as it would any other. What a delete does is the
+/// adapter's to say, so only a harness whose adapter's is known calls this: codex-acp's archives
+/// the thread through its own app-server, the one that holds it (codex/mod.rs `archive`). One
+/// taking a turn is refused rather than stopped.
+pub fn delete_held(account: &str, harness: Harness, id: &str) -> Result<bool> {
+    let key = key_of(harness, account, id);
+    let ag = {
+        let st = state();
+        let Some(h) = st.sessions.get(&key).filter(|h| h.loaded) else { return Ok(false) };
+        if h.running {
+            bail!("It's taking a turn in Codealong: stop it first.");
+        }
+        match st.agents.get(account).filter(|a| !a.client.is_closed()) {
+            Some(ag) if ag.can("delete") => ag.clone(),
+            _ => return Ok(false),
+        }
+    };
+    ag.request("session/delete", json!({ "sessionId": id }), Some(REQUEST_TIMEOUT))?;
+    // Picked up again, from its history, if it's sent to after.
+    set(&key, |h| h.loaded = false);
+    notify(Change::Board);
+    Ok(true)
+}
+
 /// What a hosted session waits on you to allow.
 pub fn pending(key: &str) -> Option<Pending> {
     let st = state();
@@ -1530,6 +1556,38 @@ mod tests {
             .collect();
         assert_eq!(said, ["session/resume", "session/prompt First", "session/prompt Second"]);
         assert_eq!(state().sessions[&key].error, None);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A session its account's process holds is deleted there, where the agent offers that, and
+    /// picked up again if it's sent to after; one the process doesn't hold, or whose agent has no
+    /// delete, is left to its harness with nothing sent, and one taking a turn is refused.
+    #[test]
+    fn a_held_session_is_deleted_by_its_process() {
+        init(|_| {});
+        let dir = store::test_dir("acp-delete");
+        let script = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"method":"session/delete"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{}}";; esac; done"#;
+        let account = "test-adapter-delete";
+        let key = key_of(Harness::Codex, account, "s1");
+        let ag = stand_in(account, script, &dir);
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "delete": {} } });
+
+        assert!(!delete_held(account, Harness::Codex, "s1").unwrap(), "not Codealong's");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), ..Default::default() });
+        assert!(!delete_held(account, Harness::Codex, "s1").unwrap(), "not picked up in this process");
+        set(&key, |h| (h.loaded, h.running) = (true, true));
+        assert_eq!(delete_held(account, Harness::Codex, "s1").unwrap_err().to_string(), "It's taking a turn in Codealong: stop it first.");
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": {} });
+        set(&key, |h| h.running = false);
+        assert!(!delete_held(account, Harness::Codex, "s1").unwrap(), "its agent has no delete");
+        assert!(heard(&dir).is_empty());
+
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "delete": {} } });
+        assert!(delete_held(account, Harness::Codex, "s1").unwrap());
+        assert_eq!(heard(&dir), [r#"{"id":1,"jsonrpc":"2.0","method":"session/delete","params":{"sessionId":"s1"}}"#]);
+        assert!(!state().sessions[&key].loaded);
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);

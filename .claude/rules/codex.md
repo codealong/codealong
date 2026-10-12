@@ -127,7 +127,10 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   CLI's daemon: `codex/appserver.rs` (header, `codex_binary`, `with_server`, `serve`). `codex
   app-server generate-json-schema --out <dir>` dumps the protocol. Logs:
   `~/Library/Logs/com.openai.codex/`. Your own app-server can't archive a thread the app has
-  loaded ("thread … already has an active writer").
+  loaded ("thread … already has an active writer"), nor one codex-acp holds for a session
+  Codealong runs, even after its `session/close`; codex-acp's `session/delete` archives it
+  through its own app-server and lets go of it (`codex/mod.rs` `archive`, `acp::delete_held`;
+  checked 2026-10-11).
 - Naming a thread (`thread/name/set`), which refuses an archived one: `codex/appserver.rs`
   (`set_name`), `codex/mod.rs` (`rename`). It works on a thread the app has loaded too; the
   window socket has no rename, so the app shows a new name when it next reads its threads.
