@@ -22,7 +22,7 @@ export interface SideView {
   /** What asks for you there (PRs waiting on your review), in a solid badge. */
   badge?: number;
   badgeTitle?: string;
-  /** The keys that go to it (`mainKeys.ts` `viewChord`), one sign at a time: ⌃ 1. */
+  /** The keys that go to it (`mainKeys.ts` `VIEW_CHORDS`), one sign at a time: ⇧ ⌘ S. */
   kbd: string[];
 }
 

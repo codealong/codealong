@@ -24,9 +24,10 @@ it is, how to install it and how to get going. The settings file is annotated in
 **Five views** of the current project, each in a window of its own if you like (⌘⇧N). The project
 switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. Add
 project… at its foot opens Settings › Projects with a new project's form, and Edit projects… the
-list. ⌃1 to ⌃5 go
-straight to Sessions, Worktrees, PRs, Todo and Canvas, from a text field too, and a view in the
-sidebar shows its keys while you point at it (the folded rail says them); ⌃Tab and ⌃⇧Tab go through
+list. ⇧⌘S, ⇧⌘W,
+⇧⌘P, ⇧⌘T and ⇧⌘B go straight to Sessions, Worktrees, PRs, Todo and Canvas (B for board: ⇧⌘C is
+often a clipboard manager's), from a text field too, and a view in the sidebar shows its keys while
+you point at it (the folded rail says them); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
 what's pinned. ⌃- goes back to the session you were looking at before and ⌃⇧- forward again, as in
 VS Code, from any view or text field; the two arrows beside the sidebar's toggle do the same and say

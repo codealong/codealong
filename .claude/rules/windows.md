@@ -168,12 +168,12 @@ under `src-tauri/src/`.
   (muda 0.19.3 parses it as Backquote). The preview shows the terminal it asks for
   (`terminal-key-check.js`).
 
-- Not yet checked by hand (2026-10-09): ⌃1 to ⌃5 in the real app (`src/mainKeys.ts`
-  `viewChord`). That WKWebView hands ⌃ and a digit to the page, from the list and from a text
-  field, and that the sidebar's keycaps show as the pointer comes onto a view. macOS's Switch to
-  Desktop shortcuts (Mission Control) are ⌃ and a digit too, off unless turned on; turned on,
-  they'd take the keys before the app sees them. The preview shows the views changing and the
-  hover's rules (`view-keys-check.js`).
+- Not yet checked by hand (2026-10-12): pressing ⇧⌘S, ⇧⌘W, ⇧⌘P, ⇧⌘T and ⇧⌘B in the real app
+  (`src/mainKeys.ts` `VIEW_CHORDS`). They're key equivalents, which reach the page before the
+  menu bar (above), so they should behave as the preview shows (`view-keys-check.js`). The
+  sidebar's keycaps on hover were seen in the real app (2026-10-12). Canvas isn't ⇧⌘C because
+  clipboard managers take it for every app: Maccy's popup ships on it, as on this Mac
+  (`defaults read org.p0deje.Maccy`, `KeyboardShortcuts_popup` = key 8 with ⇧⌘).
 
 - ⌘1 sending a session's first suggested reply from its box was confirmed in the real app on
   2026-10-10 (`src/menus.ts` `SUGGESTION_CHORDS`): WKWebView hands ⌘ and a digit to the page.

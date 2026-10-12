@@ -12,7 +12,7 @@
 // tip here with it. Like all UI copy, a tip is sentence case and plain words, one or two short
 // sentences (tips.test.ts holds the length).
 
-import { viewChord } from './mainKeys';
+import { VIEW_CHORDS } from './mainKeys';
 import { CHORDS, PR_CHORDS } from './menus';
 import { QUEUE_CHORDS } from './queue';
 import { shortcutLabel } from './quick';
@@ -66,7 +66,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'quick-panel', places: ['board', 'session', 'waiting', 'pr'], says: says`${QUICK} opens the quick panel from any app: type a few words to find a session, or a prompt to start one.` },
   { id: 'waiting-window', places: ['board', 'session', 'quick', 'pr'], says: says`${WAITING} goes through what waits on you, one at a time, from any app.` },
   { id: 'right-click', places: BOARD, says: says`Right-click a session, worktree, PR or todo for everything it can do, each action with its keys beside it.` },
-  { id: 'views', places: BOARD, says: says`${key(viewChord(0))} to ${key(viewChord(4))} go straight to Sessions, Worktrees, PRs, Todo and Canvas, from a text field too.` },
+  { id: 'view-letters', places: BOARD, says: says`${key(VIEW_CHORDS.sessions)} Sessions, ${key(VIEW_CHORDS.worktrees)} Worktrees, ${key(VIEW_CHORDS.prs)} PRs, ${key(VIEW_CHORDS.todo)} Todo and ${key(VIEW_CHORDS.canvas)} Canvas go straight to a view, from a text field too.` },
   { id: 'mark-done', places: SESSION_KEYS, says: says`${key(CHORDS.done)} marks a session done: it's closed where it runs, marked seen and archived.` },
   { id: 'mark-seen', places: SESSION_KEYS, says: says`${key(CHORDS.seen)} marks a finished turn seen, which takes it off the floating bar.` },
   { id: 'snooze', places: SESSION_KEYS, says: says`${key(SNOOZE_CHORDS[0])} to ${key(SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1])} snooze a session for one of the Snooze menu's times. It comes back when the time is up.` },

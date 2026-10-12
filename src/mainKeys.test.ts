@@ -1,33 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { viewChord, viewOfKey } from './mainKeys';
-import { chordKeys } from './menus';
+import { VIEW_CHORDS, viewOfKey } from './mainKeys';
+import { CHORDS, chordKeys } from './menus';
+import { QUEUE_CHORDS } from './queue';
 
 const VIEWS = [{ id: 'sessions' }, { id: 'worktrees' }, { id: 'prs' }, { id: 'todo' }, { id: 'canvas' }] as const;
-const press = (code: string, mods: { ctrl?: boolean; cmd?: boolean; alt?: boolean; shift?: boolean } = { ctrl: true }) => ({ code, ctrlKey: !!mods.ctrl, metaKey: !!mods.cmd, altKey: !!mods.alt, shiftKey: !!mods.shift });
+// A key as macOS reports it with ⇧ held: the capital letter.
+const press = (letter: string, mods: { ctrl?: boolean; cmd?: boolean; alt?: boolean; shift?: boolean } = { cmd: true, shift: true }) => ({
+  key: mods.shift ? letter.toUpperCase() : letter.toLowerCase(),
+  code: `Key${letter.toUpperCase()}`,
+  ctrlKey: !!mods.ctrl,
+  metaKey: !!mods.cmd,
+  altKey: !!mods.alt,
+  shiftKey: !!mods.shift,
+});
 
 describe('view chords', () => {
-  it('go to each view by its place, ⌃1 the first', () => {
-    expect(VIEWS.map((_, i) => chordKeys(viewChord(i)))).toEqual([
-      ['⌃', '1'],
-      ['⌃', '2'],
-      ['⌃', '3'],
-      ['⌃', '4'],
-      ['⌃', '5'],
-    ]);
-    expect(VIEWS.map((_, i) => viewOfKey(press(`Digit${i + 1}`), VIEWS))).toEqual(VIEWS.map((v) => v.id));
+  it('go to each view by a letter of its name, ⇧⌘ with it', () => {
+    expect(VIEWS.map((v) => chordKeys(VIEW_CHORDS[v.id]).join(''))).toEqual(['⇧⌘S', '⇧⌘W', '⇧⌘P', '⇧⌘T', '⇧⌘B']);
+    expect(['s', 'w', 'p', 't', 'b'].map((l) => viewOfKey(press(l), VIEWS))).toEqual(VIEWS.map((v) => v.id));
   });
 
-  it('leave the digits ⌘, ⌥⌘, ⌃⌘ and ⇧ already have alone', () => {
-    expect(viewOfKey(press('Digit1', { cmd: true }), VIEWS)).toBeNull();
-    expect(viewOfKey(press('Digit1', { cmd: true, alt: true }), VIEWS)).toBeNull();
-    expect(viewOfKey(press('Digit1', { cmd: true, ctrl: true }), VIEWS)).toBeNull();
-    expect(viewOfKey(press('Digit1', { ctrl: true, shift: true }), VIEWS)).toBeNull();
-    expect(viewOfKey(press('Digit1', { ctrl: true, alt: true }), VIEWS)).toBeNull();
+  it('need exactly ⇧⌘: the same letter with ⌘, ⌃⌘ or ⌥⇧⌘ is another key', () => {
+    expect(viewOfKey(press('s', { cmd: true }), VIEWS)).toBeNull();
+    expect(viewOfKey(press('p', { cmd: true, ctrl: true }), VIEWS)).toBeNull();
+    expect(viewOfKey(press('w', { cmd: true, shift: true, alt: true }), VIEWS)).toBeNull();
+    expect(viewOfKey(press('t', { shift: true }), VIEWS)).toBeNull();
   });
 
-  it('do nothing past the last view or on ⌃0', () => {
-    expect(viewOfKey(press('Digit6'), VIEWS)).toBeNull();
-    expect(viewOfKey(press('Digit0'), VIEWS)).toBeNull();
-    expect(viewOfKey(press('KeyS'), VIEWS)).toBeNull();
+  it('leave ⇧⌘C to clipboard managers and the other ⇧⌘ keys to what has them', () => {
+    expect(viewOfKey(press('c'), VIEWS)).toBeNull();
+    const taken = [CHORDS.done, 'Shift+Cmd+F', 'Shift+Cmd+N', ...Object.values(QUEUE_CHORDS).flat()];
+    expect(Object.values(VIEW_CHORDS).filter((c) => taken.includes(c))).toEqual([]);
   });
 });

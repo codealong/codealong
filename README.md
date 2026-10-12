@@ -375,7 +375,7 @@ In Codealong:
 
 | Keys | What they do |
 | --- | --- |
-| ⌃1 – ⌃5 | Sessions, Worktrees, PRs, Todo, Canvas |
+| ⇧⌘S · ⇧⌘W · ⇧⌘P · ⇧⌘T · ⇧⌘B | Sessions, Worktrees, PRs, Todo, Canvas |
 | ⌘P | Switch project (⌥⌘1 – ⌥⌘9 jump to one, ⌥⌘0 shows them all) |
 | ⌘N / ⌘⇧N | New session / new window |
 | ⌘⏎ | Send your reply (or allow the call) and go on to the next agent waiting |
@@ -391,6 +391,7 @@ In Codealong:
 | ⌘F | Find in a conversation |
 | ⌃- / ⌃⇧- | Back / forward through the sessions you looked at |
 | ⌃` | A new terminal in the folder of what's shown |
+| ⌘C / ⌥⌘C | Copy the selected worktree's branch / path |
 | ⇧⌘F | Expand the session panel (in Sessions) or the PR panel (in PRs) to the whole window |
 | ⌃⌘S | Fold the sidebar |
 | ⌘= · ⌘- · ⌘0 | Zoom in, out, actual size |

@@ -32,19 +32,14 @@ function listChord(e: KeyboardEvent): boolean {
   return e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab';
 }
 
-/** ⌃1 to ⌃9 go straight to a view, by its place in the sidebar, which shows each view's chord as
- *  you point at it. ⌃ alone because ⌘ and a digit open the selected row's places, ⌥⌘ switches
- *  projects and ⌃⌘ snoozes. */
-export function viewChord(index: number): string {
-  return `Ctrl+${index + 1}`;
-}
+/** Each view's chord: ⇧⌘ and the view's first letter, from any view and any field. Canvas has B
+ *  (board) because clipboard managers take ⇧⌘C for themselves (Maccy's popup ships on it). The
+ *  sidebar shows a view's chord as you point at it. */
+export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', worktrees: 'Shift+Cmd+W', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', canvas: 'Shift+Cmd+B' };
 
-/** The view a key event goes to (`viewChord`), or none. By the key's code, as ⌥⌘'s digits go,
- *  so a layout that types its digits with ⇧ has them too. */
-export function viewOfKey<V>(e: Pick<KeyboardEvent, 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {
-  if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
-  const digit = /^Digit([1-9])$/.exec(e.code);
-  return digit ? (views[Number(digit[1]) - 1]?.id ?? null) : null;
+/** The view a key event goes to (`VIEW_CHORDS`), or none. */
+export function viewOfKey<V extends string>(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {
+  return views.find((v) => chordPressed(VIEW_CHORDS[v.id] ?? '', e))?.id ?? null;
 }
 
 /** Whether the keyboard is in a text field (other than search, which has keys of its own). */
@@ -56,7 +51,7 @@ function inField(el: Element | null, search: HTMLInputElement | null): boolean {
 /** What the keys read and do, as the window has it. `V` is the window's views. */
 export interface MainKeys<V extends string> {
   view: V;
-  /** The views in the order ⌃Tab and v go through them, and ⌃1 on go to (`viewChord`). */
+  /** The views in the order ⌃Tab and v go through them; each has a chord (`VIEW_CHORDS`). */
   views: readonly { id: V }[];
   /** A sheet that has the keyboard while it's open: Settings, the preview URL's, rename. */
   settings: object | null;
@@ -182,7 +177,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // A button with the keyboard (a row's PR chip, reached by Tab) takes its own Enter, before the
   // list or a view's keys (the canvas's, Todo's) can open or start what's selected.
   if (e.key === 'Enter' && !mod && !e.ctrlKey && !e.altKey && e.target instanceof HTMLButtonElement) return;
-  // ⌃1 to ⌃5 go straight to a view, from any view and any field (`viewChord`).
+  // ⇧⌘ and a view's letter goes straight to it, from any view and any field (`VIEW_CHORDS`).
   if (toView) {
     e.preventDefault();
     setView(toView);
@@ -445,10 +440,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     if (github) github.run();
     else if (selected?.kind === 'pr') openRow(selected);
     else if (lane?.pr) open(lane, 'p|github');
-  } else if (mod && e.shiftKey && key === 'c') {
+  } else if (mod && e.altKey && !e.shiftKey && !e.ctrlKey && e.code === 'KeyC') {
+    // ⌥⌘C copies the path, as Finder's Copy as pathname does (⇧⌘C is often a clipboard
+    // manager's). By the key's code: ⌥ changes the character.
     e.preventDefault();
     copy(lane?.path, 'worktree path');
-  } else if (mod && key === 'c' && !window.getSelection()?.toString()) {
+  } else if (mod && !e.shiftKey && !e.altKey && key === 'c' && !window.getSelection()?.toString()) {
     e.preventDefault();
     copy(lane?.branch, 'branch name');
   } else if (key === 'e' && ((!mod && letters) || (mod && !e.ctrlKey && !e.shiftKey && !e.altKey)) && picking) {
