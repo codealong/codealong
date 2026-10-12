@@ -65,6 +65,13 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   wrapping at the ends); `set_tab_title:` with nothing clears the name, its docs say (`ghostty
   +list-actions --docs`). Checked on 1.3.1 (2026-10-05); `cargo test
   ghostty_groups_and_names_tabs -- --ignored` repeats it.
+- App Nap: behind other apps' windows macOS naps Ghostty, every thread at priority 4, and a
+  napped Ghostty on a busy Mac took 21 s over one question; marks are timed from its first
+  answer, and what a send says when Ghostty was slow: `launch/ghostty.rs` (`naps`,
+  `GHOSTTY_MARK_WAIT_SECS`, `untyped`). Not said there: `ps -M -p <pid>` shows the priorities,
+  and `log show --predicate 'process == "runningboardd" AND eventMessage CONTAINS "Set AppNap
+  state"'` when a nap began and ended (`active:Y`, `active:N`). An Apple Event doesn't wake a
+  napped app at once: it's taken in at the napped priority, and the nap ends after.
 - Why a script gets a minute (Ghostty slow to answer, macOS asking again after each rebuild,
   Ghostty carrying out an event after `osascript` is killed): `launch.rs` (`OSASCRIPT_TIMEOUT`).
   It asks again when the bundle is ad-hoc signed, with a per-build identifier

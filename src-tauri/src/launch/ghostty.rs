@@ -84,10 +84,10 @@ impl Terminal for Ghostty {
     fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
         let id = match terminal_of(pid, cwd) {
             Ok(Some(id)) => id,
-            Ok(None) => return Ok(Typed::Nowhere("Codealong couldn't find its Ghostty tab".into())),
+            Ok(None) => return Ok(Typed::Nowhere(untyped("Codealong couldn't find its Ghostty tab"))),
             // Nothing was typed yet, so another way can take it; say why this one didn't.
             Err(e) if e.is::<NotAllowed>() => return Ok(Typed::Nowhere(not_allowed_why(APP))),
-            Err(_) => return Ok(Typed::Nowhere("Ghostty didn't answer in time".into())),
+            Err(_) => return Ok(Typed::Nowhere(untyped("Ghostty didn't answer in time"))),
         };
         let first = if clear { GHOSTTY_CTRL_C.to_string() } else { String::new() };
         let then = match submit {
@@ -262,8 +262,9 @@ end run
 /// `tag <marker> <seconds>`: waits up to that long for the terminal whose folder contains the
 /// marker and focuses it. `id <terminal id>`: focuses that terminal. Returns the focused
 /// terminal's id. The wait is timed, not counted: with many terminals open each look takes
-/// longer. Once the tab is selected, the rest is best effort, so a slow or refused step can't
-/// turn a tab that was found into an error.
+/// longer. It's timed from Ghostty's first answer (`GHOSTTY_MARK_WAIT_SECS`). Once the tab is
+/// selected, the rest is best effort, so a slow or refused step can't turn a tab that was found
+/// into an error.
 ///
 /// Windows, tabs and terminals are held by id, never by position. Ghostty lists windows front
 /// to back, and a loop over them (`repeat with w in windows`) makes `w` "window 3", asked
@@ -275,12 +276,13 @@ on run argv
   set want to item 2 of argv
   if mode is "tag" then
     set waitFor to (item 3 of argv) as integer
-    set started to current date
+    set started to missing value
     -- The clock is read outside `tell`: inside, `current date` goes to Ghostty first.
     repeat
       -- One question, so the id comes with its own folder.
       tell application "Ghostty" to set found to id of every terminal whose working directory contains want
       if found is not {} then exit repeat
+      if started is missing value then set started to current date
       if ((current date) - started) > waitFor then return ""
       delay 0.1
     end repeat
@@ -315,17 +317,19 @@ on focusTerminal(want)
 end focusTerminal
 "#;
 
-/// `<marker> <seconds>`: waits up to that long for the terminal whose folder contains the
-/// marker and returns its id, or "" when none shows. Unlike GHOSTTY_FOCUS it brings nothing
-/// forward: typing into a session shouldn't take you away from where you are.
+/// `<marker> <seconds>`: waits up to that long, from Ghostty's first answer, for the terminal
+/// whose folder contains the marker and returns its id, or "" when none shows. Unlike
+/// GHOSTTY_FOCUS it brings nothing forward: typing into a session shouldn't take you away from
+/// where you are.
 pub(super) const GHOSTTY_FIND: &str = r#"
 on run argv
   set want to item 1 of argv
   set waitFor to (item 2 of argv) as integer
-  set started to current date
+  set started to missing value
   repeat
     tell application "Ghostty" to set found to id of every terminal whose working directory contains want
     if found is not {} then return item 1 of found
+    if started is missing value then set started to current date
     if ((current date) - started) > waitFor then return ""
     delay 0.1
   end repeat
@@ -381,8 +385,56 @@ fn text_action(chars: &str) -> String {
 
 /// How long to wait for Ghostty to show a session's marker. It's there within a fraction of a
 /// second normally; on a Mac busy enough to fall seconds behind, a short wait reported tabs as
-/// missing that Ghostty then showed.
+/// missing that Ghostty then showed. The wait starts once Ghostty has answered the first look:
+/// macOS naps Ghostty while its windows are behind other apps' (`naps`), and a napped Ghostty
+/// on a busy Mac took 21 s over its first answer (2026-10-12), so the wait was over before a
+/// second look.
 const GHOSTTY_MARK_WAIT_SECS: &str = "8";
+
+/// Whether macOS may nap Ghostty (App Nap): neither Ghostty's defaults nor the global ones set
+/// `NSAppSleepDisabled`. Behind other apps' windows Ghostty napped every minute or so, mostly for
+/// a few seconds, now and then for a minute or more (runningboardd's "Set AppNap state" lines).
+/// Napped, every thread of it runs at the lowest priority there is (4, where the agents' work
+/// runs at 31 and up), and on a busy Mac one question took it 21 s where an awake Ghostty
+/// answered within a second or two (macOS 26.6, Ghostty 1.3.1, a load average near 100,
+/// 2026-10-12). Bringing Ghostty forward wakes it. An app reads the default as it starts: set
+/// while Ghostty ran, it changed nothing until Ghostty restarted, and a test app launched with it
+/// never napped.
+fn naps() -> bool {
+    #[cfg(test)]
+    if let Some(naps) = super::stage::ghostty_naps() {
+        return naps;
+    }
+    let read = |domain: &str| procs::run("/usr/bin/defaults", &["read", domain, "NSAppSleepDisabled"], None, Duration::from_secs(5)).ok().and_then(|v| sleep_disabled(&v));
+    napping(read("com.mitchellh.ghostty"), read("-g"))
+}
+
+/// Whether an app naps, from its own `NSAppSleepDisabled` and the global one: its own wins,
+/// a NO too, as an app's defaults do over the global ones.
+fn napping(own: Option<bool>, global: Option<bool>) -> bool {
+    !own.or(global).unwrap_or(false)
+}
+
+/// `NSAppSleepDisabled` as `defaults read` prints it: 1 or 0 for a boolean, or a string that
+/// `boolForKey` reads (`defaults write` without `-bool` stores `YES` as one). Anything else
+/// counts as unset.
+fn sleep_disabled(printed: &str) -> Option<bool> {
+    match printed.trim().to_ascii_lowercase().as_str() {
+        "1" | "yes" | "true" => Some(true),
+        "0" | "no" | "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// Why Ghostty didn't take something typed, with what to do about it when macOS naps Ghostty,
+/// the likeliest reason it was slow.
+fn untyped(why: &str) -> String {
+    if naps() {
+        format!("{why}; macOS naps Ghostty behind other windows, which `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES` stops once Ghostty restarts")
+    } else {
+        why.to_string()
+    }
+}
 
 /// The terminal you're in: Ghostty's focused one in its front window while Ghostty is the app
 /// in front, else "". Closing it would pull it from under you.
@@ -521,11 +573,13 @@ fn close_sessions(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
             None => out.push(Err(anyhow!("It has no terminal tab."))),
         }
     }
-    // Wait for Ghostty to show the marks, looking at every terminal at once.
+    // Wait for Ghostty to show the marks, looking at every terminal at once, timed from its
+    // first answer (GHOSTTY_MARK_WAIT_SECS).
     let mut ids: Vec<Option<String>> = vec![None; marked.len()];
-    let started = std::time::Instant::now();
+    let mut started = None;
     loop {
         let now = terminals().unwrap_or_default();
+        let started = *started.get_or_insert_with(std::time::Instant::now);
         for (j, (_, _, mark)) in marked.iter().enumerate() {
             if ids[j].is_none() {
                 ids[j] = now.iter().find(|t| t.cwd.contains(mark.as_str())).map(|t| t.id.clone());
@@ -577,4 +631,20 @@ fn close_sessions(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{napping, sleep_disabled};
+
+    #[test]
+    fn ghostty_naps_unless_its_own_default_or_the_global_one_says_not_to() {
+        assert_eq!(["1\n", "YES", "true", "0\n", "NO", "", "maybe"].map(sleep_disabled), [Some(true), Some(true), Some(true), Some(false), Some(false), None, None]);
+        assert!(napping(None, None));
+        assert!(!napping(Some(true), None));
+        assert!(!napping(None, Some(true)));
+        // Ghostty's own NO wins over the global YES.
+        assert!(napping(Some(false), Some(true)));
+        assert!(!napping(Some(true), Some(false)));
+    }
 }

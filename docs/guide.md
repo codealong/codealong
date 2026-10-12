@@ -857,6 +857,13 @@ can't be found gets such a message too, and the note (on the bar, from the peek)
 typed and why; once typing has started, nothing else is tried, so it can't arrive twice, and the
 same text sent again while it's on its way goes once.
 
+Ghostty is found and typed into by asking it, and macOS naps Ghostty while its windows are behind
+other apps' (App Nap): napped on a busy Mac it took seconds to answer, so a reply went as a message,
+an approval or an open failed, until you brought Ghostty forward. Codealong waits for its first
+answer before it starts timing, and when Ghostty doesn't answer in time and macOS may nap it, the
+note says so. `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES` keeps it awake
+once Ghostty restarts.
+
 #### What Codealong sends by itself
 
 What Codealong sends a session by itself, as you set it up to (a PR's news to its primary session, a

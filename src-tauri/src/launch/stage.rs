@@ -22,11 +22,13 @@ pub struct Setup {
     pub shell_ready: bool,
     /// The processes that don't exit when hung up.
     pub stays: &'static [u32],
+    /// Whether macOS may nap Ghostty (App Nap).
+    pub ghostty_naps: bool,
 }
 
 impl Default for Setup {
     fn default() -> Self {
-        Setup { procs: &[], installed: true, shell_ready: true, stays: &[] }
+        Setup { procs: &[], installed: true, shell_ready: true, stays: &[], ghostty_naps: false }
     }
 }
 
@@ -56,8 +58,8 @@ static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 const SCRIPTS: &[(&str, u64)] = &[
     ("GHOSTTY_NEW", 0xcfd07ea6d9f9e85b),
     ("GHOSTTY_LIST", 0xb5f37a7f6c1d405c),
-    ("GHOSTTY_FOCUS", 0xb14d181bda8dc4d7),
-    ("GHOSTTY_FIND", 0xca41f3863d4f0749),
+    ("GHOSTTY_FOCUS", 0x2060d52fdb69a8e4),
+    ("GHOSTTY_FIND", 0x18c5641264cf22da),
     ("GHOSTTY_TYPE", 0x1564f2adc9419537),
     ("GHOSTTY_IN_FRONT", 0x27cafb0b698ccc18),
     ("GHOSTTY_CLOSE", 0x838b3e2c07f8f8ef),
@@ -199,6 +201,10 @@ pub fn tmux_bin() -> Option<PathBuf> {
 /// Every app is the active one, so no focus waits on a thread of its own to raise a tab again.
 pub fn app_active(_app: &str) -> Option<bool> {
     staged(|_| true)
+}
+
+pub fn ghostty_naps() -> Option<bool> {
+    staged(|s| s.setup.ghostty_naps)
 }
 
 pub fn osc7(tty: &Path, dir: &str) -> Option<()> {
@@ -715,6 +721,16 @@ mod tests {
         let p = played(|_| Err("boom".into()), || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Nowhere("Ghostty didn't answer in time".into()));
         assert_eq!(p.log, ["GHOSTTY_LIST []"]);
+
+        // Where macOS naps Ghostty, the likeliest reason it was slow, it says how to stop that.
+        let napping = |find: Result<&'static str, &'static str>| {
+            let answer = move |s: &Sent| if s.what == "GHOSTTY_LIST" { Ok(GHOSTTY_TABS.to_string()) } else { find.map(String::from).map_err(String::from) };
+            play(Setup { ghostty_naps: true, ..setup() }, answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false, Submit::Return)).got.unwrap()
+        };
+        let stops = "; macOS naps Ghostty behind other windows, which `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES` stops once Ghostty restarts";
+        assert_eq!(napping(Ok("\n")), Typed::Nowhere(format!("Codealong couldn't find its Ghostty tab{stops}")));
+        assert_eq!(napping(Err("/usr/bin/osascript timed out")), Typed::Nowhere(format!("Ghostty didn't answer in time{stops}")));
+        assert_eq!(napping(Err(NOT_ALLOWED)), Typed::Nowhere("Codealong isn't allowed to control Ghostty (System Settings → Privacy & Security → Automation)".into()));
     }
 
     #[test]
