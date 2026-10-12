@@ -396,13 +396,21 @@ pub struct Asked {
     pub since: i64,
 }
 
+/// A request not seen in a poll for this long is forgotten: seen again, it's dated afresh.
+const FORGET_ASKED_MS: i64 = 10 * 60_000;
+
+/// When each request was first and last seen, by session and request id, kept through polls
+/// that failed or missed it, so a request seen again keeps the time it was first seen.
+pub type Seen = HashMap<(String, String), (i64, i64)>;
+
 impl Live {
-    /// This poll's answer, with the time each request was first seen from the poll before.
-    pub fn kept_from(mut self, before: Option<&Live>) -> Live {
+    /// This poll's answer, each request with the time it was first seen, which `seen` keeps.
+    pub fn dated(mut self, seen: &mut Seen) -> Live {
+        seen.retain(|_, (_, last)| self.at - *last < FORGET_ASKED_MS);
         for (session, asked) in self.pending.iter_mut() {
-            if let Some(b) = before.and_then(|l| l.pending.get(session)).filter(|b| b.id == asked.id) {
-                asked.since = b.since;
-            }
+            let times = seen.entry((session.clone(), asked.id.clone())).or_insert((asked.since, self.at));
+            times.1 = self.at;
+            asked.since = times.0;
         }
         self
     }
@@ -655,6 +663,8 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
 #[derive(Default)]
 struct Polled {
     live: HashMap<String, Live>,
+    /// When each account's requests were first seen (`Live::dated`), kept when a poll fails.
+    seen: HashMap<String, Seen>,
     inflight: bool,
 }
 
@@ -768,7 +778,7 @@ impl crate::harness::Reader for Reader {
                 for (account, live) in results {
                     match live {
                         Some(l) => {
-                            let l = l.kept_from(polled.live.get(&account));
+                            let l = l.dated(polled.seen.entry(account.clone()).or_default());
                             polled.live.insert(account, l)
                         }
                         None => polled.live.remove(&account),
@@ -1063,16 +1073,25 @@ mod tests {
     use super::*;
 
     /// A request the session still waits on keeps the time it was first seen, whatever else
-    /// changes; a new one takes the time of the poll that saw it.
+    /// changes and through a poll that missed it; a new one takes the time of the poll that saw
+    /// it, as does one seen again after a long while.
     #[test]
     fn a_request_waited_on_keeps_when_it_was_first_seen() {
-        let asked = |id: &str, since: i64| Asked { id: id.into(), ask: "Bash · `npm test`".into(), since };
-        let live = |pending: Vec<(&str, Asked)>| Live { pending: pending.into_iter().map(|(s, a)| (s.to_string(), a)).collect(), ..Default::default() };
-        let before = live(vec![("s1", asked("per_1", 1_000)), ("s2", asked("per_2", 1_500))]);
-        let now = live(vec![("s1", asked("per_1", 4_000)), ("s2", asked("per_3", 4_000)), ("s3", asked("per_4", 4_000))]).kept_from(Some(&before));
-        let since = |s: &str| now.pending[s].since;
-        assert_eq!((since("s1"), since("s2"), since("s3")), (1_000, 4_000, 4_000));
-        assert_eq!(live(vec![("s1", asked("per_1", 4_000))]).kept_from(None).pending["s1"].since, 4_000);
+        let asked = |id: &str, at: i64| Asked { id: id.into(), ask: "Bash · `npm test`".into(), since: at };
+        let poll = |at: i64, pending: Vec<(&str, &str)>| Live { at, pending: pending.into_iter().map(|(s, id)| (s.to_string(), asked(id, at))).collect(), ..Default::default() };
+        let mut seen = Seen::new();
+        poll(1_000, vec![("s1", "per_1"), ("s2", "per_2")]).dated(&mut seen);
+        let now = poll(4_000, vec![("s1", "per_1"), ("s2", "per_3"), ("s3", "per_4")]).dated(&mut seen);
+        let since = |l: &Live, s: &str| l.pending[s].since;
+        assert_eq!((since(&now, "s1"), since(&now, "s2"), since(&now, "s3")), (1_000, 4_000, 4_000));
+        // A poll that failed, or missed it, leaves its time alone.
+        poll(6_000, vec![]).dated(&mut seen);
+        assert_eq!(since(&poll(8_000, vec![("s1", "per_1")]).dated(&mut seen), "s1"), 1_000);
+        // The same id on another session is another request.
+        assert_eq!(since(&poll(9_000, vec![("s5", "per_1")]).dated(&mut seen), "s5"), 9_000);
+        // Forgotten after a long while unseen.
+        let later = 8_000 + FORGET_ASKED_MS;
+        assert_eq!(since(&poll(later, vec![("s1", "per_1")]).dated(&mut seen), "s1"), later);
     }
 
     /// The tables read, with the columns read.
