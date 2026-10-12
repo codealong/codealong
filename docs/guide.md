@@ -1243,8 +1243,11 @@ mark. Started without `--in`, it runs out of sight, as automatic reviews do.
 
 In Sessions a helper is listed under the session it works for while it works or waits on you: on
 one line, set in, joined to the session by a thread from the session's status, and naming its
-worktree only when it isn't the session's. The rest are counted on that session's row (*2
-helpers*), and its panel lists them all under its title, as *Its helper*. The helper's own panel
+worktree only when it isn't the session's. The session's row has a chip with each of its
+helpers' status glyphs, the most urgent first (three, then +N), whose tooltip has a line for each:
+*Review of #204 · done 12m ago*, *Review the diff · working for 3m*. A double-click on the chip
+lists all its helpers under it, finished ones too, until another double-click; Codealong remembers
+that across launches. Its panel lists them all under its title, as *Its helper*. The helper's own panel
 says *Helper of* that session over its title, and an automatic review's says *Review of* its PR.
 A helper whose session isn't listed (filtered out, or a review of a PR that waits on your review,
 which has no session of yours) is listed on its own only while it waits on you, with a *Helper* or
@@ -1253,7 +1256,7 @@ which has no session of yours) is listed on its own only while it waits on you, 
 A helper that needs you (a call to allow, a question, an error) waits on you as any session does,
 so its agent isn't left waiting on it unseen: its worktree goes to Needs you, it's on the bar and
 in the queues, and in Sessions it takes the session it works for into Needs you with it, its row
-under that session's. The session's row says how many of its helpers wait on you.
+under that session's. The session's chip turns amber while one waits on you.
 
 The agent that started it reads its reply with `codealong session wait <key>`, which waits for
 its turn to end, or comes back as soon as it waits on you so the agent can say so (`--until-done`

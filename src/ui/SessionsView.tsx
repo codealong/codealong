@@ -7,6 +7,7 @@
 // (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze, close,
 // mark done or archive together (picks.ts, SessionPickPanel.tsx).
 
+import { Fragment } from 'react';
 import { bySession, byStatusTime, startedOf, waitingSince } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount } from '../boardLists';
@@ -139,6 +140,31 @@ export function sessionSections(rows: SessionItem[], sort: SessionSort, now: num
   return [...attention, snoozed, ...byDay(rest, (r) => r.session.lastActivity, now)].filter((s) => s.rows.length > 0).map(withHelpers);
 }
 
+/** The helpers listed under each of `heads` (pinned sessions, which Pinned lists apart), as
+ *  `sessionSections` would list them under those sessions, the most urgent first: each under the
+ *  nearest of its sessions that's one of them. One that's a head itself (pinned too) isn't, so
+ *  it's listed once; a pinned helper's own helpers go under it. */
+export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>): Map<string, SessionItem[]> {
+  const under = new Map<string, SessionItem[]>();
+  if (heads.size === 0) return under;
+  const byKey = new Map(rows.map((r) => [r.session.key, r]));
+  for (const r of rows) {
+    if (heads.has(r.session.key)) continue;
+    let at = r;
+    for (let i = 0; i < 4; i++) {
+      const parent = at.session.helper?.parent ? byKey.get(at.session.helper.parent) : undefined;
+      if (!parent || parent === r) break;
+      if (heads.has(parent.session.key)) {
+        under.set(parent.session.key, [...(under.get(parent.session.key) ?? []), { ...r, nested: true, elsewhere: r.lane.id !== parent.lane.id }]);
+        break;
+      }
+      at = parent;
+    }
+  }
+  for (const kids of under.values()) kids.sort((a, b) => bySession(a.session, b.session));
+  return under;
+}
+
 /** The rows that lead, and under each session's key the helpers listed with it, the most urgent
  *  first. Only one deep: a helper's own helpers go under the session at the top. */
 function families(rows: SessionItem[]): { top: SessionItem[]; under: Map<string, SessionItem[]> } {
@@ -184,6 +210,8 @@ export function SessionsBar({ sort, onSort, lines, onLines }: { sort: SessionSor
 
 interface SessionsViewProps {
   pinned: SessionItem[];
+  /** The helpers listed under each pinned session (boardLists.ts `helpersUnder`). */
+  pinnedHelpers?: Map<string, SessionItem[]>;
   /** The rest under their headings, in `sort`'s order. */
   sections: SessionSection[];
   /** Sorted by start, the rows show when each started where they'd show when it was last active. */
@@ -220,12 +248,16 @@ interface SessionsViewProps {
   todosFor?: (sessionKey: string) => Todo[] | undefined;
   /** A session's helpers, for their chip on its row. */
   helpersOf?: (sessionKey: string) => HelperCount | undefined;
+  /** The sessions whose every helper the list shows under them, which their chip's double-click
+   *  turns on and off (`onToggleHelpers`). */
+  helpersShown?: ReadonlySet<string>;
+  onToggleHelpers?: (sessionKey: string) => void;
   onShowTodo?: (todo: Todo) => void;
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, onShowTodo } = props;
-  const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
+  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, onShowTodo } = props;
+  const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -257,6 +289,8 @@ export function SessionsView(props: SessionsViewProps) {
       onPrOpen={() => onPrOpen(r)}
       todos={todosFor?.(r.session.key)}
       helpers={helpersOf?.(r.session.key)}
+      helpersShown={!!helpersShown?.has(r.session.key)}
+      onToggleHelpers={onToggleHelpers && (() => onToggleHelpers(r.session.key))}
       nested={r.nested}
       elsewhere={r.elsewhere}
       onShowTodo={onShowTodo}
@@ -270,7 +304,18 @@ export function SessionsView(props: SessionsViewProps) {
         <div className="ca-sessionlist" data-drag-list>
           {/* The first pin lands at the top of the list. */}
           {pinned.length === 0 && drag.dropIndex === 0 && <div className="ca-dropline" />}
-          {pinned.length > 0 && <PinnedSection items={pinned} row={(r, i) => row(r, i, drag.rowProps(r.session.key, i, pinned.length))} />}
+          {pinned.length > 0 && (
+            <PinnedSection
+              items={pinned}
+              row={(r, i) => (
+                <Fragment key={r.key}>
+                  {row(r, i, drag.rowProps(r.session.key, i, pinned.length))}
+                  {/* Its helpers under it, not pinned themselves: they move with it. */}
+                  {(pinnedHelpers?.get(r.session.key) ?? []).map((k) => row(k, null, drag.rowProps(k.session.key, null, pinned.length)))}
+                </Fragment>
+              )}
+            />
+          )}
           {sections.map((s) => (
             <section key={s.id} className="ca-bayblock">
               {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} /> : <SectionHeader icon={s.icon} label={s.label} count={s.rows.length} />}

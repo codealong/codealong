@@ -66,7 +66,7 @@ import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
+import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, toggleShown, useBoardLists } from './boardLists';
 import { inProject } from './quick';
 import { setPageZoom, type ZoomStep } from './zoom';
 
@@ -96,6 +96,7 @@ const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
 const SESSION_PANEL_WIDTH_KEY = 'codealong.sessionPanelWidth';
 const SESSION_PANEL_MAX_KEY = 'codealong.sessionPanelMax';
 const PR_PANEL_MAX_KEY = 'codealong.prPanelMax';
+const HELPERS_SHOWN_KEY = 'codealong.helpersShown';
 // Each window has its own way back.
 const HISTORY_KEY = WINDOW_PROJECT ? `codealong.sessionHistory:${WINDOW_PROJECT}` : 'codealong.sessionHistory';
 const DAY = 24 * 60 * 60 * 1000;
@@ -198,6 +199,11 @@ export function App() {
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
   const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
   const [showArchived, setShowArchived] = useState(false);
+  // The sessions whose finished helpers Sessions lists under them too, as their chip's
+  // double-click left them; remembered across launches.
+  const [helpersShownList, setHelpersShownList] = useStored(HELPERS_SHOWN_KEY, strings, [] as string[]);
+  const helpersShown = useMemo(() => new Set(helpersShownList), [helpersShownList]);
+  const toggleHelpers = useCallback((key: string) => setHelpersShownList((prev) => toggleShown(prev, key)), [setHelpersShownList]);
   const [showDonePrs, setShowDonePrs] = useState(false);
   // PRs being approved, by key: the button waits on GitHub.
   const [approving, setApproving] = useState<Set<string>>(() => new Set());
@@ -330,6 +336,7 @@ export function App() {
     recentLanes,
     shownSessionCount,
     pinnedRows,
+    pinnedHelpers,
     sessionSecs,
     sessionRows,
     waitingRows,
@@ -374,6 +381,7 @@ export function App() {
     query,
     filter: bayFilter,
     sessionPins,
+    helpersShown,
     lanePins,
     prPins,
     sessionSort,
@@ -1580,6 +1588,7 @@ export function App() {
             {view === 'sessions' && (
               <SessionsView
                 pinned={pinnedRows}
+                pinnedHelpers={pinnedHelpers}
                 sections={sessionSecs}
                 sort={sessionSort}
                 lines={sessionLines}
@@ -1611,6 +1620,8 @@ export function App() {
                 onToggleArchived={() => setShowArchived(!showArchived)}
                 todosFor={todosFor}
                 helpersOf={helpersOf}
+                helpersShown={helpersShown}
+                onToggleHelpers={toggleHelpers}
                 onShowTodo={showTodo}
               />
             )}

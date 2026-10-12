@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, exitsItsOwnWay, filterByAge, helperLine, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -246,6 +246,15 @@ describe('a helper', () => {
     expect(relaned(l, l.sessions).bay).toBe('idle');
     expect(inboxCounts([l]).working).toBe(0);
     expect(narrowed(l, ['working'], '')).toBeNull();
+  });
+
+  it('has a line in its session’s chip’s tooltip saying where it stands since when', () => {
+    const g = (status: Session['status'], review: string | null = null) => ({ key: 'k', title: 'Review the diff', status, since: NOW - 3 * 60_000, review });
+    expect(helperLine(g('working'), NOW)).toBe('Review the diff · working for 3m');
+    expect(helperLine(g('needs'), NOW)).toBe('Review the diff · waits on you, 3m ago');
+    expect(helperLine(g('error'), NOW)).toBe('Review the diff · stopped with an error 3m ago');
+    expect(helperLine(g('idle', '#204'), NOW)).toBe('Review of #204 · done 3m ago');
+    expect(helperLine(g('unread'), NOW)).toBe('Review the diff · done 3m ago');
   });
 
   it('is in Needs you like any session once it waits on you', () => {

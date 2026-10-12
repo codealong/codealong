@@ -6,7 +6,7 @@
 // are.
 
 import { shortOf } from './devices';
-import { withTimes } from './format';
+import { agoPhrase, duration, withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
 import type { Bay, ConnectionLost, Lane, Pr, PrItem, Session, SessionLimit, Status } from './types';
@@ -234,6 +234,33 @@ function headlineFor(bay: Bay, own: Session[], pr: Pr | null, since: string): [s
   if (pr && bay === 'merged') return [`#${pr.number} ${pr.state === 'closed' ? 'closed' : 'merged'}`, null];
   if (pr && bay === 'review') return [pr.checks.failed > 0 ? `#${pr.number} · checks failing` : `#${pr.number} ${pr.title}`, null];
   return [`No agents active ${since}`, null];
+}
+
+/** One helper as its session's row shows it: a status glyph on the chip, a line in its tooltip. */
+export interface HelperGlance {
+  key: string;
+  title: string;
+  status: Status;
+  /** What it left running in the background, which its glyph draws as waiting. */
+  background?: string;
+  /** When its status began. */
+  since: number;
+  /** The PR it reviews (`#204`), for an automatic review. */
+  review: string | null;
+}
+
+/** A helper's line in its session's chip's tooltip: what it is, and where it stands since when. */
+export function helperLine(g: HelperGlance, now: number): string {
+  const name = g.review ? `Review of ${g.review}` : g.title;
+  const stands =
+    g.status === 'working'
+      ? `working for ${duration(g.since, now)}`
+      : g.status === 'needs'
+        ? `waits on you, ${agoPhrase(g.since, now)}`
+        : g.status === 'error'
+          ? `stopped with an error ${agoPhrase(g.since, now)}`
+          : `done ${agoPhrase(g.since, now)}`;
+  return `${name} · ${stands}`;
 }
 
 /** Text in backticks, as the engine's `code` writes it: shown as code. */

@@ -7,14 +7,14 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, filterByAge, helping, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, bySession, filterByAge, helping, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem } from './ui/PrsView';
-import { sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
 
 const ELSEWHERE = 'Elsewhere';
 
@@ -136,22 +136,30 @@ export function sessionItemsOf(lanes: Lane[]): SessionItem[] {
   return lanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s })));
 }
 
-/** A session's helpers on the board, for the chip on its row: how many, and how many of them work
- *  or wait on you. */
+/** A session's helpers on the board, for the chip on its row: how many, how many of them work or
+ *  wait on you, and each, the most urgent first, as a lane lists its sessions (lanes.ts
+ *  `bySession`). */
 export interface HelperCount {
   count: number;
   working: number;
   waiting: number;
+  each: HelperGlance[];
 }
 
 /** Each session's helpers (`Session.helper`), by the session's key: the ones not archived. */
 export function helperCounts(items: SessionItem[]): Map<string, HelperCount> {
-  const out = new Map<string, HelperCount>();
+  const of = new Map<string, Session[]>();
   for (const { session: s } of items) {
     const parent = s.helper?.parent;
     if (!parent || s.archived) continue;
-    const c = out.get(parent) ?? { count: 0, working: 0, waiting: 0 };
-    out.set(parent, { count: c.count + 1, working: c.working + (s.status === 'working' ? 1 : 0), waiting: c.waiting + (s.status === 'needs' || s.status === 'error' ? 1 : 0) });
+    of.set(parent, [...(of.get(parent) ?? []), s]);
+  }
+  const out = new Map<string, HelperCount>();
+  for (const [parent, list] of of) {
+    const each = [...list].sort(bySession).map(
+      (s): HelperGlance => ({ key: s.key, title: s.title, status: s.status, background: s.background, since: s.statusSince ?? s.lastActivity, review: s.helper?.pr ? `#${s.helper.pr.split('#')[1]}` : null }),
+    );
+    out.set(parent, { count: list.length, working: list.filter((s) => s.status === 'working').length, waiting: list.filter((s) => s.status === 'needs' || s.status === 'error').length, each });
   }
   return out;
 }
@@ -159,18 +167,42 @@ export function helperCounts(items: SessionItem[]): Map<string, HelperCount> {
 /**
  * The helpers Sessions lists (lanes.ts `helping`): under the session that started one, when that's
  * listed, while the helper works or waits on you (SessionsView.tsx `sessionSections` puts it
- * there); the rest of a session's helpers are counted on its row (`helperCounts`). Otherwise a
- * helper is listed on its own only while it waits on you: one whose session isn't listed, and an
- * automatic review's, which its PR lists. A search lists every helper it finds.
+ * there), and every one of a session you asked to see them all of (`shown`, its chip's
+ * double-click); the rest of a session's helpers are on its row's chip (`helperCounts`). Otherwise
+ * a helper is listed on its own only while it waits on you: one whose session isn't listed, and a
+ * review of a PR that waits on your review, which its PR lists. A search lists every helper it
+ * finds. A helper's own helpers go under it in turn, so its chip's double-click does too; and the
+ * helpers of a session you asked to see them all of come from `all` (every session not
+ * archived), not only `rows`, since the age and status filters leave out ones its chip counts.
  */
-export function placeHelpers(rows: SessionItem[], searching: boolean): SessionItem[] {
-  if (!rows.some((r) => r.session.helper)) return rows;
-  const listed = new Set(rows.filter((r) => !r.session.helper).map((r) => r.session.key));
-  return rows.filter(({ session: s }) => {
-    if (!s.helper || searching || !helping(s)) return true;
-    return !!s.helper.parent && listed.has(s.helper.parent) && AGENT_BAY[s.status] != null;
-  });
+export function placeHelpers(rows: SessionItem[], searching: boolean, shown: ReadonlySet<string> = NONE, all: readonly SessionItem[] = rows): SessionItem[] {
+  const inRows = new Set(rows.map((r) => r.session.key));
+  const more = shown.size === 0 ? [] : all.filter((r) => !inRows.has(r.session.key) && shown.has(r.session.helper?.parent ?? ''));
+  if (more.length === 0 && !rows.some((r) => r.session.helper)) return rows;
+  const candidates = [...rows, ...more];
+  // Your own sessions, and helpers that need you or a search found, whatever's above them.
+  const listed = new Set(rows.filter(({ session: s }) => !s.helper || searching || !helping(s)).map((r) => r.session.key));
+  // Then the helpers under a listed session, a level at a time: the ones at work, or all of them
+  // where you asked.
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const { session: s } of candidates) {
+      const parent = s.helper?.parent;
+      if (listed.has(s.key) || !parent || !listed.has(parent) || !(AGENT_BAY[s.status] != null || shown.has(parent))) continue;
+      listed.add(s.key);
+      grew = true;
+    }
+  }
+  return candidates.filter((r) => listed.has(r.session.key));
 }
+const NONE: ReadonlySet<string> = new Set();
+
+/** The sessions you asked to see all the helpers of, with `key` added or taken out: the latest
+ *  `HELPERS_SHOWN_MAX` kept, so sessions long gone don't pile up. */
+export function toggleShown(shown: readonly string[], key: string): string[] {
+  return shown.includes(key) ? shown.filter((k) => k !== key) : [...shown, key].slice(-HELPERS_SHOWN_MAX);
+}
+export const HELPERS_SHOWN_MAX = 100;
 
 /** What the age filter lets through: sessions active since the cutoff, and pinned ones. */
 function recentSession(r: SessionItem, cutoff: number, pinned: Set<string>): boolean {
@@ -304,6 +336,8 @@ export interface ListsInput {
   query: string;
   filter: readonly Filter[];
   sessionPins: Pins;
+  /** The sessions whose every helper Sessions lists under them (`placeHelpers`). */
+  helpersShown: ReadonlySet<string>;
   lanePins: Pins;
   prPins: Pins;
   sessionSort: SessionSort;
@@ -318,7 +352,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, filter, sessionPins, lanePins, prPins, sessionSort, showParked, showArchived, showDonePrs, todos, labels, labelFilter, showDoneTodos } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, showParked, showArchived, showDonePrs, todos, labels, labelFilter, showDoneTodos } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -338,14 +372,26 @@ export function useBoardLists(input: ListsInput) {
   // The Sessions view: each session once, in the worktree it runs in, pinned ones first.
   const sessionItems = useMemo(() => sessionItemsOf(projectLanes), [projectLanes]);
   // Helpers under the sessions that started them, or out of sight while they don't need you.
-  const shownSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter), !!query), [sessionItems, cutoff, sessionPins.set, query, filter]);
+  const shownSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter), !!query, helpersShown, sessionItems), [sessionItems, cutoff, sessionPins.set, query, filter, helpersShown]);
   const helpers = useMemo(() => helperCounts(sessionItems), [sessionItems]);
   const helpersOf = useCallback((k: string) => helpers.get(k), [helpers]);
   const shownSessionCount = useMemo(() => recentSessionCount(sessionItems, cutoff, sessionPins.set), [sessionItems, cutoff, sessionPins.set]);
   const pinnedRows = useMemo(() => inPinOrder(shownSessions, sessionPins.keys, (r) => r.session.key), [shownSessions, sessionPins.keys]);
-  const sessionSecs = useMemo(() => sessionSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), sessionSort, now), [shownSessions, sessionPins.set, sessionSort, now]);
+  // A pinned session's helpers go under it among the pinned ones, not among the rest.
+  const pinnedHelpers = useMemo(() => helpersUnder(shownSessions, sessionPins.set), [shownSessions, sessionPins.set]);
+  const sessionSecs = useMemo(() => {
+    const underPins = new Set([...pinnedHelpers.values()].flat().map((r) => r.session.key));
+    return sessionSections(
+      shownSessions.filter((r) => !sessionPins.set.has(r.session.key) && !underPins.has(r.session.key)),
+      sessionSort,
+      now,
+    );
+  }, [shownSessions, sessionPins.set, pinnedHelpers, sessionSort, now]);
   const sessionList = useMemo(() => sessionSecs.flatMap((s) => s.rows), [sessionSecs]);
-  const sessionRows = useMemo<ListRow[]>(() => [...pinnedRows, ...sessionList, ...(showArchived ? archivedItems : [])], [pinnedRows, sessionList, showArchived, archivedItems]);
+  const sessionRows = useMemo<ListRow[]>(
+    () => [...pinnedRows.flatMap((r) => [r, ...(pinnedHelpers.get(r.session.key) ?? [])]), ...sessionList, ...(showArchived ? archivedItems : [])],
+    [pinnedRows, pinnedHelpers, sessionList, showArchived, archivedItems],
+  );
   // What waits on you, for working through it from a session's panel (useWaitingQueue.ts).
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
 
@@ -408,6 +454,7 @@ export function useBoardLists(input: ListsInput) {
     shownSessions,
     shownSessionCount,
     pinnedRows,
+    pinnedHelpers,
     sessionSecs,
     sessionRows,
     waitingRows,

@@ -154,6 +154,16 @@
 .ca-chip.ca-helperschip.is-waiting .ca-icon {
   color: var(--attn);
 }
+/* Each helper's status, closer together than the chip's own parts, so they read as one run. */
+.ca-helperschip-glyphs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+/* Asked to list them all under the row: ringed, as a toggle that's on. */
+.ca-chip.ca-helperschip.is-shown {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
 
 /* A helper under the session it works for (SessionsView.tsx): on one line (it's .is-slim on two
    too), set in so its status sits under the session's title, its title quieter than a session's,

@@ -8,10 +8,12 @@ import {
   deviceCountsOf,
   folded,
   helperCounts,
+  HELPERS_SHOWN_MAX,
   inPinOrder,
   laneInQuery,
   pinnedLaneRowsOf,
   placeHelpers,
+  toggleShown,
   prIn,
   prInDone,
   prInFilter,
@@ -35,7 +37,7 @@ import { ALL_PROJECTS } from './quick';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
 import type { Lane, Pr, ProjectSummary, Session } from './types';
-import type { SessionItem } from './ui/SessionsView';
+import { helpersUnder, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
 const DAY = 86_400_000;
@@ -231,7 +233,67 @@ describe('the Sessions view’s lists', () => {
     it('lists a helper with the session it works for while it works or waits on you, and counts the rest there', () => {
       const items = sessionItemsOf([lane('/r/a', [boss, busy, done, asks])]);
       expect(keysOf(placeHelpers(items, false))).toEqual([boss.key, busy.key, asks.key]);
-      expect(helperCounts(items).get(boss.key)).toEqual({ count: 3, working: 1, waiting: 1 });
+      const c = helperCounts(items).get(boss.key);
+      expect(c).toMatchObject({ count: 3, working: 1, waiting: 1 });
+      // Each for its chip, the most urgent first, as a lane lists its sessions.
+      expect(c?.each.map((g) => [g.key, g.status])).toEqual([
+        [asks.key, 'needs'],
+        [busy.key, 'working'],
+        [done.key, 'idle'],
+      ]);
+      // A review says which PR.
+      const reviewOfMine = helper('claude:claude:rv', 'idle', { parent: boss.key, pr: 'acme/app#204' });
+      expect(helperCounts(sessionItemsOf([lane('/r/a', [boss, reviewOfMine])])).get(boss.key)?.each[0].review).toBe('#204');
+    });
+
+    it('lists every helper of a session you asked to see them all of, finished ones too', () => {
+      const items = sessionItemsOf([lane('/r/a', [boss, busy, done, asks])]);
+      expect(keysOf(placeHelpers(items, false, new Set([boss.key])))).toEqual([boss.key, busy.key, done.key, asks.key]);
+      // Not where the session itself isn't listed.
+      expect(keysOf(placeHelpers(sessionItemsOf([lane('/r/a', [done])]), false, new Set([boss.key])))).toEqual([]);
+      // One the age or status filter left out, which its chip counts, comes from all of them.
+      const filtered = sessionItemsOf([lane('/r/a', [boss, busy])]);
+      const all = sessionItemsOf([lane('/r/a', [boss, busy, done, asks])]);
+      expect(keysOf(placeHelpers(filtered, false, new Set([boss.key]), all)).sort()).toEqual([boss.key, busy.key, done.key, asks.key].sort());
+      expect(keysOf(placeHelpers(filtered, false, new Set(), all))).toEqual([boss.key, busy.key]);
+      // The chip's double-click turns it on and off, keeping the latest.
+      expect(toggleShown(['a'], 'b')).toEqual(['a', 'b']);
+      expect(toggleShown(['a', 'b'], 'a')).toEqual(['b']);
+      const full = Array.from({ length: HELPERS_SHOWN_MAX }, (_, i) => `s${i}`);
+      expect(toggleShown(full, 'new')).toEqual([...full.slice(1), 'new']);
+    });
+
+    it('lists a helper’s own helpers under it in turn, and all of them when it’s asked to', () => {
+      const kid = helper('codex:codex:kid', 'working');
+      const grandkid = (status: Session['status']) => helper('claude:claude:grandkid', status, { parent: kid.key });
+      expect(keysOf(placeHelpers(sessionItemsOf([lane('/r/a', [boss, kid, grandkid('working')])]), false))).toEqual([boss.key, kid.key, 'claude:claude:grandkid']);
+      const items = sessionItemsOf([lane('/r/a', [boss, kid, grandkid('idle')])]);
+      expect(keysOf(placeHelpers(items, false))).toEqual([boss.key, kid.key]);
+      expect(keysOf(placeHelpers(items, false, new Set([kid.key])))).toEqual([boss.key, kid.key, 'claude:claude:grandkid']);
+      // Not under a helper that isn't listed itself.
+      expect(keysOf(placeHelpers(sessionItemsOf([lane('/r/a', [boss, { ...kid, status: 'idle' }, grandkid('idle')])]), false, new Set([kid.key])))).toEqual([boss.key]);
+    });
+
+    it('puts a pinned session’s helpers under it among the pinned ones', () => {
+      const rows = placeHelpers(sessionItemsOf([lane('/r/a', [boss, busy, asks, session('claude:claude:other')])]), false);
+      const under = helpersUnder(rows, new Set([boss.key]));
+      expect([...under.keys()]).toEqual([boss.key]);
+      expect(under.get(boss.key)?.map((r) => [r.session.key, r.nested])).toEqual([
+        [asks.key, true],
+        [busy.key, true],
+      ]);
+      expect(helpersUnder(rows, new Set(['claude:claude:other'])).size).toBe(0);
+      // Pinned too, a helper is listed once, as a pinned one, not under its session as well.
+      expect(helpersUnder(rows, new Set([boss.key, asks.key])).get(boss.key)?.map((r) => r.session.key)).toEqual([busy.key]);
+      // A pinned helper's own helpers go under it.
+      const kid = helper('codex:codex:kid', 'working');
+      const grandkid = helper('claude:claude:grandkid', 'working', { parent: kid.key });
+      const family = placeHelpers(sessionItemsOf([lane('/r/a', [boss, kid, grandkid])]), false);
+      expect(helpersUnder(family, new Set([kid.key])).get(kid.key)?.map((r) => r.session.key)).toEqual([grandkid.key]);
+      expect(helpersUnder(family, new Set([kid.key])).has(boss.key)).toBe(false);
+      // Session and helper both pinned: the helper's helper under it, and nothing twice.
+      const both = helpersUnder(family, new Set([boss.key, kid.key]));
+      expect([...both].map(([k, rs]) => [k, rs.map((r) => r.session.key)])).toEqual([[kid.key, [grandkid.key]]]);
     });
 
     it('leaves a helper out while it doesn’t need you when its session isn’t listed, and a review always, unless a search finds it', () => {
