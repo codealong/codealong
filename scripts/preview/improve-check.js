@@ -60,11 +60,13 @@
       var made = projects.filter(function (p) { return p.name === 'Codealong'; })[0];
       check('config.toml gets a Codealong project with the source’s repo', !!made && made.repos.indexOf('github.com/me/codealong') >= 0, JSON.stringify(projects.map(function (p) { return p.name; })));
 
-      // No source at all: where to clone one.
+      // No source at all: where to clone one, and no worktree to start in by default (never
+      // the project's first, which is some other repo).
       window.__quickOpen({ improve: { shots: [] } }, Object.assign({}, board, { improve: {} }));
       await until(function () { return box() && !q('button', box()); }, 5000, 'the note about cloning the source');
       check('without the source it says where to clone it', box().textContent.indexOf('github.com/codealong/codealong') >= 0, box().textContent);
       check('and has no button', !q('button', box()));
+      check('and no worktree to start in', compose().classList.contains('is-disabled') && q('.ca-quick-bar').textContent.indexOf('No worktree') >= 0, compose().textContent.slice(0, 80));
 
       // An ordinary open is itself again.
       window.__quickOpen({}, board);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CODEALONG_PROJECT, improvePrompt, improveTitle, improveWords, withCodealongProject } from './improve';
-import type { Attachment, Config } from './types';
+import { CODEALONG_PROJECT, improvePrompt, improveTitle, improveWords, remoteImproveLane, withCodealongProject } from './improve';
+import type { Attachment, Config, Lane } from './types';
 
 const shot = (name: string, hash: string): Attachment => ({ kind: 'image', name, path: `images/${hash}.png` });
 
@@ -43,10 +43,25 @@ describe('withCodealongProject', () => {
   });
 });
 
+describe('remoteImproveLane', () => {
+  const lane = (id: string, more: Partial<Lane>): Lane => ({ id, project: 'Tools', repo: 'codealong', path: id, callsign: id, origin: 'other', bay: 'idle', glyph: 'idle', parked: false, hidden: false, headline: '', sessions: [], lastActivity: 0, looksFinished: false, targets: [], ...more } as Lane);
+
+  it('picks a shown main checkout of the source among the other Macs’ worktrees', () => {
+    const wt = lane('@abc:/m/codealong/wt', { codealong: true });
+    const main = lane('@abc:/m/codealong', { codealong: true, origin: 'main' });
+    const hiddenMain = lane('@def:/n/codealong', { codealong: true, origin: 'main', hidden: true });
+    expect(remoteImproveLane([lane('@abc:/m/other', {}), wt, main])?.id).toBe('@abc:/m/codealong');
+    expect(remoteImproveLane([hiddenMain, wt])?.id).toBe('@abc:/m/codealong/wt');
+    expect(remoteImproveLane([hiddenMain])?.id).toBe('@def:/n/codealong');
+    expect(remoteImproveLane([lane('@abc:/m/other', {}), lane('@abc:/chats', { codealong: true, startsChats: true })])).toBeNull();
+  });
+});
+
 describe('improveWords', () => {
-  it('says nothing while the board is read or when the source is in a project', () => {
+  it('says nothing while the board is read, when the source is in a project, or when another Mac has it', () => {
     expect(improveWords(undefined, true)).toBeNull();
     expect(improveWords({ project: 'Codealong', laneId: '/p/codealong' }, false)).toBeNull();
+    expect(improveWords({}, false, true)).toBeNull();
   });
 
   it('offers a project for a source in none, and says where to clone one otherwise', () => {

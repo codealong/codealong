@@ -51,7 +51,7 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
-import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, withCodealongProject } from '../improve';
+import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
 import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
@@ -512,7 +512,9 @@ export function Quick() {
   }, [board?.lanes, devices?.lanes, deviceNow, current, laneId]);
   const groups = useMemo(() => laneGroups(lanes, board?.pinnedWorktrees ?? []), [lanes, board?.pinnedWorktrees]);
   // Without one asked for, the first on the list: a pinned one, else the latest.
-  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && chatLane.id === laneId ? chatLane : null) ?? groups[0]?.lanes[0] ?? null;
+  // Improving Codealong with no source on the board goes to no worktree by default (the note
+  // says why), never to the project's first: that would start it in some other repo.
+  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && chatLane.id === laneId ? chatLane : null) ?? (improve ? null : (groups[0]?.lanes[0] ?? null));
 
   const shownNow = useLatest(shown);
 
@@ -634,18 +636,25 @@ export function Quick() {
     });
   }, [board, forTodos]);
   const attached = attachmentsIn(text);
-  // Improve Codealong's pictures of the windows, shown with the attachments and sent after them.
+  // Improve Codealong's pictures of the windows, shown with the attachments and sent after them:
+  // with a start, a send to a session, a todo saved.
   const shots = improve?.shots ?? [];
-  // Improving with Codealong's source in none of your projects: the board says so (improve.ts),
-  // and a project can be made for it, after which the board lists its worktrees and the panel
-  // moves onto them.
-  const improveNote = improve ? improveWords(board?.improve, !board || board.loading) : null;
+  const withShots = (words: string) => (improve ? improvePrompt(words, improve.shots) : words);
+  // Improving with Codealong's source on none of this Mac's worktrees: one of your other Macs'
+  // does (its worktrees come with the devices), and the session starts there; or the board says
+  // the source is in none of your projects (improve.ts), and a project can be made for it, after
+  // which the board lists its worktrees and the panel moves onto them.
+  const remoteSource = improve && !board?.improve?.laneId ? remoteImproveLane(devices?.lanes ?? []) : null;
+  const improveNote = improve ? improveWords(board?.improve, !board || board.loading, !!remoteSource) : null;
   const improveSource = board?.improve?.source ?? null;
   useEffect(() => {
-    if (!improve || laneId || !board?.improve?.laneId) return;
-    setLaneId(board.improve.laneId);
-    if (board.improve.project) setProject(board.improve.project);
-  }, [improve, laneId, board?.improve?.laneId, board?.improve?.project]);
+    if (!improve || laneId) return;
+    const at = board?.improve?.laneId ? { id: board.improve.laneId, project: board.improve.project ?? null } : remoteSource ? { id: remoteSource.id, project: remoteSource.project } : null;
+    if (!at) return;
+    setLaneId(at.id);
+    setDevice(shortOf(at.id));
+    if (at.project) setProject(at.project);
+  }, [improve, laneId, board?.improve?.laneId, board?.improve?.project, remoteSource]);
   const addCodealongProject = () => {
     if (!improveSource) return;
     const source = improveSource;
@@ -1060,15 +1069,15 @@ export function Quick() {
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean }) => {
     const where = over?.lane ?? lane;
-    const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
+    const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (choice) remember(choice, placeNow);
     if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
     // Each skill's name goes as the account's agent takes it: the repo's skills, wherever they are
     // in the prompt.
     const written = skillNow && harness && !over ? writtenFor(text, listedSkills?.folders.find((f) => f.folder === skillNow.lane.path)?.skills ?? [skillNow.skill], harness) : text;
     // Improve Codealong: the pictures of the windows go after what you wrote.
-    const prompt = improve ? improvePrompt(written, improve.shots) : written;
+    const prompt = withShots(written);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
     const label = startingLabel(placeNow, account, onModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
@@ -1101,11 +1110,15 @@ export function Quick() {
   /** Sends what's typed to a session that's already going. The panel closes at once; a failed
    *  send brings it back with what you wrote and why. */
   const send = (session: Session) => {
-    const prompt = textNow.current;
+    const words = textNow.current;
+    // Improve Codealong's pictures go with what's sent too, as they go with a start.
+    const prompt = withShots(words);
+    const kept = improve;
     const id = Date.now();
     const to = opener ?? 'main';
-    keepPrompt(prompt);
+    keepPrompt(words);
     setText('');
+    setImprove(null);
     setActiveKey(null);
     setError(null);
     void tellOpener(to, { phase: 'begin', id, label: `Sending to ${session.title}…` });
@@ -1115,20 +1128,25 @@ export function Quick() {
       .catch((e: unknown) => {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
         reopen(() => {
-          setText(prompt);
+          setText(words);
+          setImprove(kept);
           setError(errorText(e));
         });
       });
   };
 
-  /** Keeps what's typed as a todo, linked to the worktree. */
+  /** Keeps what's typed as a todo, linked to the worktree. Improve Codealong's pictures go into
+   *  its description. */
   const saveTodo = (where: Lane) => {
-    const prompt = textNow.current.trim();
-    const title = todoTitle(prompt);
+    const words = textNow.current.trim();
+    const prompt = withShots(words);
+    const title = todoTitle(words);
     const t = newTodo({ title, description: prompt === title ? '' : prompt, project: where.project, worktrees: [where.id] }, Date.now());
     const to = opener ?? 'main';
-    keepPrompt(prompt);
+    const kept = improve;
+    keepPrompt(words);
     setText('');
+    setImprove(null);
     setActiveKey(null);
     setError(null);
     void hideQuick();
@@ -1136,7 +1154,8 @@ export function Quick() {
       .then(() => tellOpener(to, { phase: 'end', id: Date.now(), key: null, message: `Saved “${title}” as a todo in ${where.project}.` }))
       .catch((e: unknown) =>
         reopen(() => {
-          setText(prompt);
+          setText(words);
+          setImprove(kept);
           setError(errorText(e));
         }),
       );

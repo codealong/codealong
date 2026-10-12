@@ -74,23 +74,24 @@ pub struct Source {
 }
 
 /// Marks the lanes that are worktrees of Codealong's source: `checkout_of` is each lane's main
-/// checkout (the engine's `lane_checkout`), `sources` the checkouts that are the source.
+/// checkout (the engine's `lane_checkout`), `sources` the checkouts that are the source. A lane
+/// that is a source's main checkout itself is one too: a project's `folders` entry makes a lane
+/// of a checkout with no remote, which `checkout_of` doesn't list.
 pub fn mark(lanes: &mut [Lane], checkout_of: &HashMap<PathBuf, PathBuf>, sources: &HashSet<PathBuf>) {
     for lane in lanes {
-        lane.codealong = checkout_of.get(Path::new(&lane.id)).is_some_and(|root| sources.contains(root));
+        let path = Path::new(&lane.id);
+        lane.codealong = sources.contains(path) || checkout_of.get(path).is_some_and(|root| sources.contains(root));
     }
 }
 
-/// Where a session that improves Codealong goes: the source's main checkout on this device when
-/// it's on the board, else another of its worktrees, else one on another of your devices; with
-/// none, the first source found (`root`, its identity) for a project to be made for.
+/// Where a session that improves Codealong goes: the source's main checkout when it's on the
+/// board, else another of its worktrees; with none, the first source found (`root`, its
+/// identity) for a project to be made for. The board has only this device's lanes; the quick
+/// panel looks through your other Macs' worktrees itself (improve.ts).
 pub fn target(lanes: &[Lane], sources: &[(PathBuf, Option<String>)]) -> Improve {
-    let here: Vec<&Lane> = lanes.iter().filter(|l| l.codealong && !l.starts_chats).collect();
-    let pick = |local: bool| -> Option<&Lane> {
-        let mine: Vec<&Lane> = here.iter().copied().filter(|l| l.device.is_none() == local).collect();
-        mine.iter().find(|l| l.origin == Origin::Main && !l.hidden).or_else(|| mine.iter().find(|l| !l.hidden)).or_else(|| mine.first()).copied()
-    };
-    if let Some(lane) = pick(true).or_else(|| pick(false)) {
+    let here: Vec<&Lane> = lanes.iter().filter(|l| l.codealong && !l.starts_chats && l.device.is_none()).collect();
+    let pick = here.iter().find(|l| l.origin == Origin::Main && !l.hidden).or_else(|| here.iter().find(|l| !l.hidden)).or_else(|| here.first());
+    if let Some(lane) = pick {
         return Improve { project: Some(lane.project.clone()), lane_id: Some(lane.id.clone()), source: None };
     }
     let source = sources.first().map(|(root, repo)| Source { root: root.to_string_lossy().into_owned(), repo: repo.clone() });
@@ -287,13 +288,14 @@ mod tests {
 
     #[test]
     fn marks_the_sources_worktrees() {
-        let mut lanes = vec![lane("/p/codealong", vec![]), lane("/p/codealong/.claude/worktrees/x", vec![]), lane("/p/other", vec![])];
+        // A clone with no remote is a lane through a project's `folders`, with no checkout entry.
+        let mut lanes = vec![lane("/p/codealong", vec![]), lane("/p/codealong/.claude/worktrees/x", vec![]), lane("/p/other", vec![]), lane("/p/clone", vec![])];
         let checkout_of: HashMap<PathBuf, PathBuf> = [("/p/codealong", "/p/codealong"), ("/p/codealong/.claude/worktrees/x", "/p/codealong"), ("/p/other", "/p/other")]
             .into_iter()
             .map(|(a, b)| (PathBuf::from(a), PathBuf::from(b)))
             .collect();
-        mark(&mut lanes, &checkout_of, &HashSet::from([PathBuf::from("/p/codealong")]));
-        assert_eq!(lanes.iter().map(|l| l.codealong).collect::<Vec<_>>(), vec![true, true, false]);
+        mark(&mut lanes, &checkout_of, &HashSet::from([PathBuf::from("/p/codealong"), PathBuf::from("/p/clone")]));
+        assert_eq!(lanes.iter().map(|l| l.codealong).collect::<Vec<_>>(), vec![true, true, false, true]);
     }
 
     #[test]
@@ -305,17 +307,17 @@ mod tests {
         let mut main = lane("/p/codealong", vec![]);
         main.codealong = true;
         main.project = "Codealong".into();
+        // Another device's lane on a board is never this device's target: the panel looks there itself.
         let mut remote = lane("/elsewhere/codealong", vec![]);
         remote.codealong = true;
-        remote.project = "Tools".into();
         remote.device = Some(DeviceTag { name: "Mini".into(), short: "abc".into(), color: "blue".into(), online: true, last_seen: None });
         let other = lane("/p/other", vec![]);
-        // The main checkout wins over a worktree, whichever is listed first, and this device over another.
+        // The main checkout wins over a worktree, whichever is listed first.
         let t = target(&[other.clone(), remote.clone(), wt.clone(), main.clone()], &[]);
         assert_eq!(t, Improve { project: Some("Codealong".into()), lane_id: Some("/p/codealong".into()), source: None });
-        // Without the main checkout, a worktree; without one here, another device's.
+        // Without the main checkout, a worktree; without one here, nothing.
         assert_eq!(target(&[wt.clone(), remote.clone()], &[]).lane_id.as_deref(), Some("/p/codealong/.claude/worktrees/x"));
-        assert_eq!(target(&[other.clone(), remote.clone()], &[]).lane_id.as_deref(), Some("/elsewhere/codealong"));
+        assert_eq!(target(&[other.clone(), remote.clone()], &[]), Improve::default());
         // A hidden main checkout still wins over nothing, but a shown worktree over it.
         main.hidden = true;
         assert_eq!(target(&[main.clone(), wt.clone()], &[]).lane_id.as_deref(), Some("/p/codealong/.claude/worktrees/x"));

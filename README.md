@@ -220,6 +220,11 @@ allowance goes unused, until it's at 85% and what's left is for the sessions alr
 question that isn't about any of your repos can go to a chat of its own. Type `/` to find your
 repos' skills by name.
 
+**Improve Codealong.** The button beside *New session*, or **⌥⌘,** in any app, opens the panel on
+Codealong's own source with a picture of every Codealong window as it is: describe what to change,
+and the session improves Codealong itself. With Codealong's source in none of your projects, the
+panel offers to add one.
+
 **Optional suggestions.** Turn on Jev (Settings › Jev, with your own [TypeSafe](https://typesafe.ai)
 key) and the panel suggests where your prompt belongs: the agent already working on it, a free
 worktree, a new chat, or a todo for later, each with how likely it is. It warns you when a running

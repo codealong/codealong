@@ -5,7 +5,7 @@
 // attachments by the engine), asks what to change, and starts the session with the pictures in
 // its prompt. These are the words and the pure rules; Quick.tsx shows them.
 
-import type { Attachment, Config, Improve, ImproveSource } from './types';
+import type { Attachment, Config, Improve, ImproveSource, Lane } from './types';
 
 /** What the empty input asks. */
 export const IMPROVE_PLACEHOLDER = 'Describe how to improve Codealong…';
@@ -50,11 +50,19 @@ export function withCodealongProject(cfg: Config, source: ImproveSource): Config
   return { ...cfg, projects: cfg.projects.map((p) => (p === have ? merged : p)) };
 }
 
+/** Codealong's source among your other Macs' worktrees (the devices' lanes, each id `@<short>:…`),
+ *  for a session to start there when this Mac has none: a main checkout first, a shown one before
+ *  a hidden one. */
+export function remoteImproveLane(lanes: Lane[]): Lane | null {
+  const sources = lanes.filter((l) => l.codealong && !l.startsChats);
+  return sources.find((l) => l.origin === 'main' && !l.hidden) ?? sources.find((l) => !l.hidden) ?? sources[0] ?? null;
+}
+
 /** What the panel says when Codealong's source isn't in one of your projects: the words, and
  *  whether a project can be made for it (its source was found). Nothing while the board is still
- *  being read, or when the source is in a project. */
-export function improveWords(improve: Improve | undefined, loading: boolean): { text: string; add: boolean } | null {
-  if (loading || improve?.project) return null;
+ *  being read, when the source is in a project, or when another of your Macs has it (`remote`). */
+export function improveWords(improve: Improve | undefined, loading: boolean, remote = false): { text: string; add: boolean } | null {
+  if (loading || improve?.project || remote) return null;
   if (improve?.source) return { text: `Codealong’s source is in ${improve.source.root}, in none of your projects. A project for it puts its worktrees on the board, where this session starts.`, add: true };
   return { text: 'Codealong’s source isn’t in a folder Codealong searches. Clone github.com/codealong/codealong into one (Settings › General lists them), and a session can improve it from here.', add: false };
 }
