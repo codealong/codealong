@@ -39,7 +39,7 @@
     return until(function () { return !!row() && !!document.querySelector('.ca-quick-row-why.is-said'); }, 5000, 'the PR and the text search')
       .then(function () { return wait(200); })
       .then(function () {
-        row().dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+        pointAt(row());
         return until(function () { return row().classList.contains('is-active'); }, 2000, 'the PR selected');
       })
       .then(function () { return wait(100); });
@@ -85,6 +85,7 @@
     })
     .then(function () {
       before = counts();
+      pointAt(row());
       row().click();
       return wait(300);
     })

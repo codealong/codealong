@@ -51,6 +51,7 @@
       check('the row that starts a session is not dragged', calls('drag_to_desktop').length === 1 && !ghost());
       var row = rows()[0];
       var q = at(row);
+      pointAt(row);
       pointer(row, 'pointerdown', q.x, q.y);
       pointer(window, 'pointerup', q.x, q.y);
       click(row);

@@ -24,6 +24,7 @@
 // and starts, and answering is that window's.
 
 import { reuse } from '../reuse';
+import { aimAfter, aimAfterChange, aimedAt, aimedAtNothing, aimedByScroll, clickDoes, type Aim } from '../aim';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import {
@@ -150,6 +151,15 @@ interface MoreRow {
 }
 
 type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SkillRow;
+
+/** Jev's suggestions as rows. Jev knows this Mac's worktrees, so it suggests starting only while a
+ *  session would start here, not on another Mac. */
+function suggestRows(route: Route | null, board: Board | null, elsewhere: boolean): SuggestRow[] {
+  if (!board || !route) return [];
+  return suggestions(route, board)
+    .filter((sg) => !elsewhere || sg.kind !== 'start')
+    .map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg }));
+}
 
 /** The most sessions a search lists once you ask for all of them. */
 const FOUND_ALL = 40;
@@ -290,6 +300,8 @@ export function Quick() {
   const reported = useRef(0);
   // When a board push arrived, for the perf log.
   const arrived = useRef<number | null>(null);
+  // The row the pointer was last moved onto, so a click does only a row you aimed at (aim.ts).
+  const aim = useRef<Aim | null>(null);
 
   // Opening. Codealong opens the panel with a script that calls `window.__quickOpen` with what
   // it opens for and the board, and shows the panel at the height it returns. WebKit runs that
@@ -348,6 +360,8 @@ export function Quick() {
           if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
         }
       }
+      // Whatever the pointer rests on as the panel shows wasn't aimed at.
+      aim.current = aimedAtNothing(aim.current);
       setShown(true);
       setOpens((n) => n + 1);
     };
@@ -673,7 +687,11 @@ export function Quick() {
   const [routed, setRouted] = useState<{ for: string; route: Route } | null>(null);
   const [routeError, setRouteError] = useState<{ for: string; message: string } | null>(null);
   useEffect(() => {
-    if (!routeFor) return;
+    if (!routeFor) {
+      // Nothing goes to Jev now, so the last answer stands in for no later one.
+      setRouted(null);
+      return;
+    }
     const cached = routes.current.get(routeFor);
     if (cached) {
       setRouted({ for: routeFor, route: cached });
@@ -697,22 +715,42 @@ export function Quick() {
   const route = routeFor && routed?.for === routeFor ? routed.route : null;
   const routeProblem = routeFor && routeError?.for === routeFor ? routeError.message : null;
   const routing = !!routeFor && !route && !routeProblem;
-  // Jev knows this Mac's worktrees, so it suggests starting only while a session would start here.
-  const suggested = useMemo<SuggestRow[]>(
-    () => (board && route ? suggestions(route, board).filter((sg) => !deviceNow || sg.kind !== 'start').map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg })) : []),
-    [board, route, deviceNow],
-  );
+  // While the next answer is worked out, the last one's suggestions in this project stay where
+  // they are, dimmed and doing nothing: they were for what you'd typed before. Taking them away at
+  // every key moved every row under them twice each time typing paused.
+  const lastRoute = routing && routed && routed.for.slice(0, routed.for.indexOf('\n')) === current ? routed.route : null;
+  const suggested = useMemo(() => suggestRows(route, board, !!deviceNow), [board, route, deviceNow]);
+  const lastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow), [board, lastRoute, deviceNow]);
 
   // What Jev said beyond where it goes: a session that may already be on it. Jev picks where
   // work goes, never the model: that stays with the start menu and Auto.
   const duplicate = board ? duplicateOf(route, board) : null;
   const alreadyOn = alreadyOnWords(duplicate);
 
+  // The Suggested group is there while what's typed goes to Jev, and only grows meanwhile: an
+  // answer with fewer suggestions than the last leaves room where they were, so the rows under it
+  // stay put. It lets go once what's typed no longer goes to Jev. Laid out before the panel's
+  // height is measured, below.
+  const suggestedGroup = useRef<HTMLDivElement>(null);
+  const suggestedTall = useRef(0);
+  useLayoutEffect(() => {
+    const el = suggestedGroup.current;
+    if (!el) {
+      suggestedTall.current = 0;
+      return;
+    }
+    el.style.minHeight = '';
+    suggestedTall.current = Math.max(suggestedTall.current, el.offsetHeight);
+    el.style.minHeight = `${suggestedTall.current}px`;
+  });
+
   // The panel's height, as the list may change it while you type, told to quick.rs
   // (useQuickSize.ts).
   useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered: !routing && (!textFor || !!textFound), opening, reported });
 
-  const ranked = rankedBy(foundSessions, route);
+  // The last answer orders the sessions found too while the next is worked out, so the ones it
+  // put first don't drop back at every key.
+  const ranked = rankedBy(foundSessions, route ?? lastRoute);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
   const rows: Row[] = slash ? skillsListed : query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   /** Lists archived sessions in searches, or leaves them out, from now on (Sessions' heading has
@@ -723,6 +761,11 @@ export function Quick() {
     setWithArchived(!withArchived);
   };
   const keys = [...rows.map((r) => r.key), COMPOSE];
+  // Rows that change by themselves end what a scroll of yours aimed at (aim.ts).
+  const keysNow = keys.join('\n');
+  useLayoutEffect(() => {
+    aim.current = aimAfterChange(aim.current);
+  }, [keysNow]);
   // A result dragged out of the panel is pinned to the desktop: a session, a todo, a PR, or the
   // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
   const rowsNow = useLatest(rows);
@@ -1100,6 +1143,24 @@ export function Quick() {
     } else (alt ? openSession : showSession)(row.lane, row.session);
   };
 
+  /** A click on a row (or the new-session row) does it when the pointer was moved onto it, and
+   *  otherwise only selects it: the list may have moved it under a pointer that stayed put, as
+   *  Jev's suggestions and what sessions said come in (aim.ts). */
+  const clickRow = (key: string, e: React.MouseEvent) => {
+    if (clickDoes(aim.current, key)) return activate(key, e.altKey);
+    aim.current = aimedAt(key, e.screenX, e.screenY);
+    setActiveKey(key);
+  };
+
+  /** The pointer moving over the list: the row it's moved onto is the one aimed at, and hovering
+   *  selects it. A row that comes under a pointer that stays put is neither. */
+  const pointerAt = (e: React.MouseEvent) => {
+    const key = (e.target as Element).closest('[data-row]')?.getAttribute('data-row') ?? null;
+    const next = aimAfter(aim.current, key, e.screenX, e.screenY);
+    aim.current = next.aim;
+    if (next.moved && key && key !== active && keys.includes(key)) setActiveKey(key);
+  };
+
   /* ---- Keys ---- */
 
   const togglePicker = (k: PickerKind) => setPicker((p) => (p === k ? null : k));
@@ -1316,6 +1377,48 @@ export function Quick() {
   /** A suggestion's row: what ⏎ does, and where. */
   const describe = (sg: Suggestion) => suggestionWords(sg, { now, text, account, onModel, place: placeNow, makesWorktree, terminal: terminalName, behind, duplicate });
 
+  /** What a suggestion's row shows, but its keys. */
+  const suggestionFace = (sg: Suggestion) => {
+    const said = describe(sg);
+    return (
+      <>
+        <span className="ca-quick-plus is-suggest">
+          <Icon name={said.icon} size={13} stroke={2} />
+        </span>
+        <span className="ca-quick-row-main">
+          <span className="ca-quick-row-title">{said.title}</span>
+          <span className="ca-quick-row-why">{said.why}</span>
+        </span>
+        <span className="ca-quick-row-where">{said.where}</span>
+        <span className={`ca-quick-sure is-${sureness(sg.p)}`}>{Math.round(sg.p * 100)}%</span>
+      </>
+    );
+  };
+
+  /** What Suggested shows while it has no suggestion for what's typed: the last answer's, dimmed
+   *  and doing nothing, while Jev works out the next; else a line in a suggestion's shape, so the
+   *  rows under it don't move when suggestions come. */
+  const suggestedStandIn =
+    lastSuggested.length > 0 ? (
+      lastSuggested.map((r) => (
+        <div key={r.key} role="option" aria-selected={false} aria-disabled="true" data-row={r.key} className="ca-quick-row is-suggest is-stale" onMouseDown={(e) => e.preventDefault()}>
+          {suggestionFace(r.s)}
+          {/* No key while it does nothing; the column stays, so nothing beside it moves. */}
+          <span className="ca-kbds" aria-hidden="true" />
+        </div>
+      ))
+    ) : (
+      <div className={cx('ca-quick-row', 'is-suggest', 'is-note', routing && 'is-routing')}>
+        <span className="ca-quick-plus is-suggest">
+          <Icon name={routeProblem ? 'alert' : 'sparkles'} size={13} stroke={2} />
+        </span>
+        <span className="ca-quick-row-main">
+          <span className="ca-quick-row-title">{routing ? 'Working out where this goes…' : routeProblem ? 'Couldn’t suggest where this goes' : 'No suggestion for this'}</span>
+          <span className="ca-quick-row-why">{routing ? 'Jev is reading what you’ve typed.' : (routeProblem ?? 'Start it below, or keep typing.')}</span>
+        </span>
+      </div>
+    );
+
   /* ---- Render ---- */
 
   const sections: { group: RowGroup; rows: Row[] }[] = [];
@@ -1324,9 +1427,14 @@ export function Quick() {
     if (last && last.group === r.group) last.rows.push(r);
     else sections.push({ group: r.group, rows: [r] });
   }
+  // While what's typed goes to Jev, Suggested is there before Jev answers and when it has nothing
+  // to suggest, so the rows under it don't move as answers come (suggestedStandIn, below).
+  if (routeFor && sections[0]?.group !== 'suggested') sections.unshift({ group: 'suggested', rows: [] });
   // While there's a search, Sessions' heading is there even with no session found: it has the box
   // that lists archived sessions too.
   if (query && !sections.some((x) => x.group === 'found')) sections.splice(sections[0]?.group === 'suggested' ? 1 : 0, 0, { group: 'found', rows: [] });
+  // Whether a search found nothing, Jev's suggestions aside.
+  const foundNothing = !!query && rows.every((r) => r.kind === 'suggest');
   const nothingWaits = listing && !!attention && attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
@@ -1410,7 +1518,19 @@ export function Quick() {
           </div>
         )}
         </div>
-        <div ref={list} className="ca-quick-list" role="listbox" aria-label="What to do next">
+        <div
+          ref={list}
+          className="ca-quick-list"
+          role="listbox"
+          aria-label="What to do next"
+          onMouseMove={pointerAt}
+          onWheel={() => {
+            aim.current = aimedByScroll(aim.current);
+          }}
+          onMouseLeave={() => {
+            aim.current = aimedAtNothing(aim.current);
+          }}
+        >
           <div ref={scroller} className="ca-quick-scroll">
             {!board || board.loading ? (
               <>
@@ -1424,27 +1544,23 @@ export function Quick() {
                     Nothing needs you{attention.counts.working > 0 ? ` · ${attention.counts.working} working` : ''}.
                   </p>
                 )}
-                {routing && (
-                  <p className="ca-quick-note is-routing">
-                    <Icon name="sparkles" size={12} />
-                    Working out where this goes…
-                  </p>
-                )}
-                {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
                 {typing && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No repo here to read skills from.' : `No skill of ${current === ALL_PROJECTS ? 'these repos' : `${current}’s repos`} starts like that.`) : 'Reading skills…'}</p>}
-                {query && rows.length === 0 && (
-                  <p className="ca-quick-note">
-                    {archivedFound > 0 && !withArchived
-                      ? `No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`
-                      : 'No sessions, todos or PRs match. Start a session with this prompt below.'}
-                  </p>
-                )}
-                {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
                 {sections.map((s) => (
-                  <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
+                  <div key={s.group} ref={s.group === 'suggested' ? suggestedGroup : undefined} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
                     <div className={`ca-quick-glabel is-${s.group}`}>
                       {GROUP_WORD[s.group]}
-                      <span>{groupCount(s.group, s.rows.length)}</span>
+                      {s.group !== 'suggested' ? (
+                        <span>{groupCount(s.group, s.rows.length)}</span>
+                      ) : s.rows.length > 0 ? (
+                        <span>{s.rows.length}</span>
+                      ) : (
+                        routing &&
+                        lastSuggested.length > 0 && (
+                          <span className="ca-quick-glabel-routing" title="Working out where this goes…">
+                            <Icon name="sparkles" size={11} />
+                          </span>
+                        )
+                      )}
                       {s.group === 'found' && (
                         <label
                           className="ca-check ca-quick-archived"
@@ -1470,15 +1586,15 @@ export function Quick() {
                     </div>
                     {s.rows.map((r) => {
                       const n = rows.indexOf(r) + 1;
-                      // What every row does with the pointer: hovering selects, a click does it, a
-                      // right-click has the rest, and dragging it out of the panel pins it to the
-                      // desktop.
+                      // What every row does with the pointer: hovering selects (the list's
+                      // pointerAt, by the row's data-row), a click does it, a right-click has the
+                      // rest, and dragging it out of the panel pins it to the desktop.
                       const held = drag.rowProps(r.key, null, 0);
                       const handlers = {
+                        'data-row': r.key,
                         onPointerDown: held.onPointerDown,
-                        onMouseMove: () => active !== r.key && setActiveKey(r.key),
                         onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
-                        onClick: (e: React.MouseEvent) => activate(r.key, e.altKey),
+                        onClick: (e: React.MouseEvent) => clickRow(r.key, e),
                         onContextMenu: (e: React.MouseEvent) => {
                           e.preventDefault();
                           rowMenu(r);
@@ -1486,25 +1602,16 @@ export function Quick() {
                       };
                       if (r.kind === 'suggest') {
                         const said = describe(r.s);
-                        const pct = Math.round(r.s.p * 100);
                         return (
                           <div
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-suggest', active === r.key && 'is-active', held.extraClass)}
-                            title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`}
+                            title={`${said.title}\n${said.why}\n${Math.round(r.s.p * 100)}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`}
                             {...handlers}
                           >
-                            <span className="ca-quick-plus is-suggest">
-                              <Icon name={said.icon} size={13} stroke={2} />
-                            </span>
-                            <span className="ca-quick-row-main">
-                              <span className="ca-quick-row-title">{said.title}</span>
-                              <span className="ca-quick-row-why">{said.why}</span>
-                            </span>
-                            <span className="ca-quick-row-where">{said.where}</span>
-                            <span className={`ca-quick-sure is-${sureness(r.s.p)}`}>{pct}%</span>
+                            {suggestionFace(r.s)}
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
                         );
@@ -1517,7 +1624,7 @@ export function Quick() {
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-skill', active === r.key && 'is-active')}
                             title={`/${r.skill.name}${r.skill.hint ? ` ${r.skill.hint}` : ''}\n${r.skill.description}\nIn ${r.lane.repo}${r.skill.uses > 0 ? ` · run ${r.skill.uses} ${r.skill.uses === 1 ? 'time' : 'times'}` : ''}\n⏎ or ⇥ finishes the name; a session on it starts in ${r.lane.repo}`}
-                            onMouseMove={handlers.onMouseMove}
+                            data-row={r.key}
                             onMouseDown={handlers.onMouseDown}
                             onClick={handlers.onClick}
                           >
@@ -1645,6 +1752,17 @@ export function Quick() {
                         </div>
                       );
                     })}
+                    {s.group === 'suggested' && s.rows.length === 0 && suggestedStandIn}
+                    {/* Under Sessions' heading rather than over the list, so they don't move
+                        Suggested as they come and go. */}
+                    {s.group === 'found' && foundNothing && (
+                      <p className="ca-quick-note">
+                        {archivedFound > 0 && !withArchived
+                          ? `No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`
+                          : 'No sessions, todos or PRs match. Start a session with this prompt below.'}
+                      </p>
+                    )}
+                    {s.group === 'found' && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
                   </div>
                 ))}
               </>
@@ -1654,9 +1772,9 @@ export function Quick() {
             role="option"
             aria-selected={active === COMPOSE}
             className={cx('ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled')}
-            onMouseMove={() => active !== COMPOSE && setActiveKey(COMPOSE)}
+            data-row={COMPOSE}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => start()}
+            onClick={(e) => clickRow(COMPOSE, e)}
           >
             <span className="ca-quick-plus">
               <Icon name="plus" size={14} stroke={2} />

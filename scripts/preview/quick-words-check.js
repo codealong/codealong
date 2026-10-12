@@ -8,7 +8,8 @@
   var text = function (sel, root) { var el = q(sel, root); return el ? el.textContent : null; };
   var compose = function () { return q('.ca-quick-compose'); };
   var agentChip = function () { return q('.ca-quick-agent .ca-quick-chip'); };
-  var suggestions = function () { return all('.ca-quick-row.is-suggest'); };
+  // Jev's answer, not what stands in for it while Jev works.
+  var suggestions = function () { return all('.ca-quick-row.is-suggest:not(.is-note):not(.is-stale)'); };
   var box = function () { return q('.ca-quick-input textarea'); };
 
   localStorage.setItem('codealong.quick.project', 'All projects');

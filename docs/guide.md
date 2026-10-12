@@ -845,9 +845,11 @@ starts a new session with what you typed as its prompt. ⏎ does the selected ro
 ⌥⏎ shows a todo or a PR under Review requested in Codealong, ⌘1 to ⌘9 do a row, Escape closes. Each
 open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then
 earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list
-doesn't shrink until you pause and the answers are in, so the panel holds still. A project picker
-(⌘P) narrows everything to one project. The shortcut is yours to change in Settings › General;
-Settings names shortcuts macOS and common launchers already use.
+doesn't shrink until you pause and the answers are in, so the panel holds still. A click does a row
+only when you moved the pointer onto it: one the list moved under a pointer that stayed put (as
+suggestions and what was said come in) is selected by the click, and a second click does it. A
+project picker (⌘P) narrows everything to one project. The shortcut is yours to change in Settings
+› General; Settings names shortcuts macOS and common launchers already use.
 
 ### Suggestions in the quick panel
 
@@ -860,8 +862,11 @@ or, for a question that needs none of your repos, in a chat of its own, open a s
 as a todo. ⏎ does the first. The same call says whether a running session may already be doing it
 (start rows say so, and sending to it is offered), and puts the sessions it thinks you mean first
 among the search results. A session that's running leads one that isn't when Jev finds them close (a
-stopped one counts half against running ones), since sending to it doesn't resume anything. Jev
-never picks the model: a new session starts on the one the start menu shows. The API key stays in
+stopped one counts half against running ones), since sending to it doesn't resume anything.
+Suggested is there from the moment what you type goes to Jev (a few words, not a word or two of a
+search), saying it's working until Jev answers. At the next key the last answer's suggestions stay
+where they were, dimmed and without keys, doing nothing until Jev answers again, and the group only
+grows while you type, so the rows under it hold still. Jev never picks the model: a new session starts on the one the start menu shows. The API key stays in
 the login keychain. What you type, repo names and session titles and latest lines go to TypeSafe.
 
 #### How a prompt gets to a session

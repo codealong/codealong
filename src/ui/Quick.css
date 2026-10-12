@@ -300,11 +300,25 @@ html.is-quick body {
 .ca-quick-sure.is-likely {
   color: var(--ink-2);
 }
-.ca-quick-note.is-routing {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* Suggested while it has no suggestion for what's typed: the last answer's, dimmed and doing
+   nothing while Jev works out the next, or a line in a suggestion's shape. */
+.ca-quick-row.is-stale,
+.ca-quick-row.is-note {
+  cursor: default;
+}
+.ca-quick-row.is-stale {
+  opacity: 0.45;
+}
+.ca-quick-row.is-note .ca-quick-row-title {
+  font: var(--type-body);
+  color: var(--ink-2);
+}
+.ca-quick-row.is-note.is-routing,
+.ca-quick-glabel-routing {
   animation: ca-quick-routing var(--dur-sweep) ease-in-out infinite alternate;
+}
+.ca-quick-glabel-routing {
+  display: inline-flex;
 }
 @keyframes ca-quick-routing {
   from {
@@ -315,7 +329,8 @@ html.is-quick body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ca-quick-note.is-routing {
+  .ca-quick-row.is-note.is-routing,
+  .ca-quick-glabel-routing {
     animation: none;
   }
 }

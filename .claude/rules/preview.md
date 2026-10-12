@@ -9,8 +9,8 @@ paths:
 
 `scripts/preview.sh`'s header lists the views and every `PREVIEW_*` variable, `scripts/checks.sh`'s
 how a check's own header names its runs, `prelude.js`'s what a check gets (`say`, `wait`, `until`,
-`check`, `note`, `calls`, `q`, `all`, `rightClick` with `menuLabels` and `menuItem`, `done`,
-`stopped`) and how its result is printed, and `fake-tauri.js`'s how commands are recorded
+`check`, `note`, `calls`, `q`, `all`, `pointAt`, `rightClick` with `menuLabels` and `menuItem`,
+`done`, `stopped`) and how its result is printed, and `fake-tauri.js`'s how commands are recorded
 (`window.__calls`) and which went unanswered (`window.__unknown`). What they don't say:
 
 - In check mode Chrome runs on virtual time, which stands still while scripts run, and draws no

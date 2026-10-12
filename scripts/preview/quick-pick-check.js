@@ -79,6 +79,7 @@
     })
     .then(function () {
       before = counts();
+      pointAt(row());
       row().click();
       return wait(300);
     })

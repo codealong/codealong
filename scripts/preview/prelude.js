@@ -109,6 +109,17 @@
     el.dispatchEvent(new Event('input', { bubbles: true }));
   };
   window.key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
+  // Moves the pointer onto an element, as a hand does before it clicks: the quick panel does a
+  // row only when the pointer was moved onto it (src/aim.ts), so a bare click() there only
+  // selects. Each call is a move to somewhere new on the screen, which it returns as {x, y}.
+  var pointer = 0;
+  window.pointAt = function (el) {
+    var r = el.getBoundingClientRect();
+    var x = Math.round(r.left + r.width / 2) + (++pointer % 2);
+    var y = Math.round(r.top + r.height / 2);
+    el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: x, clientY: y, screenX: x, screenY: y }));
+    return { x: x, y: y };
+  };
 
   // Native menus aren't drawn, but the page makes and "shows" them: a right-click runs to the
   // end, and the menu it asked for is the last one made.

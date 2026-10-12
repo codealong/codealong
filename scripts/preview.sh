@@ -68,7 +68,8 @@
 #
 # PREVIEW_ROUTE=<file> turns routing on and answers the quick panel as Jev might, from the
 # board's own sessions and worktrees (scripts/preview/route-sample.json sends to a session;
-# route-start-sample.json starts new work, with a session that may already be on it).
+# route-start-sample.json starts new work, with a session that may already be on it;
+# route-late-sample.json sends as route-sample.json does, a second and a half late).
 #
 # PREVIEW_TRANSCRIPT=<session key> shows that session's real conversation in its panel (its
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
