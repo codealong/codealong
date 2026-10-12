@@ -397,6 +397,14 @@ html.is-quick body {
 .ca-quick-error.is-info {
   color: var(--ink-2);
 }
+/* Improve Codealong with its source in no project: the words, and the button that makes one. */
+.ca-quick-improve {
+  align-items: center;
+}
+.ca-quick-improve .ca-btn {
+  flex: none;
+  margin-left: auto;
+}
 .ca-quick-bar {
   display: flex;
   flex-wrap: wrap;

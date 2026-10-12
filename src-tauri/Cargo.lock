@@ -602,6 +602,7 @@ name = "codealong"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block2",
  "clap",
  "codealong-peer",
  "data-encoding",
@@ -614,6 +615,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "objc2-web-kit",
  "qrcode",
  "rusqlite",
  "serde",

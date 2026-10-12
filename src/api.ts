@@ -1431,6 +1431,10 @@ export interface QuickOpen {
   opener?: string | null;
   /** Brings the panel back as you left it (after a failed start). */
   keep?: boolean;
+  /** Improve Codealong (improve.ts): `true` from a window, and the engine opens the panel with
+   *  the pictures it took of the windows (`shots`, kept as attachments), on the board's
+   *  `improve` project and worktree. */
+  improve?: boolean | { shots: Attachment[] };
   /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
    *  part. quick.rs adds it to every open. */
   room?: number;
@@ -1539,7 +1543,7 @@ export function windowLabel(): string | null {
 /** One of the shortcuts that work in every app, the quick panel's unless `which` says, and
  *  whether it works. */
 export async function quickShortcut(which: ShortcutStatus['which'] = 'quick'): Promise<ShortcutStatus> {
-  const preview: ShortcutStatus = { which, shortcut: which === 'quick' ? 'Option+Cmd+/' : 'Option+Cmd+.', error: null };
+  const preview: ShortcutStatus = { which, shortcut: which === 'quick' ? 'Option+Cmd+/' : which === 'waiting' ? 'Option+Cmd+.' : 'Option+Cmd+,', error: null };
   if (!inTauri) return preview;
   return (await invoke<ShortcutStatus | null>('quick_shortcut', { which })) ?? preview;
 }

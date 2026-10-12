@@ -41,6 +41,7 @@ mod harness;
 mod held;
 mod helpers;
 mod idle;
+mod improve;
 mod github;
 mod install;
 mod insights;
@@ -706,10 +707,16 @@ fn lineage_feed(app: tauri::AppHandle) -> lineage::Feed {
 }
 
 /// Opens the quick panel for what a window asks (a worktree, a todo, a prompt), or brings it
-/// back after a failed start.
+/// back after a failed start. `improve: true` opens it to improve Codealong itself, with pictures
+/// of the windows (improve.rs).
 #[tauri::command]
 fn show_quick(app: tauri::AppHandle, context: Option<serde_json::Value>) {
-    quick::open(&app, context.unwrap_or(serde_json::Value::Null));
+    let context = context.unwrap_or(serde_json::Value::Null);
+    if context.get("improve").and_then(serde_json::Value::as_bool) == Some(true) {
+        improve::open(&app, context);
+    } else {
+        quick::open(&app, context);
+    }
 }
 
 #[tauri::command]
@@ -1760,7 +1767,7 @@ pub fn run() {
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
             let chimer = std::sync::Mutex::new(sounds::Chimer::default());
             let shortcuts = config::shortcuts();
-            let shortcut = std::sync::Mutex::new((shortcuts.quick_panel.clone(), shortcuts.waiting.clone()));
+            let shortcut = std::sync::Mutex::new((shortcuts.quick_panel.clone(), shortcuts.waiting.clone(), shortcuts.improve.clone()));
             // Your other devices (peers.rs). They come before the engine, which publishes to them,
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
@@ -1808,8 +1815,8 @@ pub fn run() {
                 // Registering waits on the main thread, so it gets a thread of its own: this one
                 // may hold what a command on the main thread is waiting for.
                 if let Ok(mut shortcut) = shortcut.lock() {
-                    let (quick_was, waiting_was) = &mut *shortcut;
-                    for (which, now, was) in [(quick::Keys::Quick, &board.quick_shortcut, quick_was), (quick::Keys::Waiting, &board.waiting_shortcut, waiting_was)] {
+                    let (quick_was, waiting_was, improve_was) = &mut *shortcut;
+                    for (which, now, was) in [(quick::Keys::Quick, &board.quick_shortcut, quick_was), (quick::Keys::Waiting, &board.waiting_shortcut, waiting_was), (quick::Keys::Improve, &board.improve_shortcut, improve_was)] {
                         if was != now {
                             *was = now.clone();
                             let (app, wanted) = (emitter.clone(), now.clone());
@@ -1950,6 +1957,7 @@ pub fn run() {
                 let shortcuts = config::shortcuts();
                 quick::apply_shortcut(&handle, quick::Keys::Quick, &shortcuts.quick_panel);
                 quick::apply_shortcut(&handle, quick::Keys::Waiting, &shortcuts.waiting);
+                quick::apply_shortcut(&handle, quick::Keys::Improve, &shortcuts.improve);
             });
             if let Err(e) = add_settings_menu(app.handle()) {
                 eprintln!("Couldn't add Settings to the menu: {e:#}");

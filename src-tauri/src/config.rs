@@ -794,12 +794,25 @@ pub struct ShortcutsCfg {
     /// the bar is docked there, else in the waiting window.
     #[serde(default = "default_waiting")]
     pub waiting: String,
+    /// Opens the quick panel to improve Codealong itself: on Codealong's own project, with a
+    /// picture of every Codealong window as it is (improve.rs).
+    #[serde(default = "default_improve")]
+    pub improve: String,
 }
 
 impl Default for ShortcutsCfg {
     fn default() -> Self {
-        ShortcutsCfg { quick_panel: default_quick_panel(), waiting: default_waiting() }
+        ShortcutsCfg { quick_panel: default_quick_panel(), waiting: default_waiting(), improve: default_improve() }
     }
+}
+
+/// ⌥⌘,, beside ⌥⌘. and ⌥⌘/ on the keyboard with the same keys held, so the three sit together;
+/// ⌘, alone is every app's Settings, and with ⌥ no macOS shortcut or common app's. Written as
+/// Settings records it.
+pub const DEFAULT_IMPROVE: &str = "Option+Cmd+,";
+
+fn default_improve() -> String {
+    DEFAULT_IMPROVE.to_string()
 }
 
 /// ⌥⌘/, / for search as in many apps. The other / keys are taken: ⌘/ comments out lines in
@@ -1209,7 +1222,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 const SOUNDS_COMMENT: &str = "# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. Each is the name of a sound in /System/Library/Sounds (\"Pop\", \"Tink\", \"Bottle\", \"Purr\"...)\n# or ~/Library/Sounds, or \"\" for none. volume: in percent of the Mac's own.\n";
 const DEBUG_COMMENT: &str ="# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
-const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
+const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n";
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
 /// from an Open in menu is the one Open in <editor> uses from then on.
@@ -1301,6 +1314,7 @@ fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
     }
     set_value(&mut doc["shortcuts"]["quick_panel"], Value::from(shortcuts.quick_panel.trim()));
     set_value(&mut doc["shortcuts"]["waiting"], Value::from(shortcuts.waiting.trim()));
+    set_value(&mut doc["shortcuts"]["improve"], Value::from(shortcuts.improve.trim()));
 }
 
 /// Moves a table just added to right before `before` in the file's map, as `place_after` does.
@@ -1440,8 +1454,12 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     }
     let quick = crate::quick::parse_shortcut(&cfg.shortcuts.quick_panel).map_err(|e| format!("[shortcuts] quick_panel: {e}"))?;
     let waiting = crate::quick::parse_shortcut(&cfg.shortcuts.waiting).map_err(|e| format!("[shortcuts] waiting: {e}"))?;
+    let improve = crate::quick::parse_shortcut(&cfg.shortcuts.improve).map_err(|e| format!("[shortcuts] improve: {e}"))?;
     if quick.is_some() && quick == waiting {
         return Err("[shortcuts] quick_panel and waiting are the same keys; one press can only do one of them.".into());
+    }
+    if improve.is_some() && (improve == quick || improve == waiting) {
+        return Err("[shortcuts] improve is the same keys as another shortcut; one press can only do one of them.".into());
     }
     check_sounds(&cfg.sounds)
 }
@@ -1885,6 +1903,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str("[shortcuts]\n");
     s.push_str(&format!("quick_panel = {}\n", q(&cfg.shortcuts.quick_panel)));
     s.push_str(&format!("waiting = {}\n", q(&cfg.shortcuts.waiting)));
+    s.push_str(&format!("improve = {}\n", q(&cfg.shortcuts.improve)));
     if cfg.jev != JevCfg::default() {
         s.push('\n');
         s.push_str(JEV_COMMENT);
@@ -2040,7 +2059,7 @@ mod tests {
             scan: vec!["~/projects".into()],
             apps: AppsCfg::default(),
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
-            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: "Ctrl+Option+N".into() },
+            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: "Ctrl+Option+N".into(), improve: "Ctrl+Option+I".into() },
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false },
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false },
@@ -2826,16 +2845,21 @@ mod tests {
         // One press can't do both, however it's written; both off is fine.
         cfg.shortcuts.waiting = "cmd+option+/".into();
         assert!(check(&cfg).unwrap_err().contains("same keys"));
-        cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), waiting: String::new() };
+        cfg.shortcuts.waiting = DEFAULT_WAITING.into();
+        cfg.shortcuts.improve = "Option+Cmd+.".into();
+        assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] improve is the same keys"));
+        cfg.shortcuts.improve = "Cmd+I".into();
+        assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] improve: "));
+        cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), waiting: String::new(), improve: String::new() };
         assert!(check(&cfg).is_ok());
     }
 
     #[test]
     fn a_file_from_before_the_waiting_shortcut_has_its_default() {
         let cfg: Config = toml::from_str("[shortcuts]\nquick_panel = \"Cmd+Ctrl+K\"\n").unwrap();
-        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: DEFAULT_WAITING.into() });
+        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: DEFAULT_WAITING.into(), improve: DEFAULT_IMPROVE.into() });
         let text = render(&Config::default());
-        assert!(text.contains("[shortcuts]\nquick_panel = \"Option+Cmd+/\"\nwaiting = \"Option+Cmd+.\"\n"), "{text}");
+        assert!(text.contains("[shortcuts]\nquick_panel = \"Option+Cmd+/\"\nwaiting = \"Option+Cmd+.\"\nimprove = \"Option+Cmd+,\"\n"), "{text}");
     }
 
     #[test]

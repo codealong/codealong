@@ -1,0 +1,68 @@
+import { describe, expect, it } from 'vitest';
+import { CODEALONG_PROJECT, improvePrompt, improveTitle, improveWords, withCodealongProject } from './improve';
+import type { Attachment, Config } from './types';
+
+const shot = (name: string, hash: string): Attachment => ({ kind: 'image', name, path: `images/${hash}.png` });
+
+describe('improvePrompt', () => {
+  it('puts the pictures after what you wrote, each named for its window', () => {
+    const shots = [shot('Main window', 'aaa'), shot('Floating bar', 'bbb')];
+    expect(improvePrompt('  Make the bar taller.  ', shots)).toBe('Make the bar taller.\n\nCodealong’s windows as they were when this was asked:\n![Main window](images/aaa.png)\n![Floating bar](images/bbb.png)');
+  });
+
+  it('is what you wrote alone without pictures, and the pictures alone without words', () => {
+    expect(improvePrompt('Fix it', [])).toBe('Fix it');
+    expect(improvePrompt('', [shot('Main window', 'aaa')])).toBe('Codealong’s windows as they were when this was asked:\n![Main window](images/aaa.png)');
+  });
+
+  it('keeps a window’s name inside its brackets', () => {
+    expect(improvePrompt('x', [shot('Odd [name]\nhere', 'c')])).toContain('![Odd namehere](images/c.png)');
+  });
+});
+
+describe('withCodealongProject', () => {
+  const cfg = { projects: [{ name: 'Kestrel', repos: ['github.com/kestrel/*'], folders: [] }] } as unknown as Config;
+
+  it('adds a Codealong project for the source’s repo after the others', () => {
+    const out = withCodealongProject(cfg, { root: '/me/projects/codealong', repo: 'github.com/me/codealong' });
+    expect(out.projects).toEqual([cfg.projects[0], { name: CODEALONG_PROJECT, repos: ['github.com/me/codealong'], folders: [] }]);
+    // The config given is left as it was.
+    expect(cfg.projects).toHaveLength(1);
+  });
+
+  it('lists the folder of a checkout with no remote', () => {
+    const out = withCodealongProject(cfg, { root: '/me/projects/codealong', repo: null });
+    expect(out.projects[1]).toEqual({ name: CODEALONG_PROJECT, repos: [], folders: ['/me/projects/codealong'] });
+  });
+
+  it('adds to a project already named Codealong, once', () => {
+    const have = { projects: [{ name: CODEALONG_PROJECT, repos: ['github.com/me/codealong-ios'], folders: [] }] } as unknown as Config;
+    const once = withCodealongProject(have, { root: '/r', repo: 'github.com/me/codealong' });
+    expect(once.projects).toEqual([{ name: CODEALONG_PROJECT, repos: ['github.com/me/codealong-ios', 'github.com/me/codealong'], folders: [] }]);
+    expect(withCodealongProject(once, { root: '/r', repo: 'github.com/me/codealong' })).toEqual(once);
+  });
+});
+
+describe('improveWords', () => {
+  it('says nothing while the board is read or when the source is in a project', () => {
+    expect(improveWords(undefined, true)).toBeNull();
+    expect(improveWords({ project: 'Codealong', laneId: '/p/codealong' }, false)).toBeNull();
+  });
+
+  it('offers a project for a source in none, and says where to clone one otherwise', () => {
+    const found = improveWords({ source: { root: '/me/projects/codealong', repo: 'github.com/me/codealong' } }, false);
+    expect(found?.add).toBe(true);
+    expect(found?.text).toContain('/me/projects/codealong');
+    const none = improveWords({}, false);
+    expect(none?.add).toBe(false);
+    expect(none?.text).toContain('github.com/codealong/codealong');
+    expect(improveWords(undefined, false)?.add).toBe(false);
+  });
+});
+
+describe('improveTitle', () => {
+  it('names the shortcut when there is one', () => {
+    expect(improveTitle('⌥⌘,')).toMatch(/pictures of its windows as they are now \(⌥⌘,\)$/);
+    expect(improveTitle(null)).not.toContain('(');
+  });
+});

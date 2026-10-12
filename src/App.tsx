@@ -70,7 +70,8 @@ import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
 import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, sessionItemOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
-import { inProject } from './quick';
+import { inProject, shortcutLabel } from './quick';
+import { improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
@@ -1433,6 +1434,11 @@ export function App() {
           onClick={() => (pickedRows.length > 0 ? startForTodos(pickedRows) : selected?.kind === 'todo' ? startForTodo(selected) : newSession({ laneId: startLaneId }))}
         >
           New session
+        </Button>
+        {/* Improve Codealong (improve.ts): the quick panel on Codealong's own project, with pictures
+            of its windows as they are, for a session that changes Codealong itself. */}
+        <Button size="sm" icon="bulb" className="ca-improve" title={improveTitle(shortcutLabel(board?.improveShortcut))} onClick={() => void showQuick({ improve: true, project: projectNow.current, opener: windowLabel() })}>
+          Improve Codealong
         </Button>
       </div>
       <UsageBar

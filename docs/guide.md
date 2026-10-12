@@ -1025,6 +1025,30 @@ your repos: the session gets a folder of its own under `~/Library/Application
 Support/Codealong/chats` (trusted once for Claude Code, for all of them), and no new worktree. The
 chats are listed together in one lane, Chats, in Elsewhere, and `codealong start --chat` starts one.
 
+### Improve Codealong
+
+*The Improve Codealong button beside New session; ⌥⌘, from any app (`[shortcuts] improve`, Settings
+› General)*
+
+A session that improves Codealong itself, from whatever you just saw. The quick panel opens on
+Codealong's own project and its source's main checkout, its input asking how to improve Codealong,
+with a picture of every Codealong window that's up (the main window, project windows, the floating
+bar or the bar in the notch, the peek, the waiting window, kept sessions, cards on the desktop; the
+panel itself aside) as attachments, each named for its window. Describe what to change and start as
+usual (the worktree, account, model and place are yours to change): the prompt is what you wrote,
+then the pictures, so the agent sees what you saw. A picture you take off the strip stays out. The
+pictures are each window's own drawing, asked of WebKit, so macOS asks no screen-recording
+permission, and they're kept as attachments are (`images/`).
+
+Codealong's source is any checkout a scan finds whose `src-tauri/tauri.conf.json` is the app's, so
+a clone under another name or a fork counts, and its worktrees carry a mark the phone reads too.
+When it's in none of your projects the panel says so, with a button that adds a `[[projects]]`
+table named Codealong for its repo (or its folder, with no remote); its worktrees come onto the
+board, and the panel moves onto them. When no checkout is found, it says to clone
+github.com/codealong/codealong into a folder Codealong searches. `codealong --snapshot --improve`
+prints where a session would go. On the iPhone, the button at the top of the list does the same
+with a picture of the phone's screen, kept on the Mac the session starts on.
+
 ### Skills by name
 
 Type `/` and the start of a name, first or after any words. In the quick panel that lists the skills

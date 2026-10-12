@@ -215,7 +215,10 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
             name="Quick panel shortcut"
             fallback={DEFAULT_QUICK_PANEL}
             value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL}
-            other={{ value: cfg.shortcuts?.waiting ?? DEFAULT_WAITING, name: 'the shortcut for what waits on you' }}
+            others={[
+              { value: cfg.shortcuts?.waiting ?? DEFAULT_WAITING, name: 'the shortcut for what waits on you' },
+              { value: cfg.shortcuts?.improve ?? DEFAULT_IMPROVE, name: 'Improve Codealong’s shortcut' },
+            ]}
             onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })}
           />
           <small>Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.</small>
@@ -227,10 +230,28 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
             name="Shortcut for what waits on you"
             fallback={DEFAULT_WAITING}
             value={cfg.shortcuts?.waiting ?? DEFAULT_WAITING}
-            other={{ value: cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL, name: 'the quick panel’s shortcut' }}
+            others={[
+              { value: cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL, name: 'the quick panel’s shortcut' },
+              { value: cfg.shortcuts?.improve ?? DEFAULT_IMPROVE, name: 'Improve Codealong’s shortcut' },
+            ]}
             onChange={(waiting) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, waiting } })}
           />
           <small>Opens the first session that waits on you, from any app, to answer one after another: in the notch when the bar is docked there, else in a window of its own. Press it again to put it away.</small>
+        </div>
+        <div className="ca-field">
+          <span>Improve Codealong</span>
+          <ShortcutField
+            which="improve"
+            name="Improve Codealong’s shortcut"
+            fallback={DEFAULT_IMPROVE}
+            value={cfg.shortcuts?.improve ?? DEFAULT_IMPROVE}
+            others={[
+              { value: cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL, name: 'the quick panel’s shortcut' },
+              { value: cfg.shortcuts?.waiting ?? DEFAULT_WAITING, name: 'the shortcut for what waits on you' },
+            ]}
+            onChange={(improve) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, improve } })}
+          />
+          <small>Opens the quick panel on Codealong’s own project with a picture of every Codealong window as it is, to describe what to change: the session improves Codealong itself. The button beside New session does the same.</small>
         </div>
         <label className="ca-field">
           <span>Search what sessions said</span>
@@ -773,6 +794,7 @@ const NUDGE_ABOUT: (Profile & { id: NudgeAbout; says: string })[] = [
 const DEFAULT_QUICK_PANEL = 'Option+Cmd+/';
 /** config.rs's DEFAULT_WAITING. */
 const DEFAULT_WAITING = 'Option+Cmd+.';
+const DEFAULT_IMPROVE = 'Option+Cmd+,';
 
 /** The board goes back this far, so searching further finds nothing more (config.rs). */
 const MAX_SEARCH_DAYS = 14;
@@ -951,8 +973,8 @@ interface ShortcutFieldProps {
   /** Its default, which a button puts back. */
   fallback: string;
   value: string;
-  /** The other shortcut, which this one can't be too. */
-  other: { value: string; name: string };
+  /** The other shortcuts, which this one can't be too. */
+  others: { value: string; name: string }[];
   onChange: (shortcut: string) => void;
 }
 
@@ -962,7 +984,7 @@ interface ShortcutFieldProps {
  * doing what it does. Engine-side problems (a shortcut macOS won't take) show under it, and so
  * does what else on a Mac is known to use the same keys.
  */
-function ShortcutField({ which, name, fallback, value, other, onChange }: ShortcutFieldProps) {
+function ShortcutField({ which, name, fallback, value, others, onChange }: ShortcutFieldProps) {
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -1015,8 +1037,9 @@ function ShortcutField({ which, name, fallback, value, other, onChange }: Shortc
               setProblem(made.error);
               return;
             }
-            if (shortcutLabel(made.shortcut) === shortcutLabel(other.value)) {
-              setProblem(`${shortcutLabel(made.shortcut)} is ${other.name}. Pick another.`);
+            const same = others.find((o) => shortcutLabel(made.shortcut) === shortcutLabel(o.value));
+            if (same) {
+              setProblem(`${shortcutLabel(made.shortcut)} is ${same.name}. Pick another.`);
               return;
             }
             record(false);
@@ -1040,7 +1063,7 @@ function ShortcutField({ which, name, fallback, value, other, onChange }: Shortc
                 Turn off
               </Button>
             )}
-            {value !== fallback && shortcutLabel(fallback) !== shortcutLabel(other.value) && (
+            {value !== fallback && others.every((o) => shortcutLabel(fallback) !== shortcutLabel(o.value)) && (
               <Button variant="ghost" size="sm" onClick={() => onChange(fallback)}>
                 Use {shortcutLabel(fallback)}
               </Button>

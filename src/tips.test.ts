@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { chordKeys } from './menus';
 import { nextTip, shortcutCaps, shownNow, TIP_PLACES, TIPS, tipShows, type Tip, type TipPart, type TipShortcuts } from './tips';
 
-const ON = { quick: 'Option+Cmd+/', waiting: 'Option+Cmd+.' } satisfies TipShortcuts;
+const ON = { quick: 'Option+Cmd+/', waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,' } satisfies TipShortcuts;
 
 /** A tip's words as they read, a cap's keys run together. */
 function read(says: TipPart[]): string {

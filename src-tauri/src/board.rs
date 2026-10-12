@@ -1730,6 +1730,8 @@ pub fn compose(inp: Inputs) -> Board {
         labels: Vec::new(),
         quick_shortcut: String::new(),
         waiting_shortcut: String::new(),
+        improve_shortcut: String::new(),
+        improve: Default::default(),
         jev: Default::default(),
         reviews: Default::default(),
         todo_hints: Default::default(),

@@ -143,6 +143,13 @@ pub struct Board {
     pub quick_shortcut: String,
     /// The shortcut that goes through what waits on you, from config.toml; empty when it's off.
     pub waiting_shortcut: String,
+    /// Improve Codealong's shortcut, from config.toml; empty when it's off.
+    #[serde(default)]
+    pub improve_shortcut: String,
+    /// Where a session that improves Codealong goes: its project and worktree, or its source in
+    /// no project yet (improve.rs).
+    #[serde(default)]
+    pub improve: crate::improve::Improve,
     /// What Codealong asks Jev, from `[jev]` in config.toml.
     pub jev: crate::config::JevCfg,
     /// `[reviews]` from config.toml: whether PRs that wait on your review are reviewed without

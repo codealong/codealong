@@ -285,6 +285,25 @@ export interface Lane {
   /** Codealong's own chats: a session started here gets a folder of its own, for a question
    *  that belongs to no project. It's on the board with no sessions too, hidden. */
   startsChats?: boolean;
+  /** Codealong's own source: the worktree holds the app's tauri.conf.json (the engine's
+   *  improve.rs). Improve Codealong starts its sessions here. */
+  codealong?: boolean;
+}
+
+/** Where a session that improves Codealong goes (the engine's improve.rs): its project and
+ *  worktree, or its source in none of your projects yet, or neither when it isn't on this Mac. */
+export interface Improve {
+  project?: string | null;
+  laneId?: string | null;
+  source?: ImproveSource | null;
+}
+
+/** A checkout of Codealong's source in none of your projects. */
+export interface ImproveSource {
+  /** Its main checkout's folder. */
+  root: string;
+  /** `github.com/owner/name`, as `[[projects]] repos` name repos; missing when it has no remote. */
+  repo?: string | null;
 }
 
 /** What a reusable worktree holds: no work, so new work can start there; work under way; its
@@ -479,7 +498,7 @@ export interface Config {
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   appearance: { theme: Theme; zoom?: number };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
-  shortcuts: { quick_panel: string; waiting: string };
+  shortcuts: { quick_panel: string; waiting: string; improve?: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
   jev?: JevCfg;
   accounts: AccountCfg[];
@@ -898,6 +917,10 @@ export interface Board {
   quickShortcut?: string;
   /** The shortcut that goes through what waits on you, as config.toml writes it; empty when off. */
   waitingShortcut?: string;
+  /** Improve Codealong's shortcut, as config.toml writes it; empty when off. Missing on older boards. */
+  improveShortcut?: string;
+  /** Where a session that improves Codealong goes (improve.ts). Missing on older boards. */
+  improve?: Improve;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
   jev?: JevCfg;
   /** `[reviews]` from config.toml. Missing on older boards. */
@@ -1414,8 +1437,8 @@ export interface StartSpec {
 
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */
 export interface ShortcutStatus {
-  /** The quick panel's, or the one that goes through what waits on you. */
-  which: 'quick' | 'waiting';
+  /** The quick panel's, the one that goes through what waits on you, or Improve Codealong's. */
+  which: 'quick' | 'waiting' | 'improve';
   /** As config.toml writes it; empty when it's off. */
   shortcut: string;
   error: string | null;

@@ -91,6 +91,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
     Mode { flag: "--link", takes: "<url>", run: link },
     Mode { flag: "--checkout", takes: "", run: |_, _| Ok(crate::CHECKOUT.unwrap_or_default().to_string()) },
+    Mode { flag: "--improve", takes: "", run: |_, _| Ok(pretty(&board_now().read(|b| b.improve.clone()))) },
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
 ];
 

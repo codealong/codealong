@@ -59,15 +59,21 @@ struct Quick {
     waiting: Mutex<Option<u64>>,
     shortcut: Mutex<ShortcutState>,
     waiting_shortcut: Mutex<ShortcutState>,
+    improve_shortcut: Mutex<ShortcutState>,
 }
 
-/// Codealong's shortcuts that work in every app: the quick panel's, and the one that goes through
-/// what waits on you.
+/// Codealong's shortcuts that work in every app: the quick panel's, the one that goes through
+/// what waits on you, and Improve Codealong's (improve.rs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Keys {
     Quick,
     Waiting,
+    Improve,
+}
+
+impl Keys {
+    pub const ALL: [Keys; 3] = [Keys::Quick, Keys::Waiting, Keys::Improve];
 }
 
 impl Quick {
@@ -75,6 +81,7 @@ impl Quick {
         match which {
             Keys::Quick => &self.shortcut,
             Keys::Waiting => &self.waiting_shortcut,
+            Keys::Improve => &self.improve_shortcut,
         }
     }
 }
@@ -329,7 +336,14 @@ pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
         work_through(app);
     } else if is(Keys::Quick) {
         toggle(app);
+    } else if is(Keys::Improve) {
+        crate::improve::toggle(app);
     }
+}
+
+/// Whether the panel is up.
+pub fn is_up(app: &AppHandle) -> bool {
+    app.get_webview_window(LABEL).is_some_and(|w| panel::is_visible(&w))
 }
 
 /// Window events for the panel: it hides when another window or app takes the keyboard, and
@@ -404,11 +418,11 @@ pub fn apply_shortcut(app: &AppHandle, which: Keys, wanted: &str) {
     let _ = app.emit("quick-shortcut", status(app, which));
 }
 
-/// Turns both shortcuts off while Settings records a new one, so pressing either records it, and
+/// Turns the shortcuts off while Settings records a new one, so pressing any records it, and
 /// back on after. Off a background thread only.
 pub fn pause_shortcuts(app: &AppHandle, paused: bool) {
     let Some(state) = app.try_state::<Quick>() else { return };
-    for which in [Keys::Quick, Keys::Waiting] {
+    for which in Keys::ALL {
         if let Ok(mut s) = state.slot(which).lock() {
             if s.paused != paused {
                 s.paused = paused;

@@ -33,12 +33,14 @@ import {
   getDevices,
   hideQuick,
   inPreview,
+  getConfig,
   keepStartPlace,
   onBoard,
   onDevices,
   onQuickHidden,
   openUrl,
   routeQuick,
+  saveConfig,
   searchText,
   showMain,
   showQuick,
@@ -49,6 +51,7 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
+import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, withCodealongProject } from '../improve';
 import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
@@ -89,7 +92,7 @@ import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { agentMenuSections, EffortFoot, placeIcon, placeSections } from './StartControls';
-import { Chip, cx, Icon, Kbd, Mark, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
+import { Button, Chip, cx, Icon, Kbd, Mark, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -261,6 +264,9 @@ export function Quick() {
   const [remoteOptions, setRemoteOptions] = useState<Record<string, { at: number; options: StartOptions | null; error: string | null }>>({});
   // The todos a new session is for: one, or several started together on one prompt.
   const [todoIds, setTodoIds] = useState<string[]>([]);
+  // Improve Codealong (improve.ts): the pictures of the windows the engine took as it opened the
+  // panel, which go into the prompt; null when the panel is open for anything else.
+  const [improve, setImprove] = useState<{ shots: Attachment[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What a menu's action did (copied, closed), for a moment.
   const [info, setInfo] = useState<string | null>(null);
@@ -333,8 +339,13 @@ export function Quick() {
         routes.current.clear();
         setOpener(ctx.opener ?? null);
         setError(null);
-        setProject(ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS));
-        setLaneId(ctx.laneId ?? null);
+        // Improve Codealong (improve.ts) opens on Codealong's own project and worktree, as the
+        // board has them, with the pictures the engine took of the windows.
+        const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
+        setImprove(improving);
+        const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
+        setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
+        setLaneId(at);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
         if (textNow.current.trim()) setDraft({ text: textNow.current, todos: todoIdsNow.current });
         setText(ctx.prompt ?? '');
@@ -342,7 +353,7 @@ export function Quick() {
         setAgent(null);
         setEffort(null);
         setPlace(null);
-        setDevice(ctx.laneId ? shortOf(ctx.laneId) : null);
+        setDevice(at ? shortOf(at) : null);
         setNewWorktree(false);
         setActiveKey(null);
       }
@@ -623,6 +634,27 @@ export function Quick() {
     });
   }, [board, forTodos]);
   const attached = attachmentsIn(text);
+  // Improve Codealong's pictures of the windows, shown with the attachments and sent after them.
+  const shots = improve?.shots ?? [];
+  // Improving with Codealong's source in none of your projects: the board says so (improve.ts),
+  // and a project can be made for it, after which the board lists its worktrees and the panel
+  // moves onto them.
+  const improveNote = improve ? improveWords(board?.improve, !board || board.loading) : null;
+  const improveSource = board?.improve?.source ?? null;
+  useEffect(() => {
+    if (!improve || laneId || !board?.improve?.laneId) return;
+    setLaneId(board.improve.laneId);
+    if (board.improve.project) setProject(board.improve.project);
+  }, [improve, laneId, board?.improve?.laneId, board?.improve?.project]);
+  const addCodealongProject = () => {
+    if (!improveSource) return;
+    const source = improveSource;
+    setError(null);
+    getConfig()
+      .then((view) => saveConfig(withCodealongProject(view.config, source)))
+      .then(() => setInfo(`Added the ${CODEALONG_PROJECT} project; its worktrees come onto the board in a moment.`))
+      .catch((e: unknown) => setError(errorText(e)));
+  };
 
   // Attachments go in at the cursor, each on a line of its own.
   const addAttachments = (kept: Attachment[]) => {
@@ -1034,17 +1066,20 @@ export function Quick() {
     if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
     // Each skill's name goes as the account's agent takes it: the repo's skills, wherever they are
     // in the prompt.
-    const prompt = skillNow && harness && !over ? writtenFor(text, listedSkills?.folders.find((f) => f.folder === skillNow.lane.path)?.skills ?? [skillNow.skill], harness) : text;
+    const written = skillNow && harness && !over ? writtenFor(text, listedSkills?.folders.find((f) => f.folder === skillNow.lane.path)?.skills ?? [skillNow.skill], harness) : text;
+    // Improve Codealong: the pictures of the windows go after what you wrote.
+    const prompt = improve ? improvePrompt(written, improve.shots) : written;
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
     const label = startingLabel(placeNow, account, onModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
-    const kept = { text, todoIds, newWorktree };
+    const kept = { text, todoIds, newWorktree, improve };
     keepPrompt(text);
     setText('');
     setTodoIds([]);
     setNewWorktree(false);
+    setImprove(null);
     setError(null);
     setActiveKey(null);
     void tellOpener(to, { phase: 'begin', id, label });
@@ -1057,6 +1092,7 @@ export function Quick() {
           setText(kept.text);
           setTodoIds(kept.todoIds);
           setNewWorktree(kept.newWorktree);
+          setImprove(kept.improve);
           setError(errorText(e));
         });
       });
@@ -1451,7 +1487,8 @@ export function Quick() {
   };
   // Another Mac's accounts come a moment after it's picked, or not at all.
   const agentChip = agentChipWords({ auto: autoFor, account, accounts: accounts.length, remote: deviceNow ? { read: !!startOptionsNow, error: remote?.error ?? null } : null, model: modelShown, effortWord });
-  const shortcut = shortcutLabel(board?.quickShortcut);
+  // The hint names the shortcut that opened the panel this way: Improve Codealong's when improving.
+  const shortcut = shortcutLabel(improve ? board?.improveShortcut : board?.quickShortcut);
 
   // PR links in the list's rows (PrLink.tsx): a PR, or a session on its card, shows in the main
   // window, as ⏎ on a row does.
@@ -1493,7 +1530,7 @@ export function Quick() {
             rows={1}
             spellCheck
             aria-label="Find a session, or describe new work"
-            placeholder={draft ? 'Find a session, or describe new work… ↑ brings back your draft' : history.length ? 'Find a session, or describe new work… ↑ for earlier prompts' : 'Find a session, or describe new work…'}
+            placeholder={improve ? IMPROVE_PLACEHOLDER : draft ? 'Find a session, or describe new work… ↑ brings back your draft' : history.length ? 'Find a session, or describe new work… ↑ for earlier prompts' : 'Find a session, or describe new work…'}
             onChange={(e) => {
               setText(e.target.value);
               setCaret(e.target.selectionStart);
@@ -1517,9 +1554,12 @@ export function Quick() {
             </span>
           )}
         </div>
-        {attached.length > 0 && (
+        {attached.length + shots.length > 0 && (
           <div className="ca-quick-attached">
-            <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(text, a.path))} />
+            <AttachmentStrip
+              items={[...shots, ...attached]}
+              onRemove={(a) => (shots.some((s) => s.path === a.path) ? setImprove((i) => i && { shots: i.shots.filter((s) => s.path !== a.path) }) : setText(withoutAttachment(text, a.path)))}
+            />
           </div>
         )}
         </div>
@@ -1793,7 +1833,7 @@ export function Quick() {
                 {happens}
                 {skillLeftOut && ` ${skillLeftOut}`}
                 {alreadyOn}
-                {attached.length > 0 && attachmentsNote(attached.length)}
+                {attached.length + shots.length > 0 && attachmentsNote(attached.length + shots.length)}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
                 {deviceNow && forTodos.length > 0 && todosStayNote(forTodos.length)}
               </span>
@@ -1849,6 +1889,17 @@ export function Quick() {
           <p className="ca-quick-error is-info" role="status">
             <Icon name="check" size={14} />
             <span>{info}</span>
+          </p>
+        )}
+        {improveNote && !error && !info && (
+          <p className="ca-quick-error is-info ca-quick-improve" role="status">
+            <Icon name="bulb" size={14} />
+            <span>{improveNote.text}</span>
+            {improveNote.add && (
+              <Button size="sm" onMouseDown={(e) => e.preventDefault()} onClick={addCodealongProject}>
+                Add a {CODEALONG_PROJECT} project
+              </Button>
+            )}
           </p>
         )}
         <div className="ca-quick-bar">

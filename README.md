@@ -375,6 +375,7 @@ From any app (change them in Settings › General):
 | --- | --- |
 | ⌥⌘/ | The quick panel: find anything, start a session |
 | ⌥⌘. | Work through what waits on you, in the notch or the *Waiting on you* window |
+| ⌥⌘, | Improve Codealong: the quick panel on Codealong's own project, with pictures of its windows |
 
 In Codealong:
 
@@ -461,6 +462,7 @@ zoom = 110                     # the windows and the cards in the notch and peek
 [shortcuts]
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
 waiting = "Option+Cmd+."            # the first session that waits on you: the notch, or the waiting window
+improve = "Option+Cmd+,"            # the quick panel to improve Codealong itself, with pictures of its windows
 
 [jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
 model = "jev-latest"

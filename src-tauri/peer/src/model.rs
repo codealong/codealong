@@ -709,6 +709,10 @@ pub struct Lane {
     /// the board with no sessions too, hidden, so there's always one to start in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub starts_chats: bool,
+    /// Codealong's own source: the worktree holds the Codealong app's `src-tauri/tauri.conf.json`
+    /// (the engine's improve.rs). Improve Codealong starts its sessions here, on every device.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub codealong: bool,
 }
 
 impl Lane {
@@ -747,6 +751,7 @@ impl Lane {
             reuse: None,
             looks_reusable: false,
             starts_chats: false,
+            codealong: false,
         }
     }
 }

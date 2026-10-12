@@ -986,6 +986,11 @@ struct Engine {
     lane_base: HashMap<PathBuf, Option<String>>,
     /// Lane path → the main checkout it belongs to.
     lane_checkout: HashMap<PathBuf, PathBuf>,
+    /// Whether each checkout found is Codealong's own source (improve.rs), read once per checkout.
+    source_marks: HashMap<PathBuf, bool>,
+    /// The checkouts of Codealong's source the scan found, in a project or not: each one's main
+    /// checkout and identity (`github.com/owner/name`).
+    codealong_sources: Vec<(PathBuf, Option<String>)>,
     /// GitHub as the engine has it: the PRs read, when it's asked again, and what it calls each
     /// repo now (ghpoll.rs).
     github: GhPoll,
@@ -1097,6 +1102,8 @@ impl Engine {
             default_branch: HashMap::new(),
             lane_base: HashMap::new(),
             lane_checkout: HashMap::new(),
+            source_marks: HashMap::new(),
+            codealong_sources: Vec::new(),
             github,
             passing: false,
             watcher: None,
@@ -2015,6 +2022,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let mut found: Vec<Checkout> = roots.iter().filter_map(|r| walked.remove(r)).flatten().collect();
         found.sort_by(|a, b| a.root.cmp(&b.root));
         found.dedup_by(|a, b| a.root == b.root);
+        // Codealong's own source among them, in a project or not (improve.rs): one file read per
+        // checkout, once.
+        self.codealong_sources = found
+            .iter()
+            .filter(|c| *self.source_marks.entry(c.root.clone()).or_insert_with(|| crate::improve::is_source(&c.root)))
+            .map(|c| (c.root.clone(), c.identity.clone()))
+            .collect();
         let known: HashSet<PathBuf> = found.iter().map(|c| c.root.clone()).collect();
         let cwds = self.session_cwds();
         let chats = chat_roots();
@@ -2929,6 +2943,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.zoom = self.cfg.appearance.zoom;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();
+        board.improve_shortcut = self.cfg.shortcuts.improve.clone();
+        // Codealong's own source's worktrees, and where a session that improves it goes.
+        let sources: HashSet<PathBuf> = self.codealong_sources.iter().map(|(root, _)| root.clone()).collect();
+        crate::improve::mark(&mut board.lanes, &self.lane_checkout, &sources);
+        board.improve = crate::improve::target(&board.lanes, &self.codealong_sources);
         board.jev = self.cfg.jev.clone();
         board.devices = self.cfg.devices.clone();
         board.project_rules = self.cfg.projects.clone();
