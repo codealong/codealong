@@ -3180,7 +3180,8 @@ fn board_hash(board: &mut Board) -> u64 {
     // Buffered, so the hasher is handed a few kilobytes at a time, not each comma and quote.
     let mut out = std::io::BufWriter::new(Hashed(std::collections::hash_map::DefaultHasher::new()));
     let at = std::mem::take(&mut board.generated_at);
-    let written = serde_json::to_writer(&mut out, board);
+    // What's read of the repos' team files isn't sent, but what acts on the board waits on it.
+    let written = serde_json::to_writer(&mut out, board).and_then(|()| serde_json::to_writer(&mut out, &board.repo_settings.readiness()));
     board.generated_at = at;
     // A board that can't be written out hashes as nothing at all, as it did.
     match (written, out.into_inner()) {
@@ -3906,6 +3907,21 @@ mod tests {
         // The board goes out with the time it was made, and hashes the same each time.
         assert_eq!((first.generated_at, later.generated_at), (1_000, 2_000));
         assert_eq!(board_hash(&mut first), board_hash(&mut first.clone()));
+    }
+
+    /// A repo's team file read without a file changes nothing the windows get, but a review that
+    /// waited on it goes on only once the board with it is published (autoreview.rs reads the
+    /// published board), so it counts as a change.
+    #[test]
+    fn a_team_file_read_without_a_file_is_a_change_to_publish() {
+        use super::*;
+        let mut before = Board { repo_settings: crate::teamfile::RepoSettings { unread: true, ..Default::default() }, ..Board::default() };
+        let mut started = Board { repo_settings: crate::teamfile::RepoSettings { here: ["o/r".to_string()].into(), ..Default::default() }, ..Board::default() };
+        let mut read = started.clone();
+        read.repo_settings.read.insert(("o/r".into(), "main".into()));
+        assert_ne!(board_hash(&mut before), board_hash(&mut started), "the first read was asked for");
+        assert_ne!(board_hash(&mut started), board_hash(&mut read), "a branch was read");
+        assert_eq!(board_hash(&mut read), board_hash(&mut read.clone()));
     }
 
     #[test]

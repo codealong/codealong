@@ -523,6 +523,19 @@ impl RepoSettings {
         self.mine.get(&crate::config::repo_key(slug))
     }
 
+    /// What's been read and which repos are here, in order, for telling a board from the last
+    /// (engine.rs `board_hash`): none of it is sent to the windows, and a branch read without a
+    /// file changes nothing that is, yet what waits on it (`pending`) goes on once it's read.
+    pub fn readiness(&self) -> (bool, Vec<&(String, String)>, Vec<&String>, Vec<(&String, &String)>) {
+        let mut read: Vec<_> = self.read.iter().collect();
+        read.sort();
+        let mut here: Vec<_> = self.here.iter().collect();
+        here.sort();
+        let mut defaults: Vec<_> = self.defaults.iter().collect();
+        defaults.sort();
+        (self.unread, read, here, defaults)
+    }
+
     /// `[reviews]` as it goes for `pr`, `global` itself where nothing's set for its repo.
     pub fn reviews<'a>(&self, global: &'a ReviewsCfg, pr: &PrItem) -> Cow<'a, ReviewsCfg> {
         match (self.team_of(&pr.repo_slug, pr.base.as_deref()), self.mine_of(&pr.repo_slug)) {
