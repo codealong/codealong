@@ -517,6 +517,12 @@ export async function openTeamFile(repo: string): Promise<void> {
 }
 
 /** Saves config.toml as typed, once it parses. */
+/** Plays a sound `[sounds]` can name, at a volume in percent: Settings › Sounds' play button. */
+export async function playSound(name: string, volume: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('play_sound', { name, volume });
+}
+
 export async function saveConfigText(text: string): Promise<void> {
   if (!inTauri) throw new Error('Saving settings needs the app.');
   await invoke('save_config_text', { text });

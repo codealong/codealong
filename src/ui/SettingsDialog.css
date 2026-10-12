@@ -98,6 +98,34 @@
 .ca-settings-theme {
   justify-self: start;
 }
+
+/* Settings › Sounds: a sound's select and the button that plays it on one line, as wide as the
+   other selects; and the volume's slider with its percent. The slider is an input in a field,
+   so it takes back what .ca-field input gives a text field (controls.css). */
+.ca-settings-sound {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 440px;
+}
+.ca-settings-sound .ca-settings-select {
+  flex: 1;
+  min-width: 0;
+}
+.ca-field input.ca-settings-volume {
+  flex: 1;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--fill-strong);
+}
+.ca-settings-volume-at {
+  min-width: 4ch;
+  text-align: right;
+  font: var(--type-code);
+  color: var(--ink-3);
+}
 /* Settings › General's version line: the version, then Check now or Restart to update. */
 .ca-settings-version {
   display: flex;

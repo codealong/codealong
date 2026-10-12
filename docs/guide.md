@@ -784,7 +784,8 @@ Dock icon or the bar brings it back, and ⌘Q quits.
 *⌘, (comma), the app menu, or the foot of the sidebar*
 
 A form for everything in config.toml. General has the folders searched for repos, the quick panel's
-shortcut, the terminal and editor, and the theme; Jev has the TypeSafe key (kept in the keychain)
+shortcut, the terminal and editor, and the theme; Sounds has the sound for each thing that starts to
+wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain)
 and a switch per feature, each saying what it sends; Accounts adds, edits, removes and signs in
 accounts, and under Found on this Mac lists the ones Codealong could read but doesn't, to add with a
 click (with the agent skill, unless you untick it); Automation has what Codealong does by itself:
@@ -1118,7 +1119,8 @@ by its gaps. Its node, the part that carries the status color, moves as things h
 while agents work, beats as a turn ends (twice as something starts to need you), sends its color
 once round the C as a new session starts working, and lets a dot go as you send a session a message
 from Codealong. Point at the mark and the C turns once about the node, and turns back as the pointer
-leaves. With Reduce Motion on it only changes color.
+leaves. With Reduce Motion on it only changes color. A short sound goes with what starts to wait on
+you (*Sounds*).
 
 #### In the notch
 
@@ -1184,6 +1186,32 @@ to open what it shows where it lives (a todo without a session starts one in the
 Right-click it, or a session line in it, for that session's (Rename… renames it in its peek),
 worktree's or todo's menu, where Remove from desktop takes the card off; the menu in Codealong also
 offers that once it's pinned.
+
+### Sounds
+
+*Settings › Sounds, or `[sounds]` in config.toml*
+
+A short sound plays when something starts to wait on you, so you notice while you're in another app
+or away from the screen: Glass when a session needs you (it asks you something, waits on a call to
+allow, or stops with an error), Pop when a session's turn ends, and, once you pick one, a sound when
+a pull request asks for your review. Each can be one of macOS's sounds, one you put in
+~/Library/Sounds, or None; the button beside it plays it, and Volume sets how loud they all are, as
+a percent of the Mac's own. Codealong shows no Notification Center banners: the mark's beat and the
+notch's count already show what came (*Queues, pills and the mark*), and the sound is for when you
+aren't looking at them.
+
+The sounds follow the bar's pills, whether the bar is up or not, so a snoozed session, the end of a
+quieted one's turn, a helper that doesn't need you and a worktree kept out of sight make none, and a
+session on another of your Macs makes one here as it would there. To stay out of the way:
+
+- nothing sounds for what already waits when Codealong opens;
+- a session that comes back to you within 15 seconds of starting to work makes none: you just sent
+  it something or answered it, and are likely still looking at it;
+- a few at once make one sound, the most urgent's (a session that needs you, then a review, then a
+  turn that ended), and there's one at most every 10 seconds.
+
+A sound config.toml names that isn't on this Mac would only be silent, so it shows as a notice, and
+Settings won't save one.
 
 ## Opening things where they live
 

@@ -399,6 +399,8 @@ export interface Config {
   /** Your settings for particular repos, `[repos."github.com/owner/name"]`, by that key
    *  (repoSettings.ts `repoKey`). Older files have none. */
   repos?: Record<string, RepoCfg>;
+  /** A sound when something starts to wait on you. Older files have none: Glass, Pop, none, 60. */
+  sounds?: SoundsCfg;
   debug: { perf_log: boolean };
 }
 
@@ -459,6 +461,16 @@ export interface TeamFile {
   skipped: string[];
   /** What it suggests that isn't how things go for you in its repo now: what Use them changes. */
   offers: RepoCfg;
+}
+
+/** `[sounds]` (config.rs `SoundsCfg`, sounds.rs): each the name of a sound in ~/Library/Sounds or
+ *  macOS's, or '' for none. */
+export interface SoundsCfg {
+  needs_you: string;
+  your_turn: string;
+  review_requested: string;
+  /** In percent of the Mac's own volume. */
+  volume: number;
 }
 
 /** What a PR whose nudge is on tells its session about (config.rs `NudgeAbout`): everything, or
@@ -652,6 +664,8 @@ export interface ConfigView {
   /** What a reviewer is told to do while `[reviews] prompt` is empty (autoreview.rs
    *  `INSTRUCTIONS`). Missing from older engines. */
   reviewPrompt?: string;
+  /** The sounds `[sounds]` can name, sorted (sounds.rs `names`). Missing from older engines. */
+  sounds?: string[];
 }
 
 /** A Chrome profile (src-tauri/src/chrome.rs). */

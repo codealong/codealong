@@ -49,6 +49,8 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub repos: BTreeMap<String, RepoCfg>,
     #[serde(default)]
+    pub sounds: SoundsCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -71,6 +73,7 @@ impl Default for Config {
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
             repos: BTreeMap::new(),
+            sounds: SoundsCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -666,6 +669,42 @@ pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// A sound when something starts to wait on you (sounds.rs): each the name of one of macOS's
+/// sounds or one in ~/Library/Sounds, or "" for none.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SoundsCfg {
+    /// A session asks you something, waits on a call to allow, or stopped with an error.
+    #[serde(default = "default_needs_you_sound")]
+    pub needs_you: String,
+    /// A session's turn ended.
+    #[serde(default = "default_your_turn_sound")]
+    pub your_turn: String,
+    /// A pull request asks for your review.
+    #[serde(default)]
+    pub review_requested: String,
+    /// In percent of the Mac's own volume.
+    #[serde(default = "default_sound_volume")]
+    pub volume: u32,
+}
+
+impl Default for SoundsCfg {
+    fn default() -> Self {
+        SoundsCfg { needs_you: default_needs_you_sound(), your_turn: default_your_turn_sound(), review_requested: String::new(), volume: default_sound_volume() }
+    }
+}
+
+fn default_needs_you_sound() -> String {
+    "Glass".into()
+}
+
+fn default_your_turn_sound() -> String {
+    "Pop".into()
+}
+
+fn default_sound_volume() -> u32 {
+    60
+}
+
 /// Automatic updates (updates.rs). Only release builds update themselves.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UpdatesCfg {
@@ -1112,6 +1151,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # the session that opened the PR, once it runs and doesn't wait on you. Nothing goes on GitHub.
 ";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
+const SOUNDS_COMMENT: &str = "# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. Each is the name of a sound in /System/Library/Sounds (\"Glass\", \"Pop\", \"Tink\", \"Purr\"...)\n# or ~/Library/Sounds, or \"\" for none. volume: in percent of the Mac's own.\n";
 const DEBUG_COMMENT: &str ="# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n";
 
@@ -1258,6 +1298,8 @@ pub struct ConfigView {
     /// What a reviewer is told to do while `[reviews] prompt` is empty, for Settings to show and
     /// edit (autoreview.rs `INSTRUCTIONS`).
     pub review_prompt: String,
+    /// The sounds `[sounds]` can name (sounds.rs `names`).
+    pub sounds: Vec<String>,
 }
 
 pub fn view() -> ConfigView {
@@ -1271,7 +1313,7 @@ fn view_of(text: &str, path: &str) -> ConfigView {
         Ok(c) => (c, None),
         Err(e) => (Config::default(), Some(e.to_string().trim().to_string())),
     };
-    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string() }
+    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string(), sounds: crate::sounds::names() }
 }
 
 /// Why a list of projects can't be saved, in words.
@@ -1344,6 +1386,19 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     let waiting = crate::quick::parse_shortcut(&cfg.shortcuts.waiting).map_err(|e| format!("[shortcuts] waiting: {e}"))?;
     if quick.is_some() && quick == waiting {
         return Err("[shortcuts] quick_panel and waiting are the same keys; one press can only do one of them.".into());
+    }
+    check_sounds(&cfg.sounds)
+}
+
+/// Why `[sounds]` can't be played as it is: a sound this Mac doesn't have, or a volume past the
+/// Mac's own. The engine says so when config.toml is edited by hand, since it reads the file
+/// without these checks.
+pub fn check_sounds(sounds: &SoundsCfg) -> std::result::Result<(), String> {
+    for (key, name) in [("needs_you", &sounds.needs_you), ("your_turn", &sounds.your_turn), ("review_requested", &sounds.review_requested)] {
+        crate::sounds::check(key, name)?;
+    }
+    if sounds.volume > 100 {
+        return Err(format!("[sounds] volume is {}; it goes from 0 to 100 (percent).", sounds.volume));
     }
     Ok(())
 }
@@ -1533,6 +1588,22 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         }
         set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
         set_value(&mut doc["pull_requests"]["nudge_about"], Value::from(cfg.pull_requests.nudge_about.as_str()));
+    }
+
+    // A new file has it (`render`); an older one gets it once a sound changes.
+    if cfg.sounds != SoundsCfg::default() || doc.get("sounds").is_some() {
+        if !doc.get("sounds").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{SOUNDS_COMMENT}"));
+            doc.insert("sounds", Item::Table(t));
+            let after = ["pull_requests", "reviews", "sessions", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "sounds", after);
+        }
+        let sounds = &cfg.sounds;
+        set_value(&mut doc["sounds"]["needs_you"], Value::from(sounds.needs_you.trim()));
+        set_value(&mut doc["sounds"]["your_turn"], Value::from(sounds.your_turn.trim()));
+        set_value(&mut doc["sounds"]["review_requested"], Value::from(sounds.review_requested.trim()));
+        set_value(&mut doc["sounds"]["volume"], Value::from(sounds.volume as i64));
     }
 
     set_repos(&mut doc, &cfg.repos);
@@ -1834,6 +1905,13 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("nudge_by_default = {}\n", cfg.pull_requests.nudge_by_default));
         s.push_str(&format!("nudge_about = {}\n", q(cfg.pull_requests.nudge_about.as_str())));
     }
+    s.push('\n');
+    s.push_str(SOUNDS_COMMENT);
+    s.push_str("[sounds]\n");
+    s.push_str(&format!("needs_you = {}\n", q(&cfg.sounds.needs_you)));
+    s.push_str(&format!("your_turn = {}\n", q(&cfg.sounds.your_turn)));
+    s.push_str(&format!("review_requested = {}\n", q(&cfg.sounds.review_requested)));
+    s.push_str(&format!("volume = {}\n", cfg.sounds.volume));
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -1919,6 +1997,7 @@ mod tests {
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
+            sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -2199,6 +2278,7 @@ mod tests {
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
             repos: BTreeMap::new(),
+            sounds: SoundsCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
     }
@@ -2275,6 +2355,34 @@ mod tests {
         // Turned back on, the table stays, saying so.
         let on = with_config(&out, &full()).unwrap();
         assert!(on.contains("[updates]\ncheck = true"), "{on}");
+    }
+
+    #[test]
+    fn sounds_are_on_for_what_waits_on_you_and_name_sounds_the_mac_has() {
+        let d = toml::from_str::<Config>("").unwrap().sounds;
+        assert_eq!((d.needs_you.as_str(), d.your_turn.as_str(), d.review_requested.as_str(), d.volume), ("Glass", "Pop", "", 60));
+        // A new file says so, before the accounts.
+        let new = render(&full());
+        assert!(new.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"Glass\"\nyour_turn = \"Pop\"\nreview_requested = \"\"\nvolume = 60\n")), "{new}");
+        assert!(new.find("[sounds]").unwrap() < new.find("[[accounts]]").unwrap(), "{new}");
+        // An older file gets the table only once a sound changes.
+        let start = new.find(SOUNDS_COMMENT).unwrap();
+        let old = format!("{}{}", &new[..start - 1], &new[new.find("\n# Harness accounts.").unwrap()..]);
+        assert!(!with_config(&old, &full()).unwrap().contains("[sounds]"));
+        let mut quieter = full();
+        quieter.sounds.your_turn = String::new();
+        quieter.sounds.volume = 30;
+        let out = with_config(&old, &quieter).unwrap();
+        assert!(out.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"Glass\"\nyour_turn = \"\"\nreview_requested = \"\"\nvolume = 30\n")), "{out}");
+        assert!(out.find("[sounds]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), quieter);
+        // A sound the Mac doesn't have, and a volume over the Mac's own, are refused.
+        let mut kazoo = full();
+        kazoo.sounds.review_requested = "Kazoo".into();
+        assert!(check(&kazoo).unwrap_err().starts_with("[sounds] review_requested is \"Kazoo\""));
+        let mut loud = full();
+        loud.sounds.volume = 101;
+        assert_eq!(check(&loud).unwrap_err(), "[sounds] volume is 101; it goes from 0 to 100 (percent).");
     }
 
     #[test]

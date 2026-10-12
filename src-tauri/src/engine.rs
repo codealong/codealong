@@ -1582,6 +1582,8 @@ impl Engine {
         // which PRs nudge by default.
         rest.apps = before.apps.clone();
         rest.pull_requests = before.pull_requests.clone();
+        // Sounds are read as each one plays (sounds.rs).
+        rest.sounds = before.sounds.clone();
         // A star only changes which account Auto picks; nothing to rescan for it.
         for a in &mut rest.accounts {
             if let Some(b) = before.accounts.iter().find(|b| b.name == a.name) {
@@ -1898,8 +1900,10 @@ impl Engine {
         self.config_text = text.as_ref().ok().cloned().flatten();
         match text.and_then(|t| t.map(|t| config::load_text(&t)).transpose()) {
             Ok(Some(cfg)) => {
+                // A sound that isn't there reads fine and would only be silent, so it's said here,
+                // as Settings says it when it saves.
+                self.config_warning = config::check_sounds(&cfg.sounds).err();
                 self.cfg = cfg;
-                self.config_warning = None;
             }
             Ok(None) => {
                 let cfg = first_run_config();

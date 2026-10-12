@@ -168,6 +168,10 @@ You can answer from wherever suits you:
 - **Pinned to your desktop.** Keep a session floating over your other windows, or pin a session,
   worktree, todo or PR there as a small card.
 
+A short sound tells you when an agent starts to need you or finishes its turn, so you hear it from
+another app: not for the session you just answered, and one at most every few seconds. Pick the
+sounds, or turn them off, in Settings › Sounds.
+
 <p align="center">
   <img src="docs/images/bar-light.webp" alt="The floating bar: pills for two sessions that need you, finished work, running agents, a PR to review and three todos ready to start." width="640" />
 </p>
@@ -488,6 +492,12 @@ send = true                    # hand each review to the session that opened the
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)
 nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks
+
+[sounds]                       # a short sound when something starts to wait on you (Settings › Sounds)
+needs_you = "Glass"            # a session asks you something, waits on a call to allow, or stops with an error
+your_turn = "Pop"              # a session's turn ended
+review_requested = ""          # a PR asks for your review; "" is no sound
+volume = 60                    # in percent of the Mac's own; any sound in /System/Library/Sounds or ~/Library/Sounds
 
 [repos."github.com/acme/web".reviews]  # yours for one repo, over the above and its team's file (Settings › Automation, the repo picked)
 account = "claude-work"        # any of [reviews], [reviews.own] (as reviews.own) and [pull_requests]; what's left out is as they say

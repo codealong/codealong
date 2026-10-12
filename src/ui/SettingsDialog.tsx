@@ -4,14 +4,14 @@
 // in AccountsSection.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openTeamFile, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
+import { getConfig, onQuickShortcut, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewSubmit, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -22,10 +22,11 @@ import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
 
-export type SettingsSection = 'general' | 'accounts' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
+export type SettingsSection = 'general' | 'sounds' | 'accounts' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
+  { id: 'sounds', label: 'Sounds', icon: 'bell' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
   { id: 'automation', label: 'Automation', icon: 'bolt' },
   { id: 'agents', label: 'Agents', icon: 'terminal' },
@@ -132,6 +133,8 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
     pane = error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
   } else if (section === 'general' && cfg) {
     pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
+  } else if (section === 'sounds' && cfg) {
+    pane = <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
   } else if (section === 'automation' && cfg) {
     pane = <AutomationPane cfg={cfg} disabled={!!broken} onSave={save} onReload={() => void load()} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} lanes={lanes} teamFiles={teamFiles} focus={focus} />;
   } else if (section === 'devices' && cfg) {
@@ -270,6 +273,90 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <small>Every window follows, and so do the window chrome and menus.</small>
         </div>
         <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />
+      </fieldset>
+    </>
+  );
+}
+
+/* ---- Sounds ---- */
+
+/** `[sounds]` when config.toml has none (config.rs `SoundsCfg`). */
+const SOUNDS_DEFAULT: SoundsCfg = { needs_you: 'Glass', your_turn: 'Pop', review_requested: '', volume: 60 };
+
+type SoundKind = 'needs_you' | 'your_turn' | 'review_requested';
+
+/** What each sound is for (sounds.rs `Kind`), the most urgent first. */
+const SOUND_KINDS: { id: SoundKind; label: string; says: string }[] = [
+  { id: 'needs_you', label: 'A session needs you', says: 'It asks you something, waits on a call to allow, or stopped with an error.' },
+  { id: 'your_turn', label: 'A session’s turn ended', says: 'Its reply is yours to read.' },
+  { id: 'review_requested', label: 'A pull request asks for your review', says: 'Someone asked for your review on GitHub.' },
+];
+
+/**
+ * Settings › Sounds: the sound for each thing that starts to wait on you, with a button to hear
+ * it, and how loud they all are (sounds.rs). The volume saves when you let go of it, and plays
+ * the first sound there is at it, so you hear what you picked.
+ */
+function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { names: string[]; onError: (e: string) => void }) {
+  const sounds = { ...SOUNDS_DEFAULT, ...cfg.sounds };
+  const [volume, setVolume] = useState(sounds.volume);
+  useEffect(() => setVolume(sounds.volume), [sounds.volume]);
+  const options: Profile[] = [{ id: '', name: 'None' }, ...names.map((n) => ({ id: n, name: n }))];
+  const set = (next: Partial<SoundsCfg>) => void onSave({ ...cfg, sounds: { ...sounds, ...next } });
+  const hear = (name: string, at: number) => void playSound(name, at).catch((e: unknown) => onError(errorText(e)));
+  const commitVolume = () => {
+    if (volume === sounds.volume) return;
+    set({ volume });
+    const first = SOUND_KINDS.map((k) => sounds[k.id]).find(Boolean);
+    if (first && volume > 0) hear(first, volume);
+  };
+  return (
+    <>
+      <div className="ca-settings-intro">
+        <h3>Sounds</h3>
+        <p>A short sound when something starts to wait on you, for when you’re looking somewhere else. The bar’s mark and the notch show it too.</p>
+      </div>
+      <fieldset className="ca-settings-fields" disabled={disabled}>
+        {SOUND_KINDS.map((k) => (
+          <div key={k.id} className="ca-field">
+            <span>{k.label}</span>
+            <div className="ca-settings-sound">
+              <ProfileSelect
+                value={sounds[k.id]}
+                profiles={options}
+                onChange={(name) => {
+                  set({ [k.id]: name });
+                  if (name) hear(name, volume);
+                }}
+              />
+              <Button variant="ghost" size="sm" icon="player-play" disabled={!sounds[k.id]} aria-label={`Play ${sounds[k.id] || 'the sound'}`} title="Play it" onClick={() => hear(sounds[k.id], volume)} />
+            </div>
+            <small>{k.says}</small>
+          </div>
+        ))}
+        <label className="ca-field">
+          <span>Volume</span>
+          <div className="ca-settings-sound">
+            <input
+              type="range"
+              className="ca-settings-volume"
+              min={0}
+              max={100}
+              step={5}
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              onPointerUp={commitVolume}
+              onKeyUp={commitVolume}
+              onBlur={commitVolume}
+            />
+            <output className="ca-settings-volume-at">{volume}%</output>
+          </div>
+          <small>Of the Mac’s own volume.</small>
+        </label>
+        <p className="ca-settings-lede">
+          To stay out of the way, nothing sounds for what already waits when Codealong opens, nor for a session that comes back to you within 15 seconds of starting to work (you just sent it something or answered it, so you’re likely watching), nor for a snoozed
+          session or the end of a quieted one’s turn. A few at once make one sound, the most urgent’s, and there’s one at most every 10 seconds. Sounds you put in ~/Library/Sounds are listed too.
+        </p>
       </fieldset>
     </>
   );

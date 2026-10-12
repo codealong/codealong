@@ -51,10 +51,10 @@ data-encoding = "2"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which
-# Tauri doesn't expose.
+# Tauri doesn't expose; and the sounds for what comes to wait on you (sounds.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSBitmapImageRep", "NSBox", "NSColor", "NSEvent", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "NSWorkspace"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSBitmapImageRep", "NSBox", "NSColor", "NSEvent", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSSound", "NSView", "NSWindow", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSGeometry", "NSNotification", "NSProcessInfo", "NSString"] }
 
 # updates.rs's end-to-end test runs the updater in Tauri's mock runtime, which opens no window.
