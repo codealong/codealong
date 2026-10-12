@@ -156,11 +156,12 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
 }
 
 /// How full a session's context is, as OpenCode's own meter has it: every token of its latest
-/// assistant message that has them, after its latest compaction. A reply has none until its step
+/// assistant message that has them, after its latest completed compaction (one running or failed
+/// leaves the context as it was: its `status`, 2.0.16's code). A reply has none until its step
 /// ends, so one that's streaming, or failed before it did, leaves the one before it. Looked up by
 /// the table's index on session, type and order, a few messages at a time.
 fn context_of(db: &Connection, session: &str) -> Option<(u64, Option<String>)> {
-    let compacted: i64 = db.query_row("SELECT coalesce(max(seq), -1) FROM session_message WHERE session_id = ?1 AND type = 'compaction'", [session], |r| r.get(0)).unwrap_or(-1);
+    let compacted: i64 = db.query_row("SELECT coalesce(max(seq), -1) FROM session_message WHERE session_id = ?1 AND type = 'compaction' AND json_extract(data, '$.status') = 'completed'", [session], |r| r.get(0)).unwrap_or(-1);
     let mut stmt = db.prepare_cached("SELECT data FROM session_message WHERE session_id = ?1 AND type = 'assistant' AND seq > ?2 ORDER BY seq DESC LIMIT 8").ok()?;
     let rows = stmt.query_map(rusqlite::params![session, compacted], |r| r.get::<_, String>(0)).ok()?;
     for data in rows.flatten() {
@@ -1240,8 +1241,15 @@ mod tests {
         ));
         // The reply still streaming has no tokens yet: the one before it says.
         assert_eq!(context_of(&db, "ses_a"), Some((7000 + 4 + 6 + 488 + 2, Some("claude-opus-5-5".to_string()))));
-        // After a compaction, only what came after it; nothing measured yet is none.
-        db.execute_batch("INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('c', 'ses_a', 'compaction', 4, 40, 40, '{}');").unwrap();
+        // A compaction running, or one that failed, leaves the context as it was.
+        db.execute_batch(
+            "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES \
+             ('c1', 'ses_a', 'compaction', 4, 40, 40, '{\"status\":\"failed\"}'), ('c2', 'ses_a', 'compaction', 5, 50, 50, '{\"status\":\"running\"}');",
+        )
+        .unwrap();
+        assert_eq!(context_of(&db, "ses_a").map(|c| c.0), Some(7000 + 4 + 6 + 488 + 2));
+        // Once one is done, only what came after it; nothing measured yet is none.
+        db.execute_batch("UPDATE session_message SET data = '{\"status\":\"completed\"}' WHERE id = 'c2';").unwrap();
         assert_eq!(context_of(&db, "ses_a"), None);
     }
 

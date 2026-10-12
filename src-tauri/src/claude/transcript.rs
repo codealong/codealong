@@ -215,11 +215,37 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             }
         }
     }
+    // A `/model` switch to a context size can be further back too, while replies name the model
+    // without it. Looked for only where the size would change the window: a model whose own
+    // window is under a million.
+    if fresh {
+        if let Some(model) = info.window_model.clone().filter(|m| !m.contains('[') && crate::prices::context_window(m).is_some_and(|w| w < 1_000_000)) {
+            if let Some(switched) = model_switch_before(path, tail.start).filter(|s| s.split('[').next() == Some(model.as_str())) {
+                info.window_model = Some(switched);
+            }
+        }
+    }
     state.offset = tail.end;
     if info.last_ts == 0 {
         info.last_ts = mtime;
     }
     Some((head, info, state))
+}
+
+/// The model the latest `/model` switch before `end` named, context size and all.
+fn model_switch_before(path: &Path, end: u64) -> Option<String> {
+    let mut found = None;
+    scan_lines_back(path, 0, end, |line| {
+        if !line.contains("Set model to") || !line.contains("\"type\":\"user\"") {
+            return false;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+        let content = v.pointer("/message/content");
+        let said = content.and_then(Value::as_str).or_else(|| content?.as_array()?.iter().find_map(|i| i.get("text")?.as_str()));
+        found = said.and_then(model_set);
+        found.is_some()
+    });
+    found
 }
 
 /// When the last prompt you typed (or message you sent while it worked) before `end` (a line
@@ -903,6 +929,14 @@ mod tests {
         // Another model's reply is that model's window.
         let other = line("assistant", r#"{"model":"claude-haiku-4-5-20251001","content":[]}"#);
         assert_eq!(parse_lines("", &[lines[0].clone(), lines[1].clone(), other].join("\n")).window_model.as_deref(), Some("claude-haiku-4-5-20251001"));
+
+        // A first read finds the switch past more than its tail holds.
+        let dir = crate::fixtures::scratch("window-model");
+        let path = dir.join("s.jsonl");
+        let big = line("user", &format!(r#"{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"t","content":"{}"}}]}}"#, "x".repeat(300_000)));
+        std::fs::write(&path, format!("{HEAD}{}\n{big}\n{}\n", lines[0], lines[1])).unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(info.window_model.as_deref(), Some("claude-sonnet-4-5[1m]"));
     }
 
     #[test]
