@@ -145,7 +145,7 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
     <button
       type="button"
       className={cx('ca-uchip', stale && 'is-stale')}
-      title={measure || peeks ? undefined : `${about}. Open in Accounts`}
+      title={measure || peeks ? undefined : `${about}. Show what it used and cost`}
       aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}`}
       onClick={onOpen}
       onMouseEnter={peeks ? (e) => onPeek?.(e.currentTarget) : undefined}
@@ -249,6 +249,9 @@ interface UsageBarProps {
   onRefresh: () => void;
   /** Opens Settings at Accounts, at one account when given. */
   onAccounts: (account?: string) => void;
+  /** Opens the Usage window (UsageDialog.tsx), at one account when given: what sessions used and
+   *  cost. */
+  onUsage: (account?: string) => void;
   onSignIn: (account: string) => void;
   /** The board hasn't been read yet, so it lists no accounts, though config.toml may have some. */
   loading?: boolean;
@@ -256,7 +259,7 @@ interface UsageBarProps {
   notices?: ReactNode;
 }
 
-export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading, notices }: UsageBarProps) {
+export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn, loading, notices }: UsageBarProps) {
   const reads = usage.filter((u) => u.harness === 'claude' && u.asOf).map((u) => u.asOf as number);
   const lastRead = reads.length ? Math.max(...reads) : null;
   const row = useRef<HTMLDivElement>(null);
@@ -342,7 +345,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading,
             usage={u}
             now={now}
             collapsed={collapsed}
-            onOpen={() => onAccounts(u.account)}
+            onOpen={() => onUsage(u.account)}
             onSignIn={() => onSignIn(u.account)}
             onPeek={(el) => show(u.account, el)}
             onUnpeek={() => hide()}
@@ -366,6 +369,9 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading,
           title={lastRead ? `Claude usage read ${agoPhrase(lastRead, now)}; it refreshes every 2 minutes. Refresh now` : 'Refresh usage'}
           onClick={onRefresh}
         />
+        <Button variant="ghost" size="sm" icon="chart-bar" title="What sessions used and cost (⇧⌘U)" onClick={() => onUsage()}>
+          Usage
+        </Button>
         <Button variant="ghost" size="sm" icon="settings" title="Accounts, in Settings (⌘,)" onClick={() => onAccounts()}>
           Accounts
         </Button>

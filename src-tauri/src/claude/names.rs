@@ -50,7 +50,7 @@ mod tests {
         let (job, from) = ("398f3533-73b3-4089-af4e-06603a870e04", "25b09e0e");
         std::fs::write(dir.join(format!("{from}.jsonl")), format!("{HEAD}{{\"type\":\"ai-title\",\"aiTitle\":\"Pho")).unwrap();
         std::fs::write(dir.join(format!("{job}.jsonl")), format!("{{\"type\":\"ai-title\",\"aiTitle\":\"Photo tools\",\"sessionId\":\"{job}\"}}\n")).unwrap();
-        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None };
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let session = |id: &str, continues: Option<&str>| Session { live: true, title: "Photo tools".into(), cwd: "/x".into(), continues: continues.map(String::from), ..Session::new(Harness::Claude, "claude", id) };
         let ctx = crate::harness::Ctx { account: &account };
         let name = r#"Photo tools, "v2""#;

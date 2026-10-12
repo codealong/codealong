@@ -91,7 +91,36 @@ const MODES: &[Mode] = &[
     Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
     Mode { flag: "--link", takes: "<url>", run: link },
     Mode { flag: "--checkout", takes: "", run: |_, _| Ok(crate::CHECKOUT.unwrap_or_default().to_string()) },
+    Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
 ];
+
+/// `codealong --snapshot --tokens [days]`: what the Usage window shows for the last `days` days
+/// (30 unless given), from this Mac's records read afresh into a ledger of the check's own (a
+/// temporary file, or `--into` one to keep and read on from), never the app's. Only files written
+/// in those days are read. `--session <key>` prints that session's instead.
+fn tokens(args: &Args, rest: &[String]) -> Done {
+    let days: u32 = match rest.first().filter(|d| !d.starts_with("--")) {
+        Some(d) => d.parse().map_err(|_| Stop::Usage)?,
+        None => 30,
+    };
+    let cfg = config::current().map_err(failed)?;
+    let keep = args.option("--into").map(std::path::PathBuf::from);
+    let file = keep.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("codealong-ledger-check-{}.sqlite", std::process::id())));
+    let db = crate::ledger::open(&file).map_err(failed)?;
+    let since = util::now_ms() - (days as i64 + 1) * util::DAY_MS;
+    crate::ledger::catch_up_since(&db, &cfg.accounts, if args.option("--session").is_some() { 0 } else { since });
+    let out = match args.option("--session") {
+        Some(key) => pretty(&crate::ledger::session_in(&db, &cfg, key).map_err(failed)?),
+        None => pretty(&crate::ledger::report_in(&db, &cfg, days, args.option("--account"), util::now_ms()).map_err(failed)?),
+    };
+    drop(db);
+    if keep.is_none() {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+    }
+    Ok(out)
+}
 
 /// `codealong --snapshot [--table] [--no-github] [--usage]`: one pass over everything, printed as
 /// JSON, or as a table. GitHub is asked unless `--no-github` says not to; Claude usage is read

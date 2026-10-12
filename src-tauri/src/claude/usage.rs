@@ -108,6 +108,9 @@ pub fn claude(account: &AccountCfg, now: i64) -> Usage {
         Ok(v) => {
             u.meters = claude_meters(&v);
             u.as_of = Some(now);
+            if let Some((used, limit, currency)) = extra_spend(&v) {
+                crate::ledger::note_extra(&account.name, now, used, limit, &currency);
+            }
             if u.meters.is_empty() {
                 u.error = Some("This plan doesn't report usage limits.".to_string());
             }
@@ -162,6 +165,21 @@ fn fetch(token: &str) -> Result<Value, Fetch> {
         }
         other => Err(Fetch::Failed(format!("HTTP {other}"))),
     }
+}
+
+/// What extra usage has cost this billing period, and its monthly limit, in the currency's
+/// whole units: the response's `extra_usage`, `{is_enabled, monthly_limit, used_credits,
+/// utilization, currency, decimal_places, disabled_reason…}`, whose amounts are in minor units
+/// (cents, two decimal places, as Claude Code 2.1.296's schema for it says). A plan with no
+/// extra usage has none.
+pub fn extra_spend(v: &Value) -> Option<(f64, Option<f64>, String)> {
+    let e = v.get("extra_usage").filter(|e| e.is_object())?;
+    let places = e.get("decimal_places").and_then(Value::as_i64).unwrap_or(2).clamp(0, 6) as i32;
+    let unit = 10f64.powi(places);
+    let used = e.get("used_credits").and_then(Value::as_f64)? / unit;
+    let limit = e.get("monthly_limit").and_then(Value::as_f64).map(|l| l / unit);
+    let currency = e.get("currency").and_then(Value::as_str).unwrap_or("USD").to_uppercase();
+    Some((used, limit, currency))
 }
 
 /// The usage response's `limits` list: session, week and per-model weeks, in that order. Older
@@ -262,5 +280,13 @@ mod tests {
         let m = claude_meters(&v);
         assert_eq!(m.len(), 2);
         assert_eq!(m[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn reads_extra_usage_in_dollars_from_its_cents() {
+        // As the endpoint answered on 2026-10-12.
+        let v: Value = serde_json::from_str(r#"{"extra_usage":{"is_enabled":false,"monthly_limit":10000,"used_credits":1234.0,"utilization":12.3,"currency":"USD","decimal_places":2,"disabled_reason":"out_of_credits"}}"#).unwrap();
+        assert_eq!(extra_spend(&v), Some((12.34, Some(100.0), "USD".to_string())));
+        assert_eq!(extra_spend(&serde_json::json!({"extra_usage": null})), None);
     }
 }

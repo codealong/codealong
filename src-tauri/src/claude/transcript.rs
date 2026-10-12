@@ -764,6 +764,54 @@ pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
     Some((v.pointer("/toolUseResult/gitOperation/pr/url")?.as_str()?.to_string(), at))
 }
 
+/// What a reply's call used, for the token ledger: an `assistant` line's `message.usage`
+/// (`input_tokens` not read from or into the cache, `cache_read_input_tokens`,
+/// `cache_creation_input_tokens` split by how long they're kept in `cache_creation`, and
+/// `output_tokens` with its thinking in `output_tokens_details.thinking_tokens`), `speed: "fast"`
+/// for fast mode and `server_tool_use.web_search_requests`. No cost is written (`costUSD` went
+/// in 1.0.9). A reply is written again on a line of its own for each part of it as it streams,
+/// each with its usage so far and the same message and request IDs, which name the call. A turn
+/// refused at a limit is a `<synthetic>` reply that used nothing.
+pub fn token_use(line: &[u8], st: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
+    if memchr::memmem::find(line, br#""usage""#).is_none() || memchr::memmem::find(line, br#""type":"assistant""#).is_none() {
+        return None;
+    }
+    let v: Value = serde_json::from_slice(line).ok()?;
+    if v.get("type").and_then(Value::as_str) != Some("assistant") {
+        return None;
+    }
+    if let Some(cwd) = v.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+        st.folder = cwd.to_string();
+    }
+    let m = v.get("message")?;
+    let model = m.get("model").and_then(Value::as_str).filter(|m| !m.is_empty() && *m != "<synthetic>")?;
+    let u = m.get("usage")?;
+    let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+    let written = n(u, "cache_creation_input_tokens");
+    let hour = u.get("cache_creation").map(|c| n(c, "ephemeral_1h_input_tokens")).unwrap_or(0).min(written);
+    let id = m.get("id").and_then(Value::as_str)?;
+    let id = match v.get("requestId").and_then(Value::as_str) {
+        Some(req) => format!("{id}:{req}"),
+        None => id.to_string(),
+    };
+    Some(crate::ledger::TokenUse {
+        id,
+        at: v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0),
+        session: st.session.clone(),
+        folder: st.folder.clone(),
+        model: model.to_string(),
+        input: n(u, "input_tokens"),
+        cache_read: n(u, "cache_read_input_tokens"),
+        cache_write: written - hour,
+        cache_write_1h: hour,
+        output: n(u, "output_tokens"),
+        reasoning: u.get("output_tokens_details").map(|d| n(d, "thinking_tokens")).unwrap_or(0),
+        fast: u.get("speed").and_then(Value::as_str) == Some("fast"),
+        searches: u.get("server_tool_use").map(|s| n(s, "web_search_requests")).unwrap_or(0),
+        cost: None,
+    })
+}
+
 
 /// The start of a transcript, for this folder's tests.
 #[cfg(test)]
@@ -1183,5 +1231,20 @@ mod tests {
         let input = serde_json::json!({"command": "cd /Users/me/projects/app-fix && yarn test"});
         assert_eq!(tool_request("Bash", &input), "Bash · `yarn test`");
         assert_eq!(tool_activity("Bash", &input), "running `yarn test`");
+    }
+
+    #[test]
+    fn reads_what_a_reply_used_with_an_hours_cache_writes_apart() {
+        // As 2.1.296 writes it: one line per part of the reply, the same IDs on each.
+        let line = r#"{"type":"assistant","cwd":"/Users/me/app","requestId":"req_1","timestamp":"2026-10-12T18:00:00.000Z","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":24542,"cache_read_input_tokens":26783,"output_tokens":280,"output_tokens_details":{"thinking_tokens":77},"server_tool_use":{"web_search_requests":1,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":24000,"ephemeral_5m_input_tokens":542},"speed":"fast"}}}"#;
+        let mut st = crate::ledger::TokenState { session: "claude:claude:s".into(), ..Default::default() };
+        let u = token_use(line.as_bytes(), &mut st).unwrap();
+        assert_eq!(u.id, "msg_1:req_1");
+        assert_eq!((u.input, u.cache_read, u.cache_write, u.cache_write_1h, u.output, u.reasoning), (2, 26783, 542, 24000, 280, 77));
+        assert_eq!((u.fast, u.searches, u.model.as_str(), u.folder.as_str(), u.session.as_str()), (true, 1, "claude-opus-5-5", "/Users/me/app", "claude:claude:s"));
+        let refused = r#"{"type":"assistant","isApiErrorMessage":true,"message":{"id":"x","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}"#;
+        assert_eq!(token_use(refused.as_bytes(), &mut st), None);
+        let you = r#"{"type":"user","message":{"role":"user","content":"what's the \"usage\"?"}}"#;
+        assert_eq!(token_use(you.as_bytes(), &mut st), None);
     }
 }

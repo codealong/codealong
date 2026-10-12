@@ -142,6 +142,10 @@ The Codealong mark shows the most urgent of them all at a glance: red for an err
 you're needed (a review request too), blue for finished work you haven't seen, green while agents
 work, and gray when all is quiet.
 
+Across the top, each account's plan limits. Click one for the Usage window: what your sessions
+used and what that would have cost at API prices, against what your plans and any extra usage
+actually cost, day by day and by account, model, project and session.
+
 ### Answer agents without switching apps
 
 <p align="center">
@@ -398,6 +402,7 @@ In Codealong:
 | ⇧⌘F | Expand the session panel (in Sessions) or the PR panel (in PRs) to the whole window |
 | ⌃⌘S | Fold the sidebar |
 | ⌘= · ⌘- · ⌘0 | Zoom in, out, actual size |
+| ⇧⌘U | Usage: what sessions used and cost, at API prices and paid |
 | ⌘, | Settings |
 
 In the quick panel: **⏎** does the selected row, **⌘⏎** always starts a session, **⌥⏎** opens a
@@ -515,6 +520,10 @@ check = true                   # look for a new version by itself (Settings › 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
 
+[prices."some-new-model"]      # API prices for a model Codealong has none for yet, dollars per million tokens (the Usage window)
+input = 3
+output = 15
+
 [[accounts]]
 name = "claude-work"           # what the board shows
 harness = "claude"             # claude, codex, opencode, antigravity or cursor
@@ -523,6 +532,8 @@ command = "claude-work"        # used for `claude-work --resume <id>`
 start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong; a start from the quick panel sets it
 # acp = "my-adapter --stdio"   # the Agent Client Protocol adapter Codealong runs its sessions through, in place of the installed one
 preferred = true               # Auto starts it over accounts without this while it has room
+monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Usage window
+# per_token = true             # it pays by the token (an API key): what its work cost at API prices was paid
 
 [[accounts]]
 name = "opencode"

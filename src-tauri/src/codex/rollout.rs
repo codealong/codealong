@@ -187,6 +187,82 @@ pub fn archived_rollout_files(codex_home: &Path, ids: &HashSet<String>) -> Vec<(
         .collect()
 }
 
+/// What a rollout's calls used, for the token ledger. Each call ends in a `token_count` event
+/// whose `info` has `last_token_usage`, the call's own (`input_tokens` with the cached part
+/// among them as `cached_input_tokens`, `output_tokens` with `reasoning_output_tokens` among
+/// them), and `total_token_usage`, the thread's running total. An event can come again with
+/// the same total, and is counted once; the event's time and that total name it, so a fork's
+/// copy of its thread's events is the same call. A subagent's rollout (a guardian review, a
+/// spawned agent) counts from nothing. The model is the latest `turn_context`'s, and
+/// `thread_settings_applied` says when its service tier is priority, Codex's fast mode, which
+/// lasts until another names a tier (0.144 on; one with no tier leaves it).
+pub fn token_use(line: &[u8], st: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
+    let has = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
+    if !has(b"\"token_count\"") && !has(b"\"turn_context\"") && !has(b"\"session_meta\"") && !has(b"thread_settings_applied") {
+        return None;
+    }
+    let v: Value = serde_json::from_slice(line).ok()?;
+    let payload = v.get("payload")?;
+    let str_of = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+    match (v.get("type").and_then(Value::as_str)?, payload.get("type").and_then(Value::as_str)) {
+        ("session_meta", _) => {
+            st.folder = str_of(payload, "cwd").unwrap_or(std::mem::take(&mut st.folder));
+            None
+        }
+        ("turn_context", _) => {
+            st.folder = str_of(payload, "cwd").unwrap_or(std::mem::take(&mut st.folder));
+            st.model = str_of(payload, "model").unwrap_or(std::mem::take(&mut st.model));
+            None
+        }
+        ("event_msg", Some("thread_settings_applied")) => {
+            if let Some(tier) = payload.pointer("/thread_settings/service_tier") {
+                st.fast = matches!(tier.as_str(), Some("priority" | "fast"));
+            }
+            None
+        }
+        ("event_msg", Some("token_count")) => {
+            let info = payload.get("info").filter(|i| i.is_object())?;
+            let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+            let total = info.get("total_token_usage").map(|t| n(t, "total_tokens")).unwrap_or(0);
+            if total != 0 && total == st.total {
+                return None;
+            }
+            st.total = total;
+            let last = info.get("last_token_usage")?;
+            let input = n(last, "input_tokens");
+            let cached = n(last, "cached_input_tokens").min(input);
+            let written = n(last, "cache_write_input_tokens").min(input - cached);
+            let ts = str_of(&v, "timestamp").unwrap_or_default();
+            Some(crate::ledger::TokenUse {
+                id: format!("{ts}:{total}"),
+                at: parse_rfc3339_ms(&ts).unwrap_or(0),
+                session: st.session.clone(),
+                folder: st.folder.clone(),
+                model: if st.model.is_empty() { "codex".to_string() } else { st.model.clone() },
+                input: input - cached - written,
+                cache_read: cached,
+                cache_write: written,
+                cache_write_1h: 0,
+                output: n(last, "output_tokens"),
+                reasoning: n(last, "reasoning_output_tokens"),
+                fast: st.fast,
+                searches: 0,
+                cost: None,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Every rollout, archived ones too: the ledger keeps what their calls used whether or not the
+/// thread is still listed.
+pub fn all_rollouts(codex_home: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = rollout_files(codex_home, 0, &HashSet::new()).into_iter().map(|(p, _)| p).collect();
+    let archived = std::fs::read_dir(codex_home.join("archived_sessions")).into_iter().flatten().flatten().map(|e| e.path());
+    out.extend(archived.filter(|p| file_name(p).starts_with("rollout-") && p.extension().and_then(|x| x.to_str()) == Some("jsonl")));
+    out
+}
+
 /// The thread id at the end of a rollout file name.
 pub fn thread_id_of(path: &Path) -> Option<String> {
     let name = file_name(path);
@@ -816,5 +892,25 @@ mod tests {
     fn reads_thread_ids_from_file_names() {
         let p = Path::new("/x/rollout-2026-09-21T08-47-36-01a0c4a6-bc7b-7212-b766-77fcc7a15d43.jsonl");
         assert_eq!(thread_id_of(p).as_deref(), Some("01a0c4a6-bc7b-7212-b766-77fcc7a15d43"));
+    }
+
+    #[test]
+    fn reads_what_each_call_used_once_with_its_turns_model_and_tier() {
+        // As 0.157.1 writes them.
+        let lines = [
+            r#"{"timestamp":"2026-10-12T17:45:28.000Z","type":"session_meta","payload":{"id":"t","cwd":"/Users/me/app"}}"#,
+            r#"{"timestamp":"2026-10-12T17:45:28.567Z","type":"turn_context","payload":{"turn_id":"u","cwd":"/Users/me/app","model":"gpt-6-astra"}}"#,
+            r#"{"timestamp":"2026-10-12T17:45:29.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}"#,
+            r#"{"timestamp":"2026-10-12T18:03:57.247Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":124888,"cached_input_tokens":123392,"cache_write_input_tokens":0,"output_tokens":212,"reasoning_output_tokens":0,"total_tokens":125100},"last_token_usage":{"input_tokens":124888,"cached_input_tokens":123392,"cache_write_input_tokens":0,"output_tokens":212,"reasoning_output_tokens":10,"total_tokens":125100},"model_context_window":258400}}}"#,
+            // The same count again, as Codex sometimes sends it.
+            r#"{"timestamp":"2026-10-12T18:03:58.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":125100},"last_token_usage":{"input_tokens":124888,"cached_input_tokens":123392,"output_tokens":212,"total_tokens":125100}}}}"#,
+            r#"{"timestamp":"2026-10-12T18:04:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{}}}"#,
+        ];
+        let mut st = crate::ledger::TokenState { session: "codex:codex:t".into(), ..Default::default() };
+        let uses: Vec<_> = lines.iter().filter_map(|l| token_use(l.as_bytes(), &mut st)).collect();
+        assert_eq!(uses.len(), 1);
+        let u = &uses[0];
+        assert_eq!((u.input, u.cache_read, u.output, u.reasoning), (124888 - 123392, 123392, 212, 10));
+        assert_eq!((u.model.as_str(), u.fast, u.folder.as_str(), u.id.as_str()), ("gpt-6-astra", true, "/Users/me/app", "2026-10-12T18:03:57.247Z:125100"));
     }
 }

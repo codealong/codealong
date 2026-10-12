@@ -1570,7 +1570,7 @@ mod tests {
     #[ignore]
     fn cursor_here() {
         let home = crate::util::home().join(".cursor");
-        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let started = Instant::now();
         let db = app_db(&home).and_then(|p| crate::harness::open_database(&p)).expect("Cursor's database");
         let mut chats = read(&db);
@@ -1600,7 +1600,7 @@ mod tests {
 
     #[test]
     fn starts_and_resumes_in_a_terminal() {
-        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None };
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let id = "6ea31b00-0a64-4c8c-bfd0-f71170a1bf7f";
         let ask = |prompt: &'static str, model: Option<&'static str>, worktree: bool| crate::harness::StartAsk { prompt, session_id: id, model, effort: None, worktree, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
         let typed = Cursor.start_in_terminal(&account, &ask("-v please", Some("gpt-5"), true));

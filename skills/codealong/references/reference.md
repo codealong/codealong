@@ -22,6 +22,11 @@ Commands:
   status     Whether the app is running, and where the data lives
   accounts   The configured accounts: harness, sign-in, and with --usage how much of
              each plan limit is used
+  tokens     What sessions on this Mac used and cost, from the app's token ledger:
+             tokens, what they'd cost at API prices, and what was paid (each account's
+             plan, its `monthly` in config.toml, a day's share at a time; Claude's extra
+             usage; and accounts that pay by the token). Rows by account, model, folder,
+             session or day; JSON has them all
   whoami     Which session runs this command, its worktree, the other agents running in
              that worktree now (`others`: none means no other agent shares the checkout,
              however many sessions worked there before), and its open todos: the ones
@@ -130,6 +135,44 @@ Options:
 
       --table
           Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong tokens
+
+```
+What sessions on this Mac used and cost, from the app's token ledger: tokens, what
+they'd cost at API prices, and what was paid (each account's plan, its `monthly` in
+config.toml, a day's share at a time; Claude's extra usage; and accounts that pay by the
+token). Rows by account, model, folder, session or day; JSON has them all
+
+Usage: codealong tokens [OPTIONS]
+
+Options:
+      --days <DAYS>
+          How many days back, today included
+          
+          [default: 30]
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --account <ACCOUNT>
+          One account's alone
+
+      --table
+          Tables, even when piped
+
+      --by <BY>
+          What the table's rows are
+          
+          [default: account]
+          [possible values: account, model, folder, session, day]
 
       --verbose
           Say on stderr whether the app or the files answered

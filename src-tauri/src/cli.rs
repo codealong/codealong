@@ -64,6 +64,18 @@ enum Cmd {
         #[arg(long)]
         usage: bool,
     },
+    /// What sessions on this Mac used and cost, from the app's token ledger: tokens, what they'd cost at API prices, and what was paid (each account's plan, its `monthly` in config.toml, a day's share at a time; Claude's extra usage; and accounts that pay by the token). Rows by account, model, folder, session or day; JSON has them all.
+    Tokens {
+        /// How many days back, today included.
+        #[arg(long, default_value_t = 30)]
+        days: u32,
+        /// One account's alone.
+        #[arg(long)]
+        account: Option<String>,
+        /// What the table's rows are.
+        #[arg(long, value_enum, default_value_t = TokensBy::Account)]
+        by: TokensBy,
+    },
     /// Which session runs this command, its worktree, the other agents running in that worktree now (`others`: none means no other agent shares the checkout, however many sessions worked there before), and its open todos: the ones linked to the session, then the worktree's when no other agent is running there (in a checkout several agents share, those are the others' work). Run it first.
     Whoami {
         /// Plain text for a session-start hook, even when piped: a line or two when a session or todo is found, nothing otherwise.
@@ -527,6 +539,15 @@ enum AnswerArg {
     Deny,
 }
 
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
+enum TokensBy {
+    Account,
+    Model,
+    Folder,
+    Session,
+    Day,
+}
+
 #[derive(Subcommand, Debug)]
 enum PrCmd {
     /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it and which is its primary one (`primary`), and whether that one is nudged (`nudge`). Needs the app, which reads GitHub.
@@ -975,6 +996,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
     match cmd {
         Cmd::Status => status(c, json),
         Cmd::Accounts { usage } => accounts(c, usage, json),
+        Cmd::Tokens { days, account, by } => tokens(c, days, account.as_deref(), by, json),
         Cmd::Whoami { context } => whoami(c, context, json),
         Cmd::Todo { cmd } => todo(cmd, c, json),
         Cmd::Sessions(args) => match args.cmd {
@@ -1373,6 +1395,57 @@ fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
         })
         .collect();
     print!("{}", table_text(&["ACCOUNT", "HARNESS", "SIGN-IN", "EMAIL", "USAGE"], table));
+    Ok(())
+}
+
+// ---- tokens ----
+
+/// The token ledger's report (ledger.rs), read from its file: the app fills it as it runs, and
+/// SQLite lets this read while the app writes.
+fn tokens(c: &mut Client, days: u32, account: Option<&str>, by: TokensBy, json: bool) -> Result<()> {
+    let cfg = c.cfg()?.clone();
+    let file = crate::ledger::path();
+    if !file.exists() {
+        bail!("Nothing is recorded yet: the app reads what sessions used into {} as it runs.", tilde(&file));
+    }
+    let db = crate::ledger::open(&file)?;
+    let r = crate::ledger::report_in(&db, &cfg, days.max(1), account, now_ms())?;
+    if json {
+        return print_json(&r);
+    }
+    let dollars = |n: f64| if n >= 1000.0 { format!("${n:.0}") } else { format!("${n:.2}") };
+    let row = |name: String, s: &crate::ledger::Spent| {
+        let t = &s.tokens;
+        let into = t.input + t.cache_read + t.cache_write;
+        let cache = if into > 0 { format!("{:.0}%", t.cache_read as f64 * 100.0 / into as f64) } else { String::new() };
+        let api = format!("{}{}", dollars(s.api), if s.unpriced > 0 { " +unpriced" } else { "" });
+        vec![name, t.total().to_string(), cache, api, if s.paid > 0.0 { dollars(s.paid) } else { String::new() }]
+    };
+    let rows: Vec<Vec<String>> = match by {
+        TokensBy::Account => r.accounts.iter().map(|s| row(s.key.clone(), s)).collect(),
+        TokensBy::Model => r.models.iter().map(|s| row(s.key.clone(), s)).collect(),
+        TokensBy::Folder => r.folders.iter().map(|s| row(tilde(std::path::Path::new(&s.key)), s)).collect(),
+        TokensBy::Session => r.sessions.iter().map(|s| row(s.key.clone(), s)).collect(),
+        TokensBy::Day => r
+            .days
+            .iter()
+            .rev()
+            .map(|d| vec![d.day.clone(), d.tokens.to_string(), String::new(), dollars(d.api.values().sum()), if d.paid > 0.0 { dollars(d.paid) } else { String::new() }])
+            .collect(),
+    };
+    let what = match by {
+        TokensBy::Account => "ACCOUNT",
+        TokensBy::Model => "MODEL",
+        TokensBy::Folder => "FOLDER",
+        TokensBy::Session => "SESSION",
+        TokensBy::Day => "DAY",
+    };
+    print!("{}", table_text(&[what, "TOKENS", "CACHED", "AT API PRICES", "PAID"], rows));
+    let lever = if r.paid > 0.0 { format!(", {:.1}× what was paid", r.total.api / r.paid) } else { String::new() };
+    println!("\n{} days: {} at API prices, {} paid{lever}.", days.max(1), dollars(r.total.api), dollars(r.paid));
+    if !r.unpriced.is_empty() {
+        println!("No price for {}: add [prices.\"<model>\"] to config.toml.", r.unpriced.join(", "));
+    }
     Ok(())
 }
 

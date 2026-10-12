@@ -66,6 +66,12 @@ pub struct AccountInfo {
     pub start: Option<String>,
     /// Auto starts it over accounts that aren't preferred (config.toml's `preferred`).
     pub preferred: bool,
+    /// config.toml's `acp`, `monthly` and `per_token`, named as there: Settings saves the
+    /// accounts whole, so it hands back what it was given.
+    pub acp: Option<String>,
+    pub monthly: Option<f64>,
+    #[serde(rename = "per_token")]
+    pub per_token: bool,
     pub folder_exists: bool,
     pub signed_in: bool,
     pub email: Option<String>,

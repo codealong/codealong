@@ -61,7 +61,7 @@ pub struct Found {
 
 impl Found {
     pub fn account(&self) -> AccountCfg {
-        AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, preferred: false, acp: None }
+        AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, preferred: false, acp: None, monthly: None, per_token: false }
     }
 }
 
@@ -538,7 +538,7 @@ fn inspect(f: &mut Folder) {
     if !f.exists {
         return;
     }
-    let info = crate::usage::describe(&AccountCfg { name: String::new(), harness: f.harness.to_string(), home: d.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None });
+    let info = crate::usage::describe(&AccountCfg { name: String::new(), harness: f.harness.to_string(), home: d.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false });
     f.signed_in = info.signed_in;
     f.email = info.email;
     let used = crate::harness::named(f.harness).map(|h| h.folder_use(&d)).unwrap_or_default();
@@ -729,14 +729,14 @@ MY_CLAUDE_CONFIG_DIR=~/.decoy
 
         // Against config.toml: listed folders drop out, clashing names get a number and keep
         // their command, and folders Codealong has read before aren't new.
-        let accounts = vec![AccountCfg { name: "claude-work".into(), harness: "claude".into(), home: "/Users/me/.claude-work-old".into(), command: None, start: None, preferred: false, acp: None }];
+        let accounts = vec![AccountCfg { name: "claude-work".into(), harness: "claude".into(), home: "/Users/me/.claude-work-old".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false }];
         let rest = not_configured(found, &accounts, &["/Users/me/.codex".to_string()]);
         let summary: Vec<(&str, Option<&str>, bool)> = rest.iter().map(|f| (f.name.as_str(), f.command.as_deref(), f.new)).collect();
         assert_eq!(
             summary,
             vec![("claude", Some("claude"), true), ("claude-work2", Some("CLAUDE_CONFIG_DIR=/Users/me/.claude-work claude"), true), ("codex", None, false)]
         );
-        let rest = not_configured(rest, &[AccountCfg { name: "x".into(), harness: "claude".into(), home: "/Users/me/.claude/".into(), command: None, start: None, preferred: false, acp: None }], &[]);
+        let rest = not_configured(rest, &[AccountCfg { name: "x".into(), harness: "claude".into(), home: "/Users/me/.claude/".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false }], &[]);
         assert!(rest.iter().all(|f| f.home != "/Users/me/.claude"));
     }
 

@@ -52,6 +52,10 @@ pub struct Config {
     pub sounds: SoundsCfg,
     #[serde(default)]
     pub debug: DebugCfg,
+    /// API prices for models prices.json doesn't have or has wrong, `[prices."<model>"]`, in
+    /// dollars per million tokens (prices.rs).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub prices: BTreeMap<String, crate::prices::Price>,
 }
 
 impl Default for Config {
@@ -75,6 +79,7 @@ impl Default for Config {
             repos: BTreeMap::new(),
             sounds: SoundsCfg::default(),
             debug: DebugCfg::default(),
+            prices: BTreeMap::new(),
         }
     }
 }
@@ -898,6 +903,14 @@ pub struct AccountCfg {
     /// Codealong runs itself (acp.rs). None uses the one `codealong install` adds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acp: Option<String>,
+    /// What its plan costs you a month, in dollars: what the Usage window counts as paid for it,
+    /// a day's share at a time, against what its work would have cost at API prices (ledger.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monthly: Option<f64>,
+    /// It pays for each token at API prices (an API key), so what its work cost at those prices
+    /// is what was paid.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub per_token: bool,
 }
 
 impl AccountCfg {
@@ -1151,6 +1164,12 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
             }
             if let Some(c) = a.acp.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
                 t["acp"] = value(c);
+            }
+            if let Some(m) = a.monthly.filter(|m| m.is_finite() && *m >= 0.0) {
+                t["monthly"] = value(m);
+            }
+            if a.per_token {
+                t["per_token"] = value(true);
             }
             t
         })
@@ -1951,7 +1970,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("your_turn = {}\n", q(&cfg.sounds.your_turn)));
     s.push_str(&format!("review_requested = {}\n", q(&cfg.sounds.review_requested)));
     s.push_str(&format!("volume = {}\n", cfg.sounds.volume));
-    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
+    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
         s.push_str(&format!("name = {}\n", q(&a.name)));
@@ -1968,6 +1987,12 @@ pub fn render(cfg: &Config) -> String {
         }
         if let Some(c) = &a.acp {
             s.push_str(&format!("acp = {}\n", q(c)));
+        }
+        if let Some(m) = a.monthly {
+            s.push_str(&format!("monthly = {m:?}\n"));
+        }
+        if a.per_token {
+            s.push_str("per_token = true\n");
         }
     }
     s.push_str("\n# Projects group repos (by pattern) and plain folders.\n");
@@ -2017,8 +2042,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), waiting: "Ctrl+Option+N".into() },
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false },
             ],
             projects: vec![ProjectCfg {
                 name: "Spruce".into(),
@@ -2038,6 +2063,7 @@ mod tests {
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
             debug: DebugCfg::default(),
+            prices: BTreeMap::new(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
 
@@ -2047,14 +2073,14 @@ mod tests {
     #[test]
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false }],
             projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
         let accounts = vec![
-            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
-            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), preferred: true, acp: None },
+            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false },
+            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), preferred: true, acp: None, monthly: None, per_token: false },
         ];
         let out = with_accounts(&text, &accounts).unwrap();
         assert!(out.contains("# my editor of choice"));
@@ -2067,7 +2093,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_accounts() {
-        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false, acp: None };
+        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude", "~/.claude2")]).is_err());
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude2", "~/.claude")]).is_err());
         assert!(check_accounts(&[a("my claude", "~/.claude")]).is_err());
@@ -2101,7 +2127,7 @@ mod tests {
     fn setting_the_theme_adds_appearance_after_apps() {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false }],
             projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
@@ -2300,8 +2326,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg::default(),
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false },
             ],
             projects: vec![
                 ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None },
@@ -2319,6 +2345,7 @@ mod tests {
             repos: BTreeMap::new(),
             sounds: SoundsCfg::default(),
             debug: DebugCfg { perf_log: true },
+            prices: BTreeMap::new(),
         }
     }
 

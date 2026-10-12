@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -318,8 +318,37 @@ export function onCloseIdle(cb: () => void): () => void {
   };
 }
 
+/** View › Usage… (⇧⌘U), sent to the front board window (lib.rs `add_usage_menu`). */
+export function onUsageMenu(cb: () => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen('usage', () => cb())
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
 /** Which sessions have sat idle for `afterMs` with nothing asked of you, and which stay open;
  *  with `archive`, the ones that can't close are listed to be archived only. */
+/** What sessions used and cost in the last `days` days, for one account or all (ledger.rs). */
+export async function tokenReport(days: number, account: string | null): Promise<TokenReport> {
+  if (!inTauri) throw new Error('The token ledger needs the app.');
+  return invoke<TokenReport>('token_report', { days, account });
+}
+
+/** What one session used and cost, by model. */
+export async function sessionTokens(key: string): Promise<SessionSpent> {
+  if (!inTauri) throw new Error('The token ledger needs the app.');
+  return invoke<SessionSpent>('session_tokens', { key });
+}
+
 export async function idleSessions(afterMs: number, archive: boolean): Promise<IdlePlan> {
   if (!inTauri) return { afterMs, archive, close: [], kept: [] };
   return invoke<IdlePlan>('idle_sessions', { afterMs, archive });

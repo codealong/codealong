@@ -59,5 +59,10 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   (`DATABASES_EVERY`).
 - Sign-in and plan limits: `opencode.rs` (`signed_in`, `OpenCode::sign_in_command`,
   `OpenCode::no_limits`).
+- What each call used, for the token ledger: an assistant message's `tokens` and `cost`
+  (`opencode.rs` `token_uses`). `session_v2` keeps a session's sums too (`cost`, `tokens_*`).
+  The cost is OpenCode's, from models.dev's prices as it writes the message, and 0 for the free
+  models and, by its ChatGPT plugin's code, a subscription's sign-in, so only a cost above 0 counts
+  as paid.
 - Creating a session through the API in a folder made OpenCode point its `global` project
   (its project for folders without version control) at that folder.

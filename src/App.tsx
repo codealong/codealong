@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -27,6 +27,7 @@ import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, TeamFile, Th
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
+import { UsageDialog } from './ui/UsageDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
 import type { HelperActions } from './ui/HelpersCard';
@@ -245,6 +246,9 @@ export function App() {
   useEffect(() => onCheckUpdates(() => openSettings('general')), [openSettings]);
   // File › Close idle sessions… (ui/CloseIdleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
+  // View › Usage… and the usage bar (ui/UsageDialog.tsx), for one account or all of them.
+  const [usageOf, setUsageOf] = useState<{ account: string | null } | null>(null);
+  useEffect(() => onUsageMenu(() => setUsageOf({ account: null })), []);
   // The worktree whose preview URL is being set (ui/PreviewBits.tsx), by id.
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   // The session being renamed (ui/RenameDialog.tsx), by key.
@@ -1056,7 +1060,7 @@ export function App() {
   useMainKeys({
     view,
     views: VIEWS,
-    settings,
+    settings: settings ?? usageOf,
     previewFor,
     renaming,
     panelMax,
@@ -1413,6 +1417,7 @@ export function App() {
         now={now}
         onRefresh={() => void refreshUsage()}
         onAccounts={(account) => openSettings('accounts', account ?? null)}
+        onUsage={(account) => setUsageOf({ account: account ?? null })}
         onSignIn={startSignIn}
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
@@ -1778,6 +1783,24 @@ export function App() {
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
+      {usageOf && board && (
+        <UsageDialog
+          board={board}
+          account={usageOf.account}
+          now={now}
+          onClose={() => setUsageOf(null)}
+          onShowSession={(key) => {
+            const lane = board.lanes.find((l) => !l.device && l.sessions.some((s) => s.key === key));
+            if (!lane) return;
+            setUsageOf(null);
+            reveal.current({ kind: 'session', laneId: lane.id, key });
+          }}
+          onAccounts={(account) => {
+            setUsageOf(null);
+            openSettings('accounts', account ?? null);
+          }}
+        />
+      )}
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
       <Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />

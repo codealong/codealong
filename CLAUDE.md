@@ -100,6 +100,8 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   <number> <account> <question> [follow-ups]` (spend usage).
 - `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`,
   `--snapshot --shell-commands`; `--snapshot --checkout`: the checkout the binary was built from.
+- `--snapshot --tokens [days] [--account <name>] [--session <key>]`: the Usage window's report,
+  from this Mac's records read into a ledger of the check's own (`--into <file>` keeps it).
 - `--snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app>
   [prompt] [--model <model>] [--effort <level>] [--worktree]`: what a start would run, without
   starting.

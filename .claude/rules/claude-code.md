@@ -419,7 +419,20 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - Plan usage, `GET https://api.anthropic.com/api/oauth/usage`: the request and its `limits`
   list in `claude/usage.rs` (`fetch`, `claude_meters`), how often the app asks and how it backs
   off in `engine.rs` (`USAGE_EVERY`, `USAGE_BACKOFF`, `keep_last_good`). It returns 429 when
-  called often, so don't loop `--usage` snapshots.
+  called often, so don't loop `--usage` snapshots. The same answer has `extra_usage`, this billing
+  period's extra-usage spend in minor units (`claude/usage.rs` `extra_spend`; Claude Code
+  2.1.296's schema for it describes the units), and `spend`, the same as `{used, limit}` of
+  `{amount_minor, currency, exponent}` with `balance` and `auto_reload`, and
+  `seven_day_breakdown`, the week's share by surface (Claude Code, Chats, Cowork; read
+  2026-10-12). Nothing in a transcript says which calls extra usage paid for: overage fields
+  (`quotaLimits.isUsingOverage`) are only on refused turns.
+- What each call used, for the token ledger: `claude/transcript.rs` (`token_use`). A reply's
+  usage is written again on each line of it as it streams, the first ones short of the final
+  count, and copied by forks, moves and side questions, so the ledger keeps one row per message
+  and request ID with each count's largest. The 1-hour cache writes cost more than the 5-minute
+  ones (`cache_creation.ephemeral_1h_input_tokens`); sessions write all theirs for an hour.
+  Claude Code works out costs itself (`.claude.json` `projects.<path>.lastCost` and
+  `lastModelUsage.<model>.costUSD`, the last run's), and prices.rs's test pins two of them.
 
 ## Claude app
 

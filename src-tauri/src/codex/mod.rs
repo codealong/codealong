@@ -319,6 +319,18 @@ impl crate::harness::Adapter for Codex {
         files.into_iter().filter_map(|(p, m)| thread_id_of(&p).map(|id| (p, Session::key_for(Harness::Codex, &account.name, &id), m))).collect()
     }
 
+    fn records_tokens(&self) -> bool {
+        true
+    }
+
+    fn token_files(&self, account: &AccountCfg) -> Vec<(PathBuf, String)> {
+        rollout::all_rollouts(&account.home_path()).into_iter().filter_map(|p| thread_id_of(&p).map(|id| (p, Session::key_for(Harness::Codex, &account.name, &id)))).collect()
+    }
+
+    fn token_use(&self, line: &[u8], state: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
+        rollout::token_use(line, state)
+    }
+
     fn prose(&self, line: &[u8]) -> Option<(i64, bool, String)> {
         let has = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
         if !has(b"agent_message") && !has(b"user_message") && !has(b"AgentMessage") && !has(b"UserMessage") {
@@ -713,7 +725,7 @@ mod tests {
 
     #[test]
     fn forks_a_thread_in_its_accounts_terminal_ui() {
-        let a = crate::config::AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, preferred: false, acp: None };
+        let a = crate::config::AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let f = fork_of(&a, "01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
         assert_eq!(f.input, "CODEX_HOME=~/.codex2 codex fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b\n");
         assert_eq!(f.key, None);
@@ -734,7 +746,7 @@ mod tests {
         let mut file = std::fs::File::create(&path).unwrap();
         writeln!(file, r#"{{"type":"session_meta","payload":{{"id":"thread","cwd":"/codealong-test-missing-repo","thread_source":"user"}}}}"#).unwrap();
         writeln!(file, r#"{{"timestamp":"2026-09-24T18:00:00.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Earlier result"}}}}"#).unwrap();
-        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let accounts = std::slice::from_ref(&account);
         let seen = crate::state::SeenState::default();
         let now = parse_rfc3339_ms("2026-09-24T18:35:00.000Z").unwrap();
@@ -792,7 +804,7 @@ mod tests {
     #[test]
     fn a_prompt_for_an_app_thread_goes_to_the_app() {
         use crate::harness::Adapter as _;
-        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None };
+        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let s = Session { surface: crate::model::Surface::App, status: crate::model::Status::Working, live: true, ..Session::new(Harness::Codex, "codex", "abc") };
         assert_eq!(Codex.routes(&account, &s), vec![ipc::InApp.into()]);
     }

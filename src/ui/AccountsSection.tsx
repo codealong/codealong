@@ -21,6 +21,10 @@ interface Draft {
   command: string;
   /** Where its sessions start unless you pick another; null goes where the last one did. */
   start: StartPlace | null;
+  /** What its plan costs a month, in dollars, as typed; empty for none. */
+  monthly: string;
+  /** It pays for each token at API prices. */
+  perToken: boolean;
   /** Whether you typed in these fields; untouched ones follow the name. */
   touched: { home: boolean; command: boolean };
 }
@@ -127,7 +131,13 @@ export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draf
   const nameFor = (i: number) => (i === 1 ? harness : `${harness}${i}`);
   while (names.has(nameFor(n)) || homes.has(defaultsFor(harness, nameFor(n)).home)) n++;
   const name = nameFor(n);
-  return { harness, name, start: null, ...defaultsFor(harness, name) };
+  return { harness, name, start: null, monthly: '', perToken: false, ...defaultsFor(harness, name) };
+}
+
+/** A plan price as typed: dollars a month, or none for an empty or unreadable one. */
+export function monthlyOf(typed: string): number | null {
+  const n = Number(typed.trim().replace(/^\$/, '').replace(/,/g, ''));
+  return typed.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 /** Where a found account stands, in words: its sign-in, when it was last used, and the
@@ -143,8 +153,10 @@ export function foundNote(f: FoundAccount, now: number): string {
   return [where, runs].filter(Boolean).join(' · ');
 }
 
+/** An account as config.toml has it. Saving writes every account's table anew, so whatever the
+ *  form doesn't edit (its ACP command) goes back as it came. */
 function toCfg(a: AccountCfg): AccountCfg {
-  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, preferred: a.preferred ?? false };
+  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, preferred: a.preferred ?? false, acp: a.acp ?? null, monthly: a.monthly ?? null, per_token: a.per_token ?? false };
 }
 
 interface AccountsSectionProps {
@@ -251,15 +263,25 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
   const startEdit = (a: AccountInfo) => {
     setError(null);
     setRemoving(null);
-    setDraft({ original: a.name, harness: a.harness, name: a.name, home: a.home, command: a.command ?? a.name, start: a.start ?? null, touched: { home: true, command: true } });
+    setDraft({ original: a.name, harness: a.harness, name: a.name, home: a.home, command: a.command ?? a.name, start: a.start ?? null, monthly: a.monthly != null ? String(a.monthly) : '', perToken: a.per_token ?? false, touched: { home: true, command: true } });
   };
 
   const submit = async () => {
     if (!draft || !accounts) return;
     // A place the folder or harness no longer offers falls back to the usual one.
     const start = draft.start && startPlaces(draft.harness, draft.home).includes(draft.start) ? draft.start : null;
-    const preferred = accounts.find((a) => a.name === draft.original)?.preferred ?? false;
-    const entry: AccountCfg = { name: draft.name.trim(), harness: draft.harness, home: draft.home.trim(), command: draft.command.trim() || null, start, preferred };
+    const was = accounts.find((a) => a.name === draft.original);
+    const entry: AccountCfg = {
+      name: draft.name.trim(),
+      harness: draft.harness,
+      home: draft.home.trim(),
+      command: draft.command.trim() || null,
+      start,
+      preferred: was?.preferred ?? false,
+      acp: was?.acp ?? null,
+      monthly: draft.perToken ? null : monthlyOf(draft.monthly),
+      per_token: draft.perToken,
+    };
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
     if (await save(next)) {
       setDraft(null);
@@ -345,6 +367,28 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
           <small>Where the quick panel and codealong start open a new session on this account. You can still pick another place there.</small>
         </div>
       )}
+      <div className="ca-field">
+        <span id="ca-acct-pays">It pays</span>
+        <Seg
+          labelledBy="ca-acct-pays"
+          options={[
+            { id: 'plan', label: 'A plan' },
+            { id: 'token', label: 'By the token' },
+          ]}
+          value={draft.perToken ? 'token' : 'plan'}
+          onPick={(p) => setDraft({ ...draft, perToken: p === 'token' })}
+        />
+        {draft.perToken ? (
+          <small>An API key: what its sessions cost at API prices is what was paid, in the Usage window.</small>
+        ) : (
+          <label className="ca-acct-monthly">
+            <span>$</span>
+            <input value={draft.monthly} inputMode="decimal" placeholder="200" aria-label="What the plan costs a month, in dollars" onChange={(e) => setDraft({ ...draft, monthly: e.target.value })} />
+            <span>a month</span>
+          </label>
+        )}
+        {!draft.perToken && <small>What the plan costs you, which the Usage window counts as paid, a day’s share at a time, against what its sessions would have cost at API prices. Empty leaves it out.</small>}
+      </div>
       {!draft.original && skillBox(draft.harness === 'claude' ? 'Install the Codealong plugin' : 'Install the Codealong skill')}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy}>
@@ -413,6 +457,12 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
                 <>
                   <dt>Starts in</dt>
                   <dd>{a.start ? placeName(a.start, terminal) : 'Last used'}</dd>
+                </>
+              )}
+              {(a.per_token || a.monthly != null) && (
+                <>
+                  <dt>Pays</dt>
+                  <dd>{a.per_token ? 'By the token' : `$${a.monthly} a month`}</dd>
                 </>
               )}
             </dl>

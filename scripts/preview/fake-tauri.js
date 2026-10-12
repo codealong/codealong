@@ -99,6 +99,76 @@ function withInsights(board, fixture) {
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
+// What the token ledger would report (ledger.rs `Report`), for the Usage window: the report in
+// tokens-fixture.json (PREVIEW_TOKENS; `--snapshot --tokens` prints a real one), else one made up
+// from the board, the same every time: its accounts, the worktrees' folders and sessions, a cost
+// for each day that rises and falls, and the first account paying $200 a month.
+function hashOf(s) {
+  var h = 2166136261;
+  for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 1000) / 1000;
+}
+function tokensOf(api) {
+  var out = Math.round(api * 9000);
+  return { input: Math.round(api * 400), cacheRead: Math.round(api * 2600000), cacheWrite: Math.round(api * 40000), output: out, reasoning: Math.round(out * 0.3) };
+}
+function spentOf(key, api, extra) {
+  var t = tokensOf(api);
+  return Object.assign({ key: key, api: api, paid: 0, tokens: t, calls: Math.round(api * 11), unpriced: 0, lastAt: Date.now() - Math.round(hashOf(key) * 864e5) }, extra || {});
+}
+function sampleReport(board, days, account) {
+  var accounts = (board.usage || []).map(function (u) { return u.account; }).filter(function (a) { return !account || a === account; });
+  var weight = {};
+  accounts.forEach(function (a, i) { weight[a] = [1, 0.6, 0.35, 0.2, 0.1, 0.05][i] || 0.05; });
+  var out = [];
+  var today = new Date();
+  for (var i = days - 1; i >= 0; i--) {
+    var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    var day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var api = {};
+    accounts.forEach(function (a) {
+      if (a.indexOf('cursor') === 0 || a.indexOf('antigravity') === 0) return;
+      var v = Math.round((40 + 260 * hashOf(day + a)) * weight[a] * 100) / 100;
+      if (v > 0) api[a] = v;
+    });
+    var dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    out.push({ day: day, api: api, paid: accounts[0] && !account ? 200 / dim : account === accounts[0] ? 200 / dim : 0, tokens: 0 });
+  }
+  var total = 0;
+  var byAccount = {};
+  out.forEach(function (d) {
+    Object.keys(d.api).forEach(function (a) {
+      total += d.api[a];
+      byAccount[a] = (byAccount[a] || 0) + d.api[a];
+    });
+    d.tokens = Object.values(d.api).reduce(function (s, v) { var t = tokensOf(v); return s + t.input + t.cacheRead + t.cacheWrite + t.output; }, 0);
+  });
+  var paid = out.reduce(function (s, d) { return s + d.paid; }, 0);
+  var lanes = (board.lanes || []).filter(function (l) { return !l.device; });
+  var folders = lanes.slice(0, 12).map(function (l, i) { return spentOf(l.path, Math.round(total * (0.3 / (i + 1)) * 100) / 100); });
+  var sessions = [];
+  lanes.forEach(function (l) {
+    l.sessions.forEach(function (s) {
+      if (sessions.length < 40 && (!account || s.account === account)) sessions.push(spentOf(s.key, Math.round(total * 0.12 * hashOf(s.key) * 100) / 100, { account: s.account, folder: l.path }));
+    });
+  });
+  sessions.sort(function (a, b) { return b.api - a.api; });
+  var models = [spentOf('claude-opus-5-5', total * 0.62), spentOf('claude-fable-5-1', total * 0.2), spentOf('gpt-6-astra', total * 0.17), spentOf('claude-haiku-5-5', total * 0.01), spentOf('mimo-v2.6-flash-free', 0, { unpriced: 33690 })];
+  return {
+    days: out,
+    total: spentOf('', total),
+    paid: paid,
+    accounts: Object.keys(byAccount).map(function (a) { return spentOf(a, byAccount[a]); }).sort(function (a, b) { return b.api - a.api; }),
+    models: models,
+    folders: folders,
+    sessions: sessions,
+    paying: accounts.map(function (a, i) { return { account: a, monthly: i === 0 ? 200 : null, perToken: false, plan: i === 0 ? paid : 0, extra: 0, extraNow: i === 0 ? [0, 100] : undefined, tokens: 0 }; }),
+    unpriced: ['mimo-v2.6-flash-free'],
+    untracked: accounts.filter(function (a) { return a.indexOf('cursor') === 0 || a.indexOf('antigravity') === 0; }),
+    asOf: Date.now() - 90e3,
+    filling: false,
+  };
+}
 // The board and the bar's feed as the engine hands them out before its first scan finishes
 // (PREVIEW_LOADING in preview.sh): loading, with nothing read yet but the settings. Other
 // devices (PREVIEW_DEVICES) still show, as their feeds kept from last time do.
@@ -134,6 +204,16 @@ window.__TAURI_INTERNALS__ = {
         if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;
       });
+    }
+    if (cmd === 'token_report') {
+      return Promise.all([fetch('./board.json').then(function (r) { return r.json(); }), optionalJson('./tokens-fixture.json')]).then(function (all) {
+        return all[1] || sampleReport(all[0], (args || {}).days || 30, (args || {}).account || null);
+      });
+    }
+    if (cmd === 'session_tokens') {
+      var key = (args || {}).key || '';
+      var api = Math.round(hashOf(key) * 4000) / 100;
+      return Promise.resolve({ total: spentOf(key, api), models: [spentOf('claude-opus-5-5', api * 0.9), spentOf('claude-haiku-5-5', api * 0.1)] });
     }
     // One session with its worktree, for the bar's pill menus (lib.rs `session_at`).
     if (cmd === 'session_at') {

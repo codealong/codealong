@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { FoundAccount } from '../types';
-import { foundNote, startPlaces } from './AccountsSection';
+import { foundNote, monthlyOf, startPlaces } from './AccountsSection';
+
+describe('monthlyOf', () => {
+  it('reads a plan price as typed, a dollar sign and commas too, and nothing for one it can’t', () => {
+    expect(monthlyOf('200')).toBe(200);
+    expect(monthlyOf(' $1,250.50 ')).toBe(1250.5);
+    expect(monthlyOf('')).toBeNull();
+    expect(monthlyOf('lots')).toBeNull();
+    expect(monthlyOf('-5')).toBeNull();
+  });
+});
 
 const NOW = Date.UTC(2026, 8, 25, 12);
 const DAY = 24 * 60 * 60 * 1000;

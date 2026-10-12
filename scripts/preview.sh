@@ -75,6 +75,8 @@
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
 # other sessions show their title and excerpt there. PREVIEW_BEFORE=<cursor> shows the page
 # before that place in its record (a byte offset at a line's start) in place of the newest.
+# PREVIEW_TOKENS=<file> answers the Usage window with the token report in it (`codealong --snapshot
+# --tokens [days] > file` prints this Mac's); without one it gets a report made up from the board.
 # PREVIEW_NOTICES=<file> shows the background failures in it (scripts/preview/notices-sample.json
 # has two) in the accounts bar, in place of the snapshot's, which usually has none.
 # PREVIEW_DEVICES=<file> shows your other devices from it (scripts/preview/devices-sample.json
@@ -159,6 +161,7 @@ fixture usage "${PREVIEW_USAGE:-}"
 fixture devices "${PREVIEW_DEVICES:-}"
 fixture notices "${PREVIEW_NOTICES:-}"
 fixture skills "${PREVIEW_SKILLS:-}"
+fixture tokens "${PREVIEW_TOKENS:-}"
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"
 if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then
   "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" ${PREVIEW_BEFORE:+--before "$PREVIEW_BEFORE"} >"$dir/transcript.json" 2>/dev/null

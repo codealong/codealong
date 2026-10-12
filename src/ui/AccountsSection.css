@@ -50,3 +50,7 @@
   font: var(--type-meta);
   color: var(--ink-3);
 }
+
+/* Its plan price: "$ [200] a month" on one line, the field as wide as a price. */
+.ca-acct-monthly { display: flex; align-items: center; gap: 6px; font: var(--type-meta); color: var(--ink-2); }
+.ca-acct-monthly input { width: 96px; }

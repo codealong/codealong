@@ -409,6 +409,35 @@ pub trait Adapter: Sync {
         Vec::new()
     }
 
+    // ---- What each model call used (ledger.rs) ----
+
+    /// Whether it records what its calls used where Codealong can read it. The Usage window
+    /// names the accounts whose harness doesn't.
+    fn records_tokens(&self) -> bool {
+        false
+    }
+
+    /// Its records of what model calls used, as files of lines that only grow, every one there
+    /// is, each with the key of the session it's for. The ledger reads each whole once, then on
+    /// from where it stopped.
+    fn token_files(&self, _account: &AccountCfg) -> Vec<(PathBuf, String)> {
+        Vec::new()
+    }
+
+    /// What one line of such a file says a model call used, if it says that. `state` carries
+    /// what earlier lines said (the folder, the model, a running total) from line to line and
+    /// from one read to the next; a line that can say nothing of the kind is passed over before
+    /// it's parsed.
+    fn token_use(&self, _line: &[u8], _state: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
+        None
+    }
+
+    /// What model calls used, where the harness keeps them in a database rather than files: the
+    /// ones written after `after` (ms), and when the newest of them was written.
+    fn token_uses_since(&self, _account: &AccountCfg, after: i64) -> (Vec<crate::ledger::TokenUse>, i64) {
+        (Vec::new(), after)
+    }
+
     // ---- Its records read as text, for where sessions worked and the PRs they made ----
 
     /// Text that marks a line of its records as what a tool gave back, which can name any
@@ -1016,7 +1045,7 @@ mod tests {
     #[test]
     fn resumes_with_the_prompt_in_the_environment() {
         let ask = |prompt: &'static str, model: Option<&'static str>, effort: Option<&'static str>| StartAsk { prompt, session_id: "abc", model, effort, worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
-        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
+        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let claude = Session::new(Harness::Claude, "claude2", "abc");
         let (input, env) = adapter(Harness::Claude).resume(&account, &claude, &ask("-v please", None, None)).unwrap();
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", crate::start::PROMPT_VAR));
@@ -1024,7 +1053,7 @@ mod tests {
         // On another model and effort, or with nothing to say yet: it opens on the conversation.
         let tuned = adapter(Harness::Claude).resume(&account, &claude, &ask("", Some("opus[1m]"), Some("high"))).unwrap();
         assert_eq!(tuned, ("claude2 --model 'opus[1m]' --effort high --resume abc\n".to_string(), Vec::new()));
-        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
+        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let thread = Session::new(Harness::Codex, "codex", "01a0e379");
         let (input, env) = adapter(Harness::Codex).resume(&codex, &thread, &ask("-v please", None, None)).unwrap();
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));

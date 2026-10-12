@@ -823,7 +823,8 @@ A form for everything in config.toml. General has the folders searched for repos
 shortcut, the terminal and editor, and the theme; Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain)
 and a switch per feature, each saying what it sends; Accounts adds, edits, removes and signs in
-accounts, and under Found on this Mac lists the ones Codealong could read but doesn't, to add with a
+accounts, says how each pays (a plan's price a month, or by the token; see *What sessions used and
+cost*), and under Found on this Mac lists the ones Codealong could read but doesn't, to add with a
 click (with the agent skill, unless you untick it); Automation has what Codealong does by itself:
 the agent that reviews the pull requests that wait on your review (the account and model it runs on
 and what it's told, in a box like a session's, and where its review goes), nudging the session that
@@ -1416,6 +1417,51 @@ running out of and the rest on hover, and the bar scrolls sideways. OpenCode (br
 provider) and Antigravity (quotas in the app) have none to show. Add accounts in Settings ›
 Accounts.
 
+#### What sessions used and cost
+
+*View › Usage… (⇧⌘U), the bar's Usage button, or a click on an account's chip*
+
+The Usage window says what your sessions used over the last 7, 30 or 90 days or the year, for every
+account or one: what the work would have cost at API prices, what you paid, how many dollars of
+work each dollar paid bought (leverage), and the tokens, with how much of what went in was read
+from the cache (most of it, and at a tenth of the price or less, which is why a token count alone
+says little). Under them, the running totals at API prices and paid over those days, and each
+day's cost by account; then a table by account, model, project, session or day. A session's row
+shows it on the board, an account's shows that account alone. A session's details (the ⓘ in its
+panel) say what it cost and used too, its subagents' calls included.
+
+What was paid is what Codealong knows of: each account's plan, `monthly` in config.toml (Settings ›
+Accounts, *It pays*), counted a day's share of its month at a time; Claude's extra usage, as its
+usage endpoint reports this month's (read with the limits, every 2 minutes); what OpenCode
+recorded a call cost, which is what your provider charged; and an account that pays by the token
+(`per_token = true`, an API key) at API prices. An account with none of those adds nothing to
+Paid.
+
+The numbers come from the records each harness keeps of every model call: Claude Code's
+transcripts and its subagents' logs, Codex's rollouts, OpenCode's database. Codealong reads them
+into a ledger of its own (`ledger.sqlite`), each file once and then what's new, every minute, so the
+history outlives the transcripts Claude Code deletes after about 30 days; the first read after
+installing goes back as far as those records do. A call that's written more than once (a reply
+as it streams, a fork's or a moved session's copy) counts once, for the session that made it.
+Cursor and Antigravity keep no record Codealong can read, and are named as such.
+
+API prices are the list prices of Anthropic and OpenAI per token, by kind: input, cache reads,
+cache writes kept five minutes or an hour, output with its thinking, web searches, fast mode and
+long prompts, as their pricing has them. They come with Codealong; a model it has no price for is
+counted in tokens and said to be unpriced, never as free, until a price for it goes in config.toml:
+
+```toml
+[prices."some-new-model"]   # dollars per million tokens; a cache price left out is the input's
+input = 3
+output = 15
+cache_read = 0.3
+cache_write = 3.75
+cache_write_1h = 6
+```
+
+`codealong tokens [--days N] [--account <name>] [--by account|model|folder|session|day]` prints
+the same from the command line.
+
 ## Tidying up
 
 ### Close idle sessions
@@ -1496,7 +1542,8 @@ started ones are its helpers), where the harness doesn't say, in `origins.json`;
 latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, the
 PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked
 reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
-replies suggested for sessions, until the sessions move on, in `suggestions.json`.
+replies suggested for sessions, until the sessions move on, in `suggestions.json`; what every
+model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;
 ones no todo uses are cleared after 30 days. The devices this one is linked with are in

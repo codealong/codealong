@@ -325,6 +325,86 @@ export interface ProjectSummary {
 
 export type Severity = 'normal' | 'warning' | 'critical';
 
+/** Tokens of each kind (ledger.rs `Tokens`): input read neither from nor into the cache, cache
+ *  reads, cache writes, and output with its thinking among it. */
+export interface TokenCounts {
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  reasoning: number;
+}
+
+/** What a group of model calls used and cost (ledger.rs `Spent`): an account's, a model's, a
+ *  folder's, a session's or all of them. */
+export interface Spent {
+  /** The account, model, folder or session key; empty for a total. */
+  key: string;
+  /** At API prices, in dollars, its unpriced calls left out. */
+  api: number;
+  /** Paid by the token: what the harness recorded, or a `per_token` account at API prices. */
+  paid: number;
+  tokens: TokenCounts;
+  calls: number;
+  /** Tokens of calls no price was found for. */
+  unpriced: number;
+  lastAt: number;
+  /** A session's account and folder. */
+  account?: string;
+  folder?: string;
+}
+
+/** One local day of a report. */
+export interface SpendDay {
+  /** `2026-10-12`. */
+  day: string;
+  /** At API prices, by account. */
+  api: Record<string, number>;
+  /** Really paid: plans' daily share, extra usage, and by the token. */
+  paid: number;
+  tokens: number;
+}
+
+/** What an account paid in a report's days, by kind (ledger.rs `Paid`). */
+export interface AccountPaid {
+  account: string;
+  monthly: number | null;
+  perToken: boolean;
+  plan: number;
+  /** Claude's extra usage in the days. */
+  extra: number;
+  /** The latest extra usage reading: this period's total and its monthly limit. */
+  extraNow?: [number, number | null];
+  tokens: number;
+}
+
+/** What model calls used and cost over some days (ledger.rs `Report`), for the Usage window. */
+export interface TokenReport {
+  days: SpendDay[];
+  total: Spent;
+  /** Really paid in all, plans and extra usage included. */
+  paid: number;
+  accounts: Spent[];
+  models: Spent[];
+  folders: Spent[];
+  /** The sessions that cost the most. */
+  sessions: Spent[];
+  paying: AccountPaid[];
+  /** Models with calls no price was found for. */
+  unpriced: string[];
+  /** Accounts whose harness records no tokens Codealong can read. */
+  untracked: string[];
+  /** When the ledger last caught up; 0 before its first read ends. */
+  asOf: number;
+  filling: boolean;
+}
+
+/** What one session used and cost, by model (ledger.rs `SessionSpent`). */
+export interface SessionSpent {
+  total: Spent;
+  models: Spent[];
+}
+
 /** One plan limit: the 5-hour session, the week, or a per-model week such as Fable's. */
 export interface Meter {
   key: string;
@@ -359,6 +439,12 @@ export interface AccountCfg {
   start?: StartPlace | null;
   /** Auto starts it over accounts that aren't preferred while it has room. */
   preferred?: boolean;
+  /** The command that runs its Agent Client Protocol adapter. */
+  acp?: string | null;
+  /** What its plan costs you a month, in dollars: what the Usage window counts as paid. */
+  monthly?: number | null;
+  /** It pays for each token at API prices (an API key). */
+  per_token?: boolean;
 }
 
 /** A `[[projects]]` table in config.toml. */

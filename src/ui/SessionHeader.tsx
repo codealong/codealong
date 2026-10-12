@@ -20,7 +20,7 @@
 // window doesn't know (the PRs, the todos, the sessions around it) it leaves out, and that line
 // isn't there.
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
@@ -29,7 +29,9 @@ import { cutOffWords, limitWords, seenable } from '../lanes';
 import { cameWord, originWord, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, type SessionActions } from '../menus';
 import { untilWords } from '../snooze';
-import type { Board, DeviceView, Lane, Pr, Session, Target, Todo } from '../types';
+import { sessionTokens } from '../api';
+import { cacheShare, money, tokenCount, totalTokens } from '../spend';
+import type { Board, DeviceView, Lane, Pr, Session, SessionSpent, Target, Todo } from '../types';
 import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
@@ -195,6 +197,40 @@ function ReviewOf({ pr, prs, onOpenPr }: { pr: string; prs: Pr[]; onOpenPr?: (pr
   );
 }
 
+/** What the session used and cost, its subagents' calls included, from the token ledger
+ *  (ledger.rs), in its details: at API prices, and what was paid by the token where that's known.
+ *  Another device's sessions are in that device's ledger, so they show none. */
+function SessionCost({ sessionKey }: { sessionKey: string }) {
+  const [spent, setSpent] = useState<SessionSpent | null>(null);
+  useEffect(() => {
+    let live = true;
+    sessionTokens(sessionKey)
+      .then((s) => live && setSpent(s))
+      // A ledger that can't be read only leaves these lines out of the details.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [sessionKey]);
+  if (!spent || spent.total.calls === 0) return null;
+  const t = spent.total;
+  const byModel = spent.models.map((m) => `${m.key}: ${money(m.api)}, ${tokenCount(totalTokens(m.tokens))} tokens`).join('\n');
+  return (
+    <>
+      <dt>Cost</dt>
+      <dd title={byModel}>
+        {money(t.api)} at API prices
+        {t.paid > 0 ? ` · ${money(t.paid)} paid` : ''}
+        {t.unpriced > 0 ? ' · some unpriced' : ''}
+      </dd>
+      <dt>Tokens</dt>
+      <dd>
+        {tokenCount(totalTokens(t.tokens))} · {Math.round(cacheShare(t.tokens) * 100)}% read from cache
+      </dd>
+    </>
+  );
+}
+
 export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
@@ -267,7 +303,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               onClick={onMaximize}
             />
           )}
-          {!compact && <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />}
+          {!compact && <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder, times and what it cost'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />}
           {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, archive, pin, rename, fork, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
           {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title={closeTitle ?? 'Close: it leaves the desktop (⌘W)'} onClick={onClose} />}
         </div>
@@ -424,6 +460,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           )}
           <dt>Last prompt</dt>
           <dd title={absolute(s.lastPromptAt)}>{agoPhrase(s.lastPromptAt, now)}</dd>
+          {!device && <SessionCost sessionKey={s.key} />}
           {s.live && s.pid ? (
             <>
               <dt>Process</dt>

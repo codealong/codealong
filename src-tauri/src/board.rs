@@ -1807,7 +1807,7 @@ mod tests {
     const NOW: i64 = 1_790_200_000_000;
 
     fn acct(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()), start: None, preferred: false, acp: None }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()), start: None, preferred: false, acp: None, monthly: None, per_token: false }
     }
 
     fn reg(status: &str, updated: i64) -> RegistryEntry {
@@ -2972,7 +2972,7 @@ mod tests {
 
     #[test]
     fn maps_codex_statuses() {
-        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), ..Default::default() };
         assert_eq!(codex_session(&a, &th, Some("Photo tools"), None, None, 0, NOW).status, Status::Working);
         assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
@@ -3031,7 +3031,7 @@ mod tests {
 
     #[test]
     fn a_codex_cli_thread_opens_in_its_terminal() {
-        let a = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let th = ThreadInfo { id: "01a0e375".into(), cwd: "/r".into(), last_ts: NOW - 1_000, cli: true, ..Default::default() };
         let open = codex_session(&a, &th, None, Some(42), None, 0, NOW);
         assert_eq!((open.surface, open.live, open.pid, open.open_target.as_str()), (Surface::Cli, true, Some(42), "s|codex:codex2:01a0e375|focus"));
@@ -3047,7 +3047,7 @@ mod tests {
 
     #[test]
     fn maps_opencode_statuses() {
-        let a = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let mut row = SessionRow {
             id: "ses_abc1234567".into(),
             directory: "/r".into(),
@@ -3096,7 +3096,7 @@ mod tests {
 
     #[test]
     fn maps_antigravity_statuses() {
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         // The app's conversation, with a turn under way while the app's agent is up.
         let mut c = Conversation {
             id: "c1".into(),
@@ -3143,7 +3143,7 @@ mod tests {
 
     #[test]
     fn a_command_line_conversation_runs_while_its_process_has_it() {
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let c = Conversation { id: "c2".into(), cli: true, preview: Some("Fix the build".into()), status: "cascade_run_status_running".into(), not_fully_idle: true, last_modified: NOW - 2 * ANTIGRAVITY_STALE_MS, last_input: Some(NOW - 3 * ANTIGRAVITY_STALE_MS), ..Default::default() };
         // In its terminal UI: it works however long it's been quiet, and its tab is where it opens.
         let ui = Process { pid: 41, conversation: Some("c2".into()), terminal: true };
@@ -3173,7 +3173,7 @@ mod tests {
     #[test]
     fn maps_cursor_statuses() {
         use crate::cursor::{Call, Chat};
-        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         // The app's chat, generating while the app is up.
         let mut c = Chat { id: "c1".into(), title: Some("Fix the build".into()), cwd: Some("/r".into()), status: "generating".into(), created_at: NOW - 9_000, last_updated: NOW - 1_000, model: Some("gpt-5.5".into()), branch: Some("fix".into()), messages: 4, ..Default::default() };
         c.tail.last_tool = Some("Run · `cargo test`".into());
@@ -3215,7 +3215,7 @@ mod tests {
     #[test]
     fn a_cursor_command_line_chat_runs_while_its_process_has_it() {
         use crate::cursor::{Chat, Process};
-        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None };
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let mut c = Chat { id: "c2".into(), cli: true, title: Some("Fix the build".into()), created_at: NOW - 9_000, last_updated: NOW - 2_000, ..Default::default() };
         c.tail.turn_open = true;
         let ui = Process { pid: 41, chat: Some("c2".into()), terminal: true };
@@ -3609,7 +3609,7 @@ mod tests {
         assert_eq!(default.as_deref(), Some("s|claude:claude2:abc1234567|focus"));
         assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")), "claude2 isn't the Claude app's account");
         assert!(t.iter().any(|x| x.label == "Open in Cursor"));
-        let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, preferred: false, acp: None };
+        let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[mine], None, None, &apps);
         assert!(t[1].disabled && t[1].id.ends_with("|claude-app"), "live elsewhere, so offered but disabled");

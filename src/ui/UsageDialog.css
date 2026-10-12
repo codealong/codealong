@@ -1,0 +1,77 @@
+/* The Usage window (UsageDialog.tsx): what sessions used and cost. Its charts are inline SVG on
+   one width of their own units, scaled to the dialog's: thin marks, hairline grid, the accounts
+   in the chart tokens, the lines and every word in ink. */
+
+.ca-dialog.ca-usage { width: min(880px, 100%); }
+.ca-usage-body { gap: var(--space-4); }
+.ca-usage-filters { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.ca-usage-account { width: 180px; }
+.ca-usage-asof { font: var(--type-meta); color: var(--ink-3); }
+
+/* Held at the last numbers while new ones load: no flash, no jump. */
+.ca-usage-report { display: grid; gap: var(--space-4); transition: opacity var(--dur-fast); }
+.ca-usage-report.is-loading { opacity: 0.6; }
+
+.ca-usage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+.ca-usage-stat { display: grid; align-content: start; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); min-width: 0; }
+.ca-usage-stat-label { font: var(--type-meta-strong); color: var(--ink-2); }
+.ca-usage-stat-value { font: var(--type-title); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ca-usage-stat-note { font: var(--type-caption); color: var(--ink-3); text-align: left; }
+button.ca-usage-stat-note { font: var(--type-caption-strong); color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }
+
+.ca-usage-charts { display: grid; gap: var(--space-3); }
+.ca-usage-chart { margin: 0; display: grid; gap: var(--space-1); }
+.ca-usage-legend { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font: var(--type-caption); color: var(--ink-2); }
+.ca-usage-chart-title { font: var(--type-caption-heading); color: var(--ink); margin-right: var(--space-1); }
+.ca-usage-key { display: inline-flex; align-items: center; gap: 6px; }
+.ca-usage-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.ca-usage-linekey { display: inline-block; width: 12px; height: 2px; border-radius: 1px; flex: none; }
+.ca-usage-linekey.is-api { background: var(--ink); }
+.ca-usage-linekey.is-paid { background: var(--line-strong); }
+
+.ca-usage-plot { position: relative; }
+.ca-usage-plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+.ca-usage-axis text { font: var(--type-caption); fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ca-usage-grid { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.ca-usage-area { fill: var(--ink); opacity: 0.06; }
+.ca-usage-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ca-usage-line.is-api { stroke: var(--ink); }
+.ca-usage-line.is-paid { stroke: var(--line-strong); }
+.ca-usage-dot { stroke: var(--surface-raised); stroke-width: 2; }
+.ca-usage-dot.is-api { fill: var(--ink); }
+.ca-usage-dot.is-paid { fill: var(--line-strong); }
+.ca-usage-cross line { stroke: var(--line-strong); stroke-width: 1; }
+.ca-usage-bar.is-hover { filter: brightness(1.12); }
+
+.ca-usage-tip { position: absolute; top: 0; z-index: var(--z-popover); display: grid; gap: 2px; min-width: 132px; margin-left: var(--space-3); padding: 6px var(--space-2); border-radius: var(--radius-sm); background: var(--surface-raised); box-shadow: var(--shadow-hud); pointer-events: none; font: var(--type-caption); color: var(--ink-2); }
+.ca-usage-tip.is-left { transform: translateX(-100%); margin-left: calc(-1 * var(--space-3)); }
+.ca-usage-tip-day { font: var(--type-caption-heading); color: var(--ink); }
+.ca-usage-tip-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ca-usage-tip-row b { font: var(--type-caption-strong); color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.ca-usage-by { display: flex; align-items: center; gap: var(--space-2); }
+.ca-usage-by-label { font: var(--type-meta-strong); color: var(--ink-2); }
+
+.ca-usage-table { width: 100%; border-collapse: collapse; font: var(--type-meta); color: var(--ink-2); }
+.ca-usage-table th, .ca-usage-table td { padding: 6px var(--space-2); border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.ca-usage-table thead th { font: var(--type-caption-heading); color: var(--ink-3); border-bottom-color: var(--line-strong); }
+.ca-usage-table tbody th { font: var(--type-meta-strong); color: var(--ink); max-width: 320px; }
+.ca-usage-table .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-usage-table td.is-num { color: var(--ink); }
+.ca-usage-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ca-usage-name > span, .ca-usage-name > button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-usage-name > button { font: var(--type-meta-strong); color: var(--ink); text-align: left; }
+.ca-usage-name > button:hover { text-decoration: underline; }
+.ca-usage-note { display: block; font: var(--type-caption); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-usage-share-col { width: 22%; }
+.ca-usage-share { display: block; height: 6px; min-width: 2px; border-radius: 0 3px 3px 0; background: var(--ink-3); }
+.ca-usage-flag { display: block; font: var(--type-caption); color: var(--ink-3); }
+.ca-usage-none { color: var(--ink-3); }
+
+.ca-usage-notes { display: grid; gap: var(--space-1); font: var(--type-caption); color: var(--ink-3); }
+.ca-usage-notes p { margin: 0; }
+.ca-usage-notes code { font: var(--type-code-caption); color: var(--ink-2); }
+
+@media (max-width: 720px) {
+  .ca-usage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

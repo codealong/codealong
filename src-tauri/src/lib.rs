@@ -50,6 +50,7 @@ use codealong_peer::net as irohnet;
 mod jev;
 mod kept;
 mod launch;
+mod ledger;
 mod limits;
 mod nudges;
 mod lineage;
@@ -63,6 +64,7 @@ mod perf;
 mod prasks;
 mod prdiff;
 mod previews;
+mod prices;
 mod prlinks;
 mod prmerge;
 mod procs;
@@ -240,6 +242,20 @@ async fn open_config(engine: State<'_, engine::Handle>) -> Result<(), String> {
 #[tauri::command(async)]
 fn editor_icons() -> Vec<editors::Icon> {
     editors::icons()
+}
+
+/// What sessions used and cost in the last `days` days, for the Usage window (ledger.rs), for
+/// one account or all. Asking reads what's new in the background too, for the next time.
+#[tauri::command]
+async fn token_report(days: u32, account: Option<String>) -> Result<ledger::Report, String> {
+    ledger::nudge();
+    blocking(move || ledger::report(days, account.as_deref()).map_err(words)).await?
+}
+
+/// What one session used and cost, by model, for its panel.
+#[tauri::command]
+async fn session_tokens(key: String) -> Result<ledger::SessionSpent, String> {
+    blocking(move || ledger::session(&key).map_err(words)).await?
 }
 
 /// What "Close idle sessions" would close, sessions quiet for `after_ms` or longer, and with
@@ -1650,6 +1666,38 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 const NEW_WINDOW_MENU_ID: &str = "new-window";
 const CLOSE_IDLE_MENU_ID: &str = "close-idle";
 
+/// Puts Usage… (⇧⌘U) at the foot of the View menu: the window that says what sessions used and
+/// cost (src/ui/UsageDialog.tsx), a dialog the front board window opens, or the main window when
+/// none is open.
+fn add_usage_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
+    let Some(menu) = app.menu() else { return Ok(()) };
+    let view = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(s) if s.text().is_ok_and(|t| t == "View") => Some(s),
+        _ => None,
+    });
+    let Some(view) = view else { return Ok(()) };
+    let item = MenuItem::with_id(app, USAGE_MENU_ID, "Usage…", true, Some("CmdOrCtrl+Shift+U"))?;
+    view.append_items(&[&PredefinedMenuItem::separator(app)?, &item])?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() != USAGE_MENU_ID {
+            return;
+        }
+        match front_window(app) {
+            Some(w) => {
+                let _ = app.emit_to(w.label(), USAGE_MENU_ID, ());
+            }
+            None => {
+                let _ = front::show_main(app, None);
+                let _ = app.emit_to("main", USAGE_MENU_ID, ());
+            }
+        }
+    });
+    Ok(())
+}
+
+const USAGE_MENU_ID: &str = "usage";
+
 /// Every second while the perf log is on, posts to the main thread and logs how late it ran:
 /// the main thread carries every click and pointer move to the windows, so its lag is theirs.
 /// One still waiting after a second is stuck at that moment, so it's sampled then (a lag line
@@ -1861,6 +1909,8 @@ pub fn run() {
             server::serve(engine.clone(), app.state::<peers::Peers>().inner().clone(), app.handle().clone());
             // After the first scan and the first git runs, which have the Mac to themselves.
             search::spawn_warmer(std::time::Duration::from_secs(20));
+            // The token ledger reads every record once, so it waits for the search index's first read.
+            ledger::spawn(std::time::Duration::from_secs(45));
             app.manage(engine);
             std::thread::spawn(|| {
                 install::follow_command_link();
@@ -1901,6 +1951,9 @@ pub fn run() {
             if let Err(e) = zoom::add_menu(app.handle()) {
                 eprintln!("Couldn't add zooming to the menu: {e:#}");
             }
+            if let Err(e) = add_usage_menu(app.handle()) {
+                eprintln!("Couldn't add Usage to the menu: {e:#}");
+            }
             updates::setup(app.handle());
             watch_main_thread(app.handle().clone());
             Ok(())
@@ -1920,7 +1973,7 @@ pub fn run() {
             kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, idle_sessions, close_idle_sessions, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_in_terminal, shell_commands, get_accounts, save_accounts, set_preferred, keep_start_place, found_accounts, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, show_waiting, waiting_asked, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, resume_session, switch_session_model, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, token_report, session_tokens, idle_sessions, close_idle_sessions, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_in_terminal, shell_commands, get_accounts, save_accounts, set_preferred, keep_start_place, found_accounts, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, show_waiting, waiting_asked, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, resume_session, switch_session_model, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

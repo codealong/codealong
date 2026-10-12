@@ -58,7 +58,17 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `prompt_images`, and `sent_images`). A pasted one's `local_image` path is
   `$TMPDIR/codex-clipboard-<uuid>.png`.
 - Plan usage, from each turn's `token_count` event: `codex/rollout.rs` (`RateLimit`,
-  `parse_rate_limit`), `codex/usage.rs`.
+  `parse_rate_limit`), `codex/usage.rs`. The event's `rate_limits` also has `credits: {has_credits,
+  unlimited, balance}` and `plan_type`.
+- What each call used, for the token ledger: `codex/rollout.rs` (`token_use`, `all_rollouts`).
+  A guardian review's rollout (`source: {subagent: {other: "guardian"}}`) and a spawned agent's
+  count from nothing (0.156, 2026-10-12), so a subagent's tokens aren't its parent's again; an
+  event that repeats the running total is the same call. The model is `turn_context`'s, and
+  `codex-auto-review` is a server alias priced as GPT-5.6 Luna (`scripts/prices.mjs`). The
+  app-server's `account/usage/read` answers the account's daily token totals for as long as it
+  has had them (`dailyUsageBuckets`, with lifetime and streak figures in `summary`), and with a
+  `threadId` an estimate of one thread's cost in credits and dollars (`threadUsage`), which was
+  empty for an ordinary thread (0.157.1); Codealong reads neither yet.
 - The app (ChatGPT.app, known by its bundle id), the CLI inside it, and its links:
   `detect.rs` (`codex_app_cli`), `codex/mod.rs` (`APP_BUNDLE_ID`), `codex/terminals.rs`
   (`codex_cli`), `launch.rs` (`open_codex`, `codex_thread_url`, `codex_review_url`). The app

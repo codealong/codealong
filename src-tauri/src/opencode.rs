@@ -182,6 +182,51 @@ pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Said> {
     read().unwrap_or_default()
 }
 
+/// What assistant messages written since `after` used, for the token ledger, and when the
+/// newest was written. A message's `data` has `tokens: {input, output, reasoning, cache: {read,
+/// write}}` (input without the cache's part, output without the thinking's), `model: {id,
+/// providerID}` and `cost`, priced by OpenCode from models.dev as it's written: what a provider
+/// you pay charged, and 0 for a free model or a subscription's sign-in. A subagent's session
+/// counts for the session that started it.
+pub fn token_uses(home: &Path, account: &str, after: i64) -> (Vec<crate::ledger::TokenUse>, i64) {
+    let Some(db) = open(&home.join("opencode.db")) else { return (Vec::new(), after) };
+    let read = || -> rusqlite::Result<(Vec<crate::ledger::TokenUse>, i64)> {
+        let mut stmt = db.prepare(
+            "SELECT m.id, COALESCE(s.parent_id, s.id), m.time_created, m.time_updated, m.data, s.directory FROM session_message m \
+             JOIN session_v2 s ON s.id = m.session_id WHERE m.type = 'assistant' AND m.time_updated > ?1",
+        )?;
+        let rows = stmt.query_map([after], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?)))?;
+        let mut newest = after;
+        let mut out = Vec::new();
+        for (id, session, at, updated, data, folder) in rows.flatten() {
+            newest = newest.max(updated);
+            let Ok(v) = serde_json::from_str::<Value>(&data) else { continue };
+            let Some(t) = v.get("tokens") else { continue };
+            let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+            let reasoning = n(t, "reasoning");
+            let cache = t.get("cache").cloned().unwrap_or(Value::Null);
+            out.push(crate::ledger::TokenUse {
+                id,
+                at,
+                session: Session::key_for(Harness::Opencode, account, &session),
+                folder,
+                model: v.pointer("/model/id").and_then(Value::as_str).unwrap_or("").to_string(),
+                input: n(t, "input"),
+                cache_read: n(&cache, "read"),
+                cache_write: n(&cache, "write"),
+                cache_write_1h: 0,
+                output: n(t, "output") + reasoning,
+                reasoning,
+                fast: false,
+                searches: 0,
+                cost: v.get("cost").and_then(Value::as_f64),
+            });
+        }
+        Ok((out, newest))
+    };
+    read().unwrap_or((Vec::new(), after))
+}
+
 /// A session's messages before `before` (by `seq`; from the newest when none), up to about
 /// `limit` items, for its panel (transcript.rs). `items` turns a message's `data` into items.
 pub fn transcript_page<T>(db: &Path, session: &str, before: Option<u64>, limit: usize, items: impl Fn(&Value, u64, i64) -> Vec<T>) -> crate::transcript::PageOf<T> {
@@ -869,6 +914,14 @@ impl crate::harness::Adapter for OpenCode {
         read_prose(&account.home_path(), since, after)
     }
 
+    fn records_tokens(&self) -> bool {
+        true
+    }
+
+    fn token_uses_since(&self, account: &AccountCfg, after: i64) -> (Vec<crate::ledger::TokenUse>, i64) {
+        token_uses(&account.home_path(), &account.name, after)
+    }
+
     /// A terminal showing it is focused; otherwise `opencode --session` opens a new one, which
     /// is also where a request its service holds is answered.
     fn targets(&self, s: &Session, o: &crate::harness::Opens) -> Vec<crate::model::Target> {
@@ -1250,7 +1303,7 @@ mod tests {
         let answer: Value = serde_json::from_str(r#"{"data":{"id":"ses_f15f6e5a9ffe57CibPTgUS3IlW","fork":{"sessionID":"ses_f15f72088ffep4qnjzWbYxa0w6","boundary":{"type":"through","messageID":"msg_0dee2f9b8001Pd8F98MdK1test"}},"projectID":"global","title":"orig (fork #1)"}}"#).unwrap();
         let id = forked_id(&answer).unwrap();
         assert_eq!(id, "ses_f15f6e5a9ffe57CibPTgUS3IlW");
-        let a = crate::config::AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, preferred: false, acp: None };
+        let a = crate::config::AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let f = fork_into(&a, &id);
         assert_eq!(f.input, "opencode --session ses_f15f6e5a9ffe57CibPTgUS3IlW\n");
         assert_eq!(f.key.as_deref(), Some("opencode:opencode:ses_f15f6e5a9ffe57CibPTgUS3IlW"));
@@ -1261,7 +1314,7 @@ mod tests {
     #[test]
     fn a_prompt_is_posted_to_the_service_queued() {
         use crate::harness::Adapter as _;
-        let account = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None };
+        let account = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
         let s = Session { status: crate::model::Status::Idle, live: true, pid: Some(7), ..Session::new(Harness::Opencode, "opencode", "ses_1") };
         assert_eq!(OpenCode.routes(&account, &s), vec![Posted.into()]);
         assert_eq!(prompt_body("two\nlines", false).to_string(), r#"{"delivery":"queue","text":"two\nlines"}"#);
