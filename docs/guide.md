@@ -87,7 +87,9 @@ too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their p
 #### Archive, close and mark as done
 
 Archive a session with ⌃⌘A (`a` elsewhere) or its right-click menu; Codex threads are archived in
-Codex itself. Close terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or
+Codex itself. A message you send an archived session, or a resume, takes it out of the archive as
+it goes (a Codex thread out of Codex's too, since Codex resumes no archived thread); an agent's
+message through the `codealong` command leaves it there. Close terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or
 Terminal tab, closes that tab whatever the session is doing, and End background job stops a Claude
 Code background job; either way its conversation is kept and resumes. Mark as done (⇧⌘E, or Done on
 the strip) is for a session you're finished with: it closes the session's terminal or ends its

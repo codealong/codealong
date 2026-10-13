@@ -192,9 +192,12 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
         out = { ...out, snoozedUntil: undefined, ...(back ? { status: 'unread' as const, statusSince: a.at } : {}) };
       }
     }
-    else if (c.kind === 'send' && startsNow(a) && out.status !== 'working') {
+    else if (c.kind === 'send' && a.takenAt == null && !a.lapsed) {
+      // A message takes a session out of the archive as it's sent: you took it up again
+      // (actions.rs `unarchive_to_send`).
+      if (out.archived) out = { ...out, archived: false };
       // A prompt sent to a snoozed session ends its snooze: you took it up (board.rs, `apply_snooze`).
-      out = { ...out, status: 'working', statusSince: a.at, stalledSince: null, asks: false, snoozedUntil: undefined, lastPromptAt: Math.max(out.lastPromptAt, a.at) };
+      if (startsNow(a) && out.status !== 'working') out = { ...out, status: 'working', statusSince: a.at, stalledSince: null, asks: false, snoozedUntil: undefined, lastPromptAt: Math.max(out.lastPromptAt, a.at) };
     }
   }
   if (out === s) return s;

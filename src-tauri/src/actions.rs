@@ -631,6 +631,7 @@ fn sender_of(from: &From) -> send::Sender {
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Send = c.read()?;
     let key = c.session()?;
+    unarchive_to_send(engine, c, key);
     let sent = send::send_here(engine, key, &p.text, sender_of(c.from), p.now).map_err(words)?;
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
@@ -642,6 +643,27 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
         forget_suggested(engine, key);
     }
     to_value(sent)
+}
+
+/// Takes a session out of the archive as it's sent something, before it's sent: you took it up
+/// again, and a harness may not go on with one it archived (Codex resumes no archived thread).
+/// Not for an agent's message here, which never resumes a session you archived (send.rs
+/// `wakes`), and has one that takes it in active again, which ends an archive in Codealong by
+/// itself. A send goes on when this fails, saying nothing of it: the message is what was asked
+/// for, and the session still shows archived.
+fn unarchive_to_send(engine: &Handle, c: &Call, key: &str) {
+    let archived = engine.read(|b| b.session(key).is_some_and(|(_, s)| s.archived));
+    if !unarchives(c.from, archived) {
+        return;
+    }
+    if let Err(e) = engine.archive(key, false) {
+        eprintln!("Couldn't take {key} out of the archive to send it a message: {e:#}");
+    }
+}
+
+/// Whether a message from `from` takes a session out of the archive (`unarchive_to_send`).
+fn unarchives(from: &From, archived: bool) -> bool {
+    archived && !matches!(from, From::Command(_))
 }
 
 /// Takes away the replies suggested for a session, when it has any.
@@ -747,11 +769,12 @@ fn tag(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// Goes on with a session that isn't running where it says (`start::resume`), answering how it
-/// went as a send does. Where its harness copied it (a background job's), the copy takes its
-/// place, as a move's does.
+/// went as a send does, out of the archive as a send takes it. Where its harness copied it (a
+/// background job's), the copy takes its place, as a move's does.
 fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let p: params::Resume = c.read()?;
+    unarchive_to_send(engine, c, key);
     let board = engine.board();
     let resumed = crate::start::resume(&board, &cfg()?, key, &p.resume, &p.prompt, &sender_of(c.from)).map_err(words)?;
     if let Some(copy) = resumed.key.as_deref().filter(|k| *k != key) {
@@ -1427,6 +1450,19 @@ mod tests {
         assert_eq!(named(&asked_by(spec.clone(), &From::Command(Some("claude:claude:boss".into())))), (Some("claude:claude:boss".into()), true, true));
         for from in [From::Command(Some("claude:claude:other".into())), From::Command(None), From::Device, From::Phone, From::Here] {
             assert_eq!(named(&asked_by(spec.clone(), &from)), (None, false, false));
+        }
+    }
+
+    /// A message you send takes an archived session out of the archive, from a window, your phone
+    /// or another Mac; an agent's message here leaves your archive alone.
+    #[test]
+    fn a_message_takes_a_session_out_of_the_archive_unless_an_agent_sent_it() {
+        for from in [From::Here, From::Phone, From::Device] {
+            assert!(unarchives(&from, true), "{from:?}");
+            assert!(!unarchives(&from, false), "{from:?}");
+        }
+        for from in [From::Command(Some("claude:claude:boss".into())), From::Command(None)] {
+            assert!(!unarchives(&from, true), "{from:?}");
         }
     }
 

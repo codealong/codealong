@@ -106,6 +106,19 @@ describe('lanesAhead', () => {
     expect(lanesAhead([lane([session('a', 'needs', { asks: true })])], [answer])[0].sessions[0].status).toBe('needs');
   });
 
+  it('takes an archived session sent a message out of the archive, until the board has the say', () => {
+    const lanes = [lane([session('a', 'idle', { archived: true }), session('b', 'working', { archived: true }), session('c', 'stopped', { archived: true })])];
+    const opens = change({ kind: 'send', key: 'c', text: 'x', working: false, starts: false });
+    const [l] = lanesAhead(lanes, [send('a'), send('b', {}, true), opens]);
+    expect(l.sessions.map((s) => [s.archived, s.status])).toEqual([
+      [false, 'working'],
+      [false, 'working'],
+      [false, 'stopped'],
+    ]);
+    expect(lanesAhead(lanes, [send('a', { takenAt: NOW + 1 })])).toBe(lanes);
+    expect(lanesAhead(lanes, [send('a', { lapsed: true })])).toBe(lanes);
+  });
+
   it('leaves a working session as it is, and a message that opens an app instead', () => {
     const lanes = [lane([session('a', 'working'), session('b', 'idle')])];
     expect(lanesAhead(lanes, [send('a', {}, true), change({ kind: 'send', key: 'b', text: 'x', working: false, starts: false })])).toBe(lanes);
