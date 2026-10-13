@@ -89,6 +89,40 @@ Commands:
              that needs their identity rather than yours, a dev server or watcher they
              should see. They're asked in Codealong every time, exactly the command you
              give. Needs the app running, and a session Codealong lists running this
+  changes    What changed since an earlier look, for an agent that keeps watch over
+             every session on a loop (an orchestrator: the skill's
+             references/orchestrate.md). Sessions that started (`new`), began a turn
+             (`working`), wait on their user (`waiting`: a call to allow, a question, an
+             error), ended a turn (`finished`) or stopped (`stopped`), each with its
+             worktree, PRs, todos and `lastPromptAt` (for `session suggest` and `session
+             tag`), and for the first --texts of them, waiting ones first, its latest
+             prompt and reply; PRs in your repos opened, out of draft, approved, sent
+             back, merged or closed, or asking your review (`prs`, null when they can't
+             be read); todos added, started, done, reopened or set waiting; worktrees a
+             second agent started working in (`shared`). With them, every session that
+             waits on you now (`waiting`, as `sessions --waiting` lists them), each
+             saying whether it has suggested replies or a tag. It prints a `cursor`:
+             give it to --since next time, and what changed is told by difference from
+             what this look saw, so a busy app or a GitHub error never makes a session
+             or a PR look new. What it couldn't read is said in `notes`, and told once
+             it can be. Without --since, or with a duration, it goes by times alone,
+             which can't tell a review's change. The session running it is left out
+  hygiene    Processes left over from old sessions, and this Mac's load, memory and
+             swap, for keeping a Mac with many agents usable. It lists: the processes of
+             sessions quiet for --after (an agent's own process and what it runs; not
+             one working or waiting on you, unless it's archived), older copies of a
+             background job's attach client (`claude attach <job>` in a second tab), a
+             harness's background processes left with no parent, and dev servers and
+             watchers in a linked worktree no session has been active in for --after
+             (never a repo's main checkout). With --kill it ends those, each with its
+             child processes: it checks again that each process runs the same command
+             first, stops a background job through its harness as Close does and asks
+             the rest to end (SIGTERM), kills what's left after a while (SIGKILL),
+             sweeps once more for dev processes that came back in the worktrees it
+             cleared, and logs each to --log. A session whose process ended keeps its
+             conversation and resumes as usual. It judges nothing, and kills nothing,
+             when the app doesn't answer or is still reading after a start: without its
+             board, every session would look old
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2839,6 +2873,107 @@ Options:
 
       --table
           Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong changes
+
+```
+What changed since an earlier look, for an agent that keeps watch over every session on
+a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started
+(`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a
+question, an error), ended a turn (`finished`) or stopped (`stopped`), each with its
+worktree, PRs, todos and `lastPromptAt` (for `session suggest` and `session tag`), and
+for the first --texts of them, waiting ones first, its latest prompt and reply; PRs in
+your repos opened, out of draft, approved, sent back, merged or closed, or asking your
+review (`prs`, null when they can't be read); todos added, started, done, reopened or
+set waiting; worktrees a second agent started working in (`shared`). With them, every
+session that waits on you now (`waiting`, as `sessions --waiting` lists them), each
+saying whether it has suggested replies or a tag. It prints a `cursor`: give it to
+--since next time, and what changed is told by difference from what this look saw, so a
+busy app or a GitHub error never makes a session or a PR look new. What it couldn't read
+is said in `notes`, and told once it can be. Without --since, or with a duration, it
+goes by times alone, which can't tell a review's change. The session running it is left
+out
+
+Usage: codealong changes [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --since <SINCE>
+          The `cursor` the last run printed. Or how far back to look, by times alone:
+          90m, 24h (the default), 3d
+
+      --cursor-file <FILE>
+          Read --since from this file, where an earlier run saved its cursor, and save
+          this run's cursor there once it's done: for a loop, one command a tick. With
+          no file yet it goes back 24h
+
+      --table
+          Tables, even when piped
+
+      --project <PROJECT>
+          Only this project's sessions, PRs, todos and worktrees
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --texts <TEXTS>
+          How many changed sessions to read the latest prompt and reply of, waiting ones
+          first; each is a read of its conversation. 0 reads none
+          
+          [default: 12]
+
+  -h, --help
+          Print help
+```
+
+## codealong hygiene
+
+```
+Processes left over from old sessions, and this Mac's load, memory and swap, for keeping
+a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an
+agent's own process and what it runs; not one working or waiting on you, unless it's
+archived), older copies of a background job's attach client (`claude attach <job>` in a
+second tab), a harness's background processes left with no parent, and dev servers and
+watchers in a linked worktree no session has been active in for --after (never a repo's
+main checkout). With --kill it ends those, each with its child processes: it checks
+again that each process runs the same command first, stops a background job through its
+harness as Close does and asks the rest to end (SIGTERM), kills what's left after a
+while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it
+cleared, and logs each to --log. A session whose process ended keeps its conversation
+and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer
+or is still reading after a start: without its board, every session would look old
+
+Usage: codealong hygiene [OPTIONS]
+
+Options:
+      --after <AFTER>
+          How long a session, or a worktree's sessions, must have been quiet for what's
+          left of them to go: 90m, 24h (the default), 3d
+          
+          [default: 24h]
+          [alias: --kill-after]
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --kill
+          End what it lists, and log each
+
+      --table
+          Tables, even when piped
+
+      --log <FILE>
+          Where --kill logs what it ended, a line each;
+          ~/Library/Logs/Codealong/kills.log unless given
 
       --verbose
           Say on stderr whether the app or the files answered

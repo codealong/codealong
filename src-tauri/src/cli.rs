@@ -136,9 +136,42 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TerminalCmd,
     },
+    /// What changed since an earlier look, for an agent that keeps watch over every session on a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started (`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a question, an error), ended a turn (`finished`) or stopped (`stopped`), each with its worktree, PRs, todos and `lastPromptAt` (for `session suggest` and `session tag`), and for the first --texts of them, waiting ones first, its latest prompt and reply; PRs in your repos opened, out of draft, approved, sent back, merged or closed, or asking your review (`prs`, null when they can't be read); todos added, started, done, reopened or set waiting; worktrees a second agent started working in (`shared`). With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has suggested replies or a tag. It prints a `cursor`: give it to --since next time, and what changed is told by difference from what this look saw, so a busy app or a GitHub error never makes a session or a PR look new. What it couldn't read is said in `notes`, and told once it can be. Without --since, or with a duration, it goes by times alone, which can't tell a review's change. The session running it is left out.
+    Changes(ChangesArgs),
+    /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
+    Hygiene(HygieneArgs),
     /// The reference for the skill: every subcommand's help, as Markdown.
     #[command(hide = true)]
     Reference,
+}
+
+#[derive(Args, Debug)]
+struct ChangesArgs {
+    /// The `cursor` the last run printed. Or how far back to look, by times alone: 90m, 24h (the default), 3d.
+    #[arg(long)]
+    since: Option<String>,
+    /// Read --since from this file, where an earlier run saved its cursor, and save this run's cursor there once it's done: for a loop, one command a tick. With no file yet it goes back 24h.
+    #[arg(long, value_name = "FILE", conflicts_with = "since")]
+    cursor_file: Option<String>,
+    /// Only this project's sessions, PRs, todos and worktrees.
+    #[arg(long)]
+    project: Option<String>,
+    /// How many changed sessions to read the latest prompt and reply of, waiting ones first; each is a read of its conversation. 0 reads none.
+    #[arg(long, default_value_t = 12)]
+    texts: usize,
+}
+
+#[derive(Args, Debug)]
+struct HygieneArgs {
+    /// How long a session, or a worktree's sessions, must have been quiet for what's left of them to go: 90m, 24h (the default), 3d.
+    #[arg(long, visible_alias = "kill-after", default_value = "24h")]
+    after: String,
+    /// End what it lists, and log each.
+    #[arg(long)]
+    kill: bool,
+    /// Where --kill logs what it ended, a line each; ~/Library/Logs/Codealong/kills.log unless given.
+    #[arg(long, value_name = "FILE")]
+    log: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -952,6 +985,8 @@ struct Client {
     verbose: bool,
     cfg: Option<Config>,
     board: Option<Board>,
+    /// The board is the app's, not a light one read from the files.
+    from_app: bool,
     said: bool,
     /// The session running this command and how it was found, once `find_me` has looked.
     me: Option<(Option<String>, Option<&'static str>)>,
@@ -963,7 +998,7 @@ impl Client {
             Some(Ok(v)) => serde_json::from_value(v).ok(),
             _ => None,
         };
-        Client { app, verbose, cfg: None, board: None, said: false, me: None }
+        Client { app, verbose, cfg: None, board: None, from_app: false, said: false, me: None }
     }
 
     fn note(&mut self) {
@@ -991,7 +1026,10 @@ impl Client {
         if self.board.is_none() {
             let board = match self.app.is_some() {
                 true => match server::ask(&Request::Board) {
-                    Some(Ok(v)) => serde_json::from_value(v).context("reading the app's board")?,
+                    Some(Ok(v)) => {
+                        self.from_app = true;
+                        serde_json::from_value(v).context("reading the app's board")?
+                    }
                     Some(Err(e)) => bail!("{e}"),
                     None => engine::light_snapshot(),
                 },
@@ -1095,11 +1133,16 @@ impl Client {
     /// for): through the app, which does what its windows do, or from here over the board when
     /// it's closed or older than the command.
     fn act(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>) -> Result<Value> {
-        self.note();
-        let params = serde_json::to_value(params)?;
         // A repo's own teardown can take minutes: removing a worktree, and Mark as done on a
         // background job, which removes the worktree it made.
         let wait = if name == api::WORKTREE_REMOVE || name == api::SESSION_DONE { REMOVAL_WAIT } else { server::WAIT };
+        self.act_within(name, key, params, from, wait)
+    }
+
+    /// `act`, waiting at most `wait` for the app's answer.
+    fn act_within(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>, wait: std::time::Duration) -> Result<Value> {
+        self.note();
+        let params = serde_json::to_value(params)?;
         if self.app.is_some() {
             match server::ask_within(&Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() }, wait) {
                 Some(Ok(v)) => return Ok(v),
@@ -1188,6 +1231,8 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Install(args) => install(c, &args, json),
         Cmd::Devices { cmd } => devices_cmd(c, cmd, json),
         Cmd::Terminal { cmd } => terminal_cmd(c, cmd, json),
+        Cmd::Changes(args) => changes(c, &args, json),
+        Cmd::Hygiene(args) => hygiene(c, &args, json),
         Cmd::Reference => {
             print!("{}", reference_text());
             Ok(())
@@ -4127,6 +4172,231 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
         println!("! {w}");
     }
     Ok(())
+}
+
+// ---- changes ----
+
+/// How long `changes` spends reading changed sessions' conversations, all told and on each: a
+/// busy app answers slowly, and the board alone says where each stands.
+const TEXTS_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+const TEXT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn changes(c: &mut Client, a: &ChangesArgs, json: bool) -> Result<()> {
+    use crate::changes::{self as ch, Since};
+    let now = now_ms();
+    let cursor_file = a.cursor_file.as_deref().map(expand);
+    let saved = cursor_file.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let asked = a.since.clone().or(saved).unwrap_or_else(|| "24h".into());
+    let since = ch::parse_since(&asked, now).ok_or_else(|| anyhow!("--since is a cursor an earlier run printed, or like 90m, 24h or 3d, not {asked}."))?;
+    let mut notes = Vec::new();
+    let (earlier, since_ms) = match since {
+        Since::Time(t) => (None, t),
+        Since::Cursor(cursor) => match ch::earlier(&cursor)? {
+            Some(look) => {
+                let at = look.at;
+                (Some(look), at)
+            }
+            None => {
+                notes.push(format!("No look is kept for cursor {cursor} (each is kept a week, on the Mac that took it), so this goes by times since then."));
+                (None, cursor.parse().unwrap_or(now - util::DAY_MS))
+            }
+        },
+    };
+    let me = find_me(c)?.0;
+    c.board()?;
+    let (from_app, app_up) = (c.from_app, c.app.is_some());
+    let board = c.board()?;
+    let github = board.notices.iter().find(|n| n.key == "github").map(|n| n.title.clone());
+    match (from_app, board.github_polled, github) {
+        (false, _, _) if app_up => notes.push("PRs: the app didn't answer, so they're told next time.".into()),
+        (false, _, _) => notes.push("PRs: the app isn't running, so they're told once it is.".into()),
+        (true, false, _) => notes.push("PRs: GitHub hasn't answered since the app started, so they're told once it has.".into()),
+        (true, true, Some(title)) => notes.push(format!("PRs may be behind: {title}.")),
+        _ => {}
+    }
+    let sight = ch::Sight { board, sessions: !board.loading, prs: from_app && board.github_polled, me: me.as_deref(), project: a.project.as_deref() };
+    let (mut out, look) = ch::compare(&sight, earlier.as_ref(), since_ms, now);
+    out.cursor = ch::keep(look)?;
+    notes.append(&mut out.notes);
+    out.notes = notes;
+
+    // The conversations, while there's time: the board's excerpt stands for one that doesn't read.
+    let started = std::time::Instant::now();
+    let mut slow = 0;
+    for row in out.sessions.iter_mut().take(a.texts) {
+        let left = TEXTS_BUDGET.saturating_sub(started.elapsed());
+        let page = match left.is_zero() {
+            true => None,
+            false => c.act_within(api::SESSION_PAGE, &row.key, params::Page { before: None, ..Default::default() }, None, left.min(TEXT_WAIT)).ok().and_then(|v| serde_json::from_value::<api::Page>(v).ok()),
+        };
+        match page {
+            Some(page) => (row.prompt, row.reply) = ch::texts(&page.items),
+            None => slow += 1,
+        }
+    }
+    if slow > 0 {
+        out.notes.push(format!("{slow} of the changed sessions' conversations didn't read in time; their excerpt says where they stand."));
+    }
+    // Saved last, so a run cut short is told again from the same look.
+    if let Some(path) = &cursor_file {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+        }
+        std::fs::write(path, format!("{}\n", out.cursor)).with_context(|| format!("saving the cursor in {}", path.display()))?;
+    }
+    if json {
+        return print_json(&out);
+    }
+    print_changes(&out, now);
+    Ok(())
+}
+
+/// A value of an enum as its JSON spells it: `changes-requested`.
+fn word(v: &impl Serialize) -> String {
+    serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+}
+
+fn print_changes(out: &crate::changes::Changes, now: i64) {
+    let how = if out.compared { "by what was seen then" } else { "by times alone" };
+    println!("Since {} ago, {how}. Next time: codealong changes --since {}", ago(now - out.since), out.cursor);
+    for n in &out.notes {
+        println!("Note: {n}");
+    }
+    if out.quiet() {
+        println!("\nNo changes.");
+    }
+    if !out.sessions.is_empty() {
+        println!("\nSessions");
+        let rows = out.sessions.iter().map(|r| vec![word(&r.change), r.account.clone(), r.callsign.clone(), truncate(&r.title, 40), truncate(r.excerpt.as_deref().unwrap_or(""), 60), r.key.clone()]).collect();
+        print!("{}", table_text(&["CHANGE", "ACCOUNT", "WORKTREE", "TITLE", "NOW", "KEY"], rows));
+    }
+    let bare: Vec<&crate::changes::WaitingRow> = out.waiting.iter().filter(|w| !w.suggested && !w.tagged).collect();
+    if !out.waiting.is_empty() {
+        println!("\nWaiting on you: {}, {} with no suggested replies or tag", out.waiting.len(), bare.len());
+        let rows = bare.iter().map(|w| vec![word(&w.status), ago(now - w.since), w.callsign.clone(), truncate(&w.title, 50), w.key.clone()]).collect();
+        print!("{}", table_text(&["STATUS", "FOR", "WORKTREE", "TITLE", "KEY"], rows));
+    }
+    if let Some(prs) = out.prs.as_ref().filter(|p| !p.is_empty()) {
+        println!("\nPRs");
+        let rows = prs.iter().map(|p| vec![word(&p.change), p.key.clone(), p.author.clone().unwrap_or_default(), truncate(&p.title, 60)]).collect();
+        print!("{}", table_text(&["CHANGE", "PR", "AUTHOR", "TITLE"], rows));
+    }
+    if !out.todos.is_empty() {
+        println!("\nTodos");
+        let rows = out.todos.iter().map(|t| vec![word(&t.change), t.id.clone(), truncate(&t.title, 70)]).collect();
+        print!("{}", table_text(&["CHANGE", "ID", "TITLE"], rows));
+    }
+    for s in &out.shared {
+        let who: Vec<String> = s.sessions.iter().map(|x| format!("{} ({})", truncate(&x.title, 30), word(&x.status))).collect();
+        println!("\nShared: {}{} has {} agents at work: {}", tilde(Path::new(&s.worktree)), if s.main { " (main checkout)" } else { "" }, s.sessions.len(), who.join(", "));
+    }
+}
+
+// ---- hygiene ----
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HygieneOut {
+    system: crate::hygiene::System,
+    /// The app's board answered, so processes were judged.
+    judged: bool,
+    notes: Vec<String>,
+    /// What's left over from old sessions, the most memory first: what --kill ends.
+    found: Vec<crate::hygiene::Found>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ended: Option<Vec<crate::hygiene::Ended>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    log: Option<String>,
+}
+
+fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
+    use crate::hygiene;
+    let after_ms = crate::idle::parse_after(&a.after).ok_or_else(|| anyhow!("--after is like 90m, 24h, 3d or 1w, not {}.", a.after))?;
+    let mut out = HygieneOut { system: hygiene::system(), judged: false, notes: Vec::new(), found: Vec::new(), ended: None, log: None };
+    // Without the app's board every session would look old, so nothing is judged on a light one.
+    let app_pid = c.app.as_ref().map(|s| s.pid);
+    let ready = match app_pid {
+        Some(_) => {
+            c.board()?;
+            c.from_app && !c.board()?.loading
+        }
+        None => false,
+    };
+    let procs = match (ready, app_pid) {
+        (true, _) => hygiene::processes().map_err(|e| out.notes.push(format!("`ps` didn't answer ({}), so nothing was judged.", util::words(e)))).ok(),
+        (false, None) => {
+            out.notes.push("Codealong isn't running, so nothing was judged or ended: without its board every session looks old.".into());
+            None
+        }
+        (false, Some(_)) => {
+            out.notes.push("Codealong didn't answer, or is still reading after a start, so nothing was judged or ended.".into());
+            None
+        }
+    };
+    if let Some(procs) = procs {
+        let mut protected: HashSet<u32> = procs::ancestors(std::process::id()).into_iter().collect();
+        protected.extend(app_pid);
+        let listening: HashSet<u32> = procs::listeners().into_iter().map(|l| l.pid).collect();
+        let cfg = c.cfg()?.clone();
+        let board = c.board()?;
+        let cwd = |pid: u32| procs::cwd_of(pid).map(|p| p.to_string_lossy().into_owned());
+        let linked = |dir: &str| Path::new(dir).join(".git").is_file();
+        let scene = hygiene::Scene { board, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked };
+        let mut found = hygiene::judge(&scene);
+        for f in &mut found {
+            f.memory = std::iter::once(f.pid).chain(f.children.iter().copied()).filter_map(hygiene::footprint).sum();
+        }
+        found.sort_by_key(|f| std::cmp::Reverse(f.memory));
+        out.judged = true;
+        if a.kill && !found.is_empty() {
+            let ended = hygiene::end(&found, &protected, board, &cfg);
+            let path = a.log.as_deref().map(expand).unwrap_or_else(|| util::home().join("Library/Logs/Codealong/kills.log"));
+            if let Err(e) = hygiene::log(&path, &ended, &found) {
+                out.notes.push(format!("Couldn't log to {}: {e}", path.display()));
+            }
+            out.log = Some(path.to_string_lossy().into_owned());
+            out.ended = Some(ended);
+        }
+        out.found = found;
+    }
+    if json {
+        return print_json(&out);
+    }
+    print_hygiene(&out);
+    Ok(())
+}
+
+fn print_hygiene(out: &HygieneOut) {
+    let s = &out.system;
+    let gb = |b: u64| b as f64 / 1_073_741_824.0;
+    let mb = |b: u64| format!("{} MB", b / 1_048_576);
+    let free = s.free_percent.map(|p| format!(", {p}% free")).unwrap_or_default();
+    let compressed = s.compressed.map(|c| format!(", {:.1} GB compressed", gb(c))).unwrap_or_default();
+    let swap = if s.swap_total > 0 { format!("swap {:.1} of {:.1} GB used", gb(s.swap_used), gb(s.swap_total)) } else { "no swap".into() };
+    println!("Load {:.0} {:.0} {:.0} on {} CPUs · memory {:.0} GB{free}{compressed} · {swap}", s.load[0], s.load[1], s.load[2], s.cpus, gb(s.memory));
+    for n in &out.notes {
+        println!("Note: {n}");
+    }
+    if !out.judged {
+        return;
+    }
+    match &out.ended {
+        Some(ended) => {
+            let gone: Vec<&crate::hygiene::Ended> = ended.iter().filter(|e| e.result == "ended").collect();
+            println!("\nEnded {} of {} ({:.1} GB):", gone.len(), ended.len(), gb(gone.iter().map(|e| e.memory).sum()));
+            let rows = ended.iter().map(|e| vec![mb(e.memory), e.pid.to_string(), e.result.clone(), word(&e.kind), truncate(&e.why, 90)]).collect();
+            print!("{}", table_text(&["MEMORY", "PID", "RESULT", "KIND", "WHY"], rows));
+            if let Some(log) = &out.log {
+                println!("Logged in {}", tilde(Path::new(log)));
+            }
+        }
+        None if out.found.is_empty() => println!("\nNothing left over from old sessions."),
+        None => {
+            println!("\nLeft over from old sessions, {:.1} GB (--kill ends them):", gb(out.found.iter().map(|f| f.memory).sum()));
+            let rows = out.found.iter().map(|f| vec![mb(f.memory), f.pid.to_string(), word(&f.kind), truncate(&f.why, 90)]).collect();
+            print!("{}", table_text(&["MEMORY", "PID", "KIND", "WHY"], rows));
+        }
+    }
 }
 
 // ---- shared bits ----

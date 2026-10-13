@@ -693,6 +693,15 @@ impl crate::harness::Adapter for ClaudeCode {
         Some("/exit")
     }
 
+    /// The background service (`claude daemon run`) keeps spare processes ready for the next
+    /// job, each in a pty host of its own (`claude bg-pty-host --bg-pty-host <sock> … --bg-spare
+    /// <sock>`, its spare `claude bg-spare --bg-spare <sock>`), and a job runs in a spare it
+    /// claimed. With the service gone, launchd is their parent, and nothing claims them again
+    /// (2.1.296).
+    fn leftover(&self, command: &str) -> bool {
+        command.split_whitespace().any(|w| w == "--bg-spare" || w == "--bg-pty-host")
+    }
+
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it
     /// makes for it.
     fn chats(&self) -> Option<(PathBuf, &'static str)> {

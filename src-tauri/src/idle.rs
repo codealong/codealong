@@ -474,7 +474,7 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
 }
 
 /// A stretch of time in words: 26 hours, 3 days.
-fn span(ms: i64) -> String {
+pub fn span(ms: i64) -> String {
     let mins = ms.max(0) / 60_000;
     match mins {
         0..=1 => "just now".into(),

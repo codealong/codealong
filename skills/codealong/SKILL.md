@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies, or when choosing which account to start something on.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, or when choosing which account to start something on.
 ---
 
 # Codealong
@@ -246,6 +246,15 @@ status, over Jev's for the same moment.
 4. Tag again to replace it; `--clear` takes it away. A tag goes by itself once anything is sent
    to the session or a turn of its starts, so a session with none has moved on: read it again
    before tagging more.
+
+## Orchestrating
+
+When your user asks you to run as their orchestrator, keeping watch over all their sessions on a
+loop (in Claude Code, `/codealong:orchestrate`), read `references/orchestrate.md` and follow it.
+Its two commands are for any watcher: `codealong changes --since <cursor>` says what changed
+since the last look (sessions, PRs, todos, worktrees two agents share) with what waits on the
+user now, and `codealong hygiene` lists the processes left over from old sessions, with this
+Mac's load, memory and swap (`--kill` ends them).
 
 ## PRs
 

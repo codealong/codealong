@@ -349,6 +349,11 @@ codealong start --todo <id>
 `codealong --help` lists everything, and so does
 [the skill's reference](skills/codealong/references/reference.md).
 
+An agent can also keep watch over all your sessions for you on a loop:
+`codealong start --prompt "/codealong:orchestrate"` starts an orchestrator, which asks what you'd
+like it to do, then tags what waits on you, suggests replies, and flags agents getting in each
+other's way, without messaging any of them ([its skill](skills/codealong/references/orchestrate.md)).
+
 ## What works with each agent
 
 Codealong reads what every agent already writes, so it sees all of them. What it can do from

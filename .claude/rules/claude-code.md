@@ -93,7 +93,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - Warm spares (from 2.1.286), which Claude Code's own lookups and `read_registry` skip:
   `claude/registry.rs` (`RegistryEntry::spare`, `read_registry`). A spare's registry entry says
   `"spare": true`, `kind: bg`, `status: idle` and `name` its job ID, and its roster entry
-  `dispatch.source: "spare"` with an empty `seed.intent`.
+  `dispatch.source: "spare"` with an empty `seed.intent`. Each spare runs in a pty host of its
+  own under the service, and a job runs in the spare it claimed (the session's pid is that
+  `claude bg-spare` process); with the service gone they're launchd's, and nothing claims them
+  again: `claude/mod.rs` (`leftover`), which `codealong hygiene` ends.
 - A Bash call is in the transcript before its command runs, and its shell, a background one too,
   is a child of the session's process, which is how the `codealong` command finds its session; a
   terminal keeps `CODEALONG_SESSION` after its session ends: `claude/mod.rs` (`open_calls`,

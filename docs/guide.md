@@ -1775,6 +1775,38 @@ folder (`~/.codex/skills`, `~/.config/opencode/skills`, `~/.gemini/config/skills
 current; `codealong install` does the same from a terminal. Settings › Agents is where each
 account's plugin or skill shows. See *For agents* below.
 
+### An orchestrator
+
+A session can keep watch over all your others for you, on a loop. Start one with `codealong start
+--prompt "/codealong:orchestrate"` on a Claude Code account, or `/codealong:orchestrate` in a
+session's box; on another harness, ask it to run as your orchestrator with the codealong skill. It
+asks first how often to look (every 15 minutes) and which optional parts you want, keeps your
+answers, its cursor and a running narrative of the work in `orchestrator/` in Codealong's folder,
+and schedules itself with its harness's scheduler. Each tick it reads what changed, tags what waits
+on you and suggests replies (*Suggested replies*), and points out agents getting in each other's
+way: two sessions in one worktree, two on one task, PRs touching the same code, a production change
+planned while a deploy runs. It never messages a session for you. If you say so, it also ends what's
+left running of old sessions (`codealong hygiene --kill`), turns real action items in your email
+into a todo and a session that may only investigate and draft (with a Gmail connector), watches
+deploys where a repo has a watch of its own, and once a day looks at what's new in Codealong and
+suggests how its loop or your work could use it. The skill is `references/orchestrate.md` in the
+codealong skill.
+
+Its two commands are for any agent. `codealong changes` says what changed since the cursor an
+earlier run printed: sessions that started, began or ended a turn, wait on you or stopped, each with
+its latest prompt and reply; PRs opened, out of draft, approved, sent back, merged or closed; todos
+added, started, done or set waiting; worktrees a second agent started working in. With them comes
+every session that waits on you now, and whether each has suggestions or a tag. It tells by
+difference from what that run saw, kept for a week in `changes.json`, so a busy app or GitHub not
+answering never makes a session or a PR look new: what it couldn't read it says, and tells once it
+can. `--cursor-file` keeps the cursor in a file, so a tick is one command. `codealong hygiene` lists
+what's left running of old sessions, with the Mac's load, memory and swap: the agent process of a
+session quiet for a day (not one working or waiting on you, unless it's archived), older copies of
+a background job's attach client, a harness's background processes whose parent has gone, and dev
+servers and watchers in a linked worktree no session has been active in for a day, never in a main
+checkout. `--kill` ends them with their child processes, each checked again first and logged, a
+background job stopped the way Close stops it; it judges nothing when the app doesn't answer.
+
 ## Files Codealong keeps
 
 Everything lives in `~/Library/Application Support/Codealong/`, beside `config.toml`.
@@ -1791,7 +1823,8 @@ reusable or not in `worktrees.json`; where each PR's automatic reviews stand in 
 replies suggested for sessions, until the sessions move on, in `suggestions.json`; each session's
 emblem, the color Codealong gave it and the icon Jev picked, in `emblems.json`; each command you
 allowed an agent to run in your terminal, with what it printed, for a week in `terminal-runs/`;
-what every
+what `codealong changes` saw at each of its last dozen looks, for a week, in `changes.json`; an
+orchestrator's answers, cursor and narrative in `orchestrator/`; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;

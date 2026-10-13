@@ -83,6 +83,12 @@ accounts you've since removed, and never touches a folder it didn't make. A copy
 is left alone: Settings › Agents marks it Edited, and replaces it only when asked (so does
 `codealong install --account <name>`).
 
+The orchestrator is part of the same skill, `references/orchestrate.md`, which SKILL.md points
+an agent at when it's asked to run as one, so every harness has it from the one copy. That file
+has a skill's frontmatter too, and `plugin/skills/orchestrate/SKILL.md` links to it, so the plugin
+offers it in Claude Code as `/codealong:orchestrate` (tauri.conf.json bundles the link's file as
+the plugin's).
+
 `plugin/` wraps the same skill as a Claude Code plugin (`.claude-plugin/plugin.json`, a
 `bin/codealong` shim that finds the app, a `SessionStart` hook that runs `codealong whoami
 --context`, and a `PermissionRequest` hook that runs the hidden `codealong session hook
@@ -161,6 +167,7 @@ light scan (no git, PRs or visitors).
 | `src/tips.ts`, `src/ui/Tip.tsx` | Tips on using Codealong: the one list, each tip with the places it shows and its keys from the chord tables, and the box that shows them where a window waits on what it reads |
 | `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
+| `src-tauri/src/changes.rs`, `hygiene.rs` | For an orchestrator's loop: what changed on the board since an earlier look, told by difference from what that look saw (`codealong changes`, `changes.json`); and what's left running of old sessions, with the Mac's load, memory and swap, and ending it (`codealong hygiene`) |
 | `src-tauri/src/actions.rs` | What Codealong does to a session or a worktree, or asks of a device, one table of requests: done here, or asked of the device it's on, for a window, another device and the `codealong` command alike, with what each may ask for and what each carries |
 | `src-tauri/src/snapshot.rs` | `codealong --snapshot`: the engine without a window, its modes in one table, for checking what it shows and does |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |

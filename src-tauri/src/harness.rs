@@ -166,6 +166,13 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Whether a process found with no parent left (launchd's) is one the harness keeps in the
+    /// background for its sessions, of no use once what started it has gone: `codealong hygiene`
+    /// ends it, unless a live session runs under it.
+    fn leftover(&self, _command: &str) -> bool {
+        false
+    }
+
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.
     fn pending(&self, _ctx: &Ctx, _session: &Session) -> Option<Pending> {
         None
