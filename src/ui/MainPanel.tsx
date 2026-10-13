@@ -256,9 +256,12 @@ export function MainPanel(props: MainPanelProps) {
         device={deviceOf(devices, session.key)}
         back={back}
         onFailed={(why) => {
-          // Not dealt with after all: it comes round again.
+          // Not dealt with after all: it comes round again. Its box has gone, as the panel went on
+          // to the next, so the strip over that one says why, as the waiting window's does; a
+          // toast where there's no strip (another view).
           queue.again(session.key);
-          setToast(`Didn’t send to ${session.title}, so it’s back in its box: ${why}`);
+          const said = `Didn’t send to ${session.title}, so it’s back in its box: ${why}`;
+          if (!queue.say({ text: said, error: true })) setToast(said);
         }}
         queue={queued ? queue.queue : undefined}
         notice={queued ? queue.notice : null}

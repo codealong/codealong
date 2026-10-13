@@ -73,8 +73,9 @@ export interface WaitingQueue<H = undefined, T = unknown> {
   /** Not dealt with after all (its message didn't go): it comes round again. */
   again: (key: string) => void;
   /** Says something on the strip of the session shown, or of the one `on` that the window is
-   *  about to show, in place of how the last one went; null takes back what it says. */
-  say: (notice: Notice | null, on?: string) => void;
+   *  about to show, in place of how the last one went; null takes back what it says. False when
+   *  there's no session to say it on, for the window to say it some other way. */
+  say: (notice: Notice | null, on?: string) => boolean;
   /** Starts afresh, as a window opening on a session does: nothing dealt with, nothing said. */
   fresh: () => void;
 }
@@ -140,6 +141,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const say = useCallback((notice: Notice | null, onKey?: string) => {
     const on = onKey ?? now.current.view.shown?.key;
     setNote(notice && on ? { ...notice, on } : null);
+    return on !== undefined;
   }, []);
   const fresh = useCallback(() => {
     handled.current = new Map();

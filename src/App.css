@@ -189,16 +189,18 @@
   color: var(--ink-3);
 }
 
-/* Toast */
+/* Toast. It sits at the foot of what Toasts.tsx anchors it to (the board), centered on it and no
+   wider: `--toast-x` is the anchor's middle, `--toast-w` its width and `--toast-foot` how far
+   above the window's foot its own foot is. Until it's measured, the window's. */
 .ca-toast {
   position: fixed;
-  left: 50%;
-  bottom: 24px;
+  left: var(--toast-x, 50%);
+  bottom: calc(var(--toast-foot, 0px) + var(--space-6));
   z-index: var(--z-toast);
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  max-width: 560px;
+  max-width: min(560px, var(--toast-w, 100vw) - 2 * var(--space-4));
   padding: 10px 14px;
   transform: translateX(-50%);
   border-radius: var(--radius-md);
@@ -260,7 +262,7 @@
   padding-bottom: 0;
 }
 .ca-win-body.is-canvas ~ .ca-toast {
-  bottom: 72px;
+  bottom: calc(var(--toast-foot, 0px) + 72px);
 }
 
 /* A session's own panel (SessionPanel.tsx): a fixed head, the conversation scrolling in the

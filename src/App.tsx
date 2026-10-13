@@ -217,6 +217,15 @@ export function App() {
   // What went wrong with something you did here, what's under way, and the ways back (Toasts.tsx).
   const toasts = useToasts();
   const { setToast, track, report, setTodoUndo } = toasts;
+  // They go at the foot of the board, where what they're about is listed, and so never on a
+  // panel's message box. Where a panel takes the whole window, at the foot of what scrolls over
+  // the box at its own foot: a session's conversation, a PR's details.
+  const boardRef = useRef<HTMLElement>(null);
+  const toastAnchor = () => {
+    const board = boardRef.current;
+    if (board && board.offsetWidth > 0) return board;
+    return document.querySelector('.ca-win-body > .ca-insp :is(.ca-thread, .ca-prpanel-body)') ?? document.querySelector('.ca-win-body > .ca-insp');
+  };
   // What isn't working in the background (notices.ts): the engine's and this window's own,
   // less the ones dismissed, which stay dismissed across launches while they still stand.
   const reported = useReportedNotices();
@@ -1503,7 +1512,7 @@ export function App() {
           }
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
-        <main className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
+        <main ref={boardRef} className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
           {view === 'sessions' && !loading && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
           {devices?.asks.map((a) => (
             <div key={a.key} className="ca-device-banner" role="alert">
@@ -1834,7 +1843,7 @@ export function App() {
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
-      <Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
+      <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>
   );
 }

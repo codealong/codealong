@@ -394,7 +394,10 @@ goes on, and the keys stay where they were, so ⌘E works down the list or from 
 session that doesn't wait on you (one that runs, say) it goes on as ⌘] does. Snoozing, closing or
 archiving a session that waits on you goes on to the next as well, by its key, the strip's button or
 its menu. ⌘] or ⌥⇧↓ skips to the next, ⌘[ or ⌥⇧↑ goes back to the one before, and a skipped one
-comes round again after the rest. ⇧⌘F (or the button beside the check) expands the panel to the
+comes round again after the rest. A message that doesn't go after ⌘⏎ went on is back in its
+session's box, and that session comes round again: the strip over the one you went on to says why,
+rather than a toast over the box you're typing in. The window's toasts sit at the foot of the list,
+clear of the panel. ⇧⌘F (or the button beside the check) expands the panel to the
 whole window, the list and sidebar out of the way while you work through them, and stays so until
 you press it again; Escape in the box then leaves the keys with the window.
 
@@ -1305,7 +1308,8 @@ session waits on) and goes on to the next that waits on you, ⌘E marks a finish
 on (from one that runs it goes on all the same), ⌘] or ⌥⇧↓ skips to the next and ⌘[ or ⌥⇧↑ goes
 back, ⌥↑ ⌥↓ step along the bar's sessions, the running ones too, and ⌃- and ⌃⇧- go back and forward
 through the ones you looked at there. A strip over the header says how many more wait and how the
-last one went, and has what's commonly done to the session as buttons that say their keys, as its
+last one went (a message that didn't go after ⌘⏎ went on says why there, or on its session's pill
+once the notch has closed), and has what's commonly done to the session as buttons that say their keys, as its
 panel in Sessions has: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back
 (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
 sessions that need you and before the turns that ended, so the keys go from a session to a review

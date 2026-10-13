@@ -4,9 +4,12 @@
 // yours or a session an agent marked done.
 // One shows at a time, in that order. What goes wrong in the background is a notice instead
 // (notices.ts).
+// A toast goes at the foot of the board, where what it's about is listed, rather than the
+// window's: centered on the window, a wide one landed on the session panel's message box.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { onAgentDone, onQuickStart } from '../api';
+import { useLatest } from '../latest';
 import type { Report } from '../report';
 import { Icon, StatusGlyph } from './primitives';
 
@@ -108,19 +111,55 @@ export function useToasts(): ToastState {
   return { toast, setToast, busy, track, report, archived, setArchived, todoUndo, setTodoUndo };
 }
 
-/** The toast that shows now. `onUnarchive` puts archived sessions back. */
-export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive: (archived: Archived) => void }) {
+/** Where a toast goes while one is `up`: centered on what `anchor` gives, at its foot, and no
+ *  wider than it. What the anchor is can change while a toast shows (a panel taking the whole
+ *  window hides the board), so it's asked again whenever the one it gave changes size. */
+function usePlace(anchor: () => Element | null, up: boolean): CSSProperties | undefined {
+  const [place, setPlace] = useState<CSSProperties>();
+  const anchorNow = useLatest(anchor);
+  useLayoutEffect(() => {
+    if (!up) return;
+    let watched: Element | null = null;
+    const measure = () => {
+      const el = anchorNow.current();
+      if (el !== watched) {
+        if (watched) observer.unobserve(watched);
+        if (el) observer.observe(el);
+        watched = el;
+      }
+      if (!el) {
+        setPlace(undefined);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      setPlace({ '--toast-x': `${r.left + r.width / 2}px`, '--toast-w': `${r.width}px`, '--toast-foot': `${window.innerHeight - r.bottom}px` } as CSSProperties);
+    };
+    const observer = new ResizeObserver(measure);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [up, anchorNow]);
+  return place;
+}
+
+/** The toast that shows now, at the foot of what `anchor` gives (`usePlace`). `onUnarchive` puts
+ *  archived sessions back. */
+export function Toasts({ state, anchor, onUnarchive }: { state: ToastState; anchor: () => Element | null; onUnarchive: (archived: Archived) => void }) {
   const { toast, setToast, busy, archived: undo, setArchived: setUndo, todoUndo, setTodoUndo } = state;
+  const place = usePlace(anchor, !!toast || busy.length > 0 || !!undo || !!todoUndo);
   return (
     <>
       {busy.length > 0 && !toast && (
-        <div className="ca-toast is-busy" role="status" aria-live="polite">
+        <div className="ca-toast is-busy" role="status" aria-live="polite" style={place}>
           <StatusGlyph status="working" size={14} title="In progress" />
           <span>{busy[busy.length - 1].label}</span>
         </div>
       )}
       {undo && !toast && busy.length === 0 && (
-        <div className="ca-toast" role="status">
+        <div className="ca-toast" role="status" style={place}>
           <Icon name="archive" size={16} />
           <span>{undo.message || `Archived “${undo.title}”.`}</span>
           <button
@@ -136,7 +175,7 @@ export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive:
         </div>
       )}
       {todoUndo && !toast && !undo && busy.length === 0 && (
-        <div className="ca-toast" role="status">
+        <div className="ca-toast" role="status" style={place}>
           <Icon name={todoUndo.icon ?? 'trash'} size={16} />
           <span>{todoUndo.message}</span>
           <button
@@ -152,7 +191,7 @@ export function Toasts({ state, onUnarchive }: { state: ToastState; onUnarchive:
         </div>
       )}
       {toast && (
-        <div className="ca-toast" role="status" onClick={() => setToast(null)}>
+        <div className="ca-toast" role="status" style={place} onClick={() => setToast(null)}>
           <Icon name="alert" size={16} />
           <span>{toast}</span>
         </div>

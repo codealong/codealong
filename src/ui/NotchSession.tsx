@@ -84,6 +84,10 @@ export interface NotchStageState {
   /** The review `key` left on didn't go: it's back among what waits, the notch opens on it again
    *  when it had closed, and the strip says why. */
   failed: (key: string, why: string) => void;
+  /** A message to the session `key` didn't go, after the notch went on from it: it's back among
+   *  what waits, and the strip of the one shown says `said`. False when the notch has closed, for
+   *  the bar to say it. */
+  unsent: (key: string, said: string) => boolean;
 }
 
 /** What the docked bar shows under its pills: which session or review, what it works through,
@@ -202,6 +206,13 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     },
     [again, say, show],
   );
+  const unsent = useCallback(
+    (key: string, said: string) => {
+      again(key);
+      return say({ text: said, error: true });
+    },
+    [again, say],
+  );
 
   // The bar left the notch: there's nowhere to show one.
   useEffect(() => {
@@ -250,7 +261,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
 
   const back = history.back ? () => void run('historyBack') : null;
 
-  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, show, toggle, press, close, takeKeys, next, left, failed };
+  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, show, toggle, press, close, takeKeys, next, left, failed, unsent };
 }
 
 interface NotchSessionProps {
@@ -272,13 +283,16 @@ interface NotchSessionProps {
   /** Sent or allowed with ⌘⏎, and what took it off the bar: on to the next. */
   onNext: (done: string, from: string) => void;
   onLeft: (key: string, done: Left) => void;
+  /** A message to the session `key` didn't go after the notch went on from it; false when there's
+   *  no strip to say `said` on (NotchStageState `unsent`). */
+  onUnsent: (key: string, said: string) => boolean;
   /** The board no longer has it. */
   onGone: (key: string) => void;
   /** The zoom the card draws at, in percent, from the bar's feed (zoom.ts). */
   zoom?: number;
 }
 
-export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onNext, onLeft, onGone, zoom }: NotchSessionProps) {
+export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onNext, onLeft, onUnsent, onGone, zoom }: NotchSessionProps) {
   // The session as the engine has it, asked for as it's shown; the one before stays until it
   // comes, so going from one to the next never shows an empty notch.
   const [told, setTold] = useState<(Told & { apps: Board['apps'] }) | null>(null);
@@ -374,7 +388,11 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
           // went as a message from Codealong because its terminal couldn't be typed into.
           if (sent.opened || sent.fellBack) report.info(sent.message);
         }}
-        onFailed={(why) => report.error(why)}
+        // It didn't go, after the notch went on from it: the strip of the one shown says why, as
+        // the waiting window's does. Where the notch closed on it, the bar says so by its pill.
+        onFailed={(why) => {
+          if (!onUnsent(session.key, `Didn’t send to ${session.title}: ${why}`)) report.error(why);
+        }}
       />
     </div>
   );
