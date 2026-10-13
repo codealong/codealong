@@ -475,6 +475,7 @@ quick_panel = false            # suggestions as you type in the quick panel
 sessions = false               # how each turn ended: asks you, stuck, landed, finished, risk
 todos = false                  # links sessions to todos, done hints, new todos' labels
 pull_requests = false          # review comments that ask for a change
+emblems = false                # an icon beside each session's title, for what it works on
 
 [search]
 days = 14                      # prompts and replies searched this far back; 0 is titles only (Settings › General)

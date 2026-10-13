@@ -1040,6 +1040,8 @@ struct Engine {
     jev_todos_failed: Option<Instant>,
     /// Jev's reads of sessions, by the moment each was asked about (insights.rs).
     insights: crate::insights::Store,
+    /// Each session's emblem: the color it was given and the icon Jev picked (emblems.rs).
+    emblems: crate::emblems::Store,
 }
 
 impl Engine {
@@ -1136,6 +1138,7 @@ impl Engine {
             jev_todos_loaded: false,
             jev_todos_failed: None,
             insights: crate::insights::Store::load(),
+            emblems: crate::emblems::Store::load(),
         }
     }
 
@@ -1160,6 +1163,7 @@ impl Engine {
             "todolink" => self.on_todo_link(rest.to_string(), answer),
             "tododone" => self.on_todo_done(rest.to_string(), answer),
             "insight" => self.on_insight(rest.to_string(), answer),
+            "emblem" => self.on_emblem(rest, answer),
             _ => {
                 let _ = answer;
             }
@@ -1263,6 +1267,53 @@ impl Engine {
         if self.cfg.jev.sessions {
             self.look_insights(board);
         }
+        if self.cfg.jev.emblems {
+            self.look_emblems(board);
+        }
+    }
+
+    /// Gives a color to each session seen for the first time and asks Jev for the icon of each
+    /// that has none yet (emblems.rs). At most a few new questions per board, as for insights.
+    /// Another Mac's sessions come with the emblems that Mac gave them.
+    fn look_emblems(&mut self, board: &Board) {
+        const PER_BOARD: usize = 20;
+        let now = now_ms();
+        let sessions = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (l.project.as_str(), s)));
+        let mut asked = 0;
+        for key in self.emblems.look(sessions, now) {
+            let id = format!("emblem:{key}");
+            if asked >= PER_BOARD {
+                break;
+            }
+            let Some((_, s)) = board.session(&key).filter(|_| !self.jev_pending.contains(&id)) else { continue };
+            self.ask_jev(id, crate::emblems::request(s, &self.cfg.jev.model));
+            asked += 1;
+        }
+        self.emblems.save(now);
+    }
+
+    /// The icon Jev picked for a session's emblem.
+    fn on_emblem(&mut self, key: &str, answer: std::result::Result<serde_json::Value, String>) {
+        let now = now_ms();
+        match answer.ok().as_ref().and_then(crate::emblems::read) {
+            Some(icon) => {
+                self.emblems.answered(key, icon, now);
+                self.emblems.save(now);
+                self.dirty = true;
+            }
+            None => self.emblems.failed(key, now),
+        }
+    }
+
+    /// Sessions with their emblems, when `[jev] emblems` is on.
+    fn with_emblems(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        if !self.cfg.jev.emblems {
+            return sessions;
+        }
+        for s in &mut sessions {
+            s.emblem = self.emblems.emblem_of(s);
+        }
+        sessions
     }
 
     /// Asks Jev about sessions whose moment it hasn't read yet (insights.rs). At most a few new
@@ -2936,7 +2987,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_artifacts(self.with_chrome(self.with_origins(self.build_sessions(now)))), now)), now), &usage, now)),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_origins(self.build_sessions(now))))), now)), now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),

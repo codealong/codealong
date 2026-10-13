@@ -236,6 +236,7 @@ export const ROW_READS: Reads<NotchRow> = {
   titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
   statusOf: (r) => (r.kind === 'session' ? r.item.status : null),
   whereOf: (r) => (r.kind === 'session' ? sessionWhere(r.item.callsign, r.item.account) : reviewWhere(r.review.repo, r.review.requestedBy)),
+  emblemOf: (r) => (r.kind === 'session' ? r.item.emblem : undefined),
 };
 
 /** A review as the strip and the queue name it. */

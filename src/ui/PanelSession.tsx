@@ -10,7 +10,7 @@ import { absolute, ago } from '../format';
 import { sessionWhy } from '../lanes';
 import { flag, useStored } from '../stored';
 import type { Lane, Session } from '../types';
-import { Button, cx, HarnessChip, Icon, LaneGlyph, SessionGlyph, WorktreeChip } from './primitives';
+import { Button, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 
 /** What the Primary tag on a todo's session means. */
 export const TODO_PRIMARY = "The todo's primary session: where the work on it goes on. Sessions started for it while this one runs work alongside it.";
@@ -43,6 +43,7 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, pr
         <SessionGlyph s={s} size={10} />
         <span className="ca-psess-text">
           <span className="ca-psess-line1">
+            <SessionEmblem emblem={s.emblem} size={14} />
             <span className="ca-psess-title">{s.title}</span>
             {primary && (
               <span className="ca-tag ca-psess-primary" title={primary}>

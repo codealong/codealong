@@ -52,6 +52,11 @@ pub struct TranscriptInfo {
     /// The title Claude Code generates and shows in the terminal tab, from `ai-title` lines.
     /// They repeat every few dozen lines, so the tail always has the current one.
     pub ai_title: Option<String>,
+    /// The color `/color` gave the session, from `agent-color` lines (`{"type":"agent-color",
+    /// "agentColor":"teal","sessionId":…}`), as Claude Code names it: red, blue, green, yellow,
+    /// purple, orange, pink or cyan. `/color default` writes `default`, which takes it away.
+    /// Re-stamped with the session's other metadata, like `agent-name` (2.1.296's code).
+    pub color: Option<String>,
     pub first_prompt: Option<String>,
     pub last_prompt: Option<String>,
     /// When you last sent a prompt. It doesn't move while the session works, so lists sort by it.
@@ -335,6 +340,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 if let Some(t) = str_of(&v, "aiTitle").filter(|t| !t.trim().is_empty()) {
                     info.ai_title = Some(one_line(&t, 90));
                 }
+            }
+            Some("agent-color") => {
+                info.color = str_of(&v, "agentColor").map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty() && c != "default");
             }
             Some("agent-name") => {
                 if info.title.is_none() {
@@ -956,6 +964,15 @@ mod tests {
         assert_eq!(info.last_text.as_deref(), Some("Running the migration now."));
         assert_eq!(info.last_text_tail.as_deref(), Some("Running the migration now."));
         assert_eq!(info.last_ts, parse_rfc3339_ms("2026-09-23T15:00:00.000Z").unwrap());
+    }
+
+    /// `/color` as 2.1.296 writes it; `/color default` takes it away again.
+    #[test]
+    fn reads_the_color_it_was_given() {
+        let teal = r#"{"type":"agent-color","agentColor":"cyan","sessionId":"s"}"#;
+        assert_eq!(parse_lines(HEAD, teal).color.as_deref(), Some("cyan"));
+        assert_eq!(parse_lines(HEAD, &format!("{teal}\n{}", r#"{"type":"agent-color","agentColor":"default","sessionId":"s"}"#)).color, None);
+        assert_eq!(parse_lines(HEAD, r#"{"type":"agent-name","agentName":"x","sessionId":"s"}"#).color, None);
     }
 
     #[test]

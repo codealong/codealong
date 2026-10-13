@@ -8,7 +8,7 @@
 
 import { historyChord } from './history';
 import type { Left } from './menus';
-import type { Status } from './types';
+import type { Emblem, Status } from './types';
 
 /** Sessions you answered, marked seen, closed or archived from the queue, with the time of the
  *  status each had then: one is left out until it waits on you anew. The board can take seconds
@@ -39,6 +39,8 @@ export interface Reads<T> {
   statusOf: (row: T) => Status | null;
   /** Where it is, said after its title there (`sessionWhere`, `reviewWhere`). */
   whereOf: (row: T) => string;
+  /** A session's emblem, beside its title there; none for a PR. */
+  emblemOf: (row: T) => Emblem | undefined;
 }
 
 /** Where a session is, after its title: its worktree, then its account, which is said last. */
@@ -347,10 +349,11 @@ export interface Listed {
   title: string;
   status: Status | null;
   where: string;
+  emblem?: Emblem;
 }
 
 export function listed<T>(rows: T[], reads: Reads<T>): Listed[] {
-  return rows.map((r) => ({ key: reads.keyOf(r), waits: reads.waitsOf(r), title: reads.titleOf(r), status: reads.statusOf(r), where: reads.whereOf(r) }));
+  return rows.map((r) => ({ key: reads.keyOf(r), waits: reads.waitsOf(r), title: reads.titleOf(r), status: reads.statusOf(r), where: reads.whereOf(r), emblem: reads.emblemOf(r) }));
 }
 
 /** One picked from the strip's list: a step by hand to it, as ⌘] is, so nothing is dealt with

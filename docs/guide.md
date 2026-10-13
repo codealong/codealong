@@ -112,6 +112,22 @@ session IDs too), and the same chords act on all of them; Esc goes back to one. 
 done have one Undo for the lot. With a search typed, Sessions' Archived fold lists the archived
 sessions it finds, so its count says how many match.
 
+#### Emblems
+
+With Jev on for emblems (Settings › Jev, `[jev] emblems`), each session gets a small icon beside its
+title, so the sessions beside each other read apart at a glance and you can remember one as "the
+teal bug". Jev picks the icon for what the session works on, from its title and first prompt, once:
+it stays for the session's life, however its title changes. The icon sits on a rounded square
+shaded in two colors. At its edge is a color Codealong gives the session when it first sees it, the
+one the fewest of its project's recent sessions have. In the middle is the color you gave the
+session with Claude Code's `/color`, when you gave one; without one, the square is Codealong's color
+alone. Both come from the label colors, which have no amber since amber only means something needs
+you, so `/color`'s yellow shows as green and its orange as red, and Codealong's own color is never
+the one `/color` gave. The emblem shows wherever the session's title does: its rows, its header,
+the floating bar's and the notch's pills, cards on the canvas and the desktop, and the list of what
+waits on you. A session gets its emblem once it has a prompt, and only while it's recent: one quiet
+for two days or archived keeps the one it had. Emblems are kept in `emblems.json`.
+
 #### Rename
 
 Rename a session with ⌃⌘R (`r` elsewhere) or its right-click menu, here or wherever a session has
@@ -1626,7 +1642,8 @@ started ones are its helpers), where the harness doesn't say, in `origins.json`;
 latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, the
 PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked
 reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
-replies suggested for sessions, until the sessions move on, in `suggestions.json`; what every
+replies suggested for sessions, until the sessions move on, in `suggestions.json`; each session's
+emblem, the color Codealong gave it and the icon Jev picked, in `emblems.json`; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;

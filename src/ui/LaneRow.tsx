@@ -15,7 +15,7 @@ import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount } from '../boardLists';
 import type { GitInfo, Lane, Session, Suggestions, Todo } from '../types';
-import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionGlyph, WorktreeChip } from './primitives';
+import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { HelpersCard, type HelperActions } from './HelpersCard';
@@ -288,13 +288,14 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
 }
 
 /**
- * A session's line: its title first, then a label for what it waits on you for, then what it's
- * doing or said last, which gives way first when the line is short. A session another worktree
- * has, on this one's row, says what it did here first: made it, or worked in it.
+ * A session's line: its emblem and title first, then a label for what it waits on you for, then
+ * what it's doing or said last, which gives way first when the line is short. A session another
+ * worktree has, on this one's row, says what it did here first: made it, or worked in it.
  */
 function SessionText({ s, now }: { s: Session; now: number }) {
   return (
     <span className="ca-agentline-text">
+      <SessionEmblem emblem={s.emblem} />
       <span className="ca-lane-headline ca-agentline-title">
         <Rich text={s.title} now={now} />
       </span>

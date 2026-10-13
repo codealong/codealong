@@ -41,7 +41,7 @@ import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
 import { PrChipCard } from './PrLink';
-import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionGlyph, type PanelBackTo } from './primitives';
+import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { SidesChip } from './SideStrip';
 import { TodoGlyph } from './TodoBits';
@@ -272,6 +272,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} prs={prs} onOpenPr={onOpenPr} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />
+        <SessionEmblem emblem={s.emblem} size={20} />
         {naming ? (
           <NameField title={s.title} onDone={onRename} />
         ) : (

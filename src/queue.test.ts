@@ -18,6 +18,7 @@ const READS: Reads<Row> = {
   titleOf: (r) => `Queue ${r.key}`,
   statusOf: (r) => (r.waits === 'reviews' ? null : (r.waits ?? 'working')),
   whereOf: (r) => sessionWhere(`wt-${r.key}`, 'claude'),
+  emblemOf: () => undefined,
 };
 const NOW = 1_000;
 const keys = (rows: Row[]) => rows.map((r) => r.key);

@@ -106,17 +106,21 @@ pub struct JevCfg {
     /// Marks the review comments on a pull request that ask for a change.
     #[serde(default)]
     pub pull_requests: bool,
+    /// Gives each session an emblem beside its title: an icon for what it works on, which Jev
+    /// picks, in a color that sets it apart from the sessions beside it (emblems.rs).
+    #[serde(default)]
+    pub emblems: bool,
 }
 
 impl Default for JevCfg {
     fn default() -> Self {
-        JevCfg { model: default_jev_model(), quick_panel: false, sessions: false, todos: false, pull_requests: false }
+        JevCfg { model: default_jev_model(), quick_panel: false, sessions: false, todos: false, pull_requests: false, emblems: false }
     }
 }
 
 impl JevCfg {
     pub fn any(&self) -> bool {
-        self.quick_panel || self.sessions || self.todos || self.pull_requests
+        self.quick_panel || self.sessions || self.todos || self.pull_requests || self.emblems
     }
 }
 
@@ -1535,6 +1539,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["jev"]["sessions"], Value::from(cfg.jev.sessions));
         set_value(&mut doc["jev"]["todos"], Value::from(cfg.jev.todos));
         set_value(&mut doc["jev"]["pull_requests"], Value::from(cfg.jev.pull_requests));
+        set_value(&mut doc["jev"]["emblems"], Value::from(cfg.jev.emblems));
     }
 
     // Like [jev], only a file that has the table or changes the default gets it.
@@ -1921,6 +1926,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("sessions = {}\n", cfg.jev.sessions));
         s.push_str(&format!("todos = {}\n", cfg.jev.todos));
         s.push_str(&format!("pull_requests = {}\n", cfg.jev.pull_requests));
+        s.push_str(&format!("emblems = {}\n", cfg.jev.emblems));
     }
     s.push('\n');
     s.push_str(SEARCH_COMMENT);
@@ -2079,7 +2085,7 @@ mod tests {
                 folders: vec!["~/projects/sparkhq/vault".into()],
                 chrome_profile: Some("Work".into()),
             }],
-            jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false },
+            jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, emblems: true },
             router: None,
             search: SearchCfg { days: 7 },
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
@@ -2754,7 +2760,7 @@ mod tests {
         let out = with_config(&text, &on).unwrap();
         let shortcuts = out.find("[shortcuts]").unwrap();
         let jev = out
-            .find(&format!("{JEV_COMMENT}[jev]\nmodel = \"jev-latest\"\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\n"))
+            .find(&format!("{JEV_COMMENT}[jev]\nmodel = \"jev-latest\"\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\nemblems = false\n"))
             .unwrap_or_else(|| panic!("{out}"));
         assert!(jev > shortcuts && jev < out.find("[[accounts]]").unwrap(), "{out}");
         // Turned off again, the table stays and says so.

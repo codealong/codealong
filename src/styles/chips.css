@@ -186,6 +186,22 @@
 .ca-labeldot.is-teal { background: var(--label-teal); }
 .ca-labeldot.is-green { background: var(--label-green); }
 
+/* A session's emblem (primitives.tsx SessionEmblem): the icon for what it works on, on a radial
+   gradient of two label colors lit from its top left corner, its harness's there (--emblem-mid)
+   and Codealong's own over the rest (--emblem-edge), so both read at 16px. Label colors name
+   your own things, never a status; both stay tints over whatever is behind (the notch's black
+   too), so the icon, drawn in a deeper shade of the edge's color, reads over them. */
+.ca-emblem {
+  flex: none;
+  align-self: center;
+  display: inline-grid;
+  place-items: center;
+  vertical-align: middle;
+  border-radius: 32%;
+  color: color-mix(in srgb, var(--emblem-edge) 50%, var(--ink));
+  background: radial-gradient(circle at 30% 28%, color-mix(in srgb, var(--emblem-mid) 62%, transparent) 0%, color-mix(in srgb, var(--emblem-mid) 36%, transparent) 38%, color-mix(in srgb, var(--emblem-edge) 40%, transparent) 72%, color-mix(in srgb, var(--emblem-edge) 54%, transparent) 100%);
+}
+
 /* The worktree reads as a place, not an actor: outlined where the agent's chip is filled. Its
    name shortens with an ellipsis; its repo (or `main`, for a main worktree) is said beside it
    only where the list is wide. */

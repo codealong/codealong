@@ -32,7 +32,7 @@ import { AWAY_CHORD, QUEUE_CHORDS, WAITS, waitCountWords, type Listed, type Queu
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { cardZoom, scaleOf } from '../zoom';
-import { Button, Chip, cx, Icon, Rich, StatusGlyph, WaitsGlyph } from './primitives';
+import { Button, Chip, cx, Icon, Rich, SessionEmblem, StatusGlyph, WaitsGlyph } from './primitives';
 import { runFolder, runsInSession } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply, useWay } from './SessionReply';
@@ -248,6 +248,7 @@ function QueueList({ queue, list, strip }: { queue: Queue; list: CountList; stri
               }}
             >
               {r.status ? <StatusGlyph status={r.status} title="" /> : <WaitsGlyph waits={r.waits} />}
+              <SessionEmblem emblem={r.emblem} size={14} />
               <span className="ca-queue-list-title">{r.title}</span>
               {r.where && <span className="ca-queue-list-where">{r.where}</span>}
             </button>

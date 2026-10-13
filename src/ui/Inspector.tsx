@@ -8,7 +8,7 @@ import { branchLabel } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
-import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionGlyph } from './primitives';
+import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionEmblem, SessionGlyph } from './primitives';
 import { useDismiss } from './useDismiss';
 import { PreviewChip, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
@@ -128,7 +128,10 @@ function SessionRow({ session: s, terminal, now, focused, onOpen, todos, onShowT
     >
       <SessionGlyph s={s} />
       <div className="ca-srow-main">
-        <div className="ca-srow-title">{s.title}</div>
+        <div className="ca-srow-title">
+          <SessionEmblem emblem={s.emblem} size={14} />
+          {s.title}
+        </div>
         <div className="ca-srow-meta">
           <HarnessChip session={s} withStatus={false} />
           <span className="ca-code" title={s.id}>

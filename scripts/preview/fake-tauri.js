@@ -96,6 +96,22 @@ function withInsights(board, fixture) {
   });
   return board;
 }
+// Emblems on every session (PREVIEW_EMBLEMS in preview.sh), made up from its key, the same every
+// time: an icon from emblems.rs's list, a color of Codealong's, and on about a third a harness's
+// color too (Claude Code's `/color`), as `[jev] emblems` would give them once Jev had answered.
+var EMBLEM_ICONS = ['bug', 'palette', 'database', 'rocket', 'book', 'compass', 'bolt', 'key', 'device-mobile', 'test-pipe', 'chart-line', 'terminal-2', 'sparkles', 'recycle', 'network', 'puzzle'];
+var EMBLEM_COLORS = ['blue', 'teal', 'green', 'purple', 'pink', 'red', 'indigo'];
+function emblemOf(key) {
+  var pick = function (list, salt) { return list[Math.floor(hashOf(salt + key) * list.length)]; };
+  var color = pick(EMBLEM_COLORS, 'c');
+  var harness = hashOf('h' + key) < 0.34 ? pick(EMBLEM_COLORS.filter(function (c) { return c !== color; }), 'hc') : null;
+  return Object.assign({ color: color, icon: pick(EMBLEM_ICONS, 'i') }, harness ? { harnessColor: harness } : {});
+}
+function withEmblems(board) {
+  board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { s.emblem = emblemOf(s.key); }); });
+  board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { emblems: true });
+  return board;
+}
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
@@ -201,6 +217,7 @@ window.__TAURI_INTERNALS__ = {
           });
         }
         if (all[4]) board = withInsights(board, all[4]);
+        if (window.__PREVIEW_EMBLEMS__) board = withEmblems(board);
         if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;
       });
@@ -281,6 +298,12 @@ window.__TAURI_INTERNALS__ = {
             feed.title = '#' + p.number + ' ' + p.title;
           }
         }
+        return feed;
+      });
+    }
+    if (cmd === 'bar_feed' && window.__PREVIEW_EMBLEMS__) {
+      return fetch('./bar-feed.json').then(function (r) { return r.json(); }).then(function (feed) {
+        (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
         return feed;
       });
     }

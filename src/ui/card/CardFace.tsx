@@ -8,7 +8,7 @@ import { dueWords } from '../../due';
 import { ago, duration } from '../../format';
 import type { RefItem } from '../../canvas/model';
 import type { Pr } from '../../types';
-import { BranchLabel, cx, Drift, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, SessionGlyph } from '../primitives';
+import { BranchLabel, cx, Drift, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, SessionEmblem, SessionGlyph } from '../primitives';
 import { LabelDot, TodoGlyph } from '../TodoBits';
 import { DeviceBadge } from '../DeviceBadge';
 import { sessionLine, type CardData } from './data';
@@ -87,6 +87,7 @@ export function CardFace({ item, data, now, style, className, children, onPrShow
         <div className={cls('session', cx(`st-${s.status}`, data.lane.device && !data.lane.device.online && 'is-away'))} style={style} data-id={id}>
           <div className="ca-cv-l1">
             <SessionGlyph s={s} />
+            <SessionEmblem emblem={s.emblem} size={16} />
             <span className="ca-cv-title">{s.title}</span>
             <span className="ca-cv-age">{s.status === 'working' && s.statusSince ? duration(s.statusSince, now) : ago(s.lastActivity, now)}</span>
           </div>

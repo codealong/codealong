@@ -9,7 +9,7 @@ import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
 import { reviewMark } from '../prStatus';
-import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
+import type { Bay, Emblem, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
 import type { Waits } from '../queue';
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
@@ -109,6 +109,19 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
       <path d={MARK_PATHS[0]} />
       <path className="ca-mark-node" d={MARK_PATHS[1]} />
     </svg>
+  );
+}
+
+/** A session's emblem (emblems.rs): the icon Jev picked for what it works on, on a radial
+ *  gradient from its harness's color at the middle to Codealong's own at the edge, or Codealong's
+ *  alone. It says nothing a row doesn't, so a reader passes over it. Nothing when it has none. */
+export function SessionEmblem({ emblem, size = 16 }: { emblem?: Emblem; size?: number }) {
+  if (!emblem || !ICONS[emblem.icon]) return null;
+  const tones = { '--emblem-mid': `var(--label-${emblem.harnessColor ?? emblem.color})`, '--emblem-edge': `var(--label-${emblem.color})`, width: size, height: size } as CSSProperties;
+  return (
+    <span className="ca-emblem" style={tones} aria-hidden="true">
+      <Icon name={emblem.icon} size={Math.round(size * 0.7)} stroke={1.75} />
+    </span>
   );
 }
 
@@ -612,7 +625,8 @@ export function HarnessChip({ session, withStatus = true, named = false, onOpen,
       onMenu={onMenu}
     >
       {withStatus && <StatusGlyph status={session.status} size={10} />}
-      <Icon name={SURFACE_ICON[session.surface]} size={12} />
+      {/* Named, the chip stands for the session: its emblem, where it has one, says which. */}
+      {named && session.emblem ? <SessionEmblem emblem={session.emblem} size={14} /> : <Icon name={SURFACE_ICON[session.surface]} size={12} />}
       {named ? <span className="ca-sesschip-title">{session.title}</span> : <span>{session.account}</span>}
       {children}
     </Chip>

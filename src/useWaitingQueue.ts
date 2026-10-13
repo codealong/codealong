@@ -32,6 +32,7 @@ export const SESSION_READS: Reads<{ session: Session; lane?: Lane }> = {
   titleOf: (r) => r.session.title,
   statusOf: (r) => r.session.status,
   whereOf: (r) => rules.sessionWhere(r.lane?.callsign, r.session.account),
+  emblemOf: (r) => r.session.emblem,
 };
 
 /** What a window says of itself: its lists and the session shown (queue.ts `QueueView`), and how

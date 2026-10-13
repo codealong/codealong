@@ -161,6 +161,9 @@ export interface Session {
    *  last published, updated or opened first (artifacts.rs). Missing when it has none, and from
    *  older Macs. */
   artifacts?: Artifact[];
+  /** A small icon in a color beside its title, to tell it apart and remember it by
+   *  (emblems.rs, when `[jev] emblems` is on). Missing until both are known, and from older Macs. */
+  emblem?: Emblem;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -171,6 +174,21 @@ export interface Session {
   /** This session's own sentence; backtick spans and time tokens as in lane headlines. */
   headline: string;
   detail: string | null;
+}
+
+/** A label color, as an emblem's tones name them. */
+export type EmblemColor = 'blue' | 'teal' | 'green' | 'purple' | 'pink' | 'red' | 'indigo';
+
+/** A session's emblem (peer model.rs `Emblem`): an icon Jev picked for what it works on, on a
+ *  radial gradient of two label colors: its harness's at the middle, when it gives one, and
+ *  Codealong's own at the edge, which sets it apart from the sessions beside it. */
+export interface Emblem {
+  /** Codealong's own color for it, never its harness's. */
+  color: EmblemColor;
+  /** The color its harness gives it (Claude Code's `/color`), when it gives one. */
+  harnessColor?: EmblemColor;
+  /** The icon's name in `ICONS`. */
+  icon: string;
 }
 
 /** How a message sent to a session would reach it (send.rs `way_in`): typed into its terminal,
@@ -988,6 +1006,8 @@ export interface JevCfg {
   sessions: boolean;
   todos: boolean;
   pull_requests: boolean;
+  /** Each session gets an emblem beside its title (emblems.rs). */
+  emblems: boolean;
 }
 
 /** Jev's read of a session (insights.rs). Each part is there only when it was asked. */
@@ -1520,6 +1540,8 @@ export interface BarItem {
   /** Its last turn was cut off (Session.cutOff): marking it seen settles it too. */
   cutOff?: number;
   title: string;
+  /** Its emblem (Session.emblem), drawn on its pill beside its title. */
+  emblem?: Emblem;
   account: string;
   laneId: string;
   callsign: string;

@@ -119,6 +119,7 @@ export const QUEUE_READS: Reads<QueueRow> = {
   titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
   statusOf: (r) => (r.kind === 'session' ? r.session.status : null),
   whereOf: (r) => (r.kind === 'session' ? sessionWhere(r.lane.callsign, r.session.account) : reviewWhere(r.pr.repo, r.pr.requestedBy)),
+  emblemOf: (r) => (r.kind === 'session' ? r.session.emblem : undefined),
 };
 
 /** The empty panel's list: what waits on you in the order the waiting window works through it

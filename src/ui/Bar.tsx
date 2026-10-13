@@ -29,7 +29,7 @@ import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
 import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
 import { MarkLive } from './MarkLive';
-import { cx, Icon, STATUS_WORD, StatusGlyph } from './primitives';
+import { cx, Icon, SessionEmblem, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
 import { NotchReview } from './NotchReview';
@@ -127,6 +127,7 @@ function SessionPill({ item, now, peeked, told, onOpen, onMenu, onHover, onLeave
       }
     >
       <StatusGlyph status={item.status} waiting={item.waiting} title="" />
+      <SessionEmblem emblem={item.emblem} size={14} />
       <span>{item.title}</span>
     </button>
   );

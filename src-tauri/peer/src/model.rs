@@ -308,6 +308,32 @@ pub struct Session {
     /// 2026-10-12.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
+    /// The color its harness gives it, as the emblem's colors name it (Claude Code's `/color`):
+    /// one of its emblem's two tones, beside the one Codealong gives it.
+    #[serde(skip)]
+    pub color: Option<String>,
+    /// A small icon in a color beside its title, to tell it apart and remember it by
+    /// (emblems.rs, when `[jev] emblems` is on). None until both are known, and from Macs before
+    /// 2026-10-13.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emblem: Option<Emblem>,
+}
+
+/// A session's emblem: an icon that stands for what it works on, picked by Jev from the ones
+/// `emblems::ICONS` lists, on a radial gradient of two tones: the color its harness gives it at
+/// the middle, when it gives one, and a color of Codealong's own at the edge, which sets it apart
+/// from the sessions beside it. Both are among `emblems::COLORS`: blue, teal, green, purple,
+/// pink, red or indigo.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Emblem {
+    /// Codealong's own color for it, never its harness's when it has one.
+    pub color: String,
+    /// The color its harness gives it (Claude Code's `/color`), when it gives one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_color: Option<String>,
+    /// The icon's name in the windows' icon set (Tabler's).
+    pub icon: String,
 }
 
 /// A page on the web a session made or showed you, as its records say: an artifact Claude Code
@@ -430,6 +456,8 @@ impl Session {
             own_worktree: None,
             helper: None,
             artifacts: Vec::new(),
+            color: None,
+            emblem: None,
         }
     }
 }

@@ -817,9 +817,9 @@ function dayOptions(current: number): Profile[] {
   return days.map((d) => ({ id: String(d), name: d === 0 ? 'Off: titles only' : d === 1 ? 'The last day' : `The last ${d} days` }));
 }
 
-const JEV_OFF: JevCfg = { model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false };
+const JEV_OFF: JevCfg = { model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false, emblems: false };
 
-type JevFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests';
+type JevFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests' | 'emblems';
 
 /** Each switch: what it does, and what it sends to TypeSafe to do it. */
 const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string }[] = [
@@ -846,6 +846,12 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
     label: 'Pull request reviews',
     does: 'Lists a pull request’s comments in its panel and marks the ones that ask the author for a change or an answer, so you can see what still needs a reply.',
     sends: 'The pull request’s title and others’ comments on threads still open, when you open it in Codealong. Answers are kept, so only new or edited comments are sent again.',
+  },
+  {
+    id: 'emblems',
+    label: 'Session emblems',
+    does: 'Puts a small icon beside each session’s title, for what it works on, so you can tell sessions apart at a glance and remember one as “the teal bug”. Its background is a color Codealong picks to set it apart from the sessions beside it, shading in the middle to the color you gave the session with Claude Code’s /color, when you gave one.',
+    sends: 'Each new session’s title and first prompt, once. The icon is kept for the session’s life.',
   },
 ];
 

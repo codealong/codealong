@@ -85,6 +85,8 @@
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.
+# PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[jev] emblems` would
+# once Jev had picked their icons: some with a harness's color too, for the two-tone gradient.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
 # finished: nothing read yet, and other devices' worktrees (PREVIEW_DEVICES) already in.
 #
@@ -179,6 +181,7 @@ cp "${PREVIEW_FOUND:-$dir/found-here.json}" "$dir/found.json"
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
+[ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__=true;"
 size="${PREVIEW_SIZE:-1440,900}"
 # The windows that float over the desktop render on a stand-in for it: `on_desktop <the page's
 # class> [a layer over it]`.

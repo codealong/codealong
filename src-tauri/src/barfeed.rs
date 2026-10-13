@@ -108,6 +108,9 @@ pub struct BarItem {
     pub quiet: bool,
     /// Its turn is running and Codealong can stop it: its menu offers Stop.
     pub stoppable: bool,
+    /// Its emblem (`Session::emblem`), drawn on its pill beside its title.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emblem: Option<crate::model::Emblem>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -199,6 +202,7 @@ pub fn feed(board: &Board) -> BarFeed {
                 snoozed_until: s.snoozed_until,
                 quiet: s.quiet,
                 stoppable: s.stoppable,
+                emblem: s.emblem.clone(),
             };
             match group {
                 Group::Recent => recent.push((at, item)),
