@@ -64,8 +64,12 @@ const PIDS: &str = "pids";
 const SHELL: &str = "shell";
 const OUTPUT: &str = "output";
 const EXIT: &str = "exit";
-/// Written as you take a shell in a run's tab once it has ended: the tab is yours from then.
-const HANDED: &str = "handed";
+/// Made as a run's tab is claimed, once the run has ended: by the wrapper as you take a shell in
+/// the tab with Return, or by an agent's close. Each makes it with one `mkdir`, which only one can
+/// do, so a close never ends a shell you took the moment before (`claim_for_close`).
+const CLAIM: &str = "claim";
+/// In the claim, when a close made it.
+const CLOSING: &str = "closing";
 
 /// How long a run's folder is kept once it has ended.
 const KEEP_MS: i64 = 7 * DAY_MS;
@@ -414,8 +418,9 @@ fn write_folder(d: &Path, run: &Run) -> Result<()> {
 /// your shell as a new tab starts it (a login shell, and interactive, for your aliases and
 /// functions; `/bin/sh` with the tab's environment when your shell isn't one these words suit,
 /// fish), and notes how it ended. Then it waits for Return, which gives you a login shell of your
-/// own in the tab, noted (`HANDED`) so the tab isn't closed under you. The command is read from its
-/// file, so nothing in it is quoted twice.
+/// own in the tab once it has claimed the tab (`CLAIM`), so the tab isn't closed under you; when a
+/// close claimed it first, the tab is closing, and Return ends the wrapper. The command is read
+/// from its file, so nothing in it is quoted twice.
 pub fn wrapper(d: &Path, session_title: &str) -> String {
     let d = sh_quote(&d.to_string_lossy());
     let says = sh_quote(&format!("Codealong runs this for {}, as you allowed:", if session_title.trim().is_empty() { "an agent" } else { session_title.trim() }));
@@ -434,8 +439,7 @@ CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'prin
 status=$?
 printf '%s\n' "$status" > "$d/{EXIT}"
 printf '\n\033[2m%s %s. %s\033[0m ' 'It exited with status' "$status" 'Press Return for a shell in this tab.'
-if read -r _; then
-  : > "$d/{HANDED}"
+if read -r _ && mkdir "$d/{CLAIM}" 2>/dev/null; then
   exec "${{SHELL:-/bin/zsh}}" -l
 fi
 "#
@@ -449,7 +453,9 @@ pub fn prune(now: i64) {
         let d = e.path();
         let Some(id) = d.file_name().and_then(|n| n.to_str()).filter(|n| is_id(n)) else { continue };
         let old = match status(id) {
-            Ok(s) => s.state != State::Running && s.ended_at.unwrap_or(s.run.allowed_at) < now - KEEP_MS,
+            // Its wrapper may wait for Return still, in a tab left open: it hands the tab over
+            // through this folder.
+            Ok(s) => s.state != State::Running && s.ended_at.unwrap_or(s.run.allowed_at) < now - KEEP_MS && noted(&d, PIDS, 0, s.run.allowed_at) == Noted::Gone,
             // A folder its record never made it into.
             Err(_) => modified(&d).is_some_and(|m| m < now - KEEP_MS),
         };
@@ -466,8 +472,21 @@ fn modified(p: &Path) -> Option<i64> {
 
 // Where a run stands.
 
+/// A run's folder, for an id that names one: `run-` and letters, digits and dashes only, so no id
+/// reaches outside the runs' folder, and a folder there, not a link out of it. The app takes ids
+/// from its socket, where an agent in a sandbox could otherwise point it at files of its own making
+/// and have it signal a process of yours.
+fn run_folder(id: &str) -> Result<PathBuf> {
+    let plain = id.strip_prefix(PREFIX).is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    let d = dir(id);
+    match std::fs::symlink_metadata(&d) {
+        Ok(m) if plain && m.is_dir() => Ok(d),
+        _ => bail!("There's no run {id}."),
+    }
+}
+
 pub fn record(id: &str) -> Result<Run> {
-    let p = dir(id).join(RECORD);
+    let p = run_folder(id)?.join(RECORD);
     let text = std::fs::read_to_string(&p).with_context(|| format!("There's no run {id}."))?;
     serde_json::from_str(&text).with_context(|| format!("{} doesn't read", p.display()))
 }
@@ -477,22 +496,43 @@ pub fn record(id: &str) -> Result<Run> {
 /// itself), and started once the run was allowed: one that started after the file was written is
 /// another that took the number since, and one from before the run is no process of the run's.
 fn noted_pid(d: &Path, file: &str, field: usize, since: i64) -> Option<u32> {
+    match noted(d, file, field, since) {
+        Noted::Is(pid) => Some(pid),
+        Noted::Unknown | Noted::Gone => None,
+    }
+}
+
+/// What became of a process noted in a run's folder.
+#[derive(Debug, PartialEq)]
+enum Noted {
+    Is(u32),
+    /// A process has its number, which this one may not look at: an agent's sandbox keeps its
+    /// command from looking at your processes. It isn't taken for gone.
+    Unknown,
+    Gone,
+}
+
+/// `noted_pid`, saying when the process can't be looked at.
+fn noted(d: &Path, file: &str, field: usize, since: i64) -> Noted {
     let p = d.join(file);
-    let text = std::fs::read_to_string(&p).ok()?;
-    let pid: u32 = text.split_whitespace().nth(field)?.parse().ok()?;
-    let written = modified(&p)?;
-    let started = procs::proc_start_ms(pid)?;
-    (started >= since - 2_000 && started <= written).then_some(pid)
+    let pid = std::fs::read_to_string(&p).ok().and_then(|t| t.split_whitespace().nth(field)?.parse::<u32>().ok());
+    let (Some(pid), Some(written)) = (pid, modified(&p)) else { return Noted::Gone };
+    match procs::proc_start_ms(pid) {
+        Some(started) if started >= since - 2_000 && started <= written => Noted::Is(pid),
+        Some(_) => Noted::Gone,
+        None if procs::pid_alive(pid) => Noted::Unknown,
+        None => Noted::Gone,
+    }
 }
 
 pub fn status(id: &str) -> Result<RunStatus> {
     let run = record(id)?;
-    let d = dir(id);
+    let d = run_folder(id)?;
     let exit = std::fs::read_to_string(d.join(EXIT)).ok().and_then(|t| t.trim().parse::<i32>().ok());
     let (state, ended_at) = match exit {
         Some(_) => (State::Exited, modified(&d.join(EXIT))),
         None if !d.join(PIDS).exists() => (State::Starting, None),
-        None if noted_pid(&d, PIDS, 0, run.allowed_at).is_some() => (State::Running, None),
+        None if noted(&d, PIDS, 0, run.allowed_at) != Noted::Gone => (State::Running, None),
         // It may have ended between the two looks.
         None => match std::fs::read_to_string(d.join(EXIT)).ok().and_then(|t| t.trim().parse::<i32>().ok()) {
             Some(code) => return Ok(RunStatus { run, state: State::Exited, exit_code: Some(code), ended_at: modified(&d.join(EXIT)) }),
@@ -554,7 +594,7 @@ pub struct Output {
 /// The `last` lines a run printed before its newest `skip`, or with `grep` the last `last` lines
 /// that contain it (case aside) among those.
 pub fn output(id: &str, last: usize, skip: usize, grep: Option<&str>) -> Result<Output> {
-    let p = dir(id).join(OUTPUT);
+    let p = run_folder(id)?.join(OUTPUT);
     let (bytes, cut) = match read_end(&p, READ_BYTES) {
         Ok(read) => read,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), false),
@@ -565,7 +605,7 @@ pub fn output(id: &str, last: usize, skip: usize, grep: Option<&str>) -> Result<
 
 /// How much a run has printed so far, in bytes: what a wait for new output watches.
 pub fn printed_bytes(id: &str) -> u64 {
-    std::fs::metadata(dir(id).join(OUTPUT)).map(|m| m.len()).unwrap_or(0)
+    run_folder(id).ok().and_then(|d| std::fs::metadata(d.join(OUTPUT)).ok()).map_or(0, |m| m.len())
 }
 
 /// `output`'s choice among rendered lines.
@@ -729,7 +769,7 @@ pub fn stop(id: &str) -> Result<String> {
         State::Exited | State::Ended => return Ok(ended_words(&s)),
         State::Running => {}
     }
-    let d = dir(id);
+    let d = run_folder(id)?;
     let shell = noted_pid(&d, SHELL, 0, s.run.allowed_at).ok_or_else(|| anyhow!("It's still starting in its tab; try again in a moment."))?;
     let group = procs::foreground_group(shell).unwrap_or(shell);
     // SAFETY: kill with a negative pid signals that process group.
@@ -757,17 +797,18 @@ fn ended_words(s: &RunStatus) -> String {
 
 /// Closes a run's tab: hangs up the wrapper, which is the tab's shell (the line typed `exec`s it),
 /// and what it runs, as closing the tab would, and the terminal closes the tab as it does one whose
-/// shell has ended. Only while the tab is the run's: until you take a shell in it (`HANDED`),
+/// shell has ended. Only while the tab is the run's: until you take a shell in it (`CLAIM`),
 /// everything in the tab is the wrapper and what it runs, and what you typed went to the command or
-/// to the wrapper's own Return. Looked at just before the hangup, with nothing slow between.
+/// to the wrapper's own Return. Looked at, then claimed, just before the hangup, with nothing slow
+/// between.
 pub fn close(id: &str) -> Result<String> {
     let s = status(id)?;
     if s.state == State::Starting {
         bail!("It hasn't started in its tab yet, so its tab stays.");
     }
-    let d = dir(id);
-    if d.join(HANDED).exists() {
-        bail!("Your user took a shell in its tab once it ended, so the tab is theirs and stays open: ask them to close it.");
+    let d = run_folder(id)?;
+    if taken(&d) {
+        bail!("{TAKEN}");
     }
     let wrapper = noted_pid(&d, PIDS, 0, s.run.allowed_at).ok_or_else(|| anyhow!("Its tab is closed already."))?;
     let tty = procs::tty(wrapper).ok_or_else(|| anyhow!("Its tab is closed already."))?;
@@ -775,9 +816,10 @@ pub fn close(id: &str) -> Result<String> {
     let listed = procs::run("ps", &["-t", &tty_name, "-o", "pid="], None, Duration::from_secs(10))?;
     let on_tty: Vec<u32> = listed.split_whitespace().filter_map(|p| p.parse().ok()).collect();
     let above = procs::ancestors(wrapper);
-    if d.join(HANDED).exists() || !only_the_run(&on_tty, &above, |p| procs::ancestors(p).contains(&wrapper)) {
+    if !only_the_run(&on_tty, &above, |p| procs::ancestors(p).contains(&wrapper)) {
         bail!("Something of your user's may run in its tab now, so the tab stays open: ask them to close it.");
     }
+    claim_for_close(&d)?;
     // The tab's shell started its own group, which the wrapper and `script` are in; the command's
     // shell, on `script`'s terminal, is hung up as `script` ends.
     // SAFETY: kill with a negative pid signals that process group.
@@ -795,8 +837,31 @@ pub fn close(id: &str) -> Result<String> {
     })
 }
 
+/// Why a tab stays when you took a shell in it.
+const TAKEN: &str = "Your user took a shell in its tab once it ended, so the tab is theirs and stays open: ask them to close it.";
+
+/// Whether you took a shell in a run's tab: the wrapper made the claim, not a close.
+fn taken(d: &Path) -> bool {
+    d.join(CLAIM).is_dir() && !d.join(CLAIM).join(CLOSING).exists()
+}
+
+/// Claims a run's tab for closing, or says it's yours: the claim is one `mkdir`, as the wrapper's
+/// is when you press Return, so whichever comes first has the tab. A close that claimed it before
+/// may claim it again.
+fn claim_for_close(d: &Path) -> Result<()> {
+    match std::fs::create_dir(d.join(CLAIM)) {
+        Ok(()) => {
+            std::fs::write(d.join(CLAIM).join(CLOSING), "")?;
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && !taken(d) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => bail!("{TAKEN}"),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Whether a run's tab is still the run's, once its shell is known to be the wrapper still (no
-/// shell taken there, `HANDED`): every process on its terminal is the wrapper, what it runs, or what
+/// shell taken there, `CLAIM`): every process on its terminal is the wrapper, what it runs, or what
 /// it runs under. Its name says nothing: macOS's `/bin/sh` runs as the shell
 /// `/private/var/select/sh` names, `bash` here.
 fn only_the_run(on_tty: &[u32], above: &[u32], under_the_wrapper: impl Fn(u32) -> bool) -> bool {
@@ -973,7 +1038,7 @@ mod tests {
         let tab = tab_with(&id);
         tmux(&["send-keys", "-t", &id, "Enter"]);
         let start = Instant::now();
-        while !dir(&id).join(HANDED).exists() && start.elapsed() < Duration::from_secs(10) {
+        while !dir(&id).join(CLAIM).exists() && start.elapsed() < Duration::from_secs(10) {
             std::thread::sleep(Duration::from_millis(100));
         }
         let refused = close(&id).unwrap_err().to_string();
@@ -1079,6 +1144,37 @@ mod tests {
         assert_eq!(noted_pid(&d, PIDS, 0, started - 120_000), None);
     }
 
+    /// A close and your Return at the same moment: one `mkdir` each, and the one made first has the
+    /// tab. The wrapper's is `mkdir` in sh, as here.
+    #[test]
+    fn a_tab_goes_to_whichever_claims_it_first() {
+        let return_key = |d: &Path| std::process::Command::new("/bin/sh").arg("-c").arg(format!("mkdir {}/{CLAIM} 2>/dev/null", sh_quote(&d.to_string_lossy()))).status().unwrap().success();
+        let d = crate::fixtures::scratch("terminal-claim-close");
+        claim_for_close(&d).unwrap();
+        assert!(!return_key(&d), "closing: Return ends the wrapper");
+        claim_for_close(&d).unwrap();
+        let d = crate::fixtures::scratch("terminal-claim-yours");
+        assert!(return_key(&d));
+        assert_eq!(claim_for_close(&d).unwrap_err().to_string(), TAKEN);
+        assert!(taken(&d));
+    }
+
+    /// Only an id of a run's own shape, naming a folder in the runs' folder, reaches one: an
+    /// agent's sandbox could write a folder of its own elsewhere for the app to signal from.
+    #[test]
+    fn only_a_run_folder_is_a_runs() {
+        let scratch = crate::fixtures::scratch("terminal-run-folders");
+        TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
+        std::fs::create_dir_all(scratch.join("runs/run-abc123")).unwrap();
+        std::fs::create_dir_all(scratch.join("forged")).unwrap();
+        std::os::unix::fs::symlink(scratch.join("forged"), scratch.join("runs/run-linked")).unwrap();
+        assert!(run_folder("run-abc123").is_ok());
+        for id in ["run-linked", "run-missing", "run-../forged", "../forged", "/tmp", "run-", "abc123", "run-a/b"] {
+            assert!(run_folder(id).is_err(), "{id}");
+        }
+        TEST_RUNS.with(|r| *r.borrow_mut() = None);
+    }
+
     #[test]
     fn a_tab_is_closed_only_while_it_is_the_runs() {
         let (login, wrapper, script, shell, theirs) = (100, 200, 201, 300, 400);
@@ -1132,7 +1228,7 @@ mod tests {
         assert!(shown.contains("  printf '%s\\n' \"it's $((40 + 2))\"; shopt"), "{shown}");
         assert!(shown.contains("it's 42") && shown.contains("It exited with status 3. Press Return for a shell in this tab."), "{shown}");
         assert!(shown.contains("a login shell, interactive"), "as a new tab's shell is: {shown}");
-        assert!(!d.join(HANDED).exists(), "with nothing to read, no shell is taken");
+        assert!(!d.join(CLAIM).exists(), "with nothing to read, no shell is taken");
         assert_eq!(std::fs::read_to_string(d.join(EXIT)).unwrap().trim(), "3");
         let pids = std::fs::read_to_string(d.join(PIDS)).unwrap();
         assert_eq!(pids.split_whitespace().count(), 2, "{pids}");

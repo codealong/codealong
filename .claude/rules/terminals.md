@@ -152,14 +152,18 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   printed (`w`'s idle time), but also as zsh sets the terminal up again when a command it ran
   ends, with nobody typing (zsh in tmux, 2026-10-12). So the line typed into a run's tab `exec`s
   the wrapper, which is the tab's shell until you take one there with Return, and `terminal stop
-  --close` hangs up only a tab that's still the run's: `terminal.rs` (`TYPED`, `wrapper`,
-  `close`). The terminal closes a tab whose shell ended as its settings say (Ghostty does;
+  --close` hangs up only a tab that's still the run's, each claiming the tab with one `mkdir` so
+  a close and your Return at once never both have it: `terminal.rs` (`TYPED`, `wrapper`,
+  `close`, `CLAIM`). The terminal closes a tab whose shell ended as its settings say (Ghostty does;
   Terminal's `shellExitAction` above may keep it).
 - macOS's `/bin/sh` runs as the shell `/private/var/select/sh` names (`bash` here), and that's the
   name the kernel gives the process (`ps -o ucomm`), not `sh`.
 - An agent's sandbox may keep its command from looking at your processes or signalling them (a
   Codex sandbox refused `ps`), so the command asks the app for a run's state, `stop` and
-  `--close` when it's up (server.rs `TerminalRuns`, `TerminalStop`).
+  `--close` when it's up (server.rs `TerminalRuns`, `TerminalStop`), and without the app a
+  process it may not look at counts as there, not gone (`Noted::Unknown`). The app takes from its
+  socket only ids that name a run's own folder (`run_folder`), so a sandboxed agent can't have it
+  signal from files of its own making.
 - `cargo test a_command_runs_in_a_tab_under_script -- --ignored` runs a command in a tmux session
   nobody sees, with your login shell: kept output, Ctrl-C, and closing a tab or not.
 
