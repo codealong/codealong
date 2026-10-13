@@ -46,8 +46,9 @@
 
 use std::borrow::Cow;
 use std::path::Path;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 
@@ -570,37 +571,57 @@ fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: 
     }
 }
 
-/// The sessions `wake` resumed lately, and when. The board goes on saying one isn't running for
-/// a few seconds after (until the next scan finds it), and a second message then would resume
-/// it a second time, beside the first.
-static WOKEN: Mutex<Vec<(String, Instant)>> = Mutex::new(Vec::new());
+/// The sessions `wake` resumed lately, each with when (epoch ms): `woken.json` next to the
+/// config, which the app and the `codealong` command share, since with the app closed each
+/// command sends by itself. The board goes on saying a session isn't running for a few seconds
+/// after it's resumed (until the next scan finds it), and a second message then would resume it a
+/// second time, beside the first.
+fn woken_path() -> std::path::PathBuf {
+    crate::config::support_dir().join("woken.json")
+}
+
+/// What `woken.json` holds, for the error when it doesn't read as that.
+const WOKEN: &str = "a list of sessions resumed for a message";
 
 /// How long after a session was resumed for a message another isn't resumed for: the board has
 /// it running well before, or the resume came to nothing and another may try.
-const WAKING: Duration = Duration::from_secs(120);
+const WAKING_MS: i64 = 120_000;
 
-/// Whether the session `key` may be resumed for a message `now`: not while `woken` (which this
-/// prunes) has it resumed less than `WAKING` ago.
-fn may_wake(woken: &mut Vec<(String, Instant)>, key: &str, now: Instant) -> bool {
-    woken.retain(|(_, at)| now.saturating_duration_since(*at) < WAKING);
-    !woken.iter().any(|(k, _)| k == key)
+/// Claims a resume of the session `key` for a message `now` in `woken`, which this prunes: not
+/// while it was resumed for one less than `WAKING_MS` ago. Says whether it claimed it.
+fn claim_wake(woken: &mut BTreeMap<String, i64>, key: &str, now: i64) -> bool {
+    woken.retain(|_, at| now - *at < WAKING_MS);
+    if woken.contains_key(key) {
+        return false;
+    }
+    woken.insert(key.to_string(), now);
+    true
 }
 
 /// Resumes the session `place` on an agent's message, as `wakes` allows: as Codealong resumes
 /// one by itself (autoreview.rs `hand` hands a review back the same way), the message led by the
 /// line that says Codealong sent it and isn't its user's (`by_codealong`), then by the agent's
 /// byline. On the account's own model, as a send from its box resumes it unless you pick another.
-/// One at a time, so a message sent while another resumes it, or just after, finds it resumed
-/// (`may_wake`) and is told to come again once it runs, rather than resuming it twice.
+/// It's claimed first (`claim_wake`), so a message sent while another resumes it, or just after,
+/// is told to come again once it runs rather than resuming it twice; the claim is only the file's
+/// lock long, so nothing waits on another session's resume, and what `wakes` found still holds.
 fn wake(board: &Board, cfg: &Config, session: &Session, place: Place, msg: &Message) -> Result<Sent> {
-    let mut woken = WOKEN.lock().unwrap_or_else(|e| e.into_inner());
-    if !may_wake(&mut woken, &session.key, Instant::now()) {
+    let (key, now) = (session.key.as_str(), crate::util::now_ms());
+    let mut claimed = false;
+    crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| {
+        let before = woken.clone();
+        claimed = claim_wake(woken, key, now);
+        *woken != before
+    })?;
+    if !claimed {
         bail!("{} is being resumed for another message sent to it just now, so yours wasn't sent: send it again in a minute, once it's running.", quoted(&session.title));
     }
     let how = crate::start::ResumeIn { place, model: None, effort: None };
-    let resumed = crate::start::resume(board, cfg, &session.key, &how, &by_codealong(&msg.text), &Sender::Codealong)?;
-    woken.push((session.key.clone(), Instant::now()));
-    drop(woken);
+    let resumed = crate::start::resume(board, cfg, key, &how, &by_codealong(&msg.text), &Sender::Codealong).inspect_err(|_| {
+        // It didn't go on, so the next message may try again. A file that can't be changed now
+        // only keeps that one waiting out `WAKING_MS`.
+        let _ = crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| woken.get(key) == Some(&now) && woken.remove(key).is_some());
+    })?;
     let copy = resumed.key.as_deref().filter(|k| *k != session.key).map(|k| format!(" It goes on as {k}: send there from now on.")).unwrap_or_default();
     Ok(sent(format!("{} wasn't running; it started your session, so Codealong resumed it {} with your message.{copy}", quoted(&session.title), crate::start::place_words(place, cfg))))
 }
@@ -1045,14 +1066,25 @@ mod tests {
     /// time to find it running, and then may be, should that resume have come to nothing.
     #[test]
     fn a_session_resumed_for_a_message_isnt_resumed_again_at_once() {
-        let at = Instant::now();
-        let mut woken = Vec::new();
-        assert!(may_wake(&mut woken, "claude:claude2:boss", at));
-        woken.push(("claude:claude2:boss".to_string(), at));
-        assert!(!may_wake(&mut woken, "claude:claude2:boss", at + Duration::from_secs(5)));
-        assert!(may_wake(&mut woken, "codex:codex:other", at + Duration::from_secs(5)));
-        assert!(may_wake(&mut woken, "claude:claude2:boss", at + WAKING));
-        assert!(woken.is_empty());
+        let mut woken = BTreeMap::new();
+        assert!(claim_wake(&mut woken, "claude:claude2:boss", 1_000));
+        assert!(!claim_wake(&mut woken, "claude:claude2:boss", 6_000));
+        assert!(claim_wake(&mut woken, "codex:codex:other", 6_000));
+        assert_eq!(woken.len(), 2);
+        assert!(claim_wake(&mut woken, "claude:claude2:boss", 1_000 + WAKING_MS));
+        assert_eq!(woken, BTreeMap::from([("claude:claude2:boss".to_string(), 1_000 + WAKING_MS), ("codex:codex:other".to_string(), 6_000)]));
+        // Claimed through the file, as the app and the command each do.
+        let path = crate::store::test_dir("woken").join("woken.json");
+        let claim = |at: i64| {
+            let mut claimed = false;
+            crate::store::change(&path, WOKEN, |w: &mut BTreeMap<String, i64>| {
+                claimed = claim_wake(w, "claude:claude2:boss", at);
+                claimed
+            })
+            .unwrap();
+            claimed
+        };
+        assert!(claim(1_000) && !claim(2_000) && claim(1_000 + WAKING_MS));
     }
 
     /// Switching a running session's model is refused where the command would go in as a
