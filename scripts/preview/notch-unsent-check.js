@@ -10,7 +10,9 @@
   var title = function () { var t = document.querySelector('.ca-notch-session .ca-sessinsp-title, .ca-notch-session .ca-sessinsp-head h2'); return t ? t.textContent.trim() : ''; };
   var strip = function () { var t = document.querySelector('.ca-notch-session .ca-reply-queue-note'); return t ? t.textContent : ''; };
   var box = function () { return document.querySelector('.ca-notch-session .ca-composer textarea'); };
-  var failedPill = function () { var p = document.querySelector('.ca-notch-body .ca-hud-pill.is-failed'); return p ? p.textContent : ''; };
+  // What the notch's card says on the bar goes as an event to the bar's own window, which the
+  // stub records without passing on (Bar.tsx hears it as `bar-note`).
+  var barNotes = function () { return calls('plugin:event|emit_to').filter(function (c) { return c[1] && c[1].event === 'bar-note'; }).map(function (c) { return c[1].payload; }); };
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
 
   // Two of the board's sessions whose turns ended, whatever the board has now, as the notch
@@ -34,13 +36,14 @@
   items.forEach(function (i) {
     said[i.key] = { title: i.title, status: 'unread', asks: false, snoozedUntil: null, archived: false, live: true, surface: 'cli', hosted: false, pid: 4242, attachCommand: null };
   });
+  var flying = [];
+  var fail = function () { if (flying.length) flying.shift()('Its terminal is gone.'); };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    // Every message fails, once its box has had time to go: a card put away stays up while the
-    // notch closes over it (NotchSession.tsx `LINGER_MS`).
+    // Every message fails, when the check says: once its box has gone.
     if (cmd === 'send_to_session') {
       window.__calls.push([cmd, args, options]);
-      return new Promise(function (_, reject) { setTimeout(function () { reject('Its terminal is gone.'); }, 1000); });
+      return new Promise(function (_, reject) { flying.push(reject); });
     }
     var p = real.apply(this, arguments);
     if (cmd !== 'get_board') return p;
@@ -75,10 +78,13 @@
       send(true);
       return until(shows(1), 3000, 'the next');
     })
-    .then(function () { return until(function () { return /Didn’t send/.test(strip()); }, 4000).catch(function () {}); })
+    .then(function () {
+      fail();
+      return until(function () { return /Didn’t send/.test(strip()); }, 3000).catch(function () {});
+    })
     .then(function () {
       check('a message that didn’t go after ⌘⏎ went on is said on the strip of the one gone on to', strip() === 'Didn’t send to Unsent A: Its terminal is gone.', strip());
-      check('and not on the bar', failedPill() === '', failedPill());
+      check('and not on the bar', barNotes().length === 0, JSON.stringify(barNotes()));
       return until(box, 3000, 'the next one’s box');
     })
     .then(function () {
@@ -87,11 +93,16 @@
     })
     .then(function () {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
-      return until(function () { return !is('session'); }, 3000, 'the notch closing');
+      // The card stays while the notch closes over it (NotchSession.tsx `LINGER_MS`).
+      return until(function () { return !is('session') && !box(); }, 3000, 'the notch closing');
     })
-    .then(function () { return until(function () { return failedPill() !== ''; }, 4000).catch(function () {}); })
     .then(function () {
-      check('one that didn’t go after the notch closed on it is said on the bar', /Its terminal is gone\./.test(failedPill()), failedPill() || 'nothing on the bar');
+      fail();
+      return until(function () { return barNotes().length > 0; }, 3000).catch(function () {});
+    })
+    .then(function () {
+      var n = barNotes();
+      check('one that didn’t go after the notch closed on it is said on the bar, by its pill', n.length === 1 && n[0].key === items[1].key && n[0].message === 'Its terminal is gone.' && n[0].tone === 'error', JSON.stringify(n));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);

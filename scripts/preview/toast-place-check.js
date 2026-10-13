@@ -12,12 +12,15 @@
   localStorage.removeItem('codealong.sessionPanelMax');
   var now = Date.now();
   var picked = [];
+  // Every message fails, when the check says: once the panel has gone on from it.
+  var flying = [];
+  var fail = function () { if (flying.length) flying.shift()('Its terminal is gone.'); };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    // Every message fails, once the panel has gone on from it.
-    if (cmd === 'send_to_session') {
+    // A message to one that isn't running resumes it with the message (ahead.ts `sendAhead`).
+    if (cmd === 'send_to_session' || cmd === 'resume_session') {
       window.__calls.push([cmd, args, options]);
-      return new Promise(function (_, reject) { setTimeout(function () { reject('Its terminal is gone.'); }, 400); });
+      return new Promise(function (_, reject) { flying.push(reject); });
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -50,6 +53,7 @@
   var toast = function () { return document.querySelector('.ca-toast'); };
   var rect = function (el) { var r = el.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
   var overlaps = function (a, b) { return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; };
+  var sentFrom = 0;
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
   var archived = function () {
     window.__emit('agent-done', { key: picked[1].key, title: 'Toast B', message: '“Orchestrator” marked “Toast B” done: its terminal is closed and it’s archived.' });
@@ -74,6 +78,7 @@
     })
     .then(function () {
       check('⌘⏎ goes on to the next', title() === 'Toast B', title());
+      fail();
       return until(function () { return /Didn’t send/.test(strip()); }, 3000).catch(function () {});
     })
     .then(function () {
@@ -126,6 +131,7 @@
       return wait(50);
     })
     .then(function () {
+      sentFrom = window.__calls.length;
       box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
       return on('Toast A');
     })
@@ -133,7 +139,11 @@
       row(1).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, metaKey: true }));
       return until(function () { return q('.ca-pick'); }, 3000, 'the two picked');
     })
-    .then(function () { return until(function () { return toast() && /Didn’t send to Toast B/.test(toast().textContent); }, 3000).catch(function () {}); })
+    .then(function () {
+      check('⌘⏎ sent from Toast B and went on', flying.length === 1, flying.length + ' messages in flight; sent since: ' + window.__calls.slice(sentFrom).map(function (c) { return c[0]; }).join(' '));
+      fail();
+      return until(function () { return toast() && /Didn’t send to Toast B/.test(toast().textContent); }, 3000).catch(function () {});
+    })
     .then(function () {
       var t = toast();
       check('with several picked by then, a message that didn’t go is said in a toast', !!t && /Didn’t send to Toast B, so it’s back in its box: Its terminal is gone\./.test(t.textContent), t ? t.textContent : 'no toast');
