@@ -805,7 +805,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           </span>
         )}
         {/* A side conversation's copy runs on the session's account too, so it stays. */}
-        <AccountLabel session={s} />
+        <AccountLabel session={s} small />
         {!aside && <ContextMeter session={s} />}
       </div>
     </div>
