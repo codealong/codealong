@@ -217,7 +217,7 @@ fn failed(e: &anyhow::Error, what: &str) -> Failure {
 /// signed in as.
 pub fn one(slug: &str, number: u64) -> Result<(PrRaw, Option<String>)> {
     let (owner, name) = slug.split_once('/').ok_or_else(|| anyhow!("bad repo {slug}"))?;
-    let args = [format!("query={ONE_QUERY}{PR_FIELDS}"), format!("owner={owner}"), format!("name={name}"), format!("number={number}")];
+    let args = [format!("query={ONE_QUERY}{PR_FIELDS}{ASKED_FIELDS}"), format!("owner={owner}"), format!("name={name}"), format!("number={number}")];
     // Said where the link is, in a sentence of its own: nothing here is a notice.
     let out = procs::run("gh", &["api", "graphql", "-f", &args[0], "-f", &args[1], "-f", &args[2], "-F", &args[3]], None, Duration::from_secs(20)).map_err(|e| match failed(&e, "the PR") {
         Failure::NotInstalled => anyhow!("Install the gh CLI and sign in with `gh auth login` to see PRs."),
@@ -231,7 +231,7 @@ pub fn one(slug: &str, number: u64) -> Result<(PrRaw, Option<String>)> {
 const ONE_QUERY: &str = r#"
 query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
-  repository(owner: $owner, name: $name) { pullRequest(number: $number) { ...pr mergeStateStatus } }
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { ...pr mergeStateStatus ...asked } }
 }
 "#;
 
@@ -239,11 +239,18 @@ pub fn parse_one(json: &str) -> Result<(PrRaw, Option<String>)> {
     let v: Value = serde_json::from_str(json)?;
     let n = v.pointer("/data/repository/pullRequest").filter(|n| !n.is_null()).ok_or_else(|| anyhow!("GitHub didn't return the PR"))?;
     let mut pr = parse_pr(n).ok_or_else(|| anyhow!("GitHub's answer for the PR didn't read"))?;
-    // As on the board, where it's asked only of open PRs.
-    if !pr.state.is_open() {
+    let login = v.pointer("/data/viewer/login").and_then(Value::as_str);
+    // As on the board, where it's asked only of open PRs. Without the review search, a request
+    // to a team you're on isn't counted as yours, but the team is among those asked.
+    if pr.state.is_open() {
+        pr.review_requested = asked_of(n, login, false);
+        pr.requested_by = pr.review_requested.then(|| asker_of(n, login)).flatten();
+        pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
+        pr.reviewers_asked = asked_of_whom(n, login);
+    } else {
         pr.merge = Merge::Unknown;
     }
-    Ok((pr, v.pointer("/data/viewer/login").and_then(Value::as_str).map(String::from)))
+    Ok((pr, login.map(String::from)))
 }
 
 pub fn parse(json: &str) -> Result<RepoPrs> {
@@ -2110,6 +2117,15 @@ mod tests {
         assert_eq!((pr.head_ref.as_str(), pr.base_ref.as_deref(), pr.changed_files), ("old-work", Some("main"), 2));
         assert_eq!(login.as_deref(), Some("me"));
         assert!(parse_one(r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":null}}}"#).is_err());
+        // An open one says whose reviews it waits on, yours among them, as the board's PRs do.
+        let open = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"number":89,"title":"New work","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"mergeStateStatus":"BLOCKED","updatedAt":"2026-08-01T10:00:00Z","headRefName":"new-work","commits":{"nodes":[]},
+          "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}},{"requestedReviewer":{"__typename":"User","login":"ana"}},{"requestedReviewer":{"__typename":"Team","name":"platform"}}]},
+          "timelineItems":{"nodes":[{"createdAt":"2026-08-01T09:00:00Z","actor":{"login":"ken"},"requestedReviewer":{"__typename":"User","login":"me"}}]}}}}}"#;
+        let (pr, _) = parse_one(open).unwrap();
+        assert_eq!((pr.review_requested, pr.requested_by.as_deref()), (true, Some("ken")));
+        assert_eq!(pr.reviewers_asked, ["ana", "platform"]);
+        let (pr, _) = parse_one(&open.replace(r#"{"requestedReviewer":{"__typename":"User","login":"me"}},"#, "")).unwrap();
+        assert!(!pr.review_requested && pr.requested_by.is_none());
     }
 
     #[test]
