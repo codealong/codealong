@@ -236,6 +236,12 @@ pub struct GhPoll {
     merged_here: HashMap<(String, u64), (Instant, i64)>,
     /// When GitHub last answered.
     at: Option<i64>,
+    /// When the poll on its way was sent, by the clock.
+    asked_ms: Option<i64>,
+    /// When each repo's PRs here were last as GitHub had them, by slug: the time a poll was sent
+    /// that read them, or whose glance found them unchanged. A repo whose read fails, or is still
+    /// on its way, keeps its earlier time.
+    current: HashMap<String, i64>,
     /// Its search for the PRs that wait on your review has answered, once at least.
     searched: bool,
     /// A poll has ended since the search first answered, so every answer that poll brought is
@@ -268,6 +274,8 @@ impl GhPoll {
             approved_here: HashMap::new(),
             merged_here: HashMap::new(),
             at: None,
+            asked_ms: None,
+            current: HashMap::new(),
             searched: false,
             polled: false,
             login: None,
@@ -300,10 +308,9 @@ impl GhPoll {
         self.polled
     }
 
-    /// The repos whose read failed the last time each was asked, by slug: their PRs here are as
-    /// they were when it last answered. A glance that fails reads none, so `at` holds still then.
-    pub fn failing(&self) -> Vec<String> {
-        self.failures.keys().filter(|k| k.as_str() != GLANCE && k.as_str() != github::REQUESTED).cloned().collect()
+    /// When each repo's PRs here were last as GitHub had them, by slug (`current`).
+    pub fn current(&self) -> BTreeMap<String, i64> {
+        self.current.iter().map(|(k, v)| (k.clone(), *v)).collect()
     }
 
     /// Who `gh` is signed in as.
@@ -370,6 +377,7 @@ impl GhPoll {
         }
         let busy = self.prs.iter().filter(|(_, prs)| github::busy(prs, now.ms)).map(|(slug, _)| slug.clone()).collect();
         self.heard = (false, HashSet::new());
+        self.asked_ms = Some(now.ms);
         Some(self.schedule.start(board::polled_slugs(seeds).into_iter().collect(), busy, now))
     }
 
@@ -451,6 +459,7 @@ impl GhPoll {
             }
             github::Answer::Repo(slug, Ok(repo), _) => {
                 self.answered(&slug, None);
+                self.current.insert(slug.clone(), now.ms);
                 self.prs.insert(slug, repo.prs);
                 if repo.login.is_some() {
                     self.login = repo.login;
@@ -473,6 +482,13 @@ impl GhPoll {
                     self.login = seen.login;
                 }
                 self.schedule.answered(seen.points, now.ms);
+                // A repo whose mark is the one it was read at hasn't changed since.
+                let asked = self.asked_ms.unwrap_or(now.ms);
+                for (slug, mark) in &seen.repos {
+                    if mark.as_ref().is_some_and(|m| self.schedule.stamps.get(slug).is_some_and(|s| &s.glance == m)) && self.prs.contains_key(slug) {
+                        self.current.insert(slug.clone(), asked);
+                    }
+                }
                 // GitHub answered, so a refusal for want of points is over, whatever refused. A
                 // repo GitHub doesn't show you says so next, at every poll.
                 self.failures.remove(GLANCE);
@@ -576,6 +592,7 @@ impl GhPoll {
                     true
                 });
                 self.answered(&slug, None);
+                self.current.insert(slug.clone(), self.asked_ms.unwrap_or(now.ms));
                 self.prs.insert(slug, repo.prs);
                 if repo.login.is_some() {
                     self.login = repo.login;
@@ -899,6 +916,30 @@ mod tests {
         // `gh` signed out explains the rest, so it titles the notice.
         gh.on_event(Event::Requested(Err(Failure::SignedOut), None), &seeds, after(t, 120));
         assert_eq!(gh.notice().unwrap().title, "Signed out of GitHub");
+    }
+
+    #[test]
+    fn a_repo_is_current_as_of_the_poll_that_read_it_or_found_it_unchanged() {
+        let mut gh = quiet();
+        let t = clock();
+        let seeds = [seed("/x/a-dev", "o/a", "dev"), seed("/x/b-dev", "o/b", "dev")];
+        let read = |slug: &str, mark: &str| Event::Repo(slug.into(), Ok(RepoPrs { login: None, prs: vec![] }), Some(Stamp { glance: mark.into(), at: t.ms }));
+        let glance = |a: &str, b: &str| Event::Glance(Ok(Glance { repos: HashMap::from([("o/a".to_string(), Some(a.to_string())), ("o/b".to_string(), Some(b.to_string()))]), ..Glance::default() }));
+        // The first poll reads both: each is current as of when the poll was sent.
+        gh.ask(&seeds, true, t).unwrap();
+        gh.on_event(glance("1", "1"), &seeds, after(t, 1));
+        gh.on_event(read("o/a", "1"), &seeds, after(t, 2));
+        gh.on_event(read("o/b", "1"), &seeds, after(t, 3));
+        gh.on_event(Event::PollEnded, &seeds, after(t, 3));
+        assert_eq!(gh.current(), BTreeMap::from([("o/a".to_string(), t.ms), ("o/b".to_string(), t.ms)]));
+        // The next glance finds o/a as it was read and o/b changed: o/a is current as of this poll,
+        // and o/b only once its read comes, which here fails.
+        let next = after(t, 60);
+        gh.ask(&seeds, true, next).unwrap();
+        gh.on_event(glance("1", "2"), &seeds, after(next, 1));
+        assert_eq!(gh.current(), BTreeMap::from([("o/a".to_string(), next.ms), ("o/b".to_string(), t.ms)]));
+        gh.on_event(Event::Repo("o/b".into(), Err(Failure::Other("GitHub: couldn't load PRs for o/b".into())), None), &seeds, after(next, 2));
+        assert_eq!(gh.current().get("o/b"), Some(&t.ms));
     }
 
     #[test]

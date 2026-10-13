@@ -116,10 +116,10 @@ pub struct Board {
     /// among them, are only what's come so far (`GhPoll::polled`, sounds.rs).
     #[serde(default)]
     pub github_polled: bool,
-    /// The repos whose PRs GitHub didn't give at the last ask, by slug (`GhPoll::failing`): what
-    /// the board has of them is from when it last did.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub github_failing: Vec<String>,
+    /// When each repo's PRs here were last as GitHub had them, by slug (`GhPoll::current`): a
+    /// repo whose read fails, or is still on its way, keeps its earlier time.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub github_current: std::collections::BTreeMap<String, i64>,
     pub usage: Vec<Usage>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,

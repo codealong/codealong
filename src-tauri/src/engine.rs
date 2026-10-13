@@ -3124,7 +3124,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
         board.usage = usage;
         board.github_polled = self.github.polled();
-        board.github_failing = self.github.failing();
+        board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;
         board.nudge_about = self.cfg.pull_requests.nudge_about;
         board.reviews = self.cfg.reviews.clone();

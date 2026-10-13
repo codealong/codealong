@@ -181,11 +181,7 @@ pub fn judge(scene: &Scene) -> Vec<Found> {
         .lanes
         .iter()
         .filter(|l| l.device.is_none() && l.origin != Origin::Main && (scene.linked)(&l.id))
-        .filter_map(|l| {
-            let busy = l.sessions.iter().any(|s| !s.archived && matches!(s.status, Status::Working | Status::Needs | Status::Error));
-            let last = l.sessions.iter().map(|s| s.last_activity).chain([l.last_activity]).max().unwrap_or(0);
-            (!busy && now - last >= after_ms).then_some((l, now - last))
-        })
+        .filter_map(|l| Some((l, quiet_for(l, now).filter(|q| *q >= after_ms)?)))
         .collect();
     let all_lanes: Vec<&str> = board.lanes.iter().filter(|l| l.device.is_none()).map(|l| l.id.as_str()).collect();
     let in_session: HashSet<u32> = live_pids.iter().flat_map(|&p| descendants(&kids, p).into_iter().chain([p])).collect();
@@ -234,6 +230,15 @@ pub fn judge(scene: &Scene) -> Vec<Found> {
         f.children = descendants(&kids, f.pid).into_iter().filter(|p| !protected.contains(p)).collect();
     }
     found
+}
+
+/// How long nothing has happened in a worktree, by its sessions and itself; None while a session
+/// there works or waits on its user, which a session Codealong runs (with no pid of its own) says
+/// too.
+fn quiet_for(l: &Lane, now: i64) -> Option<i64> {
+    let busy = l.sessions.iter().any(|s| !s.archived && matches!(s.status, Status::Working | Status::Needs | Status::Error));
+    let last = l.sessions.iter().map(|s| s.last_activity).chain([l.last_activity]).max().unwrap_or(0);
+    (!busy).then_some(now - last)
 }
 
 fn children_of(procs: &[Proc]) -> HashMap<u32, Vec<u32>> {
@@ -594,6 +599,9 @@ pub fn end(found: &[Found], table: &[Proc], protected: &HashSet<u32>, board: &Bo
     if !cleared.is_empty() {
         std::thread::sleep(Duration::from_secs(3));
         if let (Ok(now), Some(board)) = (processes(), fresh()) {
+            // Only where nothing has happened since the ending began, by this board.
+            let ms = crate::util::now_ms();
+            let cleared: Vec<&str> = cleared.into_iter().filter(|id| board.lanes.iter().find(|l| l.id == *id).and_then(|l| quiet_for(l, ms)).is_some_and(|q| q >= began.elapsed().as_millis() as i64)).collect();
             let lanes: Vec<&str> = board.lanes.iter().filter(|l| l.device.is_none()).map(|l| l.id.as_str()).collect();
             let kids = children_of(&now);
             let live: HashSet<u32> = board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.live).filter_map(|s| s.pid).flat_map(|p| descendants(&kids, p).into_iter().chain([p])).collect();
@@ -772,40 +780,47 @@ mod tests {
     }
 
     #[test]
-    fn ending_takes_a_process_with_its_children_and_leaves_a_pid_that_runs_something_else() {
-        let spawn = |script: &str| {
-            let mut child = std::process::Command::new("/bin/sh").args(["-c", script]).spawn().unwrap();
+    fn ending_takes_a_process_with_its_children_and_leaves_any_the_table_doesnt_name() {
+        let spawn = |secs: &str| {
+            let mut child = std::process::Command::new("/bin/sleep").arg(secs).spawn().unwrap();
             let pid = child.id();
             // Reaped as it ends, so it doesn't linger as a zombie that still answers to its pid.
             std::thread::spawn(move || child.wait());
             pid
         };
-        let target = spawn("sleep 300 & sleep 301 & wait");
-        let bystander = spawn("sleep 302");
-        std::thread::sleep(Duration::from_millis(500));
-        let procs = processes().unwrap();
-        let found = |pid: u32, command: Option<&str>| Found {
+        let (root, a, b, renamed, reused) = (spawn("300"), spawn("301"), spawn("302"), spawn("303"), spawn("304"));
+        let row = |pid: u32, command: &str| Proc { pid, ppid: std::process::id(), age_ms: 0, started: crate::procs::proc_start_ms(pid).unwrap(), command: command.into() };
+        // One the table says started ten seconds earlier: its pid went to another process since.
+        let table = vec![row(root, "sleep 300"), row(a, "sleep 301"), row(b, "sleep 302"), row(renamed, "sleep 303"), Proc { started: crate::procs::proc_start_ms(reused).unwrap() - 10_000, ..row(reused, "sleep 304") }];
+        let found = |pid: u32, command: &str, children: Vec<u32>| Found {
             pid,
             kind: Kind::Dev,
             why: "test".into(),
-            command: command.map(str::to_string).unwrap_or_else(|| procs.iter().find(|p| p.pid == pid).unwrap().command.clone()),
+            command: command.into(),
             age_ms: 0,
             quiet_ms: 0,
             session: None,
             worktree: None,
             job: false,
-            children: descendants(&children_of(&procs), pid),
+            children,
             memory: 0,
         };
-        let kids = found(target, None).children;
-        assert_eq!(kids.len(), 2);
-        let ended = end(&[found(target, None), found(bystander, Some("/bin/sh -c something else"))], &procs, &HashSet::new(), &Board::default(), &crate::config::Config::default(), &|| None);
+        let ended = end(
+            &[found(root, "sleep 300", vec![a, b]), found(renamed, "sleep something else", vec![]), found(reused, "sleep 304", vec![])],
+            &table,
+            &HashSet::new(),
+            &Board::default(),
+            &crate::config::Config::default(),
+            &|| None,
+        );
+        assert_eq!(ended.iter().map(|e| e.result.starts_with("skipped")).collect::<Vec<_>>(), [false, true, true]);
         assert_eq!(ended[0].result, "ended");
-        assert!(ended[1].result.starts_with("skipped"));
-        assert!(kids.iter().chain([&target]).all(|&p| !crate::procs::pid_alive(p)));
-        assert!(crate::procs::pid_alive(bystander));
-        // SAFETY: kill only sends a signal, to the sleep this test started.
-        unsafe { libc::kill(bystander as libc::pid_t, libc::SIGKILL) };
+        assert!([root, a, b].iter().all(|&p| !crate::procs::pid_alive(p)));
+        assert!(crate::procs::pid_alive(renamed) && crate::procs::pid_alive(reused));
+        for pid in [renamed, reused] {
+            // SAFETY: kill only sends a signal, to a sleep this test started.
+            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+        }
     }
 
     #[test]

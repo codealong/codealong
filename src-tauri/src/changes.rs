@@ -356,20 +356,17 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         .collect();
     out.waiting.sort_by_key(|w| w.since);
 
-    // PRs, each repo as of when GitHub last gave its PRs: a repo whose read fails keeps its marks
-    // and its time until it answers, so what happened in it meanwhile is told then, and nothing of
-    // it before.
+    // PRs, each repo's as of when it was last as GitHub had it (`github_current`), which holds
+    // still while its read fails or is on its way: a PR the earlier look had no mark for is told
+    // against when its repo was last current then, so what happened meanwhile is told once it is
+    // current again, and nothing from before looks new.
     let pr_part = earlier.and_then(|l| l.prs.as_ref());
     if sight.prs {
         let from = since_of(pr_part.map(|p| p.at));
-        let fresh = board.github_at.map_or(now, |t| t.min(now));
-        let failing = |slug: &str| board.github_failing.iter().any(|f| f == slug);
         let boundary = |slug: &str| pr_part.and_then(|p| p.repos.get(slug).copied()).unwrap_or(from);
-        let mut marks: BTreeMap<String, PrMark> = pr_part
-            .map(|p| p.marks.iter().filter(|(_, m)| m.state.is_open() && now - m.seen < PR_KEPT_MS).map(|(k, m)| (k.clone(), m.clone())).collect())
-            .unwrap_or_default();
+        let mut marks: BTreeMap<String, PrMark> = pr_part.map(|p| p.marks.iter().filter(|(_, m)| now - m.seen < PR_KEPT_MS).map(|(k, m)| (k.clone(), m.clone())).collect()).unwrap_or_default();
         let mut rows = Vec::new();
-        for p in board.prs.iter().filter(|p| !failing(&p.repo_slug)) {
+        for p in &board.prs {
             let mark = pr_part.and_then(|part| part.marks.get(&p.key));
             if in_project(&p.project) {
                 if let Some((change, was)) = pr_change(p, mark, boundary(&p.repo_slug)) {
@@ -378,9 +375,9 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             }
             marks.insert(p.key.clone(), PrMark { state: p.state, asks_you: p.review_requested, seen: now });
         }
-        let slugs: BTreeSet<&str> = board.prs.iter().map(|p| p.repo_slug.as_str()).chain(board.github_failing.iter().map(String::as_str)).chain(pr_part.into_iter().flat_map(|p| p.repos.keys().map(String::as_str))).collect();
-        let repos = slugs.into_iter().map(|s| (s.to_string(), if failing(s) { boundary(s) } else { fresh })).collect();
-        look.prs = Some(Part { at: fresh, marks, repos });
+        let slugs: BTreeSet<&str> = board.prs.iter().map(|p| p.repo_slug.as_str()).chain(board.github_current.keys().map(String::as_str)).chain(pr_part.into_iter().flat_map(|p| p.repos.keys().map(String::as_str))).collect();
+        let repos = slugs.into_iter().map(|s| (s.to_string(), board.github_current.get(s).copied().unwrap_or_else(|| boundary(s)))).collect();
+        look.prs = Some(Part { at: board.github_at.map_or(now, |t| t.min(now)), marks, repos });
         out.prs = Some(rows);
     } else {
         look.prs = pr_part.cloned();
@@ -797,24 +794,40 @@ mod tests {
     }
 
     #[test]
-    fn a_repo_github_doesnt_answer_for_holds_its_time_while_others_move_on() {
+    fn a_repo_that_isnt_current_holds_its_time_while_others_move_on() {
         let other = |n: u64, state: PrState| PrItem { key: format!("x/y#{n}"), repo_slug: "x/y".into(), ..pr(n, state) };
         let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
-        // The first look comes while x/y fails: what the board has of it isn't marked.
-        let failing = Board { github_at: Some(NOW - 10 * MIN), github_failing: vec!["x/y".into()], ..board(vec![], vec![pr(1, PrState::Open), other(1, PrState::Open)]) };
+        let current = |or: i64, xy: Option<i64>| std::iter::once(("o/r".to_string(), or)).chain(xy.map(|t| ("x/y".to_string(), t))).collect();
+        // The first look comes while x/y has never been read: it goes from where the look begins.
+        let closed = PrItem { closed_at: Some(NOW - DAY_MS), ..other(3, PrState::Closed) };
+        let failing = Board { github_at: Some(NOW - 10 * MIN), github_current: current(NOW - 10 * MIN, None), ..board(vec![], vec![pr(1, PrState::Open), other(1, PrState::Open), closed.clone()]) };
         let (out, first) = compare(&sight(&failing), None, NOW - 15 * MIN, NOW);
         assert_eq!(out.prs, Some(vec![]));
         assert_eq!(first.prs.as_ref().unwrap().repos.get("x/y"), Some(&(NOW - 15 * MIN)));
-        // o/r answers again and x/y still doesn't: x/y's time holds.
-        let still = Board { github_at: Some(NOW + 5 * MIN), ..failing.clone() };
+        // o/r is read again, and x/y still isn't (its read fails, or is on its way): its time holds.
+        let still = Board { github_at: Some(NOW + 5 * MIN), github_current: current(NOW + 5 * MIN, None), ..failing.clone() };
         let (_, second) = compare(&sight(&still), Some(&first), first.at, NOW + 6 * MIN);
         assert_eq!(second.prs.as_ref().unwrap().repos.get("x/y"), Some(&(NOW - 15 * MIN)));
         assert_eq!(second.prs.as_ref().unwrap().repos.get("o/r"), Some(&(NOW + 5 * MIN)));
-        // x/y answers: a PR opened and merged while it failed is told, one from the day before isn't.
+        // x/y is current again: a PR opened and merged meanwhile is told, and so is the closed one
+        // that was reopened; the open one from the day before isn't.
         let merged = PrItem { created_at: NOW, merged_at: Some(NOW + 3 * MIN), ..other(2, PrState::Merged) };
-        let back = Board { github_at: Some(NOW + 20 * MIN), ..board(vec![], vec![pr(1, PrState::Open), other(1, PrState::Open), merged]) };
+        let back = Board { github_at: Some(NOW + 20 * MIN), github_current: current(NOW + 20 * MIN, Some(NOW + 20 * MIN)), ..board(vec![], vec![pr(1, PrState::Open), other(1, PrState::Open), merged, other(3, PrState::Open)]) };
         let (out, _) = compare(&sight(&back), Some(&second), second.at, NOW + 21 * MIN);
-        assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("x/y#2", PrChange::Merged)]);
+        assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("x/y#2", PrChange::Merged), ("x/y#3", PrChange::Reopened)]);
+    }
+
+    #[test]
+    fn a_closed_prs_mark_outlasts_its_repo_dropping_off_the_board() {
+        // The board stops listing a closed PR (its repo fails after a restart): its mark stays for a
+        // week, so its reopening is told once it's back.
+        let closed = PrItem { closed_at: Some(NOW - DAY_MS), ..pr(4, PrState::Closed) };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
+        let (listed, gone, back) = (board(vec![], vec![closed]), board(vec![], vec![]), board(vec![], vec![pr(4, PrState::Open)]));
+        let (_, first) = compare(&sight(&listed), None, NOW - 15 * MIN, NOW);
+        let (_, second) = compare(&sight(&gone), Some(&first), first.at, NOW + MIN);
+        let (out, _) = compare(&sight(&back), Some(&second), second.at, NOW + 2 * MIN);
+        assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("o/r#4", PrChange::Reopened)]);
     }
 
     #[test]
