@@ -10,7 +10,7 @@
 // the box stays the side conversation's; what's typed for the side is a draft of its own, apart
 // from the session's; what another window shows above the box (local storage) makes this box the
 // side conversation's too, so ⏎ there asks the copy; and while a question's copy starts, the box
-// stays the side conversation's, in every window.
+// stays the side conversation's, in every window. The account stays under the box throughout.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/side-check.js
 (function () {
   // A Claude Code session to peek at, idle and taking messages.
@@ -113,6 +113,8 @@
 
       // While it shows, the box is the side conversation's.
       check('while it shows, the box says it asks on the side', box().getAttribute('aria-placeholder') === 'Ask on the side' && button().getAttribute('aria-label') === 'Ask on the side' && noteText().indexOf('To the side conversation, not ') === 0 && !!document.querySelector('.ca-composer.is-aside'), box().getAttribute('aria-placeholder') + ' / ' + noteText());
+      var account = document.querySelector('.ca-composer.is-aside .ca-composer-under .ca-account');
+      check('and still says the account under it, which its copy runs on', !!account && account.textContent === picked.account, account ? account.textContent : 'none');
       type(box(), 'and with a queue of one?');
       await wait(50);
       enter();

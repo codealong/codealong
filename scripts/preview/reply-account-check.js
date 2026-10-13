@@ -1,8 +1,9 @@
 // Checks that a session's account is said under its reply box (SessionReply.tsx, primitives.tsx
 // `AccountLabel`), not in its header: at the right of the line under the box, just before how
 // full its context is, as typed, with its harness on hover; and that in a box short of room what
-// the box says gives way, while the account and the meter stay whole. Every session here says
-// its context, so the meter is there to stand beside.
+// the box says gives way, while the account and the meter stay whole, and a name too long for
+// the line is cut rather than push the meter out. Every session here says its context, so the
+// meter is there to stand beside.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/reply-account-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/reply-account-check.js
 //   scripts/preview.sh sessions '' scripts/preview/reply-account-check.js
@@ -68,6 +69,13 @@
       check('squeezed, it stays whole', whole(name), name.scrollWidth + ' in ' + name.clientWidth);
       check('squeezed, the meter stays on one line', m.height < 24, Math.round(m.height) + 'px tall');
       check('squeezed, what the box says gives way instead', note.getBoundingClientRect().width < room.width - at.width - m.width, Math.round(note.getBoundingClientRect().width) + 'px wide');
+
+      // A name longer than the line has room for beside the meter is cut, and the meter stays in.
+      name.textContent = 'an-account-named-at-very-great-length-for-this-box';
+      room = under.getBoundingClientRect();
+      m = meter.getBoundingClientRect();
+      check('a name too long for the line is cut', !whole(name), name.scrollWidth + ' in ' + name.clientWidth);
+      check('and the meter stays inside the line', m.right <= room.right + 1 && m.height < 24, Math.round(m.right) + ' past ' + Math.round(room.right));
     })
     .then(done)
     .catch(stopped);

@@ -798,17 +798,16 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           )}
         </div>
       </div>
-      {(said || !aside) && (
-        <div className="ca-composer-under">
-          {said && (
-            <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
-              {said}
-            </span>
-          )}
-          {!aside && <AccountLabel session={s} />}
-          {!aside && <ContextMeter session={s} />}
-        </div>
-      )}
+      <div className="ca-composer-under">
+        {said && (
+          <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
+            {said}
+          </span>
+        )}
+        {/* A side conversation's copy runs on the session's account too, so it stays. */}
+        <AccountLabel session={s} />
+        {!aside && <ContextMeter session={s} />}
+      </div>
     </div>
   );
 }
