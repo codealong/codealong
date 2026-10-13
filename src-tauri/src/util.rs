@@ -581,12 +581,36 @@ pub fn without_cd(command: &str) -> &str {
 /// skip the ones outside every worktree.
 const WORK_KEPT: usize = 12;
 
+/// How far before its tail a first read of a log looks for where the session worked.
+const WORK_LOOKBACK: u64 = 4 * 1024 * 1024;
+
 /// Records where a tool call worked, oldest first.
 pub fn note_work(work: &mut Vec<String>, path: String) {
     work.push(path);
     if work.len() > WORK_KEPT {
         work.remove(0);
     }
+}
+
+/// Puts ahead of a first read's places of work, `work`, the ones before its tail that reading the
+/// log as it grew would have kept, `line_work` saying where each line worked, in order. A tail of
+/// long results can hold too few commands and edits to say which worktree a session is in, and a
+/// first read (after a relaunch) has nothing from before it. Read backwards from `end` (a line
+/// start), no further than `floor` nor `WORK_LOOKBACK`, so a long log with little work in it
+/// isn't read whole.
+pub fn work_before(path: &Path, floor: u64, end: u64, work: &mut Vec<String>, mut line_work: impl FnMut(&str) -> Vec<String>) {
+    let want = WORK_KEPT.saturating_sub(work.len());
+    if want == 0 {
+        return;
+    }
+    let mut found = Vec::new();
+    scan_lines_back(path, floor.max(end.saturating_sub(WORK_LOOKBACK)), end, |line| {
+        found.extend(line_work(line).into_iter().rev());
+        found.len() >= want
+    });
+    found.truncate(want);
+    found.reverse();
+    work.splice(0..0, found);
 }
 
 

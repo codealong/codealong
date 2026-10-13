@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::conversation::{line_peer, sent_from_codealong};
 use crate::model::SessionLimit;
-use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, read_tail, resolve, scan_lines_back, without_cd};
+use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, read_tail, resolve, scan_lines_back, without_cd, work_before};
 
 /// What the start of a transcript says. It never changes, so the engine reads it once.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -230,6 +230,10 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             }
         }
     }
+    // Where it worked decides its worktree (`board::session_seed`). Later reads carry it forward.
+    if fresh {
+        work_before(path, 0, tail.start, &mut info.work, |line| line_work(line, &head.cwd));
+    }
     state.offset = tail.end;
     if info.last_ts == 0 {
         info.last_ts = mtime;
@@ -251,6 +255,23 @@ fn model_switch_before(path: &Path, end: u64) -> Option<String> {
         found.is_some()
     });
     found
+}
+
+/// Where a reply line's calls worked (`work_path`), in order. `cwd` is the folder for a line that
+/// names none.
+fn line_work(line: &str, cwd: &str) -> Vec<String> {
+    // Most bytes are results and replies; only a call can be work.
+    if !line.contains("\"type\":\"tool_use\"") {
+        return Vec::new();
+    }
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return Vec::new() };
+    if v.get("type").and_then(Value::as_str) != Some("assistant") {
+        return Vec::new();
+    }
+    let at = str_of(&v, "cwd").unwrap_or_else(|| cwd.to_string());
+    let items = v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten();
+    let calls = items.filter(|i| i.get("type").and_then(Value::as_str) == Some("tool_use"));
+    calls.filter_map(|i| work_path(&str_of(i, "name").unwrap_or_default(), i.get("input").unwrap_or(&Value::Null), &at)).collect()
 }
 
 /// When the last prompt you typed (or message you sent while it worked) before `end` (a line
@@ -1202,6 +1223,44 @@ mod tests {
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:02:00.000Z"));
+    }
+
+    #[test]
+    fn a_first_read_looks_back_for_where_it_worked() {
+        let dir = crate::fixtures::scratch("work-before");
+        let path = dir.join("s.jsonl");
+        let call = |cwd: &str, command: &str| serde_json::json!({ "type": "assistant", "cwd": cwd, "message": { "content": [{ "type": "tool_use", "id": "t", "name": "Bash", "input": { "command": command } }] } }).to_string();
+        let output = |n: usize| format!(r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"t","content":"{}"}}]}}}}"#, "x".repeat(n));
+        let wt = "/r/app/.claude/worktrees/release";
+        // Work in the worktree, a long build's output, then a command whose copy to a temp file
+        // says nothing of where it works: the tail alone has no work.
+        let mut lines = vec![HEAD.trim_end().to_string(), call("/r/app", &format!("cd {wt} && make")), call(wt, "git commit -am wip"), call(wt, "make test")];
+        lines.extend((0..3).map(|_| output(120_000)));
+        lines.push(call(wt, "make brief; cp out/brief.md /tmp/brief.md"));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(info.work, [wt, wt, wt]);
+        // As many as reading it as it grew would have kept, oldest first, the tail's own after
+        // them: places outside every worktree among them (a scratch file), which the board
+        // passes over before it counts.
+        let write = |file: &str| serde_json::json!({ "type": "assistant", "cwd": wt, "message": { "content": [{ "type": "tool_use", "id": "t", "name": "Write", "input": { "file_path": file, "content": "" } }] } }).to_string();
+        let mut lines = vec![HEAD.trim_end().to_string(), call("/r/w0", "make")];
+        lines.extend((1..5).map(|i| call(&format!("/r/w{i}"), "make")));
+        lines.extend((0..7).map(|i| write(&format!("/tmp/notes-{i}.md"))));
+        lines.extend((0..3).map(|_| output(120_000)));
+        lines.push(call("/r/app", "make"));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        let mut kept: Vec<String> = (1..5).map(|i| format!("/r/w{i}")).collect();
+        kept.extend((0..7).map(|i| format!("/tmp/notes-{i}.md")));
+        kept.push("/r/app".into());
+        assert_eq!(info.work, kept);
+        // Not past `WORK_LOOKBACK`: a long log with little work in it isn't read whole.
+        let mut lines = vec![HEAD.trim_end().to_string(), call(wt, "make")];
+        lines.extend((0..40).map(|_| output(120_000)));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert!(info.work.is_empty());
     }
 
     #[test]

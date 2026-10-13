@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::util::{command_dir, file_name, mtime_ms, note_work, one_line, only_looks, parse_rfc3339_ms, read_first_line, read_range, read_tail, resolve, scan_lines_back};
+use crate::util::{command_dir, file_name, mtime_ms, note_work, one_line, only_looks, parse_rfc3339_ms, read_first_line, read_range, read_tail, resolve, scan_lines_back, work_before};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadInfo {
@@ -312,6 +312,17 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     for v in &events {
         apply_event(&mut info, v);
     }
+    // Where it worked decides its worktree (`board::session_seed`). Later reads carry it forward.
+    if let Some(floor) = floor {
+        let cwd = info.cwd.clone();
+        work_before(path, floor, tail.start, &mut info.work, |line| {
+            // Cheap check first: most bytes are tool output.
+            if !line.contains("\"item_completed\"") {
+                return Vec::new();
+            }
+            serde_json::from_str::<Value>(line).ok().and_then(|v| worked_at(&v, &cwd)).into_iter().collect()
+        });
+    }
     if info.last_ts == 0 {
         info.last_ts = mtime;
     }
@@ -465,6 +476,12 @@ fn element<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
     Some(&text[start..end])
 }
 
+/// Where an event says the thread worked: a completed command or file change (`work_of`).
+fn worked_at(v: &Value, thread_cwd: &str) -> Option<String> {
+    let payload = event_payload(v).filter(|p| p.get("type").and_then(Value::as_str) == Some("item_completed"))?;
+    work_of(payload.get("item")?, thread_cwd)
+}
+
 /// Where a completed item worked: the folder a command ran in, or a file a change touched.
 fn work_of(item: &Value, thread_cwd: &str) -> Option<String> {
     match item.get("type").and_then(Value::as_str)? {
@@ -534,10 +551,8 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
     if matches!(kind, "task_started" | "task_complete" | "turn_aborted") {
         info.pending_calls.clear();
     }
-    if kind == "item_completed" {
-        if let Some(p) = payload.get("item").and_then(|item| work_of(item, &info.cwd)) {
-            note_work(&mut info.work, p);
-        }
+    if let Some(p) = worked_at(v, &info.cwd) {
+        note_work(&mut info.work, p);
     }
     match kind {
         "task_started" => {
@@ -883,6 +898,27 @@ mod tests {
         let (info, _) = parse_rollout(&path, 0, Some((info, off))).unwrap();
         assert!(!info.turn_open);
         assert_eq!(info.last_agent_message.as_deref(), Some("Found it: the webhook retries twice."));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_first_parse_finds_where_it_worked_before_the_tail() {
+        let ran = |at: &str| format!(r#"{{"timestamp":"2026-09-24T18:04:{at}.000Z","type":"event_msg","payload":{{"type":"item_completed","item":{{"type":"CommandExecution","command":["/bin/zsh","-lc","cd ../spark-fix && yarn test"],"cwd":"file:///Users/me/projects/sparkhq/spark-infra"}}}}}}"#);
+        let (a, b) = (ran("02"), ran("03"));
+        let (dir, path) = long_rollout("work-before", &[TURN_STARTED, PROMPT_ITEM, &a, &b], &[TOKEN_COUNT]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!(info.work, ["/Users/me/projects/sparkhq/spark-fix", "/Users/me/projects/sparkhq/spark-fix"]);
+        assert!(info.turn_open);
+
+        // Not past `WORK_LOOKBACK`, one output longer than that included, while the turn and its
+        // prompt are looked for as far back as they are.
+        let output = format!(r#"{{"timestamp":"2026-09-24T18:05:00.000Z","type":"response_item","payload":{{"type":"custom_tool_call_output","output":"{}"}}}}"#, "x".repeat(5_000_000));
+        let lines = [META_USER, TURN_STARTED, PROMPT_ITEM, &a, &output, TOKEN_COUNT];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert!(info.work.is_empty());
+        assert!(info.turn_open);
+        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
