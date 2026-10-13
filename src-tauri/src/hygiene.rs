@@ -191,9 +191,7 @@ pub fn judge(scene: &Scene) -> Vec<Found> {
         if !(is_dev(&p.command) || scene.listening.contains(&p.pid)) || in_session.contains(&p.pid) || protected.contains(&p.pid) {
             return None;
         }
-        let cwd = (scene.cwd)(p.pid);
-        // The deepest worktree it's in: one inside a main checkout's folder is its own.
-        all_lanes.iter().copied().filter(|l| inside(&p.command, cwd.as_deref(), l)).max_by_key(|l| l.len())
+        lane_of(&p.command, (scene.cwd)(p.pid).as_deref(), &all_lanes)
     };
     let mut roots: BTreeSet<u32> = BTreeSet::new();
     for p in procs.iter().filter(|p| p.age_ms >= after_ms) {
@@ -275,11 +273,40 @@ fn same_args(process: &str, command: &str) -> bool {
     !want.is_empty() && args(process) == want
 }
 
-/// Whether a process belongs to the worktree at `lane`: its command names a path in it, or it
-/// runs in it.
-fn inside(command: &str, cwd: Option<&str>, lane: &str) -> bool {
-    let under = |p: &str| p == lane || p.strip_prefix(lane).is_some_and(|rest| rest.starts_with('/'));
-    cwd.is_some_and(under) || command.split_whitespace().any(under)
+/// The worktree a process belongs to, the deepest of `lanes` (one inside a main checkout's
+/// folder is its own): the one it runs in, else the one its program or script is in. Never by
+/// another argument: a server in a main checkout given a config from a worktree is the main
+/// checkout's.
+fn lane_of<'a>(command: &str, cwd: Option<&str>, lanes: &[&'a str]) -> Option<&'a str> {
+    let deepest = |path: &str| lanes.iter().copied().filter(|l| path == *l || path.strip_prefix(*l).is_some_and(|rest| rest.starts_with('/'))).max_by_key(|l| l.len());
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    cwd.and_then(deepest).or_else(|| program_at(&tokens).into_iter().find_map(|i| deepest(tokens[i])))
+}
+
+/// Programs that run the script named after their options: the script is what the process is.
+const INTERPRETERS: &[&str] = &["node", "nodejs", "bun", "deno", "tsx", "ts-node", "python", "python3", "ruby", "perl", "bash", "sh", "zsh", "dash", "env", "npx", "bunx", "pnpx"];
+/// An interpreter's options that take the next word as their value.
+const TAKES_VALUE: &[&str] = &["-r", "--require", "--import", "--loader", "--experimental-loader"];
+
+/// Where a command's program is, by word: the first, and for an interpreter the script it runs.
+fn program_at(tokens: &[&str]) -> Vec<usize> {
+    let mut at = vec![0];
+    let first = tokens.first().map(|t| t.rsplit('/').next().unwrap_or(t)).unwrap_or("");
+    if INTERPRETERS.contains(&first) || first.starts_with("python3.") {
+        let mut skip = false;
+        for (i, t) in tokens.iter().enumerate().skip(1) {
+            if std::mem::take(&mut skip) {
+                continue;
+            }
+            if t.starts_with('-') {
+                skip = TAKES_VALUE.contains(t);
+                continue;
+            }
+            at.push(i);
+            break;
+        }
+    }
+    at
 }
 
 /// Dev servers and watchers, by the words of their command: each token's file name, without a
@@ -341,15 +368,21 @@ const DEV_WORDS: &[&[&str]] = &[
 /// executor `nx run-many` runs each target's server under.
 const DEV_PATHS: &[&str] = &["/nx/src/daemon/", "/nx/dist/src/daemon/", "/nx/dist/bin/run-executor"];
 
+/// Whether a command is a dev server or watcher: its program, or the script an interpreter runs,
+/// starts one of `DEV_WORDS` or has one of `DEV_PATHS`. Only there, so an editor with `dev.sh`
+/// open isn't one.
 pub fn is_dev(command: &str) -> bool {
-    let words: Vec<String> = command
-        .split_whitespace()
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    let words: Vec<String> = tokens
+        .iter()
         .map(|t| {
             let name = t.rsplit('/').next().unwrap_or(t).to_lowercase();
             [".js", ".mjs", ".cjs", ".ts"].iter().find_map(|x| name.strip_suffix(x).map(str::to_string)).unwrap_or(name)
         })
         .collect();
-    DEV_WORDS.iter().any(|pat| words.windows(pat.len()).any(|w| w.iter().zip(pat.iter()).all(|(a, b)| a == b))) || DEV_PATHS.iter().any(|p| command.contains(p))
+    program_at(&tokens).into_iter().any(|i| {
+        DEV_WORDS.iter().any(|pat| words.get(i..i + pat.len()).is_some_and(|w| w.iter().zip(pat.iter()).all(|(a, b)| a == b))) || DEV_PATHS.iter().any(|p| tokens[i].contains(p))
+    })
 }
 
 fn word(status: &Status) -> String {
@@ -459,21 +492,36 @@ pub struct Ended {
     pub result: String,
 }
 
-fn command_now(pid: u32) -> Option<String> {
-    crate::procs::run("/bin/ps", &["-ww", "-o", "command=", "-p", &pid.to_string()], None, Duration::from_secs(20)).ok().map(|c| c.trim().to_string()).filter(|c| !c.is_empty())
+/// A process to signal, known by its pid and when it started, so a pid that has gone to another
+/// process meanwhile is never signalled.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Target {
+    pid: u32,
+    started: i64,
 }
 
-fn signal(pids: &[u32], sig: libc::c_int) {
-    for &pid in pids.iter().filter(|&&p| p > 1) {
-        // SAFETY: kill only sends a signal; a pid that's gone or not ours fails harmlessly.
-        unsafe { libc::kill(pid as libc::pid_t, sig) };
+impl Target {
+    fn of(pid: u32) -> Option<Target> {
+        (pid > 1).then(|| crate::procs::proc_start_ms(pid)).flatten().map(|started| Target { pid, started })
+    }
+
+    /// It's still the process it was.
+    fn here(&self) -> bool {
+        crate::procs::proc_start_ms(self.pid) == Some(self.started)
     }
 }
 
-fn wait_gone(pids: &[u32], within: Duration) -> Vec<u32> {
+fn signal(targets: &[Target], sig: libc::c_int) {
+    for t in targets.iter().filter(|t| t.here()) {
+        // SAFETY: kill only sends a signal; a pid that's gone or not ours fails harmlessly.
+        unsafe { libc::kill(t.pid as libc::pid_t, sig) };
+    }
+}
+
+fn wait_gone(targets: &[Target], within: Duration) -> Vec<Target> {
     let until = Instant::now() + within;
     loop {
-        let left: Vec<u32> = pids.iter().copied().filter(|&p| crate::procs::pid_alive(p)).collect();
+        let left: Vec<Target> = targets.iter().copied().filter(Target::here).collect();
         if left.is_empty() || Instant::now() >= until {
             return left;
         }
@@ -481,64 +529,76 @@ fn wait_gone(pids: &[u32], within: Duration) -> Vec<u32> {
     }
 }
 
-/// Ends what `judge` found, each with its child processes, and says how each went. A process
-/// whose command isn't what it was is left alone: its pid went to something else. A background
-/// job is stopped by its harness (`Adapter::stop`), and signalled only if it's still there after.
+/// Ends what `judge` found, each with its child processes, and says how each went. Each tree is
+/// read again first: a root whose command isn't what it was is left alone, its pid having gone
+/// to something else, and every process is signalled only while it's the one that was read. A
+/// background job is stopped by its harness (`Adapter::stop`), as Close does, and signalled only
+/// if it's still there after. `board` is the app's, read just before.
 pub fn end(found: &[Found], protected: &HashSet<u32>, board: &Board, cfg: &crate::config::Config) -> Vec<Ended> {
-    let mut out: Vec<Ended> = Vec::new();
-    let mut trees: Vec<(usize, Vec<u32>)> = Vec::new();
-    for f in found {
-        let same = command_now(f.pid).is_some_and(|c| c.chars().take(200).eq(f.command.chars().take(200)));
-        out.push(Ended { pid: f.pid, kind: f.kind, why: f.why.clone(), memory: f.memory, result: String::new() });
-        if !same {
-            out.last_mut().unwrap().result = "skipped: it's gone, or its pid runs something else now".into();
-            continue;
+    let began = Instant::now();
+    let mut out: Vec<Ended> = found.iter().map(|f| Ended { pid: f.pid, kind: f.kind, why: f.why.clone(), memory: f.memory, result: String::new() }).collect();
+    let table = match processes() {
+        Ok(t) => t,
+        Err(e) => {
+            let why = format!("skipped: `ps` didn't answer ({})", crate::util::words(e));
+            out.iter_mut().for_each(|o| o.result = why.clone());
+            return out;
         }
-        let kids: Vec<u32> = f.children.iter().copied().filter(|p| !protected.contains(p)).collect();
-        trees.push((out.len() - 1, kids));
+    };
+    let kids = children_of(&table);
+    let mut trees: Vec<(usize, Target, Vec<Target>)> = Vec::new();
+    for (i, f) in found.iter().enumerate() {
+        let same = table.iter().any(|p| p.pid == f.pid && p.command.chars().take(200).eq(f.command.chars().take(200)));
+        let Some(root) = Target::of(f.pid).filter(|_| same) else {
+            out[i].result = "skipped: it's gone, or its pid runs something else now".into();
+            continue;
+        };
+        let children = descendants(&kids, f.pid).into_iter().filter(|p| !protected.contains(p)).filter_map(Target::of).collect();
+        trees.push((i, root, children));
     }
-    let job = |i: usize| found.iter().find(|f| f.pid == out[i].pid).filter(|f| f.job).and_then(|f| f.session.clone());
-    let jobs: Vec<(usize, String)> = trees.iter().filter_map(|(i, _)| Some((*i, job(*i)?))).collect();
     let mut stopped: HashMap<usize, Result<(), String>> = HashMap::new();
-    for (i, key) in &jobs {
+    for (i, _, _) in &trees {
+        let Some(key) = found[*i].session.as_deref().filter(|_| found[*i].job) else { continue };
         let result = crate::harness::find(board, cfg, key).and_then(|(s, account)| crate::harness::adapter(s.harness).stop(&crate::harness::Ctx { account }, s));
         stopped.insert(*i, result.map(|_| ()).map_err(crate::util::words));
     }
-    let roots: Vec<u32> = trees.iter().map(|(i, _)| out[*i].pid).collect();
     // The roots first, so an agent can close what it started itself; then what's left of each tree.
-    let signalled: Vec<u32> = trees.iter().filter(|(i, _)| !stopped.contains_key(i)).map(|(i, _)| out[*i].pid).collect();
-    signal(&signalled, libc::SIGTERM);
+    let roots: Vec<Target> = trees.iter().map(|t| t.1).collect();
+    let asked: Vec<Target> = trees.iter().filter(|t| !stopped.contains_key(&t.0)).map(|t| t.1).collect();
+    signal(&asked, libc::SIGTERM);
     wait_gone(&roots, Duration::from_secs(10));
-    let all: Vec<u32> = trees.iter().flat_map(|(i, kids)| std::iter::once(out[*i].pid).chain(kids.iter().copied())).collect();
+    let all: Vec<Target> = trees.iter().flat_map(|(_, root, children)| std::iter::once(*root).chain(children.iter().copied())).collect();
     let rest = wait_gone(&all, Duration::ZERO);
     signal(&rest, libc::SIGTERM);
     let rest = wait_gone(&rest, Duration::from_secs(5));
     signal(&rest, libc::SIGKILL);
-    let rest: HashSet<u32> = wait_gone(&rest, Duration::from_secs(3)).into_iter().collect();
+    let rest = wait_gone(&rest, Duration::from_secs(3));
 
-    // Dev processes that came back in the worktrees just cleared.
-    let cleared: Vec<&String> = found.iter().filter(|f| f.kind == Kind::Dev && trees.iter().any(|(i, _)| out[*i].pid == f.pid)).filter_map(|f| f.worktree.as_ref()).collect();
-    let lanes: Vec<&str> = board.lanes.iter().filter(|l| l.device.is_none()).map(|l| l.id.as_str()).collect();
+    // Dev processes that started again in the worktrees just cleared, as an Nx daemon does: only
+    // ones that started since, and none a live session runs.
+    let cleared: Vec<&str> = trees.iter().filter(|t| found[t.0].kind == Kind::Dev).filter_map(|t| found[t.0].worktree.as_deref()).collect();
     if !cleared.is_empty() {
         std::thread::sleep(Duration::from_secs(3));
         if let Ok(now) = processes() {
-            let again: Vec<u32> = now
+            let lanes: Vec<&str> = board.lanes.iter().filter(|l| l.device.is_none()).map(|l| l.id.as_str()).collect();
+            let kids = children_of(&now);
+            let live: HashSet<u32> = board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.live).filter_map(|s| s.pid).flat_map(|p| descendants(&kids, p).into_iter().chain([p])).collect();
+            let since_ms = began.elapsed().as_millis() as i64 + 1_000;
+            let again: Vec<Target> = now
                 .iter()
-                .filter(|p| !protected.contains(&p.pid) && is_dev(&p.command))
+                .filter(|p| p.age_ms <= since_ms && !protected.contains(&p.pid) && !live.contains(&p.pid) && is_dev(&p.command))
                 .filter(|p| {
                     let cwd = crate::procs::cwd_of(p.pid).map(|c| c.to_string_lossy().into_owned());
-                    // In a cleared worktree and in no deeper one the board knows.
-                    let deepest = lanes.iter().filter(|l| inside(&p.command, cwd.as_deref(), l)).max_by_key(|l| l.len());
-                    deepest.is_some_and(|d| cleared.iter().any(|c| c.as_str() == *d))
+                    lane_of(&p.command, cwd.as_deref(), &lanes).is_some_and(|l| cleared.contains(&l))
                 })
-                .map(|p| p.pid)
+                .filter_map(|p| Target::of(p.pid))
                 .collect();
             signal(&again, libc::SIGTERM);
             signal(&wait_gone(&again, Duration::from_secs(5)), libc::SIGKILL);
         }
     }
-    for (i, kids) in &trees {
-        let left: Vec<u32> = std::iter::once(out[*i].pid).chain(kids.iter().copied()).filter(|p| rest.contains(p)).collect();
+    for (i, root, children) in &trees {
+        let left: Vec<u32> = std::iter::once(root).chain(children).filter(|t| rest.contains(t)).map(|t| t.pid).collect();
         out[*i].result = match (left.is_empty(), stopped.get(i)) {
             (false, _) => format!("still running: {left:?}"),
             (true, Some(Err(why))) => format!("ended (its harness couldn't stop it: {why})"),
@@ -648,9 +708,19 @@ mod tests {
             proc(34, 1, 40, "node /r/wt/busy/node_modules/.bin/vite"),
             proc(35, 1, 40, "node /r/wt/old/node_modules/nx/src/daemon/server/start.js"),
             proc(36, 1, 40, "node /r/wt/old/scripts/seed.js"),
+            // A main checkout's server given a worktree's config is the main checkout's.
+            proc(37, 1, 40, "node /r/node_modules/.bin/vite --config /r/wt/old/vite.config.ts"),
+            // An editor with a dev script open isn't a dev process.
+            proc(38, 1, 40, "vim /r/wt/old/scripts/dev.sh"),
         ];
-        let cwd = |pid: u32| (pid == 31).then(|| "/r/wt/old".to_string());
+        let cwd = |pid: u32| match pid {
+            31 => Some("/r/wt/old".to_string()),
+            37 => Some("/r".to_string()),
+            _ => None,
+        };
         assert_eq!(judged(&board, &procs, &cwd), vec![(31, Kind::Dev), (35, Kind::Dev)]);
+        // Without its folder, the program's own path says where it is, not another argument's.
+        assert_eq!(judged(&board, &procs, &|pid| (pid == 31).then(|| "/r/wt/old".to_string())), vec![(31, Kind::Dev), (35, Kind::Dev)]);
     }
 
     #[test]
@@ -677,6 +747,10 @@ mod tests {
         assert!(!is_dev("node /w/scripts/invite-users.js"));
         assert!(!is_dev("npx vitest run"));
         assert!(!is_dev("/bin/zsh -l"));
+        assert!(!is_dev("vim /w/scripts/dev.sh"));
+        assert!(!is_dev("less /w/node_modules/nx/src/daemon/server.js"));
+        assert!(is_dev("node --max-old-space-size=8192 -r /w/register.js /w/node_modules/nx/dist/src/daemon/server/start.js"));
+        assert!(is_dev("bash -c npm run dev"));
     }
 
     #[test]
@@ -712,7 +786,7 @@ mod tests {
         assert!(ended[1].result.starts_with("skipped"));
         assert!(kids.iter().chain([&target]).all(|&p| !crate::procs::pid_alive(p)));
         assert!(crate::procs::pid_alive(bystander));
-        signal(&[bystander], libc::SIGKILL);
+        signal(&Target::of(bystander).into_iter().collect::<Vec<_>>(), libc::SIGKILL);
     }
 
     #[test]

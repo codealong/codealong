@@ -1040,6 +1040,13 @@ impl Client {
         Ok(self.board.as_ref().unwrap())
     }
 
+    /// The board read again, for a decision that mustn't go by one read a while ago.
+    fn fresh_board(&mut self) -> Result<&Board> {
+        self.board = None;
+        self.from_app = false;
+        self.board()
+    }
+
     /// Session key → a line of what was said, for sessions whose prompts and replies have
     /// every word: the app's index, or one built from the files now.
     fn search_text(&mut self, words: &[String]) -> HashMap<String, String> {
@@ -4338,24 +4345,34 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
         protected.extend(app_pid);
         let listening: HashSet<u32> = procs::listeners().into_iter().map(|l| l.pid).collect();
         let cfg = c.cfg()?.clone();
-        let board = c.board()?;
         let cwd = |pid: u32| procs::cwd_of(pid).map(|p| p.to_string_lossy().into_owned());
         let linked = |dir: &str| Path::new(dir).join(".git").is_file();
-        let scene = hygiene::Scene { board, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked };
-        let mut found = hygiene::judge(&scene);
+        let judged = |board: &Board| hygiene::judge(&hygiene::Scene { board, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked });
+        let mut found = judged(c.board()?);
         for f in &mut found {
             f.memory = std::iter::once(f.pid).chain(f.children.iter().copied()).filter_map(hygiene::footprint).sum();
         }
         found.sort_by_key(|f| std::cmp::Reverse(f.memory));
         out.judged = true;
         if a.kill && !found.is_empty() {
-            let ended = hygiene::end(&found, &protected, board, &cfg);
-            let path = a.log.as_deref().map(expand).unwrap_or_else(|| util::home().join("Library/Logs/Codealong/kills.log"));
-            if let Err(e) = hygiene::log(&path, &ended, &found) {
-                out.notes.push(format!("Couldn't log to {}: {e}", path.display()));
+            // Judged again on the board as it is now: `ps` takes a while on a busy Mac, and a
+            // session that took a turn meanwhile stays.
+            c.fresh_board()?;
+            match c.from_app && !c.board()?.loading {
+                true => {
+                    let board = c.board()?;
+                    let again = judged(board);
+                    let due: Vec<hygiene::Found> = found.iter().filter(|f| again.iter().any(|g| g.pid == f.pid && g.kind == f.kind)).cloned().collect();
+                    let ended = hygiene::end(&due, &protected, board, &cfg);
+                    let path = a.log.as_deref().map(expand).unwrap_or_else(|| util::home().join("Library/Logs/Codealong/kills.log"));
+                    if let Err(e) = hygiene::log(&path, &ended, &due) {
+                        out.notes.push(format!("Couldn't log to {}: {e}", path.display()));
+                    }
+                    out.log = Some(path.to_string_lossy().into_owned());
+                    out.ended = Some(ended);
+                }
+                false => out.notes.push("Codealong didn't answer when asked again before ending them, so nothing was ended.".into()),
             }
-            out.log = Some(path.to_string_lossy().into_owned());
-            out.ended = Some(ended);
         }
         out.found = found;
     }

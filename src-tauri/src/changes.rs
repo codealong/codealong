@@ -32,6 +32,8 @@ const KEEP_MS: i64 = 7 * DAY_MS;
 const KEEP_LOOKS: usize = 12;
 /// How long a PR the board stopped listing keeps its mark.
 const PR_KEPT_MS: i64 = 7 * DAY_MS;
+/// How recently a PR the earlier look didn't have must have been opened to be told as opened.
+const PR_LATELY_MS: i64 = 3 * DAY_MS;
 /// How recently a live session must have done something to count as working in its worktree,
 /// besides one working or waiting on its user.
 const ACTIVE_MS: i64 = 60 * 60_000;
@@ -352,24 +354,28 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         .collect();
     out.waiting.sort_by_key(|w| w.since);
 
-    // PRs.
+    // PRs, as of when GitHub last answered: while it doesn't, their part keeps that time, so what
+    // happened meanwhile is told once it does.
     let pr_part = earlier.and_then(|l| l.prs.as_ref());
     if sight.prs {
         let from = since_of(pr_part.map(|p| p.at));
         let mut marks: BTreeMap<String, PrMark> = pr_part
             .map(|p| p.marks.iter().filter(|(_, m)| m.state.is_open() && now - m.seen < PR_KEPT_MS).map(|(k, m)| (k.clone(), m.clone())).collect())
             .unwrap_or_default();
+        // An open PR the earlier look didn't have, opened lately, is new to the user, though it
+        // may have been opened before that look: its repo hadn't answered then.
+        let lately = pr_part.map(|_| now - PR_LATELY_MS);
         let mut rows = Vec::new();
         for p in &board.prs {
             let mark = pr_part.and_then(|part| part.marks.get(&p.key));
             if in_project(&p.project) {
-                if let Some((change, was)) = pr_change(p, mark, from) {
+                if let Some((change, was)) = pr_change(p, mark, from, lately) {
                     rows.push(pr_row(change, was, p));
                 }
             }
             marks.insert(p.key.clone(), PrMark { state: p.state, asks_you: p.review_requested, seen: now });
         }
-        look.prs = Some(Part { at: now, marks });
+        look.prs = Some(Part { at: board.github_at.map_or(now, |t| t.min(now)), marks });
         out.prs = Some(rows);
     } else {
         look.prs = pr_part.cloned();
@@ -508,12 +514,13 @@ fn session_row(change: SessionChange, s: &Session, lane: &Lane, board: &Board) -
 }
 
 /// What happened to a PR since its mark, or with none since `since` (by its own times: a review
-/// has none), and its state at the mark when that changed.
-pub fn pr_change(p: &PrItem, mark: Option<&PrMark>, since: i64) -> Option<(PrChange, Option<PrState>)> {
+/// has none), and its state at the mark when that changed. `lately`: an open PR with no mark,
+/// opened since then, is told as opened too.
+pub fn pr_change(p: &PrItem, mark: Option<&PrMark>, since: i64, lately: Option<i64>) -> Option<(PrChange, Option<PrState>)> {
     match mark {
         Some(m) if m.state != p.state => Some((by_state(m.state, p.state), Some(m.state))),
         Some(m) => (p.state.is_open() && p.review_requested && !m.asks_you).then_some((PrChange::ReviewAsked, None)),
-        None if p.created_at >= since => Some((PrChange::Opened, None)),
+        None if p.created_at >= since || (p.state.is_open() && lately.is_some_and(|t| p.created_at >= t)) => Some((PrChange::Opened, None)),
         None if p.state == PrState::Merged && p.merged_at.is_some_and(|t| t >= since) => Some((PrChange::Merged, None)),
         None if p.state == PrState::Closed && p.closed_at.is_some_and(|t| t >= since) => Some((PrChange::Closed, None)),
         None => None,
@@ -762,24 +769,39 @@ mod tests {
     #[test]
     fn a_prs_review_and_merge_are_told_from_its_mark() {
         let since = NOW - 15 * MIN;
-        assert_eq!(pr_change(&pr(1, PrState::Approved), Some(&pr_mark(PrState::Open)), since), Some((PrChange::Approved, Some(PrState::Open))));
-        assert_eq!(pr_change(&pr(1, PrState::Open), Some(&pr_mark(PrState::Draft)), since), Some((PrChange::Ready, Some(PrState::Draft))));
-        assert_eq!(pr_change(&pr(1, PrState::Open), Some(&pr_mark(PrState::Changes)), since), Some((PrChange::ReviewReset, Some(PrState::Changes))));
-        assert_eq!(pr_change(&pr(1, PrState::Merged), Some(&pr_mark(PrState::Approved)), since), Some((PrChange::Merged, Some(PrState::Approved))));
-        assert_eq!(pr_change(&pr(1, PrState::Open), Some(&pr_mark(PrState::Open)), since), None);
+        assert_eq!(pr_change(&pr(1, PrState::Approved), Some(&pr_mark(PrState::Open)), since, None), Some((PrChange::Approved, Some(PrState::Open))));
+        assert_eq!(pr_change(&pr(1, PrState::Open), Some(&pr_mark(PrState::Draft)), since, None), Some((PrChange::Ready, Some(PrState::Draft))));
+        assert_eq!(pr_change(&pr(1, PrState::Open), Some(&pr_mark(PrState::Changes)), since, None), Some((PrChange::ReviewReset, Some(PrState::Changes))));
+        assert_eq!(pr_change(&pr(1, PrState::Merged), Some(&pr_mark(PrState::Approved)), since, None), Some((PrChange::Merged, Some(PrState::Approved))));
+        assert_eq!(pr_change(&pr(1, PrState::Open), Some(&pr_mark(PrState::Open)), since, None), None);
         let asked = PrItem { review_requested: true, ..pr(1, PrState::Open) };
-        assert_eq!(pr_change(&asked, Some(&pr_mark(PrState::Open)), since), Some((PrChange::ReviewAsked, None)));
-        assert_eq!(pr_change(&asked, Some(&PrMark { asks_you: true, ..pr_mark(PrState::Open) }), since), None);
+        assert_eq!(pr_change(&asked, Some(&pr_mark(PrState::Open)), since, None), Some((PrChange::ReviewAsked, None)));
+        assert_eq!(pr_change(&asked, Some(&PrMark { asks_you: true, ..pr_mark(PrState::Open) }), since, None), None);
     }
 
     #[test]
     fn a_pr_with_no_mark_is_new_only_when_it_was_opened_since() {
         let since = NOW - 15 * MIN;
         // Listed for the first time but opened a day ago: its repo didn't answer before, say.
-        assert_eq!(pr_change(&pr(1, PrState::Open), None, since), None);
-        assert_eq!(pr_change(&PrItem { created_at: NOW - 5 * MIN, ..pr(1, PrState::Open) }, None, since), Some((PrChange::Opened, None)));
-        assert_eq!(pr_change(&PrItem { merged_at: Some(NOW - 5 * MIN), ..pr(1, PrState::Merged) }, None, since), Some((PrChange::Merged, None)));
-        assert_eq!(pr_change(&PrItem { merged_at: Some(NOW - 50 * MIN), ..pr(1, PrState::Merged) }, None, since), None);
+        assert_eq!(pr_change(&pr(1, PrState::Open), None, since, None), None);
+        assert_eq!(pr_change(&PrItem { created_at: NOW - 5 * MIN, ..pr(1, PrState::Open) }, None, since, None), Some((PrChange::Opened, None)));
+        assert_eq!(pr_change(&PrItem { merged_at: Some(NOW - 5 * MIN), ..pr(1, PrState::Merged) }, None, since, None), Some((PrChange::Merged, None)));
+        assert_eq!(pr_change(&PrItem { merged_at: Some(NOW - 50 * MIN), ..pr(1, PrState::Merged) }, None, since, None), None);
+        // With an earlier look, an open one opened lately is new to the user all the same.
+        assert_eq!(pr_change(&PrItem { created_at: NOW - DAY_MS, ..pr(1, PrState::Open) }, None, since, Some(NOW - 3 * DAY_MS)), Some((PrChange::Opened, None)));
+        assert_eq!(pr_change(&PrItem { created_at: NOW - 5 * DAY_MS, ..pr(1, PrState::Open) }, None, since, Some(NOW - 3 * DAY_MS)), None);
+    }
+
+    #[test]
+    fn prs_are_as_of_when_github_last_answered_so_an_outage_hides_nothing() {
+        // GitHub stopped answering an hour ago; a PR opened during it shows once it answers again.
+        let stale = Board { github_at: Some(NOW - 60 * MIN), ..board(vec![], vec![pr(1, PrState::Open)]) };
+        let (_, first) = compare(&Sight { board: &stale, sessions: true, prs: true, me: None, project: None }, None, NOW - 2 * 60 * MIN, NOW);
+        assert_eq!(first.prs.as_ref().unwrap().at, NOW - 60 * MIN);
+        let opened = PrItem { created_at: NOW - 30 * MIN, ..pr(2, PrState::Open) };
+        let back = Board { github_at: Some(NOW + MIN), ..board(vec![], vec![pr(1, PrState::Open), opened]) };
+        let (out, _) = compare(&Sight { board: &back, sessions: true, prs: true, me: None, project: None }, Some(&first), first.at, NOW + 2 * MIN);
+        assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("o/r#2", PrChange::Opened)]);
     }
 
     fn board(sessions: Vec<Session>, prs: Vec<PrItem>) -> Board {
