@@ -70,7 +70,7 @@ export interface Hotkeys {
 /** How the one before went: sent, or why it didn't go. */
 export type Notice = { text: string; error: boolean };
 
-export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow'> {
+export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow' | 'inMain'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the waiting
    *  window), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';
@@ -396,7 +396,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
-          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} />
+          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} />
           <SessionThread
             key={s.key}
             session={s}

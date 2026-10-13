@@ -1421,8 +1421,10 @@ Xcode, the JetBrains IDEs and Android Studio, each with its app's icon. A sessio
 and Open button, and cards pinned to the desktop, open its worktree's folder the same way, and ahead
 of the editors, Open folder in your terminal: a new terminal in the session's own folder (the one it
 was started in when that's inside its worktree, else the worktree's), placed as any new terminal is.
-Picking another editor there makes it yours, as Codex's Open button remembers its last. A session's
-tab that comes forward on another screen than the pointer's is outlined for a moment, and
+Picking another editor there makes it yours, as Codex's Open button remembers its last. A session
+Codealong runs lives in its panel in the main window: from the bar, the notch, the waiting window or
+a card, Show in Codealong brings that up, and in the panel itself the Open button leads with Open
+folder in your editor. A session's tab that comes forward on another screen than the pointer's is outlined for a moment, and
 `move_pointer` moves the pointer to it.
 
 ### Previews

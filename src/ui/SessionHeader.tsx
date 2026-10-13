@@ -16,6 +16,10 @@
 // "+N more" beside it lists the rest. A click shows one, a right-click gives its menu. The pages
 // it made go the same way under its links: the latest one's chip, and "+N more" for the rest.
 //
+// A session Codealong runs lives in the main window's panel, so there its Open button doesn't
+// offer to show what's already showing: it leads with its folder in your editor. Elsewhere it
+// says Show in Codealong, which brings the panel up.
+//
 // A window says what it can do by what it passes: the main window can expand the panel, the peek
 // can keep the session on the desktop and a session kept there can be closed, and Rename in a
 // menu shows the name as a field. The rest of what can be done to it (snoozing, archiving,
@@ -113,6 +117,8 @@ export interface SessionHeaderProps {
   compact?: boolean;
   /** The reply box under the conversation names its account, so the header doesn't. */
   accountBelow?: boolean;
+  /** In the main window's panel, which is where a session Codealong runs lives. */
+  inMain?: boolean;
 }
 
 /** A session's name as a field: ⏎ keeps what's typed, Escape leaves the name as it was, and so
@@ -239,7 +245,7 @@ function SessionCost({ sessionKey }: { sessionKey: string }) {
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -254,13 +260,18 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const current = listed.find((t) => t.status !== 'done');
 
   const icons = useEditorIcons(apps);
-  const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
+  // Shown in the panel it lives in, it has nowhere of its own to open.
+  const shownHere = !!inMain && !!s.hosted;
+  const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`) && !(shownHere && t.id === s.openTarget));
   // Under the ways to open the session, its folder: a new terminal there (⌃`, in every window that
   // shows a session), and its worktree's in any editor installed here. A session past the few its
   // worktree lists opens by its own target alone.
   const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
   const terminal = { name: apps.terminal, key: s.key, folder: middleTruncate(tildePath(runFolder(lane, s)), 44), kbd: chordKeys(CHORDS.terminal ?? '') };
-  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons, terminal)] : own;
+  const folder = opensInEditor(lane) ? folderTargets(apps, icons, terminal) : [];
+  const targets = folder.length > 0 ? [...(own.length > 0 || shownHere ? own : [place]), ...folder] : own;
+  // Your editor, which comes first of them, when it's shown where it lives.
+  const leads = shownHere ? (folder.find((t) => t.id.startsWith('l|editor|'))?.id ?? null) : s.openTarget;
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   const quiet = s.quiet ? ' · quiet' : '';
@@ -289,8 +300,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           {device ? (
             <DeviceBadge device={device} now={now} full />
           ) : targets.length > 0 ? (
-            <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} size="sm" variant="secondary" />
-          ) : (
+            <OpenInMenu targets={targets} defaultId={leads} onOpen={onOpen} size="sm" variant="secondary" />
+          ) : shownHere ? null : (
             <Button size="sm" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
               Open in {sessionPlace(s, apps.terminal)}
             </Button>
