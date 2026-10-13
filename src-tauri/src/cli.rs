@@ -1019,13 +1019,11 @@ impl Client {
     /// for): through the app, which does what its windows do, or from here over the board when
     /// it's closed or older than the command.
     fn act(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>) -> Result<Value> {
-        self.act_waiting(name, key, params, from, server::WAIT)
-    }
-
-    /// `act`, given `wait` for the app's answer: a request whose work takes longer than most.
-    fn act_waiting(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>, wait: std::time::Duration) -> Result<Value> {
         self.note();
         let params = serde_json::to_value(params)?;
+        // A repo's own teardown can take minutes: removing a worktree, and Mark as done on a
+        // background job, which removes the worktree it made.
+        let wait = if name == api::WORKTREE_REMOVE || name == api::SESSION_DONE { REMOVAL_WAIT } else { server::WAIT };
         if self.app.is_some() {
             match server::ask_within(&Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() }, wait) {
                 Some(Ok(v)) => return Ok(v),
@@ -2501,6 +2499,10 @@ fn records_for(account: &AccountCfg, s: &Session) -> Vec<String> {
 
 // ---- worktrees ----
 
+/// How long the command waits for the app to remove a worktree: a repo's own teardown can take
+/// minutes (cleanup.rs).
+const REMOVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LaneRow {
@@ -2645,8 +2647,7 @@ struct RemovedOut {
 /// that stays is an error, unless only asked.
 fn worktree_remove(c: &mut Client, worktree: &str, dry_run: bool, json: bool) -> Result<()> {
     let id = resolve_worktree(c, worktree)?;
-    // A repo's own teardown can take minutes.
-    let answer = c.act_waiting(api::WORKTREE_REMOVE, &id, params::Remove { dry_run, ..Default::default() }, None, std::time::Duration::from_secs(600))?;
+    let answer = c.act(api::WORKTREE_REMOVE, &id, params::Remove { dry_run, ..Default::default() }, None)?;
     let removal: api::Removal = serde_json::from_value(answer).context("The app's answer doesn't read")?;
     let stays = !removal.removed && !dry_run;
     if json {

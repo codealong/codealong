@@ -220,10 +220,11 @@ const REQUESTS: &[Request] = &[
     Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close, ..ANY },
     // Done ends no more than the session, and what it leaves for someone at its Mac (a question
     // about its worktree) it says. It's you who's done with a session, not an agent. A worktree
-    // its harness made can take most of a minute to remove (idle.rs `exit`). A Mac that won't do
-    // it still lets it be marked seen and archived.
+    // its harness made can take most of a minute to remove (idle.rs `exit`), and a background
+    // job's through the repo's own teardown longer (cleanup.rs). A Mac that won't do it still
+    // lets it be marked seen and archived.
     // From the command, only a session's own and the ones it started (`done`, agentdone.rs).
-    Request { name: api::SESSION_DONE, here: done, wait: Some(Duration::from_secs(75)), instead: Some(done_anyway), ..ANY },
+    Request { name: api::SESSION_DONE, here: done, wait: Some(Duration::from_secs(300)), instead: Some(done_anyway), ..ANY },
     // A side conversation's copy runs on the session's Mac, and its answer goes to the windows
     // there. The copy may do what its session may without asking, which isn't the command's to
     // borrow.

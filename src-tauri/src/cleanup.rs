@@ -100,7 +100,13 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
     let base = lane.git.as_ref().and_then(|g| g.base.clone());
     let git = crate::git::status(&path, base.as_deref());
     let listed = crate::repos::load_checkout(&main).map(|c| crate::repos::list_worktrees(&c)).unwrap_or_default();
-    let holds = listed.iter().find(|w| w.path != path && w.path.starts_with(&path)).map(|w| file_name(&w.path));
+    // Another worktree inside it, of this repo or any the board has: its files would go too.
+    let holds = listed
+        .iter()
+        .map(|w| w.path.clone())
+        .chain(board.lanes.iter().filter(|l| l.device.is_none()).map(|l| PathBuf::from(&l.path)))
+        .find(|p| *p != path && p.starts_with(&path))
+        .map(|p| file_name(&p));
     let branch = listed.iter().find(|w| w.path == path).and_then(|w| w.branch.clone()).or_else(|| lane.branch.clone());
     let branch_goes = branch.as_ref().is_some_and(|b| !listed.iter().any(|w| w.path != path && w.branch.as_ref() == Some(b)));
     let running = lane.sessions.iter().filter(|s| s.visitor.is_none() && s.live && ending.map_or(true, |e| e.key != s.key)).count();
