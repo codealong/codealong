@@ -877,13 +877,11 @@ export function App() {
     if (!copy) return;
     setMoving(null);
     const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === copy.session.key);
-    if (!row) {
-      reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
-      return;
-    }
-    setSelectedKey(row.key);
-    setDrill((d) => (d && d.from === moving.from.key ? { ...d, from: row.key } : d));
-  }, [moving, selected?.key, picking, homes, sessionRows, reveal]);
+    if (row) setSelectedKey(row.key);
+    else reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
+    // After the reveal, which puts away whatever the panel was showing in the session's place.
+    if (drill?.from === moving.from.key) setDrill({ ...drill, from: row?.key ?? sessionItemOf(copy).key });
+  }, [moving, selected?.key, picking, homes, sessionRows, reveal, drill]);
   useEffect(() => {
     if (!moving?.to) return;
     const t = window.setTimeout(() => setMoving(null), COPY_WAIT_MS);

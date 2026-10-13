@@ -3,8 +3,9 @@
 // session its usage limit stopped, with another session waiting after it, is moved by its
 // header's button. The engine archives it before the move answers, and lists the copy a moment
 // after: meanwhile the panel holds it as it was, offering no second move, and then the copy is
-// selected and shown. Then another, whose worktree has a PR, has its PR opened from its chip while
-// it moves: the PR stays in the panel as the copy comes, and its way back goes to the copy.
+// selected and shown. Then another, whose worktree has a PR, is moved with Sessions filtered to
+// Needs you, which leaves its working copy out, and has its PR opened from its chip while it moves:
+// the PR stays in the panel as the copy is shown, and its way back goes to the copy.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/move-follow-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -142,7 +143,13 @@
       var m = movers[1];
       if (!m) return note('no session whose worktree has a PR the board lists, to open its PR while it moves');
       var prPanel = function () { return document.querySelector('.ca-prpanel'); };
-      return startMove(m).then(function () {
+      var needsYou = function () { return Array.prototype.filter.call(document.querySelectorAll('.ca-side-chip'), function (c) { return /^Needs you/.test(c.textContent); })[0]; };
+      var filter = needsYou();
+      if (!filter) throw new Error('no Needs you filter in the sidebar');
+      filter.click();
+      return until(function () { return needsYou().getAttribute('aria-pressed') === 'true' && rowOf(m); }, 3000, m.title + ' listed under Needs you').then(function () {
+        return startMove(m);
+      }).then(function () {
         var chip = document.querySelector('.ca-sessinsp-head .ca-pr');
         if (!chip) throw new Error('no PR chip in ' + m.title + '’s header');
         click(chip);
@@ -153,7 +160,7 @@
         return wait(300).then(push);
       }).then(function () {
         check('a PR opened from its chip while it moved stays in the panel as the copy comes', !!prPanel());
-        check('the copy is selected under it', selected() === 'row-' + m.lane + '::' + m.copy, selected());
+        check('the copy, which the filter left out, is shown and selected under it', selected() === 'row-' + m.lane + '::' + m.copy, selected());
         var back = document.querySelector('.ca-prpanel .ca-panelback');
         check('and the way back goes to the copy', !!back && back.textContent.indexOf(m.copyTitle) >= 0, back ? back.textContent : 'no way back');
         if (back) back.click();
