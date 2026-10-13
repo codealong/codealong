@@ -29,6 +29,13 @@ paths:
   `quick-bench.js`; each header has its command. Rows of the board and the sidebar skip
   rendering when nothing they show changed (`reuse.ts` keeps unchanged parts of a push as the
   same objects, `ui/memoRow.ts` compares rows), which `rows-check.js` checks.
+- The engine thread's own costs on this Mac's real data (composing the board, hashing it, a
+  big batch from the file watcher) are `bench_engine_on_real_data` in engine.rs, an ignored test
+  whose doc has the command; `/usr/bin/sample` on it names the hot functions, which the stripped
+  release build's stall reports can't. It's a debug build, where the engine's own code isn't
+  optimized, so compare its numbers with each other, not with the log's. The shared build
+  directory's test binary is rebuilt by whichever checkout tests next: copy it aside to compare
+  before and after.
 - Git is the engine's biggest cost and starts during load by construction. `throttle.rs` spaces
   runs in one worktree two seconds apart and publishes git-only changes in two-second batches
   (session changes still go out at once); `procs.rs` runs git at nice 10

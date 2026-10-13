@@ -654,7 +654,8 @@ pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Op
 }
 
 /// Index of the seed whose path is the longest prefix of `cwd`; an exact seed only for its own
-/// folder.
+/// folder. What `SeedIndex` finds, said plainly, to check it against.
+#[cfg(test)]
 pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
     seeds
         .iter()
@@ -662,6 +663,75 @@ pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
         .filter(|(_, s)| if s.exact { cwd == s.path } else { cwd.starts_with(&s.path) })
         .max_by_key(|(_, s)| s.path.components().count())
         .map(|(i, _)| i)
+}
+
+/// The seed a path is in: the one whose folder is the longest prefix of it, an exact seed only
+/// for its own folder (`best_seed`). The seeds are kept by folder, so a path's seed is found by
+/// walking up its folders rather than by comparing it with every seed: with a couple of hundred
+/// lanes and twice as many sessions, comparing took most of each board's composing (2026-10-12).
+/// A path hashes and compares by its components, so a doubled or trailing slash finds the seed
+/// `starts_with` does.
+pub struct SeedIndex {
+    /// The last seed for each folder, as `best_seed` takes the last of seeds as deep: one that
+    /// takes in the folders inside it, and an exact one.
+    under: HashMap<PathBuf, usize>,
+    exact: HashMap<PathBuf, usize>,
+    /// The seeds' folders' names, and whether a seed's folder has none (`/`, or one ending in
+    /// `..`), so most paths are known not to be a seed's folder without hashing them whole.
+    names: HashSet<std::ffi::OsString>,
+    nameless: bool,
+    /// How long the folders of the seeds that take in folders are, written plainly
+    /// (`Path::components`), so only folders that long are looked up.
+    lengths: HashSet<usize>,
+}
+
+impl SeedIndex {
+    pub fn new(seeds: &[LaneSeed]) -> SeedIndex {
+        let (mut under, mut exact, mut names, mut nameless, mut lengths) = (HashMap::new(), HashMap::new(), HashSet::new(), false, HashSet::new());
+        for (i, s) in seeds.iter().enumerate() {
+            if s.exact {
+                exact.insert(s.path.clone(), i);
+            } else {
+                under.insert(s.path.clone(), i);
+                lengths.insert(s.path.components().collect::<PathBuf>().as_os_str().len());
+            }
+            match s.path.file_name() {
+                Some(name) => _ = names.insert(name.to_os_string()),
+                None => nameless = true,
+            }
+        }
+        SeedIndex { under, exact, names, nameless, lengths }
+    }
+
+    /// What `best_seed` says for `cwd`.
+    pub fn best(&self, cwd: &Path) -> Option<usize> {
+        self.own(cwd).or_else(|| match cwd.parent() {
+            Some(dir) => self.holding(dir),
+            None => self.holding(Path::new("")),
+        })
+    }
+
+    /// The seed whose folder is `cwd` itself.
+    pub fn own(&self, cwd: &Path) -> Option<usize> {
+        if !self.nameless && !cwd.file_name().is_some_and(|n| self.names.contains(n)) {
+            return None;
+        }
+        self.exact.get(cwd).max(self.under.get(cwd)).copied()
+    }
+
+    /// The deepest seed that takes in `dir` and the folders inside it: what `best_seed` says for
+    /// any path in `dir` that isn't a seed's own folder.
+    pub fn holding(&self, dir: &Path) -> Option<usize> {
+        // Written plainly, a folder above it is the same folder as a seed's only if it's as
+        // long, and its length is cheaper to look up than the whole path.
+        let dir: PathBuf = dir.components().collect();
+        dir.ancestors()
+            .filter(|a| self.lengths.contains(&a.as_os_str().len()))
+            .find_map(|a| self.under.get(a))
+            // An empty path is a prefix of every path, though no folder's parent.
+            .or_else(|| self.under.get(Path::new("")))
+            .copied()
+    }
 }
 
 /// How many of a session's latest commands and edits in worktrees decide which one it's in.
@@ -675,11 +745,11 @@ const WORK_WINDOW: usize = 5;
 /// lane only because a session started there: a plain folder, or an app's chats, where a chat
 /// that was later given a folder or went to work in a repo still runs its shell. With none,
 /// where the session was started.
-pub fn session_seed(seeds: &[LaneSeed], s: &Session) -> Option<usize> {
-    let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| best_seed(seeds, Path::new(p)).filter(|&i| !seeds[i].exact && !seeds[i].chats)).take(WORK_WINDOW).collect();
+pub fn session_seed(seeds: &[LaneSeed], index: &SeedIndex, s: &Session) -> Option<usize> {
+    let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| index.best(Path::new(p)).filter(|&i| !seeds[i].exact && !seeds[i].chats)).take(WORK_WINDOW).collect();
     let votes = |i: usize| recent.iter().filter(|&&j| j == i).count();
     // Oldest first: of the lanes tied for most, `max_by_key` keeps the last, the latest.
-    recent.iter().rev().copied().max_by_key(|&i| votes(i)).or_else(|| best_seed(seeds, Path::new(&s.cwd)))
+    recent.iter().rev().copied().max_by_key(|&i| votes(i)).or_else(|| index.best(Path::new(&s.cwd)))
 }
 
 /// How urgent a status is. Idle and stopped rank the same: a Codex thread is never stopped, so
@@ -1564,8 +1634,9 @@ pub fn compose(inp: Inputs) -> Board {
     // the session that made it, even though that session runs in another lane.
     let owners: HashMap<(Harness, String), Session> = sessions.iter().filter(|s| !s.archived).map(|s| ((s.harness, s.id.clone()), s.clone())).collect();
     let by_key: HashMap<String, Session> = sessions.iter().map(|s| (s.key.clone(), s.clone())).collect();
+    let index = SeedIndex::new(seeds);
     for s in sessions {
-        if let Some(i) = session_seed(seeds, &s) {
+        if let Some(i) = session_seed(seeds, &index, &s) {
             by_lane[i].push(s);
         }
     }
@@ -3276,11 +3347,59 @@ mod tests {
     }
 
     #[test]
+    fn the_seed_index_finds_what_best_seed_finds() {
+        let exact = |path: &str| LaneSeed { exact: true, ..seed(path, "main") };
+        let seeds = vec![
+            seed("/r/spark", "app"),
+            seed("/r/spark/.claude/worktrees/bold", "bold"),
+            exact("/Users/me"),
+            seed("/Users/me/projects/api", "api"),
+            // The same folder twice: the last of seeds as deep is taken.
+            seed("/r/spark/.claude/worktrees/bold", "bold again"),
+            exact("/r/spark/apps"),
+            seed("/r/plain/", "trailing slash"),
+        ];
+        let index = SeedIndex::new(&seeds);
+        let paths = [
+            "/r/spark",
+            "/r/spark/",
+            "/r/spark/src/main.rs",
+            "/r/spark//src",
+            "/r/spark/./src",
+            "/r/spark/../spark/src",
+            "/r/plain//x/",
+            "/r/spark/.claude/worktrees/bold",
+            "/r/spark/.claude/worktrees/bold/src/deep/file.ts",
+            "/r/spark/.claude/worktrees/bolder",
+            "/r/spark-app2",
+            "/r/spark/apps",
+            "/r/spark/apps/web",
+            "/Users/me",
+            "/Users/me/Downloads",
+            "/Users/me/projects/api/src",
+            "/r/plain",
+            "/r/plain/x",
+            "/",
+            "",
+            "relative/path",
+        ];
+        for p in paths {
+            assert_eq!(index.best(Path::new(p)), best_seed(&seeds, Path::new(p)), "{p}");
+        }
+        // A seed for the root takes in every absolute path; an empty one, every path.
+        let wide = vec![seed("/", "root"), seed("/r/spark", "app"), seed("", "empty")];
+        let index = SeedIndex::new(&wide);
+        for p in ["/r/spark/src", "/elsewhere", "relative", ""] {
+            assert_eq!(index.best(Path::new(p)), best_seed(&wide, Path::new(p)), "{p}");
+        }
+    }
+
+    #[test]
     fn lists_a_session_under_the_worktree_it_works_in() {
         let seeds = vec![seed("/r/codealong", "main"), seed("/r/codealong-pins", "pins")];
         let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         s.cwd = "/r/codealong".into();
-        let at = |s: &Session| session_seed(&seeds, s).map(|i| seeds[i].path.to_string_lossy().into_owned());
+        let at = |s: &Session| session_seed(&seeds, &SeedIndex::new(&seeds), s).map(|i| seeds[i].path.to_string_lossy().into_owned());
         let work = |paths: &[&str]| paths.iter().map(|p| p.to_string()).collect::<Vec<_>>();
         assert_eq!(at(&s).as_deref(), Some("/r/codealong"), "no work yet: where it started");
         s.work = work(&["/r/codealong", "/r/codealong-pins", "/r/codealong-pins/src/App.tsx", "/r/codealong-pins"]);
@@ -3305,7 +3424,7 @@ mod tests {
         let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         s.cwd = "/r/codealong".into();
         s.work = vec!["/Users/me".into(), "/Users/me".into(), "/Users/me/.claude/plans/x.md".into()];
-        let at = |s: &Session| session_seed(&seeds, s).map(|i| seeds[i].path.to_string_lossy().into_owned());
+        let at = |s: &Session| session_seed(&seeds, &SeedIndex::new(&seeds), s).map(|i| seeds[i].path.to_string_lossy().into_owned());
         assert_eq!(at(&s).as_deref(), Some("/r/codealong"), "work there doesn't count");
         s.cwd = "/Users/me".into();
         assert_eq!(at(&s).as_deref(), Some("/Users/me"));
@@ -3320,7 +3439,7 @@ mod tests {
         let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         s.cwd = scratch.clone();
         s.work = vec![scratch.clone(), scratch.clone()];
-        let at = |s: &Session| session_seed(&seeds, s).map(|i| seeds[i].path.to_string_lossy().into_owned());
+        let at = |s: &Session| session_seed(&seeds, &SeedIndex::new(&seeds), s).map(|i| seeds[i].path.to_string_lossy().into_owned());
         assert_eq!(at(&s).as_deref(), Some(root), "a chat with nowhere else to be");
         s.cwd = "/r/spark-infra".into();
         assert_eq!(at(&s).as_deref(), Some("/r/spark-infra"), "given a folder, it goes there, though its shell is still in the chat's");

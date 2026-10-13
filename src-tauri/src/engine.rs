@@ -854,6 +854,88 @@ fn keep_last_good(prev: Option<&Usage>, mut fresh: Usage) -> Usage {
     fresh
 }
 
+/// What one batch from the file watcher has found out so far (`Engine::apply_fs`). A build or an
+/// install writes thousands of files in a few folders, and each was compared with every lane and
+/// matched against every folder above it in its worktree's gitignore: up to 20 s for 30,000
+/// paths, with the engine hearing nothing else meanwhile (2026-10-12). Within a batch each
+/// folder's lane and gitignore are looked at once, and each lane's folder.
+struct FsBatch {
+    seeds: board::SeedIndex,
+    /// What's known of each folder paths were in.
+    dirs: HashMap<PathBuf, Folder>,
+    /// Whether each lane's folder is there, by seed.
+    lanes_there: HashMap<usize, bool>,
+    /// Whether each other folder looked for is there.
+    present: HashMap<PathBuf, bool>,
+    /// The lanes git will run in for this batch.
+    changed: HashSet<usize>,
+}
+
+#[derive(Clone, Copy)]
+struct Folder {
+    /// The lane of what's in it (`SeedIndex::holding`).
+    lane: Option<usize>,
+    /// Whether the lane's gitignore ignores it or a folder above it, once asked.
+    ignored: Option<bool>,
+}
+
+impl FsBatch {
+    fn new(seeds: &[LaneSeed]) -> FsBatch {
+        FsBatch { seeds: board::SeedIndex::new(seeds), dirs: HashMap::new(), lanes_there: HashMap::new(), present: HashMap::new(), changed: HashSet::new() }
+    }
+
+    /// The seed `p` is in (`board::SeedIndex::best`).
+    fn lane_of(&mut self, p: &Path) -> Option<usize> {
+        if let Some(i) = self.seeds.own(p) {
+            return Some(i);
+        }
+        match p.parent() {
+            Some(dir) => self.folder(dir).lane,
+            None => self.seeds.best(p),
+        }
+    }
+
+    fn folder(&mut self, dir: &Path) -> &mut Folder {
+        if !self.dirs.contains_key(dir) {
+            let lane = self.seeds.holding(dir);
+            self.dirs.insert(dir.to_path_buf(), Folder { lane, ignored: None });
+        }
+        self.dirs.get_mut(dir).expect("just put there")
+    }
+
+    fn lane_there(&mut self, lane: usize, folder: &Path) -> bool {
+        *self.lanes_there.entry(lane).or_insert_with(|| folder.exists())
+    }
+
+    fn exists(&mut self, p: &Path) -> bool {
+        if let Some(&there) = self.present.get(p) {
+            return there;
+        }
+        let there = p.exists();
+        self.present.insert(p.to_path_buf(), there);
+        there
+    }
+
+    /// `gi.matched_path_or_any_parents(p, p.is_dir()).is_ignore()` for `p` in the lane whose
+    /// folder is `root` and whose gitignore is `gi`: the path's own rule, else its folder's, kept
+    /// for the next path there.
+    fn ignored(&mut self, gi: &Gitignore, root: &Path, p: &Path) -> bool {
+        let Some(dir) = p.parent().filter(|_| p != root) else {
+            return gi.matched_path_or_any_parents(p, p.is_dir()).is_ignore();
+        };
+        // Whether it's a folder is asked of the disk only when a rule tells files and folders
+        // apart (`build/`), and one says something different of each.
+        let said = |m: ignore::Match<&ignore::gitignore::Glob>| (!m.is_none()).then(|| m.is_ignore());
+        let (as_file, as_folder) = (said(gi.matched(p, false)), said(gi.matched(p, true)));
+        let own = if as_file == as_folder || !p.is_dir() { as_file } else { as_folder };
+        if let Some(ignored) = own {
+            return ignored;
+        }
+        let folder = self.folder(dir);
+        *folder.ignored.get_or_insert_with(|| gi.matched_path_or_any_parents(dir, true).is_ignore())
+    }
+}
+
 enum RepoEvent {
     Lane(PathBuf),
     Checkout(PathBuf),
@@ -1619,9 +1701,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn place_sessions(&mut self) {
         let unplaced = || {
             let chats = chat_roots();
+            let index = board::SeedIndex::new(&self.seeds);
             self.session_cwds().into_iter().any(|cwd| {
                 let p = Path::new(&cwd);
-                board::best_seed(&self.seeds, p).is_none() && (chat_root(&chats, p).is_some() || (!self.reads.folders.is_out(p) && p.is_dir()))
+                index.best(p).is_none() && (chat_root(&chats, p).is_some() || (!self.reads.folders.is_out(p) && p.is_dir()))
             })
         };
         if unplaced() {
@@ -2358,7 +2441,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
     }
 
-    fn classify_repo_path(&self, p: &Path) -> RepoEvent {
+    fn classify_repo_path(&self, p: &Path, batch: &mut FsBatch) -> RepoEvent {
         for (_, c) in &self.checkouts {
             if let Ok(rel) = p.strip_prefix(&c.git_dir) {
                 let mut comps = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned());
@@ -2370,7 +2453,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                                 // `git worktree remove` deletes the worktree's folder, then its
                                 // folder here: a lane with either gone is gone, and only a rescan
                                 // takes it off the board.
-                                Some(lane) if admin.exists() && lane.exists() => RepoEvent::Lane(lane.clone()),
+                                Some(lane) if batch.exists(&admin) && batch.exists(lane) => RepoEvent::Lane(lane.clone()),
                                 _ => RepoEvent::Worktrees,
                             }
                         }
@@ -2382,24 +2465,29 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 };
             }
         }
-        let Some(i) = board::best_seed(&self.seeds, p) else { return RepoEvent::Ignore };
+        let Some(i) = batch.lane_of(p) else { return RepoEvent::Ignore };
         let seed = &self.seeds[i];
         if seed.elsewhere || seed.origin == Origin::Folder {
             return RepoEvent::Ignore;
         }
         // A worktree deleted without git (`rm -rf`) leaves its folder in `.git/worktrees`, where
         // nothing changes: its own files going are the only sign.
-        if !seed.path.exists() {
+        if !batch.lane_there(i, &seed.path) {
             return RepoEvent::Worktrees;
+        }
+        // Git runs there already, whatever else changed in it.
+        if batch.changed.contains(&i) {
+            return RepoEvent::Lane(seed.path.clone());
         }
         if p.components().any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git") {
             return RepoEvent::Ignore;
         }
         if let Some(gi) = self.ignores.get(&seed.path) {
-            if gi.matched_path_or_any_parents(p, p.is_dir()).is_ignore() {
+            if batch.ignored(gi, &seed.path, p) {
                 return RepoEvent::Ignore;
             }
         }
+        batch.changed.insert(i);
         RepoEvent::Lane(seed.path.clone())
     }
 
@@ -2415,6 +2503,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let mut lanes = BTreeSet::new();
         let mut reload_repos = false;
         let mut reload_config = false;
+        let (pr_links_path, reviews_path, previews_path, reusable_path) = (prlinks::path(), autoreview::path(), previews::path(), reusable::path());
+        let mut batch = FsBatch::new(&self.seeds);
+        let mut moved = HashSet::new();
         'paths: for p in paths {
             if p == config_path {
                 reload_config = true;
@@ -2446,22 +2537,22 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 }
                 continue;
             }
-            if p == prlinks::path() {
+            if p == pr_links_path {
                 self.load_pr_links();
                 self.dirty = true;
                 continue;
             }
-            if p == autoreview::path() {
+            if p == reviews_path {
                 self.load_reviews();
                 self.dirty = true;
                 continue;
             }
-            if p == previews::path() {
+            if p == previews_path {
                 self.load_previews();
                 self.dirty = true;
                 continue;
             }
-            if p == reusable::path() {
+            if p == reusable_path {
                 self.load_reusable();
                 self.dirty = true;
                 continue;
@@ -2472,10 +2563,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     continue 'paths;
                 }
             }
-            match self.classify_repo_path(&p) {
+            match self.classify_repo_path(&p, &mut batch) {
                 RepoEvent::Lane(l) => {
                     lanes.insert(l);
                 }
+                // A fetch writes a file for each ref it moves: the checkout is looked at once.
+                RepoEvent::Checkout(root) if !moved.insert(root.clone()) => {}
                 RepoEvent::Checkout(root) => {
                     lanes.extend(self.seeds.iter().filter(|s| self.lane_checkout.get(&s.path) == Some(&root)).map(|s| s.path.clone()));
                     // A fetch may have moved the branch a team file is read from.
@@ -2527,12 +2620,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// identifies each in a log (its folder name, or its path under `~/.codex/worktrees`), and
     /// when it was made.
     fn orphan_needles(&self) -> Vec<(PathBuf, String, i64)> {
-        let cwds: Vec<String> = self.session_cwds().into_iter().collect();
+        let index = board::SeedIndex::new(&self.seeds);
+        // The folders of the lanes sessions run in.
+        let lived: HashSet<&Path> = self.session_cwds().iter().filter_map(|c| index.best(Path::new(c))).map(|i| self.seeds[i].path.as_path()).collect();
         let h = home();
         self.seeds
             .iter()
             .filter(|s| matches!(s.origin, Origin::Temp | Origin::Codex | Origin::Script | Origin::Other))
-            .filter(|s| !cwds.iter().any(|c| board::best_seed(&self.seeds, Path::new(c)).map(|i| self.seeds[i].path == s.path).unwrap_or(false)))
+            .filter(|s| !lived.contains(s.path.as_path()))
             .filter_map(|s| {
                 let needle = match s.path.strip_prefix(&h) {
                     Ok(rel) if s.origin == Origin::Codex => rel.to_string_lossy().into_owned(),
@@ -3466,9 +3561,10 @@ fn stray_seeds(seeds: &[LaneSeed], cwds: &BTreeSet<String>, chats: &[(PathBuf, &
     let mut roots: BTreeSet<usize> = chats.iter().position(|(root, _)| root == own && !seeds.iter().any(|s| s.path == *root)).into_iter().collect();
     let mut repos = BTreeSet::new();
     let mut folders = BTreeSet::new();
+    let index = board::SeedIndex::new(seeds);
     for cwd in cwds {
         let p = Path::new(cwd);
-        if board::best_seed(seeds, p).is_some() {
+        if index.best(p).is_some() {
             continue;
         }
         if let Some(i) = chat_root(chats, p) {
@@ -3661,6 +3757,82 @@ mod tests {
         assert!(!opens_in(&apps, "Terminal"));
     }
 
+    /// A batch keeps what it learned of each folder, and still says what the gitignore says of
+    /// each path in it, whichever paths came first: rules for files, for folders only, and ones
+    /// that take a path back.
+    #[test]
+    fn a_batch_ignores_what_the_gitignore_ignores() {
+        use super::*;
+        let dir = crate::fixtures::scratch("batch-ignores");
+        let root = dir.join("repo");
+        for dir in ["dist/assets", "build", "src/build", "logs/keep", "src/deep/er"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let mut gi = GitignoreBuilder::new(&root);
+        for rule in ["dist", "build/", "*.log", "!keep.log", "logs/*", "!logs/keep", "/src/deep/er/*.tmp"] {
+            gi.add_line(None, rule).unwrap();
+        }
+        let gi = gi.build().unwrap();
+        let paths: Vec<PathBuf> = [
+            "dist/app.js",
+            "dist/assets/a.css",
+            "dist",
+            "build",
+            "build/out.o",
+            "src/build",
+            "src/build/x",
+            "src/main.rs",
+            "src/app.log",
+            "src/keep.log",
+            "logs/today",
+            "logs/keep",
+            "logs/keep/a.log",
+            "logs/keep/keep.log",
+            "logs/keep/notes.txt",
+            "src/deep/er/x.tmp",
+            "src/deep/er/x.rs",
+            "src/deep/x.tmp",
+        ]
+        .iter()
+        .map(|p| root.join(p))
+        .chain([root.clone()])
+        .collect();
+        let want: Vec<bool> = paths.iter().map(|p| gi.matched_path_or_any_parents(p, p.is_dir()).is_ignore()).collect();
+        for order in [paths.clone(), paths.iter().rev().cloned().collect()] {
+            let mut batch = FsBatch::new(&[]);
+            let got: HashMap<&PathBuf, bool> = order.iter().map(|p| (p, batch.ignored(&gi, &root, p))).collect();
+            for (p, want) in paths.iter().zip(&want) {
+                assert_eq!(got[p], *want, "{}", p.display());
+            }
+        }
+        assert!(want.iter().any(|&w| w) && want.iter().any(|&w| !w));
+    }
+
+    /// A batch finds each path's lane once per folder, and the lane is the one `best_seed` finds,
+    /// worktrees inside worktrees and the worktrees' own folders included.
+    #[test]
+    fn a_batch_finds_the_lane_best_seed_finds() {
+        use super::*;
+        let seed = |path: &str, exact: bool| LaneSeed { exact, ..folder_seed(PathBuf::from(path), "P", "repo", false) };
+        let seeds = vec![seed("/r/app", false), seed("/r/app/.claude/worktrees/fix", false), seed("/Users/me", true), seed("/r/app/.claude/worktrees/fix", false)];
+        let paths = [
+            "/r/app/src/a.rs",
+            "/r/app/.claude/worktrees/fix",
+            "/r/app/.claude/worktrees/fix/src/a.rs",
+            "/r/app/.claude/worktrees/fixed/src/a.rs",
+            "/r/app/.claude/worktrees",
+            "/r/app/src/b.rs",
+            "/Users/me",
+            "/Users/me/notes.md",
+            "/r/apple/x",
+            "/",
+        ];
+        let mut batch = FsBatch::new(&seeds);
+        for p in paths.iter().chain(paths.iter().rev()) {
+            assert_eq!(batch.lane_of(Path::new(p)), board::best_seed(&seeds, Path::new(p)), "{p}");
+        }
+    }
+
     #[test]
     fn a_removed_worktree_rescans_the_repos() {
         use super::*;
@@ -3682,17 +3854,17 @@ mod tests {
         let is_lane = |e: RepoEvent, lane: &Path| matches!(e, RepoEvent::Lane(l) if l == lane);
 
         // While it's there, a change in it or its folder in `.git/worktrees` runs git in it.
-        assert!(is_lane(engine.classify_repo_path(&wt.join("src/main.rs")), &wt));
-        assert!(is_lane(engine.classify_repo_path(&admin.join("HEAD")), &wt));
+        assert!(is_lane(engine.classify_repo_path(&wt.join("src/main.rs"), &mut FsBatch::new(&engine.seeds)), &wt));
+        assert!(is_lane(engine.classify_repo_path(&admin.join("HEAD"), &mut FsBatch::new(&engine.seeds)), &wt));
         // `git worktree remove` deletes both.
         std::fs::remove_dir_all(&wt).unwrap();
-        assert!(matches!(engine.classify_repo_path(&wt.join("src/main.rs")), RepoEvent::Worktrees), "its own files going");
-        assert!(matches!(engine.classify_repo_path(&admin.join("HEAD")), RepoEvent::Worktrees), "its worktree gone");
+        assert!(matches!(engine.classify_repo_path(&wt.join("src/main.rs"), &mut FsBatch::new(&engine.seeds)), RepoEvent::Worktrees), "its own files going");
+        assert!(matches!(engine.classify_repo_path(&admin.join("HEAD"), &mut FsBatch::new(&engine.seeds)), RepoEvent::Worktrees), "its worktree gone");
         std::fs::create_dir_all(&wt).unwrap();
         std::fs::remove_dir_all(&admin).unwrap();
-        assert!(matches!(engine.classify_repo_path(&admin), RepoEvent::Worktrees), "its folder in .git gone");
+        assert!(matches!(engine.classify_repo_path(&admin, &mut FsBatch::new(&engine.seeds)), RepoEvent::Worktrees), "its folder in .git gone");
         // The main checkout's own changes are still its own.
-        assert!(is_lane(engine.classify_repo_path(&root.join("src/lib.rs")), &root));
+        assert!(is_lane(engine.classify_repo_path(&root.join("src/lib.rs"), &mut FsBatch::new(&engine.seeds)), &root));
     }
 
     /// GitHub's notice is one of the board's, in the place it always had: after config.toml's.
@@ -4267,5 +4439,57 @@ mod tests {
         assert!(!worked_in(r#"{"command":"cd /Users/me/projects/spark-org-redis-keys-v2 && git status"}"#, n));
         assert!(!worked_in(r#"{"command":"cd /Users/me/projects/old-spark-org-redis-keys && git status"}"#, n));
         assert!(!worked_in(r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"Bash cd /Users/me/projects/spark-org-redis-keys && ls"}]}}"#, n));
+    }
+
+    /// What the engine's thread spends on this Mac's real data: composing the board, hashing it,
+    /// and a big batch from the file watcher. `CODEALONG_BENCH_FS` names folders whose files go in
+    /// that batch (as many as there are, up to 30,000), as a build or an install writes them.
+    /// `CODEALONG_BENCH_RUNS` says how many times each is timed (20), more for a profile.
+    ///
+    ///   cd src-tauri && CODEALONG_BENCH_FS=~/projects/app/dist cargo test --lib bench_engine_on_real_data -- --ignored --nocapture
+    #[test]
+    #[ignore = "reads this Mac's sessions and repos; run by hand"]
+    fn bench_engine_on_real_data() {
+        use super::*;
+        let mut e = snapshot_engine(false, false);
+        let ms = |t: Instant| t.elapsed().as_secs_f64() * 1000.0;
+        let runs: usize = std::env::var("CODEALONG_BENCH_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(20);
+        let (mut compose, mut sessions, mut hash) = (0.0, 0.0, 0.0);
+        for _ in 0..runs {
+            let t = Instant::now();
+            let _ = e.build_sessions(now_ms());
+            sessions += ms(t);
+            let t = Instant::now();
+            let mut board = e.compose();
+            compose += ms(t);
+            let t = Instant::now();
+            let _ = board_hash(&mut board);
+            hash += ms(t);
+        }
+        let n = runs as f64;
+        eprintln!("compose {:.1} ms (of which building sessions {:.1} ms), hash {:.1} ms, over {runs} runs", compose / n, sessions / n, hash / n);
+        let Ok(dirs) = std::env::var("CODEALONG_BENCH_FS") else { return };
+        let mut paths = Vec::new();
+        for dir in std::env::split_paths(&dirs) {
+            let mut stack = vec![dir];
+            while let Some(d) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&d) else { continue };
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                        stack.push(p.clone());
+                    }
+                    if !is_noise(&p) && paths.len() < 30_000 {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+        let batches = runs.max(1);
+        let t = Instant::now();
+        for _ in 0..batches {
+            e.apply_fs(paths.clone());
+        }
+        eprintln!("fs batch of {} paths {:.1} ms, over {batches} runs", paths.len(), ms(t) / batches as f64);
     }
 }
