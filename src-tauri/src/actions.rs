@@ -1036,7 +1036,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     }
     // Only once it's archived: a repo's own teardown can take a minute, and the session would
     // come back to the lists meanwhile.
-    let worktree = job_worktree(&board, &cfg, s, job && stopped);
+    let worktree = job_worktree(engine, &cfg, s, job && stopped);
     if let Some((words, _)) = &worktree {
         message = format!("{message} {words}");
     }
@@ -1070,7 +1070,7 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
                     done += 1;
                     at = shown.or(at);
                 }
-                let _ = job_worktree(board, cfg, h, job && ended.is_some());
+                let _ = job_worktree(engine, cfg, h, job && ended.is_some());
             }
             Err(_) => left += 1,
         }
@@ -1145,7 +1145,7 @@ pub fn end_after_turn(engine: &Handle, key: &str) -> Result<String, String> {
     let ends = crate::idle::ending(&board, s, false)?;
     let job = matches!(ends, crate::idle::Ending::Job);
     let (ended, note) = end(s, account, ends);
-    let worktree = job_worktree(&board, &cfg, s, job && ended.is_some()).map(|(words, _)| words);
+    let worktree = job_worktree(engine, &cfg, s, job && ended.is_some()).map(|(words, _)| words);
     Ok([ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree].into_iter().flatten().collect::<Vec<_>>().join(" "))
 }
 
@@ -1154,11 +1154,12 @@ pub fn end_after_turn(engine: &Handle, key: &str) -> Result<String, String> {
 /// job's record with it, or stays (cleanup.rs `after_job`). A terminal session's goes as its
 /// harness exits it (`idle::Ending::Exit`). What to say of it, and whether that's worth saying
 /// where the session leaving its list says the rest: it stayed, or not all of it went.
-fn job_worktree(board: &crate::model::Board, cfg: &config::Config, s: &crate::model::Session, stopped: bool) -> Option<(String, bool)> {
+fn job_worktree(engine: &Handle, cfg: &config::Config, s: &crate::model::Session, stopped: bool) -> Option<(String, bool)> {
     if !stopped {
         return None;
     }
-    Some(match crate::cleanup::after_job(board, cfg, s)? {
+    // The board as it is when its turn comes, not as it was before the job stopped.
+    Some(match crate::cleanup::after_job(&|| engine.board(), cfg, s)? {
         Ok(gone) => (gone.said, gone.partly),
         Err(words) => (words, true),
     })
@@ -1375,7 +1376,7 @@ fn remove_worktree(engine: &Handle, c: &Call) -> Result<Value, String> {
         return to_value(api::Removal { removed: plan.kept.is_none(), message, steps, noted: false });
     }
     // What failed partway, as what stays, is said, not an error: the worktree is still there.
-    let done = crate::cleanup::remove(&engine.board(), &cfg()?, c.key, None)?;
+    let done = crate::cleanup::remove(&|| engine.board(), &cfg()?, c.key, None)?;
     let steps = done.plan.steps();
     to_value(match done.result {
         Ok(gone) => api::Removal { removed: true, message: gone.said, steps, noted: gone.partly },
