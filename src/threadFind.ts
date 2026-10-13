@@ -4,6 +4,7 @@
 // gets to how they show, so the count covers the whole conversation and the way back knows which
 // page to bring in.
 
+import { plainDirectives } from './directives';
 import type { TranscriptItem } from './types';
 
 /** What a query finds: its words in order, in any case, each run of spaces in it matching any run
@@ -24,10 +25,10 @@ export function says(pattern: RegExp, text: string): boolean {
   return text.search(pattern) >= 0;
 }
 
-/** Markdown as it reads once laid out, near enough: images gone, links as their words, and the
- *  marks for emphasis, code and headings left out. */
+/** Markdown as it reads once laid out, near enough: images gone, links as their words, the marks
+ *  for emphasis, code and headings left out, and Codex's directives as they're drawn. */
 export function plainOf(markdown: string): string {
-  return markdown
+  return plainDirectives(markdown)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/^ {0,3}(#{1,6}|>+)\s+/gm, '')

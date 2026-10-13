@@ -294,9 +294,12 @@ pub(crate) fn today_local() -> i64 {
 }
 
 /// First non-empty line, whitespace collapsed, markdown links reduced to their text, cut to
-/// `max` characters with an ellipsis.
+/// `max` characters with an ellipsis. A line that only opens or closes a block a directive wraps
+/// (`:::writing{variant="email" id="83147"}`, `:::`, as Codex wraps a piece of writing) isn't
+/// one: the window draws it as a card's edge, not as words.
 pub fn one_line(s: &str, max: usize) -> String {
-    let line = s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let fence = |l: &str| l.strip_prefix(":::").is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_ascii_alphabetic()));
+    let line = s.lines().map(str::trim).find(|l| !l.is_empty() && !fence(l)).unwrap_or("");
     let collapsed = line.split_whitespace().collect::<Vec<_>>().join(" ");
     truncate(&strip_links(&collapsed).replace("**", ""), max)
 }
@@ -662,6 +665,8 @@ mod tests {
         assert_eq!(truncate("abcdefghij", 5), "abcd…");
         assert_eq!(code("a`b"), "`a'b`");
         assert_eq!(one_line("Implemented in [#1017](https://github.com/x/y/pull/1017) and **merged**", 80), "Implemented in #1017 and merged");
+        assert_eq!(one_line(":::writing{variant=\"standard\" id=\"83147\"}\nW&M 3 is ready.\n:::", 40), "W&M 3 is ready.");
+        assert_eq!(one_line(":::\n\nAfter the block", 40), "After the block");
     }
 
     #[test]

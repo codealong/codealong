@@ -178,3 +178,36 @@ describe('blocks', () => {
     expect(blocks('a | b\n---').some((x) => x.kind === 'table')).toBe(false);
   });
 });
+
+describe('Codex directives', () => {
+  it('reads a writing block as a card holding its Markdown, up to the ::: that closes it', () => {
+    const b = blocks('Here’s a prompt you can paste:\n:::writing{variant="standard" id="83147"}\nW&M 3 is **done**.\n\n- a\n- b\n:::\nAfter.');
+    expect(b.map((x) => x.kind)).toEqual(['para', 'card', 'para']);
+    expect(b[1]).toEqual({ kind: 'card', name: 'writing', attrs: { variant: 'standard', id: '83147' }, text: 'W&M 3 is **done**.\n\n- a\n- b' });
+  });
+
+  it('keeps a ::: inside a code block in a card, and a card still being written holds the rest', () => {
+    const b = blocks(':::writing{variant="document" id="1"}\n```\n:::\n```\nmore');
+    expect(b).toEqual([{ kind: 'card', name: 'writing', attrs: { variant: 'document', id: '1' }, text: '```\n:::\n```\nmore' }]);
+    // Another directive's block is a card too, with no attributes.
+    expect(blocks(':::note\nHeads up.\n:::')).toEqual([{ kind: 'card', name: 'note', attrs: {}, text: 'Heads up.' }]);
+  });
+
+  it('reads a code comment alone on its line, and leaves a directive it doesn’t know as text', () => {
+    const b = blocks('Two findings:\n::code-comment{title="[P2] Off-by-one" body="Past the end at 0." file="/w/foo.ts" start=10 end=11}\n::created-thread{threadId="t1"}');
+    expect(b).toEqual([
+      { kind: 'para', text: 'Two findings:' },
+      { kind: 'comment', attrs: { title: '[P2] Off-by-one', body: 'Past the end at 0.', file: '/w/foo.ts', start: '10', end: '11' } },
+      { kind: 'para', text: '::created-thread{threadId="t1"}' },
+    ]);
+  });
+
+  it('draws a follow-up and a cited file in a line as theirs', () => {
+    const props = (nodes: ReactNode[]) => nodes.filter((n) => isValidElement(n)).map((n) => n.props as Record<string, unknown>);
+    expect(props(inline('- :codex-followup[Fix image downloads]{prompt="Implement the \\"download\\" fix. Do not push."}'))).toEqual([{ label: 'Fix image downloads', prompt: 'Implement the "download" fix. Do not push.' }]);
+    expect(props(inline(':codex-file-citation{path="/Users/me/Bldg 742/Architectural.pdf" purpose="source"}'))).toEqual([{ path: '/Users/me/Bldg 742/Architectural.pdf' }]);
+    // In code it's code, and in a word or a URL it's the word's.
+    expect(props(inline('`:codex-followup[a]{prompt="b"}`')).map((p) => p.children)).toEqual([':codex-followup[a]{prompt="b"}']);
+    expect(props(inline('x:codex-file-citation{path="/a"}'))).toEqual([]);
+  });
+});

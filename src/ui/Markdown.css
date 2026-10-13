@@ -97,3 +97,119 @@
   font-weight: 600;
   color: var(--ink);
 }
+
+/* A block a directive wraps (Markdown.tsx DirectiveCard): Codex's writing block, a finished piece
+   of writing to use elsewhere, with what it is and Copy along its top; Codex's code comment
+   (CodeComment) is one too. */
+.ca-md .ca-md-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.ca-md-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 4px 6px 0 12px;
+  color: var(--ink-3);
+  font: var(--type-meta-strong);
+}
+.ca-md-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-md-card.is-comment .ca-md-card-title {
+  color: var(--ink);
+}
+.ca-md-card-tones {
+  flex: none;
+}
+/* An email's recipients and subject, over its body. */
+.ca-md-card-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  margin: 4px 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.ca-md-card-fields dt {
+  color: var(--ink-3);
+}
+.ca-md-card-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ca-md-card-where {
+  margin: 0 12px;
+  color: var(--ink-3);
+  font: var(--type-code-sm);
+  overflow-wrap: anywhere;
+}
+.ca-md-card-body {
+  padding: 6px 12px 12px;
+}
+.ca-md-card-body > * {
+  margin: 0 0 8px;
+}
+.ca-md-card-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* A follow-up Codex offers (Markdown.tsx FollowUp): a button that puts its prompt in the session's
+   box, or its words where there's no box. */
+.ca-md-followup.is-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-md-followup.is-live:hover {
+  border-color: var(--line-strong);
+}
+.ca-md-followup.is-live .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-md-followup.is-live:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+}
+/* A list of them, as Codex writes them, is a column of buttons without bullets. */
+.ca-md ul:has(> li > .ca-md-followup.is-live) {
+  padding-left: 0;
+  list-style: none;
+}
+
+/* A file Codex cites (Markdown.tsx CitedFile): its name, then its folder. */
+.ca-md-file {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  max-width: 100%;
+}
+.ca-md-file .ca-icon {
+  align-self: center;
+  color: var(--ink-3);
+}
+.ca-md-file-name {
+  font: var(--type-code);
+  overflow-wrap: anywhere;
+}
+.ca-md-file-dir {
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}

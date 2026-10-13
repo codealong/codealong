@@ -4,13 +4,19 @@
 // open in the browser; any other link shows as its text. A link to a GitHub PR is the PR's
 // (PrLink.tsx): a bare one reads `name#123`, and hovering it shows the PR and its sessions.
 // A tool's output isn't Markdown, but the web links in it open the same way (`linked`).
+// The directives Codex's app draws (directives.ts) are drawn as it draws them, near enough: a
+// writing block as a card with Copy, a code comment as a card, a follow-up it offers as a button
+// that puts its prompt in the session's box, a file it cites as the file. Another `:::name` block
+// is a card of the same kind; other directives stay as they're written.
 
-import { Fragment, memo, type ReactNode } from 'react';
+import { createContext, Fragment, memo, useContext, useState, type ReactNode } from 'react';
 import { openUrl } from '../api';
+import { ATTRS, attrsOf, CARD_CLOSE, CARD_OPEN, COMMENT, tonesOf } from '../directives';
+import { tildePath } from '../format';
 import { prLabel, prRefOf } from '../prLinks';
-import { CodeBlock } from './CopyButton';
+import { CodeBlock, CopyButton } from './CopyButton';
 import { PrLink } from './PrLink';
-import { cx } from './primitives';
+import { cx, Icon, Seg } from './primitives';
 
 const WEB = /^https?:\/\//i;
 /** A bare web link in text, without the punctuation that ends a sentence around it. */
@@ -80,7 +86,13 @@ type Block =
    *  (RunButton.tsx `isCommandBlock`). */
   | { kind: 'code'; text: string; shell: boolean; session: boolean; bare: boolean }
   | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] }
-  | { kind: 'rule' };
+  | { kind: 'rule' }
+  /** A block a directive wraps (`:::name{…}` … `:::`): Codex's writing block, a finished piece of
+   *  writing to use elsewhere (an email, a message, a document), or another's. One still being
+   *  written has no `:::` yet and holds the rest. */
+  | { kind: 'card'; name: string; attrs: Record<string, string>; text: string }
+  /** A comment Codex attached to lines of a file (`::code-comment{…}`). */
+  | { kind: 'comment'; attrs: Record<string, string> };
 
 type Align = 'left' | 'center' | 'right' | null;
 
@@ -156,6 +168,26 @@ export function blocks(src: string): Block[] {
       out.push({ kind: 'code', text, shell: (closed && SHELLS.has(lang)) || session, session, bare: closed && lang === '' && !session });
       continue;
     }
+    const card = CARD_OPEN.exec(line);
+    if (card) {
+      const body: string[] = [];
+      let fenced = false;
+      i++;
+      // A `:::` inside a code block in it is the code's, not its end.
+      while (i < lines.length && (fenced || !CARD_CLOSE.test(lines[i]))) {
+        if (/^\s*```/.test(lines[i])) fenced = !fenced;
+        body.push(lines[i++]);
+      }
+      i++;
+      out.push({ kind: 'card', name: card[1], attrs: attrsOf(card[2] ?? ''), text: body.join('\n') });
+      continue;
+    }
+    const comment = COMMENT.exec(line);
+    if (comment) {
+      out.push({ kind: 'comment', attrs: attrsOf(comment[1]) });
+      i++;
+      continue;
+    }
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
     if (h) {
       out.push({ kind: 'heading', level: h[1].length, text: h[2] });
@@ -223,17 +255,23 @@ export function blocks(src: string): Block[] {
       continue;
     }
     const body: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i]) && !tableAt(lines, i)) body.push(lines[i++].trim());
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i]) && !tableAt(lines, i) && !CARD_OPEN.test(lines[i]) && !COMMENT.test(lines[i])) body.push(lines[i++].trim());
     out.push({ kind: 'para', text: body.join(' ') });
   }
   return out;
 }
 
+/** A line's inline marks, each its own group: code, bold, a link (words, then where), a bare link
+ *  in angle brackets, a Codex follow-up (label, then attributes), a file Codex cites, italics. */
+const INLINE = String.raw`\`([^\`]+)\`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}|\*([^*\s][^*]*)\*`;
+
 /** A line's inline marks as elements: code first, so nothing inside backticks is read as a mark.
- *  Inside a link (`links` false) nothing more becomes a link, since links can't nest. */
+ *  Inside a link (`links` false) nothing more becomes a link, since links can't nest. Codex's
+ *  follow-ups (`:codex-followup[label]{prompt="…"}`) and the files it cites
+ *  (`:codex-file-citation{path="…"}`) are drawn as theirs. */
 export function inline(text: string, links = true): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|\*([^*\s][^*]*)\*/g;
+  const re = new RegExp(INLINE, 'g');
   let last = 0;
   let m: RegExpExecArray | null;
   let n = 0;
@@ -252,11 +290,125 @@ export function inline(text: string, links = true): ReactNode[] {
         ),
       );
     else if (m[6] != null) out.push(links ? <Link key={n++} url={m[6]} /> : m[6]);
-    else out.push(<em key={n++}>{inline(m[7], links)}</em>);
+    else if (m[7] != null) out.push(<FollowUp key={n++} label={m[7]} prompt={attrsOf(m[8]).prompt ?? ''} />);
+    else if (m[9] != null) out.push(<CitedFile key={n++} path={attrsOf(m[9]).path ?? ''} />);
+    else out.push(<em key={n++}>{inline(m[10], links)}</em>);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(...(links ? bare(text.slice(last), n++) : [text.slice(last)]));
   return out;
+}
+
+/** Where a follow-up Codex offers goes when it's clicked: into the box of the session whose
+ *  conversation shows it (SessionThread.tsx). Elsewhere a follow-up is its words. */
+export const FollowUpContext = createContext<((prompt: string) => void) | null>(null);
+
+/** A follow-up Codex offers, as its app offers it to click: the prompt goes in the session's box,
+ *  after what's there, to send or change. */
+function FollowUp({ label, prompt }: { label: string; prompt: string }) {
+  const put = useContext(FollowUpContext);
+  if (!put || !prompt.trim()) {
+    return (
+      <span className="ca-md-followup" title={prompt || undefined}>
+        {label}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="ca-md-followup is-live"
+      title={`Put in the box: ${prompt}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        put(prompt);
+      }}
+    >
+      <Icon name="message" size={12} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/** A file Codex cites, as its app shows one: the file's name, then its folder. */
+function CitedFile({ path }: { path: string }) {
+  const cut = path.lastIndexOf('/');
+  const name = path.slice(cut + 1) || path;
+  const folder = cut > 0 ? tildePath(path.slice(0, cut)) : '';
+  return (
+    <span className="ca-md-file" title={path}>
+      <Icon name="file" size={12} />
+      <span className="ca-md-file-name">{name}</span>
+      {folder && <span className="ca-md-file-dir">{folder}</span>}
+    </span>
+  );
+}
+
+/** What a writing block's header calls it, by its variant, when it has no title of its own. */
+const WRITING: Record<string, { label: string; icon: string }> = {
+  email: { label: 'Email', icon: 'mail' },
+  chat_message: { label: 'Message', icon: 'message' },
+  social_post: { label: 'Post', icon: 'message-circle' },
+  document: { label: 'Document', icon: 'file-text' },
+  slides: { label: 'Presentation outline', icon: 'layout' },
+};
+
+/** A block a directive wraps, as a card: what it is along the top with Copy, which copies the
+ *  writing alone, without its fences; a writing block's versions to pick between, and an email's
+ *  recipients and subject over its body. */
+function DirectiveCard({ name, attrs, text }: { name: string; attrs: Record<string, string>; text: string }) {
+  const tones = tonesOf(text);
+  const [tone, setTone] = useState(0);
+  const shown = tones[Math.min(tone, tones.length - 1)];
+  const writing = name === 'writing';
+  const kind = writing ? (WRITING[attrs.variant ?? ''] ?? { label: 'Writing', icon: 'pencil' }) : { label: name.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase()), icon: 'note' };
+  const fields = writing ? ([['To', attrs.recipient], ['Cc', attrs.cc], ['Bcc', attrs.bcc], ['Subject', attrs.subject]] as const).filter(([, v]) => v) : [];
+  return (
+    <div className="ca-md-card">
+      <div className="ca-md-card-head">
+        <Icon name={kind.icon} size={13} />
+        <span className="ca-md-card-title">{attrs.title || kind.label}</span>
+        {tones.length > 1 && <Seg className="ca-md-card-tones" label="Versions" options={tones.map((t, j) => ({ id: j, label: t.label || `Version ${j + 1}` }))} value={tone} onPick={setTone} />}
+        {shown.text && <CopyButton text={shown.text} />}
+      </div>
+      {fields.length > 0 && (
+        <dl className="ca-md-card-fields">
+          {fields.map(([k, v]) => (
+            <Fragment key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
+      {shown.text && <div className="ca-md-card-body">{blocks(shown.text).map(drawBlock)}</div>}
+    </div>
+  );
+}
+
+/** A comment Codex attached to lines of a file, as a card: its title, where, and what it says. */
+function CodeComment({ attrs }: { attrs: Record<string, string> }) {
+  const { title, body, file, start, end } = attrs;
+  const lines = start ? `:${start}${end && end !== start ? `–${end}` : ''}` : '';
+  return (
+    <div className="ca-md-card is-comment">
+      <div className="ca-md-card-head">
+        <Icon name="message" size={13} />
+        <span className="ca-md-card-title">{inline(title || 'Comment')}</span>
+      </div>
+      {file && (
+        <p className="ca-md-card-where" title={file}>
+          {tildePath(file)}
+          {lines}
+        </p>
+      )}
+      {body && (
+        <div className="ca-md-card-body">
+          <p>{inline(body)}</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** A list item: its first line's paragraph as a line of the item, then what's under it (a nested
@@ -323,6 +475,10 @@ function drawBlock(b: Block, i: number): ReactNode {
       );
     case 'rule':
       return <hr key={i} />;
+    case 'card':
+      return <DirectiveCard key={i} name={b.name} attrs={b.attrs} text={b.text} />;
+    case 'comment':
+      return <CodeComment key={i} attrs={b.attrs} />;
   }
 }
 

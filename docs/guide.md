@@ -286,6 +286,13 @@ state as its icon; hovering it shows a card with where the PR stands (review, ch
 size, and whose reviews it still waits on, you first), the worktrees that hold it and the sessions
 that worked on it, each a click from its panel, and its right-click menu is the PR's. A PR the
 board doesn't list (an older one, another repo's) is asked of GitHub when its card first shows.
+What Codex's app draws in a reply is drawn here too, near enough. A writing block, a finished piece
+of writing such as an email, a message to paste elsewhere or a document, is a card named for its
+kind, with Copy, which copies the writing without the lines around it. An email shows its recipients
+and subject over it, and when Codex offers versions (Friendly, Direct) you pick one at the top. A
+code comment is a card with the file and lines it's about. A file Codex cites shows its name and
+folder. A follow-up it offers is a button that puts its prompt in the session's box, after what's
+there, to send or change.
 A card the pointer brings up (a PR's, a session's helpers) goes away on a key, which still does
 what it does, but not on ⌘, ⇧, ⌥ or ⌃ alone, nor on ⌘C, which copies what you selected on it.
 

@@ -176,6 +176,21 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - Naming a thread (`thread/name/set`), which refuses an archived one: `codex/appserver.rs`
   (`set_name`), `codex/mod.rs` (`rename`). It works on a thread the app has loaded too; the
   window socket has no rename, so the app shows a new name when it next reads its threads.
+- Directives in replies, which Codex's app draws and Codealong draws near enough (`src/directives.ts`,
+  `src/ui/Markdown.tsx`); the model is told about them in the developer message of each turn
+  (26.1007, 2026-10-13). A writing block is a finished piece of writing to use elsewhere:
+  `:::writing{variant="…" id="<five digits>"}` alone on its line, the writing, and `:::` alone
+  on one. Variants are `email` (with `subject`, and `recipient`, `cc` and `bcc` addresses in the
+  fence), `chat_message`, `social_post`, `document`, `standard`, or one a skill defines (the
+  app's own `slides` is a presentation outline); a revision keeps its `id`; at most three blocks
+  in a reply; two or three versions each start with `---tone <label>` alone on a line. The app
+  shows a card titled by `title` or "Writing" ("Email" for an email) with Copy, and its body
+  can be edited. Also `::code-comment{title body file start end priority}`, one per comment on
+  its own line; `- :codex-followup[label]{prompt="…"}`, a follow-up to click;
+  `:codex-file-citation{path="…" purpose="source|output"}`, which the app shows as a card that
+  opens the file; and `::created-thread{threadId="…"}` after `create_thread`, which Codealong
+  leaves as text. In this Mac's threads over 30 days to 2026-10-13, replies held 91 file
+  citations, 20 writing blocks, 18 follow-ups and 11 code comments.
 
 ## Unchecked
 
