@@ -701,7 +701,7 @@ pub struct Removal {
     /// One sentence: what was done, or why it stays.
     pub message: String,
     /// What ran, or would, in order: the repo's teardown or git's commands, then the harness's
-    /// for a background job that held it.
+    /// for a background job that held it. None for one that stays.
     #[serde(default)]
     pub steps: Vec<String>,
     /// It went, but not all as asked: the rest of the repo's teardown failed, or a job's record

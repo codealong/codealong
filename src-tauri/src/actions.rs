@@ -1396,7 +1396,9 @@ fn remove_worktree(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Remove = c.read()?;
     if p.dry_run {
         let plan = crate::cleanup::plan(&engine.board(), &cfg()?, c.key, None)?;
-        let steps = plan.steps();
+        // What would run only for one that can go: listed for one that stays, the commands read
+        // as something to run by hand.
+        let steps = if plan.kept.is_none() { plan.steps() } else { Vec::new() };
         let message = match (&plan.kept, &plan.skipped) {
             (Some(why), _) => format!("{} stays: {why}.", plan.name),
             (None, Some(why)) => format!("{} can go: nothing in it would be lost. The repo's WorktreeRemove hook won't run ({why}), so git removes it.", plan.name),
@@ -1406,10 +1408,9 @@ fn remove_worktree(engine: &Handle, c: &Call) -> Result<Value, String> {
     }
     // What failed partway, as what stays, is said, not an error: the worktree is still there.
     let done = crate::cleanup::remove(&|| engine.board(), &cfg()?, c.key, None)?;
-    let steps = done.plan.steps();
     to_value(match done.result {
-        Ok(gone) => api::Removal { removed: true, message: gone.said, steps, noted: gone.partly },
-        Err(why) => api::Removal { removed: false, message: why, steps, noted: false },
+        Ok(gone) => api::Removal { removed: true, message: gone.said, steps: done.plan.steps(), noted: gone.partly },
+        Err(why) => api::Removal { removed: false, message: why, steps: Vec::new(), noted: false },
     })
 }
 
