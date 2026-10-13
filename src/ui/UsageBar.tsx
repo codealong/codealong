@@ -160,7 +160,7 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
       ) : hasNoLimits(u) ? (
         // Nothing will ever show here, so it takes no room to say so; the words are on hover.
         <span className="ca-uchip-none" title={measure ? undefined : usageNote(u)}>
-          <Icon name="gauge-off" size={14} />
+          <Icon name="gauge-off" size={10} stroke={2} />
         </span>
       ) : (
         <span className="ca-uchip-note" title={measure ? undefined : plain || undefined}>
