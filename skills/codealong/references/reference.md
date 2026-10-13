@@ -1011,12 +1011,14 @@ Commands:
               socket for messages between sessions; one that skips permission prompts
               takes it at once only from a session that skips them too, and otherwise
               asks its user first (a Claude app session can't, so nothing is sent).
-              Codex and OpenCode sessions get it as a prompt, typed into their terminal
-              or posted to their service, and queued while they work. Nothing is sent to
-              one waiting on its user to answer a prompt, or an Antigravity one, nor to
-              a session that isn't running, but for the one that started yours
-              (`codealong start`): Codealong resumes that one out of sight with the
-              message, unless its user turned that off (`[sessions]
+              Codex sessions get it as a prompt, typed into their terminal or sent to
+              the Codex app, and one taking a turn there reads it at its next step, as a
+              Claude Code session does. OpenCode sessions get it posted to their
+              service, and sessions Codealong runs get it from Codealong, queued while
+              they work. Nothing is sent to one waiting on its user to answer a prompt,
+              or an Antigravity one, nor to a session that isn't running, but for the
+              one that started yours (`codealong start`): Codealong resumes that one out
+              of sight with the message, unless its user turned that off (`[sessions]
               resume_for_sessions_it_started`), and the error says why when it doesn't
   pending     What a session waits on its user for, when Codealong can see it
               (`pending`): the tool call it asks to run (`id`, which `session answer`
@@ -1183,10 +1185,12 @@ which session sent it, and how to answer (`codealong session send <sender's key>
 so an answer arrives in your session as a new message. Claude Code sessions get it on
 their socket for messages between sessions; one that skips permission prompts takes it
 at once only from a session that skips them too, and otherwise asks its user first (a
-Claude app session can't, so nothing is sent). Codex and OpenCode sessions get it as a
-prompt, typed into their terminal or posted to their service, and queued while they
-work. Nothing is sent to one waiting on its user to answer a prompt, or an Antigravity
-one, nor to a session that isn't running, but for the one that started yours (`codealong
+Claude app session can't, so nothing is sent). Codex sessions get it as a prompt, typed
+into their terminal or sent to the Codex app, and one taking a turn there reads it at
+its next step, as a Claude Code session does. OpenCode sessions get it posted to their
+service, and sessions Codealong runs get it from Codealong, queued while they work.
+Nothing is sent to one waiting on its user to answer a prompt, or an Antigravity one,
+nor to a session that isn't running, but for the one that started yours (`codealong
 start`): Codealong resumes that one out of sight with the message, unless its user
 turned that off (`[sessions] resume_for_sessions_it_started`), and the error says why
 when it doesn't

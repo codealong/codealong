@@ -1580,6 +1580,12 @@ as `[reviews.own] send` says, and that of a helper you made your own; a start an
 for makes no helper. A message from any other agent is held there, as before, unless the agent's
 own session skips them too.
 
+A message from another agent, or one Codealong sends by itself, reaches a Codex session that's
+taking a turn in its terminal or in the Codex app in that turn, which reads it at its next step, as
+a Claude Code session takes one between its steps; in the app that holds even when it's set to
+queue your own follow-ups. One to an OpenCode session, or to a session Codealong runs, waits for
+its turn to end.
+
 Mark as done on a session marks its helpers done too, as their work was for it: each ends as far
 as Codealong can end it and is archived, and one still at work is left to finish, unless you
 chose to stop the session's work too. *Make it my own* in a helper's menu makes it a session of

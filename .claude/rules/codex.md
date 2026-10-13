@@ -127,7 +127,9 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   2026-10-12). A follower window's queue goes to the owner whole
   (`thread-follower-set-queued-follow-ups-state` replaces the owner's), so Codealong adds to the
   app-server's instead: `codex/ipc.rs` (`queues_follow_ups`, `InApp::deliver`),
-  `codex/appserver.rs` (`queue`).
+  `codex/appserver.rs` (`queue`). Only yours is queued: another agent's message, or Codealong's,
+  is steered in. Queued in a long turn, agents' messages were recorded in that turn 2.5 to 6.5
+  minutes after they were sent, two of them together (2026-10-13).
 - A thread made for the app to run, its first turn started through the window socket:
   `codex/appserver.rs` (`new_thread`), `codex/ipc.rs` (`codex_start_request`), `codex/mod.rs`
   (`start_in_app`). `thread/inject_items` refuses an empty list, and the app can't open a

@@ -48,7 +48,15 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
 - `@agentclientprotocol/codex-acp` 1.13.1 runs its own bundled `codex app-server` (0.156.1)
   with `CODEX_HOME` (`codex/mod.rs`, `acp_command`); the session id is the thread id, and the
   rollout is an ordinary one with `originator: "codealong"`. With `approvals_reviewer =
-  "auto_review"` in config.toml it doesn't ask: its reviewer model decides.
+  "auto_review"` in config.toml it doesn't ask: its reviewer model decides. It can put a prompt
+  into the running turn, which Codealong doesn't use yet: the extension request
+  `_session/steering {sessionId, prompt}` (`turn/steer` underneath), offered in `initialize`'s
+  answer as `_meta.steering.supported` (checked 2026-10-13). Its `outcome` is `injected`,
+  `failed`, or `startedNewTurn` when the turn had ended, a turn it starts itself whose end no
+  answer reports, so `acp.rs` would show it done while it runs, and a queued prompt sent then
+  would start a turn over it. Its `thread/status/changed` comes as a `session_info_update` with
+  `_meta.codex.threadStatus`, which might mark that end (not checked). A `session/prompt` during a
+  turn starts a new turn rather than steering.
 - `opencode acp` (built in) is a client of OpenCode's service; its ids are the `ses_…` rows.
   Where it's installed and the PATH it gets: `acp.rs` (`adapter_path`).
 - The adapter processes, one per account and children of the app, their stderr logs and

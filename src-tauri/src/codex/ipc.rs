@@ -393,12 +393,14 @@ impl Own for InApp {
             launch::open_codex(&launch::codex_thread_url(&d.session.id))?;
             return Ok(opened(format!("Codex has {title} open.")));
         }
-        // While a turn runs, a send goes as the app's own box would send it (`queues_follow_ups`),
-        // and Send now into the turn. A turn started meanwhile doesn't wait for the running one:
-        // 26.1007's app-server puts it into that turn, and the window shows it twice, in the turn
-        // and as the turn it took itself to be starting.
+        // While a turn runs, your send goes as the app's own box would send it (`queues_follow_ups`),
+        // and Send now into the turn. Another agent's message, or Codealong's, goes into the turn
+        // too, as Claude Code takes one between its steps: queued, it waited for the queue's next
+        // turn in the app, minutes into a long one (2026-10-13). A turn started meanwhile doesn't
+        // wait for the running one: 26.1007's app-server puts it into that turn, and the window
+        // shows it twice, in the turn and as the turn it took itself to be starting.
         let home = d.account.home_path();
-        if d.busy() && !d.now && queues_follow_ups(&home) {
+        if d.busy() && !d.now && d.agent.is_none() && queues_follow_ups(&home) {
             match appserver::queue(&home, &d.session.id, &prompt) {
                 Ok(()) => return Ok(sent(format!("Queued for {title} in Codex: it starts once its current turn ends."))),
                 Err(e) if e.is::<MayHaveArrived>() => return Err(e),
@@ -757,6 +759,21 @@ mod tests {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": home })).unwrap();
         let s = Session { surface: Surface::App, status: Status::Working, live: true, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Codex, "codex", "abc") };
         let sent = InApp.deliver(&Delivery { session: &s, account: &account, text: "and the docs", agent: None, bypasses: false, now: false, untyped: None }).unwrap();
+        assert_eq!(router.join().unwrap(), ["initialize", "thread-owner-discovery", "thread-follower-steer-turn"]);
+        assert_eq!(sent.message, "Sent to \u{201c}Fix the build\u{201d} in Codex: it takes it into the turn it's taking.");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// With the app set to queue follow-ups, yours is queued, but another agent's message goes into
+    /// the turn, where it reads it at its next step.
+    #[test]
+    fn an_agents_message_to_a_codex_thread_taking_a_turn_steers_into_it_when_yours_would_queue() {
+        let home = scratch("codex-busy-agent");
+        std::fs::write(home.join("config.toml"), "[desktop]\nfollowUpQueueMode = \"queue\"\n").unwrap();
+        let router = router(&home, Some("window"), json!({ "resultType": "success", "result": {} }));
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": home })).unwrap();
+        let s = Session { surface: Surface::App, status: Status::Working, live: true, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Codex, "codex", "abc") };
+        let sent = InApp.deliver(&Delivery { session: &s, account: &account, text: "No conflict: go ahead.", agent: Some("Review the parser"), bypasses: false, now: false, untyped: None }).unwrap();
         assert_eq!(router.join().unwrap(), ["initialize", "thread-owner-discovery", "thread-follower-steer-turn"]);
         assert_eq!(sent.message, "Sent to \u{201c}Fix the build\u{201d} in Codex: it takes it into the turn it's taking.");
         let _ = std::fs::remove_dir_all(&home);
