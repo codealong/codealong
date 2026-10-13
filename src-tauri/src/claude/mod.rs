@@ -1053,7 +1053,18 @@ impl crate::harness::Reader for Reader {
                     let key = Session::key_for(Harness::Claude, &account.name, &parsed.1.session_id);
                     match from {
                         Some(from) => out.lines.push(NewLines { path: p.clone(), from, to: parsed.2.offset, key }),
-                        None => out.found.push((p.clone(), key)),
+                        None => {
+                            // Its subagents' logs so far go with it: one resumed from before the
+                            // window has them, unchanged, wherever its session was as it started
+                            // each (`helper_logs`). Only what they write after is handed on.
+                            for log in helper_logs(&home, &parsed.1.session_id) {
+                                if let Ok(len) = std::fs::metadata(&log).map(|m| m.len()) {
+                                    self.subagent_offsets.entry(log.clone()).or_insert(len);
+                                }
+                                out.found.push((log, key.clone()));
+                            }
+                            out.found.push((p.clone(), key));
+                        }
                     }
                     self.transcripts.insert(p.clone(), (account.name.clone(), parsed));
                 }
@@ -1826,8 +1837,21 @@ mod tests {
         }
         let mut logs = reader.logs();
         logs.sort();
+        let key = |id: &str| format!("claude:claude9:{id}");
         // Paths sort by their parts: the project before the one whose name runs on, a folder before
         // the file named as it is with more after.
-        assert_eq!(logs, [(log, "claude:claude9:s1".to_string()), (transcript.clone(), "claude:claude9:s1".to_string()), (elsewhere, "claude:claude9:s1".to_string())]);
+        assert_eq!(logs, [(log, key("s1")), (transcript.clone(), key("s1")), (elsewhere, key("s1"))]);
+
+        // A transcript come on late, as one resumed from before the window is, goes with its
+        // subagents' logs so far, wherever they are; after that only their new lines are handed on.
+        let old = project.join("s3.jsonl");
+        let old_sub = home.join("projects/-Users-me-app-wt/s3/subagents/agent-d.jsonl");
+        std::fs::create_dir_all(old_sub.parent().unwrap()).unwrap();
+        std::fs::write(&old_sub, "{}\n").unwrap();
+        std::fs::write(&old, "{\"type\":\"user\",\"sessionId\":\"s3\",\"cwd\":\"/Users/me/app\",\"timestamp\":\"2026-09-20T15:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"Publish the report\"}}\n").unwrap();
+        let mut late = reader.apply(&account, std::slice::from_ref(&old), &look).found;
+        late.sort();
+        assert_eq!(late, [(old, key("s3")), (old_sub.clone(), key("s3"))]);
+        assert!(reader.apply(&account, std::slice::from_ref(&old_sub), &look).lines.iter().all(|l| l.from == l.to));
     }
 }

@@ -648,8 +648,8 @@ pub struct Applied {
     pub lines: Vec<NewLines>,
     /// Records read for the first time, with their sessions' keys, whose lines so far aren't in
     /// `lines`: a copy of a session moved here, or one resumed from before the window, has its
-    /// whole conversation in it. The engine reads each once, off its thread, for what it reads
-    /// every record for (`Engine::read_found_logs`).
+    /// whole conversation in it, and its subagents' logs theirs. The engine reads each once, off
+    /// its thread, for what it reads every record for (`Engine::read_found_logs`).
     pub found: Vec<(PathBuf, String)>,
 }
 

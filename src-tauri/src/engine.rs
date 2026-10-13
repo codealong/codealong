@@ -1672,7 +1672,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             return;
         }
         self.scan_sessions();
-        self.read_unread_logs();
+        // The readers read their records' ends again, the lines before passed over: every record
+        // is read whole again, off the engine's thread, an account's added since among them.
+        self.scan_pr_marks(false);
         self.load_repos();
         self.queue_git_all();
         self.github.poll(&self.seeds, true, Now::real());
@@ -2387,7 +2389,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.save_state();
                         // What's archived and pinned decides what the harnesses' readers keep.
                         self.scan_sessions();
-                        self.read_unread_logs();
+                        self.scan_pr_marks(false);
                     }
                     self.dirty = true;
                 }
@@ -2544,7 +2546,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Reads the PRs each session's records show it made or changed, the pages on the web it
     /// made (artifacts.rs) and the Chrome tabs it drove, subagents' logs included, in the
     /// background unless `sync`. New lines are read as they come (`check_new_lines`), and records
-    /// found after this as they're found (`read_found_logs`).
+    /// found after this as they're found (`read_found_logs`). Again after the readers scan again,
+    /// which hands no lines on.
     fn scan_pr_marks(&mut self, sync: bool) {
         let files = self.session_logs();
         self.logs_read.extend(files.iter().map(|(p, _)| p.clone()));
@@ -2560,20 +2563,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// Reads records the full scan didn't, as `scan_pr_marks` reads every one: a transcript a
     /// reader came on after it (a copy of a session moved here, one resumed from before the
-    /// window), or the records of an account added since. Each is read once; what they write
-    /// after comes as new lines.
+    /// window) and its subagents' logs so far. Each is read once; what they write after comes as
+    /// new lines.
     fn read_found_logs(&mut self, found: Vec<(PathBuf, String)>) {
         let files: Vec<(PathBuf, String)> = found.into_iter().filter(|(p, _)| self.logs_read.insert(p.clone())).collect();
         if !files.is_empty() {
             self.read_logs_off_thread(files);
         }
-    }
-
-    /// After the readers scan again, the records they keep now that weren't read whole: an
-    /// account's added since, say.
-    fn read_unread_logs(&mut self) {
-        let logs = self.session_logs();
-        self.read_found_logs(logs);
     }
 
     /// `read_logs` on a thread of its own, its findings sent back to be added to what's known.
