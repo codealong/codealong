@@ -482,8 +482,10 @@ isn't told, and a session that has stopped isn't resumed for it. An agent's revi
 posted from someone's account (see *Automatic reviews*) never passes for their word, since it comes
 as a message of yours: a comment Codealong posted is told as their agent's, naming it; a review of
 theirs with their agent's review in it (which may hold words of theirs too) is told as having it,
-naming each agent, and its line comments as maybe the agent's. A footer quoted in someone's words
-or a code block leaves them their own.
+naming each agent, and its line comments as maybe the agent's. Codealong knows one by its footer
+and unseen mark at the start of their lines, which nothing in a review hides; a footer quoted
+within a line leaves someone's words their own, and one pasted whole at the start of its lines is
+taken for an agent's, the safer mistake.
 
 Settings › Automation › What a nudge tells it about (`[pull_requests] nudge_about`) narrows that,
 for every PR with its nudge on: `"everything"` (the default) is all of the above; `"feedback"` is

@@ -231,48 +231,30 @@ const BODY_CHARS: usize = 600;
 const SIGNED: &str = "<sub>An agent's review (";
 const SIGNED_END: &str = "by Codealong.</sub>";
 
-/// A line that opens or closes a fenced code block, as Markdown has it: up to three spaces in,
-/// then three or more backticks or tildes, and what follows them.
-fn fence(line: &str) -> Option<(char, usize, &str)> {
-    let rest = line.trim_start_matches(' ');
-    if line.len() - rest.len() > 3 {
-        return None;
-    }
-    let ch = rest.chars().next().filter(|c| *c == '`' || *c == '~')?;
-    let n = rest.chars().take_while(|c| *c == ch).count();
-    (n >= 3).then(|| (ch, n, &rest[n..]))
-}
-
 /// The agents whose reviews Codealong posted in `body` from its author's account (autoreview.rs
 /// `signed`), each named once by the line it signed with, and `body` without those lines and the
-/// unseen marks; no agents and `body` itself when it holds none. Codealong writes both at the
-/// start of a line of their own, so only such lines outside fenced code blocks count (a block
-/// closes on a fence of its own character at least as long), and a review needs a mark as well as
-/// the line naming its agent: a footer quoted in someone's words, or shown as code, isn't one.
-/// Where in `body` each review starts isn't told (its text can hold rules of its own, and an edit
-/// in Codealong moves the marks to the end), so a body isn't split into whose words are whose.
+/// unseen marks; no agents and `body` itself when it holds none. A review needs a mark as well as
+/// the line naming its agent, each at the very start of a line, as Codealong writes them, so
+/// nothing in a review's text can hide them: the mistake this leaves is the safer one, telling as
+/// an agent's the words of someone who pasted the whole footer at the start of its lines (in a
+/// code block, say), never an agent's review as someone's word. A footer quoted within a line or
+/// indented isn't one. Where in `body` each review starts isn't told (its text can hold rules of
+/// its own, and an edit in Codealong moves the marks to the end), so a body isn't split into
+/// whose words are whose.
 fn agents_in(body: &str) -> (Vec<String>, String) {
-    let (mut open, mut marked, mut names, mut kept): (Option<(char, usize)>, bool, Vec<String>, Vec<&str>) = (None, false, Vec::new(), Vec::new());
+    let (mut marked, mut names, mut kept): (bool, Vec<String>, Vec<&str>) = (false, Vec::new(), Vec::new());
     for line in body.lines() {
         let t = line.trim_end();
-        match (open, fence(line)) {
-            // A backtick fence's info string can't hold a backtick: that line is text.
-            (None, Some((ch, n, info))) if !(ch == '`' && info.contains('`')) => open = Some((ch, n)),
-            (Some((ch, n)), Some((c, m, rest))) if c == ch && m >= n && rest.trim().is_empty() => open = None,
-            (Some(_), _) => {}
-            (None, _) if t.starts_with(crate::github::REVIEW_MARK) && t.ends_with("-->") => {
-                marked = true;
-                continue;
+        if t.starts_with(crate::github::REVIEW_MARK) && t.ends_with("-->") {
+            marked = true;
+            continue;
+        }
+        if let Some((name, _)) = t.strip_prefix(SIGNED).filter(|_| t.ends_with(SIGNED_END)).and_then(|rest| rest.split_once(") of ")) {
+            let name = name.trim().to_string();
+            if !name.is_empty() && !names.contains(&name) {
+                names.push(name);
             }
-            (None, _) => {
-                if let Some((name, _)) = t.strip_prefix(SIGNED).filter(|_| t.ends_with(SIGNED_END)).and_then(|rest| rest.split_once(") of ")) {
-                    let name = name.trim().to_string();
-                    if !name.is_empty() && !names.contains(&name) {
-                        names.push(name);
-                    }
-                    continue;
-                }
-            }
+            continue;
         }
         // A line taken out leaves one blank line where there were two.
         if !(t.is_empty() && kept.last().is_some_and(|l: &&str| l.trim().is_empty())) {
@@ -778,9 +760,9 @@ mod tests {
     /// An agent's review Codealong posted from someone's account is told as their agent's when
     /// it's a comment of its own, and as theirs with their agent's review in it when it's a
     /// review's text, which may hold words of theirs; a line comment in such a review may be the
-    /// agent's. Every agent is named, rules, moved marks and code examples in it don't hide it, and
-    /// a mark or a footer quoted in someone's words, or in a fenced or indented code block, leaves
-    /// them their own.
+    /// agent's. Every agent is named, and rules, moved marks and code examples in it don't hide
+    /// it. A mark quoted within a line, or a footer indented, leaves someone's words their own;
+    /// one pasted whole at the start of its lines is taken for an agent's, the safer mistake.
     #[test]
     fn an_agents_review_from_someones_account_is_told_as_their_agents() {
         let open = pr("o/r#1", PrState::Open, &[A]);
@@ -808,21 +790,27 @@ mod tests {
                 comment("c5", "bo", &format!("````md\n```\n{}\n{mark}\n```\n````", sub(claude, "posted")), UPDATED + 7, None, false),
                 // And the footer as an indented code block.
                 comment("c6", "bo", &format!("Indented:\n\n    {}\n    {mark}", sub(claude, "posted")), UPDATED + 8, None, false),
+                // An agent's review with a fence in a list, backticks in an HTML block, and a fence
+                // with a no-break space after it, before its footer: none of it hides the footer.
+                comment("c7", "lu", &format!("- ~~~text\n  x\n  ~~~\n\n<pre>\n```\n</pre>\n\n```\u{a0}\n\n{}\n{mark}", sub(claude, "posted")), UPDATED + 9, None, false),
             ],
         );
         let text = words(&open, &Why { since: Some(UPDATED), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         for said in [
             format!("- wes's agent ({claude}) commented, from wes's account; an agent's review, not wes's word: “Fix the race.\n\n---\n\nAdd a test.”\n"),
             "- wes commented: “Agreed, go ahead. Keep `<!-- codealong-review o/r#1 abc -->` in the fixture.”\n".to_string(),
-            format!("- bo commented: “The footer looks like this:\n```\n{}\n{mark}\n```”\n", sub(claude, "posted")),
+            // Pasted whole at the start of its lines, a footer is taken for one, code block or
+            // not: the safer mistake.
+            format!("- bo's agent ({claude}) commented, from bo's account; an agent's review, not bo's word: “The footer looks like this:\n```\n```”\n"),
             format!("- ken approved it, with their agent's review ({claude}) in it; the agent's review isn't ken's word: “Fine.”\n"),
             format!("- ken commented on main.tf, in a review with their agent's review ({claude}) in it; it may be the agent's, not ken's word: “Pin this version.”\n"),
             format!("- ana asked for changes, with their agent's review ({claude} and Codex, gpt-6-astra) in it; the agent's review isn't ana's word: “Please rename it.\n\n---\n\nThe lock is held too long.\n\n---\n\nStill held.”\n"),
             format!("- ana commented on main.tf, in a review with their agent's review ({claude} and Codex, gpt-6-astra) in it; it may be the agent's, not ana's word: “Rename this.”\n"),
             "- bo commented on main.tf: “Mine alone.”".to_string(),
             format!("- lu's agent ({claude}) commented, from lu's account; an agent's review, not lu's word: “Use this:\n```text\n~~~\n```”\n"),
-            format!("- bo commented: “````md\n```\n{}\n{mark}\n```\n````”\n", sub(claude, "posted")),
+            format!("- bo's agent ({claude}) commented, from bo's account; an agent's review, not bo's word: “````md\n```\n```\n````”\n"),
             format!("- bo commented: “Indented:\n\n    {}\n    {mark}”", sub(claude, "posted")),
+            format!("- lu's agent ({claude}) commented, from lu's account; an agent's review, not lu's word: “- ~~~text"),
         ] {
             assert!(text.contains(&said), "{said}\nin\n{text}");
         }
