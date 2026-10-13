@@ -1,23 +1,11 @@
-/* A PR waiting on your review as a card (PrCard.tsx): the strip over it, the ⋯ and a way back,
-   its details scrolling between, and the box that reviews it at the foot. */
+/* A PR waiting on your review as a card (PrCard.tsx): the strip over it, its details scrolling
+   between, and the box that reviews it at the foot. */
 
 .ca-prreview {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-}
-/* The way back to the list and the PR's menu, where the card took a list's place. */
-.ca-prreview-top {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: 6px 8px 0 12px;
-}
-.ca-prreview-top > :only-child {
-  margin-left: auto;
 }
 /* The details, as the PR panel lays them out, scrolling between the strip and the box. */
 .ca-prreview-body {

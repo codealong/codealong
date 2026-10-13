@@ -18,6 +18,7 @@
 // What you wrote stays with the PR until it goes, so skipping to the next and coming back loses
 // nothing. The box is the PR panel's too (PrBox.tsx), with the line over it saying where the PR's
 // review stands, which shows its Reviews tab; a verdict's keys work from either of its sides.
+// Its ⋯ is the details' own, on the title's line, as the PR panel has it.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the PR has left, and what it adds (a queue).
@@ -36,7 +37,7 @@ import { zoomKey } from './cardHost';
 import { PrBoxView, usePrBox } from './PrBox';
 import { PrDetails, usePrTab } from './PrInspector';
 import type { PrRowItem } from './PrsView';
-import { Button, cx } from './primitives';
+import { cx } from './primitives';
 import { Hotkey, QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue } from './SessionPanel';
 
 /** What a window does for a PR's actions, less what the card knows for every window. */
@@ -182,11 +183,8 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
       }}
     >
       <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} />
-      <div className="ca-prreview-top">
-        <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, review with, pin, copy and more" onClick={(e) => menu(below(e.currentTarget))} />
-      </div>
       <div className="ca-prreview-body ca-prinsp">
-        <PrDetails item={item} now={now} keys goesOn={goesOn} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
+        <PrDetails item={item} now={now} onMenu={menu} keys goesOn={goesOn} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
       </div>
       <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} goesOn={!!can.left} onShowReview={() => tabs.show('review')} />
     </div>

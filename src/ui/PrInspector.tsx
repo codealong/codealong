@@ -98,9 +98,9 @@ export interface PrDetailsProps {
    *  Approve before them, the rest after. */
   lead?: ReactNode;
   trail?: ReactNode;
-  /** The PR's menu, as its row has it: from the ⋯ button, below it, and at the pointer from a
-   *  right-click on the header. A PR's card takes the right-click anywhere on it and has its own
-   *  ⋯ (PrCard.tsx), so it passes none. */
+  /** The PR's menu, as its row has it: from the ⋯ button on the title's line, below it, and at
+   *  the pointer from a right-click on the header (a PR's card, PrCard.tsx, takes one anywhere
+   *  on it too). */
   onMenu?: (at?: { x: number; y: number }) => void;
   /** Shows a session in the panel, in place of the PR until you go back. */
   onShowSession: (lane: Lane, session: Session) => void;
