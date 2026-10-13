@@ -23,7 +23,9 @@
 //! Code's box takes one (bash mode: it runs in the session, and the agent reads what it prints).
 //! It goes only the ways that put it in that box as typed, its terminal or a background job's,
 //! never one that would hand the agent the words, or resume the session on them
-//! (`typed_routes`). Run on a `!` block in a conversation sends one (ui/CopyButton.tsx).
+//! (`typed_routes`). That's for one sent from another device: the box in a window here, and Run on
+//! a `!` block, run it in a tab of yours instead and tell the session what it printed (actions.rs
+//! `run_command`).
 //!
 //! An agent's message (`codealong session send`) is never yours. It starts with who sent it, that
 //! it isn't from the session's user, and how to answer, and it goes only the ways that don't read

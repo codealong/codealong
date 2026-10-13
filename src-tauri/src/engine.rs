@@ -125,6 +125,9 @@ pub enum Msg {
     LimitMoved(Option<String>),
     /// Sessions told their PR was approved (nudges.rs), and which weren't and why if any.
     Nudged(Option<String>),
+    /// A session told what a command you ran for it printed (terminal.rs `report_ended`), and why
+    /// it wasn't if it wasn't.
+    RunReported(Option<String>),
     /// Sessions told to carry on after a lost connection (reconnect.rs), and which weren't and
     /// why if any.
     Continued(Option<String>),
@@ -341,6 +344,12 @@ impl Handle {
     /// a later nudge works.
     pub fn nudged(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Nudged(result.err()));
+    }
+
+    /// How telling a session what a command you ran for it printed went (terminal.rs
+    /// `report_ended`): a failure is a notice until a later one works.
+    pub fn run_reported(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::RunReported(result.err()));
     }
 
     /// How telling sessions to carry on after a lost connection went (reconnect.rs): a failure
@@ -1062,6 +1071,8 @@ struct Engine {
     limit_move_warning: Option<String>,
     /// Why a session wasn't told its PR was approved, when Codealong sends that itself.
     nudge_warning: Option<String>,
+    /// Why a session wasn't told what a command you ran for it printed.
+    run_report_warning: Option<String>,
     continue_warning: Option<String>,
     report_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
@@ -1186,6 +1197,7 @@ impl Engine {
             reusable_warning: None,
             limit_move_warning: None,
             nudge_warning: None,
+            run_report_warning: None,
             continue_warning: None,
             report_warning: None,
             store_warnings: Vec::new(),
@@ -1909,6 +1921,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.nudge_warning = why;
                     self.dirty = true;
                 }
+                Ok(Msg::RunReported(why)) => {
+                    self.run_report_warning = why;
+                    self.dirty = true;
+                }
                 Ok(Msg::Continued(why)) => {
                     self.continue_warning = why;
                     self.dirty = true;
@@ -2405,6 +2421,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("held", "Waiting to open a folder", held.as_ref()),
             said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
             said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
+            said("terminal-runs", "A session wasn't told what a command printed", self.run_report_warning.as_ref()),
             said("reconnect", "A session didn't carry on after its connection came back", self.continue_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", self.review_warning.as_ref()),

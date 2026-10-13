@@ -269,6 +269,14 @@ export async function openPrFile(ask: PrFileAsk): Promise<void> {
   await invoke('open_pr_file', { ask });
 }
 
+/** Runs a command led by `!` for a session (in its box, or Run on a `!` block) in a new tab of
+ *  your terminal in `folder`, as you, and has the session told what it printed once it ends
+ *  (actions.rs `run_command`). Resolves with how it went, in a sentence. */
+export async function runCommand(key: string, folder: string, text: string): Promise<string> {
+  if (!inTauri) throw new Error('Running a command needs the app.');
+  return invoke<string>('run_command', { key, folder, text });
+}
+
 /** Types a block of shell commands from a session's conversation into a new terminal in `cwd`
  *  (runcode.rs): what it runs leaves out the comments. */
 export async function runInTerminal(cwd: string, text: string): Promise<void> {

@@ -32,6 +32,7 @@ pub const SIDE_CLOSE: &str = "session-side-close";
 pub const OPEN: &str = "open-target";
 pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
+pub const RUN_COMMAND: &str = "session-run-command";
 
 /// What each request carries: those another device can make, as codealong-peer has them, and
 /// those that stay on their Mac, as a window writes them.
@@ -72,6 +73,15 @@ pub mod params {
     #[serde(default)]
     pub struct Reusable {
         pub on: bool,
+    }
+
+    /// `session-run-command`: a command led by `!` you ran for the session, and the folder it runs
+    /// in.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct RunCommand {
+        pub text: String,
+        pub folder: String,
     }
 }
 
@@ -235,6 +245,10 @@ const REQUESTS: &[Request] = &[
     // A worktree's preview and reuse mark are kept on its Mac, with its other settings.
     Request { name: PREVIEW, only_here: Some("That worktree is on another device; set its preview there."), here: set_preview, ..ANY },
     Request { name: REUSABLE, only_here: Some("That worktree is on another device; mark it there."), here: set_reusable, ..ANY },
+    // A command led by `!` that you ran for a session runs in a tab of yours on its Mac, as you,
+    // and the session is told what it printed. Not the command's: its agent asks with `codealong
+    // terminal run`, which you allow.
+    Request { name: RUN_COMMAND, only_here: Some("Run it on the Mac the session runs on."), here: run_command, command: run_is_yours, ..ANY },
     // A worktree goes only when nothing in it would be lost, checked again on its Mac, so an
     // agent may clean one up too. Can't be undone, so another device needs remote control. A
     // repo's own teardown can take a minute or more (cleanup.rs).
@@ -266,6 +280,10 @@ fn deny_only(params: &Value) -> Result<(), String> {
 /// another device.
 fn resume_is_its_users(_: &Value) -> Result<(), String> {
     Err(format!("That session {}", send::NOT_STARTED_AGAIN))
+}
+
+fn run_is_yours(_: &Value) -> Result<(), String> {
+    Err("An agent asks its user to run a command in their terminal with `codealong terminal run`, which they allow.".into())
 }
 
 fn side_in_windows(_: &Value) -> Result<(), String> {
@@ -536,6 +554,25 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     Ok(said)
 }
 
+/// Runs a command led by `!` that you ran for the session (in its box, or Run on a `!` block) in a
+/// new tab of your terminal, as you, and has the session told what it printed once it ends
+/// (terminal.rs `report_ended`): the `!` means it's for the session to read.
+fn run_command(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    let p: params::RunCommand = c.read()?;
+    let text = p.text.trim_start();
+    let command = text.strip_prefix('!').unwrap_or(text).trim().to_string();
+    if let Some(why) = crate::terminal::refused(&command) {
+        return Err(why.into());
+    }
+    let (apps, lanes, title) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(key).map(|(_, s)| s.title.clone())));
+    let title = title.ok_or("Codealong doesn't list that session.")?;
+    let (id, at) = crate::terminal::new_id();
+    let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: p.folder.into() }, at };
+    let run = crate::terminal::start(&asked, &apps, &lanes, &title, true).map_err(words)?;
+    Ok(json!(format!("Running it in a new {} tab. What it prints goes to the session when it ends.", run.terminal)))
+}
+
 /// Answers a command the session's agent asks to run in your terminal (terminal.rs): Deny refuses
 /// it, with your words when you wrote some, and Allow opens its tab. Only you allow it, from a
 /// window here or your phone: the command may only deny (`deny_only`), and another Mac's request
@@ -549,7 +586,7 @@ fn answer_run(engine: &Handle, c: &Call, key: &str, id: &str, answer: api::Answe
         api::Answer::Allow => {
             let open = |a: &crate::terminal::Asked| {
                 let (apps, lanes, title) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(&a.ask.session).map(|(_, s)| s.title.clone()).unwrap_or_default()));
-                crate::terminal::start(a, &apps, &lanes, &title)
+                crate::terminal::start(a, &apps, &lanes, &title, false)
             };
             let said = crate::terminal::allow(key, id, open).ok_or_else(gone)?.map_err(words)?;
             Ok(Value::String(said))
@@ -1540,7 +1577,7 @@ mod tests {
         let engine = Handle::for_tests();
         // A worktree's targets open, and its preview and reuse mark are set, on its own Mac.
         let lane = "@a1b2c3d4e5:/Users/sam/app";
-        for (name, words) in [(OPEN, "it opens there"), (PREVIEW, "set its preview there"), (REUSABLE, "mark it there")] {
+        for (name, words) in [(OPEN, "it opens there"), (PREVIEW, "set its preview there"), (REUSABLE, "mark it there"), (RUN_COMMAND, "on the Mac the session runs on")] {
             let err = run(&engine, &peers, name, lane, json!({ "target": "editor", "on": true })).unwrap_err();
             assert!(err.contains(words), "{name}: {err}");
         }
@@ -1624,6 +1661,9 @@ mod tests {
         for name in [SIDE_ASK, SIDE_CLOSE, MOVE] {
             assert!(ask(name, json!({ "text": "what changed?", "account": "claude2" })).unwrap_err().contains("in Codealong's windows"), "{name}");
         }
+        // A command led by `!` runs in a terminal of its user's only as they ran it: an agent asks
+        // with `codealong terminal run`, which they allow.
+        assert!(ask(RUN_COMMAND, json!({ "text": "! make", "folder": "/tmp" })).unwrap_err().contains("`codealong terminal run`"));
         // The rest is the command's as it is a window's: these get as far as the session. Mark as
         // done goes by what an agent may mark done once it has the session (agentdone.rs).
         for name in [api::SESSION_PENDING, api::SESSION_CANCEL, api::SESSION_RENAME, api::SESSION_FORK, api::SESSION_SEND, CLOSE, api::SESSION_DONE] {

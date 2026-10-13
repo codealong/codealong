@@ -74,7 +74,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent } from 'react';
 import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { dismissSuggestions, forkSession, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
+import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -88,6 +88,7 @@ import { sessionSkillsFor, useSkills } from '../useSkills';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, StartPlace, Suggestions, Way } from '../types';
 import { CodeBlock } from './CopyButton';
+import { bangCommand } from './RunButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { AccountLabel, BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
@@ -182,6 +183,11 @@ interface ComposerProps {
   /** What it waits on is questions it asks, which a send declines rather than denies: for the
    *  box's words. */
   asked?: boolean;
+  /** Where a command led by `!` written in the box runs: the folder the session works in, on this
+   *  Mac (RunButton.tsx `runFolder`). It runs in a new tab of yours and the session is told what
+   *  it printed (api.ts `runCommand`). None for a session on another device, where it goes as
+   *  any message does. */
+  runIn?: string;
 }
 
 type Note = { text: string; error: boolean };
@@ -191,8 +197,7 @@ type Note = { text: string; error: boolean };
 const ways = new Map<string, Way | null>();
 
 /** How what's typed gets to the session, asked again as the session starts or stops running
- *  somewhere: for its box to say, and for Run to know whether a `!` command goes in
- *  (RunButton.tsx `runsInSession`). Null until the engine says, and for one Codealong runs. */
+ *  somewhere, for its box to say. Null until the engine says, and for one Codealong runs. */
 export function useWay(s: Pick<Session, 'key' | 'live' | 'pid' | 'surface' | 'attachCommand'>): Way | null {
   const [way, setWay] = useState<Way | null>(() => ways.get(s.key) ?? null);
   useEffect(() => {
@@ -230,7 +235,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -467,6 +472,32 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
       .finally(() => setForking(false));
   };
 
+  // A command led by `!`, which runs in a new tab of yours for the session to be told what it
+  // printed once it ends, as Run on a `!` block does. It doesn't reach the session meanwhile, so
+  // it goes while the session waits on you too. The box clears at once, and has it back, with
+  // why, if it doesn't start.
+  const [starting, setStarting] = useState(false);
+  const runs = !aside && !!runIn && bangCommand(text);
+  const runOwn = (): boolean => {
+    if (!runIn || starting) return false;
+    const t = text.trim();
+    const key = s.key;
+    setNote(null);
+    setText('');
+    setStarting(true);
+    runCommand(key, runIn, t)
+      .then(
+        (said) => land(key, { text: said, error: false }),
+        (e: unknown) => {
+          const why = errorText(e);
+          writeDraft(key, [t, readDraft(key)].filter((x) => x.trim()).join('\n\n'));
+          if (!land(key, { text: why, error: true })) onFailed?.(why);
+        },
+      )
+      .finally(() => setStarting(false));
+    return true;
+  };
+
   // `/side`, and the question after it. The box clears at once and the question shows above it
   // as soon as its copy is started; one that can't be asked is back in the box, which stays the
   // side conversation's, with why. With no question it shows the side conversations kept from
@@ -505,6 +536,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   /** Runs what's in the box when it's one of Codealong's commands, else sends it: to the session,
    *  or to its side conversation while that shows. */
   const submit = (): boolean => {
+    if (runs) return runOwn();
     const command = slashCommand(text, s);
     if (!command && aside) {
       if (!text.trim()) return false;
@@ -646,6 +678,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
         ? 'Switching its model…'
         : asking
           ? 'Asking a copy of it…'
+          : starting
+          ? 'Starting it in your terminal…'
+          : runs
+          ? `⏎ runs it in a new ${terminal} tab, as you; ${s.account} is told what it prints once it ends.`
           : listing
           ? '↑ ↓ choose · ⇥ finishes the name · esc puts the list away'
           : commands.length > 0
@@ -788,12 +824,12 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             <button
               type="button"
               className="ca-composer-send"
-              aria-label={command ? `Run /${command.command.name}` : aside ? 'Ask on the side' : 'Send'}
-              title={command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (denies === 'question' ? 'Decline it, and send this instead (⏎)' : denies ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)'}
-              disabled={empty || (waiting && !command && !aside && !onDenySaying) || ((!!command || aside) && (forking || asking))}
+              aria-label={runs ? 'Run in your terminal' : command ? `Run /${command.command.name}` : aside ? 'Ask on the side' : 'Send'}
+              title={runs ? `Run it in a new ${terminal} tab, as you (⏎)` : command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (denies === 'question' ? 'Decline it, and send this instead (⏎)' : denies ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)'}
+              disabled={empty || (waiting && !command && !runs && !aside && !onDenySaying) || ((!!command || aside) && (forking || asking)) || (runs && starting)}
               onClick={submit}
             >
-              <Icon name={command?.command.icon ?? (aside ? 'help' : 'arrow-up')} size={16} stroke={2} />
+              <Icon name={runs ? 'terminal' : (command?.command.icon ?? (aside ? 'help' : 'arrow-up'))} size={16} stroke={2} />
             </button>
           )}
         </div>
@@ -1356,6 +1392,8 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, give
 export interface ReplyProps {
   session: Session;
   terminal: string;
+  /** Where a command led by `!` in the box runs (`ComposerProps.runIn`). */
+  runIn?: string;
   /** Opens the session where it lives, to answer what can't be answered here. */
   onOpen: () => void;
   autoFocus?: boolean;
@@ -1384,7 +1422,7 @@ export function SideReply({ session, terminal, inWindow }: { session: Session; t
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
  *  while it has one, and the box that sends it a message. The box is the same one throughout, so
  *  it keeps what's in it as the session starts and stops waiting. */
-export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext }: ReplyProps) {
+export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext }: ReplyProps) {
   const waiting = !takesReply(session);
   // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
   const [call, setCall] = useState<CallKeys | null>(null);
@@ -1395,7 +1433,7 @@ export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, o
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} />
     </>
   );
 }

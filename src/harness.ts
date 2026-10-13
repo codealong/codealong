@@ -40,11 +40,6 @@ export const MOVES_ACCOUNTS: readonly Harness[] = ['claude'];
  *  card's box (harness.rs `fresh_side`): Claude Code, headless, and Codex, on an app-server. */
 export const FRESH_SIDES: readonly Harness[] = ['claude', 'codex'];
 
-/** The harnesses whose box runs a line led by `!` in the session's own shell, handing its agent
- *  what it prints (send.rs `shell_command`): Claude Code's bash mode, checked on 2.1.293. Run on a
- *  `!` block sends one into a session of theirs (RunButton.tsx). */
-export const SHELL_IN_BOX: readonly Harness[] = ['claude'];
-
 /** The harnesses whose sessions move to another folder as themselves (harness.rs
  *  `move_folder`): Claude Code, which goes on with a session wherever `--resume` runs. */
 export const MOVES_FOLDERS: readonly Harness[] = ['claude'];

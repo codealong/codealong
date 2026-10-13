@@ -2,31 +2,30 @@
 // its commands into a new terminal (runcode.rs), in the folder the session works in or the one the
 // command ran in, and says for a moment that it did. A block with no language is a shell block
 // when each of its lines starts with a command this Mac has (`isCommandBlock`), as agents often
-// write one for you to run. A block led by `!` is a command for the session's own shell, as an
-// agent writes one for you to run there: it goes to the session as if typed in its box, where
-// Claude Code runs it and its agent reads what it prints (send.rs `shell_command`), when
-// Codealong types into that box; otherwise it runs in a new terminal too, without the `!`.
+// write one for you to run. A block led by `!` is a command whose output is for the session, as an
+// agent writes one for you to run: it runs in a new tab of yours, as you, and the session is told
+// what it printed once it ends (actions.rs `run_command`), as `!` in the session's box does.
 
 import { createContext, useEffect, useState } from 'react';
 import { runInTerminal, shellCommands } from '../api';
 import { tildePath } from '../format';
-import { SHELL_IN_BOX } from '../harness';
-import type { Lane, Session, Way } from '../types';
+import type { Lane, Session } from '../types';
 import { cx, Icon } from './primitives';
 import { errorText } from '../report';
 
 /** Where a session's commands run: its folder on this Mac, and the terminal that opens there. A
  *  session's thread gives it to its code blocks; a session on another device has none, and its
- *  blocks no Run. `session` sends a command led by `!` into the session's own shell, for one
- *  whose box takes it (`runsInSession`). */
+ *  blocks no Run. `own` runs a command led by `!` for the session in `folder`, the session told
+ *  what it printed once it ends (api.ts `runCommand`). */
 export interface RunPlace {
   folder: string;
   terminal: string;
-  session?: (command: string) => Promise<unknown>;
+  own: (command: string, folder: string) => Promise<string>;
 }
 
-/** Where Run sends a block: into the session's own shell, or typed into a new terminal. */
-export type RunTarget = { session: (command: string) => Promise<unknown> } | { folder: string; terminal: string };
+/** Where Run sends a block: typed into a new terminal, or with `own` (a block led by `!`) run in
+ *  one for the session to be told what it printed. */
+export type RunTarget = { folder: string; terminal: string; own?: RunPlace['own'] };
 
 export const RunContext = createContext<RunPlace | null>(null);
 
@@ -37,24 +36,12 @@ export function runFolder(lane: Pick<Lane, 'path'>, s: Pick<Session, 'cwd'>): st
   return s.cwd && inside ? s.cwd : lane.path;
 }
 
-/** Whether a command led by `!` runs in the session itself: its harness runs one typed in its
- *  box in the session's shell, and Codealong types into that box, in its terminal or its
- *  background job (send.rs `typed_routes`). */
-export function runsInSession(s: Pick<Session, 'harness' | 'hosted'>, way: Way | null): boolean {
-  return !s.hosted && SHELL_IN_BOX.includes(s.harness) && (way?.kind === 'typed' || way?.kind === 'background');
-}
-
-/** A command for the session's own shell as its box takes one: led by `!`. */
-export function sessionCommand(text: string): string {
-  const t = text.trim();
-  return t.startsWith('!') ? t : `! ${t}`;
-}
-
-/** A command written for the session's own shell, as a new terminal takes it: the `!` that leads
- *  it is the session's box's, not the shell's. */
-export function terminalCommand(text: string): string {
+/** Whether what's in a session's box is a command led by `!`, which runs in a tab of yours for
+ *  the session to be told what it printed (actions.rs `run_command`). Not text that opens with an
+ *  image, whose `!` is the image's (`![shot](images/…)`). */
+export function bangCommand(text: string): boolean {
   const t = text.trimStart();
-  return t.startsWith('!') ? t.slice(1).trimStart() : text;
+  return t.startsWith('!') && !t.startsWith('![') && t.slice(1).trim().length > 0;
 }
 
 /** A word that sets a variable for the command after it: `NODE_ENV=test npm test`. */
@@ -121,9 +108,9 @@ export function RunButton({ text, target, onFailed }: { text: string; target: Ru
     const id = window.setTimeout(() => setState(null), 1500);
     return () => window.clearTimeout(id);
   }, [state]);
-  const inSession = 'session' in target;
-  const title = inSession ? 'Run in this session: its agent reads what it prints' : `Run in ${target.terminal}, in ${tildePath(target.folder)}`;
-  const doneTitle = inSession ? 'Sent to the session' : `Opened in ${target.terminal}`;
+  const own = target.own;
+  const title = own ? `Run in a new ${target.terminal} tab in ${tildePath(target.folder)}, as you: the session is told what it prints once it ends` : `Run in ${target.terminal}, in ${tildePath(target.folder)}`;
+  const doneTitle = own ? `Running in ${target.terminal}: the session is told what it prints once it ends` : `Opened in ${target.terminal}`;
   return (
     <button
       type="button"
@@ -135,7 +122,7 @@ export function RunButton({ text, target, onFailed }: { text: string; target: Ru
         e.stopPropagation();
         setState('going');
         onFailed(null);
-        (inSession ? target.session(text) : runInTerminal(target.folder, text)).then(
+        (own ? own(text, target.folder) : runInTerminal(target.folder, text)).then(
           () => setState('done'),
           (err: unknown) => {
             setState(null);
@@ -145,7 +132,7 @@ export function RunButton({ text, target, onFailed }: { text: string; target: Ru
       }}
     >
       <Icon name={state === 'done' ? 'check' : 'player-play'} size={13} stroke={state === 'done' ? 2.25 : 1.75} />
-      {state && <span>{state === 'going' ? (inSession ? 'Sending…' : 'Opening…') : inSession ? 'Sent' : 'Opened'}</span>}
+      {state && <span>{state === 'going' ? (own ? 'Starting…' : 'Opening…') : own ? 'Running' : 'Opened'}</span>}
     </button>
   );
 }

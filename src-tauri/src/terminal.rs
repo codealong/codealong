@@ -135,11 +135,11 @@ pub fn refused(command: &str) -> Option<&'static str> {
 }
 
 /// A run, as its folder records it.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Run {
     pub id: String,
-    /// The session whose agent asked, by key, and its title then.
+    /// The session whose agent asked, or that you ran it for, by key, and its title then.
     pub session: String,
     pub session_title: String,
     pub command: String,
@@ -148,6 +148,11 @@ pub struct Run {
     pub terminal: String,
     pub asked_at: i64,
     pub allowed_at: i64,
+    /// You ran it yourself for this session, with `!` in its box or Run on a `!` block (actions.rs
+    /// `run_command`): the session is told what it printed once it ends (`report_ended`). An
+    /// agent's run has none: its agent waits on it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reports: bool,
 }
 
 /// Where a run stands.
@@ -358,10 +363,11 @@ fn base36(mut n: u64) -> String {
 
 // Starting a run.
 
-/// Opens a tab for an allowed request and has it run the command there: its folder written, then
-/// a line typed into the new tab's shell that runs the wrapper. The tab goes beside the terminals
-/// in its folder's lanes (`board::terminal_neighbours`), named like a session's.
-pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str) -> Result<Run> {
+/// Opens a tab for an allowed request, or a command you ran for a session (`reports`), and has it
+/// run the command there: its folder written, then a line typed into the new tab's shell that runs
+/// the wrapper. The tab goes beside the terminals in its folder's lanes
+/// (`board::terminal_neighbours`), named like a session's.
+pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str, reports: bool) -> Result<Run> {
     let cwd = &asked.ask.cwd;
     if !cwd.is_absolute() || !cwd.is_dir() {
         bail!("It would run in {}, which isn't there any more.", tilde(cwd));
@@ -376,6 +382,7 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
         terminal: crate::launch::terminal_name(&apps.terminal_id),
         asked_at: asked.at,
         allowed_at: now_ms(),
+        reports,
     };
     let d = dir(&run.id);
     write_folder(&d, &run).with_context(|| format!("writing {}", d.display()))?;
@@ -386,6 +393,9 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
     if let Err(e) = crate::launch::terminal_run(&apps.terminal_id, place, cwd, TYPED, &env) {
         let _ = std::fs::remove_dir_all(&d);
         return Err(e);
+    }
+    if reports {
+        to_report().push(run.id.clone());
     }
     Ok(run)
 }
@@ -409,7 +419,7 @@ fn write_folder(d: &Path, run: &Run) -> Result<()> {
     };
     write(RECORD, &serde_json::to_string_pretty(run)?)?;
     write(COMMAND, &format!("{}\n", run.command.trim_end_matches('\n')))?;
-    write(WRAPPER, &wrapper(d, &run.session_title))?;
+    write(WRAPPER, &wrapper(d, &run.session_title, run.reports))?;
     Ok(())
 }
 
@@ -421,9 +431,15 @@ fn write_folder(d: &Path, run: &Run) -> Result<()> {
 /// own in the tab once it has claimed the tab (`CLAIM`), so the tab isn't closed under you; when a
 /// close claimed it first, the tab is closing, and Return ends the wrapper. The command is read
 /// from its file, so nothing in it is quoted twice.
-pub fn wrapper(d: &Path, session_title: &str) -> String {
+pub fn wrapper(d: &Path, session_title: &str, reports: bool) -> String {
     let d = sh_quote(&d.to_string_lossy());
-    let says = sh_quote(&format!("Codealong runs this for {}, as you allowed:", if session_title.trim().is_empty() { "an agent" } else { session_title.trim() }));
+    let title = session_title.trim();
+    let says = sh_quote(&match (reports, title.is_empty()) {
+        (true, true) => "Codealong runs this as you asked; what it prints goes to the session when it ends:".to_string(),
+        (true, false) => format!("Codealong runs this for {title}, as you asked; what it prints goes to it when it ends:"),
+        (false, true) => "Codealong runs this for an agent, as you allowed:".to_string(),
+        (false, false) => format!("Codealong runs this for {title}, as you allowed:"),
+    });
     format!(
         r#"# A command an agent asked to run in your terminal, as you allowed it (Codealong's terminal.rs).
 d={d}
@@ -576,7 +592,7 @@ pub fn resolve(given: &str) -> Result<String> {
 // Reading what it printed.
 
 /// What a run printed, as lines a screen ends up showing.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Output {
     /// The lines, each with its number among them all, oldest first.
@@ -756,6 +772,73 @@ pub fn render(bytes: &[u8]) -> Vec<String> {
         out.push(line.iter().collect::<String>().trim_end().to_string());
     }
     out
+}
+
+// Telling the session what a run of yours printed.
+
+/// The runs whose session is told what they printed once they end (`Run::reports`), by id.
+static TO_REPORT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn to_report() -> MutexGuard<'static, Vec<String>> {
+    TO_REPORT.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// In a run's folder once its session was told what it printed, or telling it was tried.
+const REPORTED: &str = "reported";
+/// How many of its last lines a session is told, and how much of each.
+const REPORT_LINES: usize = 60;
+const REPORT_LINE_CHARS: usize = 400;
+
+/// Tells each run's session what it printed once it ends, for as long as the app runs: the runs
+/// started since (`start`), and those that ended, or were still running, while the app was closed
+/// or relaunching. `tell` sends the words to the session, as yours.
+pub fn report_ended(tell: impl Fn(&RunStatus, String) + Send + 'static) {
+    let left: Vec<String> = list(None).into_iter().filter(|s| s.run.reports && !dir(&s.run.id).join(REPORTED).exists()).map(|s| s.run.id).collect();
+    to_report().extend(left);
+    let _ = std::thread::Builder::new().name("terminal-reports".into()).spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(2));
+        let ids = to_report().clone();
+        for id in ids {
+            let ended = match status(&id) {
+                Ok(s) if matches!(s.state, State::Exited | State::Ended) => Some(s),
+                Ok(_) => continue,
+                // Its folder is gone.
+                Err(_) => None,
+            };
+            to_report().retain(|i| *i != id);
+            let Some(s) = ended else { continue };
+            // Noted first, so a relaunch while it's told doesn't tell it twice.
+            if std::fs::write(dir(&id).join(REPORTED), "").is_err() {
+                continue;
+            }
+            let printed = output(&id, REPORT_LINES, 0, None).unwrap_or_default();
+            tell(&s, report_text(&s, &printed));
+        }
+    });
+}
+
+/// What a session is told of a run you ran for it: the command, how it ended, and the end of what
+/// it printed, each in a code block, and how to read the rest. It's yours, so it reads as yours.
+pub fn report_text(s: &RunStatus, printed: &Output) -> String {
+    let ended = match (s.state, s.exit_code) {
+        (State::Exited, Some(code)) => format!("It exited with status {code}"),
+        _ => "It ended without an exit status (its tab was closed, or it was killed)".to_string(),
+    };
+    let lines: Vec<String> = printed.lines.iter().map(|(_, l)| crate::util::truncate(l, REPORT_LINE_CHARS)).collect();
+    let what = match (lines.len(), printed.total) {
+        (0, _) => ", printing nothing.".to_string(),
+        (n, total) if n < total || printed.cut => format!(". The last {n} lines it printed:\n\n{}", fenced(&lines.join("\n"))),
+        _ => format!(". What it printed:\n\n{}", fenced(&lines.join("\n"))),
+    };
+    let more = if lines.len() < printed.total || printed.cut { format!("\n\nAll of it: `codealong terminal read {} --lines 2000`.", s.run.id) } else { String::new() };
+    format!("I ran this in my terminal:\n\n{}\n\n{ended}{what}{more}", fenced(&s.run.command))
+}
+
+/// Text in a code block whose fence no run of backticks in it closes.
+fn fenced(text: &str) -> String {
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    format!("{fence}\n{}\n{fence}", text.trim_end())
 }
 
 // Stopping it.
@@ -969,7 +1052,7 @@ mod tests {
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.to_path_buf()));
         let tmux = |args: &[&str]| std::process::Command::new("tmux").args(args).env_remove("TMUX").output().unwrap();
         let begin = |id: &str, command: &str| {
-            let run = Run { id: id.into(), session: "k".into(), session_title: "A test".into(), command: command.into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms() };
+            let run = Run { id: id.into(), session: "k".into(), session_title: "A test".into(), command: command.into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms(), ..Default::default() };
             write_folder(&dir(id), &run).unwrap();
             // As the tab has it: the folder in the shell's environment, then the line typed.
             let line = format!("export {ENV}={}; {}; sleep 60", sh_quote(&dir(id).to_string_lossy()), TYPED.trim());
@@ -1018,7 +1101,7 @@ mod tests {
         // makes the wrapper the tab's shell. A tab still the run's closes; one you took a shell in
         // once it ended stays.
         let tab_with = |id: &str| {
-            let run = Run { id: id.into(), session: "k".into(), session_title: "A test".into(), command: "echo closing".into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms() };
+            let run = Run { id: id.into(), session: "k".into(), session_title: "A test".into(), command: "echo closing".into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms(), ..Default::default() };
             write_folder(&dir(id), &run).unwrap();
             assert!(tmux(&["new-session", "-d", "-s", id, "-x", "100", "-y", "20", "/bin/zsh -l"]).status.success());
             let typed = format!("export {ENV}={}; {}", sh_quote(&dir(id).to_string_lossy()), TYPED.trim());
@@ -1081,7 +1164,7 @@ mod tests {
         let (mut app, command) = UnixStream::pair().unwrap();
         let holding = std::thread::spawn(move || hold(&mut app, ask("run-test-hold-allow"), &|| {}));
         wait_held("run-test-hold-allow");
-        let run = Run { id: "run-test-hold-allow".into(), session: key.into(), session_title: "T".into(), command: "echo hi".into(), cwd: "/tmp".into(), terminal: "Ghostty".into(), asked_at: 7, allowed_at: 9 };
+        let run = Run { id: "run-test-hold-allow".into(), session: key.into(), session_title: "T".into(), command: "echo hi".into(), cwd: "/tmp".into(), terminal: "Ghostty".into(), asked_at: 7, allowed_at: 9, ..Default::default() };
         let opened = run.clone();
         assert_eq!(allow(key, "run-test-hold-allow", move |_| Ok(opened)).unwrap().unwrap(), "Opened a Ghostty tab and ran it there. What it prints goes back to its agent.");
         let mut line = String::new();
@@ -1199,6 +1282,24 @@ mod tests {
         assert!(tabs.iter().map(String::len).sum::<usize>() <= RENDERED_MOST + WIDEST + TOO_MUCH.len(), "{}", tabs.iter().map(String::len).sum::<usize>());
     }
 
+    /// What a session is told of a command you ran for it: the command, how it ended, the end of
+    /// what it printed in a block no backticks in it close, and where the rest is.
+    #[test]
+    fn a_session_is_told_what_a_run_of_yours_printed() {
+        let run = Run { id: "run-abc".into(), command: "gcloud auth login".into(), reports: true, ..Default::default() };
+        let status = |state, exit_code| RunStatus { run: run.clone(), state, exit_code, ended_at: Some(1) };
+        let printed = |lines: &[&str], total: usize| Output { lines: lines.iter().enumerate().map(|(i, l)| (total - lines.len() + i + 1, l.to_string())).collect(), total, cut: false, matches: None };
+        assert_eq!(
+            report_text(&status(State::Exited, Some(0)), &printed(&["You are now logged in as sam@example.com."], 1)),
+            "I ran this in my terminal:\n\n```\ngcloud auth login\n```\n\nIt exited with status 0. What it printed:\n\n```\nYou are now logged in as sam@example.com.\n```"
+        );
+        let text = report_text(&status(State::Exited, Some(1)), &printed(&["see ```this```", "error: denied"], 90));
+        assert!(text.contains("It exited with status 1. The last 2 lines it printed:\n\n````\nsee ```this```\nerror: denied\n````"), "{text}");
+        assert!(text.ends_with("All of it: `codealong terminal read run-abc --lines 2000`."), "{text}");
+        let text = report_text(&status(State::Ended, None), &Output::default());
+        assert!(text.ends_with("It ended without an exit status (its tab was closed, or it was killed), printing nothing."), "{text}");
+    }
+
     #[test]
     fn ids_sort_by_when_they_were_asked() {
         assert_eq!(base36(0), "0");
@@ -1215,7 +1316,7 @@ mod tests {
     fn the_wrapper_runs_the_command_from_its_file_and_keeps_its_status() {
         let d = crate::fixtures::scratch("terminal-wrapper");
         std::fs::write(d.join(COMMAND), "printf '%s\\n' \"it's $((40 + 2))\"; shopt -q login_shell && case $- in *i*) echo 'a login shell, interactive';; esac; exit 3\n").unwrap();
-        let text = wrapper(&d, "Fix the 'build'").replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+        let text = wrapper(&d, "Fix the 'build'", false).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
         // sh, in a home of the test's own, so none of your startup files run: a login sh reads
         // ~/.profile, an interactive one $ENV. The test's profile shows it was read.
         let home = d.join("home");

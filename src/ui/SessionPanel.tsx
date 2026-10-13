@@ -22,7 +22,7 @@
 // or a row's menu shows it with its name ready to change.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { sendAhead } from '../ahead';
+import { runCommand } from '../api';
 import { below, showContextMenu, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
@@ -33,9 +33,9 @@ import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { cardZoom, scaleOf } from '../zoom';
 import { Button, Chip, cx, Icon, Rich, SessionEmblem, StatusGlyph, WaitsGlyph } from './primitives';
-import { runFolder, runsInSession } from './RunButton';
+import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
-import { Reply, useWay } from './SessionReply';
+import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
 import { useDismiss } from './useDismiss';
 
@@ -383,16 +383,12 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   // Sending and marking seen go on to the next only from a session that waits on you itself.
   const goesOn = queue?.waiting !== false && queue?.next;
   // Its shell blocks run in a terminal here, so not for a session on another device; a block led
-  // by `!` goes into the session itself, as a reply does, where it can.
+  // by `!` runs in a tab of yours, as one in its box does, and the session is told what it printed.
   const folder = shortOf(s.key) ? null : runFolder(lane, s);
-  const inSession = runsInSession(s, useWay(s));
   // The box goes under the conversation unless the session's device can't be reached from here.
   const replies = !device || (device.online && device.remoteControl);
-  const sessionNow = useLatest(s);
-  const run = useMemo(
-    () => (folder === null ? undefined : { folder, terminal, session: inSession ? (command: string) => sendAhead(sessionNow.current, command, { toDraft: false }) : undefined }),
-    [folder, terminal, inSession, sessionNow],
-  );
+  const key = s.key;
+  const run = useMemo(() => (folder === null ? undefined : { folder, terminal, own: (command: string, at: string) => runCommand(key, at, command) }), [folder, terminal, key]);
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
@@ -423,7 +419,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} />
+            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} />
           )}
     </>
   );

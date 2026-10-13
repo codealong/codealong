@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCommandBlock, runFolder, runsInSession, sessionCommand, terminalCommand } from './RunButton';
+import { bangCommand, isCommandBlock, runFolder } from './RunButton';
 
 describe('runFolder', () => {
   it('runs in the worktree a session is shown in, or in its own folder when that is inside it', () => {
@@ -16,24 +16,14 @@ describe('runFolder', () => {
 });
 
 describe('commands led by !', () => {
-  it('goes into a Claude Code session Codealong types into, and nowhere else', () => {
-    const claude = { harness: 'claude' as const };
-    expect(runsInSession(claude, { kind: 'typed', app: 'Ghostty' })).toBe(true);
-    expect(runsInSession(claude, { kind: 'background' })).toBe(true);
-    // Its socket or app would hand the agent the words; not running, there's no shell.
-    expect(runsInSession(claude, { kind: 'message' })).toBe(false);
-    expect(runsInSession(claude, { kind: 'resume', app: 'Ghostty' })).toBe(false);
-    expect(runsInSession(claude, null)).toBe(false);
-    expect(runsInSession({ ...claude, hosted: true }, { kind: 'typed', app: 'Ghostty' })).toBe(false);
-    expect(runsInSession({ harness: 'codex' }, { kind: 'typed', app: 'Ghostty' })).toBe(false);
-  });
-
-  it('is led by ! in the session, and loses it in a new terminal', () => {
-    expect(sessionCommand('! cd /w && node send.mjs')).toBe('! cd /w && node send.mjs');
-    expect(sessionCommand('  ls -la\n')).toBe('! ls -la');
-    expect(terminalCommand('! cd /w && node send.mjs')).toBe('cd /w && node send.mjs');
-    expect(terminalCommand('!ls')).toBe('ls');
-    expect(terminalCommand('ls')).toBe('ls');
+  it('runs in a tab of yours when the box is led by !, and not an image that opens it', () => {
+    expect(bangCommand('! gcloud auth login')).toBe(true);
+    expect(bangCommand('  !ls -la\n')).toBe(true);
+    expect(bangCommand('!cd app &&\nnpm test')).toBe(true);
+    expect(bangCommand('![shot](images/ab12.png) what is this?')).toBe(false);
+    expect(bangCommand('!')).toBe(false);
+    expect(bangCommand('!  ')).toBe(false);
+    expect(bangCommand('run ! this')).toBe(false);
   });
 });
 

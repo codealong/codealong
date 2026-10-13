@@ -4,7 +4,7 @@
 
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { cx, Icon } from './primitives';
-import { isCommandBlock, RunButton, RunContext, sessionCommand, terminalCommand, useShellCommands, type RunTarget } from './RunButton';
+import { isCommandBlock, RunButton, RunContext, useShellCommands, type RunTarget } from './RunButton';
 
 export function CopyButton({ text, title = 'Copy', className }: { text: string; title?: string; className?: string }) {
   const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
@@ -35,18 +35,19 @@ export function CopyButton({ text, title = 'Copy', className }: { text: string; 
 
 /** Preformatted text you can select, with a Copy button on hover. `run` marks shell commands,
  *  which get a Run button too in a session on this Mac, run in a new terminal where `run.folder`
- *  says they ran or else where the session works. `run.session` marks a command for the
- *  session's own shell (led by `!`), which goes into the session instead where it can, and
- *  otherwise into the terminal without its `!`. `run.ifCommands` marks a block that doesn't say
- *  it's shell, which gets Run only when each of its lines starts with a command (`isCommandBlock`).
+ *  says they ran or else where the session works. `run.session` marks a command led by `!`, whose
+ *  output is the session's: it runs in a tab of yours and the session is told what it printed
+ *  (`RunPlace.own`). `run.ifCommands` marks a block that doesn't say it's shell, which gets Run
+ *  only when each of its lines starts with a command (`isCommandBlock`).
  *  `children` is the text as it's drawn, when that's more than the text: a tool's output with
  *  its links. */
 export function CodeBlock({ text, className, run, children }: { text: string; className?: string; run?: { folder?: string; session?: boolean; ifCommands?: boolean }; children?: ReactNode }) {
   const place = useContext(RunContext);
   const commands = useShellCommands(!!run?.ifCommands && !!place);
   const runs = !!run && (!run.ifCommands || (!!commands && isCommandBlock(text, commands)));
-  const target: RunTarget | null = !runs || !place ? null : run.session && place.session ? { session: place.session } : { folder: run.folder ?? place.folder, terminal: place.terminal };
-  const command = !run?.session ? text : target && 'session' in target ? sessionCommand(text) : terminalCommand(text);
+  const target: RunTarget | null = !runs || !place ? null : { folder: run.folder ?? place.folder, terminal: place.terminal, own: run.session ? place.own : undefined };
+  // A block led by `!` goes as it's written: the `!` says it's the session's to read.
+  const command = run?.session && !text.trimStart().startsWith('!') ? `! ${text.trim()}` : text;
   const [failed, setFailed] = useState<string | null>(null);
   return (
     <div className="ca-codeblock">

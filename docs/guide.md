@@ -332,13 +332,22 @@ session, the session's own menu follows. Code blocks have Copy on hover, and a s
 agent ran has Run beside it: that opens a new terminal where the session works, or where the command
 ran, and types the commands there without their comments. A block with no language counts as shell
 when each of its lines starts with a command on your PATH (`git`, `npm`, `cd`…), so output, a path or
-a config file keeps Copy alone. A block led by `!`, which an agent writes for you to run in the
-session itself, runs there instead: Run sends it to a Claude Code session in
-its terminal or in the background as a reply, where Claude Code runs it in its shell and its agent
-reads what it printed, and anywhere else opens a terminal for it without the `!`. A command run that
-way, from Codealong or with `!` in the terminal, shows as yours with its output.
+a config file keeps Copy alone. A block led by `!` is one an agent writes for you to run with what
+it prints coming back to it (a sign-in, a command that needs you): Run runs it as `!` in the
+session's box does (*Replying*), in a tab of yours with the session told what it printed. A command
+you ran with `!` in Claude Code's own terminal shows as yours with its output, and Run runs it
+again the same way.
 
 #### Replying
+
+A message that starts with `!` is a command rather than words, for any harness: ⏎ runs it in a new
+tab of your terminal, in the folder the session works in, as you (*Commands in your terminal*), and
+once it ends the session gets a message from you with the command, how it ended and the last of
+what it printed, so its agent reads it as Claude Code's own `!` has it read what a command printed.
+The line under the box says so as you type it, and its button shows a terminal. It runs whatever the
+session is doing, as it doesn't reach the session until it ends; a session on another device takes
+it as a message, as before. A message that opens with an image isn't a command, its `!` being the
+image's.
 
 The box at the bottom sends it a message where it runs, as the waiting window does; paste a
 screenshot or a file into it and the agent gets its path, and what you'd written to a session and
@@ -1222,6 +1231,9 @@ themselves resolved; what you type isn't kept, so a password typed at a prompt t
 either. Deny tells the agent no, with what you write in the box when you write something. It's asked
 every time: there's no Always, and only you allow it, on this Mac or from your phone, never the
 agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
+You run commands this way yourself too, with `!` in a session's box or Run on a `!` block
+(*Replying*): no Allow, since you asked for it, and the session is told what it printed once it ends.
+A session that couldn't be told (it's gone, or waits on you) leaves a notice saying so.
 An agent can read what a run printed while it runs, interrupt it as Ctrl-C would, and close its tab
 once it's done, but only while the tab is still the run's: once you've taken a shell in it, it's
 yours, and stays.
