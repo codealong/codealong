@@ -100,7 +100,7 @@ function withInsights(board, fixture) {
 // time: an icon from emblems.rs's list, one of its pairs of colors either way round, and one of
 // its eight lights, as `[jev] emblems` would give them once Jev had answered.
 var EMBLEM_ICONS = ['bug', 'palette', 'database', 'rocket', 'book', 'compass', 'bolt', 'key', 'device-mobile', 'test-pipe', 'chart-line', 'terminal-2', 'sparkles', 'recycle', 'network', 'puzzle'];
-var EMBLEM_PAIRS = [['pink', 'red'], ['teal', 'blue'], ['green', 'teal'], ['blue', 'purple'], ['teal', 'indigo'], ['green', 'blue'], ['purple', 'pink'], ['teal', 'purple'], ['green', 'indigo'], ['indigo', 'pink'], ['purple', 'red']];
+var EMBLEM_PAIRS = [['red', 'rose'], ['red', 'pink'], ['red', 'magenta'], ['red', 'violet'], ['rose', 'pink'], ['rose', 'magenta'], ['rose', 'violet'], ['rose', 'purple'], ['pink', 'magenta'], ['pink', 'violet'], ['pink', 'purple'], ['pink', 'indigo'], ['magenta', 'violet'], ['magenta', 'purple'], ['magenta', 'indigo'], ['magenta', 'blue'], ['violet', 'purple'], ['violet', 'indigo'], ['violet', 'blue'], ['purple', 'indigo'], ['purple', 'blue'], ['purple', 'sky'], ['indigo', 'blue'], ['indigo', 'sky'], ['indigo', 'teal'], ['blue', 'sky'], ['blue', 'teal'], ['blue', 'mint'], ['sky', 'teal'], ['sky', 'mint'], ['sky', 'green'], ['teal', 'mint'], ['teal', 'green'], ['teal', 'lime'], ['mint', 'green'], ['mint', 'lime'], ['green', 'lime']];
 function emblemOf(key) {
   var pick = function (list, salt) { return list[Math.floor(hashOf(salt + key) * list.length)]; };
   var pair = pick(EMBLEM_PAIRS, 'p');

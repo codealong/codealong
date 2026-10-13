@@ -5,7 +5,7 @@
 // emblems.rs's pairs and its eight lights.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/emblems-check.js
 (function () {
-  var PAIRS = [['pink', 'red'], ['teal', 'blue'], ['green', 'teal'], ['blue', 'purple'], ['teal', 'indigo'], ['green', 'blue'], ['purple', 'pink'], ['teal', 'purple'], ['green', 'indigo'], ['indigo', 'pink'], ['purple', 'red']];
+  var PAIRS = [['red', 'rose'], ['red', 'pink'], ['red', 'magenta'], ['red', 'violet'], ['rose', 'pink'], ['rose', 'magenta'], ['rose', 'violet'], ['rose', 'purple'], ['pink', 'magenta'], ['pink', 'violet'], ['pink', 'purple'], ['pink', 'indigo'], ['magenta', 'violet'], ['magenta', 'purple'], ['magenta', 'indigo'], ['magenta', 'blue'], ['violet', 'purple'], ['violet', 'indigo'], ['violet', 'blue'], ['purple', 'indigo'], ['purple', 'blue'], ['purple', 'sky'], ['indigo', 'blue'], ['indigo', 'sky'], ['indigo', 'teal'], ['blue', 'sky'], ['blue', 'teal'], ['blue', 'mint'], ['sky', 'teal'], ['sky', 'mint'], ['sky', 'green'], ['teal', 'mint'], ['teal', 'green'], ['teal', 'lime'], ['mint', 'green'], ['mint', 'lime'], ['green', 'lime']];
   var LIGHTS = ['28% 26%', '50% 16%', '72% 26%', '84% 50%', '72% 74%', '50% 84%', '28% 74%', '16% 50%'];
   var ICONS = ['bug', 'palette', 'database', 'rocket', 'book', 'compass'];
   var byKey = {};
@@ -39,13 +39,13 @@
     var withOne = shown.filter(function (x) { return x.emblem; });
     var looks = {};
     withOne.forEach(function (x) { looks[JSON.stringify(tones(x.emblem))] = true; });
-    var label = /^var\(--label-(blue|teal|green|purple|pink|red|indigo)\)$/;
+    var label = /^var\(--emblem-(red|rose|pink|magenta|violet|purple|indigo|blue|sky|teal|mint|green|lime)\)$/;
     note(shown.length + ' rows, ' + withOne.length + ' with an emblem, ' + Object.keys(looks).length + ' looks among them');
     check('rows of sessions with an emblem show it, the others none', withOne.length > 0 && withOne.length < shown.length, withOne.length + ' of ' + shown.length);
     check('it comes before the title', withOne.every(function (x) { return x.emblem.nextElementSibling && x.emblem.nextElementSibling.classList.contains('ca-agentline-title'); }));
     check('it draws its icon', withOne.every(function (x) { var svg = x.emblem.querySelector('svg.ca-icon'); return svg && svg.querySelectorAll('path').length > 0; }));
     check('on a radial gradient', withOne.every(function (x) { return getComputedStyle(x.emblem).backgroundImage.indexOf('radial-gradient') === 0; }), withOne[0] && getComputedStyle(withOne[0].emblem).backgroundImage);
-    check('of two label colors, always two', withOne.every(function (x) { var t = tones(x.emblem); return label.test(t.color) && label.test(t.accent) && t.color !== t.accent; }), withOne[0] && JSON.stringify(tones(withOne[0].emblem)));
+    check('of two emblem colors, always two', withOne.every(function (x) { var t = tones(x.emblem); return label.test(t.color) && label.test(t.accent) && t.color !== t.accent; }), withOne[0] && JSON.stringify(tones(withOne[0].emblem)));
     check('lit from where its light says', withOne.every(function (x) { return LIGHTS.indexOf(tones(x.emblem).at) >= 0; }));
     check('the gradient centred there', withOne.every(function (x) { var at = tones(x.emblem).at.split(' '); return getComputedStyle(x.emblem).backgroundImage.indexOf('at ' + at[0] + ' ' + at[1]) > 0; }), withOne[0] && getComputedStyle(withOne[0].emblem).backgroundImage.slice(0, 60));
     check('the rows look different from each other', Object.keys(looks).length >= Math.min(withOne.length, 20), Object.keys(looks).length + ' looks');

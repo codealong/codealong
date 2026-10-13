@@ -187,11 +187,11 @@
 .ca-labeldot.is-green { background: var(--label-green); }
 
 /* A session's emblem (primitives.tsx SessionEmblem): the icon for what it works on, on a radial
-   gradient of two label colors that go together, the accent (--emblem-accent) where its light
+   gradient of two emblem colors that go together, the accent (--emblem-accent) where its light
    falls (--emblem-at) and its main color (--emblem-color) over the rest, both strong enough to
-   read as two at 16px. Label colors name your own things, never a status; both stay tints over
-   whatever is behind (the notch's black too), so the icon, drawn in a deeper shade of the main
-   color, reads over them. */
+   read as two at 16px. The emblem colors name a session, never a status, so there's no amber;
+   both stay tints over whatever is behind (the notch's black too), so the icon, drawn in a
+   deeper shade of the main color, reads over them. */
 .ca-emblem {
   flex: none;
   align-self: center;

@@ -122,8 +122,8 @@ export const EMBLEM_LIGHTS = ['28% 26%', '50% 16%', '72% 26%', '84% 50%', '72% 7
 export function SessionEmblem({ emblem, size = 16 }: { emblem?: Emblem; size?: number }) {
   if (!emblem || !ICONS[emblem.icon]) return null;
   const tones = {
-    '--emblem-color': `var(--label-${emblem.color})`,
-    '--emblem-accent': `var(--label-${emblem.accent})`,
+    '--emblem-color': `var(--emblem-${emblem.color})`,
+    '--emblem-accent': `var(--emblem-${emblem.accent})`,
     '--emblem-at': EMBLEM_LIGHTS[emblem.light] ?? EMBLEM_LIGHTS[0],
     width: size,
     height: size,

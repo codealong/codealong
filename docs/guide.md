@@ -123,14 +123,15 @@ teal bug". Jev picks the icon for what the session works on, from its title and 
 latest, for Codex and OpenCode, which keep only that), once: it stays for the session's life,
 however its title changes. The icon sits on a rounded square shaded in two colors that go
 together, as if lit from one of eight places around its edge: a main color over most of it, and an
-accent where the light falls. The pairs are the label colors that sit near each other on the color
-wheel without reading as one (teal and blue, purple and pink, green and indigo…), never two that
-clash. Codealong gives each session its pair and its light when it first sees it, so that the
+accent where the light falls. There are thirteen colors, evenly round the color wheel: the label
+colors and rose, magenta, violet, sky, mint and lime between them. A pair is any two of them at
+most four steps apart, close ones included (blue and sky, teal and lime, pink and indigo…), never
+two that clash. Codealong gives each session its pair and its light when it first sees it, so that the
 sessions of a project differ as much as they can: a main color the fewest of its recent sessions
 have, then a pair, then a light none of the sessions in that color has. When you give a session a
 color with Claude Code's `/color`, that's its accent, with a main color that goes with it. The
-label colors have no amber, since amber only means something needs you, so `/color`'s yellow shows
-as green and its orange as red. The emblem shows wherever the session's title does: its rows, its header,
+colors have no amber, since amber only means something needs you, so `/color`'s yellow shows as
+lime and its orange as red. The emblem shows wherever the session's title does: its rows, its header,
 the floating bar's and the notch's pills, cards on the canvas and the desktop, and the list of what
 waits on you. A session gets its emblem once it has a prompt, and only while it's recent: one quiet
 for two days or archived keeps the one it had. Emblems are kept in `emblems.json`.

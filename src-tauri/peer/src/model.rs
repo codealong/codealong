@@ -323,7 +323,8 @@ pub struct Session {
 /// `emblems::ICONS` lists, on a radial gradient of two colors that go together
 /// (`emblems::PAIRS`), lit from one of eight places around its edge. Codealong gives each session
 /// its pair and its light so that the sessions beside it differ. Both colors are among
-/// `emblems::COLORS`: blue, teal, green, purple, pink, red or indigo.
+/// `emblems::COLORS`, as the windows' `--emblem-<color>` tokens name them: red, rose, pink,
+/// magenta, violet, purple, indigo, blue, sky, teal, mint, green or lime.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", from = "EmblemSent")]
 pub struct Emblem {

@@ -176,11 +176,11 @@ export interface Session {
   detail: string | null;
 }
 
-/** A label color, as an emblem's tones name them. */
-export type EmblemColor = 'blue' | 'teal' | 'green' | 'purple' | 'pink' | 'red' | 'indigo';
+/** An emblem's color (emblems.rs `COLORS`); each is an `--emblem-<color>` token. */
+export type EmblemColor = 'red' | 'rose' | 'pink' | 'magenta' | 'violet' | 'purple' | 'indigo' | 'blue' | 'sky' | 'teal' | 'mint' | 'green' | 'lime';
 
 /** A session's emblem (peer model.rs `Emblem`): an icon Jev picked for what it works on, on a
- *  radial gradient of two label colors that go together (emblems.rs `PAIRS`), lit from one of
+ *  radial gradient of two colors that go together (emblems.rs `PAIRS`), lit from one of
  *  eight places around its edge. Codealong gives each session its pair and its light so that the
  *  sessions beside it differ. */
 export interface Emblem {

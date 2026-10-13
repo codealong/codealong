@@ -28,31 +28,63 @@ use crate::jev;
 use crate::model::{Emblem, Session};
 use crate::util::DAY_MS;
 
-/// The colors an emblem is drawn in, as the windows' `--label-<color>` tokens name them.
-pub const COLORS: [&str; 7] = ["blue", "teal", "green", "purple", "pink", "red", "indigo"];
+/// The colors an emblem is drawn in, as the windows' `--emblem-<color>` tokens name them, in hue
+/// order: round the color wheel about 21° apart in OKLCH, skipping amber, which means only that
+/// something needs you. Seven are the label colors; the rest sit between them.
+pub const COLORS: [&str; 13] = ["red", "rose", "pink", "magenta", "violet", "purple", "indigo", "blue", "sky", "teal", "mint", "green", "lime"];
 
-/// The colors an emblem's two tones are drawn in together: the label colors whose hues are 26° to
-/// 110° apart in both themes, near enough on the color wheel to sit together and far enough to
-/// read as two at 16px. Nearer ones (blue and indigo, 25°) read as one color, and farther ones
-/// (purple and green, 116°; teal and red) clash. Every color is in two pairs at least. A test
-/// holds this to the tokens' colors.
-pub const PAIRS: [(&str, &str); 11] = [
-    ("pink", "red"),
-    ("teal", "blue"),
-    ("green", "teal"),
-    ("blue", "purple"),
-    ("teal", "indigo"),
-    ("green", "blue"),
-    ("purple", "pink"),
-    ("teal", "purple"),
-    ("green", "indigo"),
-    ("indigo", "pink"),
-    ("purple", "red"),
+/// The colors an emblem's two tones are drawn in together: those whose hues are at most 90° apart
+/// in OKLCH in both themes, up to four steps along `COLORS`, near enough on the color wheel to sit
+/// together. Farther ones clash (red and lime, across where amber would be; violet and sky, 91°).
+/// Every color is in three pairs at least. A test holds this to the tokens' colors.
+pub const PAIRS: [(&str, &str); 37] = [
+    ("red", "rose"),
+    ("red", "pink"),
+    ("red", "magenta"),
+    ("red", "violet"),
+    ("rose", "pink"),
+    ("rose", "magenta"),
+    ("rose", "violet"),
+    ("rose", "purple"),
+    ("pink", "magenta"),
+    ("pink", "violet"),
+    ("pink", "purple"),
+    ("pink", "indigo"),
+    ("magenta", "violet"),
+    ("magenta", "purple"),
+    ("magenta", "indigo"),
+    ("magenta", "blue"),
+    ("violet", "purple"),
+    ("violet", "indigo"),
+    ("violet", "blue"),
+    ("purple", "indigo"),
+    ("purple", "blue"),
+    ("purple", "sky"),
+    ("indigo", "blue"),
+    ("indigo", "sky"),
+    ("indigo", "teal"),
+    ("blue", "sky"),
+    ("blue", "teal"),
+    ("blue", "mint"),
+    ("sky", "teal"),
+    ("sky", "mint"),
+    ("sky", "green"),
+    ("teal", "mint"),
+    ("teal", "green"),
+    ("teal", "lime"),
+    ("mint", "green"),
+    ("mint", "lime"),
+    ("green", "lime"),
 ];
 
 /// How many places the light can fall on an emblem: clockwise around its edge from the top left
 /// corner, as the windows draw them (primitives.tsx `EMBLEM_LIGHTS`).
 pub const LIGHTS: u8 = 8;
+
+/// Which set of colors and pairs emblems are given from now; one more each time `COLORS` or
+/// `PAIRS` changes. A current session's emblem given from an earlier set is given its tones
+/// again, keeping its icon, so the change shows on every session at once rather than only new ones.
+pub const PALETTE: u8 = 2;
 
 /// The colors that go with one, in `PAIRS`' order.
 pub fn partners(color: &str) -> Vec<&'static str> {
@@ -62,17 +94,15 @@ pub fn partners(color: &str) -> Vec<&'static str> {
 /// A color as another program names it, as one of `COLORS`: Claude Code's `/color` takes red,
 /// blue, green, yellow, purple, orange, pink and cyan. None for one it doesn't know.
 pub fn palette_color(name: &str) -> Option<&'static str> {
-    Some(match name.trim().to_lowercase().as_str() {
-        "blue" => "blue",
-        "cyan" | "teal" => "teal",
-        // No amber: it means only that something needs you.
-        "green" | "yellow" | "lime" => "green",
-        "purple" | "violet" => "purple",
-        "pink" | "magenta" => "pink",
-        "red" | "orange" => "red",
-        "indigo" => "indigo",
-        _ => return None,
-    })
+    let name = name.trim().to_lowercase();
+    match name.as_str() {
+        "cyan" => Some("teal"),
+        // No amber: it means only that something needs you. Yellow goes to the yellowish green.
+        "yellow" => Some("lime"),
+        "orange" => Some("red"),
+        "fuchsia" => Some("magenta"),
+        _ => COLORS.iter().copied().find(|c| *c == name),
+    }
 }
 
 /// The icons Jev picks from, by name in the windows' icon set (Tabler's outline icons), with
@@ -268,6 +298,9 @@ pub struct Kept {
     /// Where Codealong put its light, 0 to `LIGHTS` - 1. None in emblems kept before that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub light: Option<u8>,
+    /// The `PALETTE` its tones were given from. None in emblems given before there was one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub palette: Option<u8>,
     /// The icon Jev picked, once it has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
@@ -324,6 +357,7 @@ impl Store {
         // The oldest first, so colors are given in the order the sessions came.
         keys.sort_by_key(|k| (by_key[k].1.started_at.unwrap_or(by_key[k].1.last_prompt_at), *k));
         let mut taken: Vec<Taken> = Vec::new();
+        // Seen for the first time, or given their tones from an earlier palette.
         let mut fresh: Vec<&str> = Vec::new();
         for k in &keys {
             let (project, s) = by_key[k];
@@ -331,7 +365,9 @@ impl Store {
             if !current(s, now) {
                 continue;
             }
+            let earlier = self.kept.get(*k).is_some_and(|m| m.palette != Some(PALETTE));
             match self.taken(project, s) {
+                Some(_) if earlier => fresh.push(k),
                 Some(t) => taken.push(t),
                 None if about(s).is_some() => fresh.push(k),
                 None => {}
@@ -340,7 +376,8 @@ impl Store {
         for k in fresh {
             let (project, s) = by_key[k];
             let (color, accent, light) = pick(k, project, s.color.as_deref(), &taken);
-            self.kept.insert(k.to_string(), Kept { color: color.into(), accent: Some(accent.into()), light: Some(light), icon: None, seen_at: now });
+            let icon = self.kept.get(k).and_then(|m| m.icon.clone());
+            self.kept.insert(k.to_string(), Kept { color: color.into(), accent: Some(accent.into()), light: Some(light), palette: Some(PALETTE), icon, seen_at: now });
             taken.extend(self.taken(project, s));
             self.dirty = true;
         }
@@ -409,7 +446,8 @@ mod tests {
 
     #[test]
     fn a_harness_color_is_drawn_without_amber() {
-        assert_eq!(["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"].map(palette_color), [Some("red"), Some("blue"), Some("green"), Some("green"), Some("purple"), Some("red"), Some("pink"), Some("teal")]);
+        assert_eq!(["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"].map(palette_color), [Some("red"), Some("blue"), Some("green"), Some("lime"), Some("purple"), Some("red"), Some("pink"), Some("teal")]);
+        assert_eq!(palette_color("magenta"), Some("magenta"));
         assert_eq!(palette_color(" Teal "), Some("teal"));
         assert_eq!(palette_color("default"), None);
         assert!(["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"].iter().filter_map(|c| palette_color(c)).all(|c| COLORS.contains(&c)));
@@ -419,27 +457,48 @@ mod tests {
         Taken { project: project.into(), color: color.into(), accent: accent.into(), light }
     }
 
-    /// The pairs are the label colors whose hues are 26° to 110° apart in both themes, all of
-    /// them, as the tokens have them, so a change to a label color can't leave a pair that clashes.
+    /// A token's color in a theme, through any alias (`{label-red}`).
+    fn token_hex(tokens: &Value, name: &str, theme: &str) -> String {
+        let t = tokens["color"]["tokens"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("no {name} token"));
+        let v = t["value"].get(theme).unwrap_or(&t["value"]).as_str().unwrap();
+        match v.strip_prefix('{').and_then(|v| v.strip_suffix('}')) {
+            Some(alias) => token_hex(tokens, alias, theme),
+            None => v.to_string(),
+        }
+    }
+
+    /// A color's hue in OKLCH, which spaces hues as the eye does.
+    fn oklch_hue(hex: &str) -> f64 {
+        let lin = |c: f64| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+        let [r, g, b] = [1, 3, 5].map(|i| lin(u8::from_str_radix(&hex[i..i + 2], 16).unwrap() as f64 / 255.0));
+        let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+        let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+        let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+        let a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+        let bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+        bb.atan2(a).to_degrees().rem_euclid(360.0)
+    }
+
+    /// The colors are the windows' `emblem-*` tokens, in hue order, and the pairs are all of those
+    /// at most 90° apart in OKLCH in both themes, as the tokens have them, so a change to a color
+    /// can't leave a pair that clashes.
     #[test]
-    fn the_pairs_are_the_label_colors_that_go_together() {
+    fn the_pairs_are_the_colors_that_go_together() {
         let tokens: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../design/tokens.json")).unwrap()).unwrap();
-        let hue = |c: &str, theme: &str| -> f64 {
-            let t = tokens["color"]["tokens"].as_array().unwrap().iter().find(|t| t["name"] == format!("label-{c}")).unwrap_or_else(|| panic!("no label-{c}"));
-            let hex = t["value"][theme].as_str().unwrap();
-            let [r, g, b] = [1, 3, 5].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap() as f64 / 255.0);
-            let (max, min) = (r.max(g).max(b), r.min(g).min(b));
-            let h = if max == r { (g - b) / (max - min) } else if max == g { 2.0 + (b - r) / (max - min) } else { 4.0 + (r - g) / (max - min) };
-            (h * 60.0).rem_euclid(360.0)
-        };
+        let hue = |c: &str, theme: &str| oklch_hue(&token_hex(&tokens, &format!("emblem-{c}"), theme));
         let apart = |a: &str, b: &str, theme: &str| {
             let d = (hue(a, theme) - hue(b, theme)).abs();
             d.min(360.0 - d)
         };
+        // Round the wheel in one direction, as COLORS lists them.
+        for w in COLORS.windows(2) {
+            let step = (hue(w[0], "light") - hue(w[1], "light")).rem_euclid(360.0);
+            assert!((10.0..35.0).contains(&step), "{} to {} is {step:.0}°", w[0], w[1]);
+        }
         let mut want: Vec<(&str, &str)> = Vec::new();
         for (i, a) in COLORS.iter().enumerate() {
             for b in &COLORS[i + 1..] {
-                if ["light", "dark"].iter().all(|theme| (26.0..=110.0).contains(&apart(a, b, theme))) {
+                if ["light", "dark"].iter().all(|theme| apart(a, b, theme) <= 90.0) {
                     want.push((a, b));
                 }
             }
@@ -450,7 +509,7 @@ mod tests {
         have.sort();
         want.sort();
         assert_eq!(have, want);
-        assert!(COLORS.iter().all(|c| partners(c).len() >= 2), "every color in two pairs at least");
+        assert!(COLORS.iter().all(|c| partners(c).len() >= 3), "every color in three pairs at least");
     }
 
     #[test]
@@ -470,7 +529,9 @@ mod tests {
         // Two sessions in one main color get different lights.
         let reds: Vec<Taken> = (0..LIGHTS - 1).map(|l| taken("A", "red", "pink", l)).collect();
         let only: Vec<Taken> = COLORS.iter().filter(|c| **c != "red").flat_map(|c| (0..LIGHTS).map(move |l| taken("A", c, partners(c)[0], l))).chain(reds).collect();
-        assert_eq!(pick("k5", "A", None, &only), ("red", "purple", LIGHTS - 1));
+        let (color, accent, light) = pick("k5", "A", None, &only);
+        assert_eq!((color, light), ("red", LIGHTS - 1));
+        assert!(accent != "pink" && partners("red").contains(&accent), "a pair of red's not taken yet: {accent}");
         // With nothing taken, sessions that come at once spread by key, in pairs that go together.
         let picks: Vec<_> = (0..40).map(|i| pick(&format!("claude:claude:{i}"), "A", None, &[])).collect();
         assert!(picks.iter().map(|p| p.0).collect::<std::collections::HashSet<_>>().len() > 3);
@@ -484,7 +545,7 @@ mod tests {
         let (color, accent, _) = pick("k", "A", Some("red"), &[]);
         assert_eq!(accent, "red");
         assert!(partners("red").contains(&color));
-        let kept = Kept { color: "teal".into(), accent: Some("blue".into()), light: Some(3), icon: None, seen_at: NOW };
+        let kept = Kept { color: "teal".into(), accent: Some("blue".into()), light: Some(3), palette: Some(PALETTE), icon: None, seen_at: NOW };
         assert_eq!(tones("k", &kept, None), ("teal".into(), "blue".into()));
         // `/color` set later: the main color stays where it goes with it.
         assert_eq!(tones("k", &kept, Some("green")), ("teal".into(), "green".into()));
@@ -497,7 +558,7 @@ mod tests {
         // A color the windows can't draw is left out.
         assert_eq!(tones("k", &kept, Some("mauve")), ("teal".into(), "blue".into()));
         // An emblem kept before emblems had two tones gets a partner of its color, and a light.
-        let old = Kept { color: "teal".into(), accent: None, light: None, icon: None, seen_at: NOW };
+        let old = Kept { color: "teal".into(), accent: None, light: None, palette: None, icon: None, seen_at: NOW };
         assert!(partners("teal").contains(&tones("k", &old, None).1.as_str()));
         assert!(light_of("k", &old) < LIGHTS);
         let kept: Kept = serde_json::from_str(r#"{"color":"teal","icon":"bug","seenAt":1}"#).unwrap();
@@ -537,8 +598,35 @@ mod tests {
         let shown: Vec<(String, String, u8)> = sessions.iter().map(|s| store.taken("A", s).map(|t| (t.color, t.accent, t.light)).unwrap()).collect();
         assert!(shown.iter().all(|(c, a, _)| a == "blue" && partners("blue").contains(&c.as_str())), "{shown:?}");
         let mains: std::collections::HashSet<&str> = shown.iter().map(|s| s.0.as_str()).collect();
-        assert_eq!(mains.len(), partners("blue").len(), "every partner of blue before any twice: {shown:?}");
+        assert_eq!(mains.len(), sessions.len(), "no partner of blue twice while others are left: {shown:?}");
         assert_eq!(shown.iter().collect::<std::collections::HashSet<_>>().len(), shown.len(), "no two alike: {shown:?}");
+    }
+
+    /// A current session whose emblem was given from an earlier palette is given its tones again
+    /// from this one, keeping its icon; one that isn't current, or was given from this one, keeps
+    /// what it has.
+    #[test]
+    fn an_earlier_palettes_emblem_is_given_new_tones() {
+        let mut store = Store::default();
+        let now = session("now", "Fix the login");
+        let quiet = Session { last_activity: NOW - 3 * DAY_MS, ..session("quiet", "Old work") };
+        let fresh = session("fresh", "Docs");
+        let earlier = Kept { color: "green".into(), accent: Some("indigo".into()), light: Some(1), palette: None, icon: Some("bug".into()), seen_at: NOW };
+        store.kept.insert(now.key.clone(), earlier.clone());
+        store.kept.insert(quiet.key.clone(), earlier.clone());
+        store.kept.insert(fresh.key.clone(), Kept { palette: Some(PALETTE), ..earlier.clone() });
+        let asks = store.look([("A", &now), ("A", &quiet), ("A", &fresh)], NOW);
+        assert!(asks.is_empty(), "the icons stay, so Jev isn't asked again");
+        let given = &store.kept[&now.key];
+        assert_eq!((given.palette, given.icon.as_deref()), (Some(PALETTE), Some("bug")));
+        assert!(partners(&given.color).contains(&given.accent.as_deref().unwrap()), "{given:?}");
+        assert_eq!(store.kept[&quiet.key], earlier, "not current: as it was");
+        assert_eq!(store.kept[&fresh.key].palette, Some(PALETTE));
+        assert_eq!((store.kept[&fresh.key].color.as_str(), store.kept[&fresh.key].light), ("green", Some(1)), "from this palette: as it was");
+        // Given again once only.
+        let again = store.kept[&now.key].clone();
+        store.look([("A", &now)], NOW + 1000);
+        assert_eq!(store.kept[&now.key], again);
     }
 
     /// Where a harness keeps only the latest prompt (Codex, OpenCode), that's what Jev goes by.
