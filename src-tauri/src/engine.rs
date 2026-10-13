@@ -4359,6 +4359,7 @@ mod tests {
             error: error.map(str::to_string),
             needs_sign_in,
             loading: false,
+            no_limits: false,
             preferred: false,
             rate_limited: false,
         }

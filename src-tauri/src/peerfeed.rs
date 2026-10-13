@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn a_device_from_before_cursor_gets_no_cursor_sessions() {
         let cursor = Session { harness: Harness::Cursor, ..session("cursor:cursor:c1", Status::Working) };
-        let usage = |account: &str, harness| Usage { account: account.into(), harness, plan: None, meters: Vec::new(), as_of: None, error: None, needs_sign_in: false, loading: false, preferred: false, rate_limited: false };
+        let usage = |account: &str, harness| Usage { account: account.into(), harness, plan: None, meters: Vec::new(), as_of: None, error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false };
         let mut b = board(vec![lane("/a", vec![session("s1", Status::Working), cursor.clone()]), lane("/b", vec![])]);
         b.usage = vec![usage("claude", Harness::Claude), usage("cursor", Harness::Cursor)];
         let snap = snapshot(&b, info("Mini"));

@@ -35,12 +35,17 @@
     {
       "account": "opencode",
       "harness": "opencode",
+      "noLimits": true,
       "error": "OpenCode bills the provider you bring, so it has no plan limits to show."
     },
     {
       "account": "antigravity",
       "harness": "antigravity",
-      "error": "Antigravity keeps its quotas in the app."
+      "readAgo": 1,
+      "meters": [
+        { "key": "model:Gemini", "label": "Gemini", "window": "Weekly, Gemini models", "percent": 3, "resetsIn": 9900, "model": "Gemini" },
+        { "key": "model:Claude & GPT", "label": "Claude & GPT", "window": "Weekly, Claude & GPT models", "percent": 0, "model": "Claude & GPT" }
+      ]
     }
   ]
 }

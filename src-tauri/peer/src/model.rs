@@ -971,6 +971,10 @@ pub struct Usage {
     pub needs_sign_in: bool,
     /// True until the first read finishes.
     pub loading: bool,
+    /// Its harness keeps no limits Codealong can read, and `error` says why: not a read that
+    /// failed, so the bar shows an icon rather than words. Absent from Macs of older builds.
+    #[serde(default)]
+    pub no_limits: bool,
     /// Its `preferred` setting: Auto starts it over accounts without one while it has room.
     #[serde(default)]
     pub preferred: bool,

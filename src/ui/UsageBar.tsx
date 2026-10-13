@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
-import { hasNoLimits, usageNote } from '../harness';
+import { usageNote } from '../harness';
 import type { Meter, Severity, Usage } from '../types';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -157,9 +157,10 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
       <span className="ca-uchip-name">{u.account}</span>
       {shown.length > 0 ? (
         shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} />)
-      ) : hasNoLimits(u) ? (
-        // Nothing will ever show here, so it takes no room to say so; the words are on hover.
-        <span className="ca-uchip-none" title={measure ? undefined : usageNote(u)}>
+      ) : u.noLimits ? (
+        // Nothing will ever show here, so it takes no room to say so; the words, and why, are on
+        // hover.
+        <span className="ca-uchip-none" title={measure ? undefined : [usageNote(u), plain].filter(Boolean).join('. ')}>
           <Icon name="gauge-off" size={10} stroke={2} />
         </span>
       ) : (

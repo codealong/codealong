@@ -1091,6 +1091,7 @@ mod tests {
             error: None,
             needs_sign_in: false,
             loading: false,
+            no_limits: false,
             preferred: false,
             rate_limited: false,
         }

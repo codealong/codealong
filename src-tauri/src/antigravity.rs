@@ -581,6 +581,131 @@ fn listed_models(out: &str) -> Vec<crate::start::ModelOption> {
     out.lines().filter_map(|l| l.split_once('\t')).map(|(id, label)| (id.trim(), label.trim())).filter(|(id, label)| crate::start::valid_model(id) && !label.is_empty()).map(|(id, label)| crate::start::ModelOption { id: id.to_string(), label: label.to_string() }).collect()
 }
 
+/* ---- The sign-in and plan usage ---- */
+
+/// Where `agy` 1.3.4 keeps the sign-in it shares with the app, in the login keychain.
+const KEYCHAIN_SERVICE: &str = "gemini";
+const KEYCHAIN_ACCOUNT: &str = "antigravity";
+/// The token file, beside the folders under ~/.gemini, that the sign-in was before `agy` moved
+/// it into the keychain.
+const TOKEN_FILE: &str = "jetski-standalone-oauth-token";
+/// A locked keychain can hold `security` at a prompt; don't wait on it forever.
+const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
+/// A usage read takes two seconds or so. One still going after this is stuck: signed out, `agy`
+/// waits for a sign-in in the browser rather than exit.
+const USAGE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Whether the account kept in `home` is signed in: the keychain holds the sign-in, or the token
+/// file is there. Reads no secret.
+fn signed_in(home: &Path) -> bool {
+    home.parent().is_some_and(|p| p.join(TOKEN_FILE).is_file())
+        || procs::run("/usr/bin/security", &["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT], None, KEYCHAIN_TIMEOUT).is_ok()
+}
+
+/// Where `agy` logs a usage read: one file, written over each time. Left to itself, each run
+/// leaves a log of its own in the command line's folder, so a read every couple of minutes would
+/// pile them up there.
+fn usage_log() -> PathBuf {
+    crate::util::home().join("Library/Logs/Codealong/agy-usage.log")
+}
+
+/// An account's plan usage, from the command line's `/usage` in a print run, which answers
+/// without taking a turn, spends no quota and leaves no conversation behind (`agy` 1.1.11 on).
+/// Blocks for a few seconds; call it off the engine thread.
+pub fn read_usage(account: &AccountCfg, now: i64) -> crate::model::Usage {
+    let mut u = crate::model::Usage { loading: false, ..crate::usage::loading(account) };
+    let cli = cli_command(account);
+    if !signed_in(&account.home_path()) {
+        u.error = Some(format!("Not signed in: run {} once to sign in", code(cli)));
+        u.needs_sign_in = true;
+        return u;
+    }
+    let log = usage_log();
+    let _ = std::fs::create_dir_all(log.parent().unwrap_or(Path::new("/tmp")));
+    // Through a shell, as `models` asks: an account's command may set variables first.
+    let command = format!("{cli} -p /usage --output-format json --log-file {}", crate::util::sh_quote(&log.to_string_lossy()));
+    let answer = match procs::run_in("/bin/sh", &["-c", &command], &crate::util::home(), &[], "", USAGE_TIMEOUT) {
+        Ok(out) => usage_answer(&out.out),
+        Err(_) => UsageAnswer::Failed(format!("{} didn't answer in {} seconds", code(cli), USAGE_TIMEOUT.as_secs())),
+    };
+    match answer {
+        UsageAnswer::Limits(meters) => {
+            u.as_of = Some(now);
+            if meters.is_empty() {
+                u.error = Some("This plan doesn't report usage limits.".to_string());
+            }
+            u.meters = meters;
+        }
+        UsageAnswer::SignedOut => {
+            u.error = Some(format!("Sign-in expired: run {} once to sign in again", code(cli)));
+            u.needs_sign_in = true;
+        }
+        UsageAnswer::Failed(why) => u.error = Some(format!("Couldn't read usage: {why}")),
+    }
+    u
+}
+
+#[derive(Debug, PartialEq)]
+enum UsageAnswer {
+    Limits(Vec<crate::model::Meter>),
+    SignedOut,
+    Failed(String),
+}
+
+/// What a print run's `/usage` printed: `{status, error, command: {name, data: {groups}}}` on one
+/// line, `status` `SUCCESS` or `ERROR`.
+fn usage_answer(out: &str) -> UsageAnswer {
+    // The answer is its last line; anything before it isn't the command's.
+    let Some(v) = out.lines().rev().find_map(|l| serde_json::from_str::<Value>(l.trim()).ok().filter(Value::is_object)) else {
+        return UsageAnswer::Failed("unexpected response".into());
+    };
+    if v.get("status").and_then(Value::as_str) != Some("SUCCESS") {
+        let why = v.get("error").and_then(Value::as_str).unwrap_or("it failed");
+        // What a run that couldn't sign in says.
+        if why.contains("authentication") {
+            return UsageAnswer::SignedOut;
+        }
+        return UsageAnswer::Failed(one_line(why, 120));
+    }
+    UsageAnswer::Limits(usage_meters(&v))
+}
+
+/// A meter for each of the answer's limits, `command.data.groups[].buckets[]`: each group of
+/// models shares a limit, `{id, window, remaining_fraction, reset_time}`, weekly as seen.
+fn usage_meters(v: &Value) -> Vec<crate::model::Meter> {
+    let mut out = Vec::new();
+    for g in v.pointer("/command/data/groups").and_then(Value::as_array).into_iter().flatten() {
+        let name = group_label(g.get("name").and_then(Value::as_str).unwrap_or_default());
+        if name.is_empty() {
+            continue;
+        }
+        for b in g.get("buckets").and_then(Value::as_array).into_iter().flatten() {
+            let Some(left) = b.get("remaining_fraction").and_then(Value::as_f64) else { continue };
+            let window = b.get("window").and_then(Value::as_str).unwrap_or("weekly");
+            let percent = ((1.0 - left) * 100.0).clamp(0.0, 100.0);
+            out.push(crate::model::Meter {
+                key: if window == "weekly" { format!("model:{name}") } else { format!("model:{name}:{window}") },
+                label: name.clone(),
+                window: format!("{}, {name} models", crate::usage::title(window)),
+                percent,
+                // An untouched limit's reset is a week from whenever it's asked, so it says nothing.
+                resets_at: if left < 1.0 { b.get("reset_time").and_then(Value::as_str).and_then(parse_rfc3339_ms) } else { None },
+                severity: crate::usage::severity(None, percent),
+                model: Some(name.clone()),
+            });
+        }
+    }
+    out
+}
+
+/// A group's name for the bar: `Gemini Models` is `Gemini`, `Claude and GPT models` is
+/// `Claude & GPT`.
+fn group_label(name: &str) -> String {
+    let name = name.trim();
+    let cut = name.len().checked_sub(" models".len()).filter(|&i| name.get(i..).is_some_and(|end| end.eq_ignore_ascii_case(" models"))).map_or(name, |i| &name[..i]);
+    cut.trim().replace(" and ", " & ")
+}
+
 /* ---- Reading conversations for the board ---- */
 
 /// Antigravity's conversations for the board (`harness::Reader`): each account's summary tables
@@ -765,10 +890,10 @@ impl crate::harness::Adapter for Antigravity {
         &SPEC
     }
 
-    /// The sign-in is a token file beside the folders, under ~/.gemini; only whether it's there
-    /// is read.
+    /// The sign-in is in the keychain, or from before, a token file under ~/.gemini; only
+    /// whether it's there is read.
     fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
-        (home.parent().is_some_and(|p| p.join("jetski-standalone-oauth-token").is_file()), None)
+        (signed_in(home), None)
     }
 
     /// The command line signs in as it starts; without it, the app does from its own window.
@@ -889,8 +1014,18 @@ impl crate::harness::Adapter for Antigravity {
         folders(home).iter().flat_map(|f| read_conversations(f, since, &HashSet::new())).filter_map(|c| c.cwd).collect()
     }
 
+    /// The quotas are read through the command line (`read_usage`); without it they're only
+    /// in the app.
     fn no_limits(&self) -> Option<&'static str> {
-        Some("Antigravity keeps its quotas in the app.")
+        (!cli_installed(&crate::util::home())).then_some("Antigravity shows its quotas in the app. With its command line, agy, installed, Codealong shows them here.")
+    }
+
+    fn polls_usage(&self) -> bool {
+        cli_installed(&crate::util::home())
+    }
+
+    fn read_usage(&self, account: &AccountCfg, now: i64) -> crate::model::Usage {
+        read_usage(account, now)
     }
 
     fn records(&self, account: &AccountCfg, s: &Session) -> Vec<PathBuf> {
@@ -1213,6 +1348,30 @@ mod tests {
         let out = "Fetching available models...\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\nnot a model line\nbad id;rm\tNope\n";
         let listed: Vec<(String, String)> = listed_models(out).into_iter().map(|m| (m.id, m.label)).collect();
         assert_eq!(listed, [("gemini-3.8-flash-low".to_string(), "Gemini 3.8 Flash (Low)".to_string()), ("claude-sonnet-4-6".to_string(), "Claude Sonnet 4.6 (Thinking)".to_string())]);
+    }
+
+    #[test]
+    fn reads_the_limits_usage_answers() {
+        use crate::model::Severity;
+        // `agy -p /usage --output-format json` on 1.3.4 (2026-10-13), a weekly limit per group.
+        let out = r#"{"conversation_id":"","status":"SUCCESS","response":"Gemini Models\tWeekly Limit Remaining\t97%\t2026-10-20T21:48:07Z\n","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},"command":{"name":"usage","data":{"description":"Within each group, models share a weekly limit.","groups":[{"name":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"id":"gemini-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":0.08,"reset_time":"2026-10-20T21:48:07Z"}]},{"name":"Claude and GPT models","description":"Models within this group: Claude Opus, Claude Sonnet, GPT-OSS","buckets":[{"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":1,"reset_time":"2026-10-20T22:14:23Z"}]}]}}}"#;
+        let UsageAnswer::Limits(meters) = usage_answer(&format!("Checking for updates...\n{out}\n")) else { panic!("limits") };
+        let shown: Vec<(&str, &str, &str, i64, Option<i64>, Severity, Option<&str>)> = meters.iter().map(|m| (m.key.as_str(), m.label.as_str(), m.window.as_str(), m.percent.round() as i64, m.resets_at, m.severity, m.model.as_deref())).collect();
+        assert_eq!(
+            shown,
+            [
+                ("model:Gemini", "Gemini", "Weekly, Gemini models", 92, parse_rfc3339_ms("2026-10-20T21:48:07Z"), Severity::Critical, Some("Gemini")),
+                // Untouched: its reset is only a week from the asking, so it shows none.
+                ("model:Claude & GPT", "Claude & GPT", "Weekly, Claude & GPT models", 0, None, Severity::Normal, Some("Claude & GPT")),
+            ]
+        );
+        // Signed out and nobody there to sign in, it says so once it's ended.
+        assert_eq!(usage_answer(r#"{"conversation_id":"","status":"ERROR","response":"","error":"authentication failed or timed out","num_turns":0}"#), UsageAnswer::SignedOut);
+        assert_eq!(usage_answer(r#"{"status":"ERROR","error":"quota service unavailable"}"#), UsageAnswer::Failed("quota service unavailable".into()));
+        assert_eq!(usage_answer("Authentication required. Please visit the URL to log in:"), UsageAnswer::Failed("unexpected response".into()));
+        assert_eq!(group_label("Gemini Models"), "Gemini");
+        assert_eq!(group_label("Pro MODELS "), "Pro");
+        assert_eq!(group_label("Models"), "Models");
     }
 
     #[test]

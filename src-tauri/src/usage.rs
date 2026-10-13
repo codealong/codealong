@@ -1,9 +1,10 @@
 //! Plan usage per account: what every harness's numbers are put into, and the asking. Where
 //! the numbers come from is each harness's own (`Adapter::read_usage` for somewhere slow to
 //! ask, `Reader::usage` for what comes with its sessions): Claude Code's sign-in and usage
-//! endpoint are claude/usage.rs, Codex's rate-limit reports codex/usage.rs. OpenCode,
-//! Antigravity and Cursor have nothing to read: OpenCode bills whichever provider you bring,
-//! Antigravity keeps its quotas in the app, and Cursor asks its servers.
+//! endpoint are claude/usage.rs, Codex's rate-limit reports codex/usage.rs, and Antigravity's
+//! quotas its command line's `/usage` (antigravity.rs `read_usage`). OpenCode and Cursor have
+//! nothing to read (`Adapter::no_limits`): OpenCode bills whichever provider you bring, and
+//! Cursor asks its servers; nor has Antigravity without its command line.
 
 use crate::config::AccountCfg;
 use crate::model::{AccountInfo, Harness, Severity, Usage};
@@ -19,6 +20,7 @@ pub fn loading(account: &AccountCfg) -> Usage {
         error: None,
         needs_sign_in: false,
         loading: true,
+        no_limits: false,
         preferred: account.preferred,
         rate_limited: false,
     }
@@ -26,7 +28,7 @@ pub fn loading(account: &AccountCfg) -> Usage {
 
 /// An account whose harness reports no limits, with why in words.
 pub fn none(account: &AccountCfg, note: &str) -> Usage {
-    Usage { loading: false, error: Some(note.to_string()), ..loading(account) }
+    Usage { loading: false, error: Some(note.to_string()), no_limits: true, ..loading(account) }
 }
 
 pub(crate) fn severity(word: Option<&str>, percent: f64) -> Severity {

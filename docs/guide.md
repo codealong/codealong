@@ -1625,9 +1625,11 @@ again. Macs from before helpers show another Mac's helpers as sessions of their 
 
 **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model limits such
 as Fable, and time to reset. When they don't all fit, each account shows the limit it's closest to
-running out of and the rest on hover, and the bar scrolls sideways. OpenCode (bring your own
-provider), Antigravity and Cursor (quotas in their apps) have none to show, and their chips say
-so with a crossed-out gauge after the name. Add accounts in Settings › Accounts.
+running out of and the rest on hover, and the bar scrolls sideways. Antigravity's are its weekly
+limits for each group of models (Gemini; Claude and GPT), read through its command line, `agy`,
+every couple of minutes; with only the app installed it has none to show. Nor have OpenCode
+(bring your own provider) and Cursor (usage on cursor.com), and their chips say so with a
+crossed-out gauge after the name. Add accounts in Settings › Accounts.
 
 #### What sessions used and cost
 

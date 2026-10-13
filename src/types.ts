@@ -518,6 +518,8 @@ export interface Usage {
   error: string | null;
   needsSignIn: boolean;
   loading: boolean;
+  /** Its harness keeps no limits Codealong can read, and `error` says why. */
+  noLimits?: boolean;
   /** Its `preferred` setting: Auto starts it over accounts without one while it has room. */
   preferred?: boolean;
 }

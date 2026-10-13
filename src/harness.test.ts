@@ -1,20 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { harnessOfKey, hasNoLimits, nameShown, renames, sessionName, usageNote } from './harness';
+import { harnessOfKey, nameShown, renames, sessionName, usageNote } from './harness';
 import type { Usage } from './types';
 
-describe('hasNoLimits', () => {
-  const usage = (u: Partial<Usage>): Usage => ({ account: 'a', harness: 'opencode', plan: null, meters: [], asOf: null, error: null, needsSignIn: false, loading: false, ...u });
-  it('marks the harnesses that keep no limits, once read and signed in', () => {
-    expect(hasNoLimits(usage({ harness: 'opencode' }))).toBe(true);
-    expect(hasNoLimits(usage({ harness: 'antigravity' }))).toBe(true);
-    expect(hasNoLimits(usage({ harness: 'cursor' }))).toBe(true);
-    expect(usageNote(usage({ harness: 'cursor' }))).toBe('No limits to show');
-    // Limits not read yet keep their words.
-    expect(hasNoLimits(usage({ harness: 'claude' }))).toBe(false);
-    expect(hasNoLimits(usage({ harness: 'codex' }))).toBe(false);
-    expect(hasNoLimits(usage({ loading: true }))).toBe(false);
-    expect(hasNoLimits(usage({ needsSignIn: true }))).toBe(false);
-    expect(hasNoLimits(undefined)).toBe(false);
+describe('usageNote', () => {
+  const usage = (u: Partial<Usage>): Usage => ({ account: 'a', harness: 'antigravity', plan: null, meters: [], asOf: null, error: null, needsSignIn: false, loading: false, ...u });
+  it('says no limits only where the engine says its harness keeps none', () => {
+    expect(usageNote(usage({ harness: 'opencode', noLimits: true, error: 'OpenCode bills the provider you bring.' }))).toBe('No limits to show');
+    // Antigravity's quotas are read through its command line, so a read that failed says so.
+    expect(usageNote(usage({ error: "Couldn't read usage: `agy` didn't answer in 30 seconds" }))).toBe('Usage unavailable');
+    expect(usageNote(usage({ loading: true }))).toBe('Reading…');
+    expect(usageNote(usage({ needsSignIn: true }))).toBe('Not signed in');
+    expect(usageNote(usage({ harness: 'codex' }))).toBe('No turns yet');
+    expect(usageNote(undefined)).toBe('No usage yet');
   });
 });
 
