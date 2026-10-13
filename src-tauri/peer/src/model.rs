@@ -325,7 +325,7 @@ pub struct Session {
 /// its pair and its light so that the sessions beside it differ. Both colors are among
 /// `emblems::COLORS`: blue, teal, green, purple, pink, red or indigo.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", from = "EmblemSent")]
 pub struct Emblem {
     /// The color over most of it.
     pub color: String,
@@ -337,6 +337,29 @@ pub struct Emblem {
     pub light: u8,
     /// The icon's name in the windows' icon set (Tabler's).
     pub icon: String,
+}
+
+/// An emblem as any Mac sends it. Macs from 2026-10-12, whose emblems had one color and a
+/// harness's when it gave one, send `harnessColor` and no accent or light: read as that accent,
+/// else the main color again, in the first light, so their feeds still read.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EmblemSent {
+    color: String,
+    #[serde(default)]
+    accent: Option<String>,
+    #[serde(default)]
+    harness_color: Option<String>,
+    #[serde(default)]
+    light: u8,
+    icon: String,
+}
+
+impl From<EmblemSent> for Emblem {
+    fn from(e: EmblemSent) -> Emblem {
+        let accent = e.accent.or(e.harness_color).unwrap_or_else(|| e.color.clone());
+        Emblem { color: e.color, accent, light: e.light, icon: e.icon }
+    }
 }
 
 /// A page on the web a session made or showed you, as its records say: an artifact Claude Code
@@ -959,6 +982,23 @@ pub struct Usage {
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    /// A Mac from before emblems had two colors sends them without an accent or a light; its feed
+    /// still reads, the harness's color as the accent where it sent one.
+    #[test]
+    fn an_emblem_from_an_older_mac_still_reads() {
+        let read = |json: &str| serde_json::from_str::<Emblem>(json).unwrap();
+        let emblem = |color: &str, accent: &str, light: u8| Emblem { color: color.into(), accent: accent.into(), light, icon: "bug".into() };
+        assert_eq!(read(r#"{"color":"teal","harnessColor":"red","icon":"bug"}"#), emblem("teal", "red", 0));
+        assert_eq!(read(r#"{"color":"teal","icon":"bug"}"#), emblem("teal", "teal", 0));
+        let now = emblem("teal", "blue", 5);
+        assert_eq!(read(&serde_json::to_string(&now).unwrap()), now);
+        assert_eq!(serde_json::to_value(&now).unwrap(), serde_json::json!({ "color": "teal", "accent": "blue", "light": 5, "icon": "bug" }));
+        // In a whole session, as a feed carries it.
+        let mut s = serde_json::to_value(Session::new(Harness::Claude, "claude", "abc")).unwrap();
+        s["emblem"] = serde_json::json!({ "color": "pink", "harnessColor": "purple", "icon": "bug" });
+        assert_eq!(serde_json::from_value::<Session>(s).unwrap().emblem, Some(emblem("pink", "purple", 0)));
+    }
 
     #[test]
     fn a_key_is_the_harness_the_account_and_the_id() {
