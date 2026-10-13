@@ -13,7 +13,7 @@
 // sentences (tips.test.ts holds the length).
 
 import { VIEW_CHORDS } from './mainKeys';
-import { CHORDS, PR_CHORDS } from './menus';
+import { CHORDS, PR_CHORDS, SUGGESTION_CHORDS } from './menus';
 import { QUEUE_CHORDS } from './queue';
 import { shortcutLabel } from './quick';
 import { SNOOZE_CHORDS } from './snooze';
@@ -80,24 +80,34 @@ export const TIPS: readonly Tip[] = [
   { id: 'pin', places: BOARD, says: says`${key(CHORDS.pin)} pins a session to the top of Sessions. Drag the pinned ones into the order you want.` },
   { id: 'picks', places: BOARD, says: says`${key('Cmd')}-click or ${key('Shift')}-click picks several rows, and ${key('Cmd+A')} every row: the panel then acts on all of them at once.` },
   { id: 'desktop', places: BOARD, says: says`Drag a row out of the window to pin its card to the desktop, where it floats over every app.` },
+  { id: 'pr-chip', places: BOARD, says: says`A click on a PR's chip shows the PR beside the list, with a way back to the row. A double-click opens it on GitHub.` },
   { id: 'side', places: ['session', 'waiting'], says: says`${code('/side')} and a question asks a throwaway copy of a Claude Code or Codex session. The session carries on and never hears of it.` },
+  { id: 'bang', places: ['session', 'waiting'], says: says`For a session on this Mac, a message that starts with ${code('!')} runs in a new tab of your terminal, as you. The session is told what it printed.` },
   { id: 'slash', places: SESSION, says: says`Type ${code('/')} in a session's box for Codealong's commands and the skills its agent can run.` },
   { id: 'find', places: SESSION, says: says`${key('Cmd+F')} finds words anywhere in a session's conversation, from its first prompt on.` },
   { id: 'prompts', places: SESSION, says: says`${key('Cmd+Shift+Up')} and ${key('Cmd+Shift+Down')} bring your previous or next prompt to the top of the conversation.` },
   { id: 'copy-message', places: SESSION, says: says`Right-click a message in a conversation to copy it as it was written, Markdown and all.` },
+  { id: 'context', places: SESSION, says: says`The pie under a session's box says how full its context window is. Point at it for the tokens and, on this Mac, what the session has cost.` },
   { id: 'fork', places: SESSION, says: says`${code('/fork')} in a session's box copies its conversation into a new session, and you stay where you are.` },
   { id: 'quiet', places: ['board', 'session'], says: says`A session that loops or wakes on a schedule can be made Quiet from its right-click menu: it comes to you only when it needs you.` },
-  { id: 'move-account', places: ['board', 'session'], says: says`A Claude Code session stopped by its account's limit can go on in another account: Move to, in its right-click menu.` },
+  { id: 'move-account', places: ['board', 'session'], says: says`A Claude Code session its account's limit stopped offers to go on in an account with room. Settings › Automation can move it by itself.` },
+  { id: 'carry-on', places: ['board', 'session'], says: says`A session cut off partway, by its terminal closing or the Mac restarting, says Cut off. Carry on resumes it where it stopped.` },
   { id: 'rename', places: SESSION_KEYS, says: says`${key(CHORDS.rename)} renames a session where its harness keeps names, so the harness shows the name too.` },
+  { id: 'helpers', places: BOARD, says: says`Sessions an agent starts to help it, a review on another model say, show under its row in Sessions. Its helpers chip says how each is doing.` },
+  { id: 'suggested', places: ['session', 'waiting'], says: says`Ask an agent to go over what waits on you, and its suggested replies show over each box: ${key(SUGGESTION_CHORDS[0])} to ${key(SUGGESTION_CHORDS[SUGGESTION_CHORDS.length - 1])} send them.` },
   { id: 'waiting-send', places: ['waiting'], says: says`${key('Enter')} sends and stays to watch the reply; ${key('Cmd+Enter')} sends and goes on to the next.` },
   { id: 'waiting-allow', places: ['waiting'], says: says`When a session asks to run something, ${key('Cmd+Enter')} allows it and ${key('Cmd+Backspace')} denies it.` },
   { id: 'pr-approve', places: ['waiting', 'pr'], says: says`In the waiting window, ${key(PR_CHORDS.approve)} approves a PR and goes on, and ${key(PR_CHORDS.comment)} comments.` },
-  { id: 'pr-ask', places: ['waiting', 'pr'], says: says`In the waiting window, Ask beside Review puts questions about a PR to an agent that reads the whole diff. No one on GitHub sees them.` },
+  { id: 'pr-ask', places: ['waiting', 'pr'], says: says`Ask, beside Review in a PR's box, puts questions about it to an agent that reads the whole diff. No one on GitHub sees them.` },
+  { id: 'review-with', places: ['pr', 'waiting'], says: says`Review with…, in a PR's menu or ${key(PR_CHORDS.review)} on its card, has an agent review it now, whatever Settings › Automation says.` },
   { id: 'pr-files', places: ['pr'], says: says`${key('Cmd+F')} filters a PR's files: words keep the ones that mention them, and ${code('-word')} leaves some out.` },
+  { id: 'pr-diffs', places: ['pr'], says: says`A PR's diffs show unified or side by side, and a file's editor button opens its diff in your editor, beside your copy when a worktree has it.` },
   { id: 'pr-merge', places: ['pr'], says: says`A PR's merge box has GitHub's choices: how to merge, auto-merge and the merge queue.` },
   { id: 'auto-review', places: ['pr', 'waiting'], says: says`Settings › Automation can have an agent review each PR that waits on your review. By default its review is a draft only you see.` },
   { id: 'own-review', places: ['pr', 'session'], says: says`Settings › Automation can have an agent on another model review the PRs your sessions open, and hand its review back to the session that opened each.` },
   { id: 'pr-draft', places: ['pr', 'waiting'], says: says`A PR's Reviews tab shows your draft review as it will go, over everyone's. Edit or remove its comments there, then Approve or Comment to submit it.` },
+  { id: 'pr-nudge', places: ['pr', 'session'], says: says`Nudge its session on updates, in a PR's menu, tells the session that opened it of reviews, failing checks and conflicts.` },
+  { id: 'team-settings', places: ['pr'], says: says`A repo's ${code('.codealong/config.toml')} shares its review and nudge settings with everyone who works on it, once merged.` },
   { id: 'pr-links', places: ['session', 'pr'], says: says`Point at a PR linked in a conversation to see where it stands: its review, checks and the sessions that worked on it.` },
   { id: 'quick-tab', places: QUICK_PANEL, says: says`${key('Tab')} on a session answers it in the waiting window; ${key('Alt+Enter')} opens it where it runs.` },
   { id: 'quick-start', places: QUICK_PANEL, says: says`${key('Cmd+Enter')} always starts a new session, with what you typed as its prompt.` },
@@ -110,11 +120,17 @@ export const TIPS: readonly Tip[] = [
   { id: 'sidebar', places: BOARD, says: says`${key('Ctrl+Cmd+S')} folds the sidebar to a rail of the views, for more room.` },
   { id: 'canvas', places: BOARD, says: says`Canvas lays your work out in space: put each card where you'll remember it.` },
   { id: 'preview', places: BOARD, says: says`Set preview URL…, in a worktree's right-click menu, gives it a globe that opens its app, green while its server runs.` },
+  { id: 'clean-up', places: BOARD, says: says`Clean up worktree…, in a worktree's right-click menu, removes it only where nothing in it would be lost, and says why not.` },
   { id: 'close-idle', places: BOARD, says: says`File › Close idle sessions… closes the ones that sat idle for a day or more. Each conversation is kept, to resume.` },
   { id: 'usage', places: BOARD, says: says`The bar across the top shows each account's usage. Point at one for all its limits and when they reset.` },
+  { id: 'usage-window', places: BOARD, says: says`${key('Shift+Cmd+U')}, or a click on the usage bar, shows what your sessions used and cost at API prices, against what you paid.` },
+  { id: 'sounds', places: BOARD, says: says`Settings › Sounds picks the sound for a session that needs you, a turn that ends and a review asked of you, or None.` },
+  { id: 'emblems', places: BOARD, says: says`Session emblems, in Settings › Jev, give each session an icon for what it works on, so the ones side by side read apart.` },
   { id: 'devices', places: BOARD, says: says`Link your other Macs in Settings › Devices, and their sessions show here beside yours.` },
   { id: 'zoom', places: BOARD, says: says`${key('Cmd+=')} and ${key('Cmd+-')} make the windows bigger or smaller, and ${key('Cmd+0')} puts them back.` },
   { id: 'agents', places: ['board', 'session'], says: says`Agents can run the ${code('codealong')} command to list todos, message other sessions and start work.` },
+  { id: 'terminal-run', places: ['board', 'session'], says: says`An agent can ask to run a command in your terminal, as you: a sign-in, say. Allow opens it in a new tab, and what it prints goes back.` },
+  { id: 'orchestrate', places: ['board', 'session'], says: says`${code('/codealong:orchestrate')} in a Claude Code session's box makes it your orchestrator: it watches the others on a loop and suggests replies.` },
 ];
 
 /** Whether a tip can show: a shortcut it names must be on and readable. */
