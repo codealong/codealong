@@ -144,6 +144,8 @@ pub struct Review {
     /// `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED` or `DISMISSED`.
     pub state: String,
     pub at: Option<i64>,
+    /// Given by whoever the Mac's `gh` is signed in as. Missing from Macs before 2026-10-12.
+    pub mine: bool,
 }
 
 /// A comment on a PR: on its conversation, a review's own text, or the first of a thread on the
@@ -159,10 +161,20 @@ pub struct Comment {
     pub url: Option<String>,
     /// The file a thread on the code is about.
     pub path: Option<String>,
+    /// A thread on the code: its line in the file's new version, none for one on the whole file
+    /// or one the PR's changes since moved. Missing from Macs before 2026-10-12.
+    pub line: Option<u64>,
+    /// A thread on the code whose line the PR's changes since moved or changed.
+    pub outdated: bool,
+    /// A thread on the code: how many replies follow its first comment.
+    pub replies: u64,
     /// A thread on the code that's been resolved.
     pub resolved: bool,
     /// Written by whoever the Mac's `gh` is signed in as.
     pub mine: bool,
+    /// A review's own text: that review's state (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`,
+    /// `DISMISSED`), which tells an earlier approval's words from a comment.
+    pub review: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

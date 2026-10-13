@@ -758,7 +758,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, start, defau
             </span>
             <small>
               Once that session runs here and doesn’t wait on you, it’s sent a message naming the review, kept as a file it reads, to fix what holds up and say what it leaves. A review that finds nothing to raise isn’t sent, nor one of commits it has moved on from. Off, send one from the pull
-              request’s Review tab.
+              request’s Reviews tab.
             </small>
           </label>
         </>

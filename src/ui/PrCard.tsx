@@ -17,7 +17,7 @@
 // why. A merge from the merge box under its title (MergeBox.tsx `goesOn`) leaves the same way.
 // What you wrote stays with the PR until it goes, so skipping to the next and coming back loses
 // nothing. The box is the PR panel's too (PrBox.tsx), with the line over it saying where the PR's
-// review stands, which shows its Review tab; a verdict's keys work from either of its sides.
+// review stands, which shows its Reviews tab; a verdict's keys work from either of its sides.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the PR has left, and what it adds (a queue).
@@ -80,7 +80,7 @@ interface PrCardProps {
   zoom?: number;
   /** The board's apps: its changed files open in your editors (PrInspector.tsx `fileOpener`). */
   apps?: Board['apps'];
-  /** The repos' team files, for its Review tab (AgentReview.tsx). */
+  /** The repos' team files, for its Reviews tab (AgentReview.tsx). */
   teamFiles?: TeamFile[];
 }
 

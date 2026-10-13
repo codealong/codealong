@@ -502,7 +502,7 @@ the bar and the queues while it doesn't need you, its turns never Your turn.
 Review with… on a PR (its panel's header, its menu, its card's strip, ⌃⌘R) starts the same review
 by hand, whatever `[reviews] auto` says: first the reviewer Settings names (Auto's account when it
 names none), then each account that can run one where reviews run, saying where. It's a round like
-any other, on the PR's card and in its Review tab, its review posted where `[reviews] post` says and
+any other, on the PR's card and in its Reviews tab, its review posted where `[reviews] post` says and
 submitted as `[reviews] submit` does; it reviews a commit reviewed already too, a second review going
 into your draft after the first. That account's session for the PR, when it has one, is asked again.
 One that can't start says why where you asked for it. So Settings › Automation shows the reviewer,
@@ -512,7 +512,7 @@ page is offered last, apart from Codealong's.
 When its turn ends, its review goes where `[reviews] post` says. By default (`"draft"`) it's a
 review on your GitHub account left as a draft that only you see, each comment on its line where the
 PR's diff shows it (the rest written into the text, each under a link to its line), added after
-what you wrote when you have a draft on that PR already: you finish it in the PR's Review tab or on
+what you wrote when you have a draft on that PR already: you finish it in the PR's Reviews tab or on
 GitHub, approving or asking for changes, and the review stays asked of you until you submit it. `"comment"` posts a
 comment from your account instead, each line comment under a link to its line, and `"none"` leaves
 the review in the session. Never a submitted review, which would settle the request to you. What
@@ -523,15 +523,15 @@ running goes on where `[reviews] start` lets it, else a new one starts). Two run
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
-it stays under Review requested, saying Agent reviewing, and its Review tab has a dot. The PR's
-Review tab, in its panel and in its card in the notch and the waiting window, says where its latest
+it stays under Review requested, saying Agent reviewing, and its Reviews tab has a dot. The PR's
+Reviews tab, in its panel and in its card in the notch and the waiting window, says where its latest
 round stands, with the session that wrote it a click away, and shows your draft as GitHub has it
 (see *Your review*); without a draft (a comment, or one you submitted) it shows the review the agent
 wrote: its text, then each comment on a line of the code with the lines around it from the PR's
 diff, its file and line opening that line on GitHub at the commit it read, and the reviews of
 earlier commits too. Once you've submitted the agent's draft, it says so and how. `codealong
 --snapshot --review-plan <owner/name> <number>` prints what a review would start, without starting
-it, and `codealong --snapshot --pr-draft <owner/name> <number>` your draft as the Review tab reads
+it, and `codealong --snapshot --pr-draft <owner/name> <number>` your draft as the Reviews tab reads
 it.
 
 #### Reviews of your own pull requests
@@ -544,20 +544,21 @@ what one wrote (Codex reviews what Claude Code wrote, say); one of the same harn
 other can start. Drafts aren't reviewed, nor a PR whose session is gone or archived. Its
 instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
 agent that wrote the PR, and to end on whether it would approve it (see *Your review*). Nothing goes
-on GitHub: the review is kept in Codealong, in the PR's Review tab, its comments on lines with the
+on GitHub: the review is kept in Codealong, in the PR's Reviews tab, its comments on lines with the
 code around them. With `[reviews.own] send` (on unless turned off), the session that opened the PR
 is sent a message once it runs here and doesn't wait on you to answer something: which agent
 reviewed which commit, that its review is in a file it reads (kept as an attachment, so another
 agent's words never reach it typed in as yours), to fix what holds up and say what it leaves, and
 that it isn't asked to merge. A review that found nothing to raise isn't sent, nor one of a commit
 the PR has moved on from: the next round's is. A send that doesn't go is tried a few times and then
-said. The Review tab says where each review went or why it hasn't, and Send hands the latest to the
+said. The Reviews tab says where each review went or why it hasn't, and Send hands the latest to the
 session by hand while it runs here, whatever `send` says. New commits are reviewed again once the
 branch holds still, as above, so a session that fixes what was raised has its fixes looked at.
 
 #### Your review
 
-A PR's Review tab is your review of it. A draft review of yours on GitHub, the agent's or one you
+A PR's Reviews tab starts with your review of it, over everyone else's (under Your review, or The
+agent's review for a PR of yours). A draft review of yours on GitHub, the agent's or one you
 began there, shows as it will go: its text, then each of its comments with its file and line, the
 lines around it from the PR's diff, and Outdated on one whose line has changed since. Edit text and
 a comment's Edit change them on GitHub at once (⌘⏎ saves, Escape leaves it), and Remove takes a
@@ -573,7 +574,7 @@ toast after say when a draft goes with it. Without a draft, the box gives a revi
 box stays at the foot of the panel and the card while the details scroll over it, with Review and
 Ask (see *Waiting on you*) at its foot, and over it, always, a line saying where the PR's review
 stands: the agent's round, your draft and its comments, or that there's none yet; a click on it
-shows the Review tab. Every agent review ends on what the agent would do with the PR, a `Verdict:`
+shows the Reviews tab. Every agent review ends on what the agent would do with the PR, a `Verdict:`
 line (approve, request changes or comment) that isn't posted: the line says what it suggests, and
 its button in the box is marked with sparkles. When it suggests requesting changes or commenting,
 and its review of the commit the PR's at hasn't been submitted, that button is the filled one and
@@ -629,7 +630,7 @@ their own PRs, the reviewer told it's the team's; `[reviews] never_submit`, the 
 the team only suggests: `[reviews] auto` and `post`, `[reviews.own] auto` and `send`, and
 `[pull_requests] nudge_by_default`. Settings, with the repo picked, lists the suggestions you don't
 have yet with Use them, which writes them into your table for the repo; and the first PR of the
-repo whose Review tab has nothing to show says them there once, with Use them and a cross that
+repo whose Reviews tab has nothing to show says them there once, with Use them and a cross that
 dismisses them for good (until the team comes to suggest something else). Accounts, models, a
 person's own prompt and what's submitted as them stay theirs: a file that sets one of them, or a
 value that isn't one, goes unused, and a notice says why; a key this Codealong doesn't know (a
@@ -678,19 +679,31 @@ session marked; a click on a session shows it in the panel, on a worktree shows 
 and a right-click gives either's menu). A PR's row names one of its sessions the same way, its
 primary one first, and how many more; a todo's row names up to three. The chevron
 beside the title opens its details, and they stay open for the next PR until you close them: the
-whole title, its repo, branch, author, when it was opened and its commits, who reviewed it and who's
-asked to, and the chips as a tree. ⇧⌘F (or the button beside the chevron) expands the panel to the
-whole window, as a session's does in Sessions, for reading its description and diffs at the
-window's width. Under the merge box are its parts as tabs,
-which stay at the top as what's under them scrolls (← → between them): Description, its description
-then its comments (with `[jev] pull_requests`, the ones asking the author for a change or an answer
-are marked and listed first); Changes, its changed files with their diffs (each file's name, then
-its folder; a filter beside Files changed, which the file count goes to and which stays under the
-tabs as the list scrolls, narrows them to the paths holding every word typed, `-word` leaving some
-out, then lists the files whose changes mention the words, which are marked in the paths and diffs;
-↑ ↓ and ⏎ open one, Escape clears it, ⌘F in the PR's panel or card comes back to it); and Review (see *Your
-review*). A PR opens on the tab it showed last, else on Review when the agent's review is there to
-read and the PR waits on yours, else on Description. The tree under On this Mac says whether the
+whole title, its repo, branch, author, when it was opened and its commits, and the chips as a tree.
+⇧⌘F (or the button beside the chevron) expands the panel to the whole window, as a session's does
+in Sessions, for reading its description and diffs at the window's width. Under the merge box are
+its parts as tabs, by whose words they are, which stay at the top as what's under them scrolls
+(← → between them): Description, what its author wrote of it; Changes, its changed files with their
+diffs (each file's name, then its folder; a filter beside Files changed, which the file count goes
+to and which stays under the tabs as the list scrolls, narrows them to the paths holding every word
+typed, `-word` leaving some out, then lists the files whose changes mention the words, which are
+marked in the paths and diffs; ↑ ↓ and ⏎ open one, Escape clears it, ⌘F in the PR's panel or card
+comes back to it); and Reviews, your review first (see *Your review*), then everyone's.
+
+Everyone on the PR is listed once under Reviews and comments: whoever asked for changes first, then
+whoever commented, approved or was dismissed, then whoever is asked to review and hasn't, then
+whoever only wrote (its author, bots). Each says where their review stands (their last approval or
+request for changes, else a comment), Asked again when their review was asked for since, and under
+it everything they wrote: their reviews' text, the threads they began on the code, and their
+comments on the conversation. What's still open comes first, marked down its left edge: a thread
+nobody resolved, and, with `[jev] pull_requests`, a comment asking for a change or an answer. A
+thread says its file and line, has the lines around it from the PR's diff while it's open, and says
+how many replies follow; a resolved one is folded to a line. A click on any comment's head opens it
+on GitHub, where its replies are. Three show for each person, besides what's open, until Show more,
+and a long report (a bot's) shows cut short until Show all. The tab counts your draft's comments
+while you have a draft, else what's still open from others. A PR opens on the tab it showed last,
+else on Reviews when the agent's review is there to read and the PR waits on yours, or when someone
+asked for changes to a PR of yours, else on Description. The tree under On this Mac says whether the
 worktree has anything GitHub doesn't, and lists the agents that worked on the PR, including one
 that made the worktree from another folder, with each one's title and what it's doing. Clicking one
 of those sessions, here or in a todo's panel, shows it in the panel (its conversation, a box to

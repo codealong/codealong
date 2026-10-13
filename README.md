@@ -432,7 +432,7 @@ branch its pull requests merge into (so a change goes for the team once it's mer
 [reviews]
 instructions_file = "review.md"  # .codealong/review.md, added after each person's own instructions; or `instructions = "…"`
 never_submit = ["approve"]       # verdicts never submitted as anyone's review, whatever their `submit` says
-auto = true                      # suggested: each person takes it in Settings or a PR's Review tab, or doesn't
+auto = true                      # suggested: each person takes it in Settings or a PR's Reviews tab, or doesn't
 post = "comment"                 # suggested
 
 [reviews.own]

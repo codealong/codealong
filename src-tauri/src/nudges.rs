@@ -433,7 +433,7 @@ mod tests {
     const B: &str = "claude:claude:b";
 
     fn comment(id: &str, author: &str, body: &str, at: i64, path: Option<&str>, mine: bool) -> PrComment {
-        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), resolved: false, mine, review: None }
+        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), line: None, outdated: false, replies: 0, resolved: false, mine, review: None }
     }
 
     fn detail(reviews: Vec<PrReview>, comments: Vec<PrComment>) -> PrDetail {
@@ -609,7 +609,7 @@ mod tests {
         let text = message(&Job { last: true, ..job.clone() }, Some(Err("gh timed out after 30s")), Some("me")).unwrap().unwrap();
         assert!(text.contains("- It was approved.\n"), "{text}");
         // Read: what others wrote.
-        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
+        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
         assert!(message(&job, Some(Ok(&d)), Some("me")).unwrap().unwrap().contains("- ken approved it.\n"));
     }
 
@@ -618,9 +618,9 @@ mod tests {
         let p = pr("o/r#1", PrState::Changes, &[A]);
         let d = detail(
             vec![
-                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 10) },
-                PrReview { author: "me".into(), state: "COMMENTED".into(), at: Some(UPDATED + 20) },
-                PrReview { author: "old".into(), state: "APPROVED".into(), at: Some(UPDATED - 1) },
+                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 10), mine: false },
+                PrReview { author: "me".into(), state: "COMMENTED".into(), at: Some(UPDATED + 20), mine: false },
+                PrReview { author: "old".into(), state: "APPROVED".into(), at: Some(UPDATED - 1), mine: false },
             ],
             vec![
                 comment("c1", "ana", "Please add a test.", UPDATED + 10, None, false),
@@ -644,7 +644,7 @@ mod tests {
     #[test]
     fn says_an_approval_a_merge_and_failing_checks() {
         let approved = PrItem { merge: Merge::Clean, ..pr("o/r#1", PrState::Approved, &[A]) };
-        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
+        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
         let text = words(&approved, &Why { since: Some(UPDATED), approved: true, ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
         // The approval is news, never a go-ahead to merge.
         assert_eq!(text, "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- ken approved it.\nIt's ready to merge. This message doesn't ask you to merge it: merge it only if you were asked to.");
@@ -714,9 +714,9 @@ mod tests {
         // said.
         let d = detail(
             vec![
-                PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) },
-                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 2) },
-                PrReview { author: "bo".into(), state: "DISMISSED".into(), at: Some(UPDATED + 3) },
+                PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false },
+                PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 2), mine: false },
+                PrReview { author: "bo".into(), state: "DISMISSED".into(), at: Some(UPDATED + 3), mine: false },
             ],
             vec![comment("c1", "ken", "Looks good.", UPDATED + 1, None, false), comment("c2", "ken", "Nit: a map.", UPDATED + 1, Some("src/a.ts"), false), comment("c3", "ana", "Add a test.", UPDATED + 2, None, false)],
         );
@@ -728,7 +728,7 @@ mod tests {
         );
         assert!(words(&approved, &why, Some(&d), Some("me"), NudgeAbout::Everything).unwrap().contains("- ken approved it: “Looks good.”\n"));
         // Only an approval: nothing to say. Nor anything about a PR that ended.
-        let only = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1) }], vec![]);
+        let only = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
         assert_eq!(words(&approved, &why, Some(&only), Some("me"), NudgeAbout::Feedback), None);
         assert_eq!(words(&merged, &Why { since: Some(UPDATED), ended: Some(PrState::Merged), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::FeedbackAndChecks), None);
         // Two approvals by one reviewer since: the detail keeps the latest as the review, and the

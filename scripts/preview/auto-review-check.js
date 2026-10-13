@@ -1,7 +1,7 @@
 // Checks what's shown of Codealong's automatic reviews (autoreview.rs, `[reviews]`) and your draft
 // review, in a PR panel's tabs (PrInspector.tsx `PrDetails`). The latest open PR is made one that
 // waits on your review, whose agent reviewed an earlier commit into a draft review of yours, with
-// new commits since: its panel opens on its Review tab (agentReview.ts `openingTab`), which counts
+// new commits since: its panel opens on its Reviews tab (agentReview.ts `openingTab`), which counts
 // the draft's comments, beside Description and Changes, which counts its files. The tab says
 // where the latest round stands (review.ts `autoReviewWords`), its Draft link the PR's files
 // (open_url) and, when the PR lists a session, the session. Then your draft as GitHub has it
@@ -12,16 +12,16 @@
 // (edit_draft_comment) and shows what it says now; Remove asks for a second click, then takes it
 // out (drop_draft_comment), and the counts drop; the text is changed (edit_draft). The box fixed
 // at the panel's foot (PrBox.tsx) has the line over it saying where the review stands and what
-// the agent suggests (asking for changes, its button marked so), which shows the Review tab from
+// the agent suggests (asking for changes, its button marked so), which shows the Reviews tab from
 // another; Approve there with your words sends review_pr, the toast says the draft went with its
 // comment, and once GitHub has no draft but your approval of the agent's review, the tab says you
 // submitted it and shows what the agent wrote (pr_agent_reviews, stubbed), the review of an
 // earlier commit a click away, saying whose and when. The file count goes to Changes. The next
-// PR's review didn't finish: it opens on Description, and its Review tab says why in red. The
+// PR's review didn't finish: it opens on Description, and its Reviews tab says why in red. The
 // third is still being reviewed, so it's held out of what waits on you (prStatus.ts
-// `heldForAgent`): its row says Agent reviewing in place of Awaiting review, its Review tab has a
+// `heldForAgent`): its row says Agent reviewing in place of Awaiting review, its Reviews tab has a
 // dot, and says it waits on you once that's done. A fourth is made a PR of yours an agent
-// reviewed (`[reviews.own]`) with handing back off: it opens on Review, says why its review hasn't
+// reviewed (`[reviews.own]`) with handing back off: it opens on Reviews, says why its review hasn't
 // gone back, and Send hands it to the session that opened it (send_agent_review). Then Settings ›
 // Automation (no longer Accounts) has the switch, off by default, with the PR nudge, the usage
 // limit and the network error; off, the reviewer and where reviews go still show, since Review
@@ -186,10 +186,10 @@
     try {
       await until(function () { return posted && row(posted); }, 20000, 'no open PR to give a review');
       press(row(posted));
-      await until(function () { return !!auto() && !!tab('Review'); }, 5000, 'the PR panel shows no automatic review');
+      await until(function () { return !!auto() && !!tab('Reviews'); }, 5000, 'the PR panel shows no automatic review');
       var labels = all('.ca-prinsp .ca-tab').map(function (t) { return t.firstChild.textContent; });
-      check('the PR’s parts are tabs: Description, Changes and Review', labels.join(' | ') === 'Description | Changes | Review', labels.join(' | '));
-      check('it opens on Review, as the agent’s review waits there', shownTab() === 'Review' && !hidden(auto()) && hidden(q('.ca-prinsp [aria-label="Description"]')), shownTab());
+      check('the PR’s parts are tabs: Description, Changes and Reviews', labels.join(' | ') === 'Description | Changes | Reviews', labels.join(' | '));
+      check('it opens on Reviews, as the agent’s review waits there', shownTab() === 'Reviews' && !hidden(auto()) && hidden(q('.ca-prinsp [aria-label="Description"]')), shownTab());
       var fileCount = q('.ca-prinsp .ca-prinsp-files') || q('.ca-prinsp .ca-prinsp-size');
       check('Changes counts its files', !!tabCount('Changes') && fileCount.textContent.indexOf(tabCount('Changes') + ' file') >= 0, tabCount('Changes') + ' / ' + fileCount.textContent);
       var says = q('.ca-prinsp-auto-says').textContent;
@@ -200,7 +200,7 @@
       check('which opens the PR’s files, where your draft is', calls('open_url').some(function (c) { return c[1].url === prUrl + '/files'; }), JSON.stringify(calls('open_url')));
       var next = (q('.ca-prinsp-auto-note') || {}).textContent;
       check('that new commits get another, the draft saying that only you see it', next === 'New commits since: it reviews them again once they settle.', next);
-      check('Review counts the draft’s comments', tabCount('Review') === '2', tabCount('Review'));
+      check('Reviews counts the draft’s comments', tabCount('Reviews') === '2', tabCount('Reviews'));
       if (session) {
         check('Session is there for the PR’s session', !!linkbtn('Session'), all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
       } else {
@@ -241,7 +241,7 @@
       press(button('Click again to remove', second));
       await until(function () { return calls('drop_draft_comment').length === 1 && all('.ca-agentrev-comment').length === 1; }, 3000, 'the comment wasn’t taken out');
       check('the second takes it out, on GitHub', calls('drop_draft_comment')[0][1].id === 'PRRC_2', JSON.stringify(calls('drop_draft_comment')[0][1]));
-      await until(function () { return tabCount('Review') === '1'; }, 3000, 'Review still counts 2');
+      await until(function () { return tabCount('Reviews') === '1'; }, 3000, 'Reviews still counts 2');
       check('and the counts drop', q('.ca-agentrev-drafttitle').textContent === 'Your draft review · 1 comment', q('.ca-agentrev-drafttitle').textContent);
       // Its text changed.
       press(button('Edit text'));
@@ -262,8 +262,8 @@
       press(tab('Description'));
       await until(function () { return shownTab() === 'Description'; }, 2000, 'Description never showed');
       press(line);
-      await until(function () { return shownTab() === 'Review'; }, 2000, 'the line didn’t show the Review tab');
-      check('a click on the line shows the Review tab', shownTab() === 'Review', shownTab());
+      await until(function () { return shownTab() === 'Reviews'; }, 2000, 'the line didn’t show the Reviews tab');
+      check('a click on the line shows the Reviews tab', shownTab() === 'Reviews', shownTab());
       type(q('textarea', verdict), 'LGTM once that’s fixed.');
       press(button('Approve', verdict));
       await until(function () { return calls('review_pr').length === 1; }, 3000, 'Approve sent nothing');
@@ -288,9 +288,9 @@
       check('Description shows its description', shownTab() === 'Description' && !hidden(q('.ca-prinsp [aria-label="Description"]')), shownTab());
       if (failed && row(failed)) {
         press(row(failed));
-        await until(function () { return !!tab('Review') && q('.ca-prinsp .ca-insp-call').textContent === failed; }, 5000, 'the second PR never showed');
+        await until(function () { return !!tab('Reviews') && q('.ca-prinsp .ca-insp-call').textContent === failed; }, 5000, 'the second PR never showed');
         check('a PR whose review didn’t finish opens on its description', shownTab() === 'Description', shownTab());
-        press(tab('Review'));
+        press(tab('Reviews'));
         await until(function () { return auto() && /didn’t finish/.test(auto().textContent); }, 5000, 'the second PR shows no failed review');
         var red = getComputedStyle(q('.ca-prinsp-auto-says')).color;
         var alert = getComputedStyle(document.documentElement).getPropertyValue('--alert').trim();
@@ -302,9 +302,9 @@
         var pills = all('.ca-prpill-text', row(held)).map(function (p) { return p.textContent.trim(); });
         check('a PR the agent is still on says so on its row', pills.some(function (t) { return t === 'Agent reviewing'; }), pills.join(', '));
         press(row(held));
-        await until(function () { return !!tab('Review') && q('.ca-prinsp .ca-insp-call').textContent === held; }, 5000, 'the third PR never showed');
-        check('its Review tab has a dot while the agent reviews it', !!q('.ca-tab-busy', tab('Review')), '');
-        press(tab('Review'));
+        await until(function () { return !!tab('Reviews') && q('.ca-prinsp .ca-insp-call').textContent === held; }, 5000, 'the third PR never showed');
+        check('its Reviews tab has a dot while the agent reviews it', !!q('.ca-tab-busy', tab('Reviews')), '');
+        press(tab('Reviews'));
         await until(function () { return auto() && /Agent reviewing 5555555/.test(auto().textContent); }, 5000, 'the held PR shows no review under way');
         var why = q('.ca-prinsp-auto-note').textContent;
         check('and its panel that it waits on your review once that’s done', why === 'It waits on your review once the agent’s is done.', why);
@@ -313,8 +313,8 @@
       }
       if (yours && row(yours)) {
         press(row(yours));
-        await until(function () { return !!tab('Review') && q('.ca-prinsp .ca-insp-call').textContent === yours; }, 5000, 'your PR never showed');
-        check('a PR of yours an agent reviewed opens on Review', shownTab() === 'Review', shownTab());
+        await until(function () { return !!tab('Reviews') && q('.ca-prinsp .ca-insp-call').textContent === yours; }, 5000, 'your PR never showed');
+        check('a PR of yours an agent reviewed opens on Review', shownTab() === 'Reviews', shownTab());
         await until(function () { return auto() && /Agent reviewed 6666666/.test(auto().textContent); }, 5000, 'your PR shows no agent review');
         var sendTo = all('.ca-prinsp-auto .ca-linkbtn').filter(function (b) { return /^Send to “/.test(b.textContent); })[0];
         check('it says why its review hasn’t gone back, and offers to send it to the session that opened it', !!sendTo && q('.ca-prinsp-auto-note').textContent === 'Handing reviews back is off: send it from here.', all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));

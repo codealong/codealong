@@ -2,7 +2,7 @@
 // while its details scroll: the one component both draw, with what it holds kept by `usePrBox` so
 // a window's own keys can give its verdicts. Over it, always, a line saying where the PR's review
 // stands (an agent's round, what the agent suggests, your draft review on GitHub), which a click
-// takes to the PR's Review tab.
+// takes to the PR's Reviews tab.
 //
 // The box has two sides, Review and Ask, a switch at its foot, each with a draft of its own kept
 // per PR while the window goes from one PR to the next. Review's verdicts are Request changes,
@@ -237,12 +237,12 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
   return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, agents, accounts, switchTo, review, ask, pickAnswerer };
 }
 
-/** Where the PR's review stands, over its box: a click shows its Review tab. */
+/** Where the PR's review stands, over its box: a click shows its Reviews tab. */
 function ReviewLine({ pr, draft, onShowReview }: { pr: PrItem; draft: Draft | null; onShowReview: () => void }) {
   const { icon, says, busy } = reviewLineWords(pr, draft);
   const suggests = pr.autoReview?.suggests;
   return (
-    <button type="button" className={cx('ca-prbox-line', busy && 'is-busy')} title="Show its Review tab" onClick={onShowReview}>
+    <button type="button" className={cx('ca-prbox-line', busy && 'is-busy')} title="Show its Reviews tab" onClick={onShowReview}>
       <Icon name={icon} size={12} />
       <span className="ca-prbox-line-says">{says}</span>
       {suggests && !pr.autoReview?.submitted && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
@@ -264,7 +264,7 @@ export interface PrBoxProps {
   ownKeys?: boolean;
   /** A verdict goes on to what waits next (a card's window). */
   goesOn?: boolean;
-  /** Shows the PR's Review tab. */
+  /** Shows the PR's Reviews tab. */
   onShowReview: () => void;
   className?: string;
 }

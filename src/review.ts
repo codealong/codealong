@@ -1,7 +1,7 @@
 // Review with…: Codealong's own review of a PR (autoreview.rs), started by hand on the account
 // picked: the same round `[reviews] auto` starts, the PR written out for the reviewer, told what
 // Settings says, its review posted and submitted as Settings says, and shown on the PR's card and
-// in its Review tab (`review_pr_now`). Codex's app has a review page of its own (`codex://review`),
+// in its Reviews tab (`review_pr_now`). Codex's app has a review page of its own (`codex://review`),
 // offered beside it. And the account that answers questions about a PR in its card's box (Ask,
 // PrCard.tsx): the one picked there, else Auto's.
 
@@ -93,7 +93,7 @@ export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: numbe
 /**
  * Review with…'s items, as every window builds them (`reviewPicks` says which): each starts a
  * round of Codealong's own reviews of the PR now (autoreview.rs `review_now`), whatever `[reviews]
- * auto` says, its progress and its review on the PR's card and in its Review tab, posted and
+ * auto` says, its progress and its review on the PR's card and in its Reviews tab, posted and
  * submitted as Settings says; or opens the PR's review page in the Codex app. A PR the board
  * doesn't list (no `key`) has only that. How it went is reported the window's way (a start under
  * way through `report.busy`, where the window shows one), and `started` hears that the review is

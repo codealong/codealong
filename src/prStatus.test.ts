@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, reviewMark, reviewersWords, type PrFacts } from './prStatus';
+import { asksFor, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, reviewMark, reviewersWords, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -107,6 +107,15 @@ describe('review comments', () => {
   it('shows a comment as plain text on one line', () => {
     expect(commentPreview('**Please** add a [test](http://x)\n\n```ts\ncode\n```')).toBe('Please add a test [code]');
     expect(commentPreview('a'.repeat(300), 10)).toBe('aaaaaaaaa…');
+    expect(commentPreview('<details><summary>Preview</summary>\n\nDeployed <img src="x"> here</details>')).toBe('Preview Deployed here');
+  });
+
+  it('shows a comment as the Markdown view draws it, without GitHub’s hidden marks or HTML', () => {
+    const posted = 'Looks right.\n\n<sub>An agent’s review of 1111111, posted by Codealong.</sub>\n<!-- codealong-review o/r#7 1111111aaaa -->';
+    expect(commentText(posted)).toBe('Looks right.\n\n*An agent’s review of 1111111, posted by Codealong.*');
+    expect(commentText('<p align="center">Hi<br/>there</p>\n\n\n\nBye')).toBe('Hi\nthere\n\nBye');
+    // A type in a comment isn't a tag.
+    expect(commentText('Use `Vec<String>` and `Option<T>`.')).toBe('Use `Vec<String>` and `Option<T>`.');
   });
 });
 

@@ -190,9 +190,26 @@ export function asksFor(comments: PrComment[], asks: Record<string, number>): Se
   return new Set(commentsToAsk(comments).filter((c) => (asks[c.id] ?? 0) >= ASKS_AT).map((c) => c.id));
 }
 
+/** The HTML tags people and bots write into GitHub comments, which GitHub draws and the Markdown
+ *  view doesn't. Named, so that `Vec<String>` in a comment keeps its type. */
+const HTML_TAG = /<\/?(?:a|b|br|details|div|em|h[1-6]|hr|i|img|li|ol|p|picture|source|span|strong|summary|sup|table|tbody|td|th|thead|tr|ul)\b[^>]*>/gi;
+
+/** A GitHub comment's text as the Markdown view shows it (ui/Markdown.tsx): its hidden HTML
+ *  comments dropped (Codealong's marks on the reviews it posts are some), the line saying an agent
+ *  wrote it, which GitHub shows small (`<sub>`), in italics, and the HTML tags it draws left out. */
+export function commentText(body: string): string {
+  return body
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<sub>([\s\S]*?)<\/sub>/gi, (_, inner: string) => `*${inner.trim()}*`)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(HTML_TAG, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** A comment's text for a list: Markdown's marks dropped, on one line, cut short. */
 export function commentPreview(body: string, max = 280): string {
-  const text = body
+  const text = commentText(body)
     .replace(/```[\s\S]*?```/g, ' [code] ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' [image] ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')

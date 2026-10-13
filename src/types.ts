@@ -1304,7 +1304,7 @@ export interface AutoReview {
   /** The session this round's review went back to, and when. */
   sent?: string | null;
   sentAt?: number | null;
-  /** The session it goes back to, which can be sent it now, for the Review tab's Send. */
+  /** The session it goes back to, which can be sent it now, for the Reviews tab's Send. */
   sendable?: string | null;
   /** What this round's agent would do with the PR, which its windows suggest. */
   suggests?: Verdict | null;
@@ -1324,6 +1324,8 @@ export interface PrReview {
   author: string;
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | string;
   at: number | null;
+  /** Given by you. Missing from older engines. */
+  mine?: boolean;
 }
 
 export interface PrFile {
@@ -1358,9 +1360,18 @@ export interface PrComment {
   url: string | null;
   /** The file a thread on the code is about. */
   path: string | null;
+  /** A thread on the code: its line in the file's new version, none for one on the whole file
+   *  or one the PR's changes since moved. Missing from older engines. */
+  line?: number | null;
+  /** A thread on the code whose line the PR's changes since moved or changed. */
+  outdated?: boolean;
+  /** A thread on the code: how many replies follow its first comment. */
+  replies?: number;
   resolved: boolean;
   /** Written by you. */
   mine: boolean;
+  /** A review's own text: that review's verdict (`PrReview.state`). */
+  review?: string;
 }
 
 /** Where a new session runs: the terminal, or the Claude or Codex app. */

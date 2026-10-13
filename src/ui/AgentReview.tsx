@@ -1,5 +1,6 @@
-// A PR's Review tab (PrInspector.tsx `PrDetails`), in its panel and its cards: your review of it.
-// First where Codealong's own review of it stands (autoreview.rs, `[reviews]`), with the session
+// The top of a PR's Reviews tab (PrInspector.tsx `PrDetails`), in its panel and its cards: your
+// review of it, over everyone's (PrReviewers.tsx), under a heading of its own when theirs follow;
+// a PR of yours shows here only the agent's review of it, and nothing when it has none. First where Codealong's own review of it stands (autoreview.rs, `[reviews]`), with the session
 // that wrote it a click away. Then your draft review on GitHub, when you have one (prDraft.ts),
 // the agent's or one you began there, as it will go: its text and each comment on a line of the
 // code, with the lines around it from the PR's diff, its file and line opening that line on
@@ -54,7 +55,7 @@ function Links({ link, session, sessions, onShowSession }: { link: string | null
 }
 
 /** A few lines of the diff around a comment's line, the line marked. */
-function Excerpt({ lines }: { lines: ExcerptLine[] }) {
+export function Excerpt({ lines }: { lines: ExcerptLine[] }) {
   return (
     <pre className="ca-patch ca-agentrev-code">
       {lines.map((l, i) => (
@@ -83,7 +84,7 @@ function Where({ pr, commit, path, line }: { pr: PrItem; commit: string; path: s
 }
 
 /** The lines around a comment's line, from the PR's diff as it is now. */
-function around(detail: PrDetail | undefined, path: string, line: number | null): ExcerptLine[] {
+export function around(detail: PrDetail | undefined, path: string, line: number | null): ExcerptLine[] {
   const patch = detail?.files.find((f) => f.path === path)?.patch;
   return patch && line != null ? excerptAt(patch, line) : [];
 }
@@ -347,8 +348,10 @@ export interface PrReviewProps {
   /** The PR's sessions, each with its worktree, for showing the one that reviewed it. */
   sessions: { lane: Lane; session: Session }[];
   onShowSession: (lane: Lane, session: Session) => void;
-  /** The repos' team files: the Review tab says, once, what this PR's repo's team suggests. */
+  /** The repos' team files: the Reviews tab says, once, what this PR's repo's team suggests. */
   teamFiles?: TeamFile[];
+  /** Whether everyone's reviews follow it in the tab (PrReviewers.tsx); null while they're read. */
+  others: boolean | null;
 }
 
 /** The team offers dismissed (repoSettings.ts `offerKey`), in every window: one comes back only
@@ -358,7 +361,7 @@ const NONE_DISMISSED: string[] = [];
 /** How many dismissals are kept: the latest. */
 const DISMISSED_MOST = 50;
 
-/** What a PR's repo's team suggests that you don't have, in place of what an empty Review tab
+/** What a PR's repo's team suggests that you don't have, in place of what an empty Reviews tab
  *  says, with Use them, until dismissed. */
 function TeamOffer({ file, onDismiss }: { file: TeamFile; onDismiss: () => void }) {
   const [taking, setTaking] = useState(false);
@@ -390,7 +393,7 @@ function TeamOffer({ file, onDismiss }: { file: TeamFile; onDismiss: () => void 
   );
 }
 
-export function PrReview({ pr, detail, now, yours, sessions, onShowSession, teamFiles }: PrReviewProps) {
+export function PrReview({ pr, detail, now, yours, sessions, onShowSession, teamFiles, others }: PrReviewProps) {
   const review = pr.autoReview;
   const read = yours?.review;
   const draft = read?.draft ?? null;
@@ -401,8 +404,13 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession, team
   const [dismissed, setDismissed] = useStored(DISMISSED_KEY, strings, NONE_DISMISSED);
   const offer = !draft && !review && !yours?.loading ? offerFor(teamFiles, pr, dismissed) : undefined;
   const dismiss = (f: TeamFile) => setDismissed((d) => [...d.filter((k) => k !== offerKey(f)), offerKey(f)].slice(-DISMISSED_MOST));
+  const nothing = !offer && !draft && !review && !yours?.loading;
+  // A PR of yours the agent hasn't reviewed has no review of yours to show, nor one being read:
+  // the tab is everyone else's, and says nobody's there only once they're read.
+  if (pr.mine && !offer && !draft && !review && others !== false && !yours?.error) return null;
   return (
-    <section className="ca-insp-sec ca-agentrev" aria-label="Review">
+    <section className="ca-insp-sec ca-agentrev" aria-label="Your review">
+      {others && <h4 className="ca-label">{pr.mine ? 'The agent’s review' : 'Your review'}</h4>}
       {review && <Standing pr={pr} review={review} now={now} onGitHub={onGitHub} sessions={sessions} onShowSession={onShowSession} teamFiles={teamFiles} />}
       {read?.submitted && !draft && (
         <p className="ca-agentrev-submitted">
@@ -421,7 +429,7 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession, team
       {yours?.error && <p className="ca-form-error">Couldn’t read your review on GitHub: {yours.error}</p>}
       {draft ? <DraftReview pr={pr} draft={draft} detail={detail} verdicts={verdicts} /> : review && <Written pr={pr} review={review} detail={detail} now={now} sessions={sessions} onShowSession={onShowSession} />}
       {offer && <TeamOffer file={offer} onDismiss={() => dismiss(offer)} />}
-      {!offer && !draft && !review && !yours?.loading && <p className="ca-empty">{pr.mine ? 'It’s your PR: who reviewed it is under Checks and reviews, what they said under Description. Settings › Automation can have an agent on another model review the PRs your sessions open, and hand its review back to the session.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
+      {nothing && <p className="ca-empty">{pr.mine ? 'Nobody has reviewed it or written on it yet. Settings › Automation can have an agent on another model review the PRs your sessions open, and hand its review back to the session.' : 'No draft review of yours. Settings › Automation has an agent draft one for each PR that waits on your review.'}</p>}
       {!draft && !review && yours?.loading && <p className="ca-empty">Reading your review on GitHub…</p>}
     </section>
   );

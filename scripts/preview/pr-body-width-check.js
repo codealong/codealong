@@ -58,7 +58,7 @@
       return until(function () { return q('.ca-prbody pre'); }, 5000, 'the description');
     })
     .then(function () {
-      // A PR opens on its Review tab when an agent's review of it waits there: the description
+      // A PR opens on its Reviews tab when an agent's review of it waits there: the description
       // is on Description.
       var tab = all('.ca-tab').filter(function (t) { return t.firstChild && t.firstChild.textContent === 'Description'; })[0];
       if (tab && tab.getAttribute('aria-selected') !== 'true') tab.click();

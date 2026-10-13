@@ -6,7 +6,7 @@
 // value comes from: yours for the repo with Reset, the team's, or as everywhere; the team's words
 // for reviews are there to read. A field changed saves your table for the repo, not [reviews];
 // Reset takes it out. Everywhere has no source tags and has the usage limits. In the PRs view: the
-// team's PR, with no review yet, has the team's suggestions in its Review tab in place of what an
+// team's PR, with no review yet, has the team's suggestions in its Reviews tab in place of what an
 // empty one says; Use them takes them, and the cross dismisses them for good (localStorage), the
 // empty tab's words back.
 //   PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/team-settings-check.js
@@ -44,11 +44,11 @@
         await until(row, 10000, 'the team’s PR #' + team.number + ' isn’t listed');
         press(row());
         var tab = function (label) { return all('.ca-prinsp .ca-tab').filter(function (t) { return t.firstChild && t.firstChild.textContent === label; })[0]; };
-        await until(function () { return !!tab('Review'); }, 5000, 'the PR panel has no Review tab');
-        press(tab('Review'));
-        await until(function () { return !!q('.ca-agentrev-offer'); }, 5000, 'the Review tab has no offer from the team');
+        await until(function () { return !!tab('Reviews'); }, 5000, 'the PR panel has no Reviews tab');
+        press(tab('Reviews'));
+        await until(function () { return !!q('.ca-agentrev-offer'); }, 5000, 'the Reviews tab has no offer from the team');
         var offer = q('.ca-agentrev-offer');
-        check('the Review tab says what the team suggests', /suggests: an agent reviews each pull request that waits on your review; an agent on another model reviews the pull requests your sessions open; the session that opened a pull request told what happens on it\./.test(offer.textContent), offer.textContent);
+        check('the Reviews tab says what the team suggests', /suggests: an agent reviews each pull request that waits on your review; an agent on another model reviews the pull requests your sessions open; the session that opened a pull request told what happens on it\./.test(offer.textContent), offer.textContent);
         check('in place of what an empty one says', !q('.ca-agentrev .ca-empty'), '');
         press(button('Use them', offer));
         await until(function () { return calls('take_team_settings').length > 0; }, 3000, 'Use them sent nothing');

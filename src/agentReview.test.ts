@@ -29,15 +29,21 @@ describe('lineLink', () => {
 describe('openingTab', () => {
   const auto = (stage: 'drafted' | 'reviewing' | 'posted') => ({ stage, head: 'abc', at: 0, rounds: 1 });
   it('opens on the review when the agent’s is there to read and the PR waits on yours', () => {
-    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: auto('drafted') })).toBe('review');
-    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: auto('posted') })).toBe('review');
-    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: auto('reviewing') })).toBe('description');
-    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: auto('drafted') })).toBe('description');
-    expect(openingTab({ reviewRequested: true, state: 'merged', autoReview: auto('drafted') })).toBe('description');
-    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: undefined })).toBe('description');
+    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: auto('drafted'), mine: false })).toBe('review');
+    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: auto('posted'), mine: false })).toBe('review');
+    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: auto('reviewing'), mine: false })).toBe('description');
+    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: auto('drafted'), mine: false })).toBe('description');
+    expect(openingTab({ reviewRequested: true, state: 'merged', autoReview: auto('drafted'), mine: false })).toBe('description');
+    expect(openingTab({ reviewRequested: true, state: 'open', autoReview: undefined, mine: false })).toBe('description');
     // A review of a PR of yours, which nobody asked you to review.
-    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('posted'), stage: 'kept', own: true } })).toBe('review');
-    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('reviewing'), own: true } })).toBe('description');
+    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('posted'), stage: 'kept', own: true }, mine: true })).toBe('review');
+    expect(openingTab({ reviewRequested: false, state: 'open', autoReview: { ...auto('reviewing'), own: true }, mine: true })).toBe('description');
+  });
+  it('opens a PR of yours on its reviews when someone asked for changes to it', () => {
+    expect(openingTab({ reviewRequested: false, state: 'changes', autoReview: undefined, mine: true })).toBe('review');
+    expect(openingTab({ reviewRequested: false, state: 'approved', autoReview: undefined, mine: true })).toBe('description');
+    // Someone else's: what you'd look at first is still what it does.
+    expect(openingTab({ reviewRequested: false, state: 'changes', autoReview: undefined, mine: false })).toBe('description');
   });
 });
 

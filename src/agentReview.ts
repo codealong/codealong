@@ -55,16 +55,17 @@ export function lineLink(repoSlug: string, commit: string, path: string, line: n
 /** The parts of a PR its details show one at a time (PrInspector.tsx `PrDetails`). */
 export type PrTab = 'description' | 'changes' | 'review';
 
-/** The tab a PR's details open on, when it hasn't shown one yet: its review, when the agent's
- *  is there to read and the PR still waits on yours, or it's a review of a PR of yours, else its
- *  description. */
-export function openingTab(pr: Pick<PrItem, 'reviewRequested' | 'state' | 'autoReview'>): PrTab {
+/** The tab a PR's details open on, when it hasn't shown one yet: its reviews, when the agent's
+ *  is there to read and the PR still waits on yours, when it's a review of a PR of yours, or when
+ *  someone asked for changes to a PR of yours, else its description. */
+export function openingTab(pr: Pick<PrItem, 'reviewRequested' | 'state' | 'autoReview' | 'mine'>): PrTab {
   const a = pr.autoReview;
   const stage = a?.stage;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   const theirs = pr.reviewRequested && (stage === 'drafted' || stage === 'posted' || stage === 'kept');
   const yours = !!a?.own && stage === 'kept';
-  return open && (theirs || yours) ? 'review' : 'description';
+  const asked = pr.mine && pr.state === 'changes';
+  return open && (theirs || yours || asked) ? 'review' : 'description';
 }
 
 /** The verdict a PR's box submits the agent's review as, in one press (PrBox.tsx; autoreview.rs

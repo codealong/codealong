@@ -847,7 +847,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       reviews(last: 50) { nodes { id author { login } state submittedAt body url } }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       comments(last: 50) { nodes { id author { login } body createdAt url } }
-      reviewThreads(last: 50) { nodes { isResolved path comments(first: 1) { nodes { id author { login } body createdAt url } } } }
+      reviewThreads(last: 50) { nodes { isResolved isOutdated path line comments(first: 1) { totalCount nodes { id author { login } body createdAt url } } } }
     }
   }
 }
@@ -860,6 +860,8 @@ pub struct PrReview {
     /// `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED` or `DISMISSED`.
     pub state: String,
     pub at: Option<i64>,
+    /// Given by whoever `gh` is signed in as.
+    pub mine: bool,
 }
 
 /// A comment on a PR: on the conversation, a review's own text, or the first comment of a
@@ -875,6 +877,14 @@ pub struct PrComment {
     pub url: Option<String>,
     /// The file a thread on the code is about.
     pub path: Option<String>,
+    /// A thread on the code: its line in the file's new version, none for one on the whole file
+    /// or one the PR's changes since moved (`outdated`). The windows show the lines around it
+    /// from the PR's diff.
+    pub line: Option<u64>,
+    /// A thread on the code whose line the PR's changes since moved or changed.
+    pub outdated: bool,
+    /// A thread on the code: how many replies follow its first comment.
+    pub replies: u64,
     /// A thread on the code that's been resolved.
     pub resolved: bool,
     /// Written by whoever `gh` is signed in as.
@@ -932,9 +942,13 @@ impl PrDetail {
             body: self.body,
             mergeable: self.mergeable,
             commits: self.commits,
-            reviews: self.reviews.into_iter().map(|r| pr::Review { author: r.author, state: r.state, at: r.at }).collect(),
+            reviews: self.reviews.into_iter().map(|r| pr::Review { author: r.author, state: r.state, at: r.at, mine: r.mine }).collect(),
             requested: self.requested,
-            comments: self.comments.into_iter().map(|c| pr::Comment { id: c.id, author: c.author, body: c.body, at: c.at, url: c.url, path: c.path, resolved: c.resolved, mine: c.mine }).collect(),
+            comments: self
+                .comments
+                .into_iter()
+                .map(|c| pr::Comment { id: c.id, author: c.author, body: c.body, at: c.at, url: c.url, path: c.path, line: c.line, outdated: c.outdated, replies: c.replies, resolved: c.resolved, mine: c.mine, review: c.review })
+                .collect(),
             files: self.files.into_iter().map(|f| pr::File { path: f.path, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }).collect(),
             more_files: self.more_files,
             draft: None,
@@ -962,6 +976,7 @@ pub fn detail(slug: &str, number: u64) -> Result<PrDetail> {
 pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
     let v: Value = serde_json::from_str(graph)?;
     let pr = v.pointer("/data/repository/pullRequest").ok_or_else(|| anyhow!("GitHub didn't return the PR"))?;
+    let viewer = v.pointer("/data/viewer/login").and_then(Value::as_str);
     let mut latest: Vec<PrReview> = Vec::new();
     for r in pr.pointer("/reviews/nodes").and_then(Value::as_array).into_iter().flatten() {
         let Some(author) = r.pointer("/author/login").and_then(Value::as_str) else { continue };
@@ -974,7 +989,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
                 x.state = state;
                 x.at = at;
             }
-            None => latest.push(PrReview { author: author.to_string(), state, at }),
+            None => latest.push(PrReview { author: author.to_string(), state, at, mine: viewer == Some(author) }),
         }
     }
     let requested = pr
@@ -987,8 +1002,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             r.get("login").or_else(|| r.get("name")).and_then(Value::as_str).map(String::from)
         })
         .collect();
-    let viewer = v.pointer("/data/viewer/login").and_then(Value::as_str);
-    let comment = |n: &Value, path: Option<String>, resolved: bool| -> Option<PrComment> {
+    let comment = |n: &Value| -> Option<PrComment> {
         let body = n.get("body").and_then(Value::as_str)?.trim().to_string();
         if body.is_empty() {
             return None;
@@ -1001,21 +1015,29 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             body,
             at: n.get("createdAt").or_else(|| n.get("submittedAt")).and_then(Value::as_str).and_then(parse_rfc3339_ms),
             url: n.get("url").and_then(Value::as_str).map(String::from),
-            path,
-            resolved,
+            path: None,
+            line: None,
+            outdated: false,
+            replies: 0,
+            resolved: false,
             review: None,
         })
     };
     let nodes = |at: &str| pr.pointer(at).and_then(Value::as_array).cloned().unwrap_or_default();
-    let mut comments: Vec<PrComment> = nodes("/comments/nodes").iter().filter_map(|n| comment(n, None, false)).collect();
+    let mut comments: Vec<PrComment> = nodes("/comments/nodes").iter().filter_map(comment).collect();
     let review_state = |n: &Value| Some(n.get("state").and_then(Value::as_str).unwrap_or("COMMENTED").to_string());
-    comments.extend(nodes("/reviews/nodes").iter().filter_map(|n| Some(PrComment { review: review_state(n), ..comment(n, None, false)? })));
+    comments.extend(nodes("/reviews/nodes").iter().filter_map(|n| Some(PrComment { review: review_state(n), ..comment(n)? })));
     for t in nodes("/reviewThreads/nodes") {
-        let path = t.get("path").and_then(Value::as_str).map(String::from);
-        let resolved = t.get("isResolved").and_then(Value::as_bool).unwrap_or(false);
-        if let Some(first) = t.pointer("/comments/nodes/0") {
-            comments.extend(comment(first, path, resolved));
-        }
+        let Some(first) = t.pointer("/comments/nodes/0").and_then(comment) else { continue };
+        let total = t.pointer("/comments/totalCount").and_then(Value::as_u64).unwrap_or(1);
+        comments.push(PrComment {
+            path: t.get("path").and_then(Value::as_str).map(String::from),
+            line: t.get("line").and_then(Value::as_u64),
+            outdated: t.get("isOutdated").and_then(Value::as_bool).unwrap_or(false),
+            replies: total.saturating_sub(1),
+            resolved: t.get("isResolved").and_then(Value::as_bool).unwrap_or(false),
+            ..first
+        });
     }
     comments.sort_by(|a, b| b.at.cmp(&a.at).then(a.id.cmp(&b.id)));
 
@@ -2113,17 +2135,27 @@ mod tests {
         let graph = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"bodyHTML":"","mergeable":null,"commits":{"totalCount":1},
           "reviews":{"nodes":[
             {"id":"R1","author":{"login":"ana"},"state":"CHANGES_REQUESTED","submittedAt":"2026-09-23T13:00:00Z","body":"Please add a test.","url":"u1"},
-            {"id":"R2","author":{"login":"ken"},"state":"APPROVED","submittedAt":"2026-09-23T14:00:00Z","body":"","url":"u2"}]},
+            {"id":"R2","author":{"login":"ken"},"state":"APPROVED","submittedAt":"2026-09-23T14:00:00Z","body":"","url":"u2"},
+            {"id":"R3","author":{"login":"me"},"state":"COMMENTED","submittedAt":"2026-09-23T14:30:00Z","body":"","url":"u6"}]},
           "reviewRequests":{"nodes":[]},
           "comments":{"nodes":[{"id":"C1","author":{"login":"me"},"body":"Done, thanks","createdAt":"2026-09-23T15:00:00Z","url":"u3"}]},
-          "reviewThreads":{"nodes":[{"isResolved":true,"path":"src/a.ts","comments":{"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4"}]}}]}}}}}"#;
+          "reviewThreads":{"nodes":[
+            {"isResolved":true,"isOutdated":false,"path":"src/a.ts","line":12,"comments":{"totalCount":3,"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4"}]}},
+            {"isResolved":false,"isOutdated":true,"path":"src/b.ts","line":null,"comments":{"totalCount":1,"nodes":[{"id":"T2","author":{"login":"ana"},"body":"Typo.","createdAt":"2026-09-23T11:00:00Z","url":"u5"}]}}]}}}}}"#;
         let d = parse_detail(graph, "[]").unwrap();
         let got: Vec<(&str, bool, bool, Option<&str>)> = d.comments.iter().map(|c| (c.id.as_str(), c.mine, c.resolved, c.path.as_deref())).collect();
         // The approval with nothing written is left out.
-        assert_eq!(got, vec![("C1", true, false, None), ("R1", false, false, None), ("T1", false, true, Some("src/a.ts"))]);
+        assert_eq!(got, vec![("C1", true, false, None), ("R1", false, false, None), ("T1", false, true, Some("src/a.ts")), ("T2", false, false, Some("src/b.ts"))]);
         // A review's own text says which review it was.
         let reviews: Vec<Option<&str>> = d.comments.iter().map(|c| c.review.as_deref()).collect();
-        assert_eq!(reviews, vec![None, Some("CHANGES_REQUESTED"), None]);
+        assert_eq!(reviews, vec![None, Some("CHANGES_REQUESTED"), None, None]);
+        // A thread says its line, whether the PR moved it since, and how many replies follow.
+        let threads: Vec<(Option<u64>, bool, u64)> = d.comments[2..].iter().map(|c| (c.line, c.outdated, c.replies)).collect();
+        assert_eq!(threads, vec![(Some(12), false, 2), (None, true, 0)]);
+        assert_eq!((d.comments[0].line, d.comments[0].replies), (None, 0));
+        // Each standing review says whether it's yours, a review with nothing written too.
+        let mine: Vec<(&str, bool)> = d.reviews.iter().map(|r| (r.author.as_str(), r.mine)).collect();
+        assert_eq!(mine, vec![("ana", false), ("ken", false), ("me", true)]);
     }
 
     /// What a conversation about a PR reads of it: the description as written, where reviews

@@ -1,4 +1,4 @@
-// Your review of a PR on GitHub, as its Review tab and its card's box know it (github.rs
+// Your review of a PR on GitHub, as its Reviews tab and its card's box know it (github.rs
 // `your_review`): the draft review you haven't submitted, an agent's (autoreview.rs) or one you
 // began on GitHub, with its comments, and the agent's review you did submit. It's read when
 // something that shows the PR wants it (`useYourReview`), once for every part of the window, and

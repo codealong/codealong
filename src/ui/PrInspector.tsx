@@ -2,17 +2,18 @@
 // number and title with the panel's buttons, one line of where it comes from, its pills and size,
 // and where it lives on this Mac as chips (the worktrees and the sessions that worked on it,
 // PanelSession.tsx `PanelPlaces`). Its details, open for every PR once you open them, add the
-// whole title, its times and commits, its reviews and the chips as a tree, under the merge box.
-// Then its parts as tabs, one shown at a time: Description (its description as GitHub renders it,
-// then its comments), Changes (its changed files with their diffs, PrFiles.tsx, which the file
-// count in the header and ⌘F go to) and Review (your review: the agent's, your draft on GitHub,
-// AgentReview.tsx). In PRs the panel can take the whole window (⇧⌘F, App.tsx). The
-// tabs stay at the top as what's under them scrolls. A PR opens on the tab it showed last, else on
-// its review when the agent's is there to read and the PR waits on yours (agentReview.ts
-// `openingTab`), else its description; a window keeps which (`usePrTab`), so the line over its box
-// can show the Review tab. Under the header is a row of buttons: the panel's (Approve, Snooze,
-// GitHub, Review with) with the merge box's (MergeBox.tsx) after Approve, so merging is where
-// approving is. `PrDetails` is that body on its own, which the panel and a PR's card (PrCard.tsx)
+// whole title, its times and commits, and the chips as a tree, under the merge box. Then its
+// parts as tabs, one shown at a time, by whose words they are: Description (the author's, as
+// GitHub renders it), Changes (its changed files with their diffs, PrFiles.tsx, which the file
+// count in the header and ⌘F go to) and Reviews (yours first: the agent's, your draft on GitHub,
+// AgentReview.tsx; then everyone's, each person's verdict with what they wrote, PrReviewers.tsx).
+// In PRs the panel can take the whole window (⇧⌘F, App.tsx). The tabs stay at the top as what's
+// under them scrolls. A PR opens on the tab it showed last, else on its reviews when the agent's
+// is there to read and the PR waits on yours or someone asked for changes to yours
+// (agentReview.ts `openingTab`), else its description; a window keeps which (`usePrTab`), so the
+// line over its box can show the Reviews tab. Under the header is a row of buttons: the panel's
+// (Approve, Snooze, GitHub, Review with) with the merge box's (MergeBox.tsx) after Approve, so
+// merging is where approving is. `PrDetails` is that body on its own, which the panel and a PR's card (PrCard.tsx)
 // each scroll over the box that reviews it (PrBox.tsx), fixed at their foot; the card adds the
 // strip that works through what waits on you.
 //
@@ -24,19 +25,21 @@ import { agentsVerdict, openingTab, type PrTab } from '../agentReview';
 import { below, showContextMenu } from '../contextMenu';
 import { openPrFile, openUrl, prCommentAsks, prDetail } from '../api';
 import { useEditorIcons } from '../editors';
-import { absolute, ago, middleTruncate } from '../format';
+import { absolute, ago } from '../format';
 import { prFileMenu } from '../menus';
 import { fileOnGitHub, firstChanged, parsePatch } from '../prFiles';
-import { asksFor, commentPreview, commentsToAsk, mayApprove } from '../prStatus';
+import { asksFor, commentsToAsk, mayApprove } from '../prStatus';
+import { openFromOthers, reviewersOf, reviewsCount } from '../prReviews';
 import { useYourReview, verdictWords } from '../prDraft';
 import type { Report } from '../report';
-import type { Board, Lane, PrComment, PrDetail, PrFile, PrItem, Session, TeamFile, Usage } from '../types';
+import type { Board, Lane, PrDetail, PrFile, PrItem, Session, TeamFile, Usage } from '../types';
 import { PrReview } from './AgentReview';
 import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { DetailsButton, PanelPlaces, PR_PRIMARY, useDetailsOpen } from './PanelSession';
 import { PrFiles, type FileOpener, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
+import { PrReviewers } from './PrReviewers';
 import { BranchLabel, Button, cx, headerMenu, Icon, PanelBack, Tabs, type PanelBackTo } from './primitives';
 import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { Tip } from './Tip';
@@ -49,9 +52,6 @@ const DETAILS_KEY = 'codealong.prDetailsOpen';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
 const cache = new Map<string, PrDetail>();
-
-/** Comments listed before "Show all". */
-const COMMENTS_SHOWN = 6;
 
 /** Jev's word on comments already asked about, by comment id, across PRs. */
 const askCache = new Map<string, Record<string, number>>();
@@ -79,41 +79,6 @@ export function usePrTab(pr: PrItem): PrTabs {
   };
   return { tab, pick, show: (to) => (pick(to), setShown((n) => n + 1)), shown };
 }
-
-/** A PR's comments, newest first, the ones asking for a change marked. */
-function Comments({ comments, asks, now }: { comments: PrComment[]; asks: Set<string>; now: number }) {
-  const [all, setAll] = useState(false);
-  // What asks for a change comes first, so it's never below the fold.
-  const ordered = [...comments].sort((a, b) => Number(asks.has(b.id)) - Number(asks.has(a.id)));
-  const shown = all ? ordered : ordered.slice(0, COMMENTS_SHOWN);
-  return (
-    <>
-      <ul className="ca-prcomments">
-        {shown.map((c) => (
-          <li key={c.id} className={asks.has(c.id) ? 'is-asks' : undefined}>
-            <button type="button" className="ca-prcomment" title={c.url ? 'Open it on GitHub' : undefined} disabled={!c.url} onClick={() => c.url && void openUrl(c.url)}>
-              <span className="ca-prcomment-head">
-                <span className="ca-prinsp-reviewer">{c.mine ? 'you' : c.author}</span>
-                {c.path && <code className="ca-ic">{middleTruncate(c.path, 36)}</code>}
-                {c.at && <span className="ca-meta">{ago(c.at, now)}</span>}
-                {c.resolved && <span className="ca-tag">Resolved</span>}
-                {asks.has(c.id) && <span className="ca-tag is-attn">Asks for a change</span>}
-              </span>
-              <span className="ca-prcomment-body">{commentPreview(c.body)}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {!all && comments.length > COMMENTS_SHOWN && (
-        <button type="button" className="ca-more-btn" onClick={() => setAll(true)}>
-          Show all {comments.length} comments
-        </button>
-      )}
-    </>
-  );
-}
-
-const REVIEW_WORD: Record<string, string> = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Requested changes', COMMENTED: 'Commented', DISMISSED: 'Dismissed' };
 
 /** What the worktree says of itself: how it stands against GitHub when it holds the PR, otherwise
  *  what it has moved on to, when that's known. */
@@ -162,7 +127,7 @@ export interface PrDetailsProps {
    *  and with the board's `apps` too, in your editors (`fileOpener`). */
   report?: Report;
   apps?: Board['apps'];
-  /** The repos' team files, for the Review tab (AgentReview.tsx). */
+  /** The repos' team files, for the Reviews tab (AgentReview.tsx). */
   teamFiles?: TeamFile[];
 }
 
@@ -250,7 +215,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
 }
 
 /** The PR itself: its header with where it lives on this Mac, the merge box, its details when
- *  they're open, then its tabs: its description and comments, its files, your review. */
+ *  they're open, then its tabs: its description, its files, your review and everyone's. */
 export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, keys, goesOn, tabs, maximized, onMaximize, back, report, apps, teamFiles }: PrDetailsProps) {
   const { pr } = item;
   // Its details, open or not as you left them for every PR.
@@ -336,6 +301,10 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   }, [detail, cacheKey, pr.title]);
   const comments = detail?.comments ?? [];
   const asking = asksFor(comments, asks.key === cacheKey ? asks.asks : {});
+  // Everyone on it, each with what they wrote, once it's read.
+  const reviewers = detail ? reviewersOf(detail, pr.author, asking) : null;
+  const stillOpen = reviewers ? openFromOthers(reviewers) : 0;
+  const counted = reviewsCount(draft, stillOpen);
   const error = state.key === cacheKey ? state.error : undefined;
   const requested = pr.reviewRequested && prIsOpen(pr);
 
@@ -374,7 +343,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
                 onClick={onMaximize}
               />
             )}
-            <DetailsButton open={open} says="when it was opened, its commits and reviews, and what each session on it is doing" onToggle={toggleOpen} />
+            <DetailsButton open={open} says="when it was opened, its commits, and what each session on it is doing" onToggle={toggleOpen} />
             {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Review with, approve, snooze, pin, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
           </div>
         </div>
@@ -455,27 +424,6 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
         </dl>
       )}
 
-      {open && detail && (detail.reviews.length > 0 || detail.requested.length > 0) && (
-        <section className="ca-insp-sec">
-          <h4 className="ca-label">Reviews</h4>
-          <ul className="ca-prinsp-reviews">
-            {detail.reviews.map((r) => (
-              <li key={r.author} className={`is-${r.state.toLowerCase()}`}>
-                <span className="ca-prinsp-reviewer">{r.author}</span>
-                <span>{REVIEW_WORD[r.state] ?? r.state}</span>
-                {r.at && <span className="ca-meta">{ago(r.at, now)}</span>}
-              </li>
-            ))}
-            {detail.requested.map((who) => (
-              <li key={`req-${who}`} className="is-requested">
-                <span className="ca-prinsp-reviewer">{who}</span>
-                <span>Review requested</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {open && places.length > 0 && (
         <section className="ca-insp-sec">
           <h4 className="ca-label">On this Mac</h4>
@@ -490,14 +438,14 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
           value={tab}
           onPick={pick}
           tabs={[
-            { id: 'description', label: 'Description', title: comments.length > 0 ? `Its description, then its ${comments.length === 1 ? 'comment' : `${comments.length} comments`}` : 'Its description' },
+            { id: 'description', label: 'Description', title: 'What its author says it does' },
             { id: 'changes', label: 'Changes', count: pr.changedFiles, title: 'The files it changes, with their diffs (⌘F filters them)' },
             {
               id: 'review',
-              label: 'Review',
-              count: draft ? draft.count : null,
+              label: 'Reviews',
+              count: counted.count,
               busy: pr.autoReview?.stage === 'reviewing',
-              title: draft ? 'Your draft review, to submit' : pr.autoReview?.stage === 'reviewing' ? 'An agent is reviewing it' : 'Your review of it',
+              title: pr.autoReview?.stage === 'reviewing' && !draft ? 'An agent is reviewing it' : counted.title,
             },
           ]}
         />
@@ -515,15 +463,6 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
               <p className="ca-empty">No description.</p>
             ))}
         </section>
-        {comments.length > 0 && (
-          <section className="ca-insp-sec">
-            <h4 className="ca-label">
-              Comments · {comments.length}
-              {asking.size > 0 && <span className="ca-prcomments-asks"> · {asking.size} {asking.size === 1 ? 'asks' : 'ask'} for a change</span>}
-            </h4>
-            <Comments comments={comments} asks={asking} now={now} />
-          </section>
-        )}
       </div>
 
       <div ref={(el) => void (panels.current.changes = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-changes`} aria-labelledby={`${idBase}-changes-tab`} hidden={tab !== 'changes'}>
@@ -535,7 +474,12 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
       </div>
 
       <div ref={(el) => void (panels.current.review = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-review`} aria-labelledby={`${idBase}-review-tab`} hidden={tab !== 'review'}>
-        <PrReview pr={pr} detail={detail} now={now} yours={yours} sessions={item.sessions} onShowSession={onShowSession} teamFiles={teamFiles} />
+        <PrReview pr={pr} detail={detail} now={now} yours={yours} sessions={item.sessions} onShowSession={onShowSession} teamFiles={teamFiles} others={reviewers && reviewers.length > 0} />
+        {detail && reviewers ? (
+          <PrReviewers reviewers={reviewers} detail={detail} asks={asking} open={stillOpen} now={now} />
+        ) : (
+          <section className="ca-insp-sec">{error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading its reviews…</p>}</section>
+        )}
       </div>
     </>
   );
