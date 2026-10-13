@@ -5,11 +5,12 @@
 //!   title and first prompt (or its latest, where its harness keeps only that), once it has been
 //!   sent one, and it's kept for the session's life (emblems.json): it doesn't change under you
 //!   as the title does.
-//! - It's drawn on a radial gradient of two tones lit from its top left corner. Over most of it
-//!   is a color of Codealong's own, given as it first sees the session: never the session's
-//!   harness's, then the color the fewest of its project's current sessions have, then the
-//!   fewest of the board's (`pick_color`), kept with the icon. In the corner is the color its harness gives it, Claude Code's `/color`
-//!   (`Session::color`), as it stands now; without one the gradient is Codealong's color alone.
+//! - It's drawn on a radial gradient of two colors that go together (`PAIRS`), lit from one of
+//!   eight places around its edge: a main color over most of it and an accent where the light
+//!   falls. Codealong gives each session its pair and its light as it first sees it, so the
+//!   sessions of a project differ as much as they can (`pick`), and keeps them with the icon.
+//!   The color its harness gives it, Claude Code's `/color` (`Session::color`), is the accent
+//!   while it has one, with a main color that goes with it (`tones`).
 //!
 //! The colors are the label colors (`--label-*`), which name your own things: there's no
 //! amber among them, since amber means only that something needs you, so a harness's yellow or
@@ -29,6 +30,34 @@ use crate::util::DAY_MS;
 
 /// The colors an emblem is drawn in, as the windows' `--label-<color>` tokens name them.
 pub const COLORS: [&str; 7] = ["blue", "teal", "green", "purple", "pink", "red", "indigo"];
+
+/// The colors an emblem's two tones are drawn in together: the label colors whose hues are 26° to
+/// 110° apart in both themes, near enough on the color wheel to sit together and far enough to
+/// read as two at 16px. Nearer ones (blue and indigo, 25°) read as one color, and farther ones
+/// (purple and green, 116°; teal and red) clash. Every color is in two pairs at least. A test
+/// holds this to the tokens' colors.
+pub const PAIRS: [(&str, &str); 11] = [
+    ("pink", "red"),
+    ("teal", "blue"),
+    ("green", "teal"),
+    ("blue", "purple"),
+    ("teal", "indigo"),
+    ("green", "blue"),
+    ("purple", "pink"),
+    ("teal", "purple"),
+    ("green", "indigo"),
+    ("indigo", "pink"),
+    ("purple", "red"),
+];
+
+/// How many places the light can fall on an emblem: clockwise around its edge from the top left
+/// corner, as the windows draw them (primitives.tsx `EMBLEM_LIGHTS`).
+pub const LIGHTS: u8 = 8;
+
+/// The colors that go with one, in `PAIRS`' order.
+pub fn partners(color: &str) -> Vec<&'static str> {
+    PAIRS.iter().filter_map(|(a, b)| if *a == color { Some(*b) } else if *b == color { Some(*a) } else { None }).collect()
+}
 
 /// A color as another program names it, as one of `COLORS`: Claude Code's `/color` takes red,
 /// blue, green, yellow, purple, orange, pink and cyan. None for one it doesn't know.
@@ -138,14 +167,64 @@ fn current(s: &Session, now: i64) -> bool {
     !s.archived && (s.live || now - s.last_activity < RECENT_MS)
 }
 
-/// Codealong's color for a session: never its harness's (`own`), so its two tones differ; then
-/// the one the fewest of its project's current sessions have, then the fewest of the whole
-/// board's; among those, an order from the session's key, so sessions that come at once don't all
-/// take the first. `taken` is each other current session's project and Codealong color.
-pub fn pick_color(key: &str, project: &str, own: Option<&str>, taken: &[(&str, &str)]) -> &'static str {
-    let start = (hash(key) % COLORS.len() as u64) as usize;
-    let uses = |c: &str, here: bool| taken.iter().filter(|(p, t)| *t == c && (!here || *p == project)).count();
-    (0..COLORS.len()).map(|i| COLORS[(start + i) % COLORS.len()]).min_by_key(|c| (Some(*c) == own, uses(c, true), uses(c, false))).unwrap_or(COLORS[0])
+/// What another current session shows, for `pick` to set a new one apart from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Taken {
+    pub project: String,
+    pub color: String,
+    pub accent: String,
+    pub light: u8,
+}
+
+/// The list rotated to start where the key says, so sessions that come at once and tie don't all
+/// take the first.
+fn from_key<T: Copy>(key: &str, salt: &str, list: &[T]) -> Vec<T> {
+    let start = (hash(&format!("{salt}{key}")) % list.len().max(1) as u64) as usize;
+    (0..list.len()).map(|i| list[(start + i) % list.len()]).collect()
+}
+
+/// A session's main color, accent and light, as Codealong gives them. With its harness's color
+/// (`own`) the accent is that, and the main color the partner of it the fewest of its project's
+/// current sessions have; without one, the pair whose main color the fewest have, then the pair
+/// itself the fewest, in this project, then on the whole board. Then the light the fewest of the
+/// project's sessions in that main color have, then the fewest of the project's. `taken` is what
+/// each other current session shows.
+pub fn pick(key: &str, project: &str, own: Option<&str>, taken: &[Taken]) -> (&'static str, &'static str, u8) {
+    let own = own.filter(|c| COLORS.contains(c));
+    let both_ways: Vec<(&'static str, &'static str)> = PAIRS.iter().flat_map(|(a, b)| [(*a, *b), (*b, *a)]).collect();
+    let with_own: Vec<(&'static str, &'static str)> = both_ways.iter().copied().filter(|(_, accent)| Some(*accent) == own).collect();
+    let pairs = if with_own.is_empty() { both_ways } else { with_own };
+    let count = |here: bool, f: &dyn Fn(&Taken) -> bool| taken.iter().filter(|t| (!here || t.project == project) && f(t)).count();
+    let (color, accent) = from_key(key, "pair", &pairs)
+        .into_iter()
+        .min_by_key(|(c, a)| {
+            let main = |t: &Taken| t.color == *c;
+            let pair = |t: &Taken| t.color == *c && t.accent == *a;
+            (count(true, &main), count(true, &pair), count(false, &main), count(false, &pair))
+        })
+        .unwrap_or(pairs[0]);
+    let lights: Vec<u8> = (0..LIGHTS).collect();
+    let light = from_key(key, "light", &lights).into_iter().min_by_key(|l| (count(true, &|t: &Taken| t.color == color && t.light == *l), count(true, &|t: &Taken| t.light == *l))).unwrap_or(0);
+    (color, accent, light)
+}
+
+/// The two tones a session shows: what Codealong gave it, or with its harness's color (`own`) as
+/// the accent, a main color that goes with it: Codealong's own when it does, the accent Codealong
+/// gave it when that does (`/color` set to its main color swaps them), else a partner of it.
+/// Emblems kept before they had accents get a partner of their color.
+pub fn tones(key: &str, kept: &Kept, own: Option<&str>) -> (String, String) {
+    let accent = kept.accent.clone().unwrap_or_else(|| from_key(key, "pair", &partners(&kept.color)).first().copied().unwrap_or("teal").to_string());
+    // A color the windows can't draw (none comes through `palette_color`) is left out.
+    let Some(own) = own.filter(|c| COLORS.contains(c)) else { return (kept.color.clone(), accent) };
+    let goes = partners(own);
+    let main = [kept.color.as_str(), accent.as_str()].into_iter().find(|c| goes.contains(c)).map(String::from);
+    (main.unwrap_or_else(|| from_key(key, "pair", &goes).first().copied().unwrap_or("teal").to_string()), own.to_string())
+}
+
+/// Where the light falls on a session's emblem: where Codealong put it, or from its key for an
+/// emblem kept before it had one.
+fn light_of(key: &str, kept: &Kept) -> u8 {
+    kept.light.filter(|l| *l < LIGHTS).unwrap_or((hash(&format!("light{key}")) % LIGHTS as u64) as u8)
 }
 
 /// Jev's question: which icon stands for what the session works on.
@@ -180,8 +259,15 @@ pub fn read(response: &Value) -> Option<&'static str> {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Kept {
-    /// The color Codealong gave it.
+    /// The main color Codealong gave it.
     pub color: String,
+    /// The accent Codealong gave it, a color that goes with `color`; its harness's color stands
+    /// over it while it has one (`tones`). None in emblems kept before emblems had two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+    /// Where Codealong put its light, 0 to `LIGHTS` - 1. None in emblems kept before that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light: Option<u8>,
     /// The icon Jev picked, once it has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
@@ -209,16 +295,26 @@ impl Store {
         Store { kept: crate::store::load_whole(&path(), "the sessions' emblems"), ..Default::default() }
     }
 
-    /// What the session shows: the color Codealong gave it and its harness's as it stands now,
-    /// with the icon Jev picked. None until it has an icon.
+    /// What the session shows: the tones and light Codealong gave it, its harness's color as the
+    /// accent while it has one, with the icon Jev picked. None until it has an icon.
     pub fn emblem_of(&self, s: &Session) -> Option<Emblem> {
         let kept = self.kept.get(&s.key)?;
-        Some(Emblem { color: kept.color.clone(), harness_color: s.color.clone(), icon: kept.icon.clone()? })
+        let icon = kept.icon.clone()?;
+        let (color, accent) = tones(&s.key, kept, s.color.as_deref());
+        Some(Emblem { color, accent, light: light_of(&s.key, kept), icon })
     }
 
-    /// Looks over the board's sessions, each with its project: gives a color to each current one
-    /// seen for the first time, and says which to ask Jev for an icon, by key. Each session once,
-    /// however many lanes list it.
+    /// What a session with an emblem shows, icon or not, for the sessions after it to be set
+    /// apart from.
+    fn taken(&self, project: &str, s: &Session) -> Option<Taken> {
+        let kept = self.kept.get(&s.key)?;
+        let (color, accent) = tones(&s.key, kept, s.color.as_deref());
+        Some(Taken { project: project.to_string(), color, accent, light: light_of(&s.key, kept) })
+    }
+
+    /// Looks over the board's sessions, each with its project: gives tones and a light to each
+    /// current one seen for the first time, and says which to ask Jev for an icon, by key. Each
+    /// session once, however many lanes list it.
     pub fn look<'a>(&mut self, sessions: impl IntoIterator<Item = (&'a str, &'a Session)>, now: i64) -> Vec<String> {
         let mut by_key: HashMap<&str, (&str, &Session)> = HashMap::new();
         for (project, s) in sessions {
@@ -227,7 +323,7 @@ impl Store {
         let mut keys: Vec<&str> = by_key.keys().copied().collect();
         // The oldest first, so colors are given in the order the sessions came.
         keys.sort_by_key(|k| (by_key[k].1.started_at.unwrap_or(by_key[k].1.last_prompt_at), *k));
-        let mut taken: Vec<(String, String)> = Vec::new();
+        let mut taken: Vec<Taken> = Vec::new();
         let mut fresh: Vec<&str> = Vec::new();
         for k in &keys {
             let (project, s) = by_key[k];
@@ -235,19 +331,17 @@ impl Store {
             if !current(s, now) {
                 continue;
             }
-            if let Some(kept) = self.kept.get(*k) {
-                taken.push((project.to_string(), kept.color.clone()));
-            }
-            if !self.kept.contains_key(*k) && about(s).is_some() {
-                fresh.push(k);
+            match self.taken(project, s) {
+                Some(t) => taken.push(t),
+                None if about(s).is_some() => fresh.push(k),
+                None => {}
             }
         }
         for k in fresh {
             let (project, s) = by_key[k];
-            let pairs: Vec<(&str, &str)> = taken.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
-            let color = pick_color(k, project, s.color.as_deref(), &pairs).to_string();
-            taken.push((project.to_string(), color.clone()));
-            self.kept.insert(k.to_string(), Kept { color, icon: None, seen_at: now });
+            let (color, accent, light) = pick(k, project, s.color.as_deref(), &taken);
+            self.kept.insert(k.to_string(), Kept { color: color.into(), accent: Some(accent.into()), light: Some(light), icon: None, seen_at: now });
+            taken.extend(self.taken(project, s));
             self.dirty = true;
         }
         keys.into_iter()
@@ -321,21 +415,93 @@ mod tests {
         assert!(["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"].iter().filter_map(|c| palette_color(c)).all(|c| COLORS.contains(&c)));
     }
 
+    fn taken(project: &str, color: &str, accent: &str, light: u8) -> Taken {
+        Taken { project: project.into(), color: color.into(), accent: accent.into(), light }
+    }
+
+    /// The pairs are the label colors whose hues are 26° to 110° apart in both themes, all of
+    /// them, as the tokens have them, so a change to a label color can't leave a pair that clashes.
     #[test]
-    fn a_new_color_is_the_one_fewest_sessions_beside_it_have() {
-        // Every color but indigo is taken once in this project: indigo, whatever the key.
-        let here: Vec<(&str, &str)> = COLORS.iter().filter(|c| **c != "indigo").map(|c| ("A", *c)).collect();
-        assert_eq!(pick_color("k1", "A", None, &here), "indigo");
-        assert_eq!(pick_color("k2", "A", None, &here), "indigo");
-        // Never the harness's own, which is the other tone.
-        assert_ne!(pick_color("k1", "A", Some("indigo"), &here), "indigo");
+    fn the_pairs_are_the_label_colors_that_go_together() {
+        let tokens: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../design/tokens.json")).unwrap()).unwrap();
+        let hue = |c: &str, theme: &str| -> f64 {
+            let t = tokens["color"]["tokens"].as_array().unwrap().iter().find(|t| t["name"] == format!("label-{c}")).unwrap_or_else(|| panic!("no label-{c}"));
+            let hex = t["value"][theme].as_str().unwrap();
+            let [r, g, b] = [1, 3, 5].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap() as f64 / 255.0);
+            let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+            let h = if max == r { (g - b) / (max - min) } else if max == g { 2.0 + (b - r) / (max - min) } else { 4.0 + (r - g) / (max - min) };
+            (h * 60.0).rem_euclid(360.0)
+        };
+        let apart = |a: &str, b: &str, theme: &str| {
+            let d = (hue(a, theme) - hue(b, theme)).abs();
+            d.min(360.0 - d)
+        };
+        let mut want: Vec<(&str, &str)> = Vec::new();
+        for (i, a) in COLORS.iter().enumerate() {
+            for b in &COLORS[i + 1..] {
+                if ["light", "dark"].iter().all(|theme| (26.0..=110.0).contains(&apart(a, b, theme))) {
+                    want.push((a, b));
+                }
+            }
+        }
+        let norm = |(a, b): (&str, &str)| if a < b { (a.to_string(), b.to_string()) } else { (b.to_string(), a.to_string()) };
+        let mut have: Vec<_> = PAIRS.iter().map(|p| norm(*p)).collect();
+        let mut want: Vec<_> = want.into_iter().map(norm).collect();
+        have.sort();
+        want.sort();
+        assert_eq!(have, want);
+        assert!(COLORS.iter().all(|c| partners(c).len() >= 2), "every color in two pairs at least");
+    }
+
+    #[test]
+    fn a_new_emblem_is_set_apart_from_its_projects() {
+        // Every main color but indigo is taken once in this project: indigo, whatever the key.
+        let here: Vec<Taken> = COLORS.iter().filter(|c| **c != "indigo").map(|c| taken("A", c, partners(c)[0], 0)).collect();
+        for key in ["k1", "k2", "k3"] {
+            let (color, accent, _) = pick(key, "A", None, &here);
+            assert_eq!(color, "indigo");
+            assert!(partners("indigo").contains(&accent), "{accent} goes with indigo");
+        }
         // Another project's sessions count only to break a tie in this one.
-        let mut taken = vec![("A", "blue"), ("A", "teal"), ("A", "green"), ("A", "purple"), ("A", "pink")];
-        taken.extend([("B", "red"), ("B", "red")]);
-        assert_eq!(pick_color("k3", "A", None, &taken), "indigo");
-        // With nothing taken, sessions that come at once spread over the colors by key.
-        let picks: std::collections::HashSet<&str> = (0..40).map(|i| pick_color(&format!("claude:claude:{i}"), "A", None, &[])).collect();
-        assert!(picks.len() > 3, "{picks:?}");
+        let mut there = here.clone();
+        there.retain(|t| t.color != "red");
+        there.extend([taken("B", "indigo", "teal", 0), taken("B", "indigo", "pink", 1)]);
+        assert_eq!(pick("k4", "A", None, &there).0, "red");
+        // Two sessions in one main color get different lights.
+        let reds: Vec<Taken> = (0..LIGHTS - 1).map(|l| taken("A", "red", "pink", l)).collect();
+        let only: Vec<Taken> = COLORS.iter().filter(|c| **c != "red").flat_map(|c| (0..LIGHTS).map(move |l| taken("A", c, partners(c)[0], l))).chain(reds).collect();
+        assert_eq!(pick("k5", "A", None, &only), ("red", "purple", LIGHTS - 1));
+        // With nothing taken, sessions that come at once spread by key, in pairs that go together.
+        let picks: Vec<_> = (0..40).map(|i| pick(&format!("claude:claude:{i}"), "A", None, &[])).collect();
+        assert!(picks.iter().map(|p| p.0).collect::<std::collections::HashSet<_>>().len() > 3);
+        assert!(picks.iter().map(|p| p.2).collect::<std::collections::HashSet<_>>().len() > 3);
+        assert!(picks.iter().all(|(c, a, _)| partners(c).contains(a)));
+    }
+
+    /// With its harness's color, that's the accent, and the main color one that goes with it.
+    #[test]
+    fn a_harness_color_is_the_accent() {
+        let (color, accent, _) = pick("k", "A", Some("red"), &[]);
+        assert_eq!(accent, "red");
+        assert!(partners("red").contains(&color));
+        let kept = Kept { color: "teal".into(), accent: Some("blue".into()), light: Some(3), icon: None, seen_at: NOW };
+        assert_eq!(tones("k", &kept, None), ("teal".into(), "blue".into()));
+        // `/color` set later: the main color stays where it goes with it.
+        assert_eq!(tones("k", &kept, Some("green")), ("teal".into(), "green".into()));
+        // Set to the main color itself, the two swap.
+        assert_eq!(tones("k", &kept, Some("teal")), ("blue".into(), "teal".into()));
+        // To one neither goes with, a partner of it.
+        let (main, accent) = tones("k", &kept, Some("red"));
+        assert_eq!(accent, "red");
+        assert!(partners("red").contains(&main.as_str()), "{main}");
+        // A color the windows can't draw is left out.
+        assert_eq!(tones("k", &kept, Some("mauve")), ("teal".into(), "blue".into()));
+        // An emblem kept before emblems had two tones gets a partner of its color, and a light.
+        let old = Kept { color: "teal".into(), accent: None, light: None, icon: None, seen_at: NOW };
+        assert!(partners("teal").contains(&tones("k", &old, None).1.as_str()));
+        assert!(light_of("k", &old) < LIGHTS);
+        let kept: Kept = serde_json::from_str(r#"{"color":"teal","icon":"bug","seenAt":1}"#).unwrap();
+        assert_eq!((kept.accent, kept.light), (None, None), "emblems.json from before reads");
     }
 
     #[test]
@@ -353,26 +519,26 @@ mod tests {
         assert_ne!(store.kept[&a.key].color, store.kept[&b.key].color, "two sessions side by side");
         assert!(!store.kept.contains_key(&old.key) && !store.kept.contains_key(&archived.key) && !store.kept.contains_key(&empty.key));
         assert_eq!(store.emblem_of(&a), None, "no emblem until it has an icon");
-        // A color given stays; asked again until Jev answers, then not.
-        let color = store.kept[&a.key].color.clone();
+        // What's given stays; asked again until Jev answers, then not.
+        let given = store.kept[&a.key].clone();
         store.answered(&a.key, "bug", NOW);
         assert_eq!(store.look(board, NOW + 1000), vec![b.key.clone()]);
-        assert_eq!(store.emblem_of(&a), Some(Emblem { color: color.clone(), harness_color: None, icon: "bug".into() }));
-        // Its harness's color is the other tone, as it stands now; Codealong's stays.
-        let teal = Session { color: Some("teal".into()), ..a.clone() };
-        assert_eq!(store.emblem_of(&teal), Some(Emblem { color: color.clone(), harness_color: Some("teal".into()), icon: "bug".into() }));
+        let shown = store.emblem_of(&a).unwrap();
+        assert_eq!((Some(shown.color), Some(shown.accent), Some(shown.light), shown.icon.as_str()), (Some(given.color), given.accent, given.light, "bug"));
     }
 
-    /// Codealong's tone is never the harness's, and only Codealong's tones count for the others:
-    /// a harness's colors are yours to pick, and may well repeat.
+    /// Sessions whose harness gives them all one color still read apart: the main colors and
+    /// lights Codealong gives them differ.
     #[test]
-    fn codealongs_tone_is_its_own() {
+    fn one_harness_color_for_all_still_reads_apart() {
         let mut store = Store::default();
-        let sessions: Vec<Session> = (0..COLORS.len()).map(|i| Session { color: Some("blue".into()), ..session(&format!("s{i}"), "Some work") }).collect();
+        let sessions: Vec<Session> = (0..4).map(|i| Session { color: Some("blue".into()), ..session(&format!("s{i}"), "Some work") }).collect();
         store.look(sessions.iter().map(|s| ("A", s)), NOW);
-        let given: std::collections::HashSet<&str> = sessions.iter().map(|s| store.kept[&s.key].color.as_str()).collect();
-        assert!(!given.contains("blue"), "{given:?}");
-        assert_eq!(given.len(), COLORS.len() - 1, "spread over the rest: {given:?}");
+        let shown: Vec<(String, String, u8)> = sessions.iter().map(|s| store.taken("A", s).map(|t| (t.color, t.accent, t.light)).unwrap()).collect();
+        assert!(shown.iter().all(|(c, a, _)| a == "blue" && partners("blue").contains(&c.as_str())), "{shown:?}");
+        let mains: std::collections::HashSet<&str> = shown.iter().map(|s| s.0.as_str()).collect();
+        assert_eq!(mains.len(), partners("blue").len(), "every partner of blue before any twice: {shown:?}");
+        assert_eq!(shown.iter().collect::<std::collections::HashSet<_>>().len(), shown.len(), "no two alike: {shown:?}");
     }
 
     /// Where a harness keeps only the latest prompt (Codex, OpenCode), that's what Jev goes by.
@@ -420,5 +586,14 @@ mod tests {
         let names: std::collections::HashSet<&str> = ICONS.iter().map(|(n, _)| *n).collect();
         assert_eq!(names.len(), ICONS.len(), "an icon listed twice");
         assert!(ICONS.len() <= 255);
+    }
+
+    /// The windows draw as many lights as Codealong gives out.
+    #[test]
+    fn the_windows_draw_every_light() {
+        let ui = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ui/primitives.tsx")).unwrap();
+        let start = ui.find("export const EMBLEM_LIGHTS = [").expect("EMBLEM_LIGHTS in primitives.tsx");
+        let list = &ui[start..start + ui[start..].find("];").unwrap()];
+        assert_eq!(list.matches('%').count(), 2 * LIGHTS as usize, "{list}");
     }
 }

@@ -320,18 +320,21 @@ pub struct Session {
 }
 
 /// A session's emblem: an icon that stands for what it works on, picked by Jev from the ones
-/// `emblems::ICONS` lists, on a radial gradient of two tones lit from its top left corner: the
-/// color its harness gives it in that corner, when it gives one, and over the rest a color of
-/// Codealong's own, which sets it apart from the sessions beside it. Both are among `emblems::COLORS`: blue, teal, green, purple,
-/// pink, red or indigo.
+/// `emblems::ICONS` lists, on a radial gradient of two colors that go together
+/// (`emblems::PAIRS`), lit from one of eight places around its edge. Codealong gives each session
+/// its pair and its light so that the sessions beside it differ. Both colors are among
+/// `emblems::COLORS`: blue, teal, green, purple, pink, red or indigo.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Emblem {
-    /// Codealong's own color for it, never its harness's when it has one.
+    /// The color over most of it.
     pub color: String,
-    /// The color its harness gives it (Claude Code's `/color`), when it gives one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness_color: Option<String>,
+    /// The color where the light falls: the one its harness gives it (Claude Code's `/color`)
+    /// while it gives one, else one Codealong gave it to go with `color`.
+    pub accent: String,
+    /// Where the light falls, 0 to 7 clockwise around its edge from the top left corner
+    /// (primitives.tsx `EMBLEM_LIGHTS`).
+    pub light: u8,
     /// The icon's name in the windows' icon set (Tabler's).
     pub icon: String,
 }

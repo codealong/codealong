@@ -97,15 +97,15 @@ function withInsights(board, fixture) {
   return board;
 }
 // Emblems on every session (PREVIEW_EMBLEMS in preview.sh), made up from its key, the same every
-// time: an icon from emblems.rs's list, a color of Codealong's, and on about a third a harness's
-// color too (Claude Code's `/color`), as `[jev] emblems` would give them once Jev had answered.
+// time: an icon from emblems.rs's list, one of its pairs of colors either way round, and one of
+// its eight lights, as `[jev] emblems` would give them once Jev had answered.
 var EMBLEM_ICONS = ['bug', 'palette', 'database', 'rocket', 'book', 'compass', 'bolt', 'key', 'device-mobile', 'test-pipe', 'chart-line', 'terminal-2', 'sparkles', 'recycle', 'network', 'puzzle'];
-var EMBLEM_COLORS = ['blue', 'teal', 'green', 'purple', 'pink', 'red', 'indigo'];
+var EMBLEM_PAIRS = [['pink', 'red'], ['teal', 'blue'], ['green', 'teal'], ['blue', 'purple'], ['teal', 'indigo'], ['green', 'blue'], ['purple', 'pink'], ['teal', 'purple'], ['green', 'indigo'], ['indigo', 'pink'], ['purple', 'red']];
 function emblemOf(key) {
   var pick = function (list, salt) { return list[Math.floor(hashOf(salt + key) * list.length)]; };
-  var color = pick(EMBLEM_COLORS, 'c');
-  var harness = hashOf('h' + key) < 0.34 ? pick(EMBLEM_COLORS.filter(function (c) { return c !== color; }), 'hc') : null;
-  return Object.assign({ color: color, icon: pick(EMBLEM_ICONS, 'i') }, harness ? { harnessColor: harness } : {});
+  var pair = pick(EMBLEM_PAIRS, 'p');
+  var swap = hashOf('s' + key) < 0.5;
+  return { color: pair[swap ? 1 : 0], accent: pair[swap ? 0 : 1], light: Math.floor(hashOf('l' + key) * 8), icon: pick(EMBLEM_ICONS, 'i') };
 }
 function withEmblems(board) {
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { s.emblem = emblemOf(s.key); }); });

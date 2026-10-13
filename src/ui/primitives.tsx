@@ -112,12 +112,22 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
   );
 }
 
+/** Where the light falls on an emblem, as the center of its gradient: clockwise around its edge
+ *  from the top left corner, as many as emblems.rs `LIGHTS` says. */
+export const EMBLEM_LIGHTS = ['28% 26%', '50% 16%', '72% 26%', '84% 50%', '72% 74%', '50% 84%', '28% 74%', '16% 50%'];
+
 /** A session's emblem (emblems.rs): the icon Jev picked for what it works on, on a radial
- *  gradient lit from its top left corner, its harness's color there and Codealong's own over the
- *  rest, or Codealong's alone. It says nothing a row doesn't, so a reader passes over it. Nothing when it has none. */
+ *  gradient of its two colors, the accent where its light falls and its main color over the rest.
+ *  It says nothing a row doesn't, so a reader passes over it. Nothing when it has none. */
 export function SessionEmblem({ emblem, size = 16 }: { emblem?: Emblem; size?: number }) {
   if (!emblem || !ICONS[emblem.icon]) return null;
-  const tones = { '--emblem-mid': `var(--label-${emblem.harnessColor ?? emblem.color})`, '--emblem-edge': `var(--label-${emblem.color})`, width: size, height: size } as CSSProperties;
+  const tones = {
+    '--emblem-color': `var(--label-${emblem.color})`,
+    '--emblem-accent': `var(--label-${emblem.accent})`,
+    '--emblem-at': EMBLEM_LIGHTS[emblem.light] ?? EMBLEM_LIGHTS[0],
+    width: size,
+    height: size,
+  } as CSSProperties;
   return (
     <span className="ca-emblem" style={tones} aria-hidden="true">
       <Icon name={emblem.icon} size={Math.round(size * 0.7)} stroke={1.75} />

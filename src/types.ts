@@ -180,14 +180,18 @@ export interface Session {
 export type EmblemColor = 'blue' | 'teal' | 'green' | 'purple' | 'pink' | 'red' | 'indigo';
 
 /** A session's emblem (peer model.rs `Emblem`): an icon Jev picked for what it works on, on a
- *  radial gradient of two label colors lit from its top left corner: its harness's in that
- *  corner, when it gives one, and over the rest Codealong's own, which sets it apart from the
- *  sessions beside it. */
+ *  radial gradient of two label colors that go together (emblems.rs `PAIRS`), lit from one of
+ *  eight places around its edge. Codealong gives each session its pair and its light so that the
+ *  sessions beside it differ. */
 export interface Emblem {
-  /** Codealong's own color for it, never its harness's. */
+  /** The color over most of it. */
   color: EmblemColor;
-  /** The color its harness gives it (Claude Code's `/color`), when it gives one. */
-  harnessColor?: EmblemColor;
+  /** The color where the light falls: its harness's (Claude Code's `/color`) while it gives one,
+   *  else one Codealong gave it to go with `color`. */
+  accent: EmblemColor;
+  /** Where the light falls, 0 to 7 clockwise around its edge from the top left corner
+   *  (primitives.tsx `EMBLEM_LIGHTS`). */
+  light: number;
   /** The icon's name in `ICONS`. */
   icon: string;
 }

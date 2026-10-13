@@ -121,13 +121,16 @@ With Jev on for emblems (Settings › Jev, `[jev] emblems`), each session gets a
 title, so the sessions beside each other read apart at a glance and you can remember one as "the
 teal bug". Jev picks the icon for what the session works on, from its title and first prompt (the
 latest, for Codex and OpenCode, which keep only that), once: it stays for the session's life,
-however its title changes. The icon sits on a rounded square shaded in two colors, as if lit from
-its top left corner. Over most of it is a color Codealong gives the session when it first sees it,
-the one the fewest of its project's recent sessions have. In the lit corner is the color you gave
-the session with Claude Code's `/color`, when you gave one; without one, the square is Codealong's
-color alone. Both come from the label colors, which have no amber since amber only means something needs
-you, so `/color`'s yellow shows as green and its orange as red, and Codealong's own color is never
-the one `/color` gave. The emblem shows wherever the session's title does: its rows, its header,
+however its title changes. The icon sits on a rounded square shaded in two colors that go
+together, as if lit from one of eight places around its edge: a main color over most of it, and an
+accent where the light falls. The pairs are the label colors that sit near each other on the color
+wheel without reading as one (teal and blue, purple and pink, green and indigo…), never two that
+clash. Codealong gives each session its pair and its light when it first sees it, so that the
+sessions of a project differ as much as they can: a main color the fewest of its recent sessions
+have, then a pair, then a light none of the sessions in that color has. When you give a session a
+color with Claude Code's `/color`, that's its accent, with a main color that goes with it. The
+label colors have no amber, since amber only means something needs you, so `/color`'s yellow shows
+as green and its orange as red. The emblem shows wherever the session's title does: its rows, its header,
 the floating bar's and the notch's pills, cards on the canvas and the desktop, and the list of what
 waits on you. A session gets its emblem once it has a prompt, and only while it's recent: one quiet
 for two days or archived keeps the one it had. Emblems are kept in `emblems.json`.
