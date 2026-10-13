@@ -19,9 +19,13 @@
 //! text, so the command runs under `script(1)` in the tab: on a terminal of its own, which `script`
 //! relays to the tab and writes to a file as it shows (`-F`). What you type isn't kept (no `-k`), so
 //! a password typed at a prompt that doesn't echo it stays out of the file. `script` exits with the
-//! command's status. Each run has a folder (`dir`) with the request, the command, the wrapper the
-//! tab runs (`wrapper`), its processes, what it printed, and its exit status once it ends. Runs are
-//! kept a week (`prune`).
+//! command's status. The line typed into the new tab `exec`s the wrapper (`TYPED`, `wrapper`), so
+//! the tab is the run's until you take a shell in it with Return once it has ended, and an agent
+//! may close it only till then (`close`): nothing outside a shell can tell its prompt from a
+//! `read` of yours. Each run has a folder (`dir`) with the request, the command, the wrapper, its
+//! processes, what it printed, and its exit status once it ends. Runs are kept a week (`prune`).
+//! An agent's sandbox may keep its command from looking at your processes, so the command asks the
+//! app where a run stands, and to stop or close it, when it's up (server.rs).
 //!
 //! Reading. What it printed is a terminal's bytes, colors and a progress line redrawn with a
 //! carriage return among them; `render` turns them into the lines a screen ends up showing, one
@@ -60,6 +64,8 @@ const PIDS: &str = "pids";
 const SHELL: &str = "shell";
 const OUTPUT: &str = "output";
 const EXIT: &str = "exit";
+/// Written as you take a shell in a run's tab once it has ended: the tab is yours from then.
+const HANDED: &str = "handed";
 
 /// How long a run's folder is kept once it has ended.
 const KEEP_MS: i64 = 7 * DAY_MS;
@@ -382,9 +388,10 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
 
 /// What the new tab's shell gets, set in its environment: the run's folder.
 const ENV: &str = "CODEALONG_RUN";
-/// The line typed into the new tab's shell. The leading space keeps it out of a history that
+/// The line typed into the new tab's shell, which it replaces with the wrapper: the tab is then the
+/// run's until you take a shell in it (`close`). The leading space keeps it out of a history that
 /// skips such lines, as a session's launcher line is (launch.rs).
-const TYPED: &str = " sh \"$CODEALONG_RUN/run.sh\"\n";
+const TYPED: &str = " exec sh \"$CODEALONG_RUN/run.sh\"\n";
 
 fn write_folder(d: &Path, run: &Run) -> Result<()> {
     std::fs::create_dir_all(runs_dir())?;
@@ -402,11 +409,13 @@ fn write_folder(d: &Path, run: &Run) -> Result<()> {
     Ok(())
 }
 
-/// The script the tab runs: it notes its processes (whole, so a look meanwhile never finds the
-/// file half written), shows what runs and for whom, runs the command under `script` in your shell
-/// as a new tab starts it (a login shell, and interactive, for your aliases and functions;
-/// `/bin/sh` with the tab's environment when your shell isn't one these words suit, fish), and
-/// notes how it ended. The command is read from its file, so nothing in it is quoted twice.
+/// The script the tab runs, as its shell: it notes its processes (whole, so a look meanwhile never
+/// finds the file half written), shows what runs and for whom, runs the command under `script` in
+/// your shell as a new tab starts it (a login shell, and interactive, for your aliases and
+/// functions; `/bin/sh` with the tab's environment when your shell isn't one these words suit,
+/// fish), and notes how it ended. Then it waits for Return, which gives you a login shell of your
+/// own in the tab, noted (`HANDED`) so the tab isn't closed under you. The command is read from its
+/// file, so nothing in it is quoted twice.
 pub fn wrapper(d: &Path, session_title: &str) -> String {
     let d = sh_quote(&d.to_string_lossy());
     let says = sh_quote(&format!("Codealong runs this for {}, as you allowed:", if session_title.trim().is_empty() { "an agent" } else { session_title.trim() }));
@@ -424,7 +433,11 @@ esac
 CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; eval "$(cat "$CODEALONG_RUN_DIR/{COMMAND}")"'
 status=$?
 printf '%s\n' "$status" > "$d/{EXIT}"
-printf '\n\033[2m%s %s. %s\033[0m\n' 'It exited with status' "$status" 'This tab is yours again.'
+printf '\n\033[2m%s %s. %s\033[0m ' 'It exited with status' "$status" 'Press Return for a shell in this tab.'
+if read -r _; then
+  : > "$d/{HANDED}"
+  exec "${{SHELL:-/bin/zsh}}" -l
+fi
 "#
     )
 }
@@ -742,94 +755,52 @@ fn ended_words(s: &RunStatus) -> String {
     }
 }
 
-/// Closes a run's tab: hangs up the tab's shell, as closing the tab would, which ends what ran there,
-/// and the terminal closes the tab as it does one whose shell has ended. Only while the tab runs
-/// nothing of yours (`tab_free`), looked at just before the hangup, with nothing slow between: no
-/// script to the terminal, so the command does it itself, with or without the app.
+/// Closes a run's tab: hangs up the wrapper, which is the tab's shell (the line typed `exec`s it),
+/// and what it runs, as closing the tab would, and the terminal closes the tab as it does one whose
+/// shell has ended. Only while the tab is the run's: until you take a shell in it (`HANDED`),
+/// everything in the tab is the wrapper and what it runs, and what you typed went to the command or
+/// to the wrapper's own Return. Looked at just before the hangup, with nothing slow between.
 pub fn close(id: &str) -> Result<String> {
     let s = status(id)?;
+    if s.state == State::Starting {
+        bail!("It hasn't started in its tab yet, so its tab stays.");
+    }
     let d = dir(id);
-    let tab = noted_pid(&d, PIDS, 1, s.run.allowed_at).ok_or_else(|| anyhow!("Its tab is closed already."))?;
-    let wrapper = noted_pid(&d, PIDS, 0, s.run.allowed_at);
-    let tty = procs::tty(tab).ok_or_else(|| anyhow!("Its tab is closed already."))?;
+    if d.join(HANDED).exists() {
+        bail!("Your user took a shell in its tab once it ended, so the tab is theirs and stays open: ask them to close it.");
+    }
+    let wrapper = noted_pid(&d, PIDS, 0, s.run.allowed_at).ok_or_else(|| anyhow!("Its tab is closed already."))?;
+    let tty = procs::tty(wrapper).ok_or_else(|| anyhow!("Its tab is closed already."))?;
     let tty_name = tty.to_string_lossy().trim_start_matches("/dev/").to_string();
     let listed = procs::run("ps", &["-t", &tty_name, "-o", "pid="], None, Duration::from_secs(10))?;
     let on_tty: Vec<u32> = listed.split_whitespace().filter_map(|p| p.parse().ok()).collect();
-    let tab_line = procs::ancestors(tab);
-    let view = TabView {
-        shell_name: procs::parent_and_name(tab).map(|(_, n)| n).unwrap_or_default(),
-        tab,
-        wrapper,
-        front: procs::foreground_group(tab),
-        on_tty: &on_tty,
-        tab_line: &tab_line,
-        line_editing: line_editing(&tty),
-    };
-    if !tab_free(&view, |p| wrapper.is_some_and(|w| procs::ancestors(p).contains(&w))) {
-        bail!("Something of your user's may run in its tab now (a command, or a shell not at its prompt), so it stays open: ask them to close it.");
+    let above = procs::ancestors(wrapper);
+    if d.join(HANDED).exists() || !only_the_run(&on_tty, &above, |p| procs::ancestors(p).contains(&wrapper)) {
+        bail!("Something of your user's may run in its tab now, so the tab stays open: ask them to close it.");
     }
-    // SAFETY: kill sends a signal to one process.
-    if unsafe { libc::kill(tab as libc::pid_t, libc::SIGHUP) } != 0 {
+    // The tab's shell started its own group, which the wrapper and `script` are in; the command's
+    // shell, on `script`'s terminal, is hung up as `script` ends.
+    // SAFETY: kill with a negative pid signals that process group.
+    if unsafe { libc::kill(-(wrapper as libc::pid_t), libc::SIGHUP) } != 0 && unsafe { libc::kill(wrapper as libc::pid_t, libc::SIGHUP) } != 0 {
         bail!("Couldn't close its tab: {}", std::io::Error::last_os_error());
     }
     let started = Instant::now();
-    while procs::pid_alive(tab) && started.elapsed() < Duration::from_secs(5) {
+    while procs::pid_alive(wrapper) && started.elapsed() < Duration::from_secs(5) {
         std::thread::sleep(Duration::from_millis(100));
     }
-    Ok(if procs::pid_alive(tab) {
-        "Hung up its tab's shell, which hasn't ended yet.".to_string()
+    Ok(if procs::pid_alive(wrapper) {
+        "Hung up its tab, which hasn't ended yet.".to_string()
     } else {
         "Its tab's shell has ended, so the tab closes as your terminal closes one whose shell ended (a terminal set to keep such tabs keeps it).".to_string()
     })
 }
 
-/// The shells a tab runs at its prompt.
-const SHELLS: &[&str] = &["zsh", "bash", "sh", "ksh", "dash", "fish", "tcsh", "csh", "nu", "xonsh", "elvish"];
-
-/// What `tab_free` looks at in a run's tab.
-struct TabView<'a> {
-    /// The tab's shell's name now: `exec vim` there would make it vim.
-    shell_name: String,
-    tab: u32,
-    /// The run's wrapper, while it runs.
-    wrapper: Option<u32>,
-    /// The process group in front on the tab's terminal.
-    front: Option<u32>,
-    on_tty: &'a [u32],
-    /// The tab's shell and what it runs under.
-    tab_line: &'a [u32],
-    /// The terminal reads keys one at a time (`line_editing`).
-    line_editing: bool,
-}
-
-/// Whether a run's tab runs nothing of yours, from positive signs only: its shell is still a shell,
-/// every process on its terminal is that shell, what it runs under, or the run's wrapper and what
-/// that runs (a job you left in the background there is on the terminal too), and in front is
-/// either the run or the shell itself reading a line at its prompt. A shell in front that isn't
-/// reading one may be running something of yours that starts no process: a `read`, a loop of
-/// builtins.
-fn tab_free(v: &TabView, the_runs: impl Fn(u32) -> bool) -> bool {
-    let shell = SHELLS.contains(&v.shell_name.trim_start_matches('-'));
-    let only_the_run = v.on_tty.iter().all(|p| v.tab_line.contains(p) || the_runs(*p));
-    let in_front = match v.front {
-        Some(g) if v.wrapper == Some(g) => true,
-        Some(g) if g == v.tab => v.line_editing,
-        _ => false,
-    };
-    shell && only_the_run && in_front
-}
-
-/// Whether a terminal reads keys one at a time: a shell's line editor at its prompt (zsh's, bash's
-/// readline, fish's) turns canonical input off while it reads a line, where a command in front, a
-/// `read` and a loop of builtins leave it on (checked with zsh in tmux, 2026-10-12).
-fn line_editing(tty: &Path) -> bool {
-    use std::os::fd::AsRawFd;
-    let Ok(f) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty) else { return false };
-    // SAFETY: tcgetattr fills the termios it's given, from a descriptor that stays open meanwhile.
-    unsafe {
-        let mut t: libc::termios = std::mem::zeroed();
-        libc::tcgetattr(f.as_raw_fd(), &mut t) == 0 && t.c_lflag & libc::ICANON == 0
-    }
+/// Whether a run's tab is still the run's, once its shell is known to be the wrapper still (no
+/// shell taken there, `HANDED`): every process on its terminal is the wrapper, what it runs, or what
+/// it runs under. Its name says nothing: macOS's `/bin/sh` runs as the shell
+/// `/private/var/select/sh` names, `bash` here.
+fn only_the_run(on_tty: &[u32], above: &[u32], under_the_wrapper: impl Fn(u32) -> bool) -> bool {
+    on_tty.iter().all(|p| above.contains(p) || under_the_wrapper(*p))
 }
 
 #[cfg(test)]
@@ -924,7 +895,7 @@ mod tests {
     /// that nobody sees, with `script` and your login shell (its startup files run). A password
     /// typed at a prompt that doesn't echo it stays out of what's kept, a progress line drawn over
     /// itself reads as it ended, the exit status is kept, `stop` interrupts a command as Ctrl-C
-    /// does, and `close` ends a tab's zsh at its prompt but not while it's in a `read` of yours.
+    /// does, and `close` ends a tab still the run's, and not once you took a shell in it.
     /// `cargo test a_command_runs_in_a_tab_under_script -- --ignored`.
     #[test]
     #[ignore]
@@ -978,43 +949,38 @@ mod tests {
         assert_eq!((s.state, s.exit_code), (State::Exited, Some(130)), "as zsh and bash end on Ctrl-C");
         assert!(!output(&id, 50, 0, None).unwrap().lines.iter().any(|(_, l)| l == "never"));
 
-        // Closing: in your login zsh, the line typed into it as a new tab's shell gets it.
+        // Closing: in your login zsh, the line typed into it as a new tab's shell gets it, which
+        // makes the wrapper the tab's shell. A tab still the run's closes; one you took a shell in
+        // once it ended stays.
+        let tab_with = |id: &str| {
+            let run = Run { id: id.into(), session: "k".into(), session_title: "A test".into(), command: "echo closing".into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms() };
+            write_folder(&dir(id), &run).unwrap();
+            assert!(tmux(&["new-session", "-d", "-s", id, "-x", "100", "-y", "20", "/bin/zsh -l"]).status.success());
+            let typed = format!("export {ENV}={}; {}", sh_quote(&dir(id).to_string_lossy()), TYPED.trim());
+            tmux(&["send-keys", "-t", id, &typed, "Enter"]);
+            let s = until(id, &|s| s.state == State::Exited);
+            assert_eq!(s.exit_code, Some(0));
+            noted_pid(&dir(id), PIDS, 0, run.allowed_at).unwrap()
+        };
         let id = format!("run-test-close-{}", std::process::id());
-        let run = Run { id: id.clone(), session: "k".into(), session_title: "A test".into(), command: "echo closing".into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms() };
-        write_folder(&dir(&id), &run).unwrap();
-        assert!(tmux(&["new-session", "-d", "-s", &id, "-x", "100", "-y", "20", "/bin/zsh -l"]).status.success());
-        let typed = format!("export {ENV}={}; {}", sh_quote(&dir(&id).to_string_lossy()), TYPED.trim());
-        let tty = String::from_utf8_lossy(&tmux(&["display", "-p", "-t", &id, "#{pane_tty}"]).stdout).trim().to_string();
-        let at_prompt = || line_editing(Path::new(&tty));
-        let start = Instant::now();
-        while !at_prompt() && start.elapsed() < Duration::from_secs(30) {
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        tmux(&["send-keys", "-t", &id, &typed, "Enter"]);
-        let s = until(&id, &|s| s.state == State::Exited);
-        assert_eq!(s.exit_code, Some(0));
-        // Back at its prompt after the run, then in a `read` of yours there.
-        let start = Instant::now();
-        while !at_prompt() && start.elapsed() < Duration::from_secs(10) {
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        tmux(&["send-keys", "-t", &id, "read -r x", "Enter"]);
-        let start = Instant::now();
-        while at_prompt() && start.elapsed() < Duration::from_secs(10) {
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        let refused = close(&id).unwrap_err().to_string();
-        assert!(refused.starts_with("Something of your user's may run in its tab now"), "{refused}");
-        tmux(&["send-keys", "-t", &id, "Enter"]);
-        let start = Instant::now();
-        while !at_prompt() && start.elapsed() < Duration::from_secs(10) {
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        let tab = noted_pid(&dir(&id), PIDS, 1, run.allowed_at).unwrap();
+        let tab = tab_with(&id);
         let said = close(&id).unwrap();
         tmux(&["kill-session", "-t", &id]);
         assert!(said.starts_with("Its tab's shell has ended"), "{said}");
         assert!(!procs::pid_alive(tab));
+
+        let id = format!("run-test-taken-{}", std::process::id());
+        let tab = tab_with(&id);
+        tmux(&["send-keys", "-t", &id, "Enter"]);
+        let start = Instant::now();
+        while !dir(&id).join(HANDED).exists() && start.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let refused = close(&id).unwrap_err().to_string();
+        let alive = procs::pid_alive(tab);
+        tmux(&["kill-session", "-t", &id]);
+        assert!(refused.starts_with("Your user took a shell in its tab"), "{refused}");
+        assert!(alive, "the shell you took there, under the same pid");
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 
@@ -1114,54 +1080,13 @@ mod tests {
     }
 
     #[test]
-    fn a_tab_is_closed_only_while_it_runs_nothing_of_yours() {
-        let (login, tab, wrapper, script, theirs) = (100, 200, 300, 301, 400);
-        let line = [tab, login, 1];
-        let runs = |p: u32| p == wrapper || p == script;
-        let view = |name: &str, on_tty: &'static [u32], front: u32, line_editing: bool| TabView { shell_name: name.into(), tab, wrapper: Some(wrapper), front: Some(front), on_tty, tab_line: &[], line_editing };
-        let free = |v: TabView| tab_free(&TabView { tab_line: &line, ..v }, runs);
-        assert!(free(view("zsh", &[100, 200], tab, true)), "at its prompt");
-        assert!(free(view("-zsh", &[100, 200, 300, 301], wrapper, false)), "the run in front");
-        assert!(!free(view("zsh", &[100, 200], tab, false)), "a `read` or a loop of builtins of yours");
-        assert!(!free(view("zsh", &[100, 200, 400], tab, true)), "a job of yours there");
-        assert!(!free(view("zsh", &[100, 200, 400], theirs, false)), "a command of yours in front");
-        assert!(!free(view("vim", &[100, 200], tab, true)), "`exec vim` in it");
-        assert!(!free(TabView { front: None, ..view("zsh", &[100, 200], tab, true) }), "nothing known in front");
-    }
-
-    /// The terminal's own setting says whether a line editor reads keys there, as a shell at its
-    /// prompt does.
-    #[test]
-    fn a_terminal_reading_keys_one_at_a_time_is_line_editing() {
-        let (mut master, mut slave) = (0, 0);
-        // SAFETY: openpty fills the two descriptors; the name, settings and size may be null.
-        assert_eq!(unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) }, 0);
-        // SAFETY: ttyname names the descriptor's terminal, or is null.
-        let name = unsafe { std::ffi::CStr::from_ptr(libc::ttyname(slave)) }.to_string_lossy().into_owned();
-        let set = |canonical: bool| {
-            // SAFETY: the settings are read, changed and written back on an open descriptor.
-            unsafe {
-                let mut t: libc::termios = std::mem::zeroed();
-                libc::tcgetattr(slave, &mut t);
-                if canonical {
-                    t.c_lflag |= libc::ICANON;
-                } else {
-                    t.c_lflag &= !libc::ICANON;
-                }
-                libc::tcsetattr(slave, libc::TCSANOW, &t);
-            }
-        };
-        set(false);
-        let raw = line_editing(Path::new(&name));
-        set(true);
-        let cooked = line_editing(Path::new(&name));
-        // SAFETY: closing the descriptors openpty gave.
-        unsafe {
-            libc::close(master);
-            libc::close(slave);
-        }
-        assert_eq!((raw, cooked), (true, false));
-        assert!(!line_editing(Path::new("/nonexistent/tty")));
+    fn a_tab_is_closed_only_while_it_is_the_runs() {
+        let (login, wrapper, script, shell, theirs) = (100, 200, 201, 300, 400);
+        let above = [wrapper, login, 1];
+        let under = |p: u32| p == script || p == shell;
+        assert!(only_the_run(&[login, wrapper, script], &above, under), "running, or waiting for Return");
+        assert!(only_the_run(&[login, wrapper], &above, under), "waiting for Return");
+        assert!(!only_the_run(&[login, wrapper, theirs], &above, under), "something else on its terminal");
     }
 
     #[test]
@@ -1205,8 +1130,9 @@ mod tests {
         assert!(shown.contains("read its profile"), "{shown}");
         assert!(shown.contains("Codealong runs this for Fix the 'build', as you allowed:"), "{shown}");
         assert!(shown.contains("  printf '%s\\n' \"it's $((40 + 2))\"; shopt"), "{shown}");
-        assert!(shown.contains("it's 42") && shown.contains("It exited with status 3."), "{shown}");
+        assert!(shown.contains("it's 42") && shown.contains("It exited with status 3. Press Return for a shell in this tab."), "{shown}");
         assert!(shown.contains("a login shell, interactive"), "as a new tab's shell is: {shown}");
+        assert!(!d.join(HANDED).exists(), "with nothing to read, no shell is taken");
         assert_eq!(std::fs::read_to_string(d.join(EXIT)).unwrap().trim(), "3");
         let pids = std::fs::read_to_string(d.join(PIDS)).unwrap();
         assert_eq!(pids.split_whitespace().count(), 2, "{pids}");

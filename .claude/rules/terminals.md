@@ -145,13 +145,23 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   process table has (`e_tpgid`): `procs.rs` (`foreground_group`). The command's shell runs with
   `-l -i`, as a new tab's does, so job control puts a foreground command in a group of its own;
   zsh ends with 130 when it's interrupted.
-- A shell at its prompt has its line editor reading keys, which turns the terminal's canonical
-  input off (`stty -a` shows `-icanon`); in a `read` or a loop of builtins it's back on (zsh in
-  tmux, 2026-10-12). That's how a run's tab is known to sit at its prompt before `terminal stop
-  --close` hangs up its shell: `terminal.rs` (`tab_free`, `line_editing`). The terminal closes a
-  tab whose shell ended as its settings say (Ghostty does; Terminal's `shellExitAction` above may
-  keep it). `cargo test a_command_runs_in_a_tab_under_script -- --ignored` runs one in a tmux
-  session nobody sees, with your login shell.
+- Nothing outside a shell can tell its prompt from a `read` of yours: the terminal's canonical
+  input is off at zsh's prompt, but also in zsh's `read -k` and bash's `read -e` (Codex checked
+  both on new ptys, 2026-10-12), and neither starts a process. Nor whether you typed there: a
+  terminal device's access time moves when what was typed is read and not when something is
+  printed (`w`'s idle time), but also as zsh sets the terminal up again when a command it ran
+  ends, with nobody typing (zsh in tmux, 2026-10-12). So the line typed into a run's tab `exec`s
+  the wrapper, which is the tab's shell until you take one there with Return, and `terminal stop
+  --close` hangs up only a tab that's still the run's: `terminal.rs` (`TYPED`, `wrapper`,
+  `close`). The terminal closes a tab whose shell ended as its settings say (Ghostty does;
+  Terminal's `shellExitAction` above may keep it).
+- macOS's `/bin/sh` runs as the shell `/private/var/select/sh` names (`bash` here), and that's the
+  name the kernel gives the process (`ps -o ucomm`), not `sh`.
+- An agent's sandbox may keep its command from looking at your processes or signalling them (a
+  Codex sandbox refused `ps`), so the command asks the app for a run's state, `stop` and
+  `--close` when it's up (server.rs `TerminalRuns`, `TerminalStop`).
+- `cargo test a_command_runs_in_a_tab_under_script -- --ignored` runs a command in a tmux session
+  nobody sees, with your login shell: kept output, Ctrl-C, and closing a tab or not.
 
 ## Testing
 

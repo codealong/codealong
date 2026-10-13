@@ -108,6 +108,22 @@ pub enum Request {
     /// answer it, and the reply says how (terminal.rs `reply`). A request whose command goes first
     /// goes from the windows.
     TerminalAsk { ask: crate::terminal::Ask },
+    /// Interrupts a run of `codealong terminal run`, or with `close` closes its tab, here in the
+    /// app: an agent's sandbox may not let its command look at your processes or signal them.
+    TerminalStop {
+        id: String,
+        #[serde(default)]
+        close: bool,
+    },
+    /// Where a run of `codealong terminal run` stands, or with no id every run kept (only those
+    /// `session` asked for when it names one), as the app sees them: whether a run's processes are
+    /// still there is a look at yours, which an agent's sandbox may not let its command take.
+    TerminalRuns {
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        session: Option<String>,
+    },
 }
 
 /// How a reply starts when the app doesn't know the request: it's older than the command.
@@ -259,6 +275,9 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         },
         // Held on their connection instead (`connection`).
         Request::PermissionAsk { .. } | Request::TerminalAsk { .. } => Reply::ok(Value::Null),
+        Request::TerminalRuns { id: Some(id), .. } => answered(crate::terminal::status(&id).map_err(crate::util::words)),
+        Request::TerminalRuns { id: None, session } => Reply::ok(crate::terminal::list(session.as_deref())),
+        Request::TerminalStop { id, close } => answered(if close { crate::terminal::close(&id) } else { crate::terminal::stop(&id) }.map_err(crate::util::words)),
     }
 }
 

@@ -1174,15 +1174,16 @@ waits on you for it, wherever that shows (its panel, the notch, Waiting on you, 
 "Wants to run in your terminal", with the exact command and where it would run. Allow opens a new
 tab of your terminal beside the session's, in that folder, and runs it there in your login shell
 (zsh or bash, interactive, with your aliases and your sign-ins, outside any sandbox): you can watch
-it, type into it (a password prompt, a browser sign-in) and stop it with Ctrl-C, and once it ends
-the tab is yours again. What it prints goes back to the agent, colors and progress lines drawn over
+it, type into it (a password prompt, a browser sign-in) and stop it with Ctrl-C. Once it ends the
+tab says how, and Return there gives you a shell in it. What it prints goes back to the agent,
+colors and progress lines drawn over
 themselves resolved; what you type isn't kept, so a password typed at a prompt that hides it isn't
 either. Deny tells the agent no, with what you write in the box when you write something. It's asked
 every time: there's no Always, and only you allow it, on this Mac or from your phone, never the
 agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
 An agent can read what a run printed while it runs, interrupt it as Ctrl-C would, and close its tab
-once it's done, but only while the run is what runs there or the tab's shell sits at its prompt:
-not while you've started something in it, or are typing at a `read` there.
+once it's done, but only while the tab is still the run's: once you've taken a shell in it, it's
+yours, and stays.
 
 ### Floating bar
 
