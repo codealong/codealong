@@ -166,6 +166,10 @@ impl Nudger {
             for ((pr_key, _), owed) in self.owed.iter_mut() {
                 if *pr_key == key {
                     owed.pr = pr.clone();
+                    // A conflict resolved before it could be told (its session waited on you, a
+                    // send failed) is no news, though GitHub may not know again by the time it
+                    // could be.
+                    owed.why.conflicts &= conflicts;
                 }
             }
             let Some(was) = was else { continue };
@@ -377,9 +381,8 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     if !why.failed.is_empty() {
         items.push(format!("Its checks failed: {}.", why.failed.join(", ")));
     }
-    // A conflict resolved before the message could go (its session waited on you, say) is no
-    // news, nor one on a PR that ended.
-    let conflicts = why.conflicts && why.ended.is_none() && matches!(pr.merge, Merge::Conflicts | Merge::Unknown);
+    // A conflict on a PR that ended is no news.
+    let conflicts = why.conflicts && why.ended.is_none();
     if conflicts {
         items.push(match pr.base.as_deref() {
             Some(base) => format!("Its branch now conflicts with {base}, its base."),
@@ -932,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn says_a_branch_conflicts_with_its_base_unless_it_no_longer_does() {
+    fn says_a_branch_now_conflicts_with_its_base() {
         let why = Why { conflicts: true, ..Why::default() };
         // Approved, with a conflict: there's work to do, and still no go-ahead to merge.
         let approved = PrItem { merge: Merge::Conflicts, ..pr("o/r#1", PrState::Approved, &[A]) };
@@ -944,12 +947,35 @@ mod tests {
         let failing = PrItem { checks: Checks { failed: 1, failing: vec!["lint".into()], ..Checks::default() }, base: None, ..approved.clone() };
         let text = words(&failing, &Why { failed: vec!["lint".into()], ..why.clone() }, None, None, NudgeAbout::Everything).unwrap();
         assert!(text.contains("- Its checks failed: lint.\n- Its branch now conflicts with its base.\nTake it from there"), "{text}");
-        // GitHub working it out again still has it; resolved before the message went, or the PR
-        // closed, it's no news.
-        assert!(words(&PrItem { merge: Merge::Unknown, ..approved.clone() }, &why, None, None, NudgeAbout::Everything).is_some());
-        assert_eq!(words(&PrItem { merge: Merge::Clean, ..approved.clone() }, &why, None, None, NudgeAbout::Everything), None);
+        // The PR closed before it was told: no news.
         let closed = PrItem { state: PrState::Closed, merge: Merge::Unknown, ..approved };
         assert!(!words(&closed, &Why { ended: Some(PrState::Closed), ..why }, None, None, NudgeAbout::Everything).unwrap().contains("conflicts"));
+    }
+
+    /// A conflict owed to a session that waits on you, or whose send failed, goes once a board
+    /// shows it resolved, though GitHub doesn't know again by the time it could be told; one never
+    /// resolved is told then.
+    #[test]
+    fn a_conflict_resolved_before_it_could_be_told_is_not() {
+        use crate::model::Status;
+        let waiting = Session { status: Status::Needs, ..live(A) };
+        let at = |merge: Merge, s: &Session| board(vec![PrItem { merge, ..pr("o/r#1", PrState::Open, &[A]) }], vec![s.clone()]);
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &at(Merge::Clean, &waiting));
+        assert!(sent(&mut nudger, &at(Merge::Conflicts, &waiting)).is_empty());
+        assert!(sent(&mut nudger, &at(Merge::Clean, &waiting)).is_empty());
+        assert!(sent(&mut nudger, &at(Merge::Unknown, &live(A))).is_empty(), "resolved while it waited");
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &at(Merge::Clean, &waiting));
+        sent(&mut nudger, &at(Merge::Conflicts, &waiting));
+        assert_eq!(sent(&mut nudger, &at(Merge::Unknown, &live(A)))[0].why, Why { conflicts: true, ..Why::default() }, "never resolved");
+        // A failed send isn't tried again once it's resolved.
+        let mut nudger = Nudger::default();
+        nudger.due(&at(Merge::Clean, &live(A)), NOW);
+        let job = nudger.due(&at(Merge::Conflicts, &live(A)), NOW).remove(0);
+        nudger.due(&at(Merge::Clean, &live(A)), NOW);
+        assert!(nudger.told(&job, false, NOW));
+        assert!(nudger.due(&at(Merge::Unknown, &live(A)), NOW + RETRY_MAX_MS).is_empty());
     }
 
     #[test]
