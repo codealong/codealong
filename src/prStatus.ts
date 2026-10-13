@@ -194,16 +194,27 @@ export function asksFor(comments: PrComment[], asks: Record<string, number>): Se
  *  view doesn't. Named, so that `Vec<String>` in a comment keeps its type. */
 const HTML_TAG = /<\/?(?:a|b|br|details|div|em|h[1-6]|hr|i|img|li|ol|p|picture|source|span|strong|summary|sup|table|tbody|td|th|thead|tr|ul)\b[^>]*>/gi;
 
+/** Code in Markdown, a fenced block (to its end, or the text's) or a span: what it holds is
+ *  written as it is. */
+const CODE = /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]+`)/;
+
 /** A GitHub comment's text as the Markdown view shows it (ui/Markdown.tsx): its hidden HTML
  *  comments dropped (Codealong's marks on the reviews it posts are some), the line saying an agent
- *  wrote it, which GitHub shows small (`<sub>`), in italics, and the HTML tags it draws left out. */
+ *  wrote it, which GitHub shows small (`<sub>`), in italics, and the HTML tags it draws left out,
+ *  everywhere but in its code, which keeps every character. */
 export function commentText(body: string): string {
+  const prose = (text: string) =>
+    text
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<sub>([\s\S]*?)<\/sub>/gi, (_, inner: string) => `*${inner.trim()}*`)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(HTML_TAG, '')
+      .replace(/\n{3,}/g, '\n\n');
+  // Split by a capturing pattern, the code is every other part.
   return body
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<sub>([\s\S]*?)<\/sub>/gi, (_, inner: string) => `*${inner.trim()}*`)
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(HTML_TAG, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .split(CODE)
+    .map((part, i) => (i % 2 === 1 ? part : prose(part)))
+    .join('')
     .trim();
 }
 

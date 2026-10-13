@@ -23,7 +23,7 @@ import { cx } from './primitives';
 function Said({ c, standing, detail, asks, now }: { c: PrComment; standing: string | null; detail: PrDetail; asks: Set<string>; now: number }) {
   const [whole, setWhole] = useState(false);
   const text = commentText(c.body);
-  const lines = c.path && !c.resolved && !c.outdated && c.line != null ? around(detail, c.path, c.line) : [];
+  const lines = c.path && !c.resolved && !c.outdated && c.line != null ? around(detail, c.path, c.line, !!c.before) : [];
   const { dir, name } = splitPath(c.path ?? '');
   const replies = c.replies ?? 0;
   const verdict = !c.path && c.review && c.review !== standing ? (REVIEW_WORD[c.review] ?? null) : null;
@@ -34,7 +34,9 @@ function Said({ c, standing, detail, asks, now }: { c: PrComment; standing: stri
           <>
             <span className="ca-agentrev-file">{name}</span>
             {dir && <span className="ca-agentrev-dir">{dir}</span>}
-            <span className="ca-meta">{c.line != null ? `line ${c.line}` : c.outdated ? 'a line since changed' : 'the file'}</span>
+            <span className="ca-meta" title={c.before && c.line != null ? `Line ${c.line} of the file as it was before the PR` : undefined}>
+              {c.line != null ? `line ${c.line}${c.before ? ' before' : ''}` : c.outdated ? 'a line since changed' : 'the file'}
+            </span>
           </>
         )}
         {verdict && (

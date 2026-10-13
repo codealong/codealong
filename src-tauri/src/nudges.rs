@@ -433,7 +433,7 @@ mod tests {
     const B: &str = "claude:claude:b";
 
     fn comment(id: &str, author: &str, body: &str, at: i64, path: Option<&str>, mine: bool) -> PrComment {
-        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), line: None, outdated: false, replies: 0, resolved: false, mine, review: None }
+        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), line: None, before: false, outdated: false, replies: 0, resolved: false, mine, review: None }
     }
 
     fn detail(reviews: Vec<PrReview>, comments: Vec<PrComment>) -> PrDetail {

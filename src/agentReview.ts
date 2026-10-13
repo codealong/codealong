@@ -15,36 +15,41 @@ export interface ExcerptLine {
 }
 
 /**
- * The lines of a file's patch around line `line` of its new version: `around` lines of the new
- * version on each side within the same hunk, with the removed lines among them, the line itself
- * marked. Empty when the patch doesn't show that line (GitHub refuses a comment on one it doesn't,
- * so such a comment was written into the review's text).
+ * The lines of a file's patch around line `line` of its new version, or of its old one with
+ * `before` (a thread on a line the PR removes): `around` lines of that version on each side within
+ * the same hunk, with the other version's lines among them, the line itself marked. Empty when the
+ * patch doesn't show that line (GitHub refuses a comment on one it doesn't, so such a comment was
+ * written into the review's text).
  */
-export function excerptAt(patch: string, line: number, around = 2): ExcerptLine[] {
-  const hunks: ExcerptLine[][] = [];
+export function excerptAt(patch: string, line: number, around = 2, before = false): ExcerptLine[] {
+  // Each line with its number in the side counted: the new version's, or the old one's.
+  const hunks: { l: ExcerptLine; at: number | null }[][] = [];
   let next: number | null = null;
+  let old: number | null = null;
   for (const raw of patch.split('\n')) {
     if (raw.startsWith('@@')) {
-      const m = /\+(\d+)/.exec(raw);
-      next = m ? Number(m[1]) : null;
+      const m = /-(\d+)(?:,\d+)? \+(\d+)/.exec(raw);
+      old = m ? Number(m[1]) : null;
+      next = m ? Number(m[2]) : null;
       hunks.push([]);
       continue;
     }
     const hunk = hunks[hunks.length - 1];
-    if (next === null || !hunk || raw.startsWith('\\')) continue;
-    if (raw.startsWith('-')) {
-      hunk.push({ n: null, kind: 'del', text: raw.slice(1), at: false });
-      continue;
-    }
-    hunk.push({ n: next, kind: raw.startsWith('+') ? 'add' : 'ctx', text: raw.slice(1), at: next === line });
-    next += 1;
+    if (next === null || old === null || !hunk || raw.startsWith('\\')) continue;
+    const kind = raw.startsWith('-') ? 'del' : raw.startsWith('+') ? 'add' : 'ctx';
+    const n = kind === 'del' ? null : next;
+    const o = kind === 'add' ? null : old;
+    const counted = before ? o : n;
+    hunk.push({ l: { n, kind, text: raw.slice(1), at: counted === line }, at: counted });
+    if (kind !== 'del') next += 1;
+    if (kind !== 'add') old += 1;
   }
-  const hunk = hunks.find((h) => h.some((l) => l.at));
+  const hunk = hunks.find((h) => h.some((x) => x.l.at));
   if (!hunk) return [];
-  const near = (l: ExcerptLine) => l.n !== null && Math.abs(l.n - line) <= around;
+  const near = (x: { at: number | null }) => x.at !== null && Math.abs(x.at - line) <= around;
   const first = hunk.findIndex(near);
   const last = hunk.length - 1 - [...hunk].reverse().findIndex(near);
-  return hunk.slice(first, last + 1);
+  return hunk.slice(first, last + 1).map((x) => x.l);
 }
 
 /** A line of a file at a commit on GitHub. */

@@ -83,10 +83,11 @@ function Where({ pr, commit, path, line }: { pr: PrItem; commit: string; path: s
   );
 }
 
-/** The lines around a comment's line, from the PR's diff as it is now. */
-export function around(detail: PrDetail | undefined, path: string, line: number | null): ExcerptLine[] {
+/** The lines around a comment's line, from the PR's diff as it is now; `before` for a line of
+ *  the file as it was. */
+export function around(detail: PrDetail | undefined, path: string, line: number | null, before = false): ExcerptLine[] {
   const patch = detail?.files.find((f) => f.path === path)?.patch;
-  return patch && line != null ? excerptAt(patch, line) : [];
+  return patch && line != null ? excerptAt(patch, line, 2, before) : [];
 }
 
 /** A comment on a line the agent wrote: where it is, the lines around it, and what it says. */

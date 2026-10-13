@@ -1360,9 +1360,13 @@ export interface PrComment {
   url: string | null;
   /** The file a thread on the code is about. */
   path: string | null;
-  /** A thread on the code: its line in the file's new version, none for one on the whole file
-   *  or one the PR's changes since moved. Missing from older engines. */
+  /** A thread on the code: its line in the file's new version, or the old one's when `before`,
+   *  none for one on the whole file or one the PR's changes since moved. Missing from older
+   *  engines. */
   line?: number | null;
+  /** A thread on the code on the file as it was before the PR: on a line it removes, or one
+   *  beside them, numbered as the file was. */
+  before?: boolean;
   /** A thread on the code whose line the PR's changes since moved or changed. */
   outdated?: boolean;
   /** A thread on the code: how many replies follow its first comment. */

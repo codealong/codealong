@@ -697,7 +697,8 @@ request for changes, else a comment), Asked again when their review was asked fo
 it everything they wrote: their reviews' text, the threads they began on the code, and their
 comments on the conversation. What's still open comes first, marked down its left edge: a thread
 nobody resolved, and, with `[jev] pull_requests`, a comment asking for a change or an answer. A
-thread says its file and line, has the lines around it from the PR's diff while it's open, and says
+thread says its file and line (`line 12 before` for one on the file as it was, a line the PR
+removes say, numbered so), has the lines around it from the PR's diff while it's open, and says
 how many replies follow; a resolved one is folded to a line. A click on any comment's head opens it
 on GitHub, where its replies are. Three show for each person, besides what's open, until Show more,
 and a long report (a bot's) shows cut short until Show all. The tab counts your draft's comments

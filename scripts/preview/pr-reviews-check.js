@@ -2,11 +2,12 @@
 // Description, Changes and Reviews, Description holding the author's words alone; Reviews has
 // your review under its own heading, then everyone on the PR once, whoever asked for changes
 // first, each with their verdict and what they wrote, what's still open first. A thread on the
-// code says its file and line with the lines around it from the diff, and how many replies follow;
-// a resolved one is folded to a line; a click on a comment's head opens it on GitHub. A bot's long
-// report shows cut short, without its HTML, until Show all, and Codealong's hidden mark never
-// shows. The tab counts what's still open from others. A PR of yours someone asked for changes to
-// opens on Reviews, without a review-of-yours section; one nobody has looked at says so.
+// code says its file and line with the lines around it from the diff (a removed line's, numbered
+// as the file was, for one on the old side), and how many replies follow; a resolved one is
+// folded to a line; a click on a comment's head opens it on GitHub. A bot's long report shows cut
+// short, without its HTML, until Show all, and Codealong's hidden mark never shows. The tab
+// counts what's still open from others. A PR of yours someone asked for changes to opens on
+// Reviews, without a review-of-yours section; one nobody has looked at says so.
 //   scripts/preview.sh prs '' scripts/preview/pr-reviews-check.js
 //   PREVIEW_SCHEME=dark scripts/preview.sh prs '' scripts/preview/pr-reviews-check.js
 (function () {
@@ -34,6 +35,7 @@
       c('ana-text', 'ana', 40, { body: 'Please add a test for the empty case.', review: 'CHANGES_REQUESTED' }),
       c('ana-done', 'ana', 42, { path: 'src/b.ts', line: 3, resolved: true, replies: 1, body: 'Rename this?' }),
       c('ana-open', 'ana', 45, { path: 'src/a.ts', line: 2, replies: 2, body: 'This **panics** on an empty list.' }),
+      c('ana-old', 'ana', 46, { path: 'src/a.ts', line: 2, before: true, body: 'Why drop this?' }),
       c('ken-1', 'ken', 51), c('ken-2', 'ken', 52), c('ken-3', 'ken', 53), c('ken-4', 'ken', 54),
     ],
     files: [{ path: 'src/a.ts', status: 'modified', additions: 2, deletions: 1, patch: PATCH }],
@@ -85,12 +87,12 @@
       var labels = all('.ca-prinsp .ca-tab').map(function (t) { return t.firstChild.textContent; });
       check('the tabs are Description, Changes and Reviews', labels.join(' | ') === 'Description | Changes | Reviews', labels.join(' | '));
       check('someone else’s PR with no review of the agent’s opens on Description', shownTab() === 'Description', shownTab());
-      return until(function () { return tabCount('Reviews') === '2'; }, 5000, 'Reviews never counted what’s open');
+      return until(function () { return tabCount('Reviews') === '3'; }, 5000, 'Reviews never counted what’s open');
     })
     .then(function () {
       var desc = q('.ca-prinsp [aria-label="Description"]').closest('[role="tabpanel"]');
       check('Description holds the description alone', /Adds teams\./.test(desc.textContent) && !q('.ca-prsaid', desc) && !/Comments ·/.test(desc.textContent), desc.textContent.slice(0, 120));
-      check('the Reviews tab says what it counts', /2 still open/.test(tab('Reviews').getAttribute('title') || ''), tab('Reviews').getAttribute('title'));
+      check('the Reviews tab says what it counts', /3 still open/.test(tab('Reviews').getAttribute('title') || ''), tab('Reviews').getAttribute('title'));
       press(tab('Reviews'));
       return until(function () { return shownTab() === 'Reviews' && all('.ca-prrev').length > 0; }, 3000, 'the Reviews tab never listed anyone');
     })
@@ -100,22 +102,30 @@
       var order = all('.ca-prrev').map(function (p) { return q('.ca-prrev-who', p).textContent; });
       check('everyone once, whoever asked for changes first and whoever only wrote last', order.join(' ') === 'ana you ken gwen vercel kai', order.join(' '));
       var heading = q('.ca-prrevs .ca-label').textContent;
-      check('the list says what’s still open', heading === 'Reviews and comments · 2 open', heading);
+      check('the list says what’s still open', heading === 'Reviews and comments · 3 open', heading);
 
       var ana = person('ana');
-      check('a verdict with its words, and how much of it is open', q('.ca-prrev-verdict', ana).textContent === 'Requested changes' && /2 open/.test(q('.ca-prrev-head', ana).textContent), q('.ca-prrev-head', ana).textContent);
+      check('a verdict with its words, and how much of it is open', q('.ca-prrev-verdict', ana).textContent === 'Requested changes' && /3 open/.test(q('.ca-prrev-head', ana).textContent), q('.ca-prrev-head', ana).textContent);
       var said = all('.ca-prsaid', ana);
-      check('what’s open first: the text Jev says asks for a change, then the open thread; the resolved one last', said.length === 3 && /Asks for a change/.test(said[0].textContent) && /a\.ts/.test(said[1].textContent) && said[2].classList.contains('is-resolved'), said.map(function (s) { return s.textContent.slice(0, 30); }).join(' | '));
-      check('both open ones are marked', said[0].classList.contains('is-open') && said[1].classList.contains('is-open') && !said[2].classList.contains('is-open'), said.map(function (s) { return s.className; }).join(' | '));
+      // Three open: all of them show, the resolved one behind Show more.
+      check('what’s open first: the text Jev says asks for a change, then the open threads', said.length === 3 && /Asks for a change/.test(said[0].textContent) && /a\.ts/.test(said[1].textContent) && /a\.ts/.test(said[2].textContent) && /Show 1 more/.test(ana.textContent), said.map(function (s) { return s.textContent.slice(0, 30); }).join(' | '));
+      check('the open ones are marked', said.every(function (x) { return x.classList.contains('is-open'); }), said.map(function (s) { return s.className; }).join(' | '));
+      var gone = q('.ca-agentrev-code .is-at', said[2]);
+      check('a thread on a line the PR removes marks that line, numbered as the file was', /line 2 before/.test(q('.ca-prsaid-head', said[2]).textContent) && !!gone && gone.classList.contains('is-del') && /old\(\);/.test(gone.textContent), (q('.ca-agentrev-code', said[2]) || {}).textContent);
       var thread = said[1];
       check('a thread says its file, line and replies', q('.ca-agentrev-file', thread).textContent === 'a.ts' && q('.ca-agentrev-dir', thread).textContent === 'src' && /line 2/.test(thread.textContent) && /2 replies/.test(thread.textContent), q('.ca-prsaid-head', thread).textContent);
       var at = q('.ca-agentrev-code .is-at', thread);
       check('with the lines around it from the diff, its own marked', !!at && /new\(\);/.test(at.textContent), (q('.ca-agentrev-code', thread) || {}).textContent);
       check('its words drawn as Markdown', !!q('.ca-prsaid-text strong', thread), thread.innerHTML.slice(0, 200));
-      check('a resolved thread is folded to a line, with no lines around it', !q('.ca-agentrev-code', said[2]) && !!q('.ca-prsaid-short', said[2]) && /Resolved/.test(said[2].textContent) && /1 reply/.test(said[2].textContent), said[2].textContent);
       press(q('.ca-prsaid-head', thread));
       var opened = last('open_url');
       check('a click on its head opens it on GitHub', !!opened && opened.url === 'https://github.com/o/r/pull/7#ana-open', JSON.stringify(opened));
+      press(q('.ca-more-btn', ana));
+      return until(function () { return all('.ca-prsaid', person('ana')).length === 4; }, 3000, 'ana’s Show more never showed the resolved thread');
+    })
+    .then(function () {
+      var done = all('.ca-prsaid', person('ana'))[3];
+      check('a resolved thread comes last, folded to a line with no lines around it', done.classList.contains('is-resolved') && !done.classList.contains('is-open') && !q('.ca-agentrev-code', done) && !!q('.ca-prsaid-short', done) && /Resolved/.test(done.textContent) && /1 reply/.test(done.textContent), done.textContent);
 
       var me = person('you');
       check('your own review is yours, its hidden mark not shown', !!me && q('.ca-prrev-verdict', me).textContent === 'Commented' && /Looks close\./.test(me.textContent) && !/codealong-review/.test(me.textContent), me && me.textContent);

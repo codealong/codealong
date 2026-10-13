@@ -116,6 +116,11 @@ describe('review comments', () => {
     expect(commentText('<p align="center">Hi<br/>there</p>\n\n\n\nBye')).toBe('Hi\nthere\n\nBye');
     // A type in a comment isn't a tag.
     expect(commentText('Use `Vec<String>` and `Option<T>`.')).toBe('Use `Vec<String>` and `Option<T>`.');
+    // Nor is anything in its code: spans and fenced blocks keep every character.
+    expect(commentText('Wrap it in `<div>`, as `Array<B>` does.')).toBe('Wrap it in `<div>`, as `Array<B>` does.');
+    const fenced = 'Like this:\n\n```html\n<div class="a">\n  <!-- keep -->\n  <p>Hi</p>\n</div>\n```\n\n<p>Done</p>';
+    expect(commentText(fenced)).toBe('Like this:\n\n```html\n<div class="a">\n  <!-- keep -->\n  <p>Hi</p>\n</div>\n```\n\nDone');
+    expect(commentText('Unclosed:\n```\n<b>x</b>')).toBe('Unclosed:\n```\n<b>x</b>');
   });
 });
 

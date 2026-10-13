@@ -161,9 +161,13 @@ pub struct Comment {
     pub url: Option<String>,
     /// The file a thread on the code is about.
     pub path: Option<String>,
-    /// A thread on the code: its line in the file's new version, none for one on the whole file
-    /// or one the PR's changes since moved. Missing from Macs before 2026-10-12.
+    /// A thread on the code: its line in the file's new version, or the old one's when `before`,
+    /// none for one on the whole file or one the PR's changes since moved. Missing from Macs
+    /// before 2026-10-12.
     pub line: Option<u64>,
+    /// A thread on the code on the file as it was before the PR: on a line it removes, or one
+    /// beside them, numbered as the file was.
+    pub before: bool,
     /// A thread on the code whose line the PR's changes since moved or changed.
     pub outdated: bool,
     /// A thread on the code: how many replies follow its first comment.

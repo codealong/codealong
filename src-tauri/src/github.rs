@@ -847,7 +847,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       reviews(last: 50) { nodes { id author { login } state submittedAt body url } }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       comments(last: 50) { nodes { id author { login } body createdAt url } }
-      reviewThreads(last: 50) { nodes { isResolved isOutdated path line comments(first: 1) { totalCount nodes { id author { login } body createdAt url } } } }
+      reviewThreads(last: 50) { nodes { isResolved isOutdated path line diffSide comments(first: 1) { totalCount nodes { id author { login } body createdAt url } } } }
     }
   }
 }
@@ -877,10 +877,13 @@ pub struct PrComment {
     pub url: Option<String>,
     /// The file a thread on the code is about.
     pub path: Option<String>,
-    /// A thread on the code: its line in the file's new version, none for one on the whole file
-    /// or one the PR's changes since moved (`outdated`). The windows show the lines around it
-    /// from the PR's diff.
+    /// A thread on the code: its line in the file's new version, or the old one's when `before`,
+    /// none for one on the whole file or one the PR's changes since moved (`outdated`). The
+    /// windows show the lines around it from the PR's diff.
     pub line: Option<u64>,
+    /// A thread on the code on the file as it was before the PR (`diffSide: LEFT`): on a line it
+    /// removes, or one beside them, numbered as the file was.
+    pub before: bool,
     /// A thread on the code whose line the PR's changes since moved or changed.
     pub outdated: bool,
     /// A thread on the code: how many replies follow its first comment.
@@ -947,7 +950,7 @@ impl PrDetail {
             comments: self
                 .comments
                 .into_iter()
-                .map(|c| pr::Comment { id: c.id, author: c.author, body: c.body, at: c.at, url: c.url, path: c.path, line: c.line, outdated: c.outdated, replies: c.replies, resolved: c.resolved, mine: c.mine, review: c.review })
+                .map(|c| pr::Comment { id: c.id, author: c.author, body: c.body, at: c.at, url: c.url, path: c.path, line: c.line, before: c.before, outdated: c.outdated, replies: c.replies, resolved: c.resolved, mine: c.mine, review: c.review })
                 .collect(),
             files: self.files.into_iter().map(|f| pr::File { path: f.path, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }).collect(),
             more_files: self.more_files,
@@ -1017,6 +1020,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             url: n.get("url").and_then(Value::as_str).map(String::from),
             path: None,
             line: None,
+            before: false,
             outdated: false,
             replies: 0,
             resolved: false,
@@ -1033,6 +1037,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
         comments.push(PrComment {
             path: t.get("path").and_then(Value::as_str).map(String::from),
             line: t.get("line").and_then(Value::as_u64),
+            before: t.get("diffSide").and_then(Value::as_str) == Some("LEFT"),
             outdated: t.get("isOutdated").and_then(Value::as_bool).unwrap_or(false),
             replies: total.saturating_sub(1),
             resolved: t.get("isResolved").and_then(Value::as_bool).unwrap_or(false),
@@ -2140,8 +2145,8 @@ mod tests {
           "reviewRequests":{"nodes":[]},
           "comments":{"nodes":[{"id":"C1","author":{"login":"me"},"body":"Done, thanks","createdAt":"2026-09-23T15:00:00Z","url":"u3"}]},
           "reviewThreads":{"nodes":[
-            {"isResolved":true,"isOutdated":false,"path":"src/a.ts","line":12,"comments":{"totalCount":3,"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4"}]}},
-            {"isResolved":false,"isOutdated":true,"path":"src/b.ts","line":null,"comments":{"totalCount":1,"nodes":[{"id":"T2","author":{"login":"ana"},"body":"Typo.","createdAt":"2026-09-23T11:00:00Z","url":"u5"}]}}]}}}}}"#;
+            {"isResolved":true,"isOutdated":false,"path":"src/a.ts","line":12,"diffSide":"LEFT","comments":{"totalCount":3,"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4"}]}},
+            {"isResolved":false,"isOutdated":true,"path":"src/b.ts","line":null,"diffSide":"RIGHT","comments":{"totalCount":1,"nodes":[{"id":"T2","author":{"login":"ana"},"body":"Typo.","createdAt":"2026-09-23T11:00:00Z","url":"u5"}]}}]}}}}}"#;
         let d = parse_detail(graph, "[]").unwrap();
         let got: Vec<(&str, bool, bool, Option<&str>)> = d.comments.iter().map(|c| (c.id.as_str(), c.mine, c.resolved, c.path.as_deref())).collect();
         // The approval with nothing written is left out.
@@ -2150,8 +2155,9 @@ mod tests {
         let reviews: Vec<Option<&str>> = d.comments.iter().map(|c| c.review.as_deref()).collect();
         assert_eq!(reviews, vec![None, Some("CHANGES_REQUESTED"), None, None]);
         // A thread says its line, whether the PR moved it since, and how many replies follow.
-        let threads: Vec<(Option<u64>, bool, u64)> = d.comments[2..].iter().map(|c| (c.line, c.outdated, c.replies)).collect();
-        assert_eq!(threads, vec![(Some(12), false, 2), (None, true, 0)]);
+        // The first is on a line the PR removes, numbered as the file was.
+        let threads: Vec<(Option<u64>, bool, bool, u64)> = d.comments[2..].iter().map(|c| (c.line, c.before, c.outdated, c.replies)).collect();
+        assert_eq!(threads, vec![(Some(12), true, false, 2), (None, false, true, 0)]);
         assert_eq!((d.comments[0].line, d.comments[0].replies), (None, 0));
         // Each standing review says whether it's yours, a review with nothing written too.
         let mine: Vec<(&str, bool)> = d.reviews.iter().map(|r| (r.author.as_str(), r.mine)).collect();
