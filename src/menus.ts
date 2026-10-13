@@ -22,7 +22,7 @@ import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from '
 import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
-import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, StartPlace, Todo } from './types';
+import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, StartPlace, Started, Todo } from './types';
 import { mayApprove } from './prStatus';
 import { errorText, type Report } from './report';
 
@@ -157,6 +157,11 @@ export interface SessionCan {
   /** It left the list it was picked from, and how: the peek goes away, the waiting window's queue
    *  and the notch's go on to the next. */
   left?: (done: Left) => void;
+  /** It's moving, and `copy` gives the key of the session that goes on in its place (start.rs
+   *  `move_to`), or null when there's none: it moved as itself, or the move failed. The window
+   *  keeps it in view meanwhile and then shows the copy (the main window's Sessions). Without
+   *  this, a session that leaves a copy has left the list, as an archived one has. */
+  moving?: (copy: Promise<string | null>) => void;
   /** Add to canvas, where there's a canvas. */
   canvas?: MenuSpec;
   /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
@@ -230,25 +235,26 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
         if (started?.message) report.info(started.message);
       })
       .catch((e: unknown) => report.error(errorText(e)));
+  // A session that moves out is archived, and the copy that goes on in its place is what a window
+  // that follows it shows (`moving`); elsewhere, or with no copy, it has left the list. `leaves`
+  // says whether it goes even when the move names no copy.
+  const moved = (label: string, work: Promise<Started | null>, leaves: boolean) => {
+    const copy = busy(label, work).then((started) => {
+      const key = started?.key && started.key !== s.key ? started.key : null;
+      if ((leaves || key) && !(key && can.moving)) can.left?.('archived');
+      if (started?.message) report.info(started.message);
+      return key;
+    });
+    can.moving?.(copy.catch(() => null));
+    copy.catch((e: unknown) => report.error(errorText(e)));
+  };
   // Moving opens a terminal on this Mac, as a fork does, and closes the session's own.
   const moveTo = here && s.resumeCommand && MOVES_ACCOUNTS.includes(s.harness) ? accounts.filter((a) => a.harness === s.harness && a.name !== s.account && a.signedIn).map((a) => a.name) : [];
-  const move = (to: string) =>
-    busy(`Moving ${s.title} to ${to}…`, moveSession(s.key, to))
-      .then((started) => {
-        can.left?.('archived');
-        if (started?.message) report.info(started.message);
-      })
-      .catch((e: unknown) => report.error(errorText(e)));
-  const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => void move(to) });
+  const move = (to: string) => moved(`Moving ${s.title} to ${to}…`, moveSession(s.key, to), true);
+  const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => move(to) });
   // Another folder: it's closed where it runs and goes on there as itself, so it stays on the
   // lists it's on, unless its harness copied it.
-  const moveFolder = (to: Lane) =>
-    busy(`Moving ${s.title} to ${to.startsChats ? 'a chat of its own' : to.callsign}…`, moveSessionTo(s.key, to.id))
-      .then((started) => {
-        if (started?.key && started.key !== s.key) can.left?.('archived');
-        if (started?.message) report.info(started.message);
-      })
-      .catch((e: unknown) => report.error(errorText(e)));
+  const moveFolder = (to: Lane) => moved(`Moving ${s.title} to ${to.startsChats ? 'a chat of its own' : to.callsign}…`, moveSessionTo(s.key, to.id), false);
   // One that isn't running goes on where its account's sessions can (start.rs `resume`), as its
   // box offers, where there's more than the terminal Open resumes it in.
   const resumeTo = here && !s.live && !s.hosted && s.surface === 'cli' ? resumePlaces(s) : [];

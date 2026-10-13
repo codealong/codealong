@@ -106,6 +106,9 @@ const HELPERS_SHOWN_KEY = 'codealong.helpersShown';
 // Each window has its own way back.
 const HISTORY_KEY = WINDOW_PROJECT ? `codealong.sessionHistory:${WINDOW_PROJECT}` : 'codealong.sessionHistory';
 const DAY = 24 * 60 * 60 * 1000;
+/** How long Sessions waits for a moved session's copy to be listed before letting it go: the
+ *  minute its card on the desktop waits too (lib.rs `move_session`). */
+const COPY_WAIT_MS = 60_000;
 
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
 const VIEWS: { id: View; label: string; icon: string }[] = [
@@ -179,6 +182,9 @@ export function App() {
   const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
+  // move says it: the panel holds it until the copy is listed, then shows the copy.
+  const [moving, setMoving] = useState<{ from: SessionItem; to: string | null } | null>(null);
   const [view, setView] = useStored<View>(VIEW_KEY, VIEW_STORED, 'sessions');
   const [age, setAge] = useStored<Age>(AGE_KEY, AGE_STORED, 'all');
   // Panel widths as you last dragged them. The PR panel has its own: it starts out wider.
@@ -459,15 +465,17 @@ export function App() {
   // while Done is folded, or no longer matching the search or a filter) stays in the panel: the
   // next key you press is still about the todo you see, and an edit in progress isn't cut off. A
   // PR that leaves it stays the same way: one you merge moves under Merged & closed, folded,
-  // as you confirm it (ahead.ts `mergeAhead`), and its panel says how the merge went.
+  // as you confirm it (ahead.ts `mergeAhead`), and its panel says how the merge went. A session
+  // you're moving stays in Sessions' panel as it was until its copy takes its place (`moving`).
   const [selectedLaneId, selectedSessionKey] = selectedKey?.split('::') ?? [];
+  const held = view === 'sessions' && moving && moving.from.session.key === selectedSessionKey ? moving.from : undefined;
   const selected =
     visible.find((r) => r.key === selectedKey) ??
     (view === 'todo'
       ? todoItems.find((r) => r.key === selectedKey)
       : view === 'prs'
         ? prRows.find((r) => r.key === selectedKey)
-        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
+        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? held ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
     visible[0] ??
     null;
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows
@@ -638,6 +646,29 @@ export function App() {
     }
     openWhere(where(lane, targetId), { report, from: 'main' });
   }, [report, markSeen, setView, reveal]);
+
+  // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
+  // selected where the list has it, else shown as Show in Codealong shows a session, since the
+  // filters may leave it out. Picking something else meanwhile lets it go, as does a copy that
+  // isn't listed within a minute.
+  useEffect(() => {
+    if (!moving) return;
+    if (selected?.key !== moving.from.key) {
+      setMoving(null);
+      return;
+    }
+    const copy = moving.to ? homes.get(moving.to) : undefined;
+    if (!copy) return;
+    setMoving(null);
+    const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === copy.session.key);
+    if (row) setSelectedKey(row.key);
+    else reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
+  }, [moving, selected?.key, homes, sessionRows, reveal]);
+  useEffect(() => {
+    if (!moving?.to) return;
+    const t = window.setTimeout(() => setMoving(null), COPY_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [moving?.to]);
 
   const openRow = useCallback(
     (row: Row | null) => {
@@ -978,6 +1009,14 @@ export function App() {
       // Undo takes it out of the archive; a terminal it closed stays closed, and it resumes as any other.
       undoDone: (message) => setArchivedUndo({ keys: [s.key], title: s.title, message }),
       left: (done) => leftAndOn(s, done),
+      // Moved from its panel in Sessions, it stays there until its copy takes its place, rather
+      // than the panel going on to the next that waits.
+      moving: (copy) => {
+        if (view !== 'sessions' || selected?.kind !== 'agent' || selected.session.key !== s.key) return;
+        const from = selected;
+        setMoving({ from, to: null });
+        void copy.then((to) => setMoving((m) => (m?.from !== from ? m : to ? { from, to } : null)));
+      },
       canvas: canvasItem('session', s.key),
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));

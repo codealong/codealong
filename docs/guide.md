@@ -179,7 +179,9 @@ Move to, in a Claude Code session's right-click menu, moves it to another of you
 accounts (one that's signed in): the conversation goes on in a new terminal under that account (a
 background job's as a job there), and the session is closed and archived; its panel and the copy's
 say where it went. The copy is a session of its own, with a new ID, and takes the session's place on
-its todos, among the pinned sessions, on its card on the desktop and in its kept window. Claude Code
+its todos, among the pinned sessions, on its card on the desktop and in its kept window. Moved from
+its panel in Sessions, the panel stays on it while it moves and then shows the copy, selected in the
+list, rather than going on to the next that waits on you. Claude Code
 writes nothing of the copy until you send it something, so until then it shows the conversation it
 was moved with; its terminal closed before then, it stays on the board, stopped, and opening it or
 sending it a message makes it again from that conversation. A move is noted before the copy starts,

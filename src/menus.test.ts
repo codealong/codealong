@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
-import type { Done } from './api';
+import { getAccounts, moveSession, moveSessionTo, type Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
@@ -11,6 +11,8 @@ import type { Label, Lane, PrItem, Session, Todo } from './types';
 
 // What the engine says to Mark as done: done, unless a test says otherwise.
 vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), quietAhead: vi.fn(() => Promise.resolve()) }));
+// No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
+vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn() }));
 
 const report: Report = { error: () => {}, info: () => {} };
 const noop = () => {};
@@ -186,6 +188,71 @@ describe('sessionMenu', () => {
     // A chat moves to a project, not to another chat.
     const chat = labels((sessionMenu(worktrees[8], session(), { ...base, worktrees }).find((i) => i !== 'separator' && 'items' in i && i.label === 'Move to worktree') as Extract<MenuSpec[number], { items: MenuSpec }>).items);
     expect(chat).toEqual(['Acme ›', 'Blog ›']);
+  });
+
+  it('hands a window that follows a moved session the copy that takes its place, and tells the rest it left', async () => {
+    const to = vi.mocked(moveSessionTo);
+    const settled = () => new Promise((r) => setTimeout(r, 0));
+    const elsewhere = fx.lane({ id: '/r/api-new', project: 'Acme', repo: 'api', callsign: 'api-new' });
+    const run = async (can: Partial<SessionCan>) => {
+      const said: string[] = [];
+      const left: string[] = [];
+      const copies: (string | null)[] = [];
+      const menu = sessionMenu(lane(), session(), { ...base, report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, worktrees: [lane(), elsewhere], left: (d) => left.push(d), ...can, ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) });
+      const folders = menu.find((i) => i !== 'separator' && 'items' in i && i.label === 'Move to worktree') as MenuGroup;
+      ((folders.items[0] as MenuGroup).items[0] as MenuAction).run();
+      await settled();
+      return { said, left, copies };
+    };
+    // A background job Claude Code copied into a new one: the copy takes its place.
+    to.mockResolvedValue({ key: 'claude:c:2', message: 'Moved “Fix login” to api-new.' });
+    expect(await run({ moving: noop })).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: ['claude:c:2'] });
+    expect(to).toHaveBeenLastCalledWith('claude:c:1', '/r/api-new');
+    expect(await run({})).toEqual({ said: ['Moved “Fix login” to api-new.'], left: ['archived'], copies: [] });
+    // Moved as itself, it stays where it's listed, and there's no copy to follow.
+    to.mockResolvedValue({ key: 'claude:c:1', message: 'Moved “Fix login” to api-new.' });
+    expect(await run({ moving: noop })).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: [null] });
+    expect(await run({})).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: [] });
+    // A move that fails leaves it where it was, and says why.
+    to.mockRejectedValue(new Error('“Fix login” hasn’t closed yet. Move it once it has.'));
+    expect(await run({ moving: noop })).toEqual({ said: ['error: “Fix login” hasn’t closed yet. Move it once it has.'], left: [], copies: [null] });
+  });
+
+  it('follows a session moved to another account to its copy, and lets it go where the move names none', async () => {
+    const to = vi.mocked(moveSession);
+    const accounts = vi.mocked(getAccounts);
+    const settled = () => new Promise((r) => setTimeout(r, 0));
+    const later = Date.now() + 61_000;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // The accounts are read again a minute after they last were, as a session's menu is built.
+    const readAccounts = async (list: Awaited<ReturnType<typeof getAccounts>>, at: number) => {
+      accounts.mockResolvedValueOnce(list);
+      vi.setSystemTime(at);
+      sessionMenu(lane(), session(), base);
+      await settled();
+    };
+    try {
+      await readAccounts([{ name: 'c2', harness: 'claude', home: '~/.claude-c2', command: 'claude-c2', folderExists: true, signedIn: true, email: null }], later);
+      const run = async (can: Partial<SessionCan>) => {
+        const left: string[] = [];
+        const copies: (string | null)[] = [];
+        const move = sessionActions(lane(), session(), { ...base, left: (d) => left.push(d), ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) }).move as MenuAction;
+        expect(move.label).toBe('Move to c2');
+        move.run();
+        await settled();
+        return { left, copies };
+      };
+      to.mockResolvedValue({ key: 'claude:c2:9', message: 'Moved “Fix login” to c2: it goes on in a new terminal in api.' });
+      expect(await run({ moving: noop })).toEqual({ left: [], copies: ['claude:c2:9'] });
+      expect(to).toHaveBeenLastCalledWith('claude:c:1', 'c2');
+      expect(await run({})).toEqual({ left: ['archived'], copies: [] });
+      // A job whose ID the service didn't say: it's archived all the same, with no copy to show.
+      to.mockResolvedValue({ key: null, message: 'Moved “Fix login” to c2: it goes on as a background job.' });
+      expect(await run({ moving: noop })).toEqual({ left: ['archived'], copies: [null] });
+    } finally {
+      await readAccounts([], later + 61_000);
+      vi.useRealTimers();
+    }
   });
 
   it('never starts, ends or doubles a line', () => {
