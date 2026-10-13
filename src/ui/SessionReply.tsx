@@ -812,7 +812,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           {resuming && account && !aside && resuming.places.length > 1 && <ResumePlace picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
           {resuming && account && !aside && resuming.takesAModel && <ResumeModel account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
           {saysModel && !aside && <SessionModel session={s} account={account} switches={switches} busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting} onSwitch={switchModel} onDone={() => box.current?.focus()} />}
-          {canSendNow && !empty && !command && (
+          {/* A command, `/fork` or one led by `!`, runs here rather than going into the turn. */}
+          {canSendNow && !empty && !command && !runs && (
             <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>
               <Icon name="bolt" size={14} stroke={2} />
             </button>

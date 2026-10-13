@@ -28,9 +28,11 @@
           // A scratch session's folder may be one the board hides (a temporary one): list it.
           if (s.key === all[1].key) l.hidden = false;
           if (!picked && s.key === all[1].key && !s.visitor) {
-            // Its turn ended, so the box takes a message.
+            // Its turn ended, so the box takes a message; and it takes one into a turn at once,
+            // so Send now shows for a message.
             s.status = 'idle';
             s.asks = false;
+            s.steerable = true;
             picked = { key: s.key, lane: l.id, path: l.path, cwd: s.cwd };
           }
         });
@@ -47,7 +49,7 @@
   var runOf = function (b) { return b.querySelector('.ca-codeblock-tools button[aria-label^="Run in"]'); };
   var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var box = function () { return document.querySelector('.ca-sessinsp textarea'); };
-  var sendButton = function () { return document.querySelector('.ca-sessinsp .ca-composer-send'); };
+  var sendButton = function () { return document.querySelector('.ca-sessinsp .ca-composer-send:not(.is-now)'); };
   var under = function () { var n = document.querySelector('.ca-sessinsp .ca-composer-under .ca-composer-note'); return n ? n.textContent : ''; };
   var press = function (opts) {
     box().dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'Enter', bubbles: true, cancelable: true }, opts || {})));
@@ -117,6 +119,7 @@
       type('! echo from the box');
       return until(function () { return sendButton() && sendButton().getAttribute('aria-label') === 'Run in your terminal'; }, 3000).then(function () {
         check('the box’s button runs it', /^Run it in a new .+ tab, as you \(⏎\)$/.test(sendButton().title), sendButton().title);
+        check('no Send now beside it, which would send it into the turn', !document.querySelector('.ca-sessinsp .ca-composer-send.is-now'));
         check('the line under the box says what happens', /runs it in a new .+ tab, as you; .+ is told what it prints once it ends/.test(under()), under());
         var before = calls('run_command').length;
         // ⏎ runs it, as the button does.
@@ -155,6 +158,7 @@
       type('![shot](images/ab12.png) what is this?');
       return wait(200).then(function () {
         check('an image’s ! sends as a message', sendButton().getAttribute('aria-label') === 'Send', sendButton().getAttribute('aria-label'));
+        check('with Send now beside it, as a message has', !!document.querySelector('.ca-sessinsp .ca-composer-send.is-now'));
         type('');
       });
     })
