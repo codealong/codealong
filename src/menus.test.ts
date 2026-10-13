@@ -194,28 +194,35 @@ describe('sessionMenu', () => {
     const to = vi.mocked(moveSessionTo);
     const settled = () => new Promise((r) => setTimeout(r, 0));
     const elsewhere = fx.lane({ id: '/r/api-new', project: 'Acme', repo: 'api', callsign: 'api-new' });
-    const run = async (can: Partial<SessionCan>) => {
+    const menuOf = (key: string, can: Partial<SessionCan> = {}) => sessionMenu(lane(), session({ key }), { ...base, worktrees: [lane(), elsewhere], ...can });
+    const folders = (key: string) => menuOf(key).find((i): i is MenuGroup => i !== 'separator' && 'items' in i && i.label === 'Move to worktree');
+    const run = async (key: string, can: Partial<SessionCan>, clicks = 1) => {
       const said: string[] = [];
       const left: string[] = [];
       const copies: (string | null)[] = [];
-      const menu = sessionMenu(lane(), session(), { ...base, report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, worktrees: [lane(), elsewhere], left: (d) => left.push(d), ...can, ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) });
-      const folders = menu.find((i) => i !== 'separator' && 'items' in i && i.label === 'Move to worktree') as MenuGroup;
-      ((folders.items[0] as MenuGroup).items[0] as MenuAction).run();
+      const menu = menuOf(key, { report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (d) => left.push(d), ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) });
+      const item = ((menu.find((i) => i !== 'separator' && 'items' in i && i.label === 'Move to worktree') as MenuGroup).items[0] as MenuGroup).items[0] as MenuAction;
+      for (let i = 0; i < clicks; i++) item.run();
       await settled();
       return { said, left, copies };
     };
-    // A background job Claude Code copied into a new one: the copy takes its place.
+    // A background job Claude Code copied into a new one: the copy takes its place, and a second
+    // click while it moves, or the menu after, moves nothing again.
+    to.mockClear();
     to.mockResolvedValue({ key: 'claude:c:2', message: 'Moved “Fix login” to api-new.' });
-    expect(await run({ moving: noop })).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: ['claude:c:2'] });
-    expect(to).toHaveBeenLastCalledWith('claude:c:1', '/r/api-new');
-    expect(await run({})).toEqual({ said: ['Moved “Fix login” to api-new.'], left: ['archived'], copies: [] });
-    // Moved as itself, it stays where it's listed, and there's no copy to follow.
-    to.mockResolvedValue({ key: 'claude:c:1', message: 'Moved “Fix login” to api-new.' });
-    expect(await run({ moving: noop })).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: [null] });
-    expect(await run({})).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: [] });
-    // A move that fails leaves it where it was, and says why.
+    expect(await run('claude:c:1', { moving: noop }, 2)).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: ['claude:c:2'] });
+    expect(to.mock.calls).toEqual([['claude:c:1', '/r/api-new']]);
+    expect(folders('claude:c:1')).toBeUndefined();
+    expect(await run('claude:c:3', {})).toEqual({ said: ['Moved “Fix login” to api-new.'], left: ['archived'], copies: [] });
+    // Moved as itself, it stays where it's listed, can move again, and has no copy to follow.
+    to.mockResolvedValue({ key: 'claude:c:4', message: 'Moved “Fix login” to api-new.' });
+    expect(await run('claude:c:4', { moving: noop })).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: [null] });
+    expect(folders('claude:c:4')).toBeDefined();
+    expect(await run('claude:c:4', {})).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: [] });
+    // A move that fails leaves it where it was, says why, and can be tried again.
     to.mockRejectedValue(new Error('“Fix login” hasn’t closed yet. Move it once it has.'));
-    expect(await run({ moving: noop })).toEqual({ said: ['error: “Fix login” hasn’t closed yet. Move it once it has.'], left: [], copies: [null] });
+    expect(await run('claude:c:5', { moving: noop })).toEqual({ said: ['error: “Fix login” hasn’t closed yet. Move it once it has.'], left: [], copies: [null] });
+    expect(folders('claude:c:5')).toBeDefined();
   });
 
   it('follows a session moved to another account to its copy, and lets it go where the move names none', async () => {
@@ -233,22 +240,24 @@ describe('sessionMenu', () => {
     };
     try {
       await readAccounts([{ name: 'c2', harness: 'claude', home: '~/.claude-c2', command: 'claude-c2', folderExists: true, signedIn: true, email: null }], later);
-      const run = async (can: Partial<SessionCan>) => {
+      const run = async (key: string, can: Partial<SessionCan>) => {
         const left: string[] = [];
         const copies: (string | null)[] = [];
-        const move = sessionActions(lane(), session(), { ...base, left: (d) => left.push(d), ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) }).move as MenuAction;
+        const move = sessionActions(lane(), session({ key }), { ...base, left: (d) => left.push(d), ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) }).move as MenuAction;
         expect(move.label).toBe('Move to c2');
         move.run();
         await settled();
         return { left, copies };
       };
       to.mockResolvedValue({ key: 'claude:c2:9', message: 'Moved “Fix login” to c2: it goes on in a new terminal in api.' });
-      expect(await run({ moving: noop })).toEqual({ left: [], copies: ['claude:c2:9'] });
-      expect(to).toHaveBeenLastCalledWith('claude:c:1', 'c2');
-      expect(await run({})).toEqual({ left: ['archived'], copies: [] });
+      expect(await run('claude:c:11', { moving: noop })).toEqual({ left: [], copies: ['claude:c2:9'] });
+      expect(to).toHaveBeenLastCalledWith('claude:c:11', 'c2');
+      // Moved out, it offers no other move here.
+      expect(sessionActions(lane(), session({ key: 'claude:c:11' }), base).move).toBeUndefined();
+      expect(await run('claude:c:12', {})).toEqual({ left: ['archived'], copies: [] });
       // A job whose ID the service didn't say: it's archived all the same, with no copy to show.
       to.mockResolvedValue({ key: null, message: 'Moved “Fix login” to c2: it goes on as a background job.' });
-      expect(await run({ moving: noop })).toEqual({ left: ['archived'], copies: [null] });
+      expect(await run('claude:c:13', { moving: noop })).toEqual({ left: ['archived'], copies: [null] });
     } finally {
       await readAccounts([], later + 61_000);
       vi.useRealTimers();

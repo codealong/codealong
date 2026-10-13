@@ -647,29 +647,6 @@ export function App() {
     openWhere(where(lane, targetId), { report, from: 'main' });
   }, [report, markSeen, setView, reveal]);
 
-  // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
-  // selected where the list has it, else shown as Show in Codealong shows a session, since the
-  // filters may leave it out. Picking something else meanwhile lets it go, as does a copy that
-  // isn't listed within a minute.
-  useEffect(() => {
-    if (!moving) return;
-    if (selected?.key !== moving.from.key) {
-      setMoving(null);
-      return;
-    }
-    const copy = moving.to ? homes.get(moving.to) : undefined;
-    if (!copy) return;
-    setMoving(null);
-    const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === copy.session.key);
-    if (row) setSelectedKey(row.key);
-    else reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
-  }, [moving, selected?.key, homes, sessionRows, reveal]);
-  useEffect(() => {
-    if (!moving?.to) return;
-    const t = window.setTimeout(() => setMoving(null), COPY_WAIT_MS);
-    return () => window.clearTimeout(t);
-  }, [moving?.to]);
-
   const openRow = useCallback(
     (row: Row | null) => {
       if (!row) return;
@@ -883,6 +860,35 @@ export function App() {
     approve: approveAll,
     cleanUp: setCleaning,
   });
+
+  // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
+  // selected where the list has it, else shown as Show in Codealong shows a session, since the
+  // filters may leave it out. A PR opened from its chip meanwhile stays in the panel, its way
+  // back going to the copy. Another row selected or rows picked together let it go, as does a
+  // copy that isn't listed within a minute.
+  const picking = picks.sessions.rows.length > 0;
+  useEffect(() => {
+    if (!moving) return;
+    if (selected?.key !== moving.from.key || picking) {
+      setMoving(null);
+      return;
+    }
+    const copy = moving.to ? homes.get(moving.to) : undefined;
+    if (!copy) return;
+    setMoving(null);
+    const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === copy.session.key);
+    if (!row) {
+      reveal.current({ kind: 'session', laneId: copy.lane.id, key: copy.session.key });
+      return;
+    }
+    setSelectedKey(row.key);
+    setDrill((d) => (d && d.from === moving.from.key ? { ...d, from: row.key } : d));
+  }, [moving, selected?.key, picking, homes, sessionRows, reveal]);
+  useEffect(() => {
+    if (!moving?.to) return;
+    const t = window.setTimeout(() => setMoving(null), COPY_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [moving?.to]);
 
 
   // Where each account can start a session, for Review with: read at launch, and again each time

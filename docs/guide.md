@@ -181,7 +181,9 @@ background job's as a job there), and the session is closed and archived; its pa
 say where it went. The copy is a session of its own, with a new ID, and takes the session's place on
 its todos, among the pinned sessions, on its card on the desktop and in its kept window. Moved from
 its panel in Sessions, the panel stays on it while it moves and then shows the copy, selected in the
-list, rather than going on to the next that waits on you. Claude Code
+list, rather than going on to the next that waits on you; a PR opened from its chip meanwhile stays,
+its way back going to the copy. A session moving, or moved, offers no second move in the window it
+was moved from, so a double-click doesn't make two copies. Claude Code
 writes nothing of the copy until you send it something, so until then it shows the conversation it
 was moved with; its terminal closed before then, it stays on the board, stopped, and opening it or
 sending it a message makes it again from that conversation. A move is noted before the copy starts,

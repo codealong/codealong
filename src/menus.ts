@@ -237,24 +237,32 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       .catch((e: unknown) => report.error(errorText(e)));
   // A session that moves out is archived, and the copy that goes on in its place is what a window
   // that follows it shows (`moving`); elsewhere, or with no copy, it has left the list. `leaves`
-  // says whether it goes even when the move names no copy.
-  const moved = (label: string, work: Promise<Started | null>, leaves: boolean) => {
-    const copy = busy(label, work).then((started) => {
+  // says whether it goes even when the move names no copy. Moving, it offers no other move
+  // (`movedHere`).
+  const moved = (label: string, work: () => Promise<Started | null>, leaves: boolean) => {
+    if (movedHere.has(s.key)) return;
+    movedHere.add(s.key);
+    const copy = busy(label, work()).then((started) => {
       const key = started?.key && started.key !== s.key ? started.key : null;
+      if (!key && !leaves) movedHere.delete(s.key);
       if ((leaves || key) && !(key && can.moving)) can.left?.('archived');
       if (started?.message) report.info(started.message);
       return key;
     });
     can.moving?.(copy.catch(() => null));
-    copy.catch((e: unknown) => report.error(errorText(e)));
+    copy.catch((e: unknown) => {
+      movedHere.delete(s.key);
+      report.error(errorText(e));
+    });
   };
+  const movable = here && !movedHere.has(s.key);
   // Moving opens a terminal on this Mac, as a fork does, and closes the session's own.
-  const moveTo = here && s.resumeCommand && MOVES_ACCOUNTS.includes(s.harness) ? accounts.filter((a) => a.harness === s.harness && a.name !== s.account && a.signedIn).map((a) => a.name) : [];
-  const move = (to: string) => moved(`Moving ${s.title} to ${to}…`, moveSession(s.key, to), true);
+  const moveTo = movable && s.resumeCommand && MOVES_ACCOUNTS.includes(s.harness) ? accounts.filter((a) => a.harness === s.harness && a.name !== s.account && a.signedIn).map((a) => a.name) : [];
+  const move = (to: string) => moved(`Moving ${s.title} to ${to}…`, () => moveSession(s.key, to), true);
   const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => move(to) });
   // Another folder: it's closed where it runs and goes on there as itself, so it stays on the
   // lists it's on, unless its harness copied it.
-  const moveFolder = (to: Lane) => moved(`Moving ${s.title} to ${to.startsChats ? 'a chat of its own' : to.callsign}…`, moveSessionTo(s.key, to.id), false);
+  const moveFolder = (to: Lane) => moved(`Moving ${s.title} to ${to.startsChats ? 'a chat of its own' : to.callsign}…`, () => moveSessionTo(s.key, to.id), false);
   // One that isn't running goes on where its account's sessions can (start.rs `resume`), as its
   // box offers, where there's more than the terminal Open resumes it in.
   const resumeTo = here && !s.live && !s.hosted && s.surface === 'cli' ? resumePlaces(s) : [];
@@ -277,7 +285,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       .catch((e: unknown) => report.error(errorText(e)));
   // Only a session Codealong can close and open again in a terminal moves: not an app's, nor one
   // Codealong runs itself.
-  const movesFolders = here && !!s.resumeCommand && MOVES_FOLDERS.includes(s.harness) && s.surface === 'cli' && !s.hosted && !s.visitor;
+  const movesFolders = movable && !!s.resumeCommand && MOVES_FOLDERS.includes(s.harness) && s.surface === 'cli' && !s.hosted && !s.visitor;
   // A session a usage limit stopped is told to go on where it moves (actions.rs), so it says so.
   const goesOn = s.limit && s.status !== 'working' ? ' and go on' : '';
   const suggested = s.limit?.moveTo && moveTo.includes(s.limit.moveTo) && goesOn ? s.limit.moveTo : null;
@@ -393,6 +401,10 @@ const DONE_AGAIN = 'Mark it done again to end that too.';
 const DONE_AGAIN_MANY = 'Mark them done again to end that too.';
 /** Sessions Mark as done was held on, by key, with when: each window's own. */
 const holding = new Map<string, number>();
+/** Sessions moved from this window, by key, from the click on, unless the move fails or the
+ *  session goes on as itself: one moved out goes on as its copy, and a second move would make a
+ *  second copy beside it (start.rs `move_to`). Each window's own. */
+const movedHere = new Set<string>();
 
 /** Whether Mark as done on `key` now ends work under way too: it was held on it a moment ago.
  *  Asking uses the hold up. */
