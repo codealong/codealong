@@ -904,7 +904,7 @@ impl crate::harness::Adapter for Antigravity {
 
     /// The command line signs in as it starts; without it, the app does from its own window.
     fn sign_in_command(&self, account: &AccountCfg) -> String {
-        if cli_installed(&crate::util::home()) {
+        if has_cli(account, &crate::util::home()) {
             cli_command(account).to_string()
         } else {
             "open -a Antigravity".to_string()
@@ -1385,6 +1385,8 @@ mod tests {
         use crate::harness::Adapter as _;
         let account = AccountCfg { name: "agy".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: Some("/opt/agy/bin/agy".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false };
         assert!(Antigravity.polls_usage(&account) && Antigravity.no_limits(&account).is_none());
+        // And it signs in with that command, whatever's installed.
+        assert_eq!(Antigravity.sign_in_command(&account), "/opt/agy/bin/agy");
     }
 
     #[test]
