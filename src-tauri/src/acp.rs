@@ -275,9 +275,10 @@ fn remember_in(path: &Path, r: Remembered) -> Result<()> {
 }
 
 /// Notes in hosted.json that session `key`'s turn begun at `began` runs (`runs`), or that it
-/// ended as turns do: the turn noted is left alone unless it's that one, which a later turn
-/// would have replaced. Only for a session hosted.json has (`Hosted::remembered`); nothing waits
-/// on it, so a failure is a notice.
+/// ended as turns do. A later turn's note stands over an earlier one's, whichever thread gets
+/// there first (a turn stopped as it was picked up, followed by another), and an end takes off
+/// only its own. Only for a session hosted.json has (`Hosted::remembered`); nothing waits on
+/// it, so a failure is a notice.
 fn note_turn(key: &str, began: i64, runs: bool) {
     let Some((account, id)) = state().sessions.get(key).filter(|h| h.remembered).map(|h| (h.account.clone(), h.id.clone())) else { return };
     let path = remembered_path();
@@ -287,7 +288,7 @@ fn note_turn(key: &str, began: i64, runs: bool) {
 fn note_turn_in(path: &Path, account: &str, id: &str, began: i64, runs: bool) -> Result<()> {
     store::change(path, WHAT, |all: &mut Vec<Remembered>| {
         let Some(r) = all.iter_mut().find(|r| r.account == account && r.id == id) else { return false };
-        let to = if runs { Some(began) } else if r.turn == Some(began) { None } else { r.turn };
+        let to = if runs { r.turn.max(Some(began)) } else if r.turn == Some(began) { None } else { r.turn };
         std::mem::replace(&mut r.turn, to) != to
     })?;
     Ok(())
@@ -997,8 +998,9 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                     Some((h.queue.remove(0), next))
                 }
             };
-            // The next prompt's turn is noted over it.
-            if let (None, false, Some(b)) = (&next, cut, began) {
+            // Its end is noted whether or not a queued prompt follows: that one notes its own
+            // turn, and a Stop before it begins leaves nothing to.
+            if let (false, Some(b)) = (cut, began) {
                 note_turn(&key, b, false);
             }
             notify(Change::Stream(Stream { key: key.clone(), text: String::new(), tool: None }));
@@ -1286,8 +1288,10 @@ mod tests {
         note_turn_in(&path, "codex", "t1", 1_000, true).unwrap();
         assert_eq!(turns(), [Some(1_000), None]);
         note_turn_in(&path, "codex", "t1", 2_000, true).unwrap();
+        note_turn_in(&path, "codex", "t1", 1_000, true).unwrap();
+        assert_eq!(turns(), [Some(2_000), None], "the turn before, heard late, leaves the next noted");
         note_turn_in(&path, "codex", "t1", 1_000, false).unwrap();
-        assert_eq!(turns(), [Some(2_000), None], "the end of the turn before leaves the next noted");
+        assert_eq!(turns(), [Some(2_000), None], "and so does its end");
         note_turn_in(&path, "codex", "t1", 2_000, false).unwrap();
         assert_eq!(turns(), [None, None]);
         note_turn_in(&path, "codex", "t9", 3_000, true).unwrap();

@@ -396,9 +396,9 @@ pub enum Went {
     Skipped(String),
     /// The turn hasn't written its review yet.
     NotYet,
-    /// A session cut off partway was told to carry on: the session its turn is in, or where to
-    /// look for it, as `hand` says.
-    CarriedOn { session: Option<String>, pending: Option<Pending> },
+    /// A session cut off partway was told to carry on, from `at`, before it was handed the words:
+    /// the session its turn is in, or where to look for it, as `hand` says.
+    CarriedOn { session: Option<String>, pending: Option<Pending>, at: i64 },
     /// It didn't get done, and why.
     Failed(String),
     /// Posting didn't go through, and why: it's tried again a few times.
@@ -695,9 +695,10 @@ impl Reviewer {
         let before = self.store.prs.len();
         self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wanted(&settings.reviews(cfg, p), &board.lanes, p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
         changed |= self.store.prs.len() != before;
-        // A round holds a place while one of its sessions works, or is starting.
+        // A round holds a place while one of its sessions works, is starting, or was cut off
+        // partway, to be told to carry on.
         let holds_place = |r: &Round| {
-            r.stage == ReviewStage::Reviewing && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working), None => p.pending.is_some() })
+            r.stage == ReviewStage::Reviewing && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working || p.cut_off_in(s)), None => p.pending.is_some() })
         };
         let mut running = self.busy.len() + self.store.prs.iter().filter(|(k, t)| !self.busy.contains(*k) && t.rounds.last().is_some_and(holds_place)).count();
         let mut jobs = Vec::new();
@@ -867,14 +868,14 @@ impl Reviewer {
                 let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { return Ok(()) };
                 let Some(p) = r.parts.get_mut(*part) else { return Ok(()) };
                 match went {
-                    Went::CarriedOn { session, pending } => {
+                    Went::CarriedOn { session, pending, at } => {
                         // A background job's copy goes on in its place.
                         if let Some(s) = &session {
                             t.sessions.insert(p.who.clone(), s.clone());
                         }
                         p.session = session;
                         p.pending = pending;
-                        p.carried_on.push(now);
+                        p.carried_on.push(at);
                     }
                     Went::Failed(why) => fail(p, &why),
                     _ => {}
@@ -1681,8 +1682,10 @@ fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>) ->
         Err(e) => return Went::Failed(format!("Its turn was cut off partway, and it couldn't be told to carry on: {e:#}")),
     };
     let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
+    // Before it goes: the turn it starts may be cut off again before this is told how it went.
+    let at = now_ms();
     match hand(engine, &board, &cfg, pr, session, model, crate::start::CARRY_ON.to_string()) {
-        Ok((session, pending)) => Went::CarriedOn { session, pending },
+        Ok((session, pending)) => Went::CarriedOn { session, pending, at },
         Err(e) => Went::Failed(format!("Its turn was cut off partway, and {e}.")),
     }
 }
@@ -2758,9 +2761,10 @@ mod tests {
 
     /// A reviewer whose turn was cut off partway (Codealong restarting ends the sessions it runs)
     /// is told to carry on, on its model, and read once that turn ends. The board it was cut off
-    /// on, seen again, doesn't have it told twice; cut off again, it's told again, a few times at
-    /// most, and then the round is given up on. A copy that goes on in its place is kept for the
-    /// PR's next round.
+    /// on, seen again, doesn't have it told twice; cut off again, even before the carry-on said
+    /// how it went, it's told again, a few times at most, and then the round is given up on. It
+    /// holds its place among the reviews that run at once meanwhile. A copy that goes on in its
+    /// place is kept for the PR's next round.
     #[test]
     fn a_reviewer_cut_off_partway_is_told_to_carry_on() {
         let cfg = ReviewsCfg { model: "opus".into(), ..on() };
@@ -2771,16 +2775,26 @@ mod tests {
             r.told(&jobs[0], Went::Started(vec![started("auto opus", S, NOW)]), NOW).unwrap();
             r
         };
+        // Told to carry on from a moment after it was cut off at `when`, and heard back from later.
         let carried = |r: &mut Reviewer, when: i64, to: &str| {
             let job = r.due(&board(vec![pr(7, HEAD)], vec![cut(when)]), &cfg, when + 1).pop().expect("a carry-on");
             assert_eq!(kinds(std::slice::from_ref(&job)), [format!("carry on 7 part 0 in {S} on Some(\"opus\")")]);
-            r.told(&job, Went::CarriedOn { session: Some(to.into()), pending: None }, when + 2).unwrap();
+            r.told(&job, Went::CarriedOn { session: Some(to.into()), pending: None, at: when + 1 }, when + 30_000).unwrap();
         };
         let mut r = asked();
         carried(&mut r, NOW + 60_000, S);
-        assert!(r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 60_003).is_empty(), "told already");
+        assert!(r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 90_001).is_empty(), "told already");
         let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 120_000)]);
         assert_eq!(kinds(&r.due(&done, &cfg, NOW + 120_001)), [format!("read 7 part 0 in {S}")]);
+
+        let mut r = asked();
+        carried(&mut r, NOW + 60_000, S);
+        let again = r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_010)]), &cfg, NOW + 90_001);
+        assert_eq!(kinds(&again), [format!("carry on 7 part 0 in {S} on Some(\"opus\")")], "cut off before the carry-on was heard from");
+
+        let mut r = asked();
+        let jobs = r.due(&board(vec![pr(7, HEAD), pr(8, HEAD), pr(9, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 60_001);
+        assert_eq!(kinds(&jobs), [format!("carry on 7 part 0 in {S} on Some(\"opus\")"), "review 8 1111111 since None by auto opus".into()]);
 
         let mut r = asked();
         let mut when = NOW;
