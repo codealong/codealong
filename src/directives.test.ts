@@ -56,5 +56,7 @@ describe('plainDirectives', () => {
   it('leaves directives in code as they’re written', () => {
     const doc = 'Write it as:\n```\n:::writing{variant="standard" id="1"}\n:::\n```\nor inline `:codex-followup[a]{prompt="b"}`.';
     expect(plainDirectives(doc)).toBe(doc);
+    // A follow-up whose prompt holds code is still a follow-up.
+    expect(plainDirectives('- :codex-followup[Fix parser]{prompt="Fix `parse()` and add a regression."}')).toBe('- Fix parser');
   });
 });

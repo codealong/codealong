@@ -110,8 +110,10 @@ export function tonesOf(text: string): { label: string; text: string }[] {
 /** What a version's button says. */
 export const toneLabel = (t: { label: string }, j: number) => t.label || `Version ${j + 1}`;
 
-const FOLLOW_UP = new RegExp(String.raw`(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}`, 'g');
-const CITED = new RegExp(String.raw`(?<![\w:]):codex-file-citation${ATTRS}`, 'g');
+/** Inline code, a follow-up (its label, then attributes) or a cited file, matched left to right as
+ *  Markdown.tsx's `inline` matches them: a directive takes its quoted attributes whole, backticks
+ *  in a prompt included, and a directive inside inline code is code. */
+const INLINE = new RegExp(String.raw`(\`[^\`]+\`)|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}`, 'g');
 
 /** A reply with Codex's directives as Markdown.tsx draws them, for reading as plain text: a card
  *  as what its top says (what it is, its versions, an email's fields) and the version it shows
@@ -139,13 +141,7 @@ export function plainDirectives(markdown: string): string {
     } else if (fenced || FENCE.test(line)) {
       out.push(line);
     } else {
-      // Inline code keeps what's in it.
-      out.push(
-        line
-          .split(/(`[^`]+`)/)
-          .map((part) => (part.startsWith('`') ? part : part.replace(FOLLOW_UP, '$1').replace(CITED, (_, attrs: string) => attrsOf(attrs).path ?? '')))
-          .join(''),
-      );
+      out.push(line.replace(INLINE, (m, code?: string, label?: string, _prompt?: string, cited?: string) => (code != null ? m : label != null ? label : (attrsOf(cited ?? '').path ?? ''))));
     }
     i++;
   }
