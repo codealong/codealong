@@ -40,9 +40,10 @@
 //!
 //! The pull requests your own sessions open are reviewed the same way when `[reviews.own] auto`
 //! says to (`wants_own`): each open PR of yours whose session (`PrItem::primary`, the one that
-//! opened it) is on this Mac, on `[reviews.own]`'s account and model, else the account Auto would
-//! start among those of another harness than that session's (`Seat::avoid`), so another model
-//! reads what one wrote. Nothing goes on GitHub: the review is kept here (`ReviewStage::Kept`)
+//! opened it) is on this Mac, and a draft only when `[reviews.own] drafts` says so (another's
+//! draft never), on `[reviews.own]`'s account and model, else the account Auto would start among
+//! those of another harness than that session's (`Seat::avoid`), so another model reads what one
+//! wrote. Nothing goes on GitHub: the review is kept here (`ReviewStage::Kept`)
 //! and, with `[reviews.own] send`, handed back to the PR's session once that runs here and doesn't
 //! wait on you (`Job::Send`), as a file it's told to read (`review_file`, `back_message`), so the
 //! other agent's words never reach it typed in as yours. A review that found nothing to raise
@@ -418,10 +419,11 @@ fn origin<'a>(lanes: &'a [Lane], pr: &PrItem) -> Option<(&'a Lane, &'a Session)>
     lanes.iter().filter(|l| l.device.is_none()).find_map(|l| l.sessions.iter().find(|s| s.key == key && s.visitor.is_none() && s.helper.is_none() && !s.archived).map(|s| (l, s)))
 }
 
-/// Whether Codealong reviews a PR of yours (`[reviews.own]`): it's open and not a draft, and the
-/// session that opened it is here to hand the review to.
-pub fn wants_own(lanes: &[Lane], pr: &PrItem) -> bool {
-    pr.mine && pr.state.is_open() && pr.state != PrState::Draft && pr.head_oid.is_some() && origin(lanes, pr).is_some()
+/// Whether Codealong reviews a PR of yours (`[reviews.own]`): it's open, not a draft unless
+/// `[reviews.own] drafts` says to review those too, and the session that opened it is here to hand
+/// the review to.
+pub fn wants_own(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
+    pr.mine && pr.state.is_open() && (pr.state != PrState::Draft || cfg.own.drafts) && pr.head_oid.is_some() && origin(lanes, pr).is_some()
 }
 
 /// Whether reviews of any kind are on in `cfg`: a round under way goes on only while they are,
@@ -434,7 +436,7 @@ fn on(cfg: &ReviewsCfg) -> bool {
 /// is on, one of yours while `[reviews.own] auto` is.
 fn wanted(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
     if pr.mine {
-        cfg.own.auto && wants_own(lanes, pr)
+        cfg.own.auto && wants_own(cfg, lanes, pr)
     } else {
         cfg.auto && wants(pr)
     }
@@ -1700,7 +1702,7 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
         }
         Err(e) => PlannedStart { who: seat.who.clone(), spec: None, start: None, problem: Some(e) },
     };
-    let (wanted, on) = if pr.mine { (wants_own(&board.lanes, pr), reviews.own.auto) } else { (wants(pr), reviews.auto) };
+    let (wanted, on) = if pr.mine { (wants_own(&reviews, &board.lanes, pr), reviews.own.auto) } else { (wants(pr), reviews.auto) };
     Ok(Plan { wanted, on, stands, start })
 }
 
@@ -2238,14 +2240,28 @@ mod tests {
     }
 
     #[test]
+    fn a_draft_of_yours_is_reviewed_only_with_drafts_on_and_another_s_draft_never() {
+        let lanes = vec![fixtures::lane("/r", vec![fixtures::session(MAKER)])];
+        let drafts = ReviewsCfg { auto: true, own: crate::config::OwnReviewsCfg { auto: true, drafts: true, ..Default::default() }, ..ReviewsCfg::default() };
+        let yours = PrItem { state: PrState::Draft, ..mine(7, HEAD) };
+        let theirs = PrItem { state: PrState::Draft, ..pr(8, HEAD) };
+        assert!(!wanted(&own(), &lanes, &yours), "drafts off");
+        assert!(wanted(&drafts, &lanes, &yours));
+        assert!(!wanted(&drafts, &lanes, &theirs), "asks for your review, but it's someone else's draft");
+        // It's started as a PR of yours ready for review is.
+        let b = board(vec![yours, theirs], vec![fixtures::session(MAKER)]);
+        assert_eq!(kinds(&Reviewer::default().due(&b, &drafts, NOW)), ["review 7 1111111 since None by auto"]);
+    }
+
+    #[test]
     fn only_prs_of_yours_a_session_here_opened_and_each_kind_only_while_its_switch_is_on() {
         let maker = fixtures::session(MAKER);
         let lanes = vec![fixtures::lane("/r", vec![maker.clone()])];
-        assert!(wants_own(&lanes, &mine(7, HEAD)));
-        assert!(!wants_own(&lanes, &PrItem { primary: None, ..mine(7, HEAD) }), "no session opened it");
-        assert!(!wants_own(&[fixtures::lane("/r", vec![Session { archived: true, ..maker.clone() }])], &mine(7, HEAD)), "archived");
-        assert!(!wants_own(&lanes, &PrItem { state: PrState::Draft, ..mine(7, HEAD) }));
-        assert!(!wants_own(&lanes, &pr(8, HEAD)), "not yours");
+        assert!(wants_own(&own(), &lanes, &mine(7, HEAD)));
+        assert!(!wants_own(&own(), &lanes, &PrItem { primary: None, ..mine(7, HEAD) }), "no session opened it");
+        assert!(!wants_own(&own(), &[fixtures::lane("/r", vec![Session { archived: true, ..maker.clone() }])], &mine(7, HEAD)), "archived");
+        assert!(!wants_own(&own(), &lanes, &PrItem { state: PrState::Draft, ..mine(7, HEAD) }));
+        assert!(!wants_own(&own(), &lanes, &pr(8, HEAD)), "not yours");
         let both = board(vec![mine(7, HEAD), pr(8, HEAD)], vec![maker]);
         let mut r = Reviewer::default();
         assert_eq!(kinds(&r.due(&both, &own(), NOW)), ["review 7 1111111 since None by auto"]);

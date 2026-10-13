@@ -508,6 +508,7 @@ account = ""                   # the account it runs on; "" for Auto's among tho
 model = ""                     # the model it starts on; "" for the account's own
 prompt = ""                    # what it's told to do; "" for Codealong's own
 send = true                    # hand each review to the session that opened the PR; nothing goes on GitHub
+drafts = false                 # review your draft PRs too; others' drafts are never reviewed
 
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)

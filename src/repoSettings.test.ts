@@ -15,9 +15,9 @@ const file = (over: Partial<TeamFile> = {}): TeamFile => ({ repo: 'acme/web', br
 describe('reviewsFor and pullRequestsFor', () => {
   it('are yours, then your table for the repo; the team only says what a nudge tells about', () => {
     const global = { auto: false, account: 'claude', post: 'draft' as const, submit: 'approve' as const };
-    expect(reviewsFor(global, undefined)).toMatchObject({ auto: false, account: 'claude', post: 'draft', submit: 'approve', own: { auto: false, send: true } });
-    const mine: RepoCfg = { reviews: { auto: true, account: ' codex ', own: { send: false } }, pull_requests: { nudge_by_default: true } };
-    expect(reviewsFor(global, mine)).toMatchObject({ auto: true, account: 'codex', post: 'draft', submit: 'approve', own: { send: false } });
+    expect(reviewsFor(global, undefined)).toMatchObject({ auto: false, account: 'claude', post: 'draft', submit: 'approve', own: { auto: false, send: true, drafts: false } });
+    const mine: RepoCfg = { reviews: { auto: true, account: ' codex ', own: { send: false, drafts: true } }, pull_requests: { nudge_by_default: true } };
+    expect(reviewsFor(global, mine)).toMatchObject({ auto: true, account: 'codex', post: 'draft', submit: 'approve', own: { send: false, drafts: true } });
     expect(pullRequestsFor({ nudge_by_default: false }, team, undefined)).toEqual({ nudge_by_default: false, nudge_about: 'feedback' });
     expect(pullRequestsFor({ nudge_by_default: false }, team, mine)).toEqual({ nudge_by_default: true, nudge_about: 'feedback' });
     expect(pullRequestsFor(undefined, team, { pull_requests: { nudge_about: 'everything' } }).nudge_about).toBe('everything');
@@ -34,10 +34,12 @@ describe('reviewsFor and pullRequestsFor', () => {
 
 describe('sourceOf', () => {
   it('says whether a value is yours for the repo, the team’s, or as it is everywhere', () => {
-    const mine: RepoCfg = { reviews: { model: 'opus', own: { send: false } } };
+    const mine: RepoCfg = { reviews: { model: 'opus', own: { send: false, drafts: true } } };
     expect(sourceOf('reviews.reviewer', mine, team)).toBe('repo');
     expect(sourceOf('reviews.auto', mine, team)).toBe('everywhere');
     expect(sourceOf('own.send', mine, team)).toBe('repo');
+    expect(sourceOf('own.drafts', mine, team)).toBe('repo');
+    expect(sourceOf('own.drafts', undefined, team)).toBe('everywhere');
     expect(sourceOf('prs.nudge_about', mine, team)).toBe('team');
     expect(sourceOf('prs.nudge_about', { pull_requests: { nudge_about: 'everything' } }, team)).toBe('repo');
     expect(sourceOf('prs.nudge_about', undefined, undefined)).toBe('everywhere');

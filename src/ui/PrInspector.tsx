@@ -371,7 +371,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
               Review snoozed until {untilWords(pr.snoozedUntil, now)}
             </span>
           ) : (
-            requested && <span className="ca-tag is-attn">Review requested</span>
+            requested && <span className="ca-tag is-attn">Your review requested</span>
           )}
           <PrPills pr={pr} />
           {/* The pills say a failing check over the ones still running: these say they run. */}

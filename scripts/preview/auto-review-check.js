@@ -19,7 +19,7 @@
 // earlier commit a click away, saying whose and when. The file count goes to Changes. The next
 // PR's review didn't finish: it opens on Description, and its Reviews tab says why in red. The
 // third is still being reviewed, so it's held out of what waits on you (prStatus.ts
-// `heldForAgent`): its row says Agent reviewing in place of Awaiting review, its Reviews tab has a
+// `heldForAgent`): its row says Agent reviewing in place of Review requested, its Reviews tab has a
 // dot, and says it waits on you once that's done. A fourth is made a PR of yours an agent
 // reviewed (`[reviews.own]`) with handing back off: it opens on Reviews, says why its review hasn't
 // gone back, and Send hands it to the session that opened it (send_agent_review). Then Settings ›

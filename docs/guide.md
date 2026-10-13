@@ -541,7 +541,9 @@ open), each open PR of yours that a session here opened (its primary, see *Nudgi
 session*) is reviewed the same way, by an agent on `[reviews.own] account` and `model`, else on the
 account Auto would start among those of another harness than that session's, so another model reads
 what one wrote (Codex reviews what Claude Code wrote, say); one of the same harness only when no
-other can start. Drafts aren't reviewed, nor a PR whose session is gone or archived. Its
+other can start. Drafts wait until they're ready for review unless `[reviews.own] drafts` (Review
+your draft pull requests too) says to review them as well; a draft of someone else's that asks for
+your review is never reviewed. Nor is a PR whose session is gone or archived. Its
 instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
 agent that wrote the PR, and to end on whether it would approve it (see *Your review*). Nothing goes
 on GitHub: the review is kept in Codealong, in the PR's Reviews tab, its comments on lines with the
@@ -670,7 +672,9 @@ A PR's right-click menu, on its row here or on its number where a worktree or se
 the worktree's panel), opens it on GitHub or in Codex and copies its link; a worktree's own menu
 copies its PR's link too. Colored pills say where each PR stands: its review, its checks, and
 conflicts or an out-of-date branch, or one green Ready to merge when GitHub says it can be merged
-now. Rows that are your move are marked at the left edge: amber for a review asked of you or
+now. The review pill says Review requested while anyone's review is asked for (yours or another's;
+its tooltip names them), Awaiting review while nobody's is, else Draft, Changes requested,
+Approved, or Agent reviewing while Codealong's agent is on it. Rows that are your move are marked at the left edge: amber for a review asked of you or
 something to fix, red for failing checks, green for your PRs that are ready to merge. Selecting a PR
 shows a short header: its number and title, one line of its repo, branch, author and last update,
 its pills and size, and the worktrees and sessions behind it on this Mac as chips (a worktree's

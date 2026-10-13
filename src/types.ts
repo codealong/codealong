@@ -677,6 +677,8 @@ export interface OwnReviewsCfg {
   prompt?: string;
   /** Hand each review to the session that opened the PR. Older files have none: on. */
   send?: boolean;
+  /** Review your draft PRs too. Older files have none: off. Others' drafts are never reviewed. */
+  drafts?: boolean;
 }
 
 /** Where an automatic review goes (config.rs `ReviewPost`): a draft review on your GitHub account

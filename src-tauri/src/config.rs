@@ -360,6 +360,10 @@ pub struct OwnReviewsCfg {
     /// you; else it's kept here, to send from the PR's Review tab.
     #[serde(default = "yes")]
     pub send: bool,
+    /// Review your draft PRs too, not only the ones ready for review. Drafts of other people's
+    /// that ask for your review are never reviewed.
+    #[serde(default)]
+    pub drafts: bool,
     /// What a repo's team adds to the instructions for reviews of your pull requests there, as
     /// `ReviewsCfg::team_instructions` is; never in config.toml.
     #[serde(skip)]
@@ -368,7 +372,7 @@ pub struct OwnReviewsCfg {
 
 impl Default for OwnReviewsCfg {
     fn default() -> Self {
-        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), send: true, team_instructions: String::new() }
+        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), send: true, drafts: false, team_instructions: String::new() }
     }
 }
 
@@ -534,6 +538,7 @@ impl RepoCfg {
         put(&mut mine.own.model, &o.model);
         put(&mut mine.own.prompt, &o.prompt);
         put(&mut mine.own.send, &o.send);
+        put(&mut mine.own.drafts, &o.drafts);
         put(&mut out.pull_requests.nudge_by_default, &over.pull_requests.nudge_by_default);
         put(&mut out.pull_requests.nudge_about, &over.pull_requests.nudge_about);
         out
@@ -584,6 +589,8 @@ pub struct OwnReviewsPatch {
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drafts: Option<bool>,
 }
 
 impl OwnReviewsPatch {
@@ -641,6 +648,7 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
         set(&mut r.own.model, &m.own.model);
         set(&mut r.own.prompt, &m.own.prompt);
         r.own.send = m.own.send.unwrap_or(r.own.send);
+        r.own.drafts = m.own.drafts.unwrap_or(r.own.drafts);
     }
     r
 }
@@ -1228,7 +1236,8 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
 # commits come in. account and model: what it runs on; \"\" for the account Auto would start among those of another
 # harness than the PR's session. prompt: what it's told to do; \"\" for Codealong's own. send: hand each review to
-# the session that opened the PR, once it runs and doesn't wait on you. Nothing goes on GitHub.
+# the session that opened the PR, once it runs and doesn't wait on you. drafts: review your draft PRs too.
+# Nothing goes on GitHub.
 ";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 const SOUNDS_COMMENT: &str = "# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. Each is the name of a sound in /System/Library/Sounds (\"Pop\", \"Tink\", \"Bottle\", \"Purr\"...)\n# or ~/Library/Sounds, or \"\" for none. volume: in percent of the Mac's own.\n";
@@ -1653,6 +1662,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             set_value(&mut doc["reviews"]["own"]["model"], Value::from(own.model.trim()));
             set_value(&mut doc["reviews"]["own"]["prompt"], Value::from(own.prompt.trim()));
             set_value(&mut doc["reviews"]["own"]["send"], Value::from(own.send));
+            set_value(&mut doc["reviews"]["own"]["drafts"], Value::from(own.drafts));
         }
     }
 
@@ -1816,7 +1826,7 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("post", rv.post.map(|v| Value::from(v.as_str()))),
             ("submit", rv.submit.map(|v| Value::from(v.as_str()))),
         ];
-        let own_values = [("auto", own.auto.map(Value::from)), ("account", text(&own.account)), ("model", text(&own.model)), ("prompt", text(&own.prompt)), ("send", own.send.map(Value::from))];
+        let own_values = [("auto", own.auto.map(Value::from)), ("account", text(&own.account)), ("model", text(&own.model)), ("prompt", text(&own.prompt)), ("send", own.send.map(Value::from)), ("drafts", own.drafts.map(Value::from))];
         let prs = [("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)), ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str())))];
         // `reviews` holds `own`, so it's made for an `own` value alone; with no value of its own
         // it has no header of its own either.
@@ -1988,6 +1998,7 @@ pub fn render(cfg: &Config) -> String {
             s.push_str(&format!("model = {}\n", q(own.model.trim())));
             s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(own.prompt.trim())));
             s.push_str(&format!("send = {}\n", own.send));
+            s.push_str(&format!("drafts = {}\n", own.drafts));
         }
     }
     if cfg.pull_requests != PullRequestsCfg::default() {
@@ -2599,11 +2610,11 @@ mod tests {
         assert_eq!((p.nudge_by_default, p.nudge_about), (false, NudgeAbout::Feedback));
 
         let mine = RepoCfg {
-            reviews: ReviewsPatch { auto: Some(true), account: Some(" codex ".into()), post: Some(ReviewPost::None), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
+            reviews: ReviewsPatch { auto: Some(true), account: Some(" codex ".into()), post: Some(ReviewPost::None), own: OwnReviewsPatch { send: Some(false), drafts: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
             pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: Some(NudgeAbout::Everything) },
         };
         let r = reviews_for(&global, Some(&team()), Some(&mine));
-        assert_eq!((r.auto, r.account.as_str(), r.post, r.own.send), (true, "codex", ReviewPost::None, false));
+        assert_eq!((r.auto, r.account.as_str(), r.post, r.own.send, r.own.drafts), (true, "codex", ReviewPost::None, false, true));
         assert_eq!(r.team_instructions, "Check migrations.", "the team's words are added whatever you set");
         assert_eq!(r.model, "", "what you don't set for the repo is as [reviews] says");
         let p = pull_requests_for(&prs, Some(&team()), Some(&mine));
@@ -2664,9 +2675,9 @@ mod tests {
     fn a_repos_table_with_only_reviews_of_your_own_prs_is_saved() {
         let mut on = full();
         let key = repo_key("sprucehq/web");
-        on.repos.insert(key.clone(), RepoCfg { reviews: ReviewsPatch { own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, ..RepoCfg::default() });
+        on.repos.insert(key.clone(), RepoCfg { reviews: ReviewsPatch { own: OwnReviewsPatch { auto: Some(true), drafts: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, ..RepoCfg::default() });
         let out = with_config(&render(&full()), &on).unwrap();
-        assert!(out.contains(&format!("\n{REPOS_COMMENT}[repos.\"github.com/sprucehq/web\".reviews.own]\nauto = true\n")), "{out}");
+        assert!(out.contains(&format!("\n{REPOS_COMMENT}[repos.\"github.com/sprucehq/web\".reviews.own]\nauto = true\ndrafts = true\n")), "{out}");
         assert!(!out.contains("[repos.\"github.com/sprucehq/web\".reviews]\n"), "{out}");
         assert_eq!(parse(&out).unwrap(), on);
         let taken = with_suggestions(&render(&full()), "sprucehq/web", &on.repos[&key]).unwrap();
@@ -2712,22 +2723,24 @@ mod tests {
     fn reviews_of_your_own_prs_are_a_table_of_their_own_under_reviews() {
         let none = toml::from_str::<Config>("").unwrap().reviews.own;
         assert_eq!(none, OwnReviewsCfg::default());
-        // Each review goes back to the PR's session unless that's turned off.
-        assert!(none.send && !none.auto);
+        // Each review goes back to the PR's session unless that's turned off, and drafts wait.
+        assert!(none.send && !none.auto && !none.drafts);
         let old = render(&full());
         let mut on = full();
-        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), prompt: "Look hard at the tests.".into(), send: true, team_instructions: String::new() };
+        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), prompt: "Look hard at the tests.".into(), send: true, drafts: false, team_instructions: String::new() };
         let out = with_config(&old, &on).unwrap();
-        assert!(out.contains(&format!("{OWN_REVIEWS_COMMENT}[reviews.own]\nauto = true\naccount = \"codex\"\nmodel = \"gpt-5.5\"\nprompt = \"Look hard at the tests.\"\nsend = true")), "{out}");
+        assert!(out.contains(&format!("{OWN_REVIEWS_COMMENT}[reviews.own]\nauto = true\naccount = \"codex\"\nmodel = \"gpt-5.5\"\nprompt = \"Look hard at the tests.\"\nsend = true\ndrafts = false")), "{out}");
         // Right after [reviews], whose own lines stay as they were.
         assert!(out.find("[reviews]\nauto = false").unwrap() < out.find("[reviews.own]").unwrap() && out.find("[reviews.own]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), on);
         assert_eq!(parse(&render(&on)).unwrap(), on);
-        // Kept as it's changed, sending turned off.
+        // Kept as it's changed, sending turned off and drafts on.
         let mut quiet = on.clone();
         quiet.reviews.own.send = false;
+        quiet.reviews.own.drafts = true;
         let again = with_config(&out, &quiet).unwrap();
         assert_eq!(again.matches("\n[reviews.own]\n").count(), 1, "{again}");
+        assert!(again.contains("send = false\ndrafts = true"), "{again}");
         assert_eq!(parse(&again).unwrap(), quiet);
         let mut bad = on.clone();
         bad.reviews.own.account = "codex9".into();

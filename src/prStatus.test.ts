@@ -17,6 +17,15 @@ describe('prPills', () => {
     expect(prPills(facts({ merge: 'clean', checks: checks() }))[0].title).toBe('No conflicts: GitHub can merge it');
   });
 
+  it('says Review requested while anyone is asked to review it, Awaiting review while nobody is', () => {
+    expect(prPills(facts({}))[0]).toMatchObject({ text: 'Awaiting review', title: 'Not approved yet, and nobody is asked to review it' });
+    expect(prPills(facts({ reviewersAsked: ['ana', 'platform'] }))[0]).toMatchObject({ text: 'Review requested', tone: 'plain', title: 'Waiting on a review from ana and platform' });
+    expect(prPills(facts({ reviewRequested: true }))[0]).toMatchObject({ text: 'Review requested', title: 'Waiting on a review from you' });
+    // A draft, or a review that's in, says so whoever is asked.
+    expect(prPills(facts({ state: 'draft', reviewersAsked: ['ana'] }))[0].text).toBe('Draft');
+    expect(prPills(facts({ state: 'changes', reviewersAsked: ['ana'] }))[0].text).toBe('Changes requested');
+  });
+
   it("doesn't call it ready on an approval and passing checks alone", () => {
     expect(texts({ state: 'approved', merge: 'unknown' })).toEqual([['Approved', 'pass'], ['12', 'pass']]);
     expect(texts({ state: 'approved', merge: 'conflicts', checks: checks() })).toEqual([['Approved', 'pass'], ['Conflicts', 'attn']]);
@@ -194,7 +203,7 @@ describe('heldForAgent', () => {
     const done = asked({ stage: 'posted', head: '309811a', at: 0, rounds: 1 });
     expect(heldForAgent(done)).toBe(false);
     expect(prFlag(done)).toBe('attn');
-    expect(prPills(done)[0].text).toBe('Awaiting review');
+    expect(prPills(done)[0].text).toBe('Review requested');
     expect(prFlag(asked(undefined))).toBe('attn');
   });
 });

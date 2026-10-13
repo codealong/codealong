@@ -23,9 +23,13 @@ export interface PrFacts {
   checks: Checks;
   merge: Merge;
   /** A PRs-view item's automatic review: one the agent is still on reads so in place of
-   *  Awaiting review. */
+   *  Review requested or Awaiting review. */
   autoReview?: AutoReview;
   base?: string | null;
+  /** Whose reviews it waits on, yours and others': Review requested while anyone's is asked
+   *  for, Awaiting review while nobody's is. */
+  reviewRequested?: boolean;
+  reviewersAsked?: string[];
 }
 
 const isOpen = (state: PrState) => state !== 'merged' && state !== 'closed';
@@ -58,7 +62,9 @@ function reviewPill(pr: PrFacts): PrPill {
       return pill('pass', 'Approved', 'Approved');
     default:
       if (heldForAgent(pr)) return pill('plain', 'Agent reviewing', 'Codealong’s agent is reviewing it: it waits on your review once that’s done');
-      return pill('plain', 'Awaiting review', 'Not approved yet');
+      const asked = reviewersWords(pr);
+      if (asked) return pill('plain', 'Review requested', asked);
+      return pill('plain', 'Awaiting review', 'Not approved yet, and nobody is asked to review it');
   }
 }
 

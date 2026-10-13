@@ -761,6 +761,13 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, start, defau
               request’s Reviews tab.
             </small>
           </label>
+          <label className="ca-field ca-settings-check">
+            <input type="checkbox" checked={own.drafts} onChange={(e) => setOwn({ drafts: e.target.checked })} />
+            <span>
+              Review your draft pull requests too<SourceTag field="own.drafts" scope={scope} />
+            </span>
+            <small>Off, a pull request of yours is reviewed once it’s ready for review. Drafts of other people’s are never reviewed.</small>
+          </label>
         </>
       )}
     </>

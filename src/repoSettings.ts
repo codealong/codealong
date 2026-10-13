@@ -7,7 +7,7 @@
 
 import type { Lane, NudgeAbout, OwnReviewsCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, TeamCfg, TeamFile } from './types';
 
-export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true };
+export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true, drafts: false };
 export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', own: OWN_REVIEWS_OFF };
 export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything' };
 
@@ -52,6 +52,7 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
       model: given(o.model) ? o.model.trim() : g.own.model,
       prompt: given(o.prompt) ? o.prompt.trim() : g.own.prompt,
       send: o.send ?? g.own.send,
+      drafts: o.drafts ?? g.own.drafts,
     },
   };
 }
@@ -82,7 +83,7 @@ export function nudgeAboutFor(board: { nudgeAbout?: NudgeAbout; repos?: Record<s
 }
 
 /** A setting Settings shows for a repo, by where it is in `[reviews]` and `[pull_requests]`. */
-export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'own.auto' | 'own.reviewer' | 'own.prompt' | 'own.send' | 'prs.nudge_by_default' | 'prs.nudge_about';
+export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'own.auto' | 'own.reviewer' | 'own.prompt' | 'own.send' | 'own.drafts' | 'prs.nudge_by_default' | 'prs.nudge_about';
 
 /** Where a value for a repo comes from: your table for it, its team's file, or `[reviews]` and
  *  `[pull_requests]` as they go everywhere. */
@@ -103,6 +104,7 @@ export function sourceOf(field: Field, mine: RepoCfg | undefined, team: TeamCfg 
     'own.reviewer': [o.account, o.model],
     'own.prompt': [o.prompt],
     'own.send': [o.send],
+    'own.drafts': [o.drafts],
     'prs.nudge_by_default': [p.nudge_by_default],
     'prs.nudge_about': [p.nudge_about],
   };

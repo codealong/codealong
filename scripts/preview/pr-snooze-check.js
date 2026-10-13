@@ -106,7 +106,7 @@
       return until(function () { return q('.ca-prinsp'); }, 5000, 'no PR panel').then(function () {
         var panel = q('.ca-prinsp');
         var tag = all('.ca-prinsp-status .ca-tag', panel).map(function (t) { return t.textContent; });
-        check('its panel says until when its review is snoozed', tag.some(function (t) { return /^Review snoozed until /.test(t); }) && tag.indexOf('Review requested') < 0, tag.join(' | '));
+        check('its panel says until when its review is snoozed', tag.some(function (t) { return /^Review snoozed until /.test(t); }) && tag.indexOf('Your review requested') < 0, tag.join(' | '));
         var buttons = all('.ca-insp-actions button', panel).map(function (b) { return b.textContent; });
         check('and keeps Approve first, and Snooze…', buttons[0] === 'Approve' && buttons.indexOf('Snooze…') > 0, buttons.join(' | '));
         var snooze = all('.ca-insp-actions button', panel).filter(function (b) { return b.textContent === 'Snooze…'; })[0];
