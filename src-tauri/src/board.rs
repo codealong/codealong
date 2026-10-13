@@ -1776,8 +1776,10 @@ pub fn compose(inp: Inputs) -> Board {
         // Stable: each part keeps its order.
         sessions.sort_by_key(|s| (s.earlier, s.helping()));
         let mut kept = 0;
+        // A running session is never cut: it holds its worktree (`cleanup`), and Codealong's
+        // removal looks for one on its lane's list.
         sessions.retain(|s| {
-            let keep = kept < MAX_SESSIONS_PER_LANE || pinned.contains(&s.key);
+            let keep = kept < MAX_SESSIONS_PER_LANE || pinned.contains(&s.key) || s.live;
             kept += keep as usize;
             keep
         });
@@ -4132,7 +4134,7 @@ mod tests {
     }
 
     #[test]
-    fn pinned_sessions_are_never_cut_from_a_lane() {
+    fn pinned_and_running_sessions_are_never_cut_from_a_lane() {
         let apps = AppNames::default();
         let seeds = vec![seed("/r/spark-portal", "portal")];
         let a = acct("claude2");
@@ -4141,9 +4143,12 @@ mod tests {
                 let mut s = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
                 s.key = Session::key_for(Harness::Claude, "claude2", &format!("s{i}"));
                 s.last_activity = NOW - i as i64 * 60_000;
+                // An old one still running, behind thirty newer ones.
+                s.live = i == MAX_SESSIONS_PER_LANE + 3;
                 s
             })
             .collect();
+        let running = format!("claude:claude2:s{}", MAX_SESSIONS_PER_LANE + 3);
         let oldest = format!("claude:claude2:s{}", MAX_SESSIONS_PER_LANE + 4);
         let pinned = vec![oldest.clone()];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
@@ -4170,8 +4175,9 @@ mod tests {
             auto_reviews: (&Default::default(), &Default::default(), &Default::default()),
         });
         let lane = &board.lanes[0];
-        assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 1);
+        assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 2);
         assert!(lane.sessions.iter().any(|s| s.key == oldest));
+        assert!(lane.sessions.iter().any(|s| s.key == running));
         assert_eq!(board.pinned, pinned);
     }
 

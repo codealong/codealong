@@ -3,6 +3,12 @@
 //! (actions.rs). Elsewhere Codealong only reads git; this changes a repository, and only where
 //! nothing would be lost (`board::cleanup`), checked again here against git as it is now.
 //!
+//! The check reads git itself rather than taking the board's word (`facts`): untracked files are
+//! counted whatever `status.showUntrackedFiles` says, a git that fails or times out keeps the
+//! worktree, and its folders are looked through for another repository inside them, which its
+//! own git can't see (`repo_inside`). Just before it goes it's read again, one removal at a time,
+//! and anything changed since keeps it (`verify`).
+//!
 //! The repo's own teardown goes first: a repo whose worktrees a hook makes may set up much more
 //! than a folder for each (ports, routes, databases), which only its `WorktreeRemove` hook takes
 //! down, so that runs as its harness would run it (`Adapter::teardown`). Without one, `git
@@ -11,14 +17,15 @@
 //! that held it keeps of it (`Adapter::forget_worktree`); the job's conversation stays.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::board::{claude_lock, cleanup, Leaving};
 use crate::config::Config;
 use crate::harness::{self, Ctx};
-use crate::model::{Board, Session};
+use crate::model::{Board, Origin, Session};
 use crate::procs;
-use crate::util::{file_name, tilde};
+use crate::util::tilde;
 
 /// How long git gets to remove a worktree: as long as deleting its files takes, and a worktree
 /// with its dependencies installed has many.
@@ -29,6 +36,21 @@ const COMMAND_WAIT: Duration = Duration::from_secs(60);
 
 /// How long the process of a session that's ending gets to end before its lock comes off.
 const ENDING_WAIT: Duration = Duration::from_secs(15);
+
+/// How long each of the check's git commands gets: one that runs out keeps the worktree.
+const CHECK_WAIT: Duration = Duration::from_secs(60);
+
+/// Folders not looked in for another repository: dependencies and builds, which hold many files
+/// and no work of yours.
+const NOT_LOOKED_IN: [&str; 9] = ["node_modules", "target", ".next", ".nx", ".turbo", ".venv", "venv", "__pycache__", ".gradle"];
+
+/// The most files and folders looked at for another repository inside a worktree: one with more
+/// stays, as it couldn't be looked through.
+const MOST_LOOKED_AT: usize = 200_000;
+
+/// One removal at a time: two of a repo's teardowns at once could trip over each other, and
+/// each is checked again just before it goes.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 /// A command a repo declares to run as one of its worktrees goes (`Adapter::teardown`): run
 /// through `/bin/sh -c` in `cwd`, with `env` added and `input` on stdin, for up to `timeout`.
@@ -50,6 +72,11 @@ pub struct Plan {
     /// The repo's main checkout, where git and the hooks run.
     pub main: PathBuf,
     pub branch: Option<String>,
+    /// What was checked, which must still hold just before it goes (`verify`): its HEAD, its
+    /// lock's reason, and the branch its new work is counted from.
+    pub head: String,
+    pub lock: Option<String>,
+    pub base: Option<String>,
     /// Why it stays, when it can't go.
     pub kept: Option<String>,
     /// The lock a session left on it, which comes off first: one hung up on, or the one being
@@ -97,38 +124,59 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
         return Err(format!("{} is gone already.", tilde(&path)));
     }
     let Some((root, main)) = crate::repos::locate(&path) else { return Err(format!("{} isn't in a git repository.", tilde(&path))) };
+    let origin = if root == main { Origin::Main } else { lane.origin };
     let base = lane.git.as_ref().and_then(|g| g.base.clone());
-    let git = crate::git::status(&path, base.as_deref());
+    let checked = facts(&path, base.as_deref());
     let listed = crate::repos::load_checkout(&main).map(|c| crate::repos::list_worktrees(&c)).unwrap_or_default();
-    // Another worktree inside it, of this repo or any the board has: its files would go too.
-    let holds = listed
+    // Another worktree inside it, of this repo or any the board has, or a repository nothing
+    // lists: its files would go too.
+    let listed_inside = listed
         .iter()
         .map(|w| w.path.clone())
         .chain(board.lanes.iter().filter(|l| l.device.is_none()).map(|l| PathBuf::from(&l.path)))
-        .find(|p| *p != path && p.starts_with(&path))
-        .map(|p| file_name(&p));
+        .find(|p| *p != path && p.starts_with(&path));
+    let inside = match listed_inside {
+        Some(p) => Ok(Some(p)),
+        None if origin == Origin::Main => Ok(None),
+        None => repo_inside(&path),
+    };
+    let holds = inside.as_ref().ok().cloned().flatten().map(|p| p.strip_prefix(&path).map(Path::to_path_buf).unwrap_or(p).display().to_string());
     let branch = listed.iter().find(|w| w.path == path).and_then(|w| w.branch.clone()).or_else(|| lane.branch.clone());
     let branch_goes = branch.as_ref().is_some_and(|b| !listed.iter().any(|w| w.path != path && w.branch.as_ref() == Some(b)));
+    // Every running session is on its lane's list (`board::compose` never cuts one).
     let running = lane.sessions.iter().filter(|s| s.visitor.is_none() && s.live && ending.map_or(true, |e| e.key != s.key)).count();
+    let git = checked.as_ref().ok().map(Facts::git);
     // A lock holds while the process that took it runs, the session being ended aside.
     let ending_pid = ending.and_then(|s| s.pid);
-    let lock = git.locked.as_deref().map(|reason| (reason, claude_lock(reason)));
-    let lock_holds = |pid: u32, start: Option<&str>| Some(pid) != ending_pid && runs(pid, start);
-    let held = lock.filter(|(_, claude)| claude.map_or(true, |(pid, start)| lock_holds(pid, start))).map(|(reason, _)| reason);
+    let lock = git.as_ref().and_then(|g| g.locked.clone());
+    let claude = lock.as_deref().and_then(claude_lock);
+    let held = match (&lock, claude) {
+        (Some(_), Some((pid, start))) => Some(pid) != ending_pid && runs(pid, start),
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    // Reusable as the board would have it, from git as it is: the command, with the app closed,
+    // has a board that read no git.
     let marked = crate::reusable::load().ok().and_then(|s| s.get(&lane.id));
-    let kept = cleanup(&Leaving {
-        origin: if root == main { crate::model::Origin::Main } else { lane.origin },
-        chats: lane.starts_chats,
-        reusable: lane.reuse.map(|_| marked == Some(true)),
-        git: Some(&git),
-        running,
-        holds: holds.as_deref(),
-        lock: held,
-    })
-    .filter(|c| !c.ok)
-    .map(|c| c.why);
-    let unlock = lock.is_some() && held.is_none();
-    let ends_first = lock.and_then(|(_, claude)| claude).map(|(pid, _)| pid).filter(|pid| Some(*pid) == ending_pid);
+    let can_reuse = lane.project != crate::board::ELSEWHERE && !lane.starts_chats && origin != Origin::Folder;
+    let reusable = can_reuse && marked.unwrap_or(origin == Origin::Main || crate::board::reused(git.as_ref()));
+    let kept = match (&checked, &inside) {
+        (Err(e), _) => Some(format!("git couldn't check it ({e})")),
+        (_, Err(e)) => Some(e.clone()),
+        _ => cleanup(&Leaving {
+            origin,
+            chats: lane.starts_chats,
+            reusable: reusable.then_some(marked == Some(true)),
+            git: git.as_ref(),
+            running,
+            holds: holds.as_deref(),
+            lock: lock.as_deref().filter(|_| held),
+        })
+        .filter(|c| !c.ok)
+        .map(|c| c.why),
+    };
+    let unlock = lock.is_some() && !held;
+    let ends_first = claude.map(|(pid, _)| pid).filter(|pid| Some(*pid) == ending_pid);
     let (hooks, skipped) = teardown(cfg, &main, &path);
     let mut after: Vec<String> = Vec::new();
     for account in &cfg.accounts {
@@ -139,7 +187,91 @@ pub fn plan(board: &Board, cfg: &Config, lane_id: &str, ending: Option<&Session>
             }
         }
     }
-    Ok(Plan { name: lane.callsign.clone(), path, main, branch, kept, unlock, ending: ends_first, hooks, skipped, branch_goes, after })
+    let head = checked.map(|f| f.head).unwrap_or_default();
+    Ok(Plan { name: lane.callsign.clone(), path, main, branch, head, lock, base, kept, unlock, ending: ends_first, hooks, skipped, branch_goes, after })
+}
+
+/// What git says of a worktree, read for removing it. A command that fails or runs out is an
+/// error, never a clean worktree; untracked files count whatever `status.showUntrackedFiles`
+/// says, and so do submodules' changes.
+#[derive(Debug, Clone, PartialEq)]
+struct Facts {
+    dirty: u32,
+    unpushed: u32,
+    head: String,
+    locked: Option<String>,
+    /// How many times it took new work (`git::new_work`), for whether it's reusable.
+    new_work: u32,
+}
+
+impl Facts {
+    /// As the board's rule reads them.
+    fn git(&self) -> crate::model::GitInfo {
+        crate::model::GitInfo { dirty: self.dirty, unpushed: Some(self.unpushed), locked: self.locked.clone(), new_work_count: Some(self.new_work), ..Default::default() }
+    }
+}
+
+fn facts(path: &Path, base: Option<&str>) -> Result<Facts, String> {
+    let dir = path.to_string_lossy();
+    let run = |args: &[&str]| procs::run("git", &[&["-C", dir.as_ref()], args].concat(), None, CHECK_WAIT).map_err(|e| last_line(&e.to_string()).to_string());
+    let status = run(&["status", "--porcelain=v2", "--untracked-files=normal", "--ignore-submodules=none"])?;
+    let head = run(&["rev-parse", "--verify", "HEAD"])?.trim().to_string();
+    let unpushed = run(&["rev-list", "--count", "HEAD", "--not", "--remotes"])?.trim().parse().map_err(|_| "its count of commits didn't read".to_string())?;
+    Ok(Facts { dirty: crate::git::parse_status(&status).dirty, unpushed, head, locked: crate::git::locked(path), new_work: crate::git::new_work(path, base).len() as u32 })
+}
+
+/// Another repository or worktree inside `path`, found by its `.git`, which the folder's own git
+/// doesn't see into: one in an ignored folder, say. Links aren't followed, and folders of
+/// dependencies and builds aren't looked in (`NOT_LOOKED_IN`). Err for a folder with too many
+/// files to look through.
+fn repo_inside(path: &Path) -> Result<Option<PathBuf>, String> {
+    let mut folders = vec![path.to_path_buf()];
+    let mut looked = 0;
+    while let Some(dir) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            looked += 1;
+            if looked > MOST_LOOKED_AT {
+                return Err("too many files in it to look through for another repository".into());
+            }
+            let name = e.file_name();
+            if name == ".git" {
+                if dir != path {
+                    return Ok(Some(dir));
+                }
+                continue;
+            }
+            let Ok(kind) = e.file_type() else { continue };
+            if kind.is_dir() && !NOT_LOOKED_IN.iter().any(|n| name == *n) {
+                folders.push(e.path());
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Reads the worktree again just before it goes: what the plan saw must still hold, the same
+/// HEAD and lock and nothing uncommitted or unpushed, or it stays. Waiting for a session's
+/// process to end, or for another removal, gives time for work to come in. A lock the plan was to
+/// take off may have gone by itself (a session's own, as its process ends): whether it's still
+/// there to take off.
+fn verify(plan: &Plan) -> Result<bool, String> {
+    let now = facts(&plan.path, plan.base.as_deref()).map_err(|e| format!("{} stays: git couldn't check it again ({e}).", plan.name))?;
+    let stays = |why: &str| Err(format!("{} stays: {why}.", plan.name));
+    if now.head != plan.head {
+        return stays("its HEAD moved since it was checked");
+    }
+    let went = plan.unlock && now.locked.is_none();
+    if now.locked != plan.lock && !went {
+        return stays("its lock changed since it was checked");
+    }
+    if now.dirty > 0 {
+        return stays("it has uncommitted files now");
+    }
+    if now.unpushed > 0 {
+        return stays("it has commits on no remote now");
+    }
+    Ok(plan.unlock && !went)
 }
 
 /// Whether the process `pid` runs, and is the one that started at `start` (`ps -o lstart` in
@@ -186,6 +318,7 @@ pub fn remove(plan: &Plan) -> Result<String, String> {
     if let Some(why) = &plan.kept {
         return Err(format!("{} stays: {why}.", plan.name));
     }
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let main = plan.main.to_string_lossy().into_owned();
     let path = plan.path.to_string_lossy().into_owned();
     if let Some(pid) = plan.ending {
@@ -197,7 +330,7 @@ pub fn remove(plan: &Plan) -> Result<String, String> {
             return Err(format!("{} stays: its session's process hasn't ended.", plan.name));
         }
     }
-    if plan.unlock {
+    if verify(plan)? {
         procs::run("git", &["-C", &main, "worktree", "unlock", &path], None, COMMAND_WAIT).map_err(|e| format!("Couldn't take the lock its session left off {}: {}", plan.name, last_line(&e.to_string())))?;
     }
     let mut said = if plan.hooks.is_empty() {
@@ -222,7 +355,11 @@ pub fn remove(plan: &Plan) -> Result<String, String> {
             let why = failed.map(|w| format!(": {w}")).unwrap_or_default();
             return Err(format!("The repo's WorktreeRemove hook ran, but {} is still there{why}", plan.name));
         }
-        format!("Removed the worktree {} through the repo's WorktreeRemove hook.", plan.name)
+        // The folder can go and the rest of the teardown fail (a port, a route, a database).
+        match failed {
+            Some(why) => format!("Removed the worktree {} through the repo's WorktreeRemove hook, which failed, though: {why}.", plan.name),
+            None => format!("Removed the worktree {} through the repo's WorktreeRemove hook.", plan.name),
+        }
     };
     if plan.path.exists() {
         return Err(format!("{} is still there.", plan.name));
@@ -280,6 +417,9 @@ mod tests {
             name: "brave-otter".into(),
             main: PathBuf::from("/r/app"),
             branch: Some("worktree-brave-otter".into()),
+            head: "0ef4ed2".into(),
+            lock: None,
+            base: Some("origin/main".into()),
             kept: None,
             unlock: false,
             ending: None,
@@ -405,6 +545,66 @@ mod tests {
         assert_eq!(remove(&p), Ok("Removed the worktree brave-otter through the repo's WorktreeRemove hook.".into()));
         assert!(!wt.exists());
         assert!(std::fs::read_to_string(&log).unwrap().contains("\"worktree_path\""));
+        // A hook that takes the folder and then fails says so.
+        git(&["worktree", "add", "-q", "-b", "worktree-half", wt.to_str().unwrap(), "main"]);
+        let half = Hook { command: format!("git -C \"$CLAUDE_PROJECT_DIR\" worktree remove --force {}; echo 'port 3000 still taken' >&2; exit 1", wt.display()), ..p.hooks[0].clone() };
+        let p = Plan { hooks: vec![half], after: vec![], ..plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap() };
+        assert_eq!(remove(&p), Ok("Removed the worktree brave-otter through the repo's WorktreeRemove hook, which failed, though: port 3000 still taken.".into()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the board can't see keeps a worktree: untracked files a setting hides, another
+    /// repository in an ignored folder, reuse its reflog shows, and work that came in after the
+    /// check. `cargo test cleanup::tests::keeps`.
+    #[test]
+    fn keeps_what_the_board_cant_see_and_what_changed_after_the_check() {
+        let dir = std::env::temp_dir().join(format!("codealong-cleanup-keeps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let main = dir.join("app");
+        let at = |p: &Path, args: &[&str]| procs::run("git", &[&["-C", p.to_str().unwrap(), "-c", "user.name=t", "-c", "user.email=t@t"], args].concat(), None, Duration::from_secs(20)).unwrap();
+        std::fs::create_dir_all(&main).unwrap();
+        at(&main, &["init", "-q", "-b", "main"]);
+        std::fs::write(main.join(".gitignore"), "vendor/\n").unwrap();
+        at(&main, &["add", ".gitignore"]);
+        at(&main, &["commit", "-q", "-m", "init"]);
+        let origin = dir.join("origin.git");
+        procs::run("git", &["init", "-q", "--bare", origin.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
+        at(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        at(&main, &["push", "-q", "origin", "main"]);
+        let wt = dir.join("app-wt");
+        at(&main, &["worktree", "add", "-q", "-b", "wt", wt.to_str().unwrap(), "main"]);
+        let mut board = Board::default();
+        board.lanes = vec![crate::model::Lane { callsign: "wt".into(), origin: Origin::Script, ..crate::fixtures::lane(wt.to_str().unwrap(), vec![]) }];
+        let cfg = Config::default();
+        let kept = |board: &Board| plan(board, &cfg, wt.to_str().unwrap(), None).unwrap().kept;
+        assert_eq!(kept(&board), None);
+        // A file git status would hide by the repo's setting.
+        at(&main, &["config", "status.showUntrackedFiles", "no"]);
+        std::fs::write(wt.join("notes.txt"), "").unwrap();
+        assert_eq!(kept(&board).as_deref(), Some("1 uncommitted file"));
+        std::fs::remove_file(wt.join("notes.txt")).unwrap();
+        // Another repository in an ignored folder, which nothing lists.
+        std::fs::create_dir_all(wt.join("vendor/lib/.git")).unwrap();
+        assert_eq!(kept(&board).as_deref(), Some("another worktree is inside it (vendor/lib)"));
+        std::fs::remove_dir_all(wt.join("vendor")).unwrap();
+        // Work that comes in between the check and the removal keeps it.
+        let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
+        assert_eq!(p.kept, None);
+        at(&wt, &["commit", "-q", "--allow-empty", "-m", "late"]);
+        assert_eq!(remove(&p), Err("wt stays: its HEAD moved since it was checked.".into()));
+        at(&wt, &["reset", "-q", "--hard", "origin/main"]);
+        let p = plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap();
+        std::fs::write(wt.join("late.txt"), "").unwrap();
+        assert_eq!(remove(&p), Err("wt stays: it has uncommitted files now.".into()));
+        std::fs::remove_file(wt.join("late.txt")).unwrap();
+        // One that has taken new work three times is reusable, whatever the board read.
+        for b in ["a", "b", "c"] {
+            at(&wt, &["switch", "-q", "-c", b]);
+        }
+        assert_eq!(kept(&board).as_deref(), Some("reusable: it has taken several pieces of work"));
+        assert!(wt.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

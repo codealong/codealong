@@ -1607,10 +1607,12 @@ lists the same from the command line.
 *A worktree's right-click menu › Clean up worktree…*
 
 Removes a worktree whose work is done, only when nothing in it would be lost: no file uncommitted or
-untracked, no commit that isn't on some remote (as `git rev-list HEAD --not --remotes` counts them,
-Claude Code's own rule), no session running in it, no lock a running session holds on it, and no
-other worktree inside it. A main checkout, a plain folder and a reusable worktree are never removed.
-Files git ignores, such as installed dependencies and env files, go with it. Where it can't go, the
+untracked (whatever `status.showUntrackedFiles` says), no commit that isn't on some remote (as `git
+rev-list HEAD --not --remotes` counts them, Claude Code's own rule), no session running in it, no
+lock a running session holds on it, and no other worktree or repository inside it, ignored folders
+looked through too (not dependencies' and builds'). A git command that fails keeps it. A main
+checkout, a plain folder and a reusable worktree are never removed. Files git ignores, such as
+installed dependencies and env files, go with it. Where it can't go, the
 item is dimmed and says why: "3 uncommitted files", "2 commits on no remote", "a session is running
 in it", "the main checkout", "marked reusable". Worktrees picked together offer Clean up N
 worktrees… for the ones that can go.
@@ -1623,7 +1625,9 @@ databases) takes all of it down; otherwise `git worktree remove` (never forced),
 for its branch when no other worktree has it, which keeps a branch whose work isn't merged. A lock a
 session left behind as its tab closed comes off first. Then, for a Claude Code background job that
 held the worktree, `claude rm <job>` drops the job's record; its conversation stays. Everything is
-checked again as it goes, and a worktree that changed since the menu was built stays and says why.
+checked again as it goes, one removal at a time and once more just before it goes, and a worktree
+that changed since (a new commit, a file, its lock) stays and says why. A hook that removes the
+folder but fails at the rest of its teardown is said to have failed.
 The toast says what was done. On another Mac the worktree is removed there, with remote control on.
 Worktrees outside your projects (Elsewhere) aren't read by git on the board, so their menu doesn't
 offer it; `codealong worktree remove <path> [--dry-run]` does, from the command line, and
