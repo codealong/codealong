@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when asked to go over the sessions that wait on the user and suggest replies, or when choosing which account to start something on.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies, or when choosing which account to start something on.
 ---
 
 # Codealong
@@ -309,6 +309,9 @@ second opinion from another account, harness or model. `codealong start --helper
 unless `--in` says where (Claude Code's background service, else in Codealong). Codealong
 lists it under your session rather than among your user's, and its finished turns don't wait
 on them; it shows to them only when it needs them (a call to allow, a question, an error).
+Start one this way rather than running another harness's CLI yourself (`codex exec`) or
+through a plugin of its own: Codealong can't tell who started those, so they show among your
+user's sessions with nothing tying them to yours.
 
 - `codealong session wait <key>` waits for its turn to end and prints its reply (`reply`), or
   comes back early when it waits on your user (`waitsOnUser`, with what it waits on in

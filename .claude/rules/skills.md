@@ -52,3 +52,15 @@ under `src-tauri/src/` unless they start with `plugin/`.
   already clone it. A `SessionStart` or `UserPromptSubmit` command hook's stdout (exit 0) is
   added to the model's context, which is how `plugin/hooks/hooks.json` hands a session its todo.
   `allowed-tools` and `disable-model-invocation` in SKILL.md are Claude Code's own.
+- Plugins enabled on claude.ai sync into `<config dir>/plugins/synced/<org>_<account>/` and load
+  as `<name>@synced`, though `claude plugin list` and `details` don't show them. One is turned
+  off on its own by `"enabledPlugins": {"<name>@synced": false}` in that account's settings.json,
+  and all of them by `syncClaudeAiPlugins: false` (2.1.296, 2026-10-13: a headless start's
+  `system`/`init` event listed `codex` and its `codex:codex-rescue` agent, and neither with the
+  setting). A headless start with `CLAUDE_CONFIG_DIR` set to `~/.claude` looks for other
+  credentials than the default does and loads no synced plugin, so check the default account
+  with that variable unset. OpenAI's Codex plugin (`openai/codex-plugin-cc`) starts Codex
+  threads named "Codex Companion Task: …" with `originator: "Claude Code"`. Each job's
+  `sessionId` (the Claude session) and `threadId` are in
+  `plugins/data/codex-*/state/<folder>-<hash>/state.json`. Codealong doesn't read it, so those
+  threads aren't helpers; the skill steers agents to `codealong start --helper` instead.
