@@ -300,6 +300,12 @@ impl GhPoll {
         self.polled
     }
 
+    /// The repos whose read failed the last time each was asked, by slug: their PRs here are as
+    /// they were when it last answered. A glance that fails reads none, so `at` holds still then.
+    pub fn failing(&self) -> Vec<String> {
+        self.failures.keys().filter(|k| k.as_str() != GLANCE && k.as_str() != github::REQUESTED).cloned().collect()
+    }
+
     /// Who `gh` is signed in as.
     pub fn login(&self) -> Option<&str> {
         self.login.as_deref()

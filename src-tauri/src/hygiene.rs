@@ -30,12 +30,14 @@ use serde::Serialize;
 use crate::idle::span;
 use crate::model::{Board, Lane, Origin, Session, Status, Surface};
 
-/// A process as `ps` lists it, with how long it has run.
+/// A process as `ps` lists it, with how long it has run and so about when it started (to the
+/// second, as `ps` says).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Proc {
     pub pid: u32,
     pub ppid: u32,
     pub age_ms: i64,
+    pub started: i64,
     pub command: String,
 }
 
@@ -284,7 +286,8 @@ fn lane_of<'a>(command: &str, cwd: Option<&str>, lanes: &[&'a str]) -> Option<&'
 }
 
 /// Programs that run the script named after their options: the script is what the process is.
-const INTERPRETERS: &[&str] = &["node", "nodejs", "bun", "deno", "tsx", "ts-node", "python", "python3", "ruby", "perl", "bash", "sh", "zsh", "dash", "env", "npx", "bunx", "pnpx"];
+const INTERPRETERS: &[&str] = &["node", "nodejs", "bun", "deno", "tsx", "ts-node", "python", "python3", "ruby", "perl", "env", "npx", "bunx", "pnpx"];
+const SHELLS: &[&str] = &["bash", "sh", "zsh", "dash", "fish"];
 /// An interpreter's options that take the next word as their value.
 const TAKES_VALUE: &[&str] = &["-r", "--require", "--import", "--loader", "--experimental-loader"];
 
@@ -292,7 +295,16 @@ const TAKES_VALUE: &[&str] = &["-r", "--require", "--import", "--loader", "--exp
 fn program_at(tokens: &[&str]) -> Vec<usize> {
     let mut at = vec![0];
     let first = tokens.first().map(|t| t.rsplit('/').next().unwrap_or(t)).unwrap_or("");
-    if INTERPRETERS.contains(&first) || first.starts_with("python3.") {
+    if SHELLS.contains(&first) {
+        // A shell runs a script only as `sh <script>` or `sh -c <command>` (`-lc` too); any other
+        // option may be an interactive shell's (`--rcfile <file> -i`), which is never a dev
+        // process, so nothing after it is read as the program.
+        match tokens.get(1) {
+            Some(t) if !t.starts_with('-') => at.push(1),
+            Some(t) if !t.starts_with("--") && t.contains('c') && !t.contains('i') && tokens.len() > 2 => at.push(2),
+            _ => {}
+        }
+    } else if INTERPRETERS.contains(&first) || first.starts_with("python3.") {
         let mut skip = false;
         for (i, t) in tokens.iter().enumerate().skip(1) {
             if std::mem::take(&mut skip) {
@@ -450,10 +462,10 @@ pub fn footprint(pid: u32) -> Option<u64> {
 /// table. `ps` on a Mac that stalls can take a long while, so it's given one.
 pub fn processes() -> anyhow::Result<Vec<Proc>> {
     let out = crate::procs::run("/bin/ps", &["-axww", "-o", "pid=,ppid=,etime=,command="], None, Duration::from_secs(60))?;
-    Ok(parse_ps(&out))
+    Ok(parse_ps(&out, crate::util::now_ms()))
 }
 
-fn parse_ps(out: &str) -> Vec<Proc> {
+fn parse_ps(out: &str, now: i64) -> Vec<Proc> {
     out.lines()
         .filter_map(|line| {
             let mut f = line.split_whitespace();
@@ -463,7 +475,8 @@ fn parse_ps(out: &str) -> Vec<Proc> {
             let first = f.next()?;
             let command = line[line.find(etime)? + etime.len()..].trim_start();
             debug_assert!(command.starts_with(first));
-            Some(Proc { pid, ppid, age_ms: elapsed_ms(etime)?, command: command.to_string() })
+            let age_ms = elapsed_ms(etime)?;
+            Some(Proc { pid, ppid, age_ms, started: now - age_ms, command: command.to_string() })
         })
         .collect()
 }
@@ -501,8 +514,11 @@ struct Target {
 }
 
 impl Target {
-    fn of(pid: u32) -> Option<Target> {
-        (pid > 1).then(|| crate::procs::proc_start_ms(pid)).flatten().map(|started| Target { pid, started })
+    /// The process a table listed, if that's still what runs under its pid: the kernel's start
+    /// time is the table's, which `ps` gives to the second.
+    fn of(p: &Proc) -> Option<Target> {
+        let started = crate::procs::proc_start_ms(p.pid)?;
+        (p.pid > 1 && (started - p.started).abs() <= 2_000).then_some(Target { pid: p.pid, started })
     }
 
     /// It's still the process it was.
@@ -529,43 +545,41 @@ fn wait_gone(targets: &[Target], within: Duration) -> Vec<Target> {
     }
 }
 
-/// Ends what `judge` found, each with its child processes, and says how each went. Each tree is
-/// read again first: a root whose command isn't what it was is left alone, its pid having gone
-/// to something else, and every process is signalled only while it's the one that was read. A
-/// background job is stopped by its harness (`Adapter::stop`), as Close does, and signalled only
-/// if it's still there after. `board` is the app's, read just before.
-pub fn end(found: &[Found], protected: &HashSet<u32>, board: &Board, cfg: &crate::config::Config) -> Vec<Ended> {
+/// Ends what `judge` found on `table` and `board`, read just before, each with its child
+/// processes, and says how each went. Every process is signalled only while it's the one the
+/// table listed. The rest are asked to end first, then a background job is stopped by its harness
+/// (`Adapter::stop`), as Close does, all at once, and signalled only if it's still there after.
+/// The sweep for dev processes that came back goes by `fresh`, the board read again, and is
+/// skipped without one.
+pub fn end(found: &[Found], table: &[Proc], protected: &HashSet<u32>, board: &Board, cfg: &crate::config::Config, fresh: &dyn Fn() -> Option<Board>) -> Vec<Ended> {
     let began = Instant::now();
     let mut out: Vec<Ended> = found.iter().map(|f| Ended { pid: f.pid, kind: f.kind, why: f.why.clone(), memory: f.memory, result: String::new() }).collect();
-    let table = match processes() {
-        Ok(t) => t,
-        Err(e) => {
-            let why = format!("skipped: `ps` didn't answer ({})", crate::util::words(e));
-            out.iter_mut().for_each(|o| o.result = why.clone());
-            return out;
-        }
-    };
-    let kids = children_of(&table);
+    let by_pid: HashMap<u32, &Proc> = table.iter().map(|p| (p.pid, p)).collect();
     let mut trees: Vec<(usize, Target, Vec<Target>)> = Vec::new();
     for (i, f) in found.iter().enumerate() {
-        let same = table.iter().any(|p| p.pid == f.pid && p.command.chars().take(200).eq(f.command.chars().take(200)));
-        let Some(root) = Target::of(f.pid).filter(|_| same) else {
+        let Some(root) = by_pid.get(&f.pid).filter(|p| p.command == f.command).and_then(|p| Target::of(p)) else {
             out[i].result = "skipped: it's gone, or its pid runs something else now".into();
             continue;
         };
-        let children = descendants(&kids, f.pid).into_iter().filter(|p| !protected.contains(p)).filter_map(Target::of).collect();
+        let children = f.children.iter().filter(|p| !protected.contains(p)).filter_map(|p| by_pid.get(p)).filter_map(|p| Target::of(p)).collect();
         trees.push((i, root, children));
     }
-    let mut stopped: HashMap<usize, Result<(), String>> = HashMap::new();
-    for (i, _, _) in &trees {
-        let Some(key) = found[*i].session.as_deref().filter(|_| found[*i].job) else { continue };
-        let result = crate::harness::find(board, cfg, key).and_then(|(s, account)| crate::harness::adapter(s.harness).stop(&crate::harness::Ctx { account }, s));
-        stopped.insert(*i, result.map(|_| ()).map_err(crate::util::words));
-    }
+    let job = |i: usize| found[i].session.as_deref().filter(|_| found[i].job);
     // The roots first, so an agent can close what it started itself; then what's left of each tree.
     let roots: Vec<Target> = trees.iter().map(|t| t.1).collect();
-    let asked: Vec<Target> = trees.iter().filter(|t| !stopped.contains_key(&t.0)).map(|t| t.1).collect();
+    let asked: Vec<Target> = trees.iter().filter(|t| job(t.0).is_none()).map(|t| t.1).collect();
     signal(&asked, libc::SIGTERM);
+    let stopped: HashMap<usize, Result<(), String>> = std::thread::scope(|scope| {
+        let stops: Vec<_> = trees
+            .iter()
+            .filter_map(|t| Some((t.0, job(t.0)?)))
+            .map(|(i, key)| {
+                let stop = scope.spawn(move || crate::harness::find(board, cfg, key).and_then(|(s, account)| crate::harness::adapter(s.harness).stop(&crate::harness::Ctx { account }, s)));
+                (i, stop)
+            })
+            .collect();
+        stops.into_iter().map(|(i, stop)| (i, stop.join().map_err(|_| "its stop panicked".to_string()).and_then(|r| r.map(|_| ()).map_err(crate::util::words)))).collect()
+    });
     wait_gone(&roots, Duration::from_secs(10));
     let all: Vec<Target> = trees.iter().flat_map(|(_, root, children)| std::iter::once(*root).chain(children.iter().copied())).collect();
     let rest = wait_gone(&all, Duration::ZERO);
@@ -579,7 +593,7 @@ pub fn end(found: &[Found], protected: &HashSet<u32>, board: &Board, cfg: &crate
     let cleared: Vec<&str> = trees.iter().filter(|t| found[t.0].kind == Kind::Dev).filter_map(|t| found[t.0].worktree.as_deref()).collect();
     if !cleared.is_empty() {
         std::thread::sleep(Duration::from_secs(3));
-        if let Ok(now) = processes() {
+        if let (Ok(now), Some(board)) = (processes(), fresh()) {
             let lanes: Vec<&str> = board.lanes.iter().filter(|l| l.device.is_none()).map(|l| l.id.as_str()).collect();
             let kids = children_of(&now);
             let live: HashSet<u32> = board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.live).filter_map(|s| s.pid).flat_map(|p| descendants(&kids, p).into_iter().chain([p])).collect();
@@ -591,7 +605,7 @@ pub fn end(found: &[Found], protected: &HashSet<u32>, board: &Board, cfg: &crate
                     let cwd = crate::procs::cwd_of(p.pid).map(|c| c.to_string_lossy().into_owned());
                     lane_of(&p.command, cwd.as_deref(), &lanes).is_some_and(|l| cleared.contains(&l))
                 })
-                .filter_map(|p| Target::of(p.pid))
+                .filter_map(Target::of)
                 .collect();
             signal(&again, libc::SIGTERM);
             signal(&wait_gone(&again, Duration::from_secs(5)), libc::SIGKILL);
@@ -641,7 +655,7 @@ mod tests {
     const H: i64 = 3_600_000;
 
     fn proc(pid: u32, ppid: u32, age_h: i64, command: &str) -> Proc {
-        Proc { pid, ppid, age_ms: age_h * H, command: command.into() }
+        Proc { pid, ppid, age_ms: age_h * H, started: NOW - age_h * H, command: command.into() }
     }
 
     fn quiet(key: &str, pid: u32, hours: i64, status: Status) -> Session {
@@ -751,6 +765,10 @@ mod tests {
         assert!(!is_dev("less /w/node_modules/nx/src/daemon/server.js"));
         assert!(is_dev("node --max-old-space-size=8192 -r /w/register.js /w/node_modules/nx/dist/src/daemon/server/start.js"));
         assert!(is_dev("bash -c npm run dev"));
+        assert!(is_dev("/bin/zsh -lc yarn dev"));
+        // An interactive shell is never one, whatever it reads at start.
+        assert!(!is_dev("/bin/bash --rcfile /w/scripts/dev.sh -i"));
+        assert!(!is_dev("/bin/zsh -ic yarn dev"));
     }
 
     #[test]
@@ -781,18 +799,19 @@ mod tests {
         };
         let kids = found(target, None).children;
         assert_eq!(kids.len(), 2);
-        let ended = end(&[found(target, None), found(bystander, Some("/bin/sh -c something else"))], &HashSet::new(), &Board::default(), &crate::config::Config::default());
+        let ended = end(&[found(target, None), found(bystander, Some("/bin/sh -c something else"))], &procs, &HashSet::new(), &Board::default(), &crate::config::Config::default(), &|| None);
         assert_eq!(ended[0].result, "ended");
         assert!(ended[1].result.starts_with("skipped"));
         assert!(kids.iter().chain([&target]).all(|&p| !crate::procs::pid_alive(p)));
         assert!(crate::procs::pid_alive(bystander));
-        signal(&Target::of(bystander).into_iter().collect::<Vec<_>>(), libc::SIGKILL);
+        // SAFETY: kill only sends a signal, to the sleep this test started.
+        unsafe { libc::kill(bystander as libc::pid_t, libc::SIGKILL) };
     }
 
     #[test]
     fn ps_lines_and_elapsed_times_read() {
-        let procs = parse_ps("  412     1 02-03:05:15 /usr/bin/claude daemon run\n  413   412    15:10 claude --resume ab cd\n");
-        assert_eq!(procs[0], Proc { pid: 412, ppid: 1, age_ms: ((2 * 24 + 3) * 3600 + 5 * 60 + 15) * 1000, command: "/usr/bin/claude daemon run".into() });
+        let procs = parse_ps("  412     1 02-03:05:15 /usr/bin/claude daemon run\n  413   412    15:10 claude --resume ab cd\n", NOW);
+        assert_eq!(procs[0], Proc { pid: 412, ppid: 1, age_ms: ((2 * 24 + 3) * 3600 + 5 * 60 + 15) * 1000, started: NOW - ((2 * 24 + 3) * 3600 + 5 * 60 + 15) * 1000, command: "/usr/bin/claude daemon run".into() });
         assert_eq!(procs[1].command, "claude --resume ab cd");
         assert_eq!(procs[1].age_ms, (15 * 60 + 10) * 1000);
     }

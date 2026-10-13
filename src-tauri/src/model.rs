@@ -116,6 +116,10 @@ pub struct Board {
     /// among them, are only what's come so far (`GhPoll::polled`, sounds.rs).
     #[serde(default)]
     pub github_polled: bool,
+    /// The repos whose PRs GitHub didn't give at the last ask, by slug (`GhPoll::failing`): what
+    /// the board has of them is from when it last did.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub github_failing: Vec<String>,
     pub usage: Vec<Usage>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,

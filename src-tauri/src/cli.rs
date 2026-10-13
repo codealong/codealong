@@ -4265,7 +4265,11 @@ fn word(v: &impl Serialize) -> String {
 
 fn print_changes(out: &crate::changes::Changes, now: i64) {
     let how = if out.compared { "by what was seen then" } else { "by times alone" };
-    println!("Since {} ago, {how}. Next time: codealong changes --since {}", ago(now - out.since), out.cursor);
+    let when = match ago(now - out.since).as_str() {
+        "now" => "a moment".to_string(),
+        a => a.to_string(),
+    };
+    println!("Since {when} ago, {how}. Next time: codealong changes --since {}", out.cursor);
     for n in &out.notes {
         println!("Note: {n}");
     }
@@ -4347,23 +4351,28 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
         let cfg = c.cfg()?.clone();
         let cwd = |pid: u32| procs::cwd_of(pid).map(|p| p.to_string_lossy().into_owned());
         let linked = |dir: &str| Path::new(dir).join(".git").is_file();
-        let judged = |board: &Board| hygiene::judge(&hygiene::Scene { board, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked });
-        let mut found = judged(c.board()?);
+        let mut found = hygiene::judge(&hygiene::Scene { board: c.board()?, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked });
         for f in &mut found {
             f.memory = std::iter::once(f.pid).chain(f.children.iter().copied()).filter_map(hygiene::footprint).sum();
         }
         found.sort_by_key(|f| std::cmp::Reverse(f.memory));
         out.judged = true;
         if a.kill && !found.is_empty() {
-            // Judged again on the board as it is now: `ps` takes a while on a busy Mac, and a
-            // session that took a turn meanwhile stays.
+            // Judged again on the processes and the board as they are now, read in that order,
+            // just before anything is ended: `ps` takes a while on a busy Mac, and a session that
+            // took a turn meanwhile stays.
+            let table = hygiene::processes();
             c.fresh_board()?;
-            match c.from_app && !c.board()?.loading {
-                true => {
+            match (table, c.from_app && !c.board()?.loading) {
+                (Ok(table), true) => {
                     let board = c.board()?;
-                    let again = judged(board);
-                    let due: Vec<hygiene::Found> = found.iter().filter(|f| again.iter().any(|g| g.pid == f.pid && g.kind == f.kind)).cloned().collect();
-                    let ended = hygiene::end(&due, &protected, board, &cfg);
+                    let again = hygiene::judge(&hygiene::Scene { board, procs: &table, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked });
+                    let due: Vec<hygiene::Found> = again.into_iter().filter(|g| found.iter().any(|f| g.pid == f.pid && g.kind == f.kind)).map(|g| hygiene::Found { memory: found.iter().find(|f| f.pid == g.pid).map_or(0, |f| f.memory), ..g }).collect();
+                    let fresh = || match server::ask(&Request::Board) {
+                        Some(Ok(v)) => serde_json::from_value::<Board>(v).ok().filter(|b| !b.loading),
+                        _ => None,
+                    };
+                    let ended = hygiene::end(&due, &table, &protected, board, &cfg, &fresh);
                     let path = a.log.as_deref().map(expand).unwrap_or_else(|| util::home().join("Library/Logs/Codealong/kills.log"));
                     if let Err(e) = hygiene::log(&path, &ended, &due) {
                         out.notes.push(format!("Couldn't log to {}: {e}", path.display()));
@@ -4371,7 +4380,8 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
                     out.log = Some(path.to_string_lossy().into_owned());
                     out.ended = Some(ended);
                 }
-                false => out.notes.push("Codealong didn't answer when asked again before ending them, so nothing was ended.".into()),
+                (Err(e), _) => out.notes.push(format!("`ps` didn't answer when asked again before ending them ({}), so nothing was ended.", util::words(e))),
+                (_, false) => out.notes.push("Codealong didn't answer when asked again before ending them, so nothing was ended.".into()),
             }
         }
         out.found = found;
