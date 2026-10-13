@@ -16,6 +16,8 @@
   --notch: #000000;
   --surface-hover: #f6f7f5;
   --surface-selected: #e2e6e1;
+  --nav-hover: #e2e6e1;
+  --nav-selected: #ffffff;
   --line: #dde0dc;
   --line-strong: #7b827d;
   --ink: #141817;
@@ -158,6 +160,8 @@
     --notch: #000000;
     --surface-hover: #1a1d1f;
     --surface-selected: #262b2d;
+    --nav-hover: #1a1d1f;
+    --nav-selected: #262b2d;
     --line: #272c2e;
     --line-strong: #717a76;
     --ink: #e8ebe7;
@@ -234,6 +238,8 @@
   --notch: #000000;
   --surface-hover: #1a1d1f;
   --surface-selected: #262b2d;
+  --nav-hover: #1a1d1f;
+  --nav-selected: #262b2d;
   --line: #272c2e;
   --line-strong: #717a76;
   --ink: #e8ebe7;

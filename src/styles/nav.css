@@ -1,9 +1,12 @@
 /* Sidebar items (.ca-nav, NavItem in primitives.tsx): active, child, parked; their counts and badges. */
 
 .ca-nav { display: flex; align-items: center; gap: var(--space-2); height: var(--row-h); padding: 0 8px; border-radius: var(--radius-sm); color: var(--ink-2); font: var(--type-body); cursor: default; outline: none; }
-.ca-nav:hover { background: var(--surface-hover); }
-.ca-nav.is-active { background: var(--surface-selected); color: var(--ink); font: var(--type-body-strong); }
+/* A sidebar sits on sunken or ground, so the chosen row is raised off it as a segmented control's
+   chosen segment is, and hover is a shade of the sidebar, never as bright as the chosen row. */
+.ca-nav:hover { background: var(--nav-hover); }
+.ca-nav.is-active { background: var(--nav-selected); color: var(--ink); font: var(--type-body-strong); box-shadow: var(--shadow-lift); }
 .ca-nav:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.ca-nav.is-active:focus-visible { box-shadow: inset 0 0 0 2px var(--focus), var(--shadow-lift); }
 .ca-nav .ca-icon { color: var(--ink-3); }
 .ca-nav.is-child { font-family: var(--font-mono); font-size: 12px; }
 .ca-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
