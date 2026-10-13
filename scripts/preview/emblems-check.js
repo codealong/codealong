@@ -1,7 +1,7 @@
 // Checks session emblems (primitives.tsx SessionEmblem, `[jev] emblems`): a session that has one
-// shows it before its title on its row and in its header, its icon on a radial gradient whose
-// middle is its harness's color (Claude Code's `/color`) where it has one and whose edge is
-// Codealong's, Codealong's alone without one; a session without one shows none. Sessions are
+// shows it before its title on its row and in its header, its icon on a radial gradient lit from
+// its top left corner, its harness's color there (Claude Code's `/color`) where it has one and
+// Codealong's over the rest, Codealong's alone without one; a session without one shows none. Sessions are
 // given emblems in turn, every third without, every other one with a harness's color too.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/emblems-check.js
 (function () {

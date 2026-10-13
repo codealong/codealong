@@ -320,9 +320,9 @@ pub struct Session {
 }
 
 /// A session's emblem: an icon that stands for what it works on, picked by Jev from the ones
-/// `emblems::ICONS` lists, on a radial gradient of two tones: the color its harness gives it at
-/// the middle, when it gives one, and a color of Codealong's own at the edge, which sets it apart
-/// from the sessions beside it. Both are among `emblems::COLORS`: blue, teal, green, purple,
+/// `emblems::ICONS` lists, on a radial gradient of two tones lit from its top left corner: the
+/// color its harness gives it in that corner, when it gives one, and over the rest a color of
+/// Codealong's own, which sets it apart from the sessions beside it. Both are among `emblems::COLORS`: blue, teal, green, purple,
 /// pink, red or indigo.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

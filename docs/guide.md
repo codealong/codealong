@@ -116,12 +116,13 @@ sessions it finds, so its count says how many match.
 
 With Jev on for emblems (Settings › Jev, `[jev] emblems`), each session gets a small icon beside its
 title, so the sessions beside each other read apart at a glance and you can remember one as "the
-teal bug". Jev picks the icon for what the session works on, from its title and first prompt, once:
-it stays for the session's life, however its title changes. The icon sits on a rounded square
-shaded in two colors. At its edge is a color Codealong gives the session when it first sees it, the
-one the fewest of its project's recent sessions have. In the middle is the color you gave the
-session with Claude Code's `/color`, when you gave one; without one, the square is Codealong's color
-alone. Both come from the label colors, which have no amber since amber only means something needs
+teal bug". Jev picks the icon for what the session works on, from its title and first prompt (the
+latest, for Codex and OpenCode, which keep only that), once: it stays for the session's life,
+however its title changes. The icon sits on a rounded square shaded in two colors, as if lit from
+its top left corner. Over most of it is a color Codealong gives the session when it first sees it,
+the one the fewest of its project's recent sessions have. In the lit corner is the color you gave
+the session with Claude Code's `/color`, when you gave one; without one, the square is Codealong's
+color alone. Both come from the label colors, which have no amber since amber only means something needs
 you, so `/color`'s yellow shows as green and its orange as red, and Codealong's own color is never
 the one `/color` gave. The emblem shows wherever the session's title does: its rows, its header,
 the floating bar's and the notch's pills, cards on the canvas and the desktop, and the list of what

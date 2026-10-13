@@ -850,7 +850,7 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   {
     id: 'emblems',
     label: 'Session emblems',
-    does: 'Puts a small icon beside each session’s title, for what it works on, so you can tell sessions apart at a glance and remember one as “the teal bug”. Its background is a color Codealong picks to set it apart from the sessions beside it, shading in the middle to the color you gave the session with Claude Code’s /color, when you gave one.',
+    does: 'Puts a small icon beside each session’s title, for what it works on, so you can tell sessions apart at a glance and remember one as “the teal bug”. Its background is a color Codealong picks to set it apart from the sessions beside it, shading in its top left corner to the color you gave the session with Claude Code’s /color, when you gave one.',
     sends: 'Each new session’s title and first prompt, once. The icon is kept for the session’s life.',
   },
 ];

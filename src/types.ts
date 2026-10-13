@@ -180,8 +180,9 @@ export interface Session {
 export type EmblemColor = 'blue' | 'teal' | 'green' | 'purple' | 'pink' | 'red' | 'indigo';
 
 /** A session's emblem (peer model.rs `Emblem`): an icon Jev picked for what it works on, on a
- *  radial gradient of two label colors: its harness's at the middle, when it gives one, and
- *  Codealong's own at the edge, which sets it apart from the sessions beside it. */
+ *  radial gradient of two label colors lit from its top left corner: its harness's in that
+ *  corner, when it gives one, and over the rest Codealong's own, which sets it apart from the
+ *  sessions beside it. */
 export interface Emblem {
   /** Codealong's own color for it, never its harness's. */
   color: EmblemColor;

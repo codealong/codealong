@@ -2,12 +2,13 @@
 //! sessions beside each other read apart at a glance and one is remembered as "the teal bug".
 //!
 //! - The icon stands for what the session works on. Jev picks it from `ICONS` by the session's
-//!   title and first prompt, once, and it's kept for the session's life (emblems.json): it doesn't
-//!   change under you as the title does.
-//! - It's drawn on a radial gradient of two tones. At the edge is a color of Codealong's own,
-//!   given as it first sees the session: the color the fewest of its project's current sessions
-//!   have, then the fewest of the board's, and never the session's harness's (`pick_color`),
-//!   kept with the icon. At the middle is the color its harness gives it, Claude Code's `/color`
+//!   title and first prompt (or its latest, where its harness keeps only that), once it has been
+//!   sent one, and it's kept for the session's life (emblems.json): it doesn't change under you
+//!   as the title does.
+//! - It's drawn on a radial gradient of two tones lit from its top left corner. Over most of it
+//!   is a color of Codealong's own, given as it first sees the session: never the session's
+//!   harness's, then the color the fewest of its project's current sessions have, then the
+//!   fewest of the board's (`pick_color`), kept with the icon. In the corner is the color its harness gives it, Claude Code's `/color`
 //!   (`Session::color`), as it stands now; without one the gradient is Codealong's color alone.
 //!
 //! The colors are the label colors (`--label-*`), which name your own things: there's no
@@ -123,13 +124,12 @@ fn hash(s: &str) -> u64 {
     h.finish()
 }
 
-/// What the session is about, for Jev: its first prompt, else its title when it has one of its
-/// own. None while it has neither, as a session sent nothing yet.
+/// What the session is about, for Jev: the first prompt you gave it, else the latest where its
+/// harness keeps only that (Codex, OpenCode). None while it has been sent nothing: its title then
+/// is its harness's word for an empty one ("Codex thread"), which an icon kept for its life
+/// mustn't be picked from.
 fn about(s: &Session) -> Option<&str> {
-    s.first_prompt.as_deref().map(str::trim).filter(|p| !p.is_empty()).or_else(|| {
-        let t = s.title.trim();
-        (!t.is_empty() && t != format!("Session {}", s.short_id)).then_some(t)
-    })
+    [s.first_prompt.as_deref(), s.last_prompt.as_deref()].into_iter().flatten().map(str::trim).find(|p| !p.is_empty())
 }
 
 /// Whether the session counts among those it's set apart from, and gets an emblem of its own now:
@@ -152,8 +152,9 @@ pub fn pick_color(key: &str, project: &str, own: Option<&str>, taken: &[(&str, &
 pub fn request(s: &Session, model: &str) -> Value {
     let mut state = Map::new();
     state.insert("session title".into(), json!(jev::clip(&s.title, 200)));
-    if let Some(p) = s.first_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
-        state.insert("first prompt".into(), json!(jev::clip(p, 600)));
+    if let Some(p) = about(s) {
+        let said = if s.first_prompt.as_deref().is_some_and(|f| f.trim() == p) { "first prompt" } else { "latest prompt" };
+        state.insert(said.into(), json!(jev::clip(p, 600)));
     }
     jev::body(
         model,
@@ -203,8 +204,9 @@ fn path() -> PathBuf {
 
 impl Store {
     pub fn load() -> Store {
-        // A file that doesn't read starts over: the colors are given again and Jev asked again.
-        Store { kept: crate::store::read_or_default(&path()), ..Default::default() }
+        // A file that doesn't read is left as it is, and a notice says so: sessions are
+        // remembered by how they look, so their emblems aren't given out again over it.
+        Store { kept: crate::store::load_whole(&path(), "the sessions' emblems"), ..Default::default() }
     }
 
     /// What the session shows: the color Codealong gave it and its harness's as it stands now,
@@ -288,9 +290,8 @@ impl Store {
         }
         self.kept.retain(|_, m| now - m.seen_at < KEEP_MS);
         self.dirty = false;
-        if let Ok(text) = serde_json::to_string(&self.kept) {
-            let _ = crate::store::write(&path(), text);
-        }
+        // Not over a file that didn't read: save_whole leaves it and its notice says why.
+        let _ = crate::store::save_whole(&path(), &self.kept);
     }
 }
 
@@ -344,7 +345,8 @@ mod tests {
         let b = Session { started_at: Some(NOW - 1_800_000), ..session("b", "Dark mode for the settings") };
         let old = Session { last_activity: NOW - 3 * DAY_MS, ..session("old", "Old work") };
         let archived = Session { archived: true, ..session("arch", "Archived work") };
-        let empty = Session { first_prompt: None, title: "Session empty12".into(), short_id: "empty12".into(), ..session("empty12", "") };
+        // Sent nothing yet, its title is its harness's word for an empty one.
+        let empty = Session { first_prompt: None, title: "Codex thread".into(), ..session("empty12", "") };
         let board = [("A", &a), ("A", &b), ("A", &old), ("A", &archived), ("A", &empty), ("B", &a)];
         let asks = store.look(board, NOW);
         assert_eq!(asks, vec![a.key.clone(), b.key.clone()], "the oldest first, each once");
@@ -371,6 +373,19 @@ mod tests {
         let given: std::collections::HashSet<&str> = sessions.iter().map(|s| store.kept[&s.key].color.as_str()).collect();
         assert!(!given.contains("blue"), "{given:?}");
         assert_eq!(given.len(), COLORS.len() - 1, "spread over the rest: {given:?}");
+    }
+
+    /// Where a harness keeps only the latest prompt (Codex, OpenCode), that's what Jev goes by.
+    #[test]
+    fn goes_by_the_latest_prompt_where_theres_no_first() {
+        let codex = Session { first_prompt: None, last_prompt: Some("Speed up the search index".into()), title: "Speed up the search index".into(), ..session("cx", "") };
+        let mut store = Store::default();
+        assert_eq!(store.look([("A", &codex)], NOW), vec![codex.key.clone()]);
+        let body = request(&codex, "m");
+        assert_eq!(body["state"]["latest prompt"], "Speed up the search index");
+        assert!(body["state"].get("first prompt").is_none());
+        let claude = Session { last_prompt: Some("And the docs".into()), ..session("cl", "Fix the login") };
+        assert_eq!(request(&claude, "m")["state"]["first prompt"], "Fix the login", "the first says what it's for");
     }
 
     #[test]

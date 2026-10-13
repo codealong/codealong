@@ -113,8 +113,8 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
 }
 
 /** A session's emblem (emblems.rs): the icon Jev picked for what it works on, on a radial
- *  gradient from its harness's color at the middle to Codealong's own at the edge, or Codealong's
- *  alone. It says nothing a row doesn't, so a reader passes over it. Nothing when it has none. */
+ *  gradient lit from its top left corner, its harness's color there and Codealong's own over the
+ *  rest, or Codealong's alone. It says nothing a row doesn't, so a reader passes over it. Nothing when it has none. */
 export function SessionEmblem({ emblem, size = 16 }: { emblem?: Emblem; size?: number }) {
   if (!emblem || !ICONS[emblem.icon]) return null;
   const tones = { '--emblem-mid': `var(--label-${emblem.harnessColor ?? emblem.color})`, '--emblem-edge': `var(--label-${emblem.color})`, width: size, height: size } as CSSProperties;
