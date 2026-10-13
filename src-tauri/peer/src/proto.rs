@@ -105,12 +105,16 @@ pub const TABLET: &str = "tablet";
 /// says `PRS`. `PR_DRAFTS` is a Mac's word that a review asked of it submits your draft review
 /// only when it's the one the asking device showed (`params::PrReview::draft`); a device asks a
 /// Mac to review only when it says so, since one from before submits whatever draft is there.
+/// `EMBLEMS` says its windows draw every color a session's emblem comes in (`Emblem`); a device
+/// that doesn't say it gets each color as the label color nearest it, which the builds before
+/// drew emblems in.
 pub const HAVE: &str = "have";
 pub const WATCH: &str = "watch";
 pub const CURSOR: &str = "cursor";
 pub const PRS: &str = "prs";
 pub const PR_DRAFTS: &str = "pr-drafts";
-pub const KNOWS: [&str; 5] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS];
+pub const EMBLEMS: &str = "emblems";
+pub const KNOWS: [&str; 6] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEMS];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {

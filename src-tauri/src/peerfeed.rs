@@ -159,17 +159,21 @@ pub struct Outbox {
     older: bool,
     /// The other device knows PRs (`proto::PRS`): it gets the PR list.
     knows_prs: bool,
+    /// The other device draws every emblem color (`proto::EMBLEMS`); one from before gets the
+    /// label colors nearest them (`emblems::for_older`).
+    knows_emblems: bool,
 }
 
 impl Outbox {
     /// The outbox for a device whose hello said `knows`.
     pub fn for_device(knows: &[String]) -> Outbox {
-        Outbox { older: !knows_every_harness(knows), knows_prs: knows.iter().any(|k| k == codealong_peer::proto::PRS), ..Outbox::default() }
+        let says = |word: &str| knows.iter().any(|k| k == word);
+        Outbox { older: !knows_every_harness(knows), knows_prs: says(codealong_peer::proto::PRS), knows_emblems: says(codealong_peer::proto::EMBLEMS), ..Outbox::default() }
     }
 
     /// Starts over, so the next feed carries everything, for the same device.
     pub fn restart(&mut self) {
-        *self = Outbox { older: self.older, knows_prs: self.knows_prs, ..Outbox::default() };
+        *self = Outbox { older: self.older, knows_prs: self.knows_prs, knows_emblems: self.knows_emblems, ..Outbox::default() };
     }
 
     /// Picks up where the other device's copy leaves off (`Msg::Have`): the lanes it has, by the
@@ -209,7 +213,11 @@ impl Outbox {
         for (lane, h) in snap.lanes.iter().zip(&snap.lane_hashes) {
             here.insert(&lane.id);
             if self.lanes.get(&lane.id) != Some(h) {
-                msg.lanes.push(lane.clone());
+                let mut sent = lane.clone();
+                if !self.knows_emblems {
+                    crate::emblems::for_older(&mut sent);
+                }
+                msg.lanes.push(sent);
                 msg.hashes.insert(lane.id.clone(), *h);
                 self.lanes.insert(lane.id.clone(), *h);
             }
@@ -426,6 +434,26 @@ mod tests {
         let mut answer = serde_json::json!({ "accounts": [{ "name": "claude", "harness": "claude" }, { "name": "cursor", "harness": "cursor" }], "lane": { "sessions": [serde_json::to_value(&cursor).unwrap()] }, "harness": "cursor" });
         for_older(&mut answer);
         assert_eq!(answer, serde_json::json!({ "accounts": [{ "name": "claude", "harness": "claude" }], "lane": { "sessions": [] }, "harness": "cursor" }));
+    }
+
+    /// A device from before emblems came in more than the label colors gets the label colors
+    /// nearest them, which its windows draw; one that says it knows them (`proto::EMBLEMS`) gets
+    /// them as they are.
+    #[test]
+    fn a_device_from_before_gets_emblems_in_label_colors() {
+        let emblem = |color: &str, accent: &str| crate::model::Emblem { color: color.into(), accent: accent.into(), light: 2, icon: "bug".into() };
+        let s = Session { emblem: Some(emblem("rose", "sky")), ..session("s1", Status::Working) };
+        let snap = snapshot(&board(vec![lane("/a", vec![s, session("s2", Status::Idle)])]), info("Mini"));
+        let mut older = Outbox::for_device(&["have".into(), "watch".into(), "cursor".into(), "prs".into(), "pr-drafts".into()]);
+        let sent = older.next(&snap).unwrap();
+        assert_eq!(sent.lanes[0].sessions[0].emblem, Some(emblem("red", "blue")));
+        assert_eq!(sent.lanes[0].sessions[1].emblem, None);
+        older.restart();
+        assert_eq!(older.next(&snap).unwrap().lanes[0].sessions[0].emblem, Some(emblem("red", "blue")), "starting over keeps it what it is");
+        let mut newer = Outbox::for_device(&codealong_peer::proto::KNOWS.map(String::from));
+        assert_eq!(newer.next(&snap).unwrap().lanes[0].sessions[0].emblem, Some(emblem("rose", "sky")));
+        // Every color it could get is one its windows draw.
+        assert!(crate::emblems::COLORS.iter().all(|c| ["red", "pink", "purple", "indigo", "blue", "teal", "green"].contains(&crate::emblems::label_color(c))));
     }
 
     #[test]

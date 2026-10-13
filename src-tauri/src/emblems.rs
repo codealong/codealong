@@ -86,6 +86,28 @@ pub const LIGHTS: u8 = 8;
 /// again, keeping its icon, so the change shows on every session at once rather than only new ones.
 pub const PALETTE: u8 = 2;
 
+/// The label color nearest an emblem color: what a device from before there were more than the
+/// label colors gets (`proto::EMBLEMS`), since its windows draw an emblem's colors as label colors.
+pub fn label_color(color: &str) -> &str {
+    match color {
+        "rose" => "red",
+        "magenta" => "pink",
+        "violet" => "purple",
+        "sky" => "blue",
+        "mint" | "lime" => "green",
+        c => c,
+    }
+}
+
+/// A lane as a device from before there were more than the label colors gets it: its sessions'
+/// emblems in the label colors nearest theirs.
+pub fn for_older(lane: &mut crate::model::Lane) {
+    for e in lane.sessions.iter_mut().filter_map(|s| s.emblem.as_mut()) {
+        e.color = label_color(&e.color).to_string();
+        e.accent = label_color(&e.accent).to_string();
+    }
+}
+
 /// The colors that go with one, in `PAIRS`' order.
 pub fn partners(color: &str) -> Vec<&'static str> {
     PAIRS.iter().filter_map(|(a, b)| if *a == color { Some(*b) } else if *b == color { Some(*a) } else { None }).collect()
