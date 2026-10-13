@@ -1,15 +1,23 @@
 // Checks that a message sent to an archived session takes it out of the archive as it goes
 // (ahead.ts `sessionAhead`, actions.rs `unarchive_to_send`): shown from Sessions' Archived fold,
-// a message from its box moves its row out of the fold into the list, still selected, with its
-// conversation still in the panel.
+// a message from its box moves its row out of the fold into the list while it's on its way,
+// still selected, with its conversation still in the panel, and the board the engine publishes
+// before it answers keeps it there.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/unarchive-send-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.age', 'all');
   var TITLE = 'Sent from the archive';
   var picked = null;
+  var boardNow = null;
+  var answer = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'send_to_session') {
+      window.__calls.push([cmd, args, options]);
+      // Answered when the check says, as the engine answers once it has sent it.
+      return new Promise(function (resolve) { answer = resolve; });
+    }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
@@ -23,6 +31,7 @@
         });
       });
       board.pinned = (board.pinned || []).filter(function (k) { return !picked || k !== picked.key; });
+      boardNow = board;
       return board;
     });
   };
@@ -57,8 +66,21 @@
       return until(function () { return where() === 'in the list, selected'; }, 3000).catch(function () {});
     })
     .then(function () {
-      check('its row leaves the Archived fold for the list, still selected', where() === 'in the list, selected', where());
+      check('on its way, its row leaves the Archived fold for the list, still selected', where() === 'in the list, selected', where());
       check('with its conversation still in the panel', title() === TITLE, title());
+      // The engine takes it out of the archive and publishes that before it sends, then answers.
+      var b = JSON.parse(JSON.stringify(boardNow));
+      b.generatedAt = (b.generatedAt || 0) + 1000;
+      b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === picked.key) s.archived = false; }); });
+      window.__emit('board', b);
+      return wait(300).then(function () {
+        answer({ message: 'Sent.', opened: false });
+        return wait(500);
+      });
+    })
+    .then(function () {
+      check('once it went, the board keeps it in the list', where() === 'in the list, selected', where());
+      check('and in the panel', title() === TITLE, title());
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + where()); })
     .then(done);

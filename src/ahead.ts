@@ -193,9 +193,10 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
       }
     }
     else if (c.kind === 'send' && a.takenAt == null && !a.lapsed) {
-      // A message takes a session out of the archive as it's sent: you took it up again
-      // (actions.rs `unarchive_to_send`).
-      if (out.archived) out = { ...out, archived: false };
+      // A message takes a session out of the archive before it's sent: you took it up again
+      // (actions.rs `unarchive_to_send`). Only while it's on its way: once it went, the engine
+      // has published that, and the board says what's archived, an archive after it too.
+      if (out.archived && a.doneAt == null) out = { ...out, archived: false };
       // A prompt sent to a snoozed session ends its snooze: you took it up (board.rs, `apply_snooze`).
       if (startsNow(a) && out.status !== 'working') out = { ...out, status: 'working', statusSince: a.at, stalledSince: null, asks: false, snoozedUntil: undefined, lastPromptAt: Math.max(out.lastPromptAt, a.at) };
     }

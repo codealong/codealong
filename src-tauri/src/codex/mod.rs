@@ -494,13 +494,20 @@ impl Reader {
     }
 
     /// Loads the threads archived from Codealong from `archived_sessions`, so its Archived list
-    /// can show them, and drops ones that were unarchived or are no longer listed.
+    /// can show them, and drops ones that were unarchived or are no longer listed. One unarchived
+    /// is read where Codex put it back, under `sessions`, at once: the watcher may not have said
+    /// so yet, and a thread quiet since before the look isn't read there by itself
+    /// (`rollout_files`), so it would leave the board, and a message sent as it's unarchived
+    /// (actions.rs `unarchive_to_send`) wouldn't find it.
     fn refresh_archived(&mut self, accounts: &[AccountCfg], look: &Look) {
         for a in accounts {
-            let dir = a.home_path().join("archived_sessions");
+            let home = a.home_path();
+            let dir = home.join("archived_sessions");
             let ids = look.seen.archived_ids("codex", &a.name);
+            let back: HashSet<String> = self.rollouts.iter().filter(|(path, (acct, _))| acct == &a.name && path.starts_with(&dir)).filter_map(|(path, _)| thread_id_of(path)).filter(|id| !ids.contains(id)).collect();
             self.rollouts.retain(|path, (acct, _)| acct != &a.name || !path.starts_with(&dir) || (path.exists() && thread_id_of(path).map(|id| ids.contains(&id)).unwrap_or(false)));
-            for (path, m) in archived_rollout_files(&a.home_path(), &ids) {
+            let back = if back.is_empty() { Vec::new() } else { rollout_files(&home, i64::MAX, &back) };
+            for (path, m) in archived_rollout_files(&home, &ids).into_iter().chain(back) {
                 if !self.rollouts.contains_key(&path) {
                     let parsed = parse_rollout(&path, m, None);
                     self.rollouts.insert(path, (a.name.clone(), parsed));
@@ -799,6 +806,39 @@ mod tests {
         assert!(!reader.poll_rollouts(accounts, &look).dirty);
         assert!(reader.sessions(&account, &look).is_empty());
         drop(hidden);
+    }
+
+    /// A thread unarchived from Codealong stays on the board as Codex moves it back under
+    /// `sessions`, though it's quiet since before the look and nothing on disk said so yet: a
+    /// message sent as it's unarchived goes by the board.
+    #[test]
+    fn a_thread_taken_out_of_the_archive_stays_on_the_board() {
+        use crate::harness::Reader as _;
+        let home = crate::fixtures::scratch("codex-unarchive");
+        let id = "01a0d54c-7f02-7623-95b3-a3110c0f9672";
+        let name = format!("rollout-2026-09-01T18-00-00-{id}.jsonl");
+        let archived = home.join("archived_sessions");
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::write(archived.join(&name), format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"cwd\":\"/codealong-test-missing-repo\",\"thread_source\":\"user\"}}}}\n")).unwrap();
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let accounts = std::slice::from_ref(&account);
+        let key = Session::key_for(Harness::Codex, "studio", id);
+        let now = crate::util::now_ms();
+        let shelved = crate::state::SeenState { archived: vec![crate::state::ArchivedSession { key: key.clone(), at: now }], ..Default::default() };
+        // Every file here is older than the look reads by itself.
+        let look = Look { seen: &shelved, since: now + crate::util::DAY_MS, now, ps: Default::default() };
+        let mut reader = Reader::default();
+        reader.archives_changed(accounts, &look);
+        let listed = |r: &Reader, look: &Look| r.sessions(&account, look).iter().map(|s| (s.key.clone(), s.archived)).collect::<Vec<_>>();
+        assert_eq!(listed(&reader, &look), [(key.clone(), true)]);
+
+        let back = home.join("sessions/2026/09/01");
+        std::fs::create_dir_all(&back).unwrap();
+        std::fs::rename(archived.join(&name), back.join(&name)).unwrap();
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, ..look };
+        reader.archives_changed(accounts, &look);
+        assert_eq!(listed(&reader, &look), [(key, false)]);
     }
 
     #[test]

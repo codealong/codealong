@@ -106,7 +106,7 @@ describe('lanesAhead', () => {
     expect(lanesAhead([lane([session('a', 'needs', { asks: true })])], [answer])[0].sessions[0].status).toBe('needs');
   });
 
-  it('takes an archived session sent a message out of the archive, until the board has the say', () => {
+  it('takes an archived session sent a message out of the archive while it’s on its way', () => {
     const lanes = [lane([session('a', 'idle', { archived: true }), session('b', 'working', { archived: true }), session('c', 'stopped', { archived: true })])];
     const opens = change({ kind: 'send', key: 'c', text: 'x', working: false, starts: false });
     const [l] = lanesAhead(lanes, [send('a'), send('b', {}, true), opens]);
@@ -115,8 +115,10 @@ describe('lanesAhead', () => {
       [false, 'working'],
       [false, 'stopped'],
     ]);
-    expect(lanesAhead(lanes, [send('a', { takenAt: NOW + 1 })])).toBe(lanes);
-    expect(lanesAhead(lanes, [send('a', { lapsed: true })])).toBe(lanes);
+    // An archive after it wins, and once it went, the board has the say: an archive that came
+    // after it and settled isn't undone while the message waits to be taken in.
+    expect(lanesAhead(lanes, [send('b', {}, true), change({ kind: 'archive', key: 'b', archived: true })])[0].sessions[1].archived).toBe(true);
+    expect(lanesAhead(lanes, [send('b', { doneAt: NOW + 100 }, true)])).toBe(lanes);
   });
 
   it('leaves a working session as it is, and a message that opens an app instead', () => {
