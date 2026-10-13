@@ -497,7 +497,13 @@ starts in the worktree that holds the PR's branch, else the repo's
 main checkout, and is handed the PR and its whole diff as files, each line of the diff numbered by
 its place in the file's new version (so it never stops on a permission prompt to ask `gh`, and can
 name its lines). What it's told to do is `[reviews] prompt`, which Settings shows to edit, filled
-with Codealong's own instructions until you change it: what to look for and how, and, if you like,
+with Codealong's own instructions until you change it. Those ask for bugs, security and data risks,
+missing tests and anything that doesn't do what the PR says, and for where the changes don't fit
+the code around them in a way that will cost whoever works on it next: put somewhere the codebase
+doesn't keep that kind of thing, unlike the way it does things or what the repo's written rules (a
+CLAUDE.md, AGENTS.md or contributing guide) ask for, a second copy of something it has, more than
+the change needs; differences of taste no rule settles are left out. Yours says what to look for and how,
+and, if you like,
 to start subagents of its own (in Claude Code, ask for the Task tool and name each one's model) and
 combine what they find. Either way Codealong tells it which PR, where it's written out, to change
 and post nothing, and how to lay out its last message: a summary, then its comments on particular

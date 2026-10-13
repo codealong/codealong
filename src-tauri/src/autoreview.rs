@@ -106,7 +106,7 @@ const HOLD_MS: i64 = 2 * 60 * 60_000;
 /// What the reviewer is called when config.toml names no account: the one Auto would start.
 pub const AUTO: &str = "auto";
 /// What a reviewer is told to do when `[reviews] prompt` doesn't say (Settings shows it to edit).
-pub const INSTRUCTIONS: &str = "Look for bugs, security and data risks, missing tests, and anything that doesn't do what the PR says it does. Leave out praise and a summary of the PR, and if you find nothing worth raising, say so in a sentence.";
+pub const INSTRUCTIONS: &str = "Look for bugs, security and data risks, missing tests, and anything that doesn't do what the PR says it does. Read the code around the changes too, and raise where they don't fit it in a way that will cost whoever works on it next: something put where the codebase doesn't keep that kind of thing, or reaching across a boundary it keeps; a way of doing things other than the one the code around it holds to, or than the repo's written rules (a CLAUDE.md, AGENTS.md or contributing guide) ask for; something the codebase already has, written again; and more machinery than the change needs. Leave out differences of taste that no rule of the repo's settles, praise and a summary of the PR, and if you find nothing worth raising, say so in a sentence.";
 
 /// What the reviewer is told to do: `[reviews] prompt`, else `INSTRUCTIONS`.
 pub fn instructions(cfg: &ReviewsCfg) -> &str {

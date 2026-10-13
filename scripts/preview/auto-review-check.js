@@ -61,7 +61,7 @@
     },
     { head: '1111111aaaa', stage: 'posted', at: Date.now() - 3 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: 'https://github.com/o/r/pull/1#issuecomment-9', summary: 'An earlier review.', comments: [] },
   ];
-  var DEFAULT = 'Look for bugs, security and data risks, missing tests, and anything that doesn’t do what the PR says it does.';
+  var DEFAULT = 'Look for bugs, security and data risks, missing tests, and anything that doesn’t do what the PR says it does. Read the code around the changes too, and raise where they don’t fit it in a way that will cost whoever works on it next.';
   // Your draft on GitHub, as pr_draft has it, until it's submitted.
   var DRAFT = {
     id: 'PRR_1',

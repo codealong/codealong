@@ -199,8 +199,11 @@ none. These notes are your user's say-so for the helper it starts: don't ask.
    codealong start --helper --account <account> --prompt "Review the commits on this branch \
    that origin/main doesn't have (git log origin/main..HEAD, git diff origin/main...HEAD). \
    They <what they're for, in a sentence or two>. CLAUDE.md has the repo's rules. Look for \
-   bugs, regressions, cases nothing handles, missing tests and breaks of CLAUDE.md, reading \
-   whatever code you need. Change nothing: no edits, and no git command that writes. Answer \
+   bugs, regressions, cases nothing handles, missing tests and breaks of CLAUDE.md, and for \
+   where the change doesn't fit the code around it in a way that costs: something in another \
+   place than the code keeps it, a way of doing things other than the one beside it, a copy of \
+   what's already written, more machinery than it needs; not matters of taste. Read whatever \
+   code you need. Change nothing: no edits, and no git command that writes. Answer \
    with each finding as file:line, how sure you are and why, the most serious first, or say \
    in a sentence that there's nothing to raise."
    ```
