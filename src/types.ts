@@ -657,7 +657,8 @@ export interface SoundsCfg {
 }
 
 /** What a PR whose nudge is on tells its session about (config.rs `NudgeAbout`): everything, or
- *  only what asks for work (comments and requests for changes), with failing checks or without.
+ *  only what asks for work (comments and requests for changes), with failing checks and conflicts or
+ *  without.
  *  Older files have none: everything. */
 export type NudgeAbout = 'everything' | 'feedback' | 'feedback-and-checks';
 

@@ -4,15 +4,16 @@
 //! for that one; a PR says so while it's open (`PrItem::nudge`). Every board the engine publishes
 //! is looked at for such PRs with something new on GitHub: approved, changes asked for, reviewed
 //! or commented on by someone else (read from the PR's detail once its `updatedAt` moves), merged
-//! or closed, or with checks that just failed. The PR's primary session (`PrItem::primary`: the
+//! or closed, with checks that just failed, or with a branch that just came to conflict with its
+//! base (someone merged into the base what it conflicts with). The PR's primary session (`PrItem::primary`: the
 //! one picked, else the one that opened it), when it runs here, is sent one message saying what
 //! happened, as a message of yours from a window is (actions.rs `session-send`: typed into its
 //! terminal, or its harness's own way in), on a thread of its own, since reading GitHub and a send
 //! take a moment. The PR's other sessions (helpers, reviewers, ones that came to its branch) are
 //! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
 //! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
-//! comments and reviews that ask for changes or say something, and failing checks if it says so,
-//! never an approval, a merge or a close. An agent's review that Codealong posted from someone's
+//! comments and reviews that ask for changes or say something, and failing checks and conflicts if
+//! it says so, never an approval, a merge or a close. An agent's review that Codealong posted from someone's
 //! account (autoreview.rs `signed`), as a comment or submitted as their review, is told as their
 //! agent's, never as their own word (`agent_wrote`): it comes as a message of yours, and the
 //! session would otherwise take it for that person's say.
@@ -38,6 +39,8 @@ struct Seen {
     updated_at: i64,
     state: PrState,
     failed: bool,
+    /// GitHub last said its branch conflicts with its base (`Merge::Conflicts`).
+    conflicts: bool,
 }
 
 /// What's new on a PR since the last board, or since a session was last told, to tell it.
@@ -54,6 +57,8 @@ pub struct Why {
     pub ended: Option<PrState>,
     /// Checks that just failed, by name.
     pub failed: Vec<String>,
+    /// Its branch came to conflict with its base.
+    pub conflicts: bool,
 }
 
 impl Why {
@@ -67,6 +72,7 @@ impl Why {
         self.approved |= more.approved;
         self.changes |= more.changes;
         self.ended = more.ended.or(self.ended);
+        self.conflicts |= more.conflicts;
         for check in more.failed {
             if !self.failed.contains(&check) {
                 self.failed.push(check);
@@ -90,13 +96,14 @@ pub struct Job {
 
 /// What of `why` a nudge tells of, as `[pull_requests] nudge_about` says: everything; or only
 /// what asks for work, the reviews and comments its detail has (`since`, which `words` sorts) and
-/// changes asked for, with failing checks for `feedback-and-checks`. Never then an approval, a
-/// merge or a close, nor anything about a PR that's no longer `open`.
+/// changes asked for, with failing checks and conflicts for `feedback-and-checks`. Never then an
+/// approval, a merge or a close, nor anything about a PR that's no longer `open`.
 fn keep(about: NudgeAbout, open: bool, why: Why) -> Why {
+    let checks = about == NudgeAbout::FeedbackAndChecks;
     match about {
         NudgeAbout::Everything => why,
         _ if !open => Why::default(),
-        _ => Why { approved: false, ended: None, failed: if about == NudgeAbout::FeedbackAndChecks { why.failed } else { Vec::new() }, ..why },
+        _ => Why { approved: false, ended: None, failed: if checks { why.failed } else { Vec::new() }, conflicts: checks && why.conflicts, ..why },
     }
 }
 
@@ -145,8 +152,16 @@ impl Nudger {
         let mut seen_now = HashMap::with_capacity(board.prs.len());
         for pr in &board.prs {
             let key = crate::prlinks::pr_key(&pr.key);
-            let seen = Seen { on: pr.nudge, updated_at: pr.updated_at, state: pr.state, failed: pr.checks.failed > 0 };
             let was = self.seen.get(&key).copied();
+            // GitHub says it doesn't know while it works mergeability out again, after the base
+            // moved: a conflict it found stands until it says otherwise, so one conflict is told
+            // once, however often the base moves under it.
+            let conflicts = match pr.merge {
+                Merge::Conflicts => true,
+                Merge::Unknown => was.is_some_and(|w| w.conflicts),
+                _ => false,
+            };
+            let seen = Seen { on: pr.nudge, updated_at: pr.updated_at, state: pr.state, failed: pr.checks.failed > 0, conflicts };
             seen_now.insert(key.clone(), seen);
             for ((pr_key, _), owed) in self.owed.iter_mut() {
                 if *pr_key == key {
@@ -166,6 +181,7 @@ impl Nudger {
                 changes: was.on && pr.state == PrState::Changes && was.state != PrState::Changes,
                 ended: ended.then_some(pr.state),
                 failed: if was.on && seen.failed && !was.failed { pr.checks.failing.clone() } else { Vec::new() },
+                conflicts: was.on && conflicts && !was.conflicts,
             };
             let why = keep(board.repo_settings.nudge_about(board.nudge_about, pr), pr.state.is_open(), why);
             if why == Why::default() {
@@ -361,6 +377,15 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
     if !why.failed.is_empty() {
         items.push(format!("Its checks failed: {}.", why.failed.join(", ")));
     }
+    // A conflict resolved before the message could go (its session waited on you, say) is no
+    // news, nor one on a PR that ended.
+    let conflicts = why.conflicts && why.ended.is_none() && matches!(pr.merge, Merge::Conflicts | Merge::Unknown);
+    if conflicts {
+        items.push(match pr.base.as_deref() {
+            Some(base) => format!("Its branch now conflicts with {base}, its base."),
+            None => "Its branch now conflicts with its base.".into(),
+        });
+    }
     match why.ended {
         Some(PrState::Merged) => items.push("It was merged.".into()),
         Some(_) => items.push("It was closed without being merged.".into()),
@@ -370,10 +395,11 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
         return None;
     }
     let whose = if pr.mine { "your PR" } else { "PR" };
-    let standing = if pr.state.is_open() { standing(pr) } else { "" };
+    // Where it stands would say the conflict again.
+    let standing = if pr.state.is_open() && !conflicts { standing(pr) } else { "" };
     let next = if why.ended.is_some() {
         "Nothing more is wanted on it, unless you were told otherwise.".to_string()
-    } else if pr.state == PrState::Approved && !changes_said && !why.changes && why.failed.is_empty() {
+    } else if pr.state == PrState::Approved && !changes_said && !why.changes && why.failed.is_empty() && !conflicts {
         NOT_A_MERGE.to_string()
     } else {
         format!("Take it from there, unless you were told to leave it to someone else. {NOT_A_MERGE}")
@@ -868,6 +894,62 @@ mod tests {
         let since = Why { since: Some(0), ..Why::default() };
         assert_eq!(words(&approved, &since, Some(&twice), Some("me"), NudgeAbout::Feedback), None);
         assert!(words(&approved, &since, Some(&twice), Some("me"), NudgeAbout::Everything).unwrap().contains("- ken approved it: “Still good.”\n"));
+    }
+
+    /// A branch that comes to conflict with its base is told once: GitHub's not knowing while it
+    /// works it out again, after the base moved, is no news either way, and only a conflict that
+    /// comes back after it went is told again.
+    #[test]
+    fn a_branch_that_comes_to_conflict_is_told_once() {
+        let mut nudger = Nudger::default();
+        let at = |merge: Merge| board(vec![PrItem { merge, ..pr("o/r#1", PrState::Open, &[A]) }], vec![live(A)]);
+        sent(&mut nudger, &at(Merge::Clean));
+        assert_eq!(sent(&mut nudger, &at(Merge::Conflicts))[0].why, Why { conflicts: true, ..Why::default() });
+        for merge in [Merge::Unknown, Merge::Conflicts, Merge::Unknown, Merge::Conflicts] {
+            assert!(sent(&mut nudger, &at(merge)).is_empty(), "still conflicting after {merge:?}");
+        }
+        assert!(sent(&mut nudger, &at(Merge::Blocked)).is_empty(), "resolved");
+        assert!(sent(&mut nudger, &at(Merge::Unknown)).is_empty());
+        assert_eq!(sent(&mut nudger, &at(Merge::Conflicts))[0].why, Why { conflicts: true, ..Why::default() }, "and back");
+        // Conflicting when first seen, or when its nudge is turned on: as failing checks, only
+        // what comes after is news.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &at(Merge::Conflicts));
+        assert!(sent(&mut nudger, &at(Merge::Unknown)).is_empty());
+        assert!(sent(&mut nudger, &at(Merge::Conflicts)).is_empty());
+        let mut nudger = Nudger::default();
+        let turned = |nudge: bool, merge: Merge| board(vec![PrItem { nudge, merge, ..pr("o/r#1", PrState::Open, &[A]) }], vec![live(A)]);
+        sent(&mut nudger, &turned(false, Merge::Clean));
+        assert!(sent(&mut nudger, &turned(false, Merge::Conflicts)).is_empty());
+        assert!(sent(&mut nudger, &turned(true, Merge::Conflicts)).is_empty());
+        // Conflicts go with failing checks: not with feedback alone.
+        for (about, told) in [(NudgeAbout::Everything, true), (NudgeAbout::FeedbackAndChecks, true), (NudgeAbout::Feedback, false)] {
+            let mut nudger = Nudger::default();
+            let with = |merge: Merge| Board { nudge_about: about, ..at(merge) };
+            sent(&mut nudger, &with(Merge::Clean));
+            assert_eq!(!sent(&mut nudger, &with(Merge::Conflicts)).is_empty(), told, "{about:?}");
+        }
+    }
+
+    #[test]
+    fn says_a_branch_conflicts_with_its_base_unless_it_no_longer_does() {
+        let why = Why { conflicts: true, ..Why::default() };
+        // Approved, with a conflict: there's work to do, and still no go-ahead to merge.
+        let approved = PrItem { merge: Merge::Conflicts, ..pr("o/r#1", PrState::Approved, &[A]) };
+        assert_eq!(
+            words(&approved, &why, None, None, NudgeAbout::FeedbackAndChecks).unwrap(),
+            "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- Its branch now conflicts with main, its base.\nTake it from there, unless you were told to leave it to someone else. This message doesn't ask you to merge it: merge it only if you were asked to."
+        );
+        // Told with other news, where it stands doesn't say it again.
+        let failing = PrItem { checks: Checks { failed: 1, failing: vec!["lint".into()], ..Checks::default() }, base: None, ..approved.clone() };
+        let text = words(&failing, &Why { failed: vec!["lint".into()], ..why.clone() }, None, None, NudgeAbout::Everything).unwrap();
+        assert!(text.contains("- Its checks failed: lint.\n- Its branch now conflicts with its base.\nTake it from there"), "{text}");
+        // GitHub working it out again still has it; resolved before the message went, or the PR
+        // closed, it's no news.
+        assert!(words(&PrItem { merge: Merge::Unknown, ..approved.clone() }, &why, None, None, NudgeAbout::Everything).is_some());
+        assert_eq!(words(&PrItem { merge: Merge::Clean, ..approved.clone() }, &why, None, None, NudgeAbout::Everything), None);
+        let closed = PrItem { state: PrState::Closed, merge: Merge::Unknown, ..approved };
+        assert!(!words(&closed, &Why { ended: Some(PrState::Closed), ..why }, None, None, NudgeAbout::Everything).unwrap().contains("conflicts"));
     }
 
     #[test]

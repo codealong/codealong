@@ -804,9 +804,9 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
 
 /** What a nudge tells of (config.rs `NudgeAbout`, nudges.rs `keep`), as the select offers it. */
 const NUDGE_ABOUT: (Profile & { id: NudgeAbout; says: string })[] = [
-  { id: 'everything', name: 'Everything that happens on it', says: 'When someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail.' },
-  { id: 'feedback', name: 'Only comments and requests for changes', says: 'Only when someone else comments on it, asks for changes, or reviews it with something to say, so it can work their feedback in. Never for an approval, a merge or a close, nor for failing checks.' },
-  { id: 'feedback-and-checks', name: 'Comments, requests for changes and failing checks', says: 'When someone else comments on it, asks for changes, or reviews it with something to say, and when its checks fail: what asks for work. Never for an approval, a merge or a close.' },
+  { id: 'everything', name: 'Everything that happens on it', says: 'When someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail or its branch comes to conflict with its base.' },
+  { id: 'feedback', name: 'Only comments and requests for changes', says: 'Only when someone else comments on it, asks for changes, or reviews it with something to say, so it can work their feedback in. Never for an approval, a merge or a close, nor for failing checks or conflicts.' },
+  { id: 'feedback-and-checks', name: 'Comments, requests for changes, checks and conflicts', says: 'When someone else comments on it, asks for changes, or reviews it with something to say, and when its checks fail or its branch comes to conflict with its base: what asks for work. Never for an approval, a merge or a close.' },
 ];
 
 /** config.rs's DEFAULT_QUICK_PANEL. */

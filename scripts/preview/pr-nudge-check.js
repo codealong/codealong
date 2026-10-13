@@ -52,6 +52,11 @@
           if (l.id === picked.lane && l.pr && l.pr.number === picked.pr.number) Object.assign(l.pr, { state: 'open', mergedAt: null, closedAt: null });
         });
       }
+      // What a nudge tells of as a config.toml without [pull_requests] has it, as Settings does:
+      // the board's is this Mac's, which the card says.
+      b.nudgeAbout = 'everything';
+      Object.keys(b.repos || {}).forEach(function (k) { delete b.repos[k].pull_requests; });
+      (b.teamFiles || []).forEach(function (t) { if (t.settings) t.settings.nudgeAbout = null; });
       // The check's own copy to change and push: the page keeps the parts of a push that equal
       // what it has, so changing the board it holds would look like no change at all.
       board = JSON.parse(JSON.stringify(b));
@@ -97,7 +102,7 @@
         note('no second session to list on the PR');
       }
       var named = '“' + picked.title + '”';
-      check('its nudge is off, as every PR starts, and says who turning it on tells', !on() && says() === 'Off for this PR. Turned on, ' + named + ' is told of reviews, comments, an approval, a merge and failing checks.', says());
+      check('its nudge is off, as every PR starts, and says who turning it on tells', !on() && says() === 'Off for this PR. Turned on, ' + named + ' is told of reviews, comments, an approval, a merge, failing checks and conflicts.', says());
       check('nothing is sent until it is clicked', calls('set_pr_nudge').length === 0);
       var r = card().getBoundingClientRect();
       check('the card is inside the window', r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight, [r.left, r.top, r.right, r.bottom].map(Math.round).join(','));
@@ -144,7 +149,7 @@
       var aboutField = function () { return all('.ca-field').filter(function (f) { return ((q('span', f) || {}).textContent || '') === 'What a nudge tells it about'; })[0]; };
       await until(function () { return !!aboutField(); }, 3000, 'no choice of what a nudge tells of');
       var abouts = all('option', aboutField()).map(function (o) { return o.textContent; });
-      check('a nudge tells of everything by default, else only comments and requests for changes, with failing checks or without', abouts.join(' | ') === 'Everything that happens on it | Only comments and requests for changes | Comments, requests for changes and failing checks' && q('select', aboutField()).value === 'everything', abouts.join(' | ') + ' / ' + q('select', aboutField()).value);
+      check('a nudge tells of everything by default, else only comments and requests for changes, with failing checks and conflicts or without', abouts.join(' | ') === 'Everything that happens on it | Only comments and requests for changes | Comments, requests for changes, checks and conflicts' && q('select', aboutField()).value === 'everything', abouts.join(' | ') + ' / ' + q('select', aboutField()).value);
       var aboutSaves = calls('save_config').length;
       var aboutSelect = q('select', aboutField());
       aboutSelect.value = 'feedback';

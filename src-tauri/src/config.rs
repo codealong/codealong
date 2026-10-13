@@ -481,9 +481,10 @@ pub struct PullRequestsCfg {
 }
 
 /// What a nudge tells a PR's session about (nudges.rs `NudgeAbout::keep`). `everything`: reviews,
-/// comments, an approval, a merge or close, and failing checks. `feedback`: only what asks for
-/// work: comments, and reviews that ask for changes or say something, never an approval, a merge
-/// or a close. `feedback-and-checks`: that, and failing checks.
+/// comments, an approval, a merge or close, failing checks, and a branch that came to conflict
+/// with its base. `feedback`: only what asks for work: comments, and reviews that ask for changes
+/// or say something, never an approval, a merge or a close. `feedback-and-checks`: that, failing
+/// checks and conflicts.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NudgeAbout {
@@ -1217,7 +1218,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, resume it out of sight with that message.\n";
-const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks), as a message of yours. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that and failing checks.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
 # model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for

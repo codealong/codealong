@@ -1774,15 +1774,16 @@ Commands:
   nudge   Have a PR's primary session told of what happens on it: while it runs, it gets
           a message when someone else reviews the PR, asks for changes or comments (with
           what they wrote), when it's approved, merged or closed, and when its checks
-          fail, with where the PR stands. Its primary session is the one that opened it,
-          unless another was made it here; the PR's other sessions aren't told. What the
-          signed-in user did, which is what its own agent did through gh, isn't told.
-          Run from a session, that session becomes the one told, unless another running
-          session is the PR's primary (--take). Off for a PR until turned on for it,
-          here or from its card in the app, unless `[pull_requests] nudge_by_default` in
-          config.toml turns it on for every PR of yours; one turned on approved already
-          tells its session that now. `[pull_requests] nudge_about` can keep what it
-          tells to comments and requests for changes ("feedback"), and failing checks
+          fail or its branch comes to conflict with its base, with where the PR stands.
+          Its primary session is the one that opened it, unless another was made it
+          here; the PR's other sessions aren't told. What the signed-in user did, which
+          is what its own agent did through gh, isn't told. Run from a session, that
+          session becomes the one told, unless another running session is the PR's
+          primary (--take). Off for a PR until turned on for it, here or from its card
+          in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it
+          on for every PR of yours; one turned on approved already tells its session
+          that now. `[pull_requests] nudge_about` can keep what it tells to comments and
+          requests for changes ("feedback"), and failing checks and conflicts
           ("feedback-and-checks")
   help    Print this message or the help of the given subcommand(s)
 
@@ -1898,15 +1899,16 @@ Options:
 ```
 Have a PR's primary session told of what happens on it: while it runs, it gets a message
 when someone else reviews the PR, asks for changes or comments (with what they wrote),
-when it's approved, merged or closed, and when its checks fail, with where the PR
-stands. Its primary session is the one that opened it, unless another was made it here;
-the PR's other sessions aren't told. What the signed-in user did, which is what its own
-agent did through gh, isn't told. Run from a session, that session becomes the one told,
-unless another running session is the PR's primary (--take). Off for a PR until turned
-on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default`
-in config.toml turns it on for every PR of yours; one turned on approved already tells
-its session that now. `[pull_requests] nudge_about` can keep what it tells to comments
-and requests for changes ("feedback"), and failing checks ("feedback-and-checks")
+when it's approved, merged or closed, and when its checks fail or its branch comes to
+conflict with its base, with where the PR stands. Its primary session is the one that
+opened it, unless another was made it here; the PR's other sessions aren't told. What
+the signed-in user did, which is what its own agent did through gh, isn't told. Run from
+a session, that session becomes the one told, unless another running session is the PR's
+primary (--take). Off for a PR until turned on for it, here or from its card in the app,
+unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of
+yours; one turned on approved already tells its session that now. `[pull_requests]
+nudge_about` can keep what it tells to comments and requests for changes ("feedback"),
+and failing checks and conflicts ("feedback-and-checks")
 
 Usage: codealong pr nudge [OPTIONS] <PR>
 

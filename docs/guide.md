@@ -499,8 +499,11 @@ nudge_by_default`), and a PR's own switch wins over that either way.
 
 The primary session, while it runs, is then sent a message, as one of yours, when someone else
 reviews the PR, asks for changes or comments (with what they wrote, read from GitHub as the PR
-changes), when it's approved, merged or closed, and when its checks fail, with where it stands
-(ready to merge, its checks are still running), so it takes it from there. The message never asks
+changes), when it's approved, merged or closed, when its checks fail, and when its branch comes to
+conflict with its base (someone merged into the base what it conflicts with), with where it
+stands (ready to merge, its checks are still running), so it takes it from there. A conflict is
+told once, and again only if it comes back after it was resolved; one resolved before the
+message could go isn't told. The message never asks
 it to merge, an approval included: it says so, and the agent merges only if you asked it to. The
 PR's other sessions (helpers, reviewers, ones that came to its branch) aren't told, nor is anyone
 while the primary isn't running, and what you did to it yourself, which is what its agent did
@@ -518,7 +521,8 @@ taken for an agent's, the safer mistake.
 Settings › Automation › What a nudge tells it about (`[pull_requests] nudge_about`) narrows that,
 for every PR with its nudge on: `"everything"` (the default) is all of the above; `"feedback"` is
 only what asks for work, someone else's comments and reviews that ask for changes or say
-something, so the session can work their feedback in; `"feedback-and-checks"` adds failing checks.
+something, so the session can work their feedback in; `"feedback-and-checks"` adds failing checks
+and conflicts.
 With either, an approval (its own words with it), a dismissed review, a merge and a close aren't
 told, nor anything once the PR has ended, and the PR's card says so under its switch.
 

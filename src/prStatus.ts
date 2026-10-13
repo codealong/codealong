@@ -159,9 +159,9 @@ export function mayApprove(pr: Pick<PrItem, 'state' | 'mine'>): boolean {
 /** When a nudge sends its message, and what it tells of, as `[pull_requests] nudge_about` says
  *  (nudges.rs `keep`). */
 const NUDGED_WHEN: Record<NudgeAbout, { when: string; of: string }> = {
-  everything: { when: 'when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail', of: 'reviews, comments, an approval, a merge and failing checks' },
+  everything: { when: 'when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail or its branch conflicts with its base', of: 'reviews, comments, an approval, a merge, failing checks and conflicts' },
   feedback: { when: 'when someone else asks for changes or comments, never for an approval or a merge', of: 'comments and requests for changes, never an approval or a merge' },
-  'feedback-and-checks': { when: 'when someone else asks for changes or comments and when its checks fail, never for an approval or a merge', of: 'comments, requests for changes and failing checks, never an approval or a merge' },
+  'feedback-and-checks': { when: 'when someone else asks for changes or comments and when its checks fail or its branch conflicts with its base, never for an approval or a merge', of: 'comments, requests for changes, failing checks and conflicts, never an approval or a merge' },
 };
 
 /** What a PR's card says under its nudge switch (nudges.rs): whether it's on and why, and who's
