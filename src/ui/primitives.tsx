@@ -645,7 +645,7 @@ export function HarnessChip({ session, withStatus = true, named = false, onOpen,
 
 /** A session's account where a line of text names it (under its reply box), as its chip shows it:
  *  the icon for where it runs and the name as typed, with its harness on hover. `small` sets it in
- *  a caption's size, for a line of captions. */
+ *  a caption's size and color, for a line of captions. */
 export function AccountLabel({ session, small = false }: { session: Session; small?: boolean }) {
   return (
     <span className={cx('ca-account', small && 'is-small')} title={`Its account: ${session.account} (${HARNESS_WORD[session.harness]})`}>

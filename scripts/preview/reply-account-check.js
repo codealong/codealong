@@ -1,9 +1,9 @@
 // Checks that a session's account is said under its reply box (SessionReply.tsx, primitives.tsx
 // `AccountLabel`), not in its header: at the right of the line under the box, just before how
-// full its context is and at its size, as typed, with its harness on hover; and that in a box
-// short of room what the box says gives way, while the account and the meter stay whole, and a
-// name too long for the line is cut rather than push the meter out. Every session here says its
-// context, so the meter is there to stand beside.
+// full its context is and at its size and color, as typed, with its harness on hover; and that in
+// a box short of room what the box says gives way, while the account and the meter stay whole,
+// and a name too long for the line is cut rather than push the meter out. Every session here says
+// its context is 30% full, so the meter is there to stand beside, in its quiet color.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/reply-account-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/reply-account-check.js
 //   scripts/preview.sh sessions '' scripts/preview/reply-account-check.js
@@ -15,7 +15,7 @@
     return answer.then(function (board) {
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
-          s.context = { used: 820093, window: 1000000 };
+          s.context = { used: 300000, window: 1000000 };
         });
       });
       return board;
@@ -50,6 +50,7 @@
       check('it sits at the right of the line', at.left > room.left + room.width / 2, Math.round(at.left - room.left) + ' of ' + Math.round(room.width));
       check('it names the account as typed', label.textContent === s.account, label.textContent + ' for ' + s.account);
       check('at the size of the meter beside it', getComputedStyle(label).fontSize === getComputedStyle(meter).fontSize, getComputedStyle(label).fontSize + ' beside ' + getComputedStyle(meter).fontSize);
+      check('and in its color', getComputedStyle(label).color === getComputedStyle(meter).color, getComputedStyle(label).color + ' beside ' + getComputedStyle(meter).color);
       check('its harness is on hover', /\(.+\)$/.test(label.getAttribute('title') || ''), label.getAttribute('title'));
       check('the header doesn’t name it', !q('.ca-sessinsp-meta .ca-account'), q('.ca-sessinsp-meta').textContent);
 
