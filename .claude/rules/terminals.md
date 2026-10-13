@@ -143,8 +143,8 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   a prompt that doesn't echo it isn't kept (checked in tmux with `read -s`, 2026-10-12).
 - Ctrl-C reaches the process group in the foreground of the tab's terminal, which the kernel's
   process table has (`e_tpgid`): `procs.rs` (`foreground_group`). The command's shell runs with
-  `-i`, so job control puts a foreground command in a group of its own; zsh ends with 130 when it's
-  interrupted. `cargo test a_command_runs_in_a_tab_under_script -- --ignored` runs one in a tmux
+  `-l -i`, as a new tab's does, so job control puts a foreground command in a group of its own;
+  zsh ends with 130 when it's interrupted. `cargo test a_command_runs_in_a_tab_under_script -- --ignored` runs one in a tmux
   session nobody sees, with your login shell.
 
 ## Testing

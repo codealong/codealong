@@ -1525,8 +1525,12 @@ impl Engine {
 
     /// The whole call a session waits on you to allow, as its harness shows it, with its name
 /// (`insights::waiting_words`), for Jev to judge its risk by: the arguments, not just the line the
-/// excerpt has. A read that may be slow: run on Jev's thread, not the engine's.
+/// excerpt has. A read that may be slow: run on Jev's thread, not the engine's. A command its agent
+/// asks to run in your terminal comes first, whole, as `session-pending` gives it (actions.rs).
 fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<String> {
+    if let Some(asked) = crate::terminal::of_session(&s.key) {
+        return crate::insights::waiting_words(&crate::terminal::pending(&asked, "your terminal"));
+    }
     let pending = if crate::acp::hosts(&s.key) { crate::acp::pending(&s.key) } else { crate::harness::adapter(s.harness).pending(&crate::harness::Ctx { account: account? }, s) };
     crate::insights::waiting_words(&pending?)
 }
@@ -3691,6 +3695,19 @@ fn first_run_config() -> Config {
 
 #[cfg(test)]
 mod tests {
+    /// Jev judges the risk of a command an agent asks to run in your terminal from all of it, not
+    /// the first line the session's excerpt has.
+    #[test]
+    fn jev_reads_a_command_for_your_terminal_whole() {
+        use super::*;
+        let key = "codex:codex:engine-terminal-risk";
+        let asked = crate::terminal::Asked { id: "run-engine-risk".into(), ask: crate::terminal::Ask { session: key.into(), command: "echo tidying up\nrm -rf ~/projects".into(), cwd: "/tmp".into() }, at: 1 };
+        let _held = crate::terminal::held_for_tests(asked);
+        let words = Engine::waiting_call(&crate::fixtures::session(key), None).unwrap();
+        assert!(words.starts_with("Run in your terminal") && words.ends_with("echo tidying up\nrm -rf ~/projects"), "{words}");
+        crate::terminal::deny(key, "run-engine-risk", None);
+    }
+
     #[test]
     fn a_harness_database_log_is_heard_and_other_logs_are_not() {
         use super::*;

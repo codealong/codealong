@@ -32,6 +32,7 @@ use std::io::Write as _;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -224,6 +225,14 @@ pub fn overlay(s: &mut Session) {
     s.asks = false;
 }
 
+/// Holds a request as a connection would, for other modules' tests; the receiver hears its answer.
+#[cfg(test)]
+pub fn held_for_tests(asked: Asked) -> std::sync::mpsc::Receiver<Outcome> {
+    let (tx, rx) = channel();
+    held().push(Held { asked, tx });
+    rx
+}
+
 /// Takes a request out of the held ones, for one answer to have it: the request `id` of the
 /// session `key`, or with no key, whoever's it is.
 fn claim(id: &str, key: Option<&str>) -> Option<Held> {
@@ -302,15 +311,22 @@ fn write_reply(stream: &mut UnixStream, result: &Value) -> std::io::Result<()> {
     stream.flush()
 }
 
-/// A request's id: the time it came, so runs list in order and two never share a folder.
+/// The time the last id given stands for. Ids go up from it, so two requests in one millisecond,
+/// each on a connection's thread of its own, never share one: an answer to one would run the other.
+static LAST_ID: AtomicU64 = AtomicU64::new(0);
+
+/// A request's id: the time it came, so runs list in order, and never a folder's that's there.
 pub fn new_id() -> String {
-    let mut at = now_ms().max(0) as u64;
     loop {
+        let now = now_ms().max(1) as u64;
+        let next = |last: u64| last.max(now - 1) + 1;
+        let at = match LAST_ID.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
+            Ok(last) | Err(last) => next(last),
+        };
         let id = format!("{PREFIX}{}", base36(at));
-        if !dir(&id).exists() && !held().iter().any(|h| h.asked.id == id) {
+        if !dir(&id).exists() {
             return id;
         }
-        at += 1;
     }
 }
 
@@ -384,17 +400,18 @@ fn write_folder(d: &Path, run: &Run) -> Result<()> {
     Ok(())
 }
 
-/// The script the tab runs: it notes its processes, shows what runs and for whom, runs the command
-/// under `script` in your login shell (interactive, for your aliases and functions; `/bin/sh` with
-/// the tab's environment when that shell isn't one these words suit, fish), and notes how it ended.
-/// The command is read from its file, so nothing in it is quoted twice.
+/// The script the tab runs: it notes its processes (whole, so a look meanwhile never finds the
+/// file half written), shows what runs and for whom, runs the command under `script` in your shell
+/// as a new tab starts it (a login shell, and interactive, for your aliases and functions;
+/// `/bin/sh` with the tab's environment when your shell isn't one these words suit, fish), and
+/// notes how it ended. The command is read from its file, so nothing in it is quoted twice.
 pub fn wrapper(d: &Path, session_title: &str) -> String {
     let d = sh_quote(&d.to_string_lossy());
     let says = sh_quote(&format!("Codealong runs this for {}, as you allowed:", if session_title.trim().is_empty() { "an agent" } else { session_title.trim() }));
     format!(
         r#"# A command an agent asked to run in your terminal, as you allowed it (Codealong's terminal.rs).
 d={d}
-printf '%s %s\n' "$$" "$PPID" > "$d/{PIDS}"
+printf '%s %s\n' "$$" "$PPID" > "$d/{PIDS}.new" && mv -f "$d/{PIDS}.new" "$d/{PIDS}"
 printf '\n\033[2m%s\033[0m\n' {says}
 sed 's/^/  /' "$d/{COMMAND}"
 printf '\n'
@@ -402,7 +419,7 @@ case "${{SHELL##*/}}" in
   zsh|bash|ksh|sh) run="$SHELL" ;;
   *) run=/bin/sh ;;
 esac
-CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; eval "$(cat "$CODEALONG_RUN_DIR/{COMMAND}")"'
+CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; eval "$(cat "$CODEALONG_RUN_DIR/{COMMAND}")"'
 status=$?
 printf '%s\n' "$status" > "$d/{EXIT}"
 printf '\n\033[2m%s %s. %s\033[0m\n' 'It exited with status' "$status" 'This tab is yours again.'
@@ -440,13 +457,17 @@ pub fn record(id: &str) -> Result<Run> {
     serde_json::from_str(&text).with_context(|| format!("{} doesn't read", p.display()))
 }
 
-/// A pid noted in a run's folder, while that process is still the one noted: one that started
-/// before the run was allowed is another that took the number since.
+/// A pid noted in a run's folder, while that process is still the one noted. Each was running when
+/// its file was written (the wrapper notes itself and the shell that ran it, the command's shell
+/// itself), and started once the run was allowed: one that started after the file was written is
+/// another that took the number since, and one from before the run is no process of the run's.
 fn noted_pid(d: &Path, file: &str, field: usize, since: i64) -> Option<u32> {
-    let text = std::fs::read_to_string(d.join(file)).ok()?;
+    let p = d.join(file);
+    let text = std::fs::read_to_string(&p).ok()?;
     let pid: u32 = text.split_whitespace().nth(field)?.parse().ok()?;
+    let written = modified(&p)?;
     let started = procs::proc_start_ms(pid)?;
-    (started >= since - 2_000).then_some(pid)
+    (started >= since - 2_000 && started <= written).then_some(pid)
 }
 
 pub fn status(id: &str) -> Result<RunStatus> {
@@ -569,6 +590,13 @@ fn read_end(p: &Path, most: u64) -> std::io::Result<(Vec<u8>, bool)> {
     Ok((out.split_off(start), true))
 }
 
+/// The widest a screen is taken to be, for where a cursor can be moved.
+const WIDEST: usize = 512;
+/// The most `render` makes of what it reads.
+const RENDERED_MOST: usize = 32 << 20;
+/// The line that ends a rendering cut short at `RENDERED_MOST`.
+const TOO_MUCH: &str = "[… the rest is left out: drawn as a screen shows it, it's too long]";
+
 /// The lines a terminal would end up showing for what a program printed, a line at a time: text
 /// and its colors' escapes, a carriage return going back to the line's start (a progress line
 /// drawn over itself), erasing to the line's end, backspaces and tabs. Other escapes, which move
@@ -576,6 +604,9 @@ fn read_end(p: &Path, most: u64) -> std::io::Result<(Vec<u8>, bool)> {
 pub fn render(bytes: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(bytes);
     let mut out = Vec::new();
+    // What's been rendered so far, which spaces a cursor moved past can make far more than what
+    // was read: past `RENDERED_MOST`, the rest is left out, and a line says so.
+    let mut size = 0usize;
     let mut line: Vec<char> = Vec::new();
     let mut col = 0usize;
     let mut chars = text.chars().peekable();
@@ -591,9 +622,15 @@ pub fn render(bytes: &[u8]) -> Vec<String> {
     while let Some(c) = chars.next() {
         match c {
             '\n' => {
-                out.push(line.iter().collect::<String>().trim_end().to_string());
+                let done = line.iter().collect::<String>().trim_end().to_string();
+                size += done.len() + 1;
+                out.push(done);
                 line.clear();
                 col = 0;
+                if size > RENDERED_MOST {
+                    out.push(TOO_MUCH.to_string());
+                    return out;
+                }
             }
             '\r' => col = 0,
             '\x08' => col = col.saturating_sub(1),
@@ -616,14 +653,18 @@ pub fn render(bytes: &[u8]) -> Vec<String> {
                         params.push(c);
                     }
                     let n = |default: usize| params.trim_start_matches('?').split(';').next().and_then(|p| p.parse::<usize>().ok()).unwrap_or(default);
+                    // A move never takes the cursor past a wide screen's edge, or the line's end
+                    // when it's longer: `ESC[1000000000G` and a character after it would make a
+                    // line of a billion spaces.
+                    let reach = line.len().max(WIDEST);
                     match last {
                         Some('K') => match n(0) {
                             0 => line.truncate(col),
                             1 => line.iter_mut().take(col + 1).for_each(|c| *c = ' '),
                             _ => line.clear(),
                         },
-                        Some('G') => col = n(1).saturating_sub(1),
-                        Some('C') => col += n(1).max(1),
+                        Some('G') => col = n(1).saturating_sub(1).min(reach),
+                        Some('C') => col = col.saturating_add(n(1).max(1)).min(reach),
                         Some('D') => col = col.saturating_sub(n(1).max(1)),
                         _ => {}
                     }
@@ -698,23 +739,38 @@ fn ended_words(s: &RunStatus) -> String {
 }
 
 /// Closes a run's tab, ending what runs in it, as the tab's close button does: here in the app,
-/// which scripts the terminal. Only while the tab's shell runs nothing of yours: the run, or
-/// nothing at its prompt.
+/// which scripts the terminal. Only while the tab runs nothing of yours (`only_the_run`), looked at
+/// just before it's closed.
 pub fn close(id: &str) -> Result<String> {
     let s = status(id)?;
     let d = dir(id);
     let tab = noted_pid(&d, PIDS, 1, s.run.allowed_at).ok_or_else(|| anyhow!("Its tab is closed already."))?;
     let wrapper = noted_pid(&d, PIDS, 0, s.run.allowed_at);
-    match procs::foreground_group(tab) {
-        Some(g) if g == tab || Some(g) == wrapper => {}
-        Some(_) => bail!("Something else runs in its tab now, so it stays open: its user may have started it there."),
-        None => bail!("Its tab is closed already."),
+    let tty = procs::tty(tab).ok_or_else(|| anyhow!("Its tab is closed already."))?;
+    let tty_name = tty.to_string_lossy().trim_start_matches("/dev/").to_string();
+    let listed = procs::run("ps", &["-t", &tty_name, "-o", "pid="], None, Duration::from_secs(10))?;
+    let on_tty: Vec<u32> = listed.split_whitespace().filter_map(|p| p.parse().ok()).collect();
+    let name = procs::parent_and_name(tab).map(|(_, n)| n).unwrap_or_default();
+    let the_runs = |p: u32| wrapper.is_some_and(|w| procs::ancestors(p).contains(&w));
+    if !only_the_run(&name, &on_tty, &procs::ancestors(tab), the_runs) {
+        bail!("Something else runs in its tab now, so it stays open: its user may have started it there.");
     }
     match crate::launch::close_session_terminals(&[(tab, s.run.cwd.as_path())]).into_iter().next() {
         Some(Ok(())) => Ok("Closed its tab.".to_string()),
         Some(Err(e)) => Err(e),
         None => bail!("Couldn't close its tab."),
     }
+}
+
+/// The shells a tab runs at its prompt.
+const SHELLS: &[&str] = &["zsh", "bash", "sh", "ksh", "dash", "fish", "tcsh", "csh", "nu", "xonsh", "elvish"];
+
+/// Whether a run's tab runs nothing of yours: its shell is still a shell (`exec vim` there would
+/// make it vim), and every process on its terminal is that shell, what it runs under, or the run's
+/// wrapper and what that runs. A job you left running in the background there is on the terminal
+/// too.
+fn only_the_run(tab_name: &str, on_tty: &[u32], tab_line: &[u32], the_runs: impl Fn(u32) -> bool) -> bool {
+    SHELLS.contains(&tab_name.trim_start_matches('-')) && on_tty.iter().all(|p| tab_line.contains(p) || the_runs(*p))
 }
 
 #[cfg(test)]
@@ -916,6 +972,49 @@ mod tests {
     }
 
     #[test]
+    fn requests_asked_at_once_never_share_an_id() {
+        let threads: Vec<_> = (0..8).map(|_| std::thread::spawn(|| (0..200).map(|_| new_id()).collect::<Vec<_>>())).collect();
+        let ids: Vec<String> = threads.into_iter().flat_map(|t| t.join().unwrap()).collect();
+        let unique: std::collections::HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len());
+    }
+
+    #[test]
+    fn a_noted_pid_counts_only_while_it_is_the_process_that_was_noted() {
+        let d = crate::fixtures::scratch("terminal-pids");
+        let me = std::process::id();
+        let started = procs::proc_start_ms(me).unwrap();
+        std::fs::write(d.join(PIDS), format!("{me} 1\n")).unwrap();
+        assert_eq!(noted_pid(&d, PIDS, 0, started), Some(me));
+        assert_eq!(noted_pid(&d, PIDS, 0, started + 60_000), None, "one that started before the run isn't the run's");
+        // A file written before the process started was about another that had the number.
+        let f = std::fs::File::options().write(true).open(d.join(PIDS)).unwrap();
+        f.set_modified(std::time::UNIX_EPOCH + Duration::from_millis((started - 60_000) as u64)).unwrap();
+        assert_eq!(noted_pid(&d, PIDS, 0, started - 120_000), None);
+    }
+
+    #[test]
+    fn a_tab_is_closed_only_while_it_runs_nothing_of_yours() {
+        let (login, tab, wrapper, script, theirs) = (100, 200, 300, 301, 400);
+        let line = [tab, login, 1];
+        let runs = |p: u32| p == wrapper || p == script;
+        assert!(only_the_run("zsh", &[login, tab], &line, runs), "at its prompt");
+        assert!(only_the_run("-zsh", &[login, tab, wrapper, script], &line, runs), "running the run");
+        assert!(!only_the_run("zsh", &[login, tab, theirs], &line, runs), "a job of yours there");
+        assert!(!only_the_run("vim", &[login, tab], &line, runs), "`exec vim` in it");
+    }
+
+    #[test]
+    fn a_cursor_moved_far_off_makes_no_long_line() {
+        let far = render(b"\x1b[1000000000Gx\n");
+        assert!(far[0].len() <= WIDEST + 1 && far[0].ends_with('x'), "{}", far[0].len());
+        let many = render(format!("{}x\n", "\x1b[600C".repeat(10_000)).as_bytes());
+        assert!(many[0].len() <= WIDEST + 1, "{}", many[0].len());
+        let long = "y".repeat(2_000);
+        assert_eq!(render(format!("{long}\x1b[5000Cz\n").as_bytes())[0], format!("{long}z"), "no further than the line's end");
+    }
+
+    #[test]
     fn ids_sort_by_when_they_were_asked() {
         assert_eq!(base36(0), "0");
         assert_eq!(base36(35), "z");
@@ -930,17 +1029,19 @@ mod tests {
     #[test]
     fn the_wrapper_runs_the_command_from_its_file_and_keeps_its_status() {
         let d = crate::fixtures::scratch("terminal-wrapper");
-        std::fs::write(d.join(COMMAND), "printf '%s\\n' \"it's $((40 + 2))\"; exit 3\n").unwrap();
+        std::fs::write(d.join(COMMAND), "printf '%s\\n' \"it's $((40 + 2))\"; shopt -q login_shell && case $- in *i*) echo 'a login shell, interactive';; esac; exit 3\n").unwrap();
         let text = wrapper(&d, "Fix the 'build'").replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
         // sh, so the test doesn't run your own shell's startup files.
         let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/sh").output().unwrap();
         let shown = String::from_utf8_lossy(&out.stdout);
         assert!(shown.contains("Codealong runs this for Fix the 'build', as you allowed:"), "{shown}");
-        assert!(shown.contains("  printf '%s\\n' \"it's $((40 + 2))\"; exit 3"), "{shown}");
+        assert!(shown.contains("  printf '%s\\n' \"it's $((40 + 2))\"; shopt"), "{shown}");
         assert!(shown.contains("it's 42") && shown.contains("It exited with status 3."), "{shown}");
+        assert!(shown.contains("a login shell, interactive"), "as a new tab's shell is: {shown}");
         assert_eq!(std::fs::read_to_string(d.join(EXIT)).unwrap().trim(), "3");
         let pids = std::fs::read_to_string(d.join(PIDS)).unwrap();
         assert_eq!(pids.split_whitespace().count(), 2, "{pids}");
+        assert!(!d.join(format!("{PIDS}.new")).exists(), "written whole, then moved into place");
         assert!(std::fs::read_to_string(d.join(SHELL)).unwrap().parse::<u32>().is_ok());
     }
 }
