@@ -88,6 +88,14 @@ pub struct PrMark {
     pub asks_you: bool,
     /// When a board last listed it.
     pub seen: i64,
+    /// How current its repo's PRs were as it was marked (`Board::github_current`): it changes
+    /// only by newer ones.
+    #[serde(default = "never")]
+    pub current: i64,
+}
+
+fn never() -> i64 {
+    i64::MIN
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -365,19 +373,31 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         let from = since_of(pr_part.map(|p| p.at));
         let boundary = |slug: &str| pr_part.and_then(|p| p.repos.get(slug).copied()).unwrap_or(from);
         let mut marks: BTreeMap<String, PrMark> = pr_part.map(|p| p.marks.iter().filter(|(_, m)| now - m.seen < PR_KEPT_MS).map(|(k, m)| (k.clone(), m.clone())).collect()).unwrap_or_default();
+        // How current a repo's PRs on the board are: one polled but never read, not at all.
+        let fresh = board.github_at.map_or(now, |t| t.min(now));
+        let current = |slug: &str| match board.github_current.get(slug) {
+            Some(Some(t)) => *t,
+            Some(None) => i64::MIN,
+            None => fresh,
+        };
         let mut rows = Vec::new();
         for p in &board.prs {
             let mark = pr_part.and_then(|part| part.marks.get(&p.key));
+            // A PR is told by GitHub's word newer than its mark's: what Codealong shows ahead of it
+            // (a merge done here), or an answer kept from before a restart, changes nothing.
+            if mark.is_some_and(|m| current(&p.repo_slug) <= m.current) {
+                continue;
+            }
             if in_project(&p.project) {
                 if let Some((change, was)) = pr_change(p, mark, boundary(&p.repo_slug)) {
                     rows.push(pr_row(change, was, p));
                 }
             }
-            marks.insert(p.key.clone(), PrMark { state: p.state, asks_you: p.review_requested, seen: now });
+            marks.insert(p.key.clone(), PrMark { state: p.state, asks_you: p.review_requested, seen: now, current: current(&p.repo_slug) });
         }
         let slugs: BTreeSet<&str> = board.prs.iter().map(|p| p.repo_slug.as_str()).chain(board.github_current.keys().map(String::as_str)).chain(pr_part.into_iter().flat_map(|p| p.repos.keys().map(String::as_str))).collect();
         let repos = slugs.into_iter().map(|s| (s.to_string(), board.github_current.get(s).copied().flatten().unwrap_or_else(|| boundary(s)))).collect();
-        look.prs = Some(Part { at: board.github_at.map_or(now, |t| t.min(now)), marks, repos });
+        look.prs = Some(Part { at: fresh, marks, repos });
         out.prs = Some(rows);
     } else {
         look.prs = pr_part.cloned();
@@ -765,7 +785,7 @@ mod tests {
     }
 
     fn pr_mark(state: PrState) -> PrMark {
-        PrMark { state, asks_you: false, seen: NOW - 15 * MIN }
+        PrMark { state, asks_you: false, seen: NOW - 15 * MIN, current: i64::MIN }
     }
 
     #[test]
@@ -831,6 +851,27 @@ mod tests {
         let read = Board { github_at: Some(NOW + 20 * MIN), github_current: [("o/r".to_string(), Some(NOW + 20 * MIN)), ("x/y".to_string(), Some(NOW + 20 * MIN))].into_iter().collect(), ..board(vec![], vec![opened]) };
         let (out, _) = compare(&sight(&read), Some(&second), second.at, NOW + 21 * MIN);
         assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("x/y#1", PrChange::Opened)]);
+    }
+
+    #[test]
+    fn a_pr_changes_only_by_github_word_newer_than_its_mark() {
+        let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
+        let at = |t: i64, p: PrItem| Board { github_at: Some(t), github_current: [("o/r".to_string(), Some(t))].into_iter().collect(), ..board(vec![], vec![p]) };
+        let read = at(NOW - 10 * MIN, pr(1, PrState::Open));
+        let (_, first) = compare(&sight(&read), None, NOW - 15 * MIN, NOW);
+        // Merged here: Codealong shows it at once, ahead of GitHub's next read. Nothing's told yet.
+        let merged_here = at(NOW - 10 * MIN, PrItem { merged_at: Some(NOW + MIN), ..pr(1, PrState::Merged) });
+        let (out, second) = compare(&sight(&merged_here), Some(&first), first.at, NOW + 2 * MIN);
+        assert_eq!(out.prs, Some(vec![]));
+        // A restart with GitHub refusing hands back the answer kept from before: still nothing.
+        let (out, third) = compare(&sight(&read), Some(&second), second.at, NOW + 3 * MIN);
+        assert_eq!(out.prs, Some(vec![]));
+        // GitHub's next read says merged: told once.
+        let confirmed = at(NOW + 20 * MIN, PrItem { merged_at: Some(NOW + MIN), ..pr(1, PrState::Merged) });
+        let (out, fourth) = compare(&sight(&confirmed), Some(&third), third.at, NOW + 21 * MIN);
+        assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("o/r#1", PrChange::Merged)]);
+        let (out, _) = compare(&sight(&confirmed), Some(&fourth), fourth.at, NOW + 22 * MIN);
+        assert_eq!(out.prs, Some(vec![]));
     }
 
     #[test]
