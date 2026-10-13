@@ -129,6 +129,15 @@ describe('review comments', () => {
     // A backtick inside a hidden comment opens no code, and `<sub>` around code is still small print.
     expect(commentText('Text.\n<!-- hidden `metadata` -->')).toBe('Text.');
     expect(commentText('Fine.\n\n<sub>Reviewed at `abc123`.</sub>')).toBe('Fine.\n\n*Reviewed at `abc123`.*');
+    // As the Markdown view reads code: a fence indented in a list, closed by a longer fence or
+    // one after a backtick in its info string.
+    const listed = '- Like this:\n  ```html\n  <div>x</div>\n\n  <!-- keep -->\n  ```\n- <b>Next</b>';
+    expect(commentText(listed)).toBe('- Like this:\n  ```html\n  <div>x</div>\n\n  <!-- keep -->\n  ```\n- Next');
+    expect(commentText('```\ncode\n````\n\n<p>After</p>\n<!-- hidden -->')).toBe('```\ncode\n````\n\nAfter');
+    expect(commentText('```js`x\n<b>\n```\n<p>After</p>')).toBe('```js`x\n<b>\n```\nAfter');
+    // A `</sub>` in code ends nothing, nor a fence in a hidden comment.
+    expect(commentText('<sub>Use `</sub><div>` here</sub>')).toBe('*Use `</sub><div>` here*');
+    expect(commentText('Text\n<!--\n```\n-->\nMore')).toBe('Text\n\nMore');
   });
 });
 

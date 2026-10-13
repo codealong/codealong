@@ -194,22 +194,13 @@ export function asksFor(comments: PrComment[], asks: Record<string, number>): Se
  *  view doesn't. Named, so that `Vec<String>` in a comment keeps its type. */
 const HTML_TAG = /<\/?(?:a|b|br|details|div|em|h[1-6]|hr|i|img|li|ol|p|picture|source|span|strong|summary|sup|table|tbody|td|th|thead|tr|ul)\b[^>]*>/gi;
 
-/** What a comment's text takes whole, whichever starts first: a fenced code block, from a fence
- *  at a line's start to the same fence at a line's start or the text's end (a backtick fence's
- *  line holds no other backtick); a hidden HTML comment; a `<sub>` line; a code span, which may
- *  run onto the next line but not past a blank one. So a fence written inside code doesn't end
- *  it, and a backtick inside a hidden comment doesn't open code. */
-const WHOLE = new RegExp(
-  [
-    // `m`: `^` and `$` are a line's start and end, and `[\s\S]*$` still runs to the text's end.
-    /^(?<ticks>`{3,})[^`\n]*(?:\n[\s\S]*?^\k<ticks>[ \t]*$|[\s\S]*$)/.source,
-    /^(?<tildes>~{3,})[^\n]*(?:\n[\s\S]*?^\k<tildes>[ \t]*$|[\s\S]*$)/.source,
-    /<!--[\s\S]*?-->/.source,
-    /<sub>(?<small>[\s\S]*?)<\/sub>/.source,
-    /`(?:[^`\n]|\n(?!\n))+`/.source,
-  ].join('|'),
-  'gim',
-);
+/** What a comment's text is read as, whichever starts first, code as the Markdown view reads it
+ *  (ui/Markdown.tsx): a fenced block, from a line starting with a fence, indented or not, to the
+ *  next such line or the text's end; a hidden HTML comment; a code span, which doesn't run past a
+ *  blank line; and each of `<sub>` and `</sub>` on its own, so that one inside code or a comment
+ *  ends nothing. A fence written inside code doesn't end it, and a backtick inside a hidden
+ *  comment doesn't open code. `m`: `^` and `$` are a line's start and end. */
+const PARTS = /^[ \t]*```[^\n]*(?:\n[\s\S]*?^[ \t]*```[^\n]*$|[\s\S]*)|<!--[\s\S]*?-->|`(?:[^`\n]|\n(?![ \t]*\n))+`|<sub>\s*|\s*<\/sub>/gim;
 
 /** A GitHub comment's text as the Markdown view shows it (ui/Markdown.tsx): its hidden HTML
  *  comments dropped (Codealong's marks on the reviews it posts are some), the line saying an agent
@@ -220,15 +211,15 @@ export function commentText(body: string): string {
   let out = '';
   let from = 0;
   const prose = (text: string) => text.replace(/<br\s*\/?>/gi, '\n').replace(HTML_TAG, '');
-  for (const m of body.matchAll(WHOLE)) {
+  for (const m of body.matchAll(PARTS)) {
     out += prose(body.slice(from, m.index));
-    const whole = m[0];
+    const part = m[0];
     // Code is set aside as it is, its place held by a mark no comment has, so that running
     // blank lines together below never touches it.
-    if (whole.startsWith('<!--')) out += '';
-    else if (m.groups?.small !== undefined) out += `*${commentText(m.groups.small)}*`;
-    else out += `\u0000${code.push(whole) - 1}\u0000`;
-    from = m.index + whole.length;
+    if (part.startsWith('<!--')) out += '';
+    else if (/^\s*<\/?sub>\s*$/i.test(part)) out += '*';
+    else out += `\u0000${code.push(part) - 1}\u0000`;
+    from = m.index + part.length;
   }
   out += prose(body.slice(from));
   return out
