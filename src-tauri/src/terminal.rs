@@ -791,12 +791,16 @@ const REPORT_LINE_CHARS: usize = 400;
 
 /// Tells each run's session what it printed once it ends, for as long as the app runs: the runs
 /// started since (`start`), and those that ended, or were still running, while the app was closed
-/// or relaunching. `tell` sends the words to the session, as yours.
-pub fn report_ended(tell: impl Fn(&RunStatus, String) + Send + 'static) {
+/// or relaunching. `tell` sends the words to the session, as yours, once `ready` says the board has
+/// the sessions: after a relaunch, its first scan may not have them yet.
+pub fn report_ended(ready: impl Fn() -> bool + Send + 'static, tell: impl Fn(&RunStatus, String) + Send + 'static) {
     let left: Vec<String> = list(None).into_iter().filter(|s| s.run.reports && !dir(&s.run.id).join(REPORTED).exists()).map(|s| s.run.id).collect();
     to_report().extend(left);
     let _ = std::thread::Builder::new().name("terminal-reports".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(2));
+        if !ready() {
+            continue;
+        }
         let ids = to_report().clone();
         for id in ids {
             let ended = match status(&id) {
@@ -825,12 +829,13 @@ pub fn report_text(s: &RunStatus, printed: &Output) -> String {
         _ => "It ended without an exit status (its tab was closed, or it was killed)".to_string(),
     };
     let lines: Vec<String> = printed.lines.iter().map(|(_, l)| crate::util::truncate(l, REPORT_LINE_CHARS)).collect();
+    let clipped = printed.lines.iter().any(|(_, l)| l.chars().count() > REPORT_LINE_CHARS);
     let what = match (lines.len(), printed.total) {
         (0, _) => ", printing nothing.".to_string(),
         (n, total) if n < total || printed.cut => format!(". The last {n} lines it printed:\n\n{}", fenced(&lines.join("\n"))),
         _ => format!(". What it printed:\n\n{}", fenced(&lines.join("\n"))),
     };
-    let more = if lines.len() < printed.total || printed.cut { format!("\n\nAll of it: `codealong terminal read {} --lines 2000`.", s.run.id) } else { String::new() };
+    let more = if lines.len() < printed.total || printed.cut || clipped { format!("\n\nAll of it: `codealong terminal read {} --lines 2000`.", s.run.id) } else { String::new() };
     format!("I ran this in my terminal:\n\n{}\n\n{ended}{what}{more}", fenced(&s.run.command))
 }
 
@@ -1296,6 +1301,9 @@ mod tests {
         let text = report_text(&status(State::Exited, Some(1)), &printed(&["see ```this```", "error: denied"], 90));
         assert!(text.contains("It exited with status 1. The last 2 lines it printed:\n\n````\nsee ```this```\nerror: denied\n````"), "{text}");
         assert!(text.ends_with("All of it: `codealong terminal read run-abc --lines 2000`."), "{text}");
+        let long = "x".repeat(REPORT_LINE_CHARS + 50);
+        let text = report_text(&status(State::Exited, Some(0)), &printed(&[long.as_str()], 1));
+        assert!(text.contains(". What it printed:") && text.ends_with("All of it: `codealong terminal read run-abc --lines 2000`."), "a line cut short is read whole there: {text}");
         let text = report_text(&status(State::Ended, None), &Output::default());
         assert!(text.ends_with("It ended without an exit status (its tab was closed, or it was killed), printing nothing."), "{text}");
     }

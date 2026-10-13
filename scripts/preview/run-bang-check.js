@@ -3,8 +3,9 @@
 // with the block as written and the folder the session works in, says it's running, and says why
 // under the block when it can't start; a command you ran with `!` before shows with what it
 // printed and runs again the same way; and `!` in the box runs too, its button and the line under
-// it saying so, the box clearing, and having it back with why when it can't start. Needs a session
-// whose newest page has a reply with a ``` block led by `!` and a command run with `!`:
+// it saying so, ⏎, ⌃⏎ and ⌘⏎ running it, the box clearing, and having it back with why when it
+// can't start. Needs a session whose newest page has a reply with a ``` block led by `!` and a
+// command run with `!`:
 //   PREVIEW_TRANSCRIPT=<key> PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/run-bang-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -48,6 +49,9 @@
   var box = function () { return document.querySelector('.ca-sessinsp textarea'); };
   var sendButton = function () { return document.querySelector('.ca-sessinsp .ca-composer-send'); };
   var under = function () { var n = document.querySelector('.ca-sessinsp .ca-composer-under .ca-composer-note'); return n ? n.textContent : ''; };
+  var press = function (opts) {
+    box().dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'Enter', bubbles: true, cancelable: true }, opts || {})));
+  };
   var type = function (text) {
     var b = box();
     var set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
@@ -115,10 +119,11 @@
         check('the box’s button runs it', /^Run it in a new .+ tab, as you \(⏎\)$/.test(sendButton().title), sendButton().title);
         check('the line under the box says what happens', /runs it in a new .+ tab, as you; .+ is told what it prints once it ends/.test(under()), under());
         var before = calls('run_command').length;
-        sendButton().click();
+        // ⏎ runs it, as the button does.
+        press();
         return until(function () { return calls('run_command').length === before + 1; }, 3000).then(function () {
           var args = calls('run_command')[before][1];
-          check('the box asks to run it for the session, in its folder', args.key === picked.key && args.text === '! echo from the box' && args.folder === folder(), JSON.stringify(args).slice(0, 160));
+          check('⏎ in the box asks to run it for the session, in its folder', args.key === picked.key && args.text === '! echo from the box' && args.folder === folder(), JSON.stringify(args).slice(0, 160));
           check('nothing is sent to the session', calls('send_to_session').length === 0);
           check('the box clears', box().value === '');
           return until(function () { return under().indexOf(STARTED) >= 0; }, 3000).then(function () {
@@ -131,10 +136,17 @@
       fail = true;
       type('! make deploy');
       return until(function () { return sendButton().getAttribute('aria-label') === 'Run in your terminal'; }, 3000).then(function () {
-        sendButton().click();
+        // ⌃⏎ (send now) and ⌘⏎ (send and go on) run it too, never sending it.
+        var before = calls('run_command').length;
+        press({ ctrlKey: true });
         return until(function () { return /isn’t installed/.test(under()); }, 3000).then(function () {
+          check('⌃⏎ runs it too', calls('run_command').length === before + 1 && calls('send_to_session').length === 0);
           check('one that can’t start is back in the box, with why', box().value.indexOf('! make deploy') >= 0 && /isn’t installed/.test(under()), box().value + ' | ' + under());
           fail = false;
+          press({ metaKey: true });
+          return until(function () { return calls('run_command').length === before + 2; }, 3000).then(function () {
+            check('⌘⏎ runs it too', calls('send_to_session').length === 0);
+          });
         });
       });
     })

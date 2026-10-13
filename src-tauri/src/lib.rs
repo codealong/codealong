@@ -1173,6 +1173,22 @@ async fn shell_commands() -> Result<Vec<String>, String> {
     blocking(runcode::commands).await
 }
 
+/// Sends a session what a command you ran for it printed, as yours (terminal.rs `report_ended`):
+/// not to one that takes a message only pasted into its app, which would come forward from the
+/// background with it on the clipboard and nobody there to paste it.
+fn tell_run(engine: &engine::Handle, peers: &peers::Peers, run: &terminal::Run, text: String) -> Result<(), String> {
+    let cfg = config::current().map_err(words)?;
+    let way = send::way_in(&engine.board(), &cfg, &run.session).map_err(words)?;
+    if matches!(way, Some(api::Way::ClaudeApp | api::Way::Antigravity | api::Way::Cursor)) {
+        return Err("it takes a message only pasted into its app, so it wasn't sent.".into());
+    }
+    let sent = actions::run(engine, peers, api::SESSION_SEND, &run.session, actions::params::Send { text, ..Default::default() })?;
+    match sent.get("opened").and_then(serde_json::Value::as_bool) {
+        Some(true) => Err("its app opened with it to paste, which nobody did.".into()),
+        _ => Ok(()),
+    }
+}
+
 /// Runs a command led by `!` that you ran for a session, in its box or with Run on a `!` block, in
 /// a new tab of your terminal in `folder`, and has the session told what it printed once it ends
 /// (actions.rs `run_command`). Says how it went, in a sentence.
@@ -1949,10 +1965,11 @@ pub fn run() {
             // your message: the `!` you ran it with is for the session to read it.
             {
                 let (engine, peers) = (engine.clone(), app.state::<peers::Peers>().inner().clone());
-                terminal::report_ended(move |run, text| {
-                    let sent = actions::run(&engine, &peers, api::SESSION_SEND, &run.run.session, actions::params::Send { text, ..Default::default() });
+                let board = engine.clone();
+                terminal::report_ended(move || board.read(|b| !b.loading), move |run, text| {
                     let command = util::one_line(&run.run.command, 60);
-                    engine.run_reported(sent.map(|_| ()).map_err(|why| format!("What `{command}` printed didn't reach “{}”: {why}", run.run.session_title)));
+                    let told = tell_run(&engine, &peers, &run.run, text).map_err(|why| format!("What `{command}` printed didn't reach “{}”: {why} `codealong terminal read {}` has it.", run.run.session_title, run.run.id));
+                    engine.run_reported(told);
                 });
             }
             // After the first scan and the first git runs, which have the Mac to themselves.

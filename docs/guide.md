@@ -1233,7 +1233,9 @@ every time: there's no Always, and only you allow it, on this Mac or from your p
 agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
 You run commands this way yourself too, with `!` in a session's box or Run on a `!` block
 (*Replying*): no Allow, since you asked for it, and the session is told what it printed once it ends.
-A session that couldn't be told (it's gone, or waits on you) leaves a notice saying so.
+A session that couldn't be told leaves a notice saying so, with where to read what it printed: one
+that's gone or waits on you, and one that takes a message only pasted into its app (a Claude app
+session that isn't running, Antigravity's app, Cursor's), which isn't brought forward for it.
 An agent can read what a run printed while it runs, interrupt it as Ctrl-C would, and close its tab
 once it's done, but only while the tab is still the run's: once you've taken a shell in it, it's
 yours, and stays.

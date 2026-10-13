@@ -772,9 +772,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               return;
             }
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
-            // To the side conversation, whatever the keys: none of the session's own (send now,
-            // send and go on to the next, allow) apply to it.
-            if (command || aside) {
+            // To the side conversation, or a command run here (`/fork`, one led by `!`), whatever
+            // the keys: none of the session's own (send now, send and go on to the next, allow)
+            // apply to it.
+            if (command || aside || runs) {
               e.preventDefault();
               submit();
               return;
