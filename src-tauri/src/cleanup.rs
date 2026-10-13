@@ -225,10 +225,11 @@ fn facts(path: &Path, base: Option<&str>) -> Result<Facts, String> {
 /// `--skip-worktree` ones that are there anyway) whose contents aren't what the index has: status
 /// doesn't count them, and git's own removal wouldn't see them either. Read from `ls-files -v`,
 /// whose tag is a lower-case letter for the first and `S` for the second, and compared by hash: a
-/// file through the repo's filters as `add` would, a link by where it points. One that's neither,
-/// or can't be read, counts as changed; one that isn't there (a sparse checkout's) has nothing to
-/// lose.
+/// file through the repo's filters as `add` would, and its mode (executable or not, a file where
+/// the index has a link), a link by where it points. One that's neither, or can't be read, counts
+/// as changed; one that isn't there (a sparse checkout's) has nothing to lose.
 fn hidden_changes(path: &Path) -> Result<u32, String> {
+    use std::os::unix::fs::PermissionsExt;
     let dir = path.to_string_lossy();
     let fail = |e: anyhow::Error| last_line(&e.to_string()).to_string();
     let git = |args: &[&str]| procs::run("git", &[&["-C", dir.as_ref()], args].concat(), None, CHECK_WAIT).map_err(fail);
@@ -248,7 +249,13 @@ fn hidden_changes(path: &Path) -> Result<u32, String> {
     let (mut files, mut changed) = (Vec::new(), 0);
     for file in flagged {
         match std::fs::symlink_metadata(path.join(file)) {
-            Ok(m) if m.is_file() => files.push(file),
+            Ok(m) if m.is_file() => {
+                let mode = if m.permissions().mode() & 0o111 != 0 { "100755" } else { "100644" };
+                match staged(file) {
+                    Some(s) if s.first() == Some(&mode) => files.push(file),
+                    _ => changed += 1,
+                }
+            }
             Ok(m) if m.file_type().is_symlink() => {
                 let to = std::fs::read_link(path.join(file)).map(|t| t.to_string_lossy().into_owned());
                 let hash = to.ok().and_then(|to| procs::run_stdin("git", &["-C", dir.as_ref(), "hash-object", "--stdin"], &to, CHECK_WAIT).ok());
@@ -275,15 +282,25 @@ fn hidden_changes(path: &Path) -> Result<u32, String> {
     Ok(changed)
 }
 
-/// Another repository or worktree inside `path`, found by its `.git`: in one of its ignored
-/// folders, the only place one hides from its git (anywhere else it's an untracked folder, which
-/// status counts). Every folder an ignore pattern matches is looked through whole, links not
-/// followed: `--ignored=matching` lists one even when all it holds is a worktree whose repository
-/// is gone, which the default listing takes for empty and leaves out (git 2.50, 2026-10-12). Err
-/// when git can't say which folders are ignored, one can't be read, or there are too many files to
+/// Another repository or worktree inside `path`, found by its `.git`, which its own git doesn't
+/// see: git passes over every path named `.git`. One can hide in a folder of tracked files (`git
+/// init` where they are, its history its own), each of which, and every folder above one, is
+/// looked at for a `.git` (`ls-files`); or in an ignored folder, each of which an ignore pattern
+/// matches is looked through whole, links not followed: `--ignored=matching` lists one even when
+/// all it holds is a worktree whose repository is gone, which the default listing takes for empty
+/// and leaves out (git 2.50, 2026-10-12). Anywhere else it's an untracked folder, which status
+/// counts. Err when git can't say, a folder can't be read, or there are too many ignored files to
 /// look through (`MOST_LOOKED_AT`).
 fn repo_inside(path: &Path) -> Result<Option<PathBuf>, String> {
     let dir = path.to_string_lossy();
+    let tracked = procs::run("git", &["-C", dir.as_ref(), "ls-files", "-z"], None, CHECK_WAIT).map_err(|e| format!("git couldn't list what it tracks ({})", last_line(&e.to_string())))?;
+    let mut folders: std::collections::BTreeSet<&Path> = std::collections::BTreeSet::new();
+    for file in tracked.split('\0').filter(|f| !f.is_empty()) {
+        folders.extend(Path::new(file).ancestors().skip(1).filter(|a| !a.as_os_str().is_empty()));
+    }
+    if let Some(folder) = folders.into_iter().map(|f| path.join(f)).find(|f| std::fs::symlink_metadata(f.join(".git")).is_ok()) {
+        return Ok(Some(folder));
+    }
     let status = procs::run("git", &["-C", dir.as_ref(), "status", "--porcelain=v2", "-z", "--ignored=matching", "--untracked-files=normal"], None, CHECK_WAIT)
         .map_err(|e| format!("git couldn't say what it ignores ({})", last_line(&e.to_string())))?;
     let mut folders: Vec<PathBuf> = status
@@ -684,7 +701,9 @@ mod tests {
         at(&main, &["init", "-q", "-b", "main"]);
         std::fs::write(main.join(".gitignore"), "vendor/\ntarget/\nnode_modules/\n").unwrap();
         std::fs::write(main.join("local.conf"), "port = 3000\n").unwrap();
-        at(&main, &["add", ".gitignore", "local.conf"]);
+        std::fs::create_dir_all(main.join("src/component")).unwrap();
+        std::fs::write(main.join("src/component/a.txt"), "a\n").unwrap();
+        at(&main, &["add", ".gitignore", "local.conf", "src"]);
         at(&main, &["commit", "-q", "-m", "init"]);
         let origin = dir.join("origin.git");
         procs::run("git", &["init", "-q", "--bare", origin.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
@@ -713,9 +732,19 @@ mod tests {
         assert_eq!(kept(&board).as_deref(), Some("1 uncommitted file"));
         std::fs::write(wt.join("local.conf"), "port = 3000\n").unwrap();
         assert_eq!(kept(&board), None, "the same contents as the index");
+        // Or made executable, which git takes for a change of its own.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(wt.join("local.conf"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(kept(&board).as_deref(), Some("1 uncommitted file"));
+        std::fs::set_permissions(wt.join("local.conf"), std::fs::Permissions::from_mode(0o644)).unwrap();
         at(&wt, &["update-index", "--no-assume-unchanged", "local.conf"]);
-        // Another repository in an ignored folder, which nothing lists, and one a little way into
-        // a folder of builds or dependencies.
+        // A repository made where tracked files are, its history its own: git passes over its
+        // `.git`, so status sees nothing.
+        procs::run("git", &["-C", wt.join("src/component").to_str().unwrap(), "init", "-q"], None, Duration::from_secs(20)).unwrap();
+        assert_eq!(kept(&board).as_deref(), Some("another worktree is inside it (src/component)"));
+        std::fs::remove_dir_all(wt.join("src/component/.git")).unwrap();
+        // Another repository in an ignored folder, which nothing lists, and ones deep in folders
+        // of builds or dependencies.
         nested(&wt.join("vendor/lib"));
         assert_eq!(kept(&board).as_deref(), Some("another worktree is inside it (vendor/lib)"));
         std::fs::remove_dir_all(wt.join("vendor")).unwrap();
