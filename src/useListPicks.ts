@@ -14,7 +14,7 @@ import * as menus from './menus';
 import { usePicks, type SelectHow } from './picks';
 import type { Pins } from './pins';
 import type { Report } from './report';
-import type { PrItem } from './types';
+import type { Lane, PrItem } from './types';
 import type { PrRowItem } from './ui/PrsView';
 import type { SessionItem } from './ui/SessionsView';
 import type { Archived } from './ui/Toasts';
@@ -44,6 +44,8 @@ export interface ListPicksInput {
   undoArchive: (undo: Archived) => void;
   /** Approves PRs as you, one after another. */
   approve: (prs: PrItem[]) => void;
+  /** Asks to remove worktrees that can go (ui/CleanUpDialog.tsx). */
+  cleanUp: (lanes: Lane[]) => void;
 }
 
 /** One list's picks: the rows, in the list's order, and what's done to them. */
@@ -70,7 +72,7 @@ export interface ListPicksKeys {
 }
 
 export function useListPicks(input: ListPicksInput) {
-  const { view, loading, selected, setSelectedKey, sessionRows, worktreeRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve } = input;
+  const { view, loading, selected, setSelectedKey, sessionRows, worktreeRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp } = input;
   const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
   const laneItems = useMemo(() => (view === 'worktrees' && !loading ? worktreeRows : null), [view, loading, worktreeRows]);
   const prItems = useMemo(() => (view === 'prs' && !loading ? prVisible.filter((r): r is PrRowItem => r.kind === 'pr') : null), [view, loading, prVisible]);
@@ -104,7 +106,7 @@ export function useListPicks(input: ListPicksInput) {
       sessions.leave(new Set(rows.filter((r) => keys.includes(r.session.key)).map((r) => r.key)));
     },
   });
-  const lanesOf = (rows: WorktreeRow[]): menus.LanesCan => ({ report, keys: true, pin: pinItem(lanePins, rows.map((r) => r.lane.id), 'worktree') });
+  const lanesOf = (rows: WorktreeRow[]): menus.LanesCan => ({ report, keys: true, pin: pinItem(lanePins, rows.map((r) => r.lane.id), 'worktree'), cleanUp });
   const prsOf = (rows: PrRowItem[]): menus.PrsCan => ({ report, keys: true, approve, pin: pinItem(prPins, rows.map((r) => r.pr.key), 'PR') });
   const lanes = worktrees.picked.map((r) => r.lane);
   const pickedPrs = prs.picked.map((r) => r.pr);

@@ -477,6 +477,22 @@ export async function setReusable(laneId: string, on: boolean): Promise<number |
   return invoke<number | null>('set_reusable', { laneId, on });
 }
 
+/** What removing a worktree came to, or with `dryRun` would (actions.rs `remove_worktree`):
+ *  whether it's gone (or can go), what happened in a sentence, and what ran (or would), in order. */
+export interface Removal {
+  removed: boolean;
+  message: string;
+  steps: string[];
+}
+
+/** Removes a worktree when nothing in it would be lost, through the repo's own WorktreeRemove
+ *  hook when it has one (the engine's cleanup.rs), on the device it's on; with `dryRun`, only
+ *  says whether it can go and what would run. One that stays answers why, `removed` false. */
+export async function removeWorktree(laneId: string, dryRun: boolean): Promise<Removal> {
+  if (!inTauri) return { removed: false, message: '', steps: [] };
+  return invoke<Removal>('remove_worktree', { laneId, dryRun });
+}
+
 export async function setPinnedWorktrees(ids: string[]): Promise<void> {
   if (!inTauri) return;
   await invoke('set_pinned_worktrees', { ids });

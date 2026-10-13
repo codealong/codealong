@@ -49,7 +49,10 @@ Commands:
              running in it now (`agents`: sessions a process has open, or that are
              working or waiting on you; `working`: those working or waiting on you).
              `sessions` counts every session that worked there, running or not: it's
-             history, not who's there
+             history, not who's there. `cleanup` says whether it can be removed with
+             nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree
+             remove` removes it
+  worktree   One worktree: removing it (`remove`) once its work is done
   pr         A PR and the sessions that worked on it, and linking a session to a PR by
              hand. A session is linked by itself when its records show it made, edited
              or commented on the PR (`gh pr create` and the like), or when it worked in
@@ -1633,7 +1636,9 @@ Options:
 Worktrees the board knows: each with its branch, PR, status, and the agents running in
 it now (`agents`: sessions a process has open, or that are working or waiting on you;
 `working`: those working or waiting on you). `sessions` counts every session that worked
-there, running or not: it's history, not who's there
+there, running or not: it's history, not who's there. `cleanup` says whether it can be
+removed with nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree
+remove` removes it
 
 Usage: codealong worktrees [OPTIONS]
 
@@ -1659,6 +1664,76 @@ Options:
       --reusable
           Only reusable ones (`codealong reuse`): where new work can start, or join the
           work under way
+
+  -h, --help
+          Print help
+```
+
+## codealong worktree
+
+```
+One worktree: removing it (`remove`) once its work is done
+
+Usage: codealong worktree [OPTIONS] <COMMAND>
+
+Commands:
+  remove  Remove a worktree, only when nothing in it would be lost: no uncommitted or
+          untracked files (files git ignores, such as dependencies and env files, go
+          with it), no commit that isn't on some remote, no session running in it or
+          lock held on it, and no worktree inside it; never a main checkout or a
+          reusable worktree. It goes through the repo's own WorktreeRemove hook when its
+          .claude/settings.json declares one and a Claude Code account trusts the repo,
+          else `git worktree remove` and `git branch -d` for its branch (kept when its
+          work isn't merged); then `claude rm <job>` for a background job that held it,
+          which keeps that job's conversation. Checked again as it goes. It can't be
+          undone: try --dry-run first
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong worktree remove
+
+```
+Remove a worktree, only when nothing in it would be lost: no uncommitted or untracked
+files (files git ignores, such as dependencies and env files, go with it), no commit
+that isn't on some remote, no session running in it or lock held on it, and no worktree
+inside it; never a main checkout or a reusable worktree. It goes through the repo's own
+WorktreeRemove hook when its .claude/settings.json declares one and a Claude Code
+account trusts the repo, else `git worktree remove` and `git branch -d` for its branch
+(kept when its work isn't merged); then `claude rm <job>` for a background job that held
+it, which keeps that job's conversation. Checked again as it goes. It can't be undone:
+try --dry-run first
+
+Usage: codealong worktree remove [OPTIONS] <WORKTREE>
+
+Arguments:
+  <WORKTREE>
+          The worktree: its path, or `.` for the one the current folder is in
+
+Options:
+      --dry-run
+          Only say whether it can go and what would run
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help

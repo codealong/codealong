@@ -93,6 +93,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   <text> [--now]`, `--snapshot --tell <key> <text>` (as Codealong sends by itself),
   `--snapshot --rename <key> <name>`, `--snapshot --stop <key>`,
   `--snapshot --done <key> [--stop]` (ends it as Mark as done does, without archiving),
+  `--snapshot --remove-worktree <folder> [--dry-run]` (only where nothing would be lost),
   `--snapshot --fork <key> [prompt]` (a copy to remove after), `--snapshot --move <key>
   <account | worktree folder>`, `--snapshot --resume <key> <place> [prompt] [--model <model>]`
   (one that isn't running), `--snapshot --switch-model <key> <model>` (one that is),

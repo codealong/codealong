@@ -575,6 +575,22 @@ fn output_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: D
     drive(cmd, program, None, timeout)
 }
 
+/// Runs a program in `cwd` with `env` added and `input` on stdin, as a repo's hook is run, and
+/// returns what it printed whether or not it succeeded. Fails only when it can't start or
+/// `timeout` passes.
+pub fn run_in(program: &str, args: &[&str], cwd: &Path, env: &[(String, String)], input: &str, timeout: Duration) -> Result<Output> {
+    #[cfg(test)]
+    if let Some(answer) = stand_in::run(program, args, Some(input), timeout) {
+        return answer.map(|out| Output { ok: true, out, err: String::new() });
+    }
+    let mut cmd = Command::new(program);
+    cmd.args(args).env("PATH", user_path()).current_dir(cwd);
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
+    drive(cmd, program, Some(input.as_bytes()), timeout)
+}
+
 /// Runs a program with input on stdin (used for AppleScript).
 pub fn run_stdin(program: &str, args: &[&str], input: &str, timeout: Duration) -> Result<String> {
     #[cfg(test)]

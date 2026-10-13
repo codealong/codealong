@@ -14,6 +14,7 @@ mod chrome;
 mod chrometabs;
 mod caret;
 mod claude;
+mod cleanup;
 mod cli;
 mod antigravity;
 mod cursor;
@@ -398,6 +399,15 @@ async fn set_preview(engine: State<'_, engine::Handle>, peers: State<'_, peers::
 async fn set_reusable(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, on: bool) -> Result<Option<i64>, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
     blocking(move || actions::run(&engine, &peers, actions::REUSABLE, &lane_id, actions::params::Reusable { on }).map(|v| v["at"].as_i64())).await?
+}
+
+/// Removes a worktree when nothing in it would be lost, or with `dry_run` says whether it can go
+/// and what would run (cleanup.rs), on the device it's on. On the blocking pool: a repo's own
+/// teardown can take a minute.
+#[tauri::command]
+async fn remove_worktree(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, dry_run: bool) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::WORKTREE_REMOVE, &lane_id, api::params::Remove { dry_run, ..Default::default() })).await?
 }
 
 #[tauri::command]
@@ -1992,7 +2002,7 @@ pub fn run() {
             kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, token_report, session_tokens, idle_sessions, close_idle_sessions, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_in_terminal, shell_commands, get_accounts, save_accounts, set_preferred, keep_start_place, found_accounts, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, show_waiting, waiting_asked, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, resume_session, switch_session_model, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, pointer_probe, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, token_report, session_tokens, idle_sessions, close_idle_sessions, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, remove_worktree, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_in_terminal, shell_commands, get_accounts, save_accounts, set_preferred, keep_start_place, found_accounts, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, show_waiting, waiting_asked, start_from_quick, route_quick, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, resume_session, switch_session_model, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, pointer_probe, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

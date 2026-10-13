@@ -1,0 +1,59 @@
+/* Clean up worktree (CleanUpDialog.tsx): each worktree, with what would run to remove it. */
+
+.ca-dialog.ca-cleanup {
+  width: min(560px, 100%);
+}
+.ca-cleanup-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-cleanup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--ink-3);
+}
+.ca-cleanup-row > .ca-icon {
+  flex: none;
+  margin-top: 3px;
+}
+.ca-cleanup-row.is-failed {
+  color: var(--alert);
+}
+.ca-cleanup-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ca-cleanup-name {
+  overflow: hidden;
+  font: var(--type-body-strong);
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ca-cleanup-branch {
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-cleanup-why {
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-cleanup-why.is-alert {
+  color: var(--alert);
+}
+/* What would run, as a command to read: a long path wraps rather than running off. */
+.ca-cleanup-step {
+  font: var(--type-code-sm);
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.ca-cleanup-note {
+  margin: 0 0 var(--space-2);
+  font: var(--type-meta);
+  color: var(--ink-2);
+}

@@ -108,6 +108,11 @@ pub const IMAGE_MAX_BYTES: usize = 20 * 1024 * 1024;
 /// An image a prompt refers to (`path`, `images/<hash>.<ext>`), answering `Image`. Only images
 /// Codealong kept are read.
 pub const IMAGE_READ: &str = "image-read";
+/// Removes a worktree (`key`, its lane's id) when nothing in it would be lost (the lane's
+/// `cleanup`), through the repo's own teardown when it declares one, answering `Removal`; with
+/// `dry_run`, only says whether it can go and what would run. It can't be undone, so another
+/// device needs remote control. Macs before 2026-10-12 refuse it as a request they don't know.
+pub const WORKTREE_REMOVE: &str = "worktree-remove";
 
 /// What each request carries, as its makers write it (the engine's windows and command, and a
 /// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
@@ -308,6 +313,15 @@ pub mod params {
         pub keys: Vec<String>,
     }
 
+    /// `worktree-remove`: whether only to say what would happen.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Remove {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub dry_run: bool,
+    }
+
     /// `image-keep`: the image's name, and its bytes in base64.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -415,7 +429,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 33] = [
+pub const REQUESTS: [(&str, Reach); 34] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -449,6 +463,7 @@ pub const REQUESTS: [(&str, Reach); 33] = [
     (PR_REVIEW, Reach::Control),
     (PR_MERGE, Reach::Control),
     (IMAGE_KEEP, Reach::Control),
+    (WORKTREE_REMOVE, Reach::Control),
 ];
 
 /// Who may make `method` of a device; None for a request this crate doesn't know.
@@ -658,6 +673,20 @@ pub struct Done {
     /// session leaving its list says it was done.
     #[serde(default)]
     pub noted: bool,
+}
+
+/// What removing a worktree came to (`worktree-remove`), or with `dry_run` would.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Removal {
+    /// It's gone; with `dry_run`, it can go.
+    pub removed: bool,
+    /// One sentence: what was done, or why it stays.
+    pub message: String,
+    /// What ran, or would, in order: the repo's teardown or git's commands, then the harness's
+    /// for a background job that held it.
+    #[serde(default)]
+    pub steps: Vec<String>,
 }
 
 /// How a message sent to a session would reach it, for its box to say before you send: the first

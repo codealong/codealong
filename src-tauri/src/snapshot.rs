@@ -64,6 +64,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
     Mode { flag: "--stop", takes: "<session key>", run: stop },
     Mode { flag: "--done", takes: "<session key> [--stop]", run: done },
+    Mode { flag: "--remove-worktree", takes: "<worktree folder> [--dry-run]", run: remove_worktree },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
     Mode { flag: "--tell", takes: "<session key> <text>", run: tell },
     Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
@@ -168,6 +169,9 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
 /// `codealong --snapshot --done <session key> [--stop]`: ends it as Mark as done does, `--stop`
 /// ending work under way too, as Mark as done pressed again does. Marking it seen and archiving
 /// it are the app engine's, so nothing here keeps them.
+/// `codealong --snapshot --remove-worktree <worktree folder> [--dry-run]`: removes a worktree when
+/// nothing in it would be lost, as its menu's Clean up worktree does; `--dry-run` says whether it
+/// can go and what would run.
 /// `codealong --snapshot --fork <session key> [prompt]`: forks it into the background, as `/fork`
 /// in its box does.
 /// `codealong --snapshot --resume <session key> <place> [prompt] [--model <model>] [--effort
@@ -296,6 +300,12 @@ fn done(args: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
     let v = act(api::SESSION_DONE, key, params::Done { stop: args.has("--stop"), ..Default::default() })?;
     Ok(v.get("message").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+fn remove_worktree(args: &Args, rest: &[String]) -> Done {
+    let [folder, ..] = rest else { return Err(Stop::Usage) };
+    let v = act(api::WORKTREE_REMOVE, folder, params::Remove { dry_run: args.has("--dry-run"), ..Default::default() })?;
+    Ok(pretty(&v))
 }
 
 fn send_text(args: &Args, rest: &[String]) -> Done {

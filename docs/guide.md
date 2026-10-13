@@ -94,7 +94,10 @@ the strip) is for a session you're finished with: it closes the session's termin
 background job, as Close does, and marks it seen and archives it, so it leaves every list but
 Archived. It closes nothing that would take more than the session with it: a terminal that shows
 other sessions too stays open, and a session in the Claude or Codex app is only archived, since the
-app has no way for another program to close it. A session still working, or one that left a command
+app has no way for another program to close it. A background job that holds the worktree Claude
+Code made for it is stopped, and the worktree is removed after it, as Clean up worktree… does (see
+[Clean up worktrees](#clean-up-worktrees)), unless something in it would be lost: then it stays, and
+the toast says why ("1 commit on no remote"). A session still working, or one that left a command
 running in the background, isn't ended by surprise: Mark as done says so, and pressed again within
 15 seconds ends that too. A session on another Mac is done there, when that Mac lets its linked
 devices act on its sessions (remote control); otherwise it's only marked seen and archived, and the
@@ -436,7 +439,9 @@ its line diff, a row shows how far the worktree has moved from the default branc
 (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote doesn't, `↓42`
 for commits the remote has that it doesn't. Canvas cards show the same. Worktrees are picked whole,
 from any part of their row: picked together they take Mark as seen for their sessions (`e`), Pin
-(`p`), Reuse for new work and copies of their paths and branch names.
+(`p`), Reuse for new work, Clean up worktrees… and copies of their paths and branch names. A
+worktree's right-click menu has Clean up worktree… beside Reuse for new work, dimmed with why when
+it can't go ([Clean up worktrees](#clean-up-worktrees)).
 
 ### PRs
 
@@ -1596,6 +1601,33 @@ them** (remembered), each is marked seen and archived too, as Mark as done does,
 Codealong can't close (in the Claude or Codex app, run by Codealong, in tmux) are listed to be
 archived only, staying open where they are. `codealong sessions close-idle --dry-run [--archive]`
 lists the same from the command line.
+
+### Clean up worktrees
+
+*A worktree's right-click menu › Clean up worktree…*
+
+Removes a worktree whose work is done, only when nothing in it would be lost: no file uncommitted or
+untracked, no commit that isn't on some remote (as `git rev-list HEAD --not --remotes` counts them,
+Claude Code's own rule), no session running in it, no lock a running session holds on it, and no
+other worktree inside it. A main checkout, a plain folder and a reusable worktree are never removed.
+Files git ignores, such as installed dependencies and env files, go with it. Where it can't go, the
+item is dimmed and says why: "3 uncommitted files", "2 commits on no remote", "a session is running
+in it", "the main checkout", "marked reusable". Worktrees picked together offer Clean up N
+worktrees… for the ones that can go.
+
+It asks first, since it can't be undone, and lists what would run for each: when the repo's
+`.claude/settings.json` (or `settings.local.json`) declares a `WorktreeRemove` hook and a Claude Code
+account trusts the repo, the hook runs as Claude Code would run it, in the main checkout with the
+event on its stdin, so a repo that sets up more than a folder for each worktree (ports, routes,
+databases) takes all of it down; otherwise `git worktree remove` (never forced), then `git branch -d`
+for its branch when no other worktree has it, which keeps a branch whose work isn't merged. A lock a
+session left behind as its tab closed comes off first. Then, for a Claude Code background job that
+held the worktree, `claude rm <job>` drops the job's record; its conversation stays. Everything is
+checked again as it goes, and a worktree that changed since the menu was built stays and says why.
+The toast says what was done. On another Mac the worktree is removed there, with remote control on.
+Worktrees outside your projects (Elsewhere) aren't read by git on the board, so their menu doesn't
+offer it; `codealong worktree remove <path> [--dry-run]` does, from the command line, and
+`codealong worktrees` says of each whether it can go.
 
 ## Your other devices
 

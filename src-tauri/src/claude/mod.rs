@@ -8,7 +8,8 @@
 //! the background service's socket in daemon.rs, a session's own in peer.rs, or the app), starting,
 //! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), what a
 //! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs), the skills it
-//! reads (skills.rs) and plan usage (usage.rs). See .claude/rules/claude-code.md.
+//! reads (skills.rs), plan usage (usage.rs), and a repo's hooks and a job's record as a worktree
+//! is removed (teardown.rs). See .claude/rules/claude-code.md.
 
 pub mod app;
 pub mod asks;
@@ -24,6 +25,7 @@ mod shells;
 mod side;
 mod skills;
 mod start;
+mod teardown;
 mod transcript;
 mod trust;
 mod usage;
@@ -765,6 +767,22 @@ impl crate::harness::Adapter for ClaudeCode {
     /// WorktreeCreate hook does).
     fn makes_worktrees(&self) -> bool {
         true
+    }
+
+    /// The repo's `WorktreeRemove` hooks (`teardown::remove_hooks`), which Claude Code runs only
+    /// in a folder the account trusts.
+    fn teardown(&self, ctx: &crate::harness::Ctx, main: &Path, worktree: &Path) -> Result<Vec<crate::cleanup::Hook>, String> {
+        let hooks = teardown::remove_hooks(main, worktree);
+        if hooks.is_empty() || trust::trusts(&ctx.account.home_path(), main) {
+            return Ok(hooks);
+        }
+        Err(format!("{} doesn't trust {}, so Claude Code wouldn't run its WorktreeRemove hook", ctx.account.name, crate::util::tilde(main)))
+    }
+
+    /// `claude rm <job>` for each background job whose record names the worktree: once the
+    /// folder is gone it drops the job's state and keeps its transcript (2.1.296).
+    fn forget_worktree(&self, ctx: &crate::harness::Ctx, path: &Path) -> Vec<String> {
+        teardown::jobs_in(&ctx.account.home_path(), path).into_iter().map(|job| format!("{} rm {job}", ctx.account.command())).collect()
     }
 
     /// Trusts the folder for the account (`trust_folder`): Claude Code stops a new session at

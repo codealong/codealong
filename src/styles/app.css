@@ -86,5 +86,6 @@
 @import '../ui/CopyButton.css';
 @import '../ui/Tip.css';
 @import '../ui/CloseIdleDialog.css';
+@import '../ui/CleanUpDialog.css';
 @import '../ui/DeviceBadge.css';
 @import '../ui/DevicesSection.css';

@@ -1364,6 +1364,99 @@ pub fn reuse_of(pr: Option<&Pr>, git: Option<&GitInfo>, sessions: &[Session]) ->
     Reuse::Free
 }
 
+/// What decides whether a worktree can go (`cleanup`): as the board has it, or as it's read
+/// again just before it goes (cleanup.rs).
+#[derive(Debug, Clone, Copy)]
+pub struct Leaving<'a> {
+    pub origin: Origin,
+    /// Codealong's own chats (`LaneSeed::starts_chats`).
+    pub chats: bool,
+    /// It's reusable (`reusable`), and whether you marked it so.
+    pub reusable: Option<bool>,
+    pub git: Option<&'a GitInfo>,
+    /// How many sessions run in it: a process has them open.
+    pub running: usize,
+    /// A worktree inside its folder, by its name: removing this one would take that one's files.
+    pub holds: Option<&'a str>,
+    /// Its lock still holds (`lock_holds`), with the lock's reason.
+    pub lock: Option<&'a str>,
+}
+
+/// Whether a worktree can be removed with nothing in it lost: no file uncommitted or untracked
+/// (ignored ones, such as dependencies and env files, don't count), no commit that isn't on some
+/// remote, no session running in it or lock held on it, and no worktree inside it. A main
+/// checkout, a plain folder and a reusable worktree are kept whatever they hold. None while its
+/// git hasn't been read, when nothing else has said it stays.
+pub fn cleanup(w: &Leaving) -> Option<Cleanup> {
+    let kept = |why: String| Some(Cleanup { ok: false, why });
+    if w.origin == Origin::Main {
+        return kept("the main checkout".into());
+    }
+    if w.origin == Origin::Folder || w.chats {
+        return kept("a folder, not a worktree".into());
+    }
+    if let Some(marked) = w.reusable {
+        return kept(if marked { "marked reusable" } else { "reusable: it has taken several pieces of work" }.into());
+    }
+    let mut why = Vec::new();
+    match w.running {
+        0 => {}
+        1 => why.push("a session is running in it".to_string()),
+        n => why.push(format!("{n} sessions are running in it")),
+    }
+    // A session's own lock goes without saying while it runs.
+    if let (Some(reason), 0) = (w.lock, w.running) {
+        why.push(match claude_lock(reason) {
+            Some(_) => "locked by a running session".to_string(),
+            None if reason.is_empty() => "locked".to_string(),
+            None => format!("locked: {}", crate::util::truncate(reason, 60)),
+        });
+    }
+    if let Some(inner) = w.holds {
+        why.push(format!("another worktree is inside it ({inner})"));
+    }
+    if let Some(g) = w.git {
+        match g.dirty {
+            0 => {}
+            1 => why.push("1 uncommitted file".into()),
+            n => why.push(format!("{n} uncommitted files")),
+        }
+        match g.unpushed {
+            Some(0) => {}
+            Some(1) => why.push("1 commit on no remote".into()),
+            Some(n) => why.push(format!("{n} commits on no remote")),
+            // Git couldn't say: HEAD has no commit yet, or git failed.
+            None => why.push("its commits couldn't be checked".into()),
+        }
+    }
+    if !why.is_empty() {
+        return kept(why.join(", "));
+    }
+    w.git.map(|_| Cleanup { ok: true, why: String::new() })
+}
+
+/// A lock Claude Code put on a worktree a session of its runs in, `claude session <name> (pid
+/// <n> start <time>)`: the process that holds it, and when it started, as `ps -o lstart` writes
+/// it in UTC ("Mon Oct 12 22:47:57 2026"), which tells it from another process given the same
+/// number since. None for any other lock.
+pub fn claude_lock(reason: &str) -> Option<(u32, Option<&str>)> {
+    let rest = reason.trim().strip_prefix("claude session ")?;
+    let (_, held) = rest.rsplit_once(" (pid ")?;
+    let held = held.strip_suffix(')')?;
+    let (pid, start) = match held.split_once(" start ") {
+        Some((pid, start)) => (pid, Some(start.trim())),
+        None => (held, None),
+    };
+    Some((pid.trim().parse().ok()?, start))
+}
+
+/// Whether a worktree's lock holds, as the board sees it: Claude Code's while the session that
+/// took it runs (`live_pids`, the processes of the board's running sessions), any other always.
+/// A session hung up on leaves its lock behind (`/exit` takes it off), which holds nothing.
+pub fn lock_holds(reason: &str, live_pids: &HashSet<u32>) -> bool {
+    claude_lock(reason).map_or(true, |(pid, _)| live_pids.contains(&pid))
+}
+
 pub fn looks_finished(origin: Origin, pr: Option<&Pr>, sessions: &[Session]) -> bool {
     if matches!(origin, Origin::Main | Origin::Folder) || pr.is_some_and(|p| !p.state.is_open()) {
         return false;
@@ -1635,6 +1728,8 @@ pub fn compose(inp: Inputs) -> Board {
     let owners: HashMap<(Harness, String), Session> = sessions.iter().filter(|s| !s.archived).map(|s| ((s.harness, s.id.clone()), s.clone())).collect();
     let by_key: HashMap<String, Session> = sessions.iter().map(|s| (s.key.clone(), s.clone())).collect();
     let index = SeedIndex::new(seeds);
+    // The processes of the sessions running now, whose locks on their worktrees hold.
+    let live_pids: HashSet<u32> = sessions.iter().filter(|s| s.live).filter_map(|s| s.pid).collect();
     for s in sessions {
         if let Some(i) = session_seed(seeds, &index, &s) {
             by_lane[i].push(s);
@@ -1667,6 +1762,8 @@ pub fn compose(inp: Inputs) -> Board {
     for ((seed, sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
         let g = git.get(&seed.path).cloned();
         let reuse_on = reusable(seed, marks, g.as_ref());
+        // Counted before the list is cut, archived ones too: archiving doesn't end a session.
+        let running = sessions.iter().filter(|s| s.live).count();
         // Archived sessions stay in the lane's list, last, and out of its status. In a reusable
         // worktree so do the ones from before its latest work, ahead of the archived ones; and
         // helpers that don't need you, ahead of those (`Session::helping`).
@@ -1722,6 +1819,16 @@ pub fn compose(inp: Inputs) -> Board {
         let parked = bay == Bay::Idle && !dirty && now - last_activity > 14 * DAY_MS && !(reuse_on && mark == Some(true));
         let looks_finished = !reuse_on && looks_finished(seed.origin, pr.as_ref(), &sessions);
         let looks_reusable = looks_reusable(seed, mark.is_some(), g.as_ref(), prs);
+        let cleanup = cleanup(&Leaving {
+            origin: seed.origin,
+            chats: seed.chats || seed.starts_chats,
+            reusable: reuse_on.then_some(mark == Some(true)),
+            git: g.as_ref(),
+            running,
+            // Looked for only where it would be said: a main checkout holds the others.
+            holds: (seed.origin != Origin::Main && !reuse_on).then(|| seeds.iter().find(|o| o.path != seed.path && o.path.starts_with(&seed.path))).flatten().map(|o| o.callsign.as_str()),
+            lock: g.as_ref().and_then(|g| g.locked.as_deref()).filter(|reason| lock_holds(reason, &live_pids)),
+        });
         lanes.push(Lane {
             repo_slug: seed.repo_slug.clone(),
             callsign: seed.callsign.clone(),
@@ -1745,6 +1852,7 @@ pub fn compose(inp: Inputs) -> Board {
             reuse,
             looks_reusable,
             starts_chats: seed.starts_chats,
+            cleanup,
             ..Lane::new(&seed.path.to_string_lossy(), &seed.project, &seed.repo)
         });
     }
@@ -3495,6 +3603,90 @@ mod tests {
         let lane = started.lanes.iter().find(|l| l.path == root).unwrap();
         assert_eq!((lane.hidden, lane.sessions.len()), (false, 1));
         assert!(started.projects.iter().any(|p| p.name == ELSEWHERE && p.lanes == 1));
+    }
+
+    #[test]
+    fn a_worktree_can_go_only_when_nothing_in_it_would_be_lost() {
+        let clean = GitInfo { unpushed: Some(0), ..Default::default() };
+        let w = Leaving { origin: Origin::ClaudeApp, chats: false, reusable: None, git: Some(&clean), running: 0, holds: None, lock: None };
+        let said = |w: Leaving| cleanup(&w).map(|c| (c.ok, c.why));
+        assert_eq!(said(w), Some((true, String::new())));
+        // Kept whatever they hold.
+        assert_eq!(said(Leaving { origin: Origin::Main, ..w }), Some((false, "the main checkout".into())));
+        assert_eq!(said(Leaving { origin: Origin::Folder, ..w }), Some((false, "a folder, not a worktree".into())));
+        assert_eq!(said(Leaving { chats: true, ..w }), Some((false, "a folder, not a worktree".into())));
+        assert_eq!(said(Leaving { reusable: Some(true), ..w }), Some((false, "marked reusable".into())));
+        assert_eq!(said(Leaving { reusable: Some(false), git: None, ..w }), Some((false, "reusable: it has taken several pieces of work".into())));
+        // Unknown until its git is read.
+        assert_eq!(said(Leaving { git: None, ..w }), None);
+        // What would be lost, all of it said.
+        let work = GitInfo { dirty: 3, unpushed: Some(2), ..Default::default() };
+        assert_eq!(said(Leaving { git: Some(&work), ..w }), Some((false, "3 uncommitted files, 2 commits on no remote".into())));
+        let one = GitInfo { dirty: 1, unpushed: Some(1), ..Default::default() };
+        assert_eq!(said(Leaving { git: Some(&one), ..w }), Some((false, "1 uncommitted file, 1 commit on no remote".into())));
+        let unborn = GitInfo { unpushed: None, ..Default::default() };
+        assert_eq!(said(Leaving { git: Some(&unborn), ..w }), Some((false, "its commits couldn't be checked".into())));
+        assert_eq!(said(Leaving { holds: Some("brave-otter"), ..w }), Some((false, "another worktree is inside it (brave-otter)".into())));
+        // A running session; its own lock goes without saying.
+        let lock = "claude session brave-otter (pid 46561 start Mon Oct 12 22:47:57 2026)";
+        assert_eq!(said(Leaving { running: 1, lock: Some(lock), ..w }), Some((false, "a session is running in it".into())));
+        assert_eq!(said(Leaving { running: 2, ..w }), Some((false, "2 sessions are running in it".into())));
+        assert_eq!(said(Leaving { lock: Some(lock), ..w }), Some((false, "locked by a running session".into())));
+        assert_eq!(said(Leaving { lock: Some("moving disks"), ..w }), Some((false, "locked: moving disks".into())));
+        assert_eq!(said(Leaving { lock: Some(""), ..w }), Some((false, "locked".into())));
+    }
+
+    #[test]
+    fn reads_claude_codes_lock_and_whether_it_holds() {
+        assert_eq!(claude_lock("claude session brave-otter (pid 46561 start Mon Oct 12 22:47:57 2026)\n"), Some((46561, Some("Mon Oct 12 22:47:57 2026"))));
+        assert_eq!(claude_lock("claude session my (odd) name (pid 7)"), Some((7, None)));
+        assert_eq!(claude_lock("moving disks"), None);
+        assert_eq!(claude_lock("claude session x (pid many)"), None);
+        let live = HashSet::from([46561]);
+        assert!(lock_holds("claude session a (pid 46561 start Mon Oct 12 22:47:57 2026)", &live));
+        // Left behind by a session that's gone.
+        assert!(!lock_holds("claude session a (pid 99 start Mon Oct 12 22:47:57 2026)", &live));
+        // Anyone else's holds.
+        assert!(lock_holds("moving disks", &live));
+    }
+
+    #[test]
+    fn the_board_says_which_worktrees_can_go() {
+        let apps = AppNames::default();
+        let main = LaneSeed { origin: Origin::Main, callsign: "spark".into(), ..seed("/r/spark", "main") };
+        let done = LaneSeed { origin: Origin::ClaudeApp, callsign: "done".into(), ..seed("/r/spark/.claude/worktrees/done", "worktree-done") };
+        let busy = LaneSeed { origin: Origin::ClaudeApp, callsign: "busy".into(), ..seed("/r/spark/.claude/worktrees/busy", "worktree-busy") };
+        let left = LaneSeed { origin: Origin::ClaudeApp, callsign: "left".into(), ..seed("/r/spark/.claude/worktrees/left", "worktree-left") };
+        let outer = LaneSeed { callsign: "outer".into(), ..seed("/r/spark-outer", "outer") };
+        let inner = LaneSeed { origin: Origin::ClaudeApp, callsign: "inner".into(), ..seed("/r/spark-outer/.claude/worktrees/inner", "worktree-inner") };
+        let unread = LaneSeed { callsign: "unread".into(), ..seed("/r/spark-unread", "unread") };
+        let seeds = vec![main, done, busy, left, outer, inner, unread];
+        let clean = GitInfo { unpushed: Some(0), ..Default::default() };
+        let lock = |pid: u32| GitInfo { locked: Some(format!("claude session x (pid {pid} start Mon Oct 12 22:47:57 2026)")), ..clean.clone() };
+        let git: HashMap<PathBuf, GitInfo> = HashMap::from([
+            (PathBuf::from("/r/spark"), clean.clone()),
+            (PathBuf::from("/r/spark/.claude/worktrees/done"), clean.clone()),
+            (PathBuf::from("/r/spark/.claude/worktrees/busy"), lock(4242)),
+            // Its session was hung up on: the lock it left holds nothing.
+            (PathBuf::from("/r/spark/.claude/worktrees/left"), lock(99)),
+            (PathBuf::from("/r/spark-outer"), clean.clone()),
+            (PathBuf::from("/r/spark-outer/.claude/worktrees/inner"), clean.clone()),
+        ]);
+        let mut running = claude_session(&acct("claude"), Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        (running.cwd, running.pid, running.live) = ("/r/spark/.claude/worktrees/busy".into(), Some(4242), true);
+        // Archived, it still runs.
+        running.archived = true;
+        let (prs, visitors) = (HashMap::new(), HashMap::new());
+        let order = vec!["Spruce".to_string()];
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![running], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], auto_reviews: (&Default::default(), &Default::default(), &Default::default()) });
+        let said = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().cleanup.clone().map(|c| (c.ok, c.why));
+        assert_eq!(said("/r/spark"), Some((false, "the main checkout".into())));
+        assert_eq!(said("/r/spark/.claude/worktrees/done"), Some((true, String::new())));
+        assert_eq!(said("/r/spark/.claude/worktrees/busy"), Some((false, "a session is running in it".into())));
+        assert_eq!(said("/r/spark/.claude/worktrees/left"), Some((true, String::new())));
+        assert_eq!(said("/r/spark-outer"), Some((false, "another worktree is inside it (inner)".into())));
+        assert_eq!(said("/r/spark-outer/.claude/worktrees/inner"), Some((true, String::new())));
+        assert_eq!(said("/r/spark-unread"), None);
     }
 
     #[test]

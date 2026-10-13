@@ -26,6 +26,7 @@ import { repoReviews } from './repoSettings';
 import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, TeamFile, Theme, Todo } from './types';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
+import { CleanUpDialog } from './ui/CleanUpDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { UsageDialog } from './ui/UsageDialog';
 import { PreviewDialog } from './ui/PreviewBits';
@@ -254,6 +255,8 @@ export function App() {
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   // The session being renamed (ui/RenameDialog.tsx), by key.
   const [renaming, setRenaming] = useState<string | null>(null);
+  // The worktrees Clean up worktree… asks about (ui/CleanUpDialog.tsx).
+  const [cleaning, setCleaning] = useState<Lane[] | null>(null);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the
   // zoom and sets it on them, and the board says what it is (zoom.ts).
@@ -838,6 +841,7 @@ export function App() {
     archive: setArchived,
     undoArchive: setArchivedUndo,
     approve: approveAll,
+    cleanUp: setCleaning,
   });
 
 
@@ -1010,6 +1014,7 @@ export function App() {
       pin: { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
       canvas: canvasItem('worktree', lane.id),
+      cleanUp: setCleaning,
   });
   const laneMenuSpec = (lane: Lane): MenuSpec => menus.laneMenu(lane, laneCan(lane));
   // The keys run the same actions, as this render has them.
@@ -1827,6 +1832,7 @@ export function App() {
         />
       )}
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
+      {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
       <Toasts state={toasts} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>

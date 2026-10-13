@@ -349,7 +349,8 @@ pub enum Ending {
     /// Its harness's exit command is typed into its terminal (`exit`), so the harness cleans up
     /// the worktree it made for it, and the tab closes once the process has ended.
     Exit(u32),
-    /// Its background job stops.
+    /// Its background job stops. Mark as done then removes the worktree its harness made for it
+    /// too, when nothing in it would be lost (cleanup.rs `after_job`), which `stop` alone keeps.
     Job,
     /// Its turn stops: a session Codealong runs, whose process runs other sessions too.
     Turn,

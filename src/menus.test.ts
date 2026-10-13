@@ -407,6 +407,46 @@ describe('doneTitle', () => {
   it('says what it always did for any other', () => {
     expect(doneTitle(fx.session({ live: true, pid: 42 }))).toBe('Mark as done: it closes where Codealong can close it, and is marked seen and archived');
   });
+
+  it('says a background job’s worktree goes after it unless something there would be lost', () => {
+    expect(doneTitle({ ...own, attachCommand: 'claude attach 1df9ebbd' })).toBe(
+      'Mark as done: its background job stops, and the worktree Claude Code made for it (brave-otter) goes too unless something there would be lost: uncommitted files, or commits on no remote. It’s marked seen and archived',
+    );
+  });
+});
+
+describe('Clean up worktree', () => {
+  const can = { report, open: noop, cleanUp: vi.fn() };
+  const done = lane({ cleanup: { ok: true } });
+
+  it('is offered where the window can confirm it, beside Reuse for new work', () => {
+    expect(labels(laneMenu(done, can))).toContain('Clean up worktree…');
+    const menu = labels(laneMenu(done, can));
+    expect(menu.slice(menu.indexOf('Reuse for new work') - 1, menu.indexOf('Reuse for new work') + 3)).toEqual(['-', 'Reuse for new work', 'Clean up worktree…', '-']);
+    laneActions(done, can).cleanUp?.run();
+    expect(can.cleanUp).toHaveBeenCalledWith([done]);
+    // Not where there's no dialog for it, nor before its git is read.
+    expect(laneActions(done, { report, open: noop }).cleanUp).toBeUndefined();
+    expect(laneActions(lane(), can).cleanUp).toBeUndefined();
+  });
+
+  it('says why one stays, dimmed', () => {
+    const kept = laneActions(lane({ cleanup: { ok: false, why: '3 uncommitted files' } }), can).cleanUp;
+    expect(kept).toMatchObject({ label: 'Clean up worktree (3 uncommitted files)', enabled: false });
+  });
+
+  it('takes only the ones that can go when several are picked', () => {
+    const pick = vi.fn();
+    const other = lane({ id: '/r/api-two', path: '/r/api-two', cleanup: { ok: true } });
+    const main = lane({ id: '/r/api-main', path: '/r/api-main', cleanup: { ok: false, why: 'the main checkout' } });
+    const item = lanesActions([done, main, other], { report, cleanUp: pick }).cleanUp;
+    expect(item?.label).toBe('Clean up 2 worktrees…');
+    item?.run();
+    expect(pick).toHaveBeenCalledWith([done, other]);
+    expect(lanesActions([main], { report, cleanUp: pick }).cleanUp).toMatchObject({ label: 'Clean up worktree (the main checkout)', enabled: false });
+    expect(lanesActions([main, main], { report, cleanUp: pick }).cleanUp).toMatchObject({ label: 'Clean up worktrees (none can go)', enabled: false });
+    expect(labels(lanesMenu([done, other], { report, cleanUp: pick }))).toContain('Clean up 2 worktrees…');
+  });
 });
 
 describe('laneMenu', () => {

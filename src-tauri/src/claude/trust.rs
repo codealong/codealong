@@ -33,6 +33,18 @@ pub fn trust_folder(home: &Path, folder: &Path) -> anyhow::Result<bool> {
     trust_folder_in(&state_file(home), folder, &crate::util::home())
 }
 
+/// Whether the account trusts `folder`, as Claude Code tells before it runs what a repo declares
+/// there (its hooks). Only reads the file.
+pub fn trusts(home: &Path, folder: &Path) -> bool {
+    trusts_in(&state_file(home), folder)
+}
+
+fn trusts_in(file: &Path, folder: &Path) -> bool {
+    let Ok(folder) = std::fs::canonicalize(folder) else { return false };
+    let Ok(keys) = trust_keys(&folder) else { return false };
+    std::fs::read_to_string(file).is_ok_and(|text| matches!(with_trust(&text, &keys), Ok(None)))
+}
+
 fn trust_folder_in(file: &Path, folder: &Path, user_home: &Path) -> anyhow::Result<bool> {
     // Claude Code goes by its working folder, which the system gives with links resolved.
     let folder = std::fs::canonicalize(folder)?;
@@ -362,6 +374,23 @@ mod tests {
         // Never home or a folder above it.
         assert!(trust_folder_in(&file, &dir, &folder).is_err());
         assert!(trust_folder_in(&file, &folder, &folder).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn says_whether_it_trusts_a_folder_writing_nothing() {
+        let dir = trust_scratch("trusts");
+        let file = dir.join(".claude.json");
+        let folder = dir.join("proj");
+        std::fs::create_dir_all(&folder).unwrap();
+        let text = format!("{{\"projects\": {{\"{}\": {{\"{TRUSTED}\": true}}}}}}", folder.display());
+        std::fs::write(&file, &text).unwrap();
+        assert!(trusts_in(&file, &folder));
+        assert!(trusts_in(&file, &folder.join(".")));
+        // The folder above isn't trusted by one below it, nor anything by a file that isn't there.
+        assert!(!trusts_in(&file, &dir));
+        assert!(!trusts_in(&dir.join("missing.json"), &folder));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

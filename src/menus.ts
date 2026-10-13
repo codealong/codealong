@@ -98,6 +98,19 @@ function reuseItem(lane: Lane, report: Report): MenuAction | undefined {
   return { label: 'Reuse for new work', checked: on, run: () => void setReusable(lane.id, !on).catch((e: unknown) => report.error(errorText(e))) };
 }
 
+/** Clean up worktree…, where the window has a dialog to confirm it in (`cleanUp`): enabled for
+ *  the ones that can go with nothing in them lost (board.rs `cleanup`), else shown dimmed with
+ *  why. Not shown for a worktree whose git isn't read yet, nor one on a Mac whose Codealong
+ *  doesn't say. */
+export function cleanUpItem(lanes: Lane[], cleanUp: ((lanes: Lane[]) => void) | undefined): MenuAction | undefined {
+  const known = lanes.filter((l) => l.cleanup);
+  if (!cleanUp || known.length === 0) return undefined;
+  const ok = known.filter((l) => l.cleanup?.ok);
+  if (ok.length > 0) return { label: lanes.length === 1 ? 'Clean up worktree…' : `Clean up ${count(ok.length, 'worktree')}…`, run: () => cleanUp(ok) };
+  const why = lanes.length === 1 ? known[0].cleanup?.why : 'none can go';
+  return { label: `${lanes.length === 1 ? 'Clean up worktree' : 'Clean up worktrees'} (${why})`, enabled: false, run: () => {} };
+}
+
 /** New session here…: the quick panel on the worktree, from any window. The panel starts
  *  sessions on this device, so another device's worktree needs a window that says otherwise. */
 function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction | undefined {
@@ -360,6 +373,10 @@ export function doneTitle(s: Session): string {
   const worktree = s.ownWorktree.split('/').filter(Boolean).pop() ?? s.ownWorktree;
   if (exitsItsOwnWay(s)) {
     return `Mark as done: ${harness} exits it, removing the worktree it made for it (${worktree}), or asking in its terminal whether to keep it if anything there would be lost. It’s marked seen and archived`;
+  }
+  // A background job stops, and Codealong removes its worktree after (the engine's cleanup.rs).
+  if (s.attachCommand != null && s.live) {
+    return `Mark as done: its background job stops, and the worktree ${harness} made for it (${worktree}) goes too unless something there would be lost: uncommitted files, or commits on no remote. It’s marked seen and archived`;
   }
   return `${plain}. While it’s busy or waiting on you, its terminal just closes and the worktree ${harness} made for it (${worktree}) stays`;
 }
@@ -641,6 +658,8 @@ export interface LanesCan {
   report: Report;
   /** Pins them to this window's own list, or unpins them. */
   pin?: MenuAction;
+  /** Asks to remove the ones that can go, where the window has a dialog for it. */
+  cleanUp?: (lanes: Lane[]) => void;
   keys?: boolean | 'chords';
 }
 
@@ -650,6 +669,7 @@ export interface LanesCan {
 export interface LanesActions {
   seen?: MenuAction;
   reuse?: MenuAction;
+  cleanUp?: MenuAction;
   pin?: MenuAction;
   copyPath?: MenuAction;
   copyBranch?: MenuAction;
@@ -668,6 +688,7 @@ export function lanesActions(lanes: Lane[], can: LanesCan): LanesActions {
   return {
     seen: seen.length > 0 ? { label: `Mark ${count(seen.length, 'session')} as seen`, run: () => void seenAhead(seen).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     reuse: reusable.length > 0 ? { label: 'Reuse for new work', checked: reused, run: setReuse } : undefined,
+    cleanUp: cleanUpItem(lanes, can.cleanUp),
     pin: can.pin,
     copyPath: copyItem(lanes.length === 1 ? 'Copy path' : 'Copy paths', lines(lanes.map((l) => l.path)), 'worktree paths', report),
     copyBranch: copyItem(lanes.length === 1 ? 'Copy branch name' : 'Copy branch names', lines(lanes.map((l) => l.branch)), 'branch names', report),
@@ -676,7 +697,7 @@ export function lanesActions(lanes: Lane[], can: LanesCan): LanesActions {
 }
 
 /** The order of the menu of several worktrees picked together, as one worktree's menu has them. */
-const LANES_MENU = [['seen'], ['reuse'], ['pin'], ['copyPath', 'copyBranch']] as const;
+const LANES_MENU = [['seen'], ['reuse', 'cleanUp'], ['pin'], ['copyPath', 'copyBranch']] as const;
 
 /** The menu of several worktrees picked together. */
 export function lanesMenu(lanes: Lane[], can: LanesCan): MenuSpec {
@@ -753,6 +774,8 @@ export interface LaneCan {
   automation?: (repo: string) => void;
   /** Add to todo and Remove from todo, where the todos are. */
   todos?: MenuSpec;
+  /** Asks to remove it, where the window has a dialog for it (the main window). */
+  cleanUp?: (lanes: Lane[]) => void;
   /** Pins it to this window's own list. */
   pin?: MenuAction;
   /** What's on the desktop, as `ref:key`, for Pin to desktop. */
@@ -777,6 +800,7 @@ export interface LaneActions {
   setPreview?: MenuAction;
   automation?: MenuAction;
   reuse?: MenuAction;
+  cleanUp?: MenuAction;
   pin?: MenuAction;
   desktop?: MenuAction;
   copyPath?: MenuAction;
@@ -810,6 +834,7 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
     setPreview: can.setPreview && !lane.device ? { label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: can.setPreview } : undefined,
     automation: can.automation && lane.repoSlug && !lane.device ? { label: `Automation for ${lane.repoSlug}…`, run: () => can.automation?.(lane.repoSlug ?? '') } : undefined,
     reuse: reuseItem(lane, report),
+    cleanUp: cleanUpItem([lane], can.cleanUp),
     pin: can.pin,
     desktop: can.desktop ? desktopItem('worktree', lane.id, can.desktop, report) : undefined,
     copyPath: copyItem('Copy path', lane.path, 'worktree path', report),
@@ -820,11 +845,12 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
 }
 
 /** The order of a worktree's menu: opening it, its PR, showing it and starting in it; the
- *  window's todos; whether it's reused; pins; copying its path, branch and links. */
+ *  window's todos; whether it's reused, and cleaning it up; pins; copying its path, branch and
+ *  links. */
 const LANE_MENU = [
   ['open', 'terminal', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview', 'automation'],
   ['todos'],
-  ['reuse'],
+  ['reuse', 'cleanUp'],
   ['pin', 'desktop'],
   ['copyPath', 'copyBranch', 'copyPr', 'copyPreview', 'canvas'],
 ] as const;

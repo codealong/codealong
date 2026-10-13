@@ -589,10 +589,13 @@ listed in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keep
   was said only by asking the Mac it's on. Remote control is off until you turn it on at that Mac;
   then your linked devices can send prompts, answer approvals, start sessions and end them there,
   and each request is written to `~/Library/Logs/Codealong/devices.log`.
-- **Git is read-only.** Codealong never commits, checks out, fetches, resets or deletes, and never
-  creates or removes worktrees: when you ask for a new worktree, Claude Code makes it. Git runs
-  with `GIT_OPTIONAL_LOCKS=0`, so it never holds a lock your agents need. A pull request is merged
-  only when you press Merge.
+- **Git is read-only, but for cleaning up.** Codealong never commits, checks out, fetches or
+  resets, and never creates a worktree: when you ask for a new worktree, Claude Code makes it. It
+  removes one only when you clean it up (Clean up worktree…, or Mark as done on a background job
+  that made its own) and nothing in it would be lost: no uncommitted file, no commit that isn't on
+  a remote, nothing running in it. A repo whose worktrees a hook makes has them taken down by its
+  own `WorktreeRemove` hook. Git runs with `GIT_OPTIONAL_LOCKS=0`, so it never holds a lock your
+  agents need. A pull request is merged only when you press Merge.
 - **Only you allow what an agent does.** Agents can see what another agent is waiting on, and deny
   it, but never allow it. With Codealong closed, your agents ask you the usual way.
 - **It acts only when you ask.** Codealong types into a session only what you send it. Mark as
@@ -635,8 +638,9 @@ and Codealong finds them on its own, even from an alias in your shell. Follow ea
 for how you use your accounts.
 
 **Does it change my git repos?**
-No. Codealong runs git read-only. When work needs a new worktree, Claude Code makes it, and a pull
-request is merged only when you press Merge.
+Only to remove a worktree you clean up, and only when nothing in it would be lost: no uncommitted
+file and no commit that isn't on a remote. Otherwise it runs git read-only. When work needs a new
+worktree, Claude Code makes it, and a pull request is merged only when you press Merge.
 
 **Which Macs, terminals and editors does it support?**
 macOS 13 or later, on Apple silicon or Intel. Ghostty is the best supported terminal; iTerm2,

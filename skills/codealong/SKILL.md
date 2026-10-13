@@ -136,6 +136,15 @@ through the list for something to do. What follows is for when they've asked.
   reusable unless marked otherwise. When you need a worktree for new work and the repo's
   instructions don't name one, a free reusable worktree is the place. `codealong reuse on|off`
   marks one, when the user asks.
+- `codealong worktree remove <path|.>` removes a worktree whose work is done, only when nothing
+  in it would be lost: no uncommitted or untracked file, no commit that isn't on some remote,
+  no session running in it, and never a main checkout or a reusable worktree. Files git ignores
+  (dependencies, env files) go with it. It goes through the repo's own `WorktreeRemove` hook
+  when the repo has one, which may take down more than the folder (ports, routes, databases),
+  else `git worktree remove` and `git branch -d`. `--dry-run` says whether it can go, or why
+  not, and what would run; `codealong worktrees` has the same as `cleanup`. Remove one when the
+  user asks, or one you made yourself once its work has landed. Mark as done on a background
+  job removes the worktree Claude Code made for it the same way, so you needn't.
 
 ## Messaging other sessions
 

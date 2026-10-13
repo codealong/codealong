@@ -681,6 +681,16 @@ pub struct GitInfo {
     /// one for a worktree made for one piece of work, many for one that's reused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_work_count: Option<u32>,
+    /// Commits HEAD has that no remote branch has (`git rev-list HEAD --not --remotes`, Claude
+    /// Code's own rule for a worktree it removes): they'd go with the worktree. Other Macs'
+    /// older versions don't send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unpushed: Option<u32>,
+    /// Why the worktree is locked (`git worktree lock`), when it is: Claude Code locks the one a
+    /// session of its runs in, `claude session <name> (pid <n> start <time>)`, and a session that
+    /// was hung up on leaves its lock behind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -763,6 +773,23 @@ pub struct Lane {
     /// (the engine's improve.rs). Improve Codealong starts its sessions here, on every device.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub codealong: bool,
+    /// Whether it can be removed with nothing in it lost, and why not when it can't
+    /// (`board::cleanup`): its menu's Clean up worktree. None until its git is read, and from
+    /// another Mac's Codealong of before 2026-10-12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<Cleanup>,
+}
+
+/// Whether a worktree can go (`Lane::cleanup`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Cleanup {
+    /// Nothing in it would be lost: no uncommitted files, no commit only it has, nothing running
+    /// in it.
+    pub ok: bool,
+    /// Why it stays, in a few words ("3 uncommitted files"); empty when it can go.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub why: String,
 }
 
 impl Lane {
@@ -802,6 +829,7 @@ impl Lane {
             looks_reusable: false,
             starts_chats: false,
             codealong: false,
+            cleanup: None,
         }
     }
 }

@@ -248,8 +248,8 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `start_background`), `claude/mod.rs` (`background_command`, `before_start`). Without a prompt
   it prints `(idle — send a prompt to start)`. `--worktree`, `--model` and `--add-dir` work
   with it. A stale `CODEALONG_SESSION` in the service's environment reaches the job (`cli.rs`
-  `find_me`). `stop <job>` keeps the conversation; `rm <job>` removes it and its worktree once
-  nothing holds the lock.
+  `find_me`). `stop <job>` keeps the conversation and the worktree; `rm <job>` (below) removes
+  the job's state and, by its own rule, its worktree.
 - The background service retires a job left idle for an hour, whether its turn ended
   (`settled`) or it sits at its prompt (`idle-prompt`): `<home>/daemon.log` says `[bg] bg retire
   <job>: idle-prompt, idle 61m`, then `bg settled <job> (done)`, and the job leaves the roster's
@@ -257,6 +257,24 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `--resume <id> --bg` brings it back under the same job ID (`bg claimed-spare <job> (fleet)`).
   Seen across a day's jobs on 2.1.296 (2026-10-12); whether a setting changes the hour wasn't
   looked into. Why a session it started may resume it: send.rs (`wakes`).
+- Removing a worktree from outside Claude Code (2.1.296, a scratch repo, 2026-10-12):
+  `cleanup.rs`, `claude/teardown.rs`. A `WorktreeCreate` hook's stdin is `{session_id,
+  transcript_path, cwd, scratchpad_dir, hook_event_name, name}`, with no base ref; a
+  `WorktreeRemove` hook's has `worktree_path` too (and `session_id`, `transcript_path`, `cwd`).
+  A worktree a hook made isn't locked; one Claude Code makes itself is (`claude session …`). `/exit`
+  in a session whose clean worktree a hook made runs `WorktreeRemove`, and the folder goes. `claude
+  rm <job>` stops a running job too; on a worktree Claude Code made it removes the worktree and its
+  branch unless a commit is on no remote (then it refuses, naming `--discard-unpushed
+  <commit>@<worktree-id>`), keeping the transcript; on one a hook made it refuses ("The worktree has
+  files that weren't checked against a repository (it has none of its own, or a hook manages it).
+  They may be unsaved work.") and never runs `WorktreeRemove`, clean or not, and once the folder is
+  gone it succeeds ("removed <job>"). `--force-remove-worktree <id>` deletes the folder without the
+  hook, leaking what the hook would take down (atlas's runs `yarn worktree delete`: routes,
+  ports, its own databases). A job's `state.json` names the worktree it made (`worktreePath`,
+  `worktreeBranch`) after it ends too. So Codealong removes a worktree itself, by the repo's hook
+  (run only where an account trusts the repo, as Claude Code runs a project's hooks) or by git,
+  then runs `claude rm <job>`; that worked for a hook's worktree and for Claude Code's own, whose
+  lock, where it's still there, comes off once the stopped job's process has ended.
 - `--bg` takes itself out of the arguments before it reads them (2.1.284 to 2.1.290), so a
   background start's prompt goes after `--`: `claude/start.rs` (`background_args`). The job gets
   what's left with `--session-id` added (the roster's `dispatch.launch.args`); after `--` the

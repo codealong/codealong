@@ -234,6 +234,10 @@ const REQUESTS: &[Request] = &[
     // A worktree's preview and reuse mark are kept on its Mac, with its other settings.
     Request { name: PREVIEW, only_here: Some("That worktree is on another device; set its preview there."), here: set_preview, ..ANY },
     Request { name: REUSABLE, only_here: Some("That worktree is on another device; mark it there."), here: set_reusable, ..ANY },
+    // A worktree goes only when nothing in it would be lost, checked again on its Mac, so an
+    // agent may clean one up too. Can't be undone, so another device needs remote control. A
+    // repo's own teardown can take a minute or more (cleanup.rs).
+    Request { name: api::WORKTREE_REMOVE, here: remove_worktree, wait: Some(Duration::from_secs(300)), ..ANY },
 ];
 
 fn find(name: &str) -> Option<&'static Request> {
@@ -1012,7 +1016,9 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
         Ok(ends) => ends,
         Err(busy) => return to_value(api::Done { done: false, message: busy, noted: false }),
     };
+    let job = matches!(ends, crate::idle::Ending::Job);
     let (ended, note) = end(s, account, ends);
+    let stopped = ended.is_some();
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
     let at = engine.archive(key, true).map_err(words)?;
@@ -1027,12 +1033,19 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     if let Some(note) = &note {
         message = format!("{message} {note}");
     }
+    // Only once it's archived: a repo's own teardown can take a minute, and the session would
+    // come back to the lists meanwhile.
+    let worktree = job_worktree(&board, &cfg, s, job && stopped);
+    if let Some((words, _)) = &worktree {
+        message = format!("{message} {words}");
+    }
     let (helped, later) = finish_helpers(engine, &board, &cfg, key, stop);
     let at = later.or(at);
     if let Some(words) = &helped {
         message = format!("{message} {words}");
     }
-    let mut answer = to_value(api::Done { done: true, message, noted: note.is_some() })?;
+    let noted = note.is_some() || worktree.is_some_and(|(_, stayed)| stayed);
+    let mut answer = to_value(api::Done { done: true, message, noted })?;
     answer["at"] = shown_at(c, at);
     Ok(answer)
 }
@@ -1049,12 +1062,14 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
             Ok(ends) => {
                 // What didn't go for a helper is left unsaid: it's archived either way, and
                 // its own panel says how it stands.
-                let _ = end(h, account, ends);
+                let job = matches!(ends, crate::idle::Ending::Job);
+                let (ended, _) = end(h, account, ends);
                 engine.mark_seen(vec![h.key.clone()]);
                 if let Ok(shown) = engine.archive(&h.key, true) {
                     done += 1;
                     at = shown.or(at);
                 }
+                let _ = job_worktree(board, cfg, h, job && ended.is_some());
             }
             Err(_) => left += 1,
         }
@@ -1127,8 +1142,24 @@ pub fn end_after_turn(engine: &Handle, key: &str) -> Result<String, String> {
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ends = crate::idle::ending(&board, s, false)?;
+    let job = matches!(ends, crate::idle::Ending::Job);
     let (ended, note) = end(s, account, ends);
-    Ok([ended.map(|e| format!("“{}”: {e}.", s.title)), note].into_iter().flatten().collect::<Vec<_>>().join(" "))
+    let worktree = job_worktree(&board, &cfg, s, job && ended.is_some()).map(|(words, _)| words);
+    Ok([ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree].into_iter().flatten().collect::<Vec<_>>().join(" "))
+}
+
+/// Mark as done on a background job that holds the worktree its harness made for it, once the
+/// job has stopped (`stopped`): the worktree goes too when nothing in it would be lost, the
+/// job's record with it, or stays (cleanup.rs `after_job`). A terminal session's goes as its
+/// harness exits it (`idle::Ending::Exit`). What to say of it, and whether it stayed.
+fn job_worktree(board: &crate::model::Board, cfg: &config::Config, s: &crate::model::Session, stopped: bool) -> Option<(String, bool)> {
+    if !stopped {
+        return None;
+    }
+    Some(match crate::cleanup::after_job(board, cfg, s)? {
+        Ok(words) => (words, false),
+        Err(words) => (words, true),
+    })
 }
 
 /// Done with a session on another device that won't end it (`why`): Codealong there is from
@@ -1324,6 +1355,27 @@ fn set_preview(engine: &Handle, c: &Call) -> Result<Value, String> {
 fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
     let (changed, at) = engine.set_reusable(c.key, c.read::<params::Reusable>()?.on).map_err(words)?;
     Ok(json!({ "at": shown_at(c, at), "changed": changed }))
+}
+
+/// Removes the worktree when nothing in it would be lost, or with `dry_run` only says whether it
+/// can go and what would run (cleanup.rs). One that stays answers why, not an error: it's the
+/// answer to the question the menu and the command ask.
+fn remove_worktree(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Remove = c.read()?;
+    let plan = crate::cleanup::plan(&engine.board(), &cfg()?, c.key, None)?;
+    let steps = plan.steps();
+    if let Some(why) = &plan.kept {
+        return to_value(api::Removal { removed: false, message: format!("{} stays: {why}.", plan.name), steps });
+    }
+    if p.dry_run {
+        let mut message = format!("{} can go: nothing in it would be lost.", plan.name);
+        if let Some(why) = &plan.skipped {
+            message.push_str(&format!(" The repo's WorktreeRemove hook won't run ({why}), so git removes it."));
+        }
+        return to_value(api::Removal { removed: true, message, steps });
+    }
+    let message = crate::cleanup::remove(&plan)?;
+    to_value(api::Removal { removed: true, message, steps })
 }
 
 #[cfg(test)]

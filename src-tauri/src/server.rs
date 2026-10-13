@@ -344,12 +344,16 @@ pub fn ask_permission(hook: &Value, pid: u32, home: &std::path::Path, at: i64, f
     Some(reply.result.filter(|_| reply.ok).unwrap_or(Value::Null))
 }
 
+/// How long the command waits for the app's answer to most requests.
+pub const WAIT: Duration = Duration::from_secs(120);
+
 /// One request to the running app, or None when no app answers on the socket.
 pub fn ask(req: &Request) -> Option<Result<Value, String>> {
-    ask_within(req, Duration::from_secs(120))
+    ask_within(req, WAIT)
 }
 
-fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>> {
+/// `ask`, waiting `wait` for the answer.
+pub fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>> {
     let mut stream = UnixStream::connect(path()).ok()?;
     let _ = stream.set_read_timeout(Some(wait));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));

@@ -95,8 +95,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SessionCmd,
     },
-    /// Worktrees the board knows: each with its branch, PR, status, and the agents running in it now (`agents`: sessions a process has open, or that are working or waiting on you; `working`: those working or waiting on you). `sessions` counts every session that worked there, running or not: it's history, not who's there.
+    /// Worktrees the board knows: each with its branch, PR, status, and the agents running in it now (`agents`: sessions a process has open, or that are working or waiting on you; `working`: those working or waiting on you). `sessions` counts every session that worked there, running or not: it's history, not who's there. `cleanup` says whether it can be removed with nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree remove` removes it.
     Worktrees(WorktreesArgs),
+    /// One worktree: removing it (`remove`) once its work is done.
+    Worktree {
+        #[command(subcommand)]
+        cmd: WorktreeCmd,
+    },
     /// A PR and the sessions that worked on it, and linking a session to a PR by hand. A session is linked by itself when its records show it made, edited or commented on the PR (`gh pr create` and the like), or when it worked in a worktree on the PR's branch while the PR was open.
     Pr {
         #[command(subcommand)]
@@ -640,6 +645,21 @@ enum PreviewCmd {
 }
 
 #[derive(Subcommand, Debug)]
+enum WorktreeCmd {
+    /// Remove a worktree, only when nothing in it would be lost: no uncommitted or untracked files (files git ignores, such as dependencies and env files, go with it), no commit that isn't on some remote, no session running in it or lock held on it, and no worktree inside it; never a main checkout or a reusable worktree. It goes through the repo's own WorktreeRemove hook when its .claude/settings.json declares one and a Claude Code account trusts the repo, else `git worktree remove` and `git branch -d` for its branch (kept when its work isn't merged); then `claude rm <job>` for a background job that held it, which keeps that job's conversation. Checked again as it goes. It can't be undone: try --dry-run first.
+    Remove(WorktreeRemoveArgs),
+}
+
+#[derive(Args, Debug)]
+struct WorktreeRemoveArgs {
+    /// The worktree: its path, or `.` for the one the current folder is in.
+    worktree: String,
+    /// Only say whether it can go and what would run.
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Subcommand, Debug)]
 enum ReuseCmd {
     /// Whether a worktree is reusable, and what it holds: `free` (nothing uncommitted or unlanded and no agent at work: new work can start there), `open` (work under way), `review` (its PR is open) or `landed` (its PR merged; new work starts once it's back on the default branch).
     Show(ReuseAt),
@@ -999,10 +1019,15 @@ impl Client {
     /// for): through the app, which does what its windows do, or from here over the board when
     /// it's closed or older than the command.
     fn act(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>) -> Result<Value> {
+        self.act_waiting(name, key, params, from, server::WAIT)
+    }
+
+    /// `act`, given `wait` for the app's answer: a request whose work takes longer than most.
+    fn act_waiting(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>, wait: std::time::Duration) -> Result<Value> {
         self.note();
         let params = serde_json::to_value(params)?;
         if self.app.is_some() {
-            match server::ask(&Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() }) {
+            match server::ask_within(&Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() }, wait) {
                 Some(Ok(v)) => return Ok(v),
                 // An app from before `run` says it doesn't know the request.
                 Some(Err(e)) if !e.starts_with(server::UNKNOWN_REQUEST) => bail!("{e}"),
@@ -1069,6 +1094,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
             Ok(())
         }
         Cmd::Worktrees(args) => worktrees(c, &args, json),
+        Cmd::Worktree { cmd: WorktreeCmd::Remove(a) } => worktree_remove(c, &a.worktree, a.dry_run, json),
         Cmd::Pr { cmd: PrCmd::Show { pr } } => pr_show(c, &pr, json),
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
@@ -2505,6 +2531,9 @@ struct LaneRow {
     /// What it holds, when it's reusable (`codealong reuse`): free, open, review or landed. None
     /// for a worktree kept for one piece of work.
     reuse: Option<String>,
+    /// Whether it can be removed with nothing in it lost (`codealong worktree remove`), or why it
+    /// stays. None until its git is read.
+    cleanup: Option<crate::model::Cleanup>,
 }
 
 /// Whether a session is running now: a process has it open (a terminal, the Claude app, a
@@ -2543,6 +2572,7 @@ fn lane_row(l: &Lane, board: &Board) -> LaneRow {
         preview: l.preview.as_ref().map(|p| p.url.clone()),
         preview_running: l.preview.as_ref().map(|p| p.server.is_some()),
         reuse: l.reuse.as_ref().map(lower_debug),
+        cleanup: l.cleanup.clone(),
     }
 }
 
@@ -2558,8 +2588,9 @@ fn worktrees(c: &mut Client, a: &WorktreesArgs, json: bool) -> Result<()> {
         return print_json(&rows);
     }
     let now = now_ms();
-    // Columns for reuse and previews only when a worktree has them.
+    // Columns for reuse, cleaning up and previews only when a worktree has them.
     let reuse = rows.iter().any(|r| r.reuse.is_some());
+    let cleanup = rows.iter().any(|r| r.cleanup.is_some());
     let previews = rows.iter().any(|r| r.preview.is_some());
     let table: Vec<Vec<String>> = rows
         .iter()
@@ -2567,6 +2598,13 @@ fn worktrees(c: &mut Client, a: &WorktreesArgs, json: bool) -> Result<()> {
             let mut row = vec![r.bay.clone(), r.callsign.clone(), r.branch.clone().unwrap_or_default(), r.pr.map(|n| format!("#{n} {}", r.pr_state.clone().unwrap_or_default())).unwrap_or_default(), r.agents.to_string()];
             if reuse {
                 row.push(r.reuse.clone().unwrap_or_default());
+            }
+            if cleanup {
+                row.push(match &r.cleanup {
+                    Some(c) if c.ok => "can go".into(),
+                    Some(c) => truncate(&c.why, 40),
+                    None => String::new(),
+                });
             }
             row.extend([ago(now - r.last_activity), truncate(&r.headline, 60)]);
             if previews {
@@ -2580,12 +2618,51 @@ fn worktrees(c: &mut Client, a: &WorktreesArgs, json: bool) -> Result<()> {
     if reuse {
         head.push("REUSE");
     }
+    if cleanup {
+        head.push("CLEAN UP");
+    }
     head.extend(["AGO", "HEADLINE"]);
     if previews {
         head.push("PREVIEW");
     }
     head.push("PATH");
     print!("{}", table_text(&head, table));
+    Ok(())
+}
+
+/// What `worktree remove` says, as JSON.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemovedOut {
+    worktree: String,
+    dry_run: bool,
+    #[serde(flatten)]
+    removal: api::Removal,
+}
+
+/// Removes a worktree when nothing in it would be lost, or with `dry_run` says whether it can go
+/// and what would run (cleanup.rs): through the app when it's up, as its menu does, else here. One
+/// that stays is an error, unless only asked.
+fn worktree_remove(c: &mut Client, worktree: &str, dry_run: bool, json: bool) -> Result<()> {
+    let id = resolve_worktree(c, worktree)?;
+    // A repo's own teardown can take minutes.
+    let answer = c.act_waiting(api::WORKTREE_REMOVE, &id, params::Remove { dry_run, ..Default::default() }, None, std::time::Duration::from_secs(600))?;
+    let removal: api::Removal = serde_json::from_value(answer).context("The app's answer doesn't read")?;
+    let stays = !removal.removed && !dry_run;
+    if json {
+        print_json(&RemovedOut { worktree: id, dry_run, removal })?;
+    } else {
+        println!("{}", removal.message);
+        if !removal.steps.is_empty() && !stays {
+            println!("{}", if dry_run { "Would run:" } else { "Ran:" });
+            for step in &removal.steps {
+                println!("  {step}");
+            }
+        }
+    }
+    if stays {
+        std::process::exit(1);
+    }
     Ok(())
 }
 

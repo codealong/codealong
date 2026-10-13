@@ -59,7 +59,26 @@ pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
     let starts = new_work(path, base);
     info.reset_at = starts.last().copied();
     info.new_work_count = Some(starts.len() as u32);
+    info.unpushed = unpushed(path, info.base_ahead);
+    info.locked = locked(path);
     info
+}
+
+/// Commits HEAD has that no remote branch has. The default branch is a remote's (`origin/main`),
+/// so a HEAD it holds has none, and git isn't run again to say so.
+pub fn unpushed(path: &Path, base_ahead: Option<u32>) -> Option<u32> {
+    if base_ahead == Some(0) {
+        return Some(0);
+    }
+    git(path, &["rev-list", "--count", "HEAD", "--not", "--remotes"]).and_then(|out| out.trim().parse().ok())
+}
+
+/// Why a linked worktree is locked (`git worktree lock`), from its git folder's `locked` file,
+/// which holds the reason; empty for a lock given none. None when it isn't locked, and for a
+/// main checkout, which can't be.
+pub fn locked(path: &Path) -> Option<String> {
+    let dir = crate::repos::linked_gitdir(path)?;
+    std::fs::read_to_string(dir.join("locked")).ok().map(|reason| reason.trim().to_string())
 }
 
 /// When the worktree at `path` took new work, oldest first, from its HEAD's reflog: each time

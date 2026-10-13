@@ -246,6 +246,17 @@ export interface GitInfo {
   resetAt?: number;
   /** How many times it took new work, as far back as its reflog goes. */
   newWorkCount?: number;
+  /** Commits HEAD has that no remote branch has: they'd go with the worktree. */
+  unpushed?: number;
+  /** Why the worktree is locked (`git worktree lock`), when it is. */
+  locked?: string;
+}
+
+/** Whether a worktree can be removed with nothing in it lost (board.rs `cleanup`), and why not
+ *  when it can't, in a few words: its menu's Clean up worktree. */
+export interface Cleanup {
+  ok: boolean;
+  why?: string;
 }
 
 /** A page on the web a session made or showed you: an artifact Claude Code published, made from a
@@ -331,6 +342,9 @@ export interface Lane {
   /** Codealong's own source: the worktree holds the app's tauri.conf.json (the engine's
    *  improve.rs). Improve Codealong starts its sessions here. */
   codealong?: boolean;
+  /** Whether it can be removed with nothing in it lost. Missing until its git is read, and from
+   *  another Mac's older Codealong. */
+  cleanup?: Cleanup;
 }
 
 /** Where a session that improves Codealong goes (the engine's improve.rs): its project and

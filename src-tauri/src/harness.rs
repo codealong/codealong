@@ -524,6 +524,21 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// The repo's own teardown for its worktree `worktree`, as the harness's settings in the
+    /// repo's main checkout `main` declare it (Claude Code's `WorktreeRemove` hooks), run as the
+    /// harness would run it there (cleanup.rs): none when the repo declares none, Err with why
+    /// when it declares some the account wouldn't run.
+    fn teardown(&self, _ctx: &Ctx, _main: &Path, _worktree: &Path) -> std::result::Result<Vec<crate::cleanup::Hook>, String> {
+        Ok(Vec::new())
+    }
+
+    /// The commands that drop what the harness keeps of the background jobs that held the
+    /// worktree at `path`, to run once it's gone (Claude Code's `claude rm <job>`): their
+    /// conversations stay.
+    fn forget_worktree(&self, _ctx: &Ctx, _path: &Path) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Gets a folder ready for a session of the account to start in, where the harness would
     /// otherwise stop to ask about it.
     fn before_start(&self, _account: &AccountCfg, _folder: &Path) {}
