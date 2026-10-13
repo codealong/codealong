@@ -480,8 +480,10 @@ through `gh`, isn't told back. Turned on for a PR that's approved already, it's 
 (not when the setting turns it on for every PR); what happened while Codealong wasn't running
 isn't told, and a session that has stopped isn't resumed for it. An agent's review that Codealong
 posted from someone's account (see *Automatic reviews*), as a comment or submitted as their review,
-is told as their agent's, naming the agent, and as not their word: it comes as a message of yours,
-and would otherwise read as that person's say.
+is told as their agent's, naming the agent, and as not their word, and so are the line comments of
+a review that's all the agent's: it comes as a message of yours, and would otherwise read as that
+person's say. What they wrote themselves with it (words before the agent's review in theirs) is
+told as theirs.
 
 Settings › Automation › What a nudge tells it about (`[pull_requests] nudge_about`) narrows that,
 for every PR with its nudge on: `"everything"` (the default) is all of the above; `"feedback"` is

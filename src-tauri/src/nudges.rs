@@ -227,38 +227,61 @@ impl Nudger {
 /// How much of what someone wrote goes in.
 const BODY_CHARS: usize = 600;
 
-/// The agent that wrote `body`, when it's an agent's review Codealong posted (autoreview.rs
-/// `signed`: its unseen mark, and a last line naming the agent): such a review goes from the
-/// reviewer's own account, as a comment or as their review, and only those tell it from their
-/// own words.
-fn agent_wrote(body: &str) -> Option<String> {
-    if !body.contains(crate::github::REVIEW_MARK) {
-        return None;
-    }
-    let named = body.lines().rev().find_map(|l| l.trim().strip_prefix(SIGNED)?.split_once(") of ").map(|(agent, _)| agent.trim().to_string()));
-    Some(named.filter(|a| !a.is_empty()).unwrap_or_else(|| "an agent".into()))
+/// What a comment or a review's text holds, told apart: the words of the person whose account it
+/// came from, and an agent's review Codealong posted from it (autoreview.rs `signed`,
+/// `draft_plan`), which goes as a comment or as their review and is theirs only in name. Its
+/// parts are joined by a rule, and the agent's each end with the line naming the agent and the
+/// unseen mark on a line of its own (`signed_part`).
+#[derive(Debug, Default, PartialEq)]
+struct Said {
+    theirs: String,
+    /// The agent, as its part names it, and what it wrote.
+    agent: Option<(String, String)>,
 }
 
 /// How the line autoreview.rs `signed` ends an agent's review with starts.
 const SIGNED: &str = "<sub>An agent's review (";
 
-/// `body` without what Codealong signs an agent's review with: the line naming the agent, which
-/// the message says in its own words, and the unseen mark.
-fn unsigned(body: &str) -> String {
-    body.lines().filter(|l| !l.trim_start().starts_with(SIGNED) && !l.trim_start().starts_with(crate::github::REVIEW_MARK)).collect::<Vec<_>>().join("\n")
+/// The agent `part` names, when it's one Codealong signed: the line naming the agent and the
+/// unseen mark, each on a line of its own, as `signed` writes them. A mark quoted in someone's
+/// words isn't on a line of its own, or comes without the line.
+fn signed_part(part: &str) -> Option<String> {
+    let mut lines = part.lines().map(str::trim);
+    let marked = lines.clone().any(|l| l.starts_with(crate::github::REVIEW_MARK) && l.ends_with("-->"));
+    let agent = lines.find_map(|l| l.strip_prefix(SIGNED)?.split_once(") of ").map(|(agent, _)| agent.trim().to_string()))?;
+    (marked && !agent.is_empty()).then_some(agent)
 }
 
-/// Who said something on a PR, as the message names them: `author`, or for an agent's review
-/// posted from their account, their agent, said to be theirs and not their word.
-fn who(author: &str, body: &str, done: &str) -> String {
-    match agent_wrote(body) {
-        Some(agent) => format!("{author}'s agent ({agent}) {done}, from {author}'s account; an agent's review, not {author}'s word"),
-        None => format!("{author} {done}"),
+/// `part` without what Codealong signed it with.
+fn unsigned(part: &str) -> String {
+    part.lines().filter(|l| !l.trim_start().starts_with(SIGNED) && !l.trim_start().starts_with(crate::github::REVIEW_MARK)).collect::<Vec<_>>().join("\n").trim().to_string()
+}
+
+fn said(body: &str) -> Said {
+    let (mut theirs, mut agent): (Vec<&str>, Option<(String, Vec<String>)>) = (Vec::new(), None);
+    for part in body.split("\n\n---\n\n") {
+        match signed_part(part) {
+            Some(name) => agent.get_or_insert_with(|| (name, Vec::new())).1.push(unsigned(part)),
+            None => theirs.push(part.trim()),
+        }
+    }
+    let theirs = theirs.into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
+    Said { theirs, agent: agent.map(|(name, parts)| (name, parts.join("\n\n"))) }
+}
+
+/// The lines a message tells of something `author` did (`done`, with `body`): theirs, and their
+/// agent's review that went with it from their account, said to be the agent's and not their word.
+fn told(author: &str, done: &str, body: &str) -> Vec<String> {
+    let Said { theirs, agent } = said(body);
+    let agents = |name: &str, done: &str, text: &str| format!("{author}'s agent ({name}) {done}, from {author}'s account; an agent's review, not {author}'s word: “{}”", excerpt(text));
+    match agent {
+        None => vec![format!("{author} {done}: “{}”", excerpt(&theirs))],
+        Some((name, text)) if theirs.is_empty() => vec![agents(&name, done, &text)],
+        Some((name, text)) => vec![format!("{author} {done}: “{}”", excerpt(&theirs)), agents(&name, "wrote the rest of it", &text)],
     }
 }
 
 fn excerpt(body: &str) -> String {
-    let body = unsigned(body);
     let body = body.trim();
     if body.chars().count() <= BODY_CHARS {
         return body.to_string();
@@ -306,16 +329,28 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
                 continue;
             }
             match body.and_then(|id| d.comments.iter().find(|c| c.id == id)) {
-                Some(c) => items.push(format!("{}: “{}”", who(&r.author, &c.body, words), excerpt(&c.body))),
+                Some(c) => items.extend(told(&r.author, words, &c.body)),
                 None => items.push(format!("{} {words}.", r.author)),
             }
         }
         let mut comments: Vec<_> = d.comments.iter().filter(|c| fresh(c.at) && !c.mine && !said.contains(&c.id.as_str()) && !c.review.as_deref().is_some_and(not_feedback)).collect();
         comments.sort_by_key(|c| c.at);
+        // A line comment has no mark of its own: one submitted in a review whose text is all an
+        // agent's (`draft_plan`) is that agent's.
+        let agent_reviews: HashMap<&str, String> = d
+            .comments
+            .iter()
+            .filter(|c| c.review.is_some())
+            .filter_map(|c| match self::said(&c.body) {
+                Said { theirs, agent: Some((name, _)) } if theirs.is_empty() => Some((c.id.as_str(), name)),
+                _ => None,
+            })
+            .collect();
         for c in comments {
-            match &c.path {
-                Some(path) => items.push(format!("{}: “{}”", who(&c.author, &c.body, &format!("commented on {path}")), excerpt(&c.body))),
-                None => items.push(format!("{}: “{}”", who(&c.author, &c.body, "commented"), excerpt(&c.body))),
+            let done = c.path.as_ref().map_or_else(|| "commented".to_string(), |path| format!("commented on {path}"));
+            match c.in_review.as_deref().and_then(|r| agent_reviews.get(r)).filter(|_| c.path.is_some() && self::said(&c.body).agent.is_none()) {
+                Some(name) => items.push(format!("{}'s agent ({name}) {done}, in a review from {}'s account; an agent's review, not {}'s word: “{}”", c.author, c.author, c.author, excerpt(&c.body))),
+                None => items.extend(told(&c.author, &done, &c.body)),
             }
         }
     }
@@ -467,7 +502,7 @@ mod tests {
     const B: &str = "claude:claude:b";
 
     fn comment(id: &str, author: &str, body: &str, at: i64, path: Option<&str>, mine: bool) -> PrComment {
-        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), line: None, before: false, outdated: false, replies: 0, resolved: false, mine, review: None }
+        PrComment { id: id.into(), author: author.into(), body: body.into(), at: Some(at), url: None, path: path.map(String::from), line: None, before: false, outdated: false, replies: 0, resolved: false, mine, review: None, in_review: None }
     }
 
     fn detail(reviews: Vec<PrReview>, comments: Vec<PrComment>) -> PrDetail {
@@ -725,29 +760,38 @@ mod tests {
     }
 
     /// An agent's review Codealong posted from someone's account, as a comment or submitted as
-    /// their review, is told as their agent's, without its signature and mark; their own words
-    /// are told as theirs.
+    /// their review, is told as their agent's, without its signature and mark, and so are the
+    /// line comments of a review that's all the agent's. Their own words are told as theirs:
+    /// alone, before the agent's in a review that has both, and with the mark quoted in them.
     #[test]
     fn an_agents_review_from_someones_account_is_told_as_their_agents() {
         let open = pr("o/r#1", PrState::Open, &[A]);
         let signed = |text: &str, how: &str| format!("{text}\n\n<sub>An agent's review (Claude Code, claude-opus-5-5) of 3af044a, {how} by Codealong.</sub>\n<!-- codealong-review o/r#1 3af044adb7a528d4b352bfcc26e4122ef59af1aa -->");
+        let review = |id: &str, author: &str, body: &str, at: i64, state: &str| PrComment { review: Some(state.into()), ..comment(id, author, body, at, None, false) };
+        let line = |id: &str, author: &str, body: &str, at: i64, in_review: &str| PrComment { in_review: Some(in_review.into()), ..comment(id, author, body, at, Some("main.tf"), false) };
         let d = detail(
-            vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 3), mine: false }],
+            vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 3), mine: false }, PrReview { author: "ana".into(), state: "CHANGES_REQUESTED".into(), at: Some(UPDATED + 4), mine: false }],
             vec![
                 comment("c1", "wes", &signed("Two points about the records.", "posted"), UPDATED + 1, None, false),
-                comment("c2", "wes", "Agreed, go ahead.", UPDATED + 2, None, false),
-                comment("c3", "ken", &signed("Fine.", "submitted"), UPDATED + 3, None, false),
+                comment("c2", "wes", "Agreed, go ahead. Keep `<!-- codealong-review o/r#1 abc -->` in the fixture.", UPDATED + 2, None, false),
+                review("R1", "ken", &signed("Fine.", "submitted"), UPDATED + 3, "APPROVED"),
+                line("T1", "ken", "Pin this version.", UPDATED + 3, "R1"),
+                review("R2", "ana", &format!("Please rename it.\n\n---\n\n{}", signed("The lock is held too long.", "drafted")), UPDATED + 4, "CHANGES_REQUESTED"),
+                line("T2", "ana", "This one is mine.", UPDATED + 4, "R2"),
             ],
         );
         let text = words(&open, &Why { since: Some(UPDATED), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
-        assert!(text.contains("- ken's agent (Claude Code, claude-opus-5-5) approved it, from ken's account; an agent's review, not ken's word: “Fine.”\n"), "{text}");
-        assert!(text.contains("- wes's agent (Claude Code, claude-opus-5-5) commented, from wes's account; an agent's review, not wes's word: “Two points about the records.”\n"), "{text}");
-        assert!(text.contains("- wes commented: “Agreed, go ahead.”\n"), "{text}");
-        assert!(!text.contains("<sub>") && !text.contains("codealong-review"), "{text}");
-        // A mark without the line naming the agent still says it's an agent's.
-        let bare = detail(vec![], vec![comment("c4", "wes", "Looks off.\n<!-- codealong-review o/r#1 abc -->", UPDATED + 1, Some("main.tf"), false)]);
-        let text = words(&open, &Why { since: Some(UPDATED), ..Why::default() }, Some(&bare), Some("me"), NudgeAbout::Everything).unwrap();
-        assert!(text.contains("- wes's agent (an agent) commented on main.tf, from wes's account; an agent's review, not wes's word: “Looks off.”"), "{text}");
+        for said in [
+            "- ken's agent (Claude Code, claude-opus-5-5) approved it, from ken's account; an agent's review, not ken's word: “Fine.”\n",
+            "- wes's agent (Claude Code, claude-opus-5-5) commented, from wes's account; an agent's review, not wes's word: “Two points about the records.”\n",
+            "- wes commented: “Agreed, go ahead. Keep `<!-- codealong-review o/r#1 abc -->` in the fixture.”\n",
+            "- ken's agent (Claude Code, claude-opus-5-5) commented on main.tf, in a review from ken's account; an agent's review, not ken's word: “Pin this version.”\n",
+            "- ana asked for changes: “Please rename it.”\n- ana's agent (Claude Code, claude-opus-5-5) wrote the rest of it, from ana's account; an agent's review, not ana's word: “The lock is held too long.”\n",
+            "- ana commented on main.tf: “This one is mine.”\n",
+        ] {
+            assert!(text.contains(said), "{said}\nin\n{text}");
+        }
+        assert!(!text.contains("<sub>") && !text.contains("3af044adb7"), "{text}");
     }
 
     #[test]

@@ -854,7 +854,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       reviews(last: 50) { nodes { id author { login } state submittedAt body url } }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       comments(last: 50) { nodes { id author { login } body createdAt url } }
-      reviewThreads(last: 50) { nodes { isResolved isOutdated path line diffSide comments(first: 1) { totalCount nodes { id author { login } body createdAt url } } } }
+      reviewThreads(last: 50) { nodes { isResolved isOutdated path line diffSide comments(first: 1) { totalCount nodes { id author { login } body createdAt url pullRequestReview { id } } } } }
     }
   }
 }
@@ -904,6 +904,11 @@ pub struct PrComment {
     /// earlier approval's words from a comment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review: Option<String>,
+    /// A thread on the code: the review it was submitted in, by id (a review's own text has that
+    /// id as its own). What tells an agent's line comment, which has no mark of its own, as the
+    /// agent's (nudges.rs `words`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_review: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -1032,6 +1037,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             replies: 0,
             resolved: false,
             review: None,
+            in_review: n.pointer("/pullRequestReview/id").and_then(Value::as_str).map(String::from),
         })
     };
     let nodes = |at: &str| pr.pointer(at).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -2161,7 +2167,7 @@ mod tests {
           "reviewRequests":{"nodes":[]},
           "comments":{"nodes":[{"id":"C1","author":{"login":"me"},"body":"Done, thanks","createdAt":"2026-09-23T15:00:00Z","url":"u3"}]},
           "reviewThreads":{"nodes":[
-            {"isResolved":true,"isOutdated":false,"path":"src/a.ts","line":12,"diffSide":"LEFT","comments":{"totalCount":3,"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4"}]}},
+            {"isResolved":true,"isOutdated":false,"path":"src/a.ts","line":12,"diffSide":"LEFT","comments":{"totalCount":3,"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4","pullRequestReview":{"id":"R1"}}]}},
             {"isResolved":false,"isOutdated":true,"path":"src/b.ts","line":null,"diffSide":"RIGHT","comments":{"totalCount":1,"nodes":[{"id":"T2","author":{"login":"ana"},"body":"Typo.","createdAt":"2026-09-23T11:00:00Z","url":"u5"}]}}]}}}}}"#;
         let d = parse_detail(graph, "[]").unwrap();
         let got: Vec<(&str, bool, bool, Option<&str>)> = d.comments.iter().map(|c| (c.id.as_str(), c.mine, c.resolved, c.path.as_deref())).collect();
@@ -2170,6 +2176,9 @@ mod tests {
         // A review's own text says which review it was.
         let reviews: Vec<Option<&str>> = d.comments.iter().map(|c| c.review.as_deref()).collect();
         assert_eq!(reviews, vec![None, Some("CHANGES_REQUESTED"), None, None]);
+        // A thread's comment says the review it went in with, when GitHub says.
+        let in_review: Vec<Option<&str>> = d.comments.iter().map(|c| c.in_review.as_deref()).collect();
+        assert_eq!(in_review, vec![None, None, Some("R1"), None]);
         // A thread says its line, whether the PR moved it since, and how many replies follow.
         // The first is on a line the PR removes, numbered as the file was.
         let threads: Vec<(Option<u64>, bool, bool, u64)> = d.comments[2..].iter().map(|c| (c.line, c.before, c.outdated, c.replies)).collect();
