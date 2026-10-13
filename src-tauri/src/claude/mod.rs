@@ -206,8 +206,10 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn skips_permission_prompts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        // A live session only by its registry entry, which a Claude app session's mode is found
+        // through; one that isn't running by the mode its latest prompt went in.
         let registry = session_entry(&ctx.account.home_path(), s);
-        registry.is_some() && permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref() == Some("bypassPermissions")
+        (registry.is_some() || !s.live) && permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref() == Some("bypassPermissions")
     }
 
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {

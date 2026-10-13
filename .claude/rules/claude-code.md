@@ -250,6 +250,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   with it. A stale `CODEALONG_SESSION` in the service's environment reaches the job (`cli.rs`
   `find_me`). `stop <job>` keeps the conversation; `rm <job>` removes it and its worktree once
   nothing holds the lock.
+- The background service retires a job left idle for an hour, whether its turn ended
+  (`settled`) or it sits at its prompt (`idle-prompt`): `<home>/daemon.log` says `[bg] bg retire
+  <job>: idle-prompt, idle 61m`, then `bg settled <job> (done)`, and the job leaves the roster's
+  `workers`. Its `state.json` keeps `state: "done"` (`lastTerminalAt` the retirement), and
+  `--resume <id> --bg` brings it back under the same job ID (`bg claimed-spare <job> (fleet)`).
+  Seen across a day's jobs on 2.1.296 (2026-10-12); whether a setting changes the hour wasn't
+  looked into. Why a session it started may resume it: send.rs (`wakes`).
 - `--bg` takes itself out of the arguments before it reads them (2.1.284 to 2.1.290), so a
   background start's prompt goes after `--`: `claude/start.rs` (`background_args`). The job gets
   what's left with `--session-id` added (the roster's `dispatch.launch.args`); after `--` the

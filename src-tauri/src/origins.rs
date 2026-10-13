@@ -95,6 +95,13 @@ impl Store {
         self.sessions.get(key).filter(|e| e.helper && e.known).map(|e| e.from.as_str())
     }
 
+    /// The session whose agent started the session with this key (`codealong start`, a helper or
+    /// not), when the start said which session it made (`Entry::known`). A session that isn't
+    /// running is resumed for a message from one it started this way (send.rs `wakes`).
+    pub fn known_starter_of(&self, key: &str) -> Option<&str> {
+        self.sessions.get(key).filter(|e| e.how == OriginHow::Started && e.known).map(|e| e.from.as_str())
+    }
+
     /// The session `key` moved to (start.rs `move_to`): a fork of it into another account of its
     /// harness that `exists` says is still there, followed on where that one moved too. A copy
     /// closed before it was sent anything is still there, made again when it's next sent
@@ -370,8 +377,14 @@ mod tests {
         // A session another started without it is no helper.
         store.sessions.insert("codex:codex:b".into(), Entry { from: "claude:claude:boss".into(), how: OriginHow::Started, at: 1, helper: false, report: false, known: false });
         assert_eq!(store.helper_of("codex:codex:b"), None);
+        assert_eq!(store.known_starter_of("codex:codex:b"), None);
         store.sessions.get_mut("codex:codex:b").unwrap().known = true;
         assert_eq!(store.known_helper_of("codex:codex:b"), None);
+        // Known, it and the helper were both started by the session; a fork wasn't.
+        assert_eq!(store.known_starter_of("codex:codex:b"), Some("claude:claude:boss"));
+        assert_eq!(store.known_starter_of("opencode:opencode:new"), Some("claude:claude:boss"));
+        store.sessions.insert("codex:codex:copy".into(), Entry { from: "claude:claude:boss".into(), how: OriginHow::Fork, at: 1, helper: false, report: false, known: true });
+        assert_eq!(store.known_starter_of("codex:codex:copy"), None);
         // Written down only when it is one.
         let json = serde_json::to_value(&store.sessions).unwrap();
         assert_eq!((json["opencode:opencode:new"]["helper"].as_bool(), json["codex:codex:b"].get("helper")), (Some(true), None));

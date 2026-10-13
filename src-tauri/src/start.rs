@@ -96,7 +96,17 @@ pub const OUT_OF_SIGHT: [Place; 2] = [Place::Background, Place::Codealong];
 /// service of its own). Helpers (`codealong start --helper`) start there unless told where;
 /// automatic reviews go where `[reviews] start` says (autoreview.rs `review_places`).
 pub fn out_of_sight(a: &AccountCfg, home: &Path) -> Option<Place> {
-    let offered = ordered_places(a, home).unwrap_or_default();
+    out_of_sight_of(a, &ordered_places(a, home).unwrap_or_default())
+}
+
+/// Where one of `a`'s sessions that isn't running goes on out of sight, of the places it can go
+/// on in (`resume_places`), in `out_of_sight`'s order: for a resume Codealong makes by itself on a
+/// message from a session it started (send.rs `wakes`).
+pub fn resume_out_of_sight(a: &AccountCfg, home: &Path) -> Option<Place> {
+    out_of_sight_of(a, &resume_places(a, home))
+}
+
+fn out_of_sight_of(a: &AccountCfg, offered: &[Place]) -> Option<Place> {
     let service = crate::harness::of(a).is_some_and(|h| h.runs_in_background());
     let order = if service { OUT_OF_SIGHT } else { [Place::Codealong, Place::Background] };
     order.into_iter().find(|p| offered.contains(p))
@@ -694,7 +704,7 @@ fn resume_prompt<'a>(prompt: &'a str, s: &crate::model::Session) -> (&'a str, bo
 }
 
 /// Where a place is, as "can't go on …" says it.
-fn place_words(place: Place, cfg: &Config) -> String {
+pub(crate) fn place_words(place: Place, cfg: &Config) -> String {
     match place {
         Place::Terminal => format!("in {}", launch::terminal_name(&cfg.apps.terminal)),
         Place::Background => "in the background".into(),

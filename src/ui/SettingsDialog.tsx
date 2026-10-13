@@ -11,7 +11,7 @@ import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -383,12 +383,17 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
   );
 }
 
-/** `[limits] when_hit`: what's done about a session its account's usage limit stopped; and
- *  `[sessions] continue_after_network_error`, about one a lost connection stopped. */
+/** `[limits] when_hit`: what's done about a session its account's usage limit stopped;
+ *  `[sessions] continue_after_network_error`, about one a lost connection stopped; and
+ *  `[sessions] resume_for_sessions_it_started`, about one that stopped before a session it
+ *  started sent it a message. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const value = cfg.limits?.when_hit ?? 'suggest';
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
-  const continues = cfg.sessions?.continue_after_network_error ?? true;
+  const sessions: SessionsCfg = { continue_after_network_error: true, resume_for_sessions_it_started: true, ...cfg.sessions };
+  const continues = sessions.continue_after_network_error;
+  const resumes = sessions.resume_for_sessions_it_started ?? true;
+  const saveSessions = (change: Partial<SessionsCfg>) => void onSave({ ...cfg, sessions: { ...sessions, ...change } });
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <div className="ca-field">
@@ -399,9 +404,16 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         </small>
       </div>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={continues} onChange={(e) => void onSave({ ...cfg, sessions: { continue_after_network_error: e.target.checked } })} />
+        <input type="checkbox" checked={continues} onChange={(e) => saveSessions({ continue_after_network_error: e.target.checked })} />
         <span>Carry on after a network error</span>
         <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, for now.</small>
+      </label>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={resumes} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />
+        <span>Resume a session for one it started</span>
+        <small>
+          When a session’s agent started another with codealong start, and that one sends it a message once the first has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent. Not one you archived or marked done, nor one that skips permission prompts when the sender doesn’t.
+        </small>
       </label>
     </fieldset>
   );

@@ -11,6 +11,14 @@ export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'cl
 export type Merge = 'clean' | 'conflicts' | 'behind' | 'blocked' | 'unstable' | 'unknown';
 
 /** The usage limit a session's last turn ended on (peer model.rs `SessionLimit`). */
+/** `[sessions]` (config.rs `SessionsCfg`). */
+export interface SessionsCfg {
+  continue_after_network_error: boolean;
+  /** A session that isn't running is resumed out of sight when one it started sends it a
+   *  message (send.rs `wakes`). Files from before it have none: on. */
+  resume_for_sessions_it_started?: boolean;
+}
+
 /** A turn a lost connection ended (peer/src/model.rs `ConnectionLost`). */
 export interface ConnectionLost {
   /** When the turn ended. */
@@ -528,8 +536,8 @@ export interface Config {
   /** What's done about a session a usage limit stopped. Older files have none: suggest. */
   limits?: { when_hit: WhenLimited };
   /** What Codealong does for sessions by itself. Older files have none: carry on after a lost
-   *  connection. */
-  sessions?: { continue_after_network_error: boolean };
+   *  connection, and resume a session for one it started. */
+  sessions?: SessionsCfg;
   /** Reviewing the PRs that wait on your review without being asked. Older files have none: off. */
   reviews?: ReviewsCfg;
   /** Your PRs. Older files have none: no nudges until turned on PR by PR. */

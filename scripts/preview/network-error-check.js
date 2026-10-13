@@ -2,8 +2,10 @@
 // claude/transcript.rs `connection_lost_at`) in the Sessions view: its row says Network error, and
 // that Codealong carries it on, in place of Jev's Blocked, which read Claude Code's error; and that
 // Settings › Automation has the setting that turns carrying on off (`[sessions]
-// continue_after_network_error`), on by default, saved as config.toml has it. The loss is put on a
-// real Claude Code session, since a board rarely has one.
+// continue_after_network_error`), on by default, saved as config.toml has it; and beside it the one
+// that resumes a session for one it started (`resume_for_sessions_it_started`, send.rs `wakes`),
+// on by default too, each saved without changing the other. The loss is put on a real Claude Code
+// session, since a board rarely has one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/network-error-check.js
 (function () {
   var key = null;
@@ -34,9 +36,11 @@
     return all('.ca-agentline-text').filter(function (t) { return t.querySelector('.ca-agentline-title') && t.querySelector('.ca-agentline-title').textContent === title; })[0];
   };
   var nav = function (label) { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
-  var box = function () {
-    return all('.ca-settings-check').filter(function (l) { return /Carry on after a network error/.test(l.textContent); })[0];
+  var labelled = function (re) {
+    return function () { return all('.ca-settings-check').filter(function (l) { return re.test(l.textContent); })[0]; };
   };
+  var box = labelled(/Carry on after a network error/);
+  var resumeBox = labelled(/Resume a session for one it started/);
 
   (async function () {
     try {
@@ -58,6 +62,14 @@
       await until(function () { return calls('save_config').length > 0; }, 3000, 'unchecking it saved nothing');
       var cfg = calls('save_config')[0][1].config;
       check('turned off, it saves [sessions] as config.toml has it', cfg && cfg.sessions && cfg.sessions.continue_after_network_error === false, JSON.stringify(cfg && cfg.sessions));
+      check('and leaves resuming a session for one it started on', cfg && cfg.sessions && cfg.sessions.resume_for_sessions_it_started === true, JSON.stringify(cfg && cfg.sessions));
+      await until(function () { return !!resumeBox(); }, 3000, 'no resume setting in Settings › Automation');
+      var resume = resumeBox().querySelector('input');
+      check('resuming a session for one it started is there, on by default', resume.checked, String(resume.checked));
+      resume.click();
+      await until(function () { return calls('save_config').length > 1; }, 3000, 'unchecking resuming saved nothing');
+      var then = calls('save_config')[1][1].config;
+      check('turned off, it saves resume_for_sessions_it_started = false', then && then.sessions && then.sessions.resume_for_sessions_it_started === false, JSON.stringify(then && then.sessions));
     } catch (e) {
       return stopped(e);
     }

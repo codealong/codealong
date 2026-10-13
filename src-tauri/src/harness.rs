@@ -206,10 +206,12 @@ pub trait Adapter: Sync {
         false
     }
 
-    /// Whether the live session skips permission prompts, as its own files say. A message it
-    /// sends another session through Codealong may then claim that, as Claude Code's own
-    /// messages between sessions claim their sender's permission class (send.rs). False when
-    /// Codealong can't tell.
+    /// Whether the session skips permission prompts, as its own files say: a live one as it
+    /// runs, one that isn't running as it did when it last ran. A message a live one sends
+    /// another session through Codealong may then claim that, as Claude Code's own messages
+    /// between sessions claim their sender's permission class, and one that isn't running isn't
+    /// resumed on a message it would hold for its user (send.rs `wakes`). False when Codealong
+    /// can't tell.
     fn skips_permission_prompts(&self, _ctx: &Ctx, _session: &Session) -> bool {
         false
     }

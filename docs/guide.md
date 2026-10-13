@@ -1419,6 +1419,19 @@ its card's popover on the canvas lists them too. On the canvas, hovering or sele
 draws a line from the session it came from and to the ones that came of it, and a session's card on
 the desktop does the same to the cards of those sessions pinned on the same screen.
 
+A session started by another's `codealong start` can tell that one what it found with `codealong
+session send`, even once that one has stopped: Claude Code's background service ends a job left
+idle at its prompt for an hour, so the session that asked often isn't running by the time the work
+is done. Codealong resumes it out of sight (Claude Code's background service, else in Codealong or a
+terminal behind your windows) on the account's own model, with the message, which starts with a line
+saying Codealong sent it by itself and then with the sending agent's, so it's read as neither yours
+nor leave to do what you haven't allowed. Only when the start said which session it made (as for
+helpers, below), never for one you archived or marked done, one that goes on in the Claude app, or
+one that skips permission prompts when the sender doesn't, which would hold the message for you if
+it were running; the sender is told why. `[sessions] resume_for_sessions_it_started = false`
+(Settings › Automation) turns it off, and nothing is sent to a session that isn't running, as for
+any other agent's message.
+
 ### Helpers
 
 A helper is a session that works for an agent rather than for you: one an agent started with

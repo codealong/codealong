@@ -490,6 +490,7 @@ when_hit = "suggest"           # a session stopped at its usage limit offers a m
 
 [sessions]
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Automation)
+resume_for_sessions_it_started = true  # resume a session that isn't running, out of sight, when one it started sends it a message (Settings › Automation)
 
 [reviews]
 auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Automation)

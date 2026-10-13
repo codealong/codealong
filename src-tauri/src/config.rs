@@ -260,11 +260,18 @@ pub struct SessionsCfg {
     /// the network dropped) is told to carry on once the API can be reached again (reconnect.rs).
     #[serde(default = "yes")]
     pub continue_after_network_error: bool,
+    /// A session that isn't running is resumed out of sight when a session it started sends it
+    /// a message (`codealong session send`), with that message, rather than nothing being sent:
+    /// it asked for the work the message reports (send.rs `wakes`). Claude Code's background
+    /// service ends a job left idle at its prompt for an hour, so a session waiting to hear
+    /// back otherwise never does.
+    #[serde(default = "yes")]
+    pub resume_for_sessions_it_started: bool,
 }
 
 impl Default for SessionsCfg {
     fn default() -> Self {
-        SessionsCfg { continue_after_network_error: true }
+        SessionsCfg { continue_after_network_error: true, resume_for_sessions_it_started: true }
     }
 }
 
@@ -1197,7 +1204,7 @@ const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` se
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
-const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n";
+const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, resume it out of sight with that message.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks), as a message of yours. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that and failing checks.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
@@ -1588,7 +1595,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["limits"]["when_hit"], Value::from(cfg.limits.when_hit.as_str()));
     }
 
-    // Like [updates]: only a file that has the table or turns continuing off gets it.
+    // Like [updates]: only a file that has the table or turns one of these off gets it.
     if cfg.sessions != SessionsCfg::default() || doc.get("sessions").is_some() {
         if !doc.get("sessions").is_some_and(toml_edit::Item::is_table_like) {
             let mut t = Table::new();
@@ -1598,6 +1605,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "sessions", after);
         }
         set_value(&mut doc["sessions"]["continue_after_network_error"], Value::from(cfg.sessions.continue_after_network_error));
+        set_value(&mut doc["sessions"]["resume_for_sessions_it_started"], Value::from(cfg.sessions.resume_for_sessions_it_started));
     }
 
     // The same: only a file that has the table or turns reviews on gets it.
@@ -1951,6 +1959,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(SESSIONS_COMMENT);
         s.push_str("[sessions]\n");
         s.push_str(&format!("continue_after_network_error = {}\n", cfg.sessions.continue_after_network_error));
+        s.push_str(&format!("resume_for_sessions_it_started = {}\n", cfg.sessions.resume_for_sessions_it_started));
     }
     if cfg.reviews != ReviewsCfg::default() {
         s.push('\n');
@@ -2076,7 +2085,7 @@ mod tests {
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
-            sessions: SessionsCfg { continue_after_network_error: false },
+            sessions: SessionsCfg { continue_after_network_error: false, resume_for_sessions_it_started: false },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
@@ -2479,13 +2488,28 @@ mod tests {
         let mut off = full();
         off.sessions.continue_after_network_error = false;
         let out = with_config(&old, &off).unwrap();
-        assert!(out.contains(&format!("{SESSIONS_COMMENT}[sessions]\ncontinue_after_network_error = false")), "{out}");
+        assert!(out.contains(&format!("{SESSIONS_COMMENT}[sessions]\ncontinue_after_network_error = false\nresume_for_sessions_it_started = true")), "{out}");
         assert!(out.find("[sessions]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
         // Turned back on, the table stays, saying so.
         let on = with_config(&out, &full()).unwrap();
         assert!(on.contains("[sessions]\ncontinue_after_network_error = true"), "{on}");
+    }
+
+    #[test]
+    fn resuming_a_session_for_one_it_started_is_on_unless_the_file_turns_it_off() {
+        assert!(toml::from_str::<Config>("").unwrap().sessions.resume_for_sessions_it_started);
+        // A file written before the setting keeps continuing after a network error as it was.
+        let older: Config = toml::from_str("[sessions]\ncontinue_after_network_error = false\n").unwrap();
+        assert!(older.sessions.resume_for_sessions_it_started && !older.sessions.continue_after_network_error);
+        let old = render(&full());
+        let mut off = full();
+        off.sessions.resume_for_sessions_it_started = false;
+        let out = with_config(&old, &off).unwrap();
+        assert!(out.contains("[sessions]\ncontinue_after_network_error = true\nresume_for_sessions_it_started = false"), "{out}");
+        assert_eq!(parse(&out).unwrap(), off);
+        assert_eq!(parse(&render(&off)).unwrap(), off);
     }
 
     #[test]
