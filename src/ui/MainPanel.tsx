@@ -5,7 +5,7 @@
 // worktree's or todo's the PR its chip shows, with the way back (`drill`), the list staying as it
 // was. The window passes what the panels show and what their clicks do.
 
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { dismissTodoHint, openUrl } from '../api';
 import type { Entities } from '../canvas/model';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -135,6 +135,10 @@ export function MainPanel(props: MainPanelProps) {
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
+  // Whether the panel shows a session's strip now, set as it renders: Sessions' panel can show a
+  // PR it drilled to or what's picked instead, while the queue still has the session selected.
+  const stripShown = useRef(false);
+  stripShown.current = false;
 
   const todoPanel = (item: TodoItem) =>
     drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
@@ -231,6 +235,7 @@ export function MainPanel(props: MainPanelProps) {
   const sessionPanel = (lane: Lane, session: Session, back?: { label: string; onBack: () => void }, row?: string) => {
     // In Sessions it works through what waits on you: what's left after it, and how the last went.
     const queued = row !== undefined;
+    if (queued) stripShown.current = true;
     return (
       <SessionPanel
         key={session.key}
@@ -258,10 +263,10 @@ export function MainPanel(props: MainPanelProps) {
         onFailed={(why) => {
           // Not dealt with after all: it comes round again. Its box has gone, as the panel went on
           // to the next, so the strip over that one says why, as the waiting window's does; a
-          // toast where there's no strip (another view).
+          // toast where no strip shows now (another view, a PR drilled to, several picked).
           queue.again(session.key);
           const said = `Didn’t send to ${session.title}, so it’s back in its box: ${why}`;
-          if (!queue.say({ text: said, error: true })) setToast(said);
+          if (!stripShown.current || !queue.say({ text: said, error: true })) setToast(said);
         }}
         queue={queued ? queue.queue : undefined}
         notice={queued ? queue.notice : null}

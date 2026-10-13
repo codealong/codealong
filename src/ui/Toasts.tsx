@@ -112,20 +112,25 @@ export function useToasts(): ToastState {
 }
 
 /** Where a toast goes while one is `up`: centered on what `anchor` gives, at its foot, and no
- *  wider than it. What the anchor is can change while a toast shows (a panel taking the whole
- *  window hides the board), so it's asked again whenever the one it gave changes size. */
+ *  wider than it. It's measured again whenever the anchor or anything beside it changes size: a
+ *  column before the board can change width without the board changing its own (at its
+ *  narrowest, the panel gives way instead), and move it. What the anchor is can change too (a
+ *  panel taking the whole window hides the board), so it's asked again each time. */
 function usePlace(anchor: () => Element | null, up: boolean): CSSProperties | undefined {
   const [place, setPlace] = useState<CSSProperties>();
   const anchorNow = useLatest(anchor);
   useLayoutEffect(() => {
     if (!up) return;
-    let watched: Element | null = null;
+    let watched: Element[] = [];
     const measure = () => {
       const el = anchorNow.current();
-      if (el !== watched) {
-        if (watched) observer.unobserve(watched);
-        if (el) observer.observe(el);
-        watched = el;
+      // Watched afresh only when what's there changed, since an element newly watched reports
+      // its size once, which would measure again.
+      const now = el ? Array.from(el.parentElement?.children ?? [el]) : [];
+      if (now.length !== watched.length || now.some((x, i) => x !== watched[i])) {
+        observer.disconnect();
+        for (const x of now) observer.observe(x);
+        watched = now;
       }
       if (!el) {
         setPlace(undefined);

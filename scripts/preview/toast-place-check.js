@@ -1,8 +1,11 @@
 // Checks where the main window says things around a session's panel (Toasts.tsx `usePlace`,
 // MainPanel.tsx): a message that didn't go after ⌘⏎ went on to the next is said on the next one's
-// strip, not in a toast over its box; a toast sits at the foot of the board, never on the panel's
-// message box, and with the panel taking the whole window, above the box.
-//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
+// strip, not in a toast over its box, and in a toast where no strip shows by then (several
+// picked); a toast sits at the foot of the board, never on the panel's message box, and follows
+// the board when a narrower sidebar moves it without changing its width (the window is narrow
+// enough for the board to be at its narrowest); with the panel taking the whole window, above
+// the box.
+//   PREVIEW_SIZE=1200,900 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/toast-place-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
@@ -11,8 +14,8 @@
   var picked = [];
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    // The first one's message fails once the panel has gone on from it.
-    if (cmd === 'send_to_session' && picked[0] && (args || {}).key === picked[0].key) {
+    // Every message fails, once the panel has gone on from it.
+    if (cmd === 'send_to_session') {
       window.__calls.push([cmd, args, options]);
       return new Promise(function (_, reject) { setTimeout(function () { reject('Its terminal is gone.'); }, 400); });
     }
@@ -101,6 +104,39 @@
       var t = rect(toast());
       var board = rect(document.querySelector('.ca-board'));
       check('and back over the board with the list back', t.left >= board.left && t.right <= board.right, JSON.stringify({ toast: t, board: board }));
+      return archived();
+    })
+    .then(function () {
+      var before = rect(document.querySelector('.ca-board'));
+      document.querySelector('.ca-win-body').style.setProperty('--sidebar-w', '240px');
+      return wait(300).then(function () { return before; });
+    })
+    .then(function (before) {
+      var t = rect(toast());
+      var board = rect(document.querySelector('.ca-board'));
+      var composer = rect(document.querySelector('.ca-sessinsp .ca-composer'));
+      note('the board went from ' + before.left + '–' + before.right + ' to ' + board.left + '–' + board.right);
+      check('a narrower sidebar moves the board without changing its width', board.left < before.left && board.right - board.left === before.right - before.left, JSON.stringify({ before: before, after: board }));
+      check('and the toast goes with it', Math.abs((t.left + t.right) / 2 - (board.left + board.right) / 2) <= 1 && !overlaps(t, composer), JSON.stringify({ toast: t, board: board, box: composer }));
+      return until(box, 3000, 'Toast B’s box');
+    })
+    .then(function () {
+      box().focus();
+      type(box(), 'And the lint');
+      return wait(50);
+    })
+    .then(function () {
+      box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+      return on('Toast A');
+    })
+    .then(function () {
+      row(1).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, metaKey: true }));
+      return until(function () { return q('.ca-pick'); }, 3000, 'the two picked');
+    })
+    .then(function () { return until(function () { return toast() && /Didn’t send to Toast B/.test(toast().textContent); }, 3000).catch(function () {}); })
+    .then(function () {
+      var t = toast();
+      check('with several picked by then, a message that didn’t go is said in a toast', !!t && /Didn’t send to Toast B, so it’s back in its box: Its terminal is gone\./.test(t.textContent), t ? t.textContent : 'no toast');
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);
