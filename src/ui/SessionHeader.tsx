@@ -2,11 +2,14 @@
 // the main window, the floating bar's peek and the waiting window (SessionPanel.tsx puts
 // it over the conversation in all three). It keeps to a few lines so the conversation has the room:
 // the title with the ways to open it and act on it (its folder in your terminal and your editors
-// among them), one line of where it stands, where it works and, last as on a row, its account
-// (the harness's name alone didn't say which of its accounts), and one of the PRs it worked on
+// among them), one line of where it stands and where it works, and one of the PRs it worked on
 // (each one's card on hover), the latest page on the web it made (ArtifactBits.tsx), the todo
 // it's on, and how many side conversations it has (SideStrip.tsx), which shows them above the
 // box. The rest is in Details and the ⋯ menu.
+//
+// Its account (the harness's name alone didn't say which of its accounts) is under the reply box,
+// beside where you write to it (SessionReply.tsx); where there's no box, as for a session on a
+// device that can't be reached, it ends the line of where it stands, as it does on a row.
 //
 // A session that came of another (a fork, or started by its agent) names it in a line over the
 // title, and the latest session that came of it hangs under the title with its status; a quiet
@@ -108,6 +111,8 @@ export interface SessionHeaderProps {
   /** In a card short of room (the peek, the waiting window): Details is left to the main window, so
    *  the title keeps its place beside the buttons. */
   compact?: boolean;
+  /** The reply box under the conversation names its account, so the header doesn't. */
+  accountBelow?: boolean;
 }
 
 /** A session's name as a field: ⏎ keeps what's typed, Escape leaves the name as it was, and so
@@ -234,7 +239,7 @@ function SessionCost({ sessionKey }: { sessionKey: string }) {
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -360,8 +365,12 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
                 <BranchLabel branch={branch} />
               </>
             )}
-            <span aria-hidden="true">·</span>
-            <AccountLabel session={s} />
+            {!accountBelow && (
+              <>
+                <span aria-hidden="true">·</span>
+                <AccountLabel session={s} />
+              </>
+            )}
           </>
         )}
       </div>

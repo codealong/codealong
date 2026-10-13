@@ -70,7 +70,7 @@ export interface Hotkeys {
 /** How the one before went: sent, or why it didn't go. */
 export type Notice = { text: string; error: boolean };
 
-export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact'> {
+export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the waiting
    *  window), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';
@@ -386,6 +386,8 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   // by `!` goes into the session itself, as a reply does, where it can.
   const folder = shortOf(s.key) ? null : runFolder(lane, s);
   const inSession = runsInSession(s, useWay(s));
+  // The box goes under the conversation unless the session's device can't be reached from here.
+  const replies = !device || (device.online && device.remoteControl);
   const sessionNow = useLatest(s);
   const run = useMemo(
     () => (folder === null ? undefined : { folder, terminal, session: inSession ? (command: string) => sendAhead(sessionNow.current, command, { toDraft: false }) : undefined }),
@@ -394,14 +396,14 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
-          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} />
+          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} />
           <SessionThread
             key={s.key}
             session={s}
             now={now}
             onOpen={openIt}
             onLoaded={onLoaded}
-            answeredBelow={!device || (device.online && device.remoteControl)}
+            answeredBelow={replies}
             run={run}
             onMenu={onThreadMenu}
             fallback={

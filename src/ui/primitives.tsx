@@ -643,8 +643,8 @@ export function HarnessChip({ session, withStatus = true, named = false, onOpen,
   );
 }
 
-/** A session's account where a line of text names it (its header), as its chip shows it: the icon
- *  for where it runs and the name as typed, with its harness on hover. */
+/** A session's account where a line of text names it (under its reply box), as its chip shows it:
+ *  the icon for where it runs and the name as typed, with its harness on hover. */
 export function AccountLabel({ session }: { session: Session }) {
   return (
     <span className="ca-account" title={`Its account: ${session.account} (${HARNESS_WORD[session.harness]})`}>

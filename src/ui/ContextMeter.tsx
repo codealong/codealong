@@ -1,9 +1,9 @@
-// How full a session's context window is, under its reply box at the right, as Claude Code and
-// Codex show theirs: a small pie and its share of the window (or its tokens, where the window
-// isn't known). Hovering it, or giving it the keyboard, shows a card with the numbers and what
-// the session has cost so far, from the token ledger (ledger.rs). The figure comes with the
-// session (`Session.context`), as its harness counted its latest call; another device's sessions
-// show it too, and their cost is that device's to say.
+// How full a session's context window is, under its reply box at the right, after its account, as
+// Claude Code and Codex show theirs: a small pie and its share of the window (or its tokens, where
+// the window isn't known). Hovering it, or giving it the keyboard, shows a card with the numbers
+// and what the session has cost so far, from the token ledger (ledger.rs). The figure comes with
+// the session (`Session.context`), as its harness counted its latest call; another device's
+// sessions show it too, and their cost is that device's to say.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';

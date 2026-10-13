@@ -146,13 +146,17 @@
   align-items: center;
   gap: var(--space-2);
 }
-/* What the box has to say at the left, and how full the context is at the right
-   (ContextMeter.tsx). */
+/* What the box has to say at the left, and at the right the session's account and how full its
+   context is (ContextMeter.tsx). The account keeps its name whole: what the box says gives way. */
 .ca-composer-under {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+}
+.ca-composer-under .ca-account {
+  flex: none;
+  margin-left: auto;
 }
 .ca-composer-note {
   flex: 1;

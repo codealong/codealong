@@ -261,8 +261,9 @@ close the window. It comes back at launch where it was left, empty until you ask
 
 The selected session's panel keeps its top to three lines so the conversation has the room: the
 title with the ways to open it, mark it seen, expand the panel, its details (ⓘ: account, ID, folder,
-times) and its menu (⋯, New session here among the rest); where it stands, its worktree and branch,
-and its account (its harness on hover); and the PRs it worked on (as the PRs view links them, else
+times) and its menu (⋯, New session here among the rest); where it stands, its worktree and branch
+(its account is under the reply box, below, or ends this line where there's no box: a session on a
+device that can't be reached from here); and the PRs it worked on (as the PRs view links them, else
 its worktree's), each a chip that shows the PR's panel in place of the session's on a click (in
 the floating windows, in PRs), opens it on GitHub on a double-click and shows the PR's card on
 hover, with the todo it's on and +N for the rest. Beside its PRs is the latest page on the web it
@@ -339,8 +340,9 @@ its prompt back, so the agent never sees it: the panel shows that prompt faint, 
 and puts it back in the box, as Claude Code does in its own. The next message Codealong types into
 that terminal clears Claude Code's copy first (not in Terminal, which can't press a single key).
 
-Under the box at the right, a small pie says how full the session's context window is, as its
-latest call left it, counted as its harness counts it for its own meter: Claude Code's input,
+Under the box at the right are the session's account (its harness on hover), beside where you
+write to it, and a small pie that says how full its context window is, as its latest call left
+it, counted as its harness counts it for its own meter: Claude Code's input,
 cache reads and cache writes against the model's window (a million tokens for the 1M models),
 Codex's tokens against the window its rollout names, OpenCode's last message. It turns amber past
 80% and red past 95%, when the agent is about to compact or run out of room; where the window
