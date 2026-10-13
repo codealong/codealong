@@ -1087,10 +1087,14 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       />
     );
   }
-  // A plan or a held message reads as prose, and its answers say what they do to it.
+  // A plan or a held message reads as prose, and its answers say what they do to it. A command
+  // for your terminal says where it would run, and as whom.
   const plan = !!pending.plan;
   const message = !!pending.message;
-  const says = message
+  const run = pending.terminal ?? null;
+  const says = run
+    ? `Runs in a new ${run.app} tab in ${run.cwd}, as you: your shell and sign-ins, outside any sandbox. What it prints goes back to its agent. Deny tells it no, or write below what to do instead.`
+    : message
     ? 'Deliver gives it to the session as that session’s message. Deny drops it, and its sender is told it was declined.'
     : plan
     ? 'Allow approves the plan. Deny keeps it planning, or write below what to change.'
@@ -1102,15 +1106,15 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   return (
     <div className="ca-composer is-approval">
       <div className="ca-approval-head">
-        <Icon name={message ? 'message-circle' : 'alert'} size={14} />
-        <span>{message ? 'Holds a message for you' : plan ? 'Wants you to approve its plan' : 'Wants to run'}</span>
+        <Icon name={run ? 'terminal' : message ? 'message-circle' : 'alert'} size={14} />
+        <span>{run ? 'Wants to run in your terminal' : message ? 'Holds a message for you' : plan ? 'Wants you to approve its plan' : 'Wants to run'}</span>
         {!s.hosted && (
           <button type="button" className="ca-linkbtn" onClick={onOpen}>
             Open in {where}
           </button>
         )}
       </div>
-      {!plan && (
+      {!plan && !run && (
         <div className="ca-approval-label">
           <Rich text={pending.label} now={0} />
         </div>

@@ -1165,6 +1165,24 @@ and the next that comes to wait on you shows by itself. Brought up again while i
 where you were; closed and brought up again, it starts on the longest wait. Where it was is kept for
 the next launch.
 
+### Commands in your terminal
+
+An agent can ask to run a command in a terminal of yours, as you (`codealong terminal run`): a
+sign-in that opens a browser or asks for a password (`gcloud auth login`, `aws sso login`), a
+command that needs your identity rather than the agent's, a dev server you should see. Its session
+waits on you for it, wherever that shows (its panel, the notch, Waiting on you, the bar), under
+"Wants to run in your terminal", with the exact command and where it would run. Allow opens a new
+tab of your terminal beside the session's, in that folder, and runs it there in your login shell
+(zsh or bash, interactive, with your aliases and your sign-ins, outside any sandbox): you can watch
+it, type into it (a password prompt, a browser sign-in) and stop it with Ctrl-C, and once it ends
+the tab is yours again. What it prints goes back to the agent, colors and progress lines drawn over
+themselves resolved; what you type isn't kept, so a password typed at a prompt that hides it isn't
+either. Deny tells the agent no, with what you write in the box when you write something. It's asked
+every time: there's no Always, and only you allow it, on this Mac or from your phone, never the
+agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
+An agent can read what a run printed while it runs, interrupt it as Ctrl-C would, and close its tab
+once it's done (only while nothing of yours runs there).
+
 ### Floating bar
 
 A small bar on top of every window, on every Space and over full-screen apps, with a pill for each
@@ -1666,7 +1684,9 @@ it lives, and which account has room; `codealong session open` brings the main w
 session's conversation; `codealong session transcript` reads a session's conversation whatever its
 harness, `codealong sessions --waiting` lists what waits on you, and `codealong session suggest`
 puts replies above a session's box for you to send with a click; `codealong session
-stop|rename|fork` do what a session's menu does, and
+stop|rename|fork` do what a session's menu does; `codealong terminal run` asks you to run a command
+in your terminal and hands back what it printed (see *Commands in your terminal*), and `terminal
+read|wait|stop|list` read, wait on, interrupt and list those runs; and
 `session pending` and `session answer … deny` what its panel does, except letting a call through or
 answering its questions, which is its user's to do; `codealong session done` is Mark as done for
 what's the agent's own: its own session (`me`), which ends once its turn does and stays in Your turn
@@ -1699,7 +1719,9 @@ latest quick-panel starts in each repo went into a new worktree, in `starts.json
 PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked
 reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
 replies suggested for sessions, until the sessions move on, in `suggestions.json`; each session's
-emblem, the color Codealong gave it and the icon Jev picked, in `emblems.json`; what every
+emblem, the color Codealong gave it and the icon Jev picked, in `emblems.json`; each command you
+allowed an agent to run in your terminal, with what it printed, for a week in `terminal-runs/`;
+what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;

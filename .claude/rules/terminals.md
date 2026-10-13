@@ -130,6 +130,23 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   bash's interactive shells take comments. Lines typed before the shell is up (Ghostty's initial
   input) or after (iTerm2, Terminal) ran alike in zsh 5.9 and bash 3.2 on a pty.
 
+## Reading what a tab printed
+
+- Ghostty 1.3.1 gives a script no way to read a terminal's text (its dictionary has none; its
+  `write_screen_file` and `write_scrollback_file` actions go through the clipboard or a file it
+  opens). iTerm2's session `contents` and `text` are its visible screen only; Terminal's tab
+  `history` is its whole scrollback (`contents` is the tab itself). Checked 2026-10-12.
+- So a command an agent runs in your terminal (`codealong terminal run`) runs under
+  `/usr/bin/script -q -F <file>` in its tab, which keeps what it prints in any terminal:
+  `terminal.rs` (module header, `wrapper`). macOS's `script` exits with the command's status, and
+  `-F` writes each output as it comes. Without `-k` the file has no input, so a password typed at
+  a prompt that doesn't echo it isn't kept (checked in tmux with `read -s`, 2026-10-12).
+- Ctrl-C reaches the process group in the foreground of the tab's terminal, which the kernel's
+  process table has (`e_tpgid`): `procs.rs` (`foreground_group`). The command's shell runs with
+  `-i`, so job control puts a foreground command in a group of its own; zsh ends with 130 when it's
+  interrupted. `cargo test a_command_runs_in_a_tab_under_script -- --ignored` runs one in a tmux
+  session nobody sees, with your login shell.
+
 ## Testing
 
 - `cargo test ghostty_hands_over -- --ignored` opens a real Ghostty window that echoes a tricky

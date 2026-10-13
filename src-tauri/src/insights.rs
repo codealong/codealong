@@ -556,7 +556,7 @@ mod tests {
     #[test]
     fn an_approval_is_judged_by_the_whole_call() {
         let s = session(Status::Needs);
-        let pending = |label: &str, input: Option<&str>| crate::harness::Pending { id: "toolu_1".into(), label: label.into(), input: input.map(String::from), cannot: None, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false };
+        let pending = |label: &str, input: Option<&str>| crate::harness::Pending { id: "toolu_1".into(), label: label.into(), input: input.map(String::from), cannot: None, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None };
         let waiting = waiting_words(&pending("Bash · `rm -rf build`", Some("rm -rf build\ngit push --force origin main"))).unwrap();
         assert_eq!(waiting, "Bash · `rm -rf build`\nrm -rf build\ngit push --force origin main");
         assert_eq!(waiting_words(&pending("mcp__db__drop · `users`", Some("{\"table\": \"users\"}"))).unwrap(), "mcp__db__drop · `users`\n{\"table\": \"users\"}", "the tool's name stays with its arguments");

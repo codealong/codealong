@@ -4,7 +4,7 @@
 //! todos.json and a reply is the board the windows have. The socket is mode 0600: it answers
 //! the user running the app, and only them.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -104,6 +104,12 @@ pub enum Request {
         #[serde(default)]
         from: Option<u64>,
     },
+    /// A command an agent asks to run in a terminal of yours: the connection is held until you
+    /// answer it, and the reply says how (terminal.rs `reply`). A request whose command goes first
+    /// goes from the windows.
+    TerminalAsk { ask: crate::terminal::Ask },
+    /// Closes the tab a run of `codealong terminal run` opened, ending what runs in it.
+    TerminalClose { id: String },
 }
 
 /// How a reply starts when the app doesn't know the request: it's older than the command.
@@ -187,6 +193,10 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers, app: &tauri::A
             hold_permission_ask(engine, &hook, pid, home.as_deref(), at, from, &mut out);
             break;
         }
+        if let Ok(Request::TerminalAsk { ask }) = req {
+            hold_terminal_ask(engine, ask, &mut out);
+            break;
+        }
         let reply = handle_request(engine, peers, app, req);
         let mut text = serde_json::to_string(&reply).unwrap_or_else(|_| r#"{"ok":false,"error":"Couldn't encode the reply."}"#.into());
         text.push('\n');
@@ -249,8 +259,9 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
             Err(e) => Reply::err(crate::util::words(e)),
         },
-        // Held on its connection instead (`connection`).
-        Request::PermissionAsk { .. } => Reply::ok(Value::Null),
+        // Held on their connection instead (`connection`).
+        Request::PermissionAsk { .. } | Request::TerminalAsk { .. } => Reply::ok(Value::Null),
+        Request::TerminalClose { id } => answered(crate::terminal::close(&id).map_err(crate::util::words)),
     }
 }
 
@@ -276,6 +287,31 @@ fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Op
     let mut watch = crate::claude::asks::Watch::new(account.home_path(), pid, record);
     watch.from = from.unwrap_or(watch.from);
     crate::claude::asks::hold(out, asked, watch, &|| engine.hosted_changed());
+}
+
+/// Holds a command's request to run in your terminal until you answer it (terminal.rs). One that
+/// can't be asked for is refused at once: a command that wouldn't show as it is, one from a session
+/// the board doesn't have here, one for a folder that isn't there.
+fn hold_terminal_ask(engine: &Handle, ask: crate::terminal::Ask, out: &mut UnixStream) {
+    let refused = crate::terminal::refused(&ask.command)
+        .map(String::from)
+        .or_else(|| engine.read(|b| b.session(&ask.session).is_none()).then(|| "Codealong doesn't list the session that asks, so there's nowhere to ask its user.".to_string()))
+        .or_else(|| (!ask.cwd.is_absolute() || !ask.cwd.is_dir()).then(|| format!("{} isn't a folder here.", crate::util::tilde(&ask.cwd))));
+    if let Some(why) = refused {
+        let mut line = serde_json::to_string(&Reply::err(why)).unwrap_or_default();
+        line.push('\n');
+        let _ = out.write_all(line.as_bytes()).and_then(|_| out.flush());
+        return;
+    }
+    let asked = crate::terminal::Asked { id: crate::terminal::new_id(), ask, at: crate::util::now_ms() };
+    crate::terminal::hold(out, asked, &|| engine.hosted_changed());
+}
+
+/// Hands the running app a command's request to run in your terminal and waits, however long it
+/// takes, for your answer (terminal.rs `reply`). None when no app answered: none is up, or it quit
+/// first.
+pub fn ask_terminal(ask: &crate::terminal::Ask) -> Option<Result<Value, String>> {
+    ask_within(&Request::TerminalAsk { ask: ask.clone() }, Duration::ZERO)
 }
 
 fn answered<T: Serialize>(r: std::result::Result<T, String>) -> Reply {
@@ -347,15 +383,31 @@ pub fn ask_permission(hook: &Value, pid: u32, home: &std::path::Path, at: i64, f
 /// How long the command waits for the app's answer to most requests.
 pub const WAIT: Duration = Duration::from_secs(120);
 
+/// Whoever asked on a connection the app holds (a hook's permission request, a command to run in
+/// your terminal) has gone: its end is closed, its process having ended.
+pub fn hung_up(stream: &mut UnixStream) -> bool {
+    if stream.set_nonblocking(true).is_err() {
+        return true;
+    }
+    let mut b = [0u8; 1];
+    let gone = match stream.read(&mut b) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(e) => e.kind() != std::io::ErrorKind::WouldBlock,
+    };
+    let _ = stream.set_nonblocking(false);
+    gone
+}
+
 /// One request to the running app, or None when no app answers on the socket.
 pub fn ask(req: &Request) -> Option<Result<Value, String>> {
     ask_within(req, WAIT)
 }
 
-/// `ask`, waiting `wait` for the answer.
+/// `ask`, waiting `wait` for the answer, or for as long as it takes with zero.
 pub fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>> {
     let mut stream = UnixStream::connect(path()).ok()?;
-    let _ = stream.set_read_timeout(Some(wait));
+    let _ = stream.set_read_timeout((!wait.is_zero()).then_some(wait));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let mut text = serde_json::to_string(req).ok()?;
     text.push('\n');

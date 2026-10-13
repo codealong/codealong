@@ -1882,6 +1882,10 @@ export interface Pending {
   questions?: Question[];
   /** What it wrote with this isn't in its conversation until it's answered, only where it runs. */
   unwritten?: boolean;
+  /** It's a command its agent asks to run in a terminal of yours (`codealong terminal run`):
+   *  `input` is the command, which Allow runs in a new tab of `app` in `cwd`, as you. It's asked
+   *  every time, so there's no Always. */
+  terminal?: { cwd: string; app: string } | null;
 }
 
 /** A question an agent asks you, with choices to pick from. */

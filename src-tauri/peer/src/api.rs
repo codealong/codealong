@@ -547,7 +547,7 @@ pub struct Page {
 }
 
 /// What a session waits on you for, when it's a tool call you can allow or deny.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Pending {
     /// The request's own id: the tool call's (Claude Code) or the permission request's (OpenCode).
@@ -590,6 +590,23 @@ pub struct Pending {
     /// question comes in). The panel says where to read it meanwhile.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unwritten: bool,
+    /// It's a command the session's agent asks to run in a terminal of yours (`codealong terminal
+    /// run`): `input` is the command, which Allow runs in a new tab there, as you, and Deny
+    /// refuses. It's asked every time, so there's no `always`, and only you allow it: at its Mac
+    /// or from a phone, not from another Mac. Devices that don't know it show it as a call to
+    /// allow, which comes to the same. None from Macs before 2026-10-12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalRun>,
+}
+
+/// Where a command a session asks to run in your terminal would run (`Pending::terminal`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalRun {
+    /// The folder it runs in, as the windows show a path (`~/…`).
+    pub cwd: String,
+    /// The terminal app its tab opens in (`Ghostty`).
+    pub app: String,
 }
 
 /// A question an agent asks you, with choices to pick from.

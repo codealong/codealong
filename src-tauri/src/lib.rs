@@ -95,6 +95,7 @@ mod suggestions;
 mod tags;
 mod tailnet;
 mod teamfile;
+mod terminal;
 mod throttle;
 mod todojev;
 mod todos;

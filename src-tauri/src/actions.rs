@@ -487,8 +487,13 @@ fn pending(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(pending_of(engine, c.session()?)?)
 }
 
-/// What the session `key` waits on you for, as `pending` says.
+/// What the session `key` waits on you for, as `pending` says: a command its agent asks to run in
+/// your terminal first (terminal.rs), then what its harness asks.
 fn pending_of(engine: &Handle, key: &str) -> Result<Option<api::Pending>, String> {
+    if let Some(asked) = crate::terminal::of_session(key) {
+        let terminal = engine.read(|b| crate::launch::terminal_name(&b.apps.terminal_id));
+        return Ok(Some(crate::terminal::pending(&asked, &terminal)));
+    }
     if acp::hosts(key) {
         return Ok(acp::pending(key));
     }
@@ -531,6 +536,27 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     Ok(said)
 }
 
+/// Answers a command the session's agent asks to run in your terminal (terminal.rs): Deny refuses
+/// it, with your words when you wrote some, and Allow opens its tab. Only you allow it, from a
+/// window here or your phone: the command may only deny (`deny_only`), and another Mac's request
+/// may come from an agent there. It's asked every time, so there's no Always.
+fn answer_run(engine: &Handle, c: &Call, key: &str, id: &str, answer: api::Answer, saying: Option<&str>) -> Result<Value, String> {
+    let gone = || "It isn't waiting on that any more: its agent stopped asking.".to_string();
+    match answer {
+        api::Answer::Deny => crate::terminal::deny(key, id, saying).map(Value::String).ok_or_else(gone),
+        api::Answer::Always => Err("A command for your terminal is asked about every time: allow it once, or deny it.".into()),
+        api::Answer::Allow if !matches!(c.from, From::Here | From::Phone) => Err("A command runs in your terminal only when you allow it on its Mac or from your phone.".into()),
+        api::Answer::Allow => {
+            let open = |a: &crate::terminal::Asked| {
+                let (apps, lanes, title) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(&a.ask.session).map(|(_, s)| s.title.clone()).unwrap_or_default()));
+                crate::terminal::start(a, &apps, &lanes, &title)
+            };
+            let said = crate::terminal::allow(key, id, open).ok_or_else(gone)?.map_err(words)?;
+            Ok(Value::String(said))
+        }
+    }
+}
+
 /// The answer itself, as `answer_call` says.
 fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
@@ -538,6 +564,9 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     let (answer, id) = (p.answer.ok_or("The request has no answer.")?, p.id);
     let answers = p.answers.filter(|a| !a.is_null());
     let saying = p.message.as_deref().map(str::trim).filter(|m| !m.is_empty() && answer == api::Answer::Deny && answers.is_none());
+    if crate::terminal::is_id(&id) {
+        return answer_run(engine, c, key, &id, answer, saying);
+    }
     if acp::hosts(key) {
         // A session Codealong runs takes a message while it waits, after its current turn.
         let said = acp::answer(key, &id, answer).map_err(words)?;

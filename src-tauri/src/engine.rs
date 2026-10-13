@@ -2886,11 +2886,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 out.extend(r.sessions(a, &look));
             }
         }
-        // What only the process knows: about the sessions Codealong runs, and the permission
-        // requests Claude Code's hook holds here.
+        // What only the process knows: about the sessions Codealong runs, the permission
+        // requests Claude Code's hook holds here, and the commands agents ask to run in your
+        // terminal (terminal.rs).
         for s in &mut out {
             crate::acp::overlay(s, self.seen.seen_at(&s.key));
             crate::claude::asks::overlay(s);
+            crate::terminal::overlay(s);
             let account = self.cfg.accounts.iter().find(|a| a.name == s.account);
             s.stoppable = crate::harness::stoppable(s, account);
             s.steerable = crate::harness::steerable(s, account);

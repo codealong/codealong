@@ -1034,7 +1034,7 @@ impl crate::harness::Adapter for OpenCode {
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
         let svc = service(&ctx.account.home_path())?;
         // OpenCode takes "always" for any request it asks about.
-        permission_request(&svc, &s.id).map(|r| crate::harness::Pending { id: r.id, label: r.label, input: r.input, cannot: None, always: true, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false })
+        permission_request(&svc, &s.id).map(|r| crate::harness::Pending { id: r.id, label: r.label, input: r.input, cannot: None, always: true, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {

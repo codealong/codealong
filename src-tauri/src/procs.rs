@@ -44,11 +44,13 @@ pub fn parent_pid(pid: u32) -> Option<u32> {
     bsd_info(pid).map(|info| info.pbi_ppid).filter(|&p| p > 0)
 }
 
-/// A process as `ps` lists it: its parent, short name and terminal device.
+/// A process as `ps` lists it: its parent, short name, terminal device and the process group in
+/// the foreground of that terminal.
 struct Listed {
     ppid: u32,
     name: String,
     tdev: u32,
+    tpgid: i32,
 }
 
 /// A process's entry in the kernel's process table (`sysctl` KERN_PROC_PID), which `ps` reads
@@ -67,6 +69,7 @@ fn listed(pid: u32) -> Option<Listed> {
     const COMM_LEN: usize = 17;
     const E_PPID: usize = 560;
     const E_TDEV: usize = 572;
+    const E_TPGID: usize = 576;
     let mut buf = [0u64; SIZE / 8];
     let mut len: libc::size_t = SIZE;
     let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid as libc::c_int];
@@ -83,7 +86,7 @@ fn listed(pid: u32) -> Option<Listed> {
     }
     let comm = &bytes[P_COMM..P_COMM + COMM_LEN];
     let name = String::from_utf8_lossy(&comm[..comm.iter().position(|&b| b == 0).unwrap_or(COMM_LEN)]).into_owned();
-    Some(Listed { ppid: int(E_PPID) as u32, name, tdev: int(E_TDEV) as u32 })
+    Some(Listed { ppid: int(E_PPID) as u32, name, tdev: int(E_TDEV) as u32, tpgid: int(E_TPGID) })
 }
 
 /// A process's parent and name as `ps -c` shows them (its executable's file name, cut to 16
@@ -114,6 +117,13 @@ pub fn tty(pid: u32) -> Option<std::path::PathBuf> {
         std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
     };
     name.starts_with("tty").then(|| Path::new("/dev").join(name))
+}
+
+/// The process group in the foreground of the terminal a process runs in: the one Ctrl-C there
+/// would interrupt. None for a process with no terminal, or once it's gone.
+pub fn foreground_group(pid: u32) -> Option<u32> {
+    let p = listed(pid)?;
+    (p.tdev != u32::MAX && p.tpgid > 0).then_some(p.tpgid as u32)
 }
 
 /// A process and its ancestors up to launchd, nearest first.
@@ -825,6 +835,43 @@ mod tests {
     }
 
     use super::*;
+
+    /// A process made the leader of a new session on a terminal of its own is that terminal's
+    /// foreground group, as a shell in a tab is at its prompt.
+    #[test]
+    fn reads_the_foreground_group_of_a_process_terminal() {
+        use std::os::unix::process::CommandExt;
+        let (mut master, mut slave) = (0, 0);
+        // SAFETY: openpty fills the two descriptors; the name, settings and size may be null.
+        let opened = unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
+        assert_eq!(opened, 0, "a pseudo-terminal");
+        let mut cmd = Command::new("/bin/sleep");
+        cmd.arg("10").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // SAFETY: only async-signal-safe calls between fork and exec.
+        unsafe {
+            cmd.pre_exec(move || {
+                libc::setsid();
+                libc::ioctl(slave, libc::TIOCSCTTY as _, 0);
+                Ok(())
+            });
+        }
+        let mut child = cmd.spawn().expect("sleep");
+        let started = Instant::now();
+        let mut group = None;
+        while started.elapsed() < Duration::from_secs(5) && group != Some(child.id()) {
+            group = foreground_group(child.id());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        // SAFETY: closing the descriptors openpty gave.
+        unsafe {
+            libc::close(master);
+            libc::close(slave);
+        }
+        assert_eq!(group, Some(child.id()));
+        assert_eq!(foreground_group(u32::MAX - 1), None, "no such process");
+    }
 
     #[test]
     fn own_process_is_alive_and_has_a_start_time() {

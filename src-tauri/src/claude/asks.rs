@@ -16,7 +16,7 @@
 //! relaunch), or none is up when the hook asks, the hook asks again once one answers, for as
 //! long as the session still waits on it (`ask_until_replied`).
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -228,7 +228,7 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
-        if closed(stream) {
+        if crate::server::hung_up(stream) {
             break;
         }
         if checked.elapsed() >= Duration::from_secs(1) {
@@ -312,21 +312,6 @@ fn call_answered(record: &Path, asked: &Asked, from: u64) -> bool {
 /// How much of a record's end is read for the call's result, each second a request is held.
 const TAIL: u64 = 512 * 1024;
 
-/// The hook's process is gone: its end of the connection is closed.
-fn closed(stream: &mut UnixStream) -> bool {
-    if stream.set_nonblocking(true).is_err() {
-        return true;
-    }
-    let mut b = [0u8; 1];
-    let gone = match stream.read(&mut b) {
-        Ok(0) => true,
-        Ok(_) => false,
-        Err(e) => e.kind() != std::io::ErrorKind::WouldBlock,
-    };
-    let _ = stream.set_nonblocking(false);
-    gone
-}
-
 /// The reply line the hook reads: a decision, or null for none. Whether it was written.
 pub fn reply(stream: &mut UnixStream, decision: Option<Value>) -> bool {
     let mut line = json!({ "ok": true, "result": decision }).to_string();
@@ -379,6 +364,7 @@ pub(super) fn asked_pending(a: &Asked) -> crate::harness::Pending {
         always_rule: always_text(&a.suggestions),
         questions,
         unwritten: false,
+        terminal: None,
     }
 }
 
