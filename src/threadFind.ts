@@ -25,10 +25,10 @@ export function says(pattern: RegExp, text: string): boolean {
   return text.search(pattern) >= 0;
 }
 
-/** Markdown as it reads once laid out, near enough: images gone, links as their words, the marks
- *  for emphasis, code and headings left out, and Codex's directives as they're drawn. */
+/** Markdown as it reads once laid out, near enough: images gone, links as their words, and the
+ *  marks for emphasis, code and headings left out. */
 export function plainOf(markdown: string): string {
-  return plainDirectives(markdown)
+  return markdown
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/^ {0,3}(#{1,6}|>+)\s+/gm, '')
@@ -42,7 +42,9 @@ export function shownText(it: TranscriptItem): string {
   switch (it.kind) {
     case 'you':
       return it.input != null ? `! ${it.input}` : plainOf(it.text);
+    // A reply's Codex directives are drawn (Markdown.tsx); a prompt's and Codealong's aren't.
     case 'agent':
+      return plainOf(plainDirectives(it.text));
     case 'codealong':
       return plainOf(it.text);
     case 'tool':

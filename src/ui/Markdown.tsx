@@ -11,7 +11,7 @@
 
 import { createContext, Fragment, memo, useContext, useState, type ReactNode } from 'react';
 import { openUrl } from '../api';
-import { ATTRS, attrsOf, CARD_CLOSE, CARD_OPEN, COMMENT, tonesOf } from '../directives';
+import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tonesOf, toneLabel, type Card } from '../directives';
 import { tildePath } from '../format';
 import { prLabel, prRefOf } from '../prLinks';
 import { CodeBlock, CopyButton } from './CopyButton';
@@ -90,7 +90,7 @@ type Block =
   /** A block a directive wraps (`:::name{…}` … `:::`): Codex's writing block, a finished piece of
    *  writing to use elsewhere (an email, a message, a document), or another's. One still being
    *  written has no `:::` yet and holds the rest. */
-  | { kind: 'card'; name: string; attrs: Record<string, string>; text: string }
+  | ({ kind: 'card' } & Card)
   /** A comment Codex attached to lines of a file (`::code-comment{…}`). */
   | { kind: 'comment'; attrs: Record<string, string> };
 
@@ -168,18 +168,10 @@ export function blocks(src: string): Block[] {
       out.push({ kind: 'code', text, shell: (closed && SHELLS.has(lang)) || session, session, bare: closed && lang === '' && !session });
       continue;
     }
-    const card = CARD_OPEN.exec(line);
+    const card = cardAt(lines, i);
     if (card) {
-      const body: string[] = [];
-      let fenced = false;
-      i++;
-      // A `:::` inside a code block in it is the code's, not its end.
-      while (i < lines.length && (fenced || !CARD_CLOSE.test(lines[i]))) {
-        if (/^\s*```/.test(lines[i])) fenced = !fenced;
-        body.push(lines[i++]);
-      }
-      i++;
-      out.push({ kind: 'card', name: card[1], attrs: attrsOf(card[2] ?? ''), text: body.join('\n') });
+      out.push({ kind: 'card', ...card.card });
+      i = card.next;
       continue;
     }
     const comment = COMMENT.exec(line);
@@ -255,7 +247,7 @@ export function blocks(src: string): Block[] {
       continue;
     }
     const body: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i]) && !tableAt(lines, i) && !CARD_OPEN.test(lines[i]) && !COMMENT.test(lines[i])) body.push(lines[i++].trim());
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i]) && !tableAt(lines, i) && !opensCard(lines[i]) && !COMMENT.test(lines[i])) body.push(lines[i++].trim());
     out.push({ kind: 'para', text: body.join(' ') });
   }
   return out;
@@ -344,31 +336,21 @@ function CitedFile({ path }: { path: string }) {
   );
 }
 
-/** What a writing block's header calls it, by its variant, when it has no title of its own. */
-const WRITING: Record<string, { label: string; icon: string }> = {
-  email: { label: 'Email', icon: 'mail' },
-  chat_message: { label: 'Message', icon: 'message' },
-  social_post: { label: 'Post', icon: 'message-circle' },
-  document: { label: 'Document', icon: 'file-text' },
-  slides: { label: 'Presentation outline', icon: 'layout' },
-};
-
 /** A block a directive wraps, as a card: what it is along the top with Copy, which copies the
  *  writing alone, without its fences; a writing block's versions to pick between, and an email's
  *  recipients and subject over its body. */
-function DirectiveCard({ name, attrs, text }: { name: string; attrs: Record<string, string>; text: string }) {
-  const tones = tonesOf(text);
+function DirectiveCard({ card }: { card: Card }) {
+  const tones = tonesOf(card.text);
   const [tone, setTone] = useState(0);
   const shown = tones[Math.min(tone, tones.length - 1)];
-  const writing = name === 'writing';
-  const kind = writing ? (WRITING[attrs.variant ?? ''] ?? { label: 'Writing', icon: 'pencil' }) : { label: name.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase()), icon: 'note' };
-  const fields = writing ? ([['To', attrs.recipient], ['Cc', attrs.cc], ['Bcc', attrs.bcc], ['Subject', attrs.subject]] as const).filter(([, v]) => v) : [];
+  const kind = cardKind(card);
+  const fields = cardFields(card);
   return (
     <div className="ca-md-card">
       <div className="ca-md-card-head">
         <Icon name={kind.icon} size={13} />
-        <span className="ca-md-card-title">{attrs.title || kind.label}</span>
-        {tones.length > 1 && <Seg className="ca-md-card-tones" label="Versions" options={tones.map((t, j) => ({ id: j, label: t.label || `Version ${j + 1}` }))} value={tone} onPick={setTone} />}
+        <span className="ca-md-card-title">{kind.label}</span>
+        {tones.length > 1 && <Seg className="ca-md-card-tones" label="Versions" options={tones.map((t, j) => ({ id: j, label: toneLabel(t, j) }))} value={tone} onPick={setTone} />}
         {shown.text && <CopyButton text={shown.text} />}
       </div>
       {fields.length > 0 && (
@@ -476,7 +458,7 @@ function drawBlock(b: Block, i: number): ReactNode {
     case 'rule':
       return <hr key={i} />;
     case 'card':
-      return <DirectiveCard key={i} name={b.name} attrs={b.attrs} text={b.text} />;
+      return <DirectiveCard key={i} card={b} />;
     case 'comment':
       return <CodeComment key={i} attrs={b.attrs} />;
   }

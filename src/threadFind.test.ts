@@ -51,6 +51,12 @@ describe('shownText', () => {
     expect(shownText(item('result', '', { output: 'all passed' }))).toBe('');
   });
 
+  it('reads a reply’s Codex directives as they’re drawn, and a prompt’s as written', () => {
+    const block = ':::writing{variant="standard" id="1"}\nRead the status.\n:::';
+    expect(shownText(item('agent', block))).toBe('Writing\nRead the status.');
+    expect(shownText(item('you', block))).toBe(block);
+  });
+
   it('leaves out what shows only once opened', () => {
     const p = findPattern('passed')!;
     expect(pageHits(p, [item('tool', 'Bash · `npm test`', { output: 'all passed' }), item('result', '', { output: 'passed' })])).toBe(0);
