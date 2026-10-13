@@ -31,6 +31,11 @@
 //! and one that's gone, or can't go on there, is replaced by a new one. A review whose PR moved on
 //! before it was done isn't posted: the next round covers it.
 //!
+//! A reviewer whose turn was cut off partway (`Session::cut_off`: what ran it ended, as Codealong
+//! restarting ends the sessions it runs) is told to carry on where it runs or can go on, as
+//! another round's prompt is handed to it (`hand`, `Job::CarryOn`), a few times at most
+//! (`CARRY_ONS`). One stopped on purpose ends its round without a review.
+//!
 //! A few rounds run at once at most; one whose session waits on you doesn't hold a place. A round
 //! that didn't get done isn't tried again for the same commit; the next push tries again. Until a
 //! PR's round is done the PR is out of what waits on you (`apply`, `AutoReview::holds`). Where
@@ -94,6 +99,10 @@ const QUIET_MS: i64 = 5 * 60_000;
 const RETRY_MS: i64 = 30_000;
 /// How many times a post is tried before the round is given up on.
 const POST_TRIES: u32 = 4;
+/// How many times a reviewer whose turn was cut off is told to carry on before the round is
+/// given up on: Codealong restarts often while it's being worked on, and each cuts off the
+/// reviews it runs.
+const CARRY_ONS: usize = 4;
 /// How long a session started without a key is looked for, and a known one waited for to show.
 const SHOW_MS: i64 = 10 * 60_000;
 /// Reviews of PRs that no longer wait on you are forgotten this long after their last round.
@@ -157,11 +166,14 @@ pub struct Part {
     /// Why it was skipped or didn't get done.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// When its session was told to carry on, each time its turn was cut off partway.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carried_on: Vec<i64>,
 }
 
 impl Part {
     pub fn asked(who: &str, session: Option<String>, pending: Option<Pending>, at: i64) -> Part {
-        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None }
+        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None, carried_on: Vec::new() }
     }
 
     pub fn failed(who: &str, why: String, at: i64) -> Part {
@@ -175,6 +187,18 @@ impl Part {
 
     fn reviewing(&self) -> bool {
         self.state == PartState::Reviewing
+    }
+
+    /// The model it reviews on, as its name (`Seat::who`) has it after the account.
+    fn model(&self) -> Option<&str> {
+        self.who.split_once(' ').map(|(_, m)| m)
+    }
+
+    /// Its session `s` was cut off partway through its turn, since it was asked or last told to
+    /// carry on, and nothing runs it.
+    fn cut_off_in(&self, s: &Session) -> bool {
+        let since = self.carried_on.last().copied().unwrap_or(self.at);
+        !s.live && s.cut_off.is_some_and(|at| at >= since)
     }
 }
 
@@ -327,6 +351,8 @@ pub enum Job {
     Review { pr: PrItem, head: String, since: Option<String>, seat: Seat, by_hand: bool },
     /// The round's part `part` ended its turn in `session`: read the review it wrote after `at`.
     Read { pr: PrItem, head: String, part: usize, session: String, at: i64 },
+    /// The round's part `part` was cut off partway in `session`: tell it to carry on, on `model`.
+    CarryOn { pr: PrItem, head: String, part: usize, session: String, model: Option<String> },
     /// Post the round's review, written by `agent`. `round`: when the round began, which tells its
     /// review from another of the same commit in your draft (`draft_mark`).
     Post { pr: PrItem, head: String, review: String, agent: String, round: i64 },
@@ -342,7 +368,7 @@ pub enum Job {
 impl Job {
     fn pr(&self) -> &PrItem {
         match self {
-            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Submit { pr, .. } => pr,
+            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::CarryOn { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Submit { pr, .. } => pr,
         }
     }
 }
@@ -370,6 +396,9 @@ pub enum Went {
     Skipped(String),
     /// The turn hasn't written its review yet.
     NotYet,
+    /// A session cut off partway was told to carry on: the session its turn is in, or where to
+    /// look for it, as `hand` says.
+    CarriedOn { session: Option<String>, pending: Option<Pending> },
     /// It didn't get done, and why.
     Failed(String),
     /// Posting didn't go through, and why: it's tried again a few times.
@@ -570,9 +599,9 @@ fn found(board: &Board, p: &Pending, url: &str) -> Option<String> {
 }
 
 /// What's next for a round under way on PR `pr`, which is at `head` now. The reviewer's turn is
-/// read once its session ended it, and fails once its session is gone a while; once it's settled,
-/// its review is posted, or the round ends without one. A round stuck while the PR moved on ends,
-/// for the next.
+/// read once its session ended it, told to carry on when it was cut off partway (a few times at
+/// most), and fails once its session is gone a while; once it's settled, its review is posted,
+/// or the round ends without one. A round stuck while the PR moved on ends, for the next.
 fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now: i64) -> Next {
     let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
     if head != r.head && wanted && !r.parts.iter().filter(|p| p.reviewing()).any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
@@ -584,6 +613,13 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
         let Some(k) = p.session.clone() else { continue };
         match board.session(&k) {
             Some((_, s)) if turn_ended(s, p.at) => return Next::Job(Job::Read { pr: pr.clone(), head: r.head.clone(), part: i, session: k, at: p.at }),
+            Some((_, s)) if p.cut_off_in(s) && p.carried_on.len() < CARRY_ONS => {
+                return Next::Job(Job::CarryOn { pr: pr.clone(), head: r.head.clone(), part: i, session: k, model: p.model().map(String::from) });
+            }
+            Some((_, s)) if p.cut_off_in(s) => {
+                fail(p, &format!("Its turn was cut off partway again after it was told to carry on {CARRY_ONS} times."));
+                changed = true;
+            }
             None if now - p.at > SHOW_MS => {
                 fail(p, "Its session is gone.");
                 changed = true;
@@ -822,6 +858,23 @@ impl Reviewer {
                     Went::NotYet => {
                         self.next_at.insert(key, now + RETRY_MS);
                         return Ok(());
+                    }
+                    Went::Failed(why) => fail(p, &why),
+                    _ => {}
+                }
+            }
+            (Job::CarryOn { part, .. }, went) => {
+                let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { return Ok(()) };
+                let Some(p) = r.parts.get_mut(*part) else { return Ok(()) };
+                match went {
+                    Went::CarriedOn { session, pending } => {
+                        // A background job's copy goes on in its place.
+                        if let Some(s) = &session {
+                            t.sessions.insert(p.who.clone(), s.clone());
+                        }
+                        p.session = session;
+                        p.pending = pending;
+                        p.carried_on.push(now);
                     }
                     Went::Failed(why) => fail(p, &why),
                     _ => {}
@@ -1619,6 +1672,21 @@ fn read(engine: &Handle, session: &str, at: i64) -> Went {
     Went::Read { review, agent: agent_of(s) }
 }
 
+/// Tells a reviewer whose turn was cut off partway to carry on, as another round's prompt is
+/// handed to it (`hand`): where it runs, else where `[reviews] start` lets it go on, on `model`.
+fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>) -> Went {
+    let board = engine.board();
+    let cfg = match crate::config::current() {
+        Ok(c) => c,
+        Err(e) => return Went::Failed(format!("Its turn was cut off partway, and it couldn't be told to carry on: {e:#}")),
+    };
+    let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
+    match hand(engine, &board, &cfg, pr, session, model, crate::start::CARRY_ON.to_string()) {
+        Ok((session, pending)) => Went::CarriedOn { session, pending },
+        Err(e) => Went::Failed(format!("Its turn was cut off partway, and {e}.")),
+    }
+}
+
 /// Posts a round's review where config.toml says, unless the PR ended or moved on before it was
 /// done.
 fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, round: i64) -> Went {
@@ -1970,6 +2038,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
         Job::Review { pr, head, since, seat, by_hand } => review(engine, pr, head, since.as_deref(), seat, *by_hand),
         Job::Read { session, at, .. } => read(engine, session, *at),
+        Job::CarryOn { pr, session, model, .. } => carry_on(engine, pr, session, model.as_deref()),
         Job::Post { pr, head, review, agent, round } => post(engine, pr, head, review, agent, *round),
         Job::Send { .. } => send(engine, &job, false),
         Job::Submit { pr, head, verdict, text } => submit(engine, pr, head, *verdict, text.as_deref()),
@@ -2057,6 +2126,7 @@ mod tests {
                     format!("review {} {} since {:?} by {}{session}{hand}", pr.number, short(head), since.as_deref().map(short), seat.who)
                 }
                 Job::Read { pr, part, session, .. } => format!("read {} part {part} in {session}", pr.number),
+                Job::CarryOn { pr, part, session, model, .. } => format!("carry on {} part {part} in {session} on {model:?}", pr.number),
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
                 Job::Send { pr, head, session, agent, .. } => format!("send {} {} by {agent} to {session}", pr.number, short(head)),
                 Job::Submit { pr, head, verdict, text } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
@@ -2684,6 +2754,56 @@ mod tests {
         assert!(turn_ended(&session(Status::Stopped, NOW + 1), NOW));
         let cut = Session { cut_off: Some(NOW + 1), ..session(Status::Stopped, NOW + 1) };
         assert!(!turn_ended(&cut, NOW));
+    }
+
+    /// A reviewer whose turn was cut off partway (Codealong restarting ends the sessions it runs)
+    /// is told to carry on, on its model, and read once that turn ends. The board it was cut off
+    /// on, seen again, doesn't have it told twice; cut off again, it's told again, a few times at
+    /// most, and then the round is given up on. A copy that goes on in its place is kept for the
+    /// PR's next round.
+    #[test]
+    fn a_reviewer_cut_off_partway_is_told_to_carry_on() {
+        let cfg = ReviewsCfg { model: "opus".into(), ..on() };
+        let cut = |at: i64| Session { live: false, cut_off: Some(at), ..session(Status::Error, at) };
+        let asked = || {
+            let mut r = Reviewer::default();
+            let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &cfg, NOW);
+            r.told(&jobs[0], Went::Started(vec![started("auto opus", S, NOW)]), NOW).unwrap();
+            r
+        };
+        let carried = |r: &mut Reviewer, when: i64, to: &str| {
+            let job = r.due(&board(vec![pr(7, HEAD)], vec![cut(when)]), &cfg, when + 1).pop().expect("a carry-on");
+            assert_eq!(kinds(std::slice::from_ref(&job)), [format!("carry on 7 part 0 in {S} on Some(\"opus\")")]);
+            r.told(&job, Went::CarriedOn { session: Some(to.into()), pending: None }, when + 2).unwrap();
+        };
+        let mut r = asked();
+        carried(&mut r, NOW + 60_000, S);
+        assert!(r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 60_003).is_empty(), "told already");
+        let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 120_000)]);
+        assert_eq!(kinds(&r.due(&done, &cfg, NOW + 120_001)), [format!("read 7 part 0 in {S}")]);
+
+        let mut r = asked();
+        let mut when = NOW;
+        for _ in 0..CARRY_ONS {
+            when += 60_000;
+            carried(&mut r, when, S);
+        }
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].parts[0].carried_on.len(), CARRY_ONS);
+        r.due(&board(vec![pr(7, HEAD)], vec![cut(when + 60_000)]), &cfg, when + 60_001);
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Failed, Some("Its turn was cut off partway again after it was told to carry on 4 times.")));
+
+        let mut r = asked();
+        carried(&mut r, NOW + 60_000, "claude:claude:copy");
+        let t = &r.store.prs["o/r#7"];
+        assert_eq!((t.sessions["auto opus"].as_str(), t.rounds[0].parts[0].session.as_deref()), ("claude:claude:copy", Some("claude:claude:copy")));
+
+        // One that can't go on ends the round, saying why.
+        let mut r = asked();
+        let job = r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 60_001).pop().unwrap();
+        r.told(&job, Went::Failed("Its turn was cut off partway, and its session isn't running, and can't go on without a terminal.".into()), NOW + 60_002).unwrap();
+        r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 60_003);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
     }
 
     #[test]

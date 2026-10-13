@@ -13,6 +13,10 @@
 //!
 //! The processes are children of the app, so they end with it. The sessions Codealong started
 //! are remembered (`hosted.json`); sending to one after a restart resumes it in a new process.
+//! A turn running as the app or its process ends is cut off partway, its agent's own record
+//! ending it as stopped: hosted.json notes each turn while it runs (`note_turn`), so a session
+//! whose turn is still noted at launch, or whose process ended under it, shows as cut off
+//! (`Session::cut_off`) rather than as one stopped on purpose.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,6 +43,11 @@ pub const PACKAGES: [(&str, &str); 2] = [("@agentclientprotocol/claude-agent-acp
 /// How long a request other than a prompt may take: starting a session loads the agent's
 /// tools and MCP servers, which can take a while.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// A turn that was cut off (`Hosted::cut_off`) is still the session's last while its record has no
+/// prompt from more than this after it began: the turn's own is written once the session is
+/// picked up in the process, which can take a while, and a later one means it went on elsewhere.
+const CUT_OFF_PROMPT_MS: i64 = 5 * 60_000;
 
 /// How long npm may take to install the adapters: under a minute on a good connection, and
 /// it's stopped rather than left to hold `codealong install` for good on a bad one.
@@ -119,6 +128,11 @@ struct Hosted {
     error: Option<String>,
     /// Its config options as the agent last listed them (`configOptions`), for switching its model.
     options: Value,
+    /// It's in hosted.json, which notes its turn while it runs (`note_turn`).
+    remembered: bool,
+    /// When the turn that was cut off partway began: its process ended while it ran, or the app
+    /// did (its turn still noted in hosted.json at launch). None once another begins.
+    cut_off: Option<i64>,
 }
 
 /// A turn's claim on its prompt, from when the turn begins (`begin`), or takes the next prompt
@@ -184,7 +198,7 @@ fn state() -> std::sync::MutexGuard<'static, State> {
         s.remembered = true;
         for r in load_remembered() {
             let key = key_of(r.harness, &r.account, &r.id);
-            s.sessions.entry(key).or_insert(Hosted { account: r.account, id: r.id, cwd: r.cwd, ..Default::default() });
+            s.sessions.entry(key).or_insert(Hosted { account: r.account, id: r.id, cwd: r.cwd, remembered: true, cut_off: r.turn, ..Default::default() });
         }
     }
     s
@@ -222,7 +236,13 @@ struct Remembered {
     account: String,
     id: String,
     cwd: String,
+    /// When its running turn began, while it runs (`note_turn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    turn: Option<i64>,
 }
+
+/// What hosted.json holds, for the error when it doesn't read as that.
+const WHAT: &str = "a list of the sessions Codealong runs";
 
 fn remembered_path() -> PathBuf {
     config::support_dir().join("hosted.json")
@@ -244,12 +264,31 @@ fn remember(r: Remembered) {
 /// accounts both land. A file that doesn't parse is an error and is left as it is, since an
 /// older build that doesn't know a newer one's harness must not write its own list over it.
 fn remember_in(path: &Path, r: Remembered) -> Result<()> {
-    store::change(path, "a list of the sessions Codealong runs", |all: &mut Vec<Remembered>| {
+    store::change(path, WHAT, |all: &mut Vec<Remembered>| {
         if all.iter().any(|x| x.harness == r.harness && x.id == r.id && x.account == r.account) {
             return false;
         }
         all.push(r);
         true
+    })?;
+    Ok(())
+}
+
+/// Notes in hosted.json that session `key`'s turn begun at `began` runs (`runs`), or that it
+/// ended as turns do: the turn noted is left alone unless it's that one, which a later turn
+/// would have replaced. Only for a session hosted.json has (`Hosted::remembered`); nothing waits
+/// on it, so a failure is a notice.
+fn note_turn(key: &str, began: i64, runs: bool) {
+    let Some((account, id)) = state().sessions.get(key).filter(|h| h.remembered).map(|h| (h.account.clone(), h.id.clone())) else { return };
+    let path = remembered_path();
+    let _ = store::noted(&path, note_turn_in(&path, &account, &id, began, runs));
+}
+
+fn note_turn_in(path: &Path, account: &str, id: &str, began: i64, runs: bool) -> Result<()> {
+    store::change(path, WHAT, |all: &mut Vec<Remembered>| {
+        let Some(r) = all.iter_mut().find(|r| r.account == account && r.id == id) else { return false };
+        let to = if runs { Some(began) } else if r.turn == Some(began) { None } else { r.turn };
+        std::mem::replace(&mut r.turn, to) != to
     })?;
     Ok(())
 }
@@ -497,12 +536,14 @@ fn let_go(st: &mut State, account: &str) {
         h.loaded = false;
         h.held = false;
         if h.running {
+            // Its prompt went, so the agent was at it: cut off partway. One whose prompt never
+            // went just didn't go.
+            if h.turn.take().is_some_and(|turn| !turn.stop()) {
+                h.cut_off = Some(h.since);
+            }
             h.running = false;
             h.since = now_ms();
             h.error = Some("Its agent stopped.".into());
-            if let Some(turn) = h.turn.take() {
-                turn.stop();
-            }
         }
         h.permission = None;
         h.queue.clear();
@@ -650,8 +691,8 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     let options = tune(&ag, &id, &r, model, effort)?;
     let key = key_of(harness, &a.name, &id);
     let cwd_s = cwd.to_string_lossy().into_owned();
-    remember(Remembered { harness, account: a.name.clone(), id: id.clone(), cwd: cwd_s.clone() });
-    let mut hosted = Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, held: true, options, ..Default::default() };
+    remember(Remembered { harness, account: a.name.clone(), id: id.clone(), cwd: cwd_s.clone(), turn: None });
+    let mut hosted = Hosted { account: a.name.clone(), id, cwd: cwd_s, loaded: true, held: true, options, remembered: true, ..Default::default() };
     let turn = (!prompt.trim().is_empty()).then(|| begin(&mut hosted));
     state().sessions.insert(key.clone(), hosted);
     if let Some(turn) = turn {
@@ -671,7 +712,7 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
     let ag = agent(a)?;
     let key = key_of(harness, &a.name, id);
     let cwd_s = cwd.to_string_lossy().into_owned();
-    let mut hosted = Hosted { account: a.name.clone(), id: id.to_string(), cwd: cwd_s.clone(), loaded: false, ..Default::default() };
+    let mut hosted = Hosted { account: a.name.clone(), id: id.to_string(), cwd: cwd_s.clone(), loaded: false, remembered: true, ..Default::default() };
     let was = (hosted.since, hosted.error.clone());
     // Its turn begins as it's taken on, so a send meanwhile goes after it.
     let turn = (!prompt.trim().is_empty()).then(|| begin(&mut hosted));
@@ -683,7 +724,7 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
             return Err(e);
         }
     };
-    remember(Remembered { harness, account: a.name.clone(), id: id.to_string(), cwd: cwd_s });
+    remember(Remembered { harness, account: a.name.clone(), id: id.to_string(), cwd: cwd_s, turn: None });
     let options = match tune(&ag, id, &loaded, model, effort) {
         Ok(o) => o,
         Err(e) => {
@@ -756,10 +797,10 @@ pub fn fork(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str) -> Result<String
     let copy = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no copy.", a.name))?.to_string();
     let key = key_of(harness, &a.name, &copy);
     let cwd_s = cwd.to_string_lossy().into_owned();
-    remember(Remembered { harness, account: a.name.clone(), id: copy.clone(), cwd: cwd_s.clone() });
+    remember(Remembered { harness, account: a.name.clone(), id: copy.clone(), cwd: cwd_s.clone(), turn: None });
     // codex-acp lets go of the thread once it's copied (1.13.1), so the first prompt picks it up
     // again as it would a session from before the process started.
-    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id: copy, cwd: cwd_s, loaded: false, ..Default::default() });
+    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id: copy, cwd: cwd_s, loaded: false, remembered: true, ..Default::default() });
     let text = crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path);
     if !text.is_empty() {
         send(a, &key, &text)?;
@@ -866,6 +907,7 @@ fn begin(h: &mut Hosted) -> Claim {
     h.turn = Some(turn.clone());
     h.since = now_ms();
     h.error = None;
+    h.cut_off = None;
     h.text.clear();
     h.tool = None;
     turn
@@ -893,17 +935,36 @@ fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>), e: &anyhow::Erro
 /// Runs a turn `begin` marked on a thread of its own, then the next queued prompt, until the
 /// queue is empty or a turn fails. Each prompt goes only while its turn's claim holds: a turn stopped first was
 /// ended by whoever stopped it, and one ended without it (its process stopped) may have been
-/// followed by another, so neither is touched here.
+/// followed by another, so neither is touched here. Each is noted in hosted.json while it runs
+/// (`note_turn`), and one whose process ends under it is cut off, left noted.
 fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
     std::thread::spawn(move || {
         let (mut text, mut turn) = (text, turn);
         loop {
-            let id = state().sessions.get(&key).map(|h| h.id.clone()).unwrap_or_default();
+            let (id, began) = {
+                let st = state();
+                let h = st.sessions.get(&key);
+                (h.map(|h| h.id.clone()).unwrap_or_default(), h.filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))).map(|h| h.since))
+            };
+            // Before its prompt goes, so a turn the app's end cuts off is known at the next launch.
+            if let Some(b) = began {
+                note_turn(&key, b, true);
+            }
             let prompt = json!([{ "type": "text", "text": text }]);
-            let Some(r) = ag.request_if("session/prompt", json!({ "sessionId": id, "prompt": prompt }), None, || turn.send()) else { return };
+            let Some(r) = ag.request_if("session/prompt", json!({ "sessionId": id, "prompt": prompt }), None, || turn.send()) else {
+                if let Some(b) = began {
+                    note_turn(&key, b, false);
+                }
+                return;
+            };
+            // Its process ended under it, as it does when the app ends: cut off partway.
+            let cut = r.is_err() && ag.client.is_closed();
             let next = {
                 let mut st = state();
                 let Some(h) = st.sessions.get_mut(&key).filter(|h| h.turn.as_ref().is_some_and(|t| t.is(&turn))) else { return };
+                if cut {
+                    h.cut_off = began;
+                }
                 h.permission = None;
                 h.text.clear();
                 h.tool = None;
@@ -936,6 +997,10 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                     Some((h.queue.remove(0), next))
                 }
             };
+            // The next prompt's turn is noted over it.
+            if let (None, false, Some(b)) = (&next, cut, began) {
+                note_turn(&key, b, false);
+            }
             notify(Change::Stream(Stream { key: key.clone(), text: String::new(), tool: None }));
             notify(Change::Board);
             match next {
@@ -1118,6 +1183,14 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
         if let Some(t) = &h.tool {
             s.excerpt = Some(format!("`{}`", t.replace('`', "")));
         }
+    } else if h.cut_off.is_some_and(|at| !s.live && s.last_prompt_at <= at + CUT_OFF_PROMPT_MS) {
+        // As its harness's reader says of a turn that what ran it left open (board.rs
+        // `codex_session`): its agent's record ended this one as stopped.
+        s.cut_off = Some(s.last_activity);
+        s.status = if s.last_activity > seen_at { Status::Error } else { Status::Idle };
+        s.status_since = Some(s.last_activity);
+        s.stalled_since = None;
+        s.asks = false;
     } else if let Some(e) = &h.error {
         s.status = Status::Error;
         s.excerpt = Some(e.clone());
@@ -1180,7 +1253,7 @@ mod tests {
     fn a_hosted_file_that_does_not_read_is_never_written_over() {
         let dir = store::test_dir("hosted-unreadable");
         let path = dir.join("hosted.json");
-        let r = |id: &str| Remembered { harness: Harness::Codex, account: "codex".into(), id: id.into(), cwd: "/r/app".into() };
+        let r = |id: &str| Remembered { harness: Harness::Codex, account: "codex".into(), id: id.into(), cwd: "/r/app".into(), turn: None };
         remember_in(&path, r("t1")).unwrap();
         remember_in(&path, r("t2")).unwrap();
         // One already there isn't written again.
@@ -1197,6 +1270,86 @@ mod tests {
             assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// hosted.json notes a turn while it runs: a later turn's note replaces it, and only the end
+    /// of the turn noted takes it off, so a turn still noted at launch is one the app's end cut
+    /// off. A file from before turns were noted reads as it was.
+    #[test]
+    fn a_turn_is_noted_while_it_runs() {
+        let dir = store::test_dir("hosted-turns");
+        let path = dir.join("hosted.json");
+        let r = |id: &str| Remembered { harness: Harness::Codex, account: "codex".into(), id: id.into(), cwd: "/r/app".into(), turn: None };
+        remember_in(&path, r("t1")).unwrap();
+        remember_in(&path, r("t2")).unwrap();
+        let turns = || store::read_or_default::<Vec<Remembered>>(&path).into_iter().map(|r| r.turn).collect::<Vec<_>>();
+        note_turn_in(&path, "codex", "t1", 1_000, true).unwrap();
+        assert_eq!(turns(), [Some(1_000), None]);
+        note_turn_in(&path, "codex", "t1", 2_000, true).unwrap();
+        note_turn_in(&path, "codex", "t1", 1_000, false).unwrap();
+        assert_eq!(turns(), [Some(2_000), None], "the end of the turn before leaves the next noted");
+        note_turn_in(&path, "codex", "t1", 2_000, false).unwrap();
+        assert_eq!(turns(), [None, None]);
+        note_turn_in(&path, "codex", "t9", 3_000, true).unwrap();
+        assert_eq!(turns(), [None, None], "a session it doesn't have");
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("turn"));
+        std::fs::write(&path, r#"[{"harness":"codex","account":"codex","id":"t1","cwd":"/r/app"}]"#).unwrap();
+        assert_eq!(store::read_or_default::<Vec<Remembered>>(&path), [r("t1")]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A session whose turn was cut off partway shows so, though its agent's record ended the
+    /// turn as stopped: an error until it's seen, quiet after. Not while something else runs it,
+    /// nor once its record has a prompt from after, and a turn that begins ends it.
+    #[test]
+    fn a_turn_cut_off_shows_until_it_goes_on() {
+        let key = key_of(Harness::Codex, "test-cut-off", "s1");
+        state().sessions.insert(key.clone(), Hosted { account: "test-cut-off".into(), id: "s1".into(), cwd: "/w".into(), cut_off: Some(1_000), ..Default::default() });
+        let stopped = Session { live: false, status: Status::Idle, last_prompt_at: 1_500, last_activity: 9_000, ..crate::fixtures::session(&key) };
+        let shown = |s: &Session, seen_at: i64| {
+            let mut s = s.clone();
+            overlay(&mut s, seen_at);
+            (s.cut_off, s.status)
+        };
+        assert_eq!(shown(&stopped, 0), (Some(9_000), Status::Error));
+        assert_eq!(shown(&stopped, 9_000), (Some(9_000), Status::Idle));
+        assert_eq!(shown(&Session { live: true, ..stopped.clone() }, 0).0, None, "a terminal runs it");
+        assert_eq!(shown(&Session { last_prompt_at: 1_000 + CUT_OFF_PROMPT_MS + 1, ..stopped.clone() }, 0), (None, Status::Idle), "it went on elsewhere");
+        begin(state().sessions.get_mut(&key).unwrap());
+        assert_eq!(state().sessions[&key].cut_off, None);
+        state().sessions.remove(&key);
+    }
+
+    /// A process that ends while a turn's prompt is with it cuts the turn off; one whose prompt
+    /// hadn't gone yet just didn't go.
+    #[test]
+    fn a_process_that_ends_under_a_turn_cuts_it_off() {
+        let account = "test-adapter-cut-under";
+        let (went, waiting) = (key_of(Harness::Codex, account, "s1"), key_of(Harness::Codex, account, "s2"));
+        let sent = Claim::default();
+        assert!(sent.send());
+        let hosted = |id: &str, turn: Claim| Hosted { account: account.into(), id: id.into(), cwd: "/w".into(), loaded: true, running: true, since: 1_000, turn: Some(turn), ..Default::default() };
+        state().sessions.insert(went.clone(), hosted("s1", sent));
+        state().sessions.insert(waiting.clone(), hosted("s2", Claim::default()));
+        let_go(&mut state(), account);
+        let cut = |key: &str| state().sessions.remove(key).unwrap().cut_off;
+        assert_eq!((cut(&went), cut(&waiting)), (Some(1_000), None));
+
+        // Its process leaves as the prompt comes: the turn is cut off, whichever hears it first.
+        init(|_| {});
+        let dir = store::test_dir("acp-cut-off");
+        let script = r#"while IFS= read -r line; do printf '%s
+' "$line" >> "$1"; case "$line" in *'"method":"session/prompt"'*) exit 0;; esac; done"#;
+        let key = key_of(Harness::Codex, account, "s3");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s3".into(), cwd: "/w".into(), loaded: true, ..Default::default() });
+        stand_in(account, script, &dir);
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "codex", "home": "/h" })).unwrap();
+        assert_eq!(send(&a, &key, "Review it").unwrap(), "Sent.");
+        wait_until("the turn to end", 10, || !state().sessions[&key].running);
+        assert!(state().sessions[&key].cut_off.is_some());
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Against a real adapter: `CODEALONG_TEST_ACP_RESUME=<key of a session in hosted.json>
@@ -1753,6 +1906,7 @@ mod tests {
         let prompts: Vec<String> = heard(&dir).iter().filter_map(|l| serde_json::from_str::<Value>(l).unwrap().pointer("/params/prompt/0/text").and_then(Value::as_str).map(String::from)).collect();
         assert_eq!(prompts, ["First", "Third"]);
         assert_eq!(state().sessions[&key].error, None);
+        assert_eq!(state().sessions[&key].cut_off, None, "a turn that failed wasn't cut off");
         state().sessions.remove(&key);
         state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);

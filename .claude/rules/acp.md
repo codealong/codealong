@@ -61,3 +61,10 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   Where it's installed and the PATH it gets: `acp.rs` (`adapter_path`).
 - The adapter processes, one per account and children of the app, their stderr logs and
   `hosted.json`: `acp.rs` (header, `agent`, `log_path`, `remembered_path`).
+- When the app quits, each adapter's input closes and codex-acp 1.13.1 interrupts the turns it
+  runs: the rollout ends the turn with `turn_aborted`, `reason: "interrupted"`, as a Stop does, and
+  its log has `write_stdin failed: Unknown process id …` for the commands it was running and
+  `failed to record rollout items: thread … not found` (2026-10-12: a Codex review cut off by a
+  relaunch, its `turn_aborted` 1.5 s before the next app's start). So the record can't tell that
+  from a Stop: hosted.json notes each turn while it runs, and one still noted at launch was cut off
+  (`acp.rs` `note_turn`, `Hosted::cut_off`, `overlay`).

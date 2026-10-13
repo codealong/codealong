@@ -357,7 +357,7 @@ export function connectionLostWords(lost: ConnectionLost): string {
  *  beside it offers that). */
 export function cutOffWords(offered = false): string {
   const then = offered ? '' : ' Resume it, or send it something, to carry on.';
-  return `Its last turn was cut off partway: what ran it ended (its terminal closed, the Mac restarted, or it was killed).${then}`;
+  return `Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the Mac restarted, or it was killed).${then}`;
 }
 
 /**

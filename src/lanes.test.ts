@@ -354,8 +354,8 @@ describe('sessionFlag', () => {
     expect(sessionFlag(cut)).toMatchObject({ label: 'Cut off', tone: 'bad' });
     expect(sessionHeadline(cut)).toEqual(['`claude2` was cut off · Fix the test', 'running `yarn test`']);
     expect(sessionFlag({ ...cut, status: 'stopped' })).toMatchObject({ label: 'Cut off' });
-    expect(cutOffWords()).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, the Mac restarted, or it was killed). Resume it, or send it something, to carry on.');
-    expect(cutOffWords(true)).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, the Mac restarted, or it was killed).');
+    expect(cutOffWords()).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the Mac restarted, or it was killed). Resume it, or send it something, to carry on.');
+    expect(cutOffWords(true)).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the Mac restarted, or it was killed).');
     // Resumed, it's working: nothing to flag.
     expect(sessionFlag({ ...cut, status: 'working' })).toBeNull();
     // Read and left as it is, it's marked seen as a finished turn is; another error isn't.

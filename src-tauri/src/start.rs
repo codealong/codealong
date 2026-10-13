@@ -612,7 +612,7 @@ fn tuning<'a>(adapter: &dyn Adapter, place: Place, model: Option<&'a str>, effor
 
 /// What a session whose last turn was cut off (`Session::cut_off`) is told as it's resumed with
 /// nothing else to say. A command its last step ran may have been stopped partway.
-pub const CARRY_ON: &str = "Your last turn was cut off partway: what was running you ended (its terminal closed, the Mac restarted, or it was killed). Check what your last step did, since a command it ran may have been stopped, then carry on where you left off.";
+pub const CARRY_ON: &str = "Your last turn was cut off partway: what was running you ended (its terminal closed, Codealong or the Mac restarted, or it was killed). Check what your last step did, since a command it ran may have been stopped, then carry on where you left off.";
 
 /// How a session that wasn't running went on: the key it goes on under (a copy's, where its
 /// harness copied it; none where the harness hasn't said yet), and what to say of it, as a send

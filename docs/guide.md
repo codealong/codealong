@@ -218,14 +218,17 @@ turns that off.
 #### Cut off
 
 A Claude Code or Codex session whose turn stopped partway because what ran it ended (its terminal
-closed or quit, the Mac restarted, it was killed) says so (Cut off), and waits on you until you've
+closed or quit, Codealong or the Mac restarted, it was killed) says so (Cut off), and waits on you until you've
 seen it; a session that had finished its turn when that happened lost nothing, and is just stopped.
 Its panel has Carry on, which resumes it where its account's sessions last went on from here, else
 in a terminal, and tells it to carry on, checking first what its last step did, since a command it
 ran may have been stopped partway. Resume in, in its menu, says Carry on in and does the same
 anywhere it can go on; sending it something resumes it with what you send. A Claude Code session is
 read so in a terminal or a background job (its transcript ends partway through a turn, with no
-process running it); a Codex thread when its turn is open and no Codex process has it loaded.
+process running it); a Codex thread when its turn is open and no Codex process has it loaded; and
+a session Codealong runs itself whose turn was under way when Codealong quit or its agent's process
+ended, which its agent's own record ends as stopped (Codealong notes each such turn while it runs,
+in hosted.json).
 
 #### Move to another worktree
 
@@ -559,7 +562,10 @@ the review in the session. Never a submitted review, which would settle the requ
 goes on GitHub says an agent wrote it and which commit it read. When new commits come in while the
 PR still waits on you, the same session reviews it again once the branch has held still five
 minutes, told what changed since and asked what of its findings is fixed (a session that isn't
-running goes on where `[reviews] start` lets it, else a new one starts). Two run at once at most;
+running goes on where `[reviews] start` lets it, else a new one starts). A review whose turn is cut
+off partway (see *Cut off*: Codealong restarting cuts off the reviews it runs) is told to carry on
+the same way, four times at most before its round is given up on; one you stop ends its round
+without a review. Two run at once at most;
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
