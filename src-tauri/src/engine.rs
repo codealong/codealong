@@ -1735,7 +1735,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if self.usage_inflight {
             return;
         }
-        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| harness::of(a).is_some_and(|h| h.polls_usage())).cloned().collect();
+        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| harness::of(a).is_some_and(|h| h.polls_usage(a))).cloned().collect();
         self.usage_last = Some(Instant::now());
         if accounts.is_empty() {
             return;
@@ -3171,7 +3171,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             .iter()
             .map(|a| {
                 let adapter = harness::of(a);
-                if let Some(why) = adapter.and_then(|h| h.no_limits()) {
+                if let Some(why) = adapter.and_then(|h| h.no_limits(a)) {
                     return usage::none(a, why);
                 }
                 // What comes with the sessions read anyway, else the last background read.

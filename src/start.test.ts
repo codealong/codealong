@@ -17,6 +17,7 @@ import {
   initialChoice,
   initialPlace,
   keepPlaceFor,
+  metersFor,
   modelFamily,
   modelMeter,
   modelName,
@@ -152,6 +153,16 @@ describe('Auto', () => {
     // Without a model, each account's own default decides.
     const opusDefault = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, defaultModel: 'claude-opus-5-5' } : a));
     expect(autoPick(opusDefault, u, NOW)?.account).toBe('claude');
+  });
+
+  it('counts only the group’s limit where a limit is for a group of models', () => {
+    // Antigravity's, as start.rs's auto_counts_only_the_models_limits has them.
+    const ag = fx.usage({ account: 'agy', harness: 'antigravity', meters: [{ ...meter('model:Gemini', 95), model: 'Gemini' }, { ...meter('model:Claude & GPT', 10), model: 'Claude & GPT' }] });
+    const spent = (model: string | null) => metersFor(ag, model).map((m) => m.key);
+    expect(spent('gemini-3.8-flash-low')).toEqual(['model:Gemini']);
+    expect(spent('claude-sonnet-4-6')).toEqual(['model:Claude & GPT']);
+    expect(spent('gpt-oss-120b')).toEqual(['model:Claude & GPT']);
+    expect(spent(null)).toEqual(['model:Gemini', 'model:Claude & GPT']);
   });
 
   it('asked for a model, considers the accounts whose command line takes it', () => {

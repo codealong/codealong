@@ -597,15 +597,15 @@ pub trait Adapter: Sync {
         Vec::new()
     }
 
-    /// Why it has no plan limits to show, when it keeps none Codealong can read.
-    fn no_limits(&self) -> Option<&'static str> {
+    /// Why an account has no plan limits to show, when it keeps none Codealong can read.
+    fn no_limits(&self, _account: &AccountCfg) -> Option<&'static str> {
         None
     }
 
     /// Whether an account's plan usage is somewhere slow to ask (`read_usage`), which the
     /// engine asks every couple of minutes off its thread. Usage that comes with the sessions
     /// is the reader's to say (`Reader::usage`).
-    fn polls_usage(&self) -> bool {
+    fn polls_usage(&self, _account: &AccountCfg) -> bool {
         false
     }
 

@@ -1261,7 +1261,7 @@ impl crate::harness::Adapter for Cursor {
         app.into_iter().chain(cli).filter_map(|c| c.cwd).collect()
     }
 
-    fn no_limits(&self) -> Option<&'static str> {
+    fn no_limits(&self, _account: &AccountCfg) -> Option<&'static str> {
         Some("Cursor shows its usage on cursor.com.")
     }
 

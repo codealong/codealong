@@ -1006,7 +1006,7 @@ impl crate::harness::Adapter for OpenCode {
         read_sessions(home, since, &HashSet::new()).into_iter().map(|r| r.directory).collect()
     }
 
-    fn no_limits(&self) -> Option<&'static str> {
+    fn no_limits(&self, _account: &AccountCfg) -> Option<&'static str> {
         Some("OpenCode bills the provider you bring, so it has no plan limits to show.")
     }
 

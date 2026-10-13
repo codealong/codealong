@@ -877,7 +877,7 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     /// The endpoint behind its `/usage`, which turns away calls that come often.
-    fn polls_usage(&self) -> bool {
+    fn polls_usage(&self, _account: &AccountCfg) -> bool {
         true
     }
 

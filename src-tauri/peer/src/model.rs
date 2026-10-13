@@ -950,7 +950,8 @@ pub struct Meter {
     pub percent: f64,
     pub resets_at: Option<i64>,
     pub severity: Severity,
-    /// Set on a per-model limit.
+    /// Set on a per-model limit: the family of models it's for, or several joined by ` & `
+    /// (`Claude & GPT`), as a model's name has them.
     pub model: Option<String>,
 }
 

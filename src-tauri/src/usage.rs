@@ -81,5 +81,5 @@ pub fn sign_in_command(a: &AccountCfg) -> String {
 /// fetch.
 pub fn read_all(accounts: &[AccountCfg]) -> Vec<Usage> {
     let now = now_ms();
-    accounts.iter().filter_map(|a| crate::harness::of(a).filter(|h| h.polls_usage()).map(|h| h.read_usage(a, now))).collect()
+    accounts.iter().filter_map(|a| crate::harness::of(a).filter(|h| h.polls_usage(a)).map(|h| h.read_usage(a, now))).collect()
 }

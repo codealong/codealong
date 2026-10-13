@@ -70,6 +70,12 @@ pub fn cli_installed(home: &Path) -> bool {
     crate::detect::is_executable(&home.join(".local/bin").join(CLI)) || (home == crate::util::home() && crate::detect::on_user_path(CLI))
 }
 
+/// Whether an account has a command line to run: its own command, when config.toml gives one,
+/// or `agy` installed.
+fn has_cli(account: &AccountCfg, home: &Path) -> bool {
+    account.command.is_some() || cli_installed(home)
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Conversation {
     pub id: String,
@@ -920,7 +926,7 @@ impl crate::harness::Adapter for Antigravity {
 
     /// The command line starts a conversation in a terminal; the app only in its own window.
     fn places(&self, account: &AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        if account.command.is_some() || cli_installed(home) {
+        if has_cli(account, home) {
             Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background])
         } else {
             Err(format!("The Antigravity app starts conversations only in its own window. With its command line, {CLI}, installed, {} can start them in a terminal from here.", account.name))
@@ -1016,12 +1022,12 @@ impl crate::harness::Adapter for Antigravity {
 
     /// The quotas are read through the command line (`read_usage`); without it they're only
     /// in the app.
-    fn no_limits(&self) -> Option<&'static str> {
-        (!cli_installed(&crate::util::home())).then_some("Antigravity shows its quotas in the app. With its command line, agy, installed, Codealong shows them here.")
+    fn no_limits(&self, account: &AccountCfg) -> Option<&'static str> {
+        (!has_cli(account, &crate::util::home())).then_some("Antigravity shows its quotas in the app. With its command line, agy, installed, Codealong shows them here.")
     }
 
-    fn polls_usage(&self) -> bool {
-        cli_installed(&crate::util::home())
+    fn polls_usage(&self, account: &AccountCfg) -> bool {
+        has_cli(account, &crate::util::home())
     }
 
     fn read_usage(&self, account: &AccountCfg, now: i64) -> crate::model::Usage {
@@ -1372,6 +1378,13 @@ mod tests {
         assert_eq!(group_label("Gemini Models"), "Gemini");
         assert_eq!(group_label("Pro MODELS "), "Pro");
         assert_eq!(group_label("Models"), "Models");
+    }
+
+    #[test]
+    fn an_account_with_a_command_of_its_own_has_its_quotas_read() {
+        use crate::harness::Adapter as _;
+        let account = AccountCfg { name: "agy".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: Some("/opt/agy/bin/agy".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        assert!(Antigravity.polls_usage(&account) && Antigravity.no_limits(&account).is_none());
     }
 
     #[test]

@@ -39,18 +39,30 @@ export function isAuto(c: Choice | null): boolean {
   return c === AUTO;
 }
 
-/** Families that have their own weekly limits, as the usage report names them. */
+/** Families that have their own weekly limits on Claude plans, as the usage report names them. */
 const FAMILIES = ['fable', 'opus', 'sonnet', 'haiku'];
 
+/** The families a limit is for: one, or several joined by ` & ` as Antigravity's `Claude & GPT`
+ *  is, lowercased. */
+function familiesOf(limitModel: string): string[] {
+  return limitModel
+    .split(' & ')
+    .map((f) => f.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 /**
- * The limits a session on `model` spends: those for every model, and the one for its family.
- * A model that names no family (none given and no account default, or `best`) could be any of
- * them, so every limit counts. `opusplan` names Opus, and its Sonnet half has no limit of its own.
+ * The limits a session on `model` spends: those for every model, and those for a family its name
+ * has. A model whose name has none of Claude's families nor any the account's limits are for
+ * (none given and no account default, or `best`) could be any of them, so every limit counts.
+ * `opusplan` names Opus, and its Sonnet half has no limit of its own. start.rs's `spends` has the
+ * same rule.
  */
 export function metersFor(u: Usage, model: string | null): Meter[] {
   const m = model?.toLowerCase() ?? '';
-  if (!FAMILIES.some((f) => m.includes(f))) return u.meters;
-  return u.meters.filter((x) => x.model === null || m.includes(x.model.toLowerCase()));
+  const named = (limitModel: string) => familiesOf(limitModel).some((f) => m.includes(f));
+  if (!FAMILIES.some((f) => m.includes(f)) && !u.meters.some((x) => x.model !== null && named(x.model))) return u.meters;
+  return u.meters.filter((x) => x.model === null || named(x.model));
 }
 
 function near(m: Meter): boolean {

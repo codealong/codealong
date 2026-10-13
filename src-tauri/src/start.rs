@@ -240,7 +240,7 @@ fn near(m: &Meter) -> bool {
 
 /// Whether an account's meters say it's near a limit a session on `model` spends.
 pub fn near_limit(u: &Usage, model: Option<&str>) -> bool {
-    u.meters.iter().any(|m| spends(model, m.model.as_deref()) && near(m))
+    u.meters.iter().any(|m| spends(model, m.model.as_deref(), &u.meters) && near(m))
 }
 
 /// How long a refusal at a limit counts as word that its account is out: a month covers a
@@ -299,16 +299,27 @@ pub fn preferred_names<'a>(startable: &[&'a AccountCfg]) -> Vec<&'a str> {
     startable.iter().filter(|a| Some(a.harness.as_str()) == first).map(|a| a.name.as_str()).collect()
 }
 
-/// Whether a session on `model` spends a limit for `limit_model` (None: every model). A model
-/// that names no family could be any of them, so it spends every limit; `src/start.ts`'s
-/// `metersFor` has the same rule.
-pub fn spends(model: Option<&str>, limit_model: Option<&str>) -> bool {
+/// The families of models with weekly limits of their own on Claude plans.
+const FAMILIES: [&str; 4] = ["fable", "opus", "sonnet", "haiku"];
+
+/// The families a limit for `limit_model` is for: one, or several joined by ` & ` as
+/// Antigravity's `Claude & GPT` is, lowercased.
+fn families_of(limit_model: &str) -> impl Iterator<Item = String> + '_ {
+    limit_model.split(" & ").map(|f| f.trim().to_lowercase()).filter(|f| !f.is_empty())
+}
+
+/// Whether a session on `model` spends a limit for `limit_model` (None: every model), one of an
+/// account's `meters`: the model's name has one of the limit's families. A model whose name has
+/// none of Claude's families nor any the account's limits are for could be any of them, so it
+/// spends every limit. `src/start.ts`'s `metersFor` has the same rule.
+pub fn spends(model: Option<&str>, limit_model: Option<&str>, meters: &[Meter]) -> bool {
     let m = model.unwrap_or("").to_lowercase();
-    match limit_model {
-        None => true,
-        Some(_) if !["fable", "opus", "sonnet", "haiku"].iter().any(|f| m.contains(f)) => true,
-        Some(l) => m.contains(&l.to_lowercase()),
+    let Some(limit) = limit_model else { return true };
+    if families_of(limit).any(|f| m.contains(&f)) {
+        return true;
     }
+    let named = FAMILIES.iter().any(|f| m.contains(f)) || meters.iter().filter_map(|x| x.model.as_deref()).flat_map(families_of).any(|f| m.contains(&f));
+    !named
 }
 
 /// The account Auto starts, from `candidates` in config order. Only the limits each one's model
@@ -333,7 +344,7 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
         if u.is_some_and(|u| u.needs_sign_in) {
             continue;
         }
-        let meters: Vec<&Meter> = u.map(|u| u.meters.iter().filter(|m| spends(c.model, m.model.as_deref())).collect()).unwrap_or_default();
+        let meters: Vec<&Meter> = u.map(|u| u.meters.iter().filter(|m| spends(c.model, m.model.as_deref(), &u.meters)).collect()).unwrap_or_default();
         if meters.is_empty() {
             unknown.push(c);
             continue;
@@ -1214,12 +1225,25 @@ mod tests {
 
     #[test]
     fn auto_counts_only_the_models_limits() {
-        assert!(spends(Some("opus"), None));
-        assert!(!spends(Some("opus[1m]"), Some("Fable")));
-        assert!(spends(Some("claude-opus-5-5"), Some("Opus")));
-        assert!(spends(Some("fable"), Some("Fable")));
-        assert!(spends(Some("best"), Some("Fable")));
-        assert!(spends(None, Some("Fable")));
+        assert!(spends(Some("opus"), None, &[]));
+        assert!(!spends(Some("opus[1m]"), Some("Fable"), &[]));
+        assert!(spends(Some("claude-opus-5-5"), Some("Opus"), &[]));
+        assert!(spends(Some("fable"), Some("Fable"), &[]));
+        assert!(spends(Some("best"), Some("Fable"), &[]));
+        assert!(spends(None, Some("Fable"), &[]));
+        // Antigravity's limits are for groups of models: a model spends its own group's only.
+        let groups = [Meter { model: Some("Gemini".into()), ..meter("model:Gemini", 95.0, None) }, Meter { model: Some("Claude & GPT".into()), ..meter("model:Claude & GPT", 10.0, None) }];
+        let spent = |model: Option<&str>| groups.iter().filter(|m| spends(model, m.model.as_deref(), &groups)).map(|m| m.label.as_str()).collect::<Vec<_>>();
+        assert_eq!(spent(Some("gemini-3.8-flash-low")), ["model:Gemini"]);
+        assert_eq!(spent(Some("claude-sonnet-4-6")), ["model:Claude & GPT"]);
+        assert_eq!(spent(Some("gpt-oss-120b")), ["model:Claude & GPT"]);
+        assert_eq!(spent(None), ["model:Gemini", "model:Claude & GPT"]);
+        // Codex's limit for one model leaves another model of its own alone no more than before.
+        let codex = [meter("week", 20.0, None), Meter { model: Some("GPT-5.3-Codex-Spark".into()), ..meter("model:GPT-5.3-Codex-Spark", 50.0, None) }];
+        assert!(spends(Some("gpt-5.5-codex"), Some("GPT-5.3-Codex-Spark"), &codex));
+        assert!(spends(Some("gpt-5.3-codex-spark"), Some("GPT-5.3-Codex-Spark"), &codex));
+        let ag = Usage { meters: groups.to_vec(), ..usage("antigravity", 0.0, 0.0, None) };
+        assert!(near_limit(&ag, Some("gemini-3.8-flash-low")) && !near_limit(&ag, Some("claude-opus-4-6")));
         let mut u = usage("claude", 10.0, 20.0, Some(20));
         u.meters.push(Meter { model: Some("Fable".into()), ..meter("model:Fable", 100.0, Some(NOW + 20 * HOUR)) });
         let us = [u, usage("claude2", 20.0, 50.0, None)];
