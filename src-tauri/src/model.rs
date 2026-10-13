@@ -117,9 +117,10 @@ pub struct Board {
     #[serde(default)]
     pub github_polled: bool,
     /// When each repo's PRs here were last as GitHub had them, by slug (`GhPoll::current`): a
-    /// repo whose read fails, or is still on its way, keeps its earlier time.
+    /// repo whose read fails, or is still on its way, keeps its earlier time, and one polled but
+    /// never read has none.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub github_current: std::collections::BTreeMap<String, i64>,
+    pub github_current: std::collections::BTreeMap<String, Option<i64>>,
     pub usage: Vec<Usage>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,

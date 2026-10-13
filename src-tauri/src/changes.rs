@@ -376,7 +376,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             marks.insert(p.key.clone(), PrMark { state: p.state, asks_you: p.review_requested, seen: now });
         }
         let slugs: BTreeSet<&str> = board.prs.iter().map(|p| p.repo_slug.as_str()).chain(board.github_current.keys().map(String::as_str)).chain(pr_part.into_iter().flat_map(|p| p.repos.keys().map(String::as_str))).collect();
-        let repos = slugs.into_iter().map(|s| (s.to_string(), board.github_current.get(s).copied().unwrap_or_else(|| boundary(s)))).collect();
+        let repos = slugs.into_iter().map(|s| (s.to_string(), board.github_current.get(s).copied().flatten().unwrap_or_else(|| boundary(s)))).collect();
         look.prs = Some(Part { at: board.github_at.map_or(now, |t| t.min(now)), marks, repos });
         out.prs = Some(rows);
     } else {
@@ -797,7 +797,7 @@ mod tests {
     fn a_repo_that_isnt_current_holds_its_time_while_others_move_on() {
         let other = |n: u64, state: PrState| PrItem { key: format!("x/y#{n}"), repo_slug: "x/y".into(), ..pr(n, state) };
         let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
-        let current = |or: i64, xy: Option<i64>| std::iter::once(("o/r".to_string(), or)).chain(xy.map(|t| ("x/y".to_string(), t))).collect();
+        let current = |or: i64, xy: Option<i64>| [("o/r".to_string(), Some(or)), ("x/y".to_string(), xy)].into_iter().collect();
         // The first look comes while x/y has never been read: it goes from where the look begins.
         let closed = PrItem { closed_at: Some(NOW - DAY_MS), ..other(3, PrState::Closed) };
         let failing = Board { github_at: Some(NOW - 10 * MIN), github_current: current(NOW - 10 * MIN, None), ..board(vec![], vec![pr(1, PrState::Open), other(1, PrState::Open), closed.clone()]) };
@@ -815,6 +815,22 @@ mod tests {
         let back = Board { github_at: Some(NOW + 20 * MIN), github_current: current(NOW + 20 * MIN, Some(NOW + 20 * MIN)), ..board(vec![], vec![pr(1, PrState::Open), other(1, PrState::Open), merged, other(3, PrState::Open)]) };
         let (out, _) = compare(&sight(&back), Some(&second), second.at, NOW + 21 * MIN);
         assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("x/y#2", PrChange::Merged), ("x/y#3", PrChange::Reopened)]);
+    }
+
+    #[test]
+    fn a_repo_never_read_keeps_where_the_first_look_began() {
+        let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
+        // x/y is polled but its read has never come, and the board has no PRs of it.
+        let unread = |at: i64| Board { github_at: Some(at), github_current: [("o/r".to_string(), Some(at)), ("x/y".to_string(), None)].into_iter().collect(), ..board(vec![], vec![]) };
+        let (first_board, second_board) = (unread(NOW - 10 * MIN), unread(NOW + 5 * MIN));
+        let (_, first) = compare(&sight(&first_board), None, NOW - 15 * MIN, NOW);
+        let (_, second) = compare(&sight(&second_board), Some(&first), first.at, NOW + 6 * MIN);
+        assert_eq!(second.prs.as_ref().unwrap().repos.get("x/y"), Some(&(NOW - 15 * MIN)));
+        // Its read comes: a PR opened while it hadn't is told.
+        let opened = PrItem { key: "x/y#1".into(), repo_slug: "x/y".into(), created_at: NOW, ..pr(1, PrState::Open) };
+        let read = Board { github_at: Some(NOW + 20 * MIN), github_current: [("o/r".to_string(), Some(NOW + 20 * MIN)), ("x/y".to_string(), Some(NOW + 20 * MIN))].into_iter().collect(), ..board(vec![], vec![opened]) };
+        let (out, _) = compare(&sight(&read), Some(&second), second.at, NOW + 21 * MIN);
+        assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("x/y#1", PrChange::Opened)]);
     }
 
     #[test]
