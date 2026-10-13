@@ -213,13 +213,13 @@ pub fn pending(a: &Asked, terminal: &str) -> api::Pending {
 }
 
 /// Lays a held request over the session that asked, as the engine reads it: it needs you, for
-/// this. The time changes with each new request, so a panel showing the session asks again what
-/// it waits on.
+/// this, since it came. Each request's time is its own (`new_id`), and differs from the time its
+/// harness says the session began waiting, so a panel showing the session asks again what it waits
+/// on as one request gives way to the next, or to what its harness asks.
 pub fn overlay(s: &mut Session) {
     let Some(a) = of_session(&s.key) else { return };
-    let since = if s.status == Status::Needs { s.status_since.unwrap_or(0).max(a.at) } else { a.at };
     s.status = Status::Needs;
-    s.status_since = Some(since);
+    s.status_since = Some(a.at);
     s.excerpt = Some(label(&a));
     s.stalled_since = None;
     s.asks = false;
@@ -315,8 +315,10 @@ fn write_reply(stream: &mut UnixStream, result: &Value) -> std::io::Result<()> {
 /// each on a connection's thread of its own, never share one: an answer to one would run the other.
 static LAST_ID: AtomicU64 = AtomicU64::new(0);
 
-/// A request's id: the time it came, so runs list in order, and never a folder's that's there.
-pub fn new_id() -> String {
+/// A request's id and the time it came, which no other request has either: runs list in order, an
+/// id is never a folder's that's there, and a session's next request begins waiting at a time of
+/// its own, so a panel that showed the one before asks what it waits on again.
+pub fn new_id() -> (String, i64) {
     loop {
         let now = now_ms().max(1) as u64;
         let next = |last: u64| last.max(now - 1) + 1;
@@ -325,7 +327,7 @@ pub fn new_id() -> String {
         };
         let id = format!("{PREFIX}{}", base36(at));
         if !dir(&id).exists() {
-            return id;
+            return (id, at as i64);
         }
     }
 }
@@ -593,7 +595,7 @@ fn read_end(p: &Path, most: u64) -> std::io::Result<(Vec<u8>, bool)> {
 /// The widest a screen is taken to be, for where a cursor can be moved.
 const WIDEST: usize = 512;
 /// The most `render` makes of what it reads.
-const RENDERED_MOST: usize = 32 << 20;
+const RENDERED_MOST: usize = 16 << 20;
 /// The line that ends a rendering cut short at `RENDERED_MOST`.
 const TOO_MUCH: &str = "[… the rest is left out: drawn as a screen shows it, it's too long]";
 
@@ -620,6 +622,12 @@ pub fn render(bytes: &[u8]) -> Vec<String> {
         *col += 1;
     };
     while let Some(c) = chars.next() {
+        // The line being drawn counts too: one with no end can be the most of it.
+        if size + line.len() > RENDERED_MOST {
+            out.push(line.iter().collect::<String>().trim_end().to_string());
+            out.push(TOO_MUCH.to_string());
+            return out;
+        }
         match c {
             '\n' => {
                 let done = line.iter().collect::<String>().trim_end().to_string();
@@ -627,10 +635,6 @@ pub fn render(bytes: &[u8]) -> Vec<String> {
                 out.push(done);
                 line.clear();
                 col = 0;
-                if size > RENDERED_MOST {
-                    out.push(TOO_MUCH.to_string());
-                    return out;
-                }
             }
             '\r' => col = 0,
             '\x08' => col = col.saturating_sub(1),
@@ -738,9 +742,10 @@ fn ended_words(s: &RunStatus) -> String {
     }
 }
 
-/// Closes a run's tab, ending what runs in it, as the tab's close button does: here in the app,
-/// which scripts the terminal. Only while the tab runs nothing of yours (`only_the_run`), looked at
-/// just before it's closed.
+/// Closes a run's tab: hangs up the tab's shell, as closing the tab would, which ends what ran there,
+/// and the terminal closes the tab as it does one whose shell has ended. Only while the tab runs
+/// nothing of yours (`tab_free`), looked at just before the hangup, with nothing slow between: no
+/// script to the terminal, so the command does it itself, with or without the app.
 pub fn close(id: &str) -> Result<String> {
     let s = status(id)?;
     let d = dir(id);
@@ -750,27 +755,81 @@ pub fn close(id: &str) -> Result<String> {
     let tty_name = tty.to_string_lossy().trim_start_matches("/dev/").to_string();
     let listed = procs::run("ps", &["-t", &tty_name, "-o", "pid="], None, Duration::from_secs(10))?;
     let on_tty: Vec<u32> = listed.split_whitespace().filter_map(|p| p.parse().ok()).collect();
-    let name = procs::parent_and_name(tab).map(|(_, n)| n).unwrap_or_default();
-    let the_runs = |p: u32| wrapper.is_some_and(|w| procs::ancestors(p).contains(&w));
-    if !only_the_run(&name, &on_tty, &procs::ancestors(tab), the_runs) {
-        bail!("Something else runs in its tab now, so it stays open: its user may have started it there.");
+    let tab_line = procs::ancestors(tab);
+    let view = TabView {
+        shell_name: procs::parent_and_name(tab).map(|(_, n)| n).unwrap_or_default(),
+        tab,
+        wrapper,
+        front: procs::foreground_group(tab),
+        on_tty: &on_tty,
+        tab_line: &tab_line,
+        line_editing: line_editing(&tty),
+    };
+    if !tab_free(&view, |p| wrapper.is_some_and(|w| procs::ancestors(p).contains(&w))) {
+        bail!("Something of your user's may run in its tab now (a command, or a shell not at its prompt), so it stays open: ask them to close it.");
     }
-    match crate::launch::close_session_terminals(&[(tab, s.run.cwd.as_path())]).into_iter().next() {
-        Some(Ok(())) => Ok("Closed its tab.".to_string()),
-        Some(Err(e)) => Err(e),
-        None => bail!("Couldn't close its tab."),
+    // SAFETY: kill sends a signal to one process.
+    if unsafe { libc::kill(tab as libc::pid_t, libc::SIGHUP) } != 0 {
+        bail!("Couldn't close its tab: {}", std::io::Error::last_os_error());
     }
+    let started = Instant::now();
+    while procs::pid_alive(tab) && started.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(if procs::pid_alive(tab) {
+        "Hung up its tab's shell, which hasn't ended yet.".to_string()
+    } else {
+        "Its tab's shell has ended, so the tab closes as your terminal closes one whose shell ended (a terminal set to keep such tabs keeps it).".to_string()
+    })
 }
 
 /// The shells a tab runs at its prompt.
 const SHELLS: &[&str] = &["zsh", "bash", "sh", "ksh", "dash", "fish", "tcsh", "csh", "nu", "xonsh", "elvish"];
 
-/// Whether a run's tab runs nothing of yours: its shell is still a shell (`exec vim` there would
-/// make it vim), and every process on its terminal is that shell, what it runs under, or the run's
-/// wrapper and what that runs. A job you left running in the background there is on the terminal
-/// too.
-fn only_the_run(tab_name: &str, on_tty: &[u32], tab_line: &[u32], the_runs: impl Fn(u32) -> bool) -> bool {
-    SHELLS.contains(&tab_name.trim_start_matches('-')) && on_tty.iter().all(|p| tab_line.contains(p) || the_runs(*p))
+/// What `tab_free` looks at in a run's tab.
+struct TabView<'a> {
+    /// The tab's shell's name now: `exec vim` there would make it vim.
+    shell_name: String,
+    tab: u32,
+    /// The run's wrapper, while it runs.
+    wrapper: Option<u32>,
+    /// The process group in front on the tab's terminal.
+    front: Option<u32>,
+    on_tty: &'a [u32],
+    /// The tab's shell and what it runs under.
+    tab_line: &'a [u32],
+    /// The terminal reads keys one at a time (`line_editing`).
+    line_editing: bool,
+}
+
+/// Whether a run's tab runs nothing of yours, from positive signs only: its shell is still a shell,
+/// every process on its terminal is that shell, what it runs under, or the run's wrapper and what
+/// that runs (a job you left in the background there is on the terminal too), and in front is
+/// either the run or the shell itself reading a line at its prompt. A shell in front that isn't
+/// reading one may be running something of yours that starts no process: a `read`, a loop of
+/// builtins.
+fn tab_free(v: &TabView, the_runs: impl Fn(u32) -> bool) -> bool {
+    let shell = SHELLS.contains(&v.shell_name.trim_start_matches('-'));
+    let only_the_run = v.on_tty.iter().all(|p| v.tab_line.contains(p) || the_runs(*p));
+    let in_front = match v.front {
+        Some(g) if v.wrapper == Some(g) => true,
+        Some(g) if g == v.tab => v.line_editing,
+        _ => false,
+    };
+    shell && only_the_run && in_front
+}
+
+/// Whether a terminal reads keys one at a time: a shell's line editor at its prompt (zsh's, bash's
+/// readline, fish's) turns canonical input off while it reads a line, where a command in front, a
+/// `read` and a loop of builtins leave it on (checked with zsh in tmux, 2026-10-12).
+fn line_editing(tty: &Path) -> bool {
+    use std::os::fd::AsRawFd;
+    let Ok(f) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty) else { return false };
+    // SAFETY: tcgetattr fills the termios it's given, from a descriptor that stays open meanwhile.
+    unsafe {
+        let mut t: libc::termios = std::mem::zeroed();
+        libc::tcgetattr(f.as_raw_fd(), &mut t) == 0 && t.c_lflag & libc::ICANON == 0
+    }
 }
 
 #[cfg(test)]
@@ -864,8 +923,9 @@ mod tests {
     /// A real run, opt-in: the wrapper as a new tab's shell runs it, in a tmux session of its own
     /// that nobody sees, with `script` and your login shell (its startup files run). A password
     /// typed at a prompt that doesn't echo it stays out of what's kept, a progress line drawn over
-    /// itself reads as it ended, the exit status is kept, and `stop` interrupts a command as Ctrl-C
-    /// does. `cargo test a_command_runs_in_a_tab_under_script -- --ignored`.
+    /// itself reads as it ended, the exit status is kept, `stop` interrupts a command as Ctrl-C
+    /// does, and `close` ends a tab's zsh at its prompt but not while it's in a `read` of yours.
+    /// `cargo test a_command_runs_in_a_tab_under_script -- --ignored`.
     #[test]
     #[ignore]
     fn a_command_runs_in_a_tab_under_script_and_is_read_and_stopped() {
@@ -917,6 +977,44 @@ mod tests {
         assert!(said.starts_with("Sent it Ctrl-C."), "{said}");
         assert_eq!((s.state, s.exit_code), (State::Exited, Some(130)), "as zsh and bash end on Ctrl-C");
         assert!(!output(&id, 50, 0, None).unwrap().lines.iter().any(|(_, l)| l == "never"));
+
+        // Closing: in your login zsh, the line typed into it as a new tab's shell gets it.
+        let id = format!("run-test-close-{}", std::process::id());
+        let run = Run { id: id.clone(), session: "k".into(), session_title: "A test".into(), command: "echo closing".into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms() };
+        write_folder(&dir(&id), &run).unwrap();
+        assert!(tmux(&["new-session", "-d", "-s", &id, "-x", "100", "-y", "20", "/bin/zsh -l"]).status.success());
+        let typed = format!("export {ENV}={}; {}", sh_quote(&dir(&id).to_string_lossy()), TYPED.trim());
+        let tty = String::from_utf8_lossy(&tmux(&["display", "-p", "-t", &id, "#{pane_tty}"]).stdout).trim().to_string();
+        let at_prompt = || line_editing(Path::new(&tty));
+        let start = Instant::now();
+        while !at_prompt() && start.elapsed() < Duration::from_secs(30) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        tmux(&["send-keys", "-t", &id, &typed, "Enter"]);
+        let s = until(&id, &|s| s.state == State::Exited);
+        assert_eq!(s.exit_code, Some(0));
+        // Back at its prompt after the run, then in a `read` of yours there.
+        let start = Instant::now();
+        while !at_prompt() && start.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        tmux(&["send-keys", "-t", &id, "read -r x", "Enter"]);
+        let start = Instant::now();
+        while at_prompt() && start.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let refused = close(&id).unwrap_err().to_string();
+        assert!(refused.starts_with("Something of your user's may run in its tab now"), "{refused}");
+        tmux(&["send-keys", "-t", &id, "Enter"]);
+        let start = Instant::now();
+        while !at_prompt() && start.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let tab = noted_pid(&dir(&id), PIDS, 1, run.allowed_at).unwrap();
+        let said = close(&id).unwrap();
+        tmux(&["kill-session", "-t", &id]);
+        assert!(said.starts_with("Its tab's shell has ended"), "{said}");
+        assert!(!procs::pid_alive(tab));
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 
@@ -973,10 +1071,32 @@ mod tests {
 
     #[test]
     fn requests_asked_at_once_never_share_an_id() {
-        let threads: Vec<_> = (0..8).map(|_| std::thread::spawn(|| (0..200).map(|_| new_id()).collect::<Vec<_>>())).collect();
-        let ids: Vec<String> = threads.into_iter().flat_map(|t| t.join().unwrap()).collect();
-        let unique: std::collections::HashSet<&String> = ids.iter().collect();
-        assert_eq!(unique.len(), ids.len());
+        let threads: Vec<_> = (0..8).map(|_| std::thread::spawn(|| (0..200).map(|_| new_id()).collect::<Vec<(String, i64)>>())).collect();
+        let asked: Vec<(String, i64)> = threads.into_iter().flat_map(|t| t.join().unwrap()).collect();
+        let ids: std::collections::HashSet<&String> = asked.iter().map(|(id, _)| id).collect();
+        let times: std::collections::HashSet<i64> = asked.iter().map(|(_, at)| *at).collect();
+        assert_eq!((ids.len(), times.len()), (asked.len(), asked.len()), "nor a time, which a panel goes by");
+    }
+
+    /// Two requests from one session: answering the first, the session waits on the second from a
+    /// time of its own, so a panel that showed the first asks what it waits on again.
+    #[test]
+    fn a_sessions_next_request_waits_from_a_time_of_its_own() {
+        let key = "claude:claude:terminal-two-requests";
+        let (first, at1) = new_id();
+        let (second, at2) = new_id();
+        let ask = Ask { session: key.into(), command: "make".into(), cwd: "/tmp".into() };
+        let _a = held_for_tests(Asked { id: first.clone(), ask: ask.clone(), at: at1 });
+        let _b = held_for_tests(Asked { id: second.clone(), ask, at: at2 });
+        let waits = || {
+            let mut s = Session { status: Status::Needs, status_since: Some(at2 + 60_000), ..crate::fixtures::session(key) };
+            overlay(&mut s);
+            s.status_since
+        };
+        assert_eq!(waits(), Some(at1), "the oldest first, at its own time, whatever its harness says");
+        deny(key, &first, None);
+        assert_eq!(waits(), Some(at2));
+        deny(key, &second, None);
     }
 
     #[test]
@@ -998,10 +1118,50 @@ mod tests {
         let (login, tab, wrapper, script, theirs) = (100, 200, 300, 301, 400);
         let line = [tab, login, 1];
         let runs = |p: u32| p == wrapper || p == script;
-        assert!(only_the_run("zsh", &[login, tab], &line, runs), "at its prompt");
-        assert!(only_the_run("-zsh", &[login, tab, wrapper, script], &line, runs), "running the run");
-        assert!(!only_the_run("zsh", &[login, tab, theirs], &line, runs), "a job of yours there");
-        assert!(!only_the_run("vim", &[login, tab], &line, runs), "`exec vim` in it");
+        let view = |name: &str, on_tty: &'static [u32], front: u32, line_editing: bool| TabView { shell_name: name.into(), tab, wrapper: Some(wrapper), front: Some(front), on_tty, tab_line: &[], line_editing };
+        let free = |v: TabView| tab_free(&TabView { tab_line: &line, ..v }, runs);
+        assert!(free(view("zsh", &[100, 200], tab, true)), "at its prompt");
+        assert!(free(view("-zsh", &[100, 200, 300, 301], wrapper, false)), "the run in front");
+        assert!(!free(view("zsh", &[100, 200], tab, false)), "a `read` or a loop of builtins of yours");
+        assert!(!free(view("zsh", &[100, 200, 400], tab, true)), "a job of yours there");
+        assert!(!free(view("zsh", &[100, 200, 400], theirs, false)), "a command of yours in front");
+        assert!(!free(view("vim", &[100, 200], tab, true)), "`exec vim` in it");
+        assert!(!free(TabView { front: None, ..view("zsh", &[100, 200], tab, true) }), "nothing known in front");
+    }
+
+    /// The terminal's own setting says whether a line editor reads keys there, as a shell at its
+    /// prompt does.
+    #[test]
+    fn a_terminal_reading_keys_one_at_a_time_is_line_editing() {
+        let (mut master, mut slave) = (0, 0);
+        // SAFETY: openpty fills the two descriptors; the name, settings and size may be null.
+        assert_eq!(unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) }, 0);
+        // SAFETY: ttyname names the descriptor's terminal, or is null.
+        let name = unsafe { std::ffi::CStr::from_ptr(libc::ttyname(slave)) }.to_string_lossy().into_owned();
+        let set = |canonical: bool| {
+            // SAFETY: the settings are read, changed and written back on an open descriptor.
+            unsafe {
+                let mut t: libc::termios = std::mem::zeroed();
+                libc::tcgetattr(slave, &mut t);
+                if canonical {
+                    t.c_lflag |= libc::ICANON;
+                } else {
+                    t.c_lflag &= !libc::ICANON;
+                }
+                libc::tcsetattr(slave, libc::TCSANOW, &t);
+            }
+        };
+        set(false);
+        let raw = line_editing(Path::new(&name));
+        set(true);
+        let cooked = line_editing(Path::new(&name));
+        // SAFETY: closing the descriptors openpty gave.
+        unsafe {
+            libc::close(master);
+            libc::close(slave);
+        }
+        assert_eq!((raw, cooked), (true, false));
+        assert!(!line_editing(Path::new("/nonexistent/tty")));
     }
 
     #[test]
@@ -1012,6 +1172,10 @@ mod tests {
         assert!(many[0].len() <= WIDEST + 1, "{}", many[0].len());
         let long = "y".repeat(2_000);
         assert_eq!(render(format!("{long}\x1b[5000Cz\n").as_bytes())[0], format!("{long}z"), "no further than the line's end");
+        // Tabs, each eight wide, with no line's end: 8 MB of them would be 64 MB drawn.
+        let tabs = render(format!("{}x", "\t".repeat(RENDERED_MOST / 4)).as_bytes());
+        assert_eq!(tabs.last().map(String::as_str), Some(TOO_MUCH));
+        assert!(tabs.iter().map(String::len).sum::<usize>() <= RENDERED_MOST + WIDEST + TOO_MUCH.len(), "{}", tabs.iter().map(String::len).sum::<usize>());
     }
 
     #[test]
@@ -1020,7 +1184,7 @@ mod tests {
         assert_eq!(base36(35), "z");
         assert_eq!(base36(36), "10");
         assert!(base36(1_790_000_000_000) < base36(1_790_000_000_001));
-        assert!(is_id(&new_id()));
+        assert!(is_id(&new_id().0));
     }
 
     /// The wrapper as a tab's shell runs it, in a scratch folder with a stub for `script`'s
@@ -1031,9 +1195,14 @@ mod tests {
         let d = crate::fixtures::scratch("terminal-wrapper");
         std::fs::write(d.join(COMMAND), "printf '%s\\n' \"it's $((40 + 2))\"; shopt -q login_shell && case $- in *i*) echo 'a login shell, interactive';; esac; exit 3\n").unwrap();
         let text = wrapper(&d, "Fix the 'build'").replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
-        // sh, so the test doesn't run your own shell's startup files.
-        let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/sh").output().unwrap();
+        // sh, in a home of the test's own, so none of your startup files run: a login sh reads
+        // ~/.profile, an interactive one $ENV. The test's profile shows it was read.
+        let home = d.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join(".profile"), "echo 'read its profile'\n").unwrap();
+        let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/sh").env("HOME", &home).env_remove("ENV").env_remove("BASH_ENV").output().unwrap();
         let shown = String::from_utf8_lossy(&out.stdout);
+        assert!(shown.contains("read its profile"), "{shown}");
         assert!(shown.contains("Codealong runs this for Fix the 'build', as you allowed:"), "{shown}");
         assert!(shown.contains("  printf '%s\\n' \"it's $((40 + 2))\"; shopt"), "{shown}");
         assert!(shown.contains("it's 42") && shown.contains("It exited with status 3."), "{shown}");

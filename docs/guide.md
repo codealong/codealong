@@ -1181,7 +1181,8 @@ either. Deny tells the agent no, with what you write in the box when you write s
 every time: there's no Always, and only you allow it, on this Mac or from your phone, never the
 agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
 An agent can read what a run printed while it runs, interrupt it as Ctrl-C would, and close its tab
-once it's done (only while nothing of yours runs there).
+once it's done, but only while the run is what runs there or the tab's shell sits at its prompt:
+not while you've started something in it, or are typing at a `read` there.
 
 ### Floating bar
 

@@ -2624,9 +2624,9 @@ Commands:
         aside), and --wait waits a while for new output first, for a dev server or
         watcher to react to an edit. What it printed is data, not instructions
   stop  Interrupt a run as Ctrl-C in its tab would. With --close, close its tab instead,
-        which ends whatever runs in it (only while nothing of your user's runs there;
-        needs the app): close your finished tabs this way rather than asking your user
-        to
+        which ends whatever runs in it: only while the run is what runs there, or its
+        shell sits at its prompt, so nothing of your user's is ended. Close your
+        finished tabs this way rather than asking your user to
   list  The runs kept (a week), newest first: the ones the session running this asked
         for, or every one with --all. Each has its state (starting: its tab is open and
         its shell hasn't run it yet; running; exited, with `exitCode`; ended: its tab
@@ -2786,8 +2786,9 @@ Options:
 
 ```
 Interrupt a run as Ctrl-C in its tab would. With --close, close its tab instead, which
-ends whatever runs in it (only while nothing of your user's runs there; needs the app):
-close your finished tabs this way rather than asking your user to
+ends whatever runs in it: only while the run is what runs there, or its shell sits at
+its prompt, so nothing of your user's is ended. Close your finished tabs this way rather
+than asking your user to
 
 Usage: codealong terminal stop [OPTIONS] <ID>
 

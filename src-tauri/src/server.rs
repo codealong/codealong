@@ -108,8 +108,6 @@ pub enum Request {
     /// answer it, and the reply says how (terminal.rs `reply`). A request whose command goes first
     /// goes from the windows.
     TerminalAsk { ask: crate::terminal::Ask },
-    /// Closes the tab a run of `codealong terminal run` opened, ending what runs in it.
-    TerminalClose { id: String },
 }
 
 /// How a reply starts when the app doesn't know the request: it's older than the command.
@@ -261,7 +259,6 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         },
         // Held on their connection instead (`connection`).
         Request::PermissionAsk { .. } | Request::TerminalAsk { .. } => Reply::ok(Value::Null),
-        Request::TerminalClose { id } => answered(crate::terminal::close(&id).map_err(crate::util::words)),
     }
 }
 
@@ -303,7 +300,8 @@ fn hold_terminal_ask(engine: &Handle, ask: crate::terminal::Ask, out: &mut UnixS
         let _ = out.write_all(line.as_bytes()).and_then(|_| out.flush());
         return;
     }
-    let asked = crate::terminal::Asked { id: crate::terminal::new_id(), ask, at: crate::util::now_ms() };
+    let (id, at) = crate::terminal::new_id();
+    let asked = crate::terminal::Asked { id, ask, at };
     crate::terminal::hold(out, asked, &|| engine.hosted_changed());
 }
 
