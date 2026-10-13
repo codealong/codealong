@@ -206,12 +206,20 @@ pub trait Adapter: Sync {
         false
     }
 
-    /// Whether the session skips permission prompts, as its own files say: a live one as it
-    /// runs, one that isn't running as it did when it last ran. A message a live one sends
-    /// another session through Codealong may then claim that, as Claude Code's own messages
-    /// between sessions claim their sender's permission class, and one that isn't running isn't
-    /// resumed on a message it would hold for its user (send.rs `wakes`). False when Codealong
-    /// can't tell.
+    /// Whether the session, which isn't running, would hold another agent's message for its
+    /// user if it ran, by the mode its files say it last ran in: a message from a sender that
+    /// doesn't skip permission prompts, to one that does. It's resumed on such a message only
+    /// when it wouldn't (send.rs `wakes`), so true wherever Codealong can't tell. A harness
+    /// without a way in for other sessions' messages (`takes_messages`) gets them typed, and
+    /// holds none.
+    fn would_hold_messages(&self, _ctx: &Ctx, _session: &Session) -> bool {
+        self.takes_messages()
+    }
+
+    /// Whether the live session skips permission prompts, as its own files say. A message it
+    /// sends another session through Codealong may then claim that, as Claude Code's own
+    /// messages between sessions claim their sender's permission class (send.rs). False when
+    /// Codealong can't tell.
     fn skips_permission_prompts(&self, _ctx: &Ctx, _session: &Session) -> bool {
         false
     }

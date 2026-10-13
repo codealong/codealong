@@ -47,7 +47,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 
@@ -465,7 +465,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     let mut routes = adapter.routes(account, session);
     if msg.from_agent() {
         let ctx = crate::harness::Ctx { account };
-        let holds = || adapter.takes_messages() && adapter.skips_permission_prompts(&ctx, session);
+        let holds = || adapter.would_hold_messages(&ctx, session);
         let out_of_sight = || crate::start::resume_out_of_sight(account, &crate::util::home());
         if let Some(place) = wakes(cfg, &origins, &msg, session, &routes, holds, out_of_sight)? {
             return wake(board, cfg, session, place, &msg);
@@ -542,10 +542,11 @@ pub(crate) fn ensure_may_resume(sender: &Sender, title: &str) -> Result<()> {
 /// an hour, so otherwise it would never hear. Codealong resumes it by itself, by your setting
 /// (`wake`), out of sight (`start::resume_out_of_sight`, `out_of_sight`). Never one you archived
 /// or marked done, one whose harness doesn't go on by a resume (a Claude app session goes on in
-/// its app), nor one that skips permission prompts where the sender doesn't (`holds`): running,
-/// it would hold the message for you (claude/peer.rs), and as a resume's prompt it would act on
-/// it unasked. None for any other message, which goes no further than an agent's does
-/// (`agent_routes`); an error says why one of these isn't resumed.
+/// its app), nor one that skips permission prompts where the sender doesn't, or may as far as
+/// Codealong can tell (`holds`, `Adapter::would_hold_messages`): running, it would hold the
+/// message for you (claude/peer.rs), and as a resume's prompt it would act on it unasked. None
+/// for any other message, which goes no further than an agent's does (`agent_routes`); an error
+/// says why one of these isn't resumed.
 fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: &Session, routes: &[Route], holds: impl FnOnce() -> bool, place: impl FnOnce() -> Option<Place>) -> Result<Option<Place>> {
     let Sender::Agent(Some(from)) = msg.sender else { return Ok(None) };
     let resumes = routes.iter().any(|r| matches!(r, Route::Resume));
@@ -561,7 +562,7 @@ fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: 
         bail!("{title} isn't running, and its user archived it or marked it done, so Codealong doesn't resume it and nothing was sent. {instead}");
     }
     if !msg.bypasses && holds() {
-        bail!("{title} isn't running, and it skips permission prompts where your session doesn't, so it would hold your message for its user: Codealong doesn't resume it on it, and nothing was sent. {instead}");
+        bail!("{title} isn't running, and it skips permission prompts (or may: Codealong can't tell) where your session doesn't, so it would hold your message for its user: Codealong doesn't resume it on it, and nothing was sent. {instead}");
     }
     match place() {
         Some(place) => Ok(Some(place)),
@@ -569,13 +570,37 @@ fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: 
     }
 }
 
+/// The sessions `wake` resumed lately, and when. The board goes on saying one isn't running for
+/// a few seconds after (until the next scan finds it), and a second message then would resume
+/// it a second time, beside the first.
+static WOKEN: Mutex<Vec<(String, Instant)>> = Mutex::new(Vec::new());
+
+/// How long after a session was resumed for a message another isn't resumed for: the board has
+/// it running well before, or the resume came to nothing and another may try.
+const WAKING: Duration = Duration::from_secs(120);
+
+/// Whether the session `key` may be resumed for a message `now`: not while `woken` (which this
+/// prunes) has it resumed less than `WAKING` ago.
+fn may_wake(woken: &mut Vec<(String, Instant)>, key: &str, now: Instant) -> bool {
+    woken.retain(|(_, at)| now.saturating_duration_since(*at) < WAKING);
+    !woken.iter().any(|(k, _)| k == key)
+}
+
 /// Resumes the session `place` on an agent's message, as `wakes` allows: as Codealong resumes
 /// one by itself (autoreview.rs `hand` hands a review back the same way), the message led by the
 /// line that says Codealong sent it and isn't its user's (`by_codealong`), then by the agent's
 /// byline. On the account's own model, as a send from its box resumes it unless you pick another.
+/// One at a time, so a message sent while another resumes it, or just after, finds it resumed
+/// (`may_wake`) and is told to come again once it runs, rather than resuming it twice.
 fn wake(board: &Board, cfg: &Config, session: &Session, place: Place, msg: &Message) -> Result<Sent> {
+    let mut woken = WOKEN.lock().unwrap_or_else(|e| e.into_inner());
+    if !may_wake(&mut woken, &session.key, Instant::now()) {
+        bail!("{} is being resumed for another message sent to it just now, so yours wasn't sent: send it again in a minute, once it's running.", quoted(&session.title));
+    }
     let how = crate::start::ResumeIn { place, model: None, effort: None };
     let resumed = crate::start::resume(board, cfg, &session.key, &how, &by_codealong(&msg.text), &Sender::Codealong)?;
+    woken.push((session.key.clone(), Instant::now()));
+    drop(woken);
     let copy = resumed.key.as_deref().filter(|k| *k != session.key).map(|k| format!(" It goes on as {k}: send there from now on.")).unwrap_or_default();
     Ok(sent(format!("{} wasn't running; it started your session, so Codealong resumed it {} with your message.{copy}", quoted(&session.title), crate::start::place_words(place, cfg))))
 }
@@ -1008,12 +1033,26 @@ mod tests {
         let archived = Session { archived: true, ..boss.clone() };
         assert!(wakes_for(&cfg, &senders[0], &archived, &resumes, false, false).unwrap_err().contains("archived it or marked it done"));
         let held = wakes_for(&cfg, &senders[0], &boss, &resumes, false, true).unwrap_err();
-        assert!(held.starts_with("“Cloud SQL CPU spike” isn't running, and it skips permission prompts where your session doesn't"), "{held}");
+        assert!(held.starts_with("“Cloud SQL CPU spike” isn't running, and it skips permission prompts (or may: Codealong can't tell) where your session doesn't"), "{held}");
         // One that skips them too is no hold.
         assert_eq!(wakes_for(&cfg, &senders[0], &boss, &resumes, true, true), Ok(Some(Place::Background)));
         let mut msg = Message::new(&board, &cfg, "hi", &senders[0], false);
         msg.bypasses = true;
         assert!(wakes(&cfg, &origins, &msg, &boss, &resumes, || false, || None).unwrap_err().to_string().contains("can't resume it out of sight"));
+    }
+
+    /// A session resumed for a message isn't resumed again for another until the board has had
+    /// time to find it running, and then may be, should that resume have come to nothing.
+    #[test]
+    fn a_session_resumed_for_a_message_isnt_resumed_again_at_once() {
+        let at = Instant::now();
+        let mut woken = Vec::new();
+        assert!(may_wake(&mut woken, "claude:claude2:boss", at));
+        woken.push(("claude:claude2:boss".to_string(), at));
+        assert!(!may_wake(&mut woken, "claude:claude2:boss", at + Duration::from_secs(5)));
+        assert!(may_wake(&mut woken, "codex:codex:other", at + Duration::from_secs(5)));
+        assert!(may_wake(&mut woken, "claude:claude2:boss", at + WAKING));
+        assert!(woken.is_empty());
     }
 
     /// Switching a running session's model is refused where the command would go in as a

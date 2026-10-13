@@ -206,10 +206,8 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn skips_permission_prompts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
-        // A live session only by its registry entry, which a Claude app session's mode is found
-        // through; one that isn't running by the mode its latest prompt went in.
         let registry = session_entry(&ctx.account.home_path(), s);
-        (registry.is_some() || !s.live) && permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref() == Some("bypassPermissions")
+        registry.is_some() && permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref() == Some("bypassPermissions")
     }
 
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
@@ -650,6 +648,11 @@ impl crate::harness::Adapter for ClaudeCode {
     /// Every live session listens on a socket for other sessions' messages.
     fn takes_messages(&self) -> bool {
         true
+    }
+
+    fn would_hold_messages(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        let registry = session_entry(&ctx.account.home_path(), s);
+        holds_in(permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref())
     }
 
     fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
@@ -1530,9 +1533,29 @@ fn clears_context_in(texts: impl Iterator<Item = String>) -> bool {
     texts.filter_map(|t| serde_json::from_str::<Value>(&t).ok()?.get("showClearContextOnPlanAccept")?.as_bool()).last().unwrap_or(false)
 }
 
+/// Whether a session in `mode` holds another session's message whose sender doesn't claim
+/// `bypass` (claude/peer.rs): in `bypassPermissions` it does, and in `plan` it may, since plan
+/// entered from bypass keeps bypass's class. A mode its transcript doesn't say (none in the part
+/// `permission_mode` reads) could be either, so it counts as holding.
+fn holds_in(mode: Option<&str>) -> bool {
+    !matches!(mode, Some(m) if m != "bypassPermissions" && m != "plan")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session holds another's message in bypass, may in plan, which keeps the class it was
+    /// entered from, and is taken to where its mode isn't known; in the others it doesn't.
+    #[test]
+    fn holds_messages_in_bypass_in_plan_and_where_its_mode_isnt_known() {
+        for mode in [Some("bypassPermissions"), Some("plan"), None] {
+            assert!(holds_in(mode), "{mode:?}");
+        }
+        for mode in ["default", "acceptEdits", "dontAsk"] {
+            assert!(!holds_in(Some(mode)), "{mode}");
+        }
+    }
 
     /// A plan's 1 clears the conversation when `showClearContextOnPlanAccept` is on, so Allow
     /// is refused then; the later settings file wins, and it's off when none says.

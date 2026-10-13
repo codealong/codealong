@@ -1428,7 +1428,9 @@ saying Codealong sent it by itself and then with the sending agent's, so it's re
 nor leave to do what you haven't allowed. Only when the start said which session it made (as for
 helpers, below), never for one you archived or marked done, one that goes on in the Claude app, or
 one that skips permission prompts when the sender doesn't, which would hold the message for you if
-it were running; the sender is told why. `[sessions] resume_for_sessions_it_started = false`
+it were running (plan mode, and a mode its transcript doesn't say, count as skipping them); the
+sender is told why. Nor again within two minutes of resuming it for another message, while the
+board may still show it stopped: the sender is told to send it again once it runs. `[sessions] resume_for_sessions_it_started = false`
 (Settings › Automation) turns it off, and nothing is sent to a session that isn't running, as for
 any other agent's message.
 

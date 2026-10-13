@@ -412,7 +412,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <input type="checkbox" checked={resumes} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />
         <span>Resume a session for one it started</span>
         <small>
-          When a session’s agent started another with codealong start, and that one sends it a message once the first has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent. Not one you archived or marked done, nor one that skips permission prompts when the sender doesn’t.
+          When a session’s agent started another with codealong start, and that one sends it a message once the first has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent. Not one you archived or marked done, nor one that skips permission prompts (or may, as far as Codealong can tell) when the sender doesn’t.
         </small>
       </label>
     </fieldset>
