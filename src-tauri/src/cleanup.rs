@@ -250,7 +250,8 @@ fn hidden_changes(path: &Path) -> Result<u32, String> {
     for file in flagged {
         match std::fs::symlink_metadata(path.join(file)) {
             Ok(m) if m.is_file() => {
-                let mode = if m.permissions().mode() & 0o111 != 0 { "100755" } else { "100644" };
+                // Executable as git has it: by its owner's bit alone.
+                let mode = if m.permissions().mode() & 0o100 != 0 { "100755" } else { "100644" };
                 match staged(file) {
                     Some(s) if s.first() == Some(&mode) => files.push(file),
                     _ => changed += 1,
@@ -296,7 +297,8 @@ fn repo_inside(path: &Path) -> Result<Option<PathBuf>, String> {
     let tracked = procs::run("git", &["-C", dir.as_ref(), "ls-files", "-z"], None, CHECK_WAIT).map_err(|e| format!("git couldn't list what it tracks ({})", last_line(&e.to_string())))?;
     let mut folders: std::collections::BTreeSet<&Path> = std::collections::BTreeSet::new();
     for file in tracked.split('\0').filter(|f| !f.is_empty()) {
-        folders.extend(Path::new(file).ancestors().skip(1).filter(|a| !a.as_os_str().is_empty()));
+        // The entry itself too: a submodule is listed as its folder, not its files.
+        folders.extend(Path::new(file).ancestors().filter(|a| !a.as_os_str().is_empty()));
     }
     if let Some(folder) = folders.into_iter().map(|f| path.join(f)).find(|f| std::fs::symlink_metadata(f.join(".git")).is_ok()) {
         return Ok(Some(folder));
@@ -686,6 +688,39 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A clean submodule keeps it: its own repository may hold history nothing else has, and
+    /// nothing about it is uncommitted or ignored. `cargo test cleanup::tests::a_submodule`.
+    #[test]
+    fn a_submodule_keeps_a_worktree() {
+        let dir = std::env::temp_dir().join(format!("codealong-cleanup-submodule-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let at = |p: &Path, args: &[&str]| procs::run("git", &[&["-C", p.to_str().unwrap(), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"], args].concat(), None, Duration::from_secs(30)).unwrap();
+        let (lib, main) = (dir.join("lib"), dir.join("app"));
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::create_dir_all(&main).unwrap();
+        at(&lib, &["init", "-q", "-b", "main"]);
+        at(&lib, &["commit", "-q", "--allow-empty", "-m", "lib"]);
+        at(&main, &["init", "-q", "-b", "main"]);
+        at(&main, &["submodule", "add", "-q", lib.to_str().unwrap(), "deps/lib"]);
+        at(&main, &["commit", "-q", "-m", "with lib"]);
+        let origin = dir.join("origin.git");
+        procs::run("git", &["init", "-q", "--bare", origin.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
+        at(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        at(&main, &["push", "-q", "origin", "main"]);
+        let wt = dir.join("app-wt");
+        at(&main, &["worktree", "add", "-q", "-b", "wt", wt.to_str().unwrap(), "main"]);
+        let mut board = Board::default();
+        board.lanes = vec![crate::model::Lane { callsign: "wt".into(), origin: Origin::Script, ..crate::fixtures::lane(wt.to_str().unwrap(), vec![]) }];
+        let cfg = Config::default();
+        let kept = || plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap().kept;
+        assert_eq!(kept(), None, "not checked out, it holds nothing");
+        at(&wt, &["submodule", "update", "-q", "--init"]);
+        assert_eq!(kept().as_deref(), Some("another worktree is inside it (deps/lib)"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// What the board can't see keeps a worktree: untracked files a setting hides, another
     /// repository in an ignored folder, reuse its reflog shows, and work that came in after the
     /// check. `cargo test cleanup::tests::keeps`.
@@ -703,7 +738,9 @@ mod tests {
         std::fs::write(main.join("local.conf"), "port = 3000\n").unwrap();
         std::fs::create_dir_all(main.join("src/component")).unwrap();
         std::fs::write(main.join("src/component/a.txt"), "a\n").unwrap();
-        at(&main, &["add", ".gitignore", "local.conf", "src"]);
+        std::fs::write(main.join("run.sh"), "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(main.join("run.sh"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        at(&main, &["add", ".gitignore", "local.conf", "src", "run.sh"]);
         at(&main, &["commit", "-q", "-m", "init"]);
         let origin = dir.join("origin.git");
         procs::run("git", &["init", "-q", "--bare", origin.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
@@ -738,6 +775,13 @@ mod tests {
         assert_eq!(kept(&board).as_deref(), Some("1 uncommitted file"));
         std::fs::set_permissions(wt.join("local.conf"), std::fs::Permissions::from_mode(0o644)).unwrap();
         at(&wt, &["update-index", "--no-assume-unchanged", "local.conf"]);
+        // An executable its owner can't run any more, though the rest still can: git goes by the
+        // owner's bit.
+        at(&wt, &["update-index", "--assume-unchanged", "run.sh"]);
+        std::fs::set_permissions(wt.join("run.sh"), std::fs::Permissions::from_mode(0o655)).unwrap();
+        assert_eq!(kept(&board).as_deref(), Some("1 uncommitted file"));
+        std::fs::set_permissions(wt.join("run.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        at(&wt, &["update-index", "--no-assume-unchanged", "run.sh"]);
         // A repository made where tracked files are, its history its own: git passes over its
         // `.git`, so status sees nothing.
         procs::run("git", &["-C", wt.join("src/component").to_str().unwrap(), "init", "-q"], None, Duration::from_secs(20)).unwrap();
