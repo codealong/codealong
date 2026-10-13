@@ -121,6 +121,14 @@ describe('review comments', () => {
     const fenced = 'Like this:\n\n```html\n<div class="a">\n  <!-- keep -->\n  <p>Hi</p>\n</div>\n```\n\n<p>Done</p>';
     expect(commentText(fenced)).toBe('Like this:\n\n```html\n<div class="a">\n  <!-- keep -->\n  <p>Hi</p>\n</div>\n```\n\nDone');
     expect(commentText('Unclosed:\n```\n<b>x</b>')).toBe('Unclosed:\n```\n<b>x</b>');
+    // A fence inside code doesn't end the block: only one at a line's start does.
+    const quoted = '```js\nconst fence = "```";\nconst element = "<div>";\n```\n\n<p>After</p>';
+    expect(commentText(quoted)).toBe('```js\nconst fence = "```";\nconst element = "<div>";\n```\n\nAfter');
+    // Code keeps its blank lines; the prose around it has its own run together.
+    expect(commentText('a\n\n\n\n```\nx\n\n\n\ny\n```')).toBe('a\n\n```\nx\n\n\n\ny\n```');
+    // A backtick inside a hidden comment opens no code, and `<sub>` around code is still small print.
+    expect(commentText('Text.\n<!-- hidden `metadata` -->')).toBe('Text.');
+    expect(commentText('Fine.\n\n<sub>Reviewed at `abc123`.</sub>')).toBe('Fine.\n\n*Reviewed at `abc123`.*');
   });
 });
 

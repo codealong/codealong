@@ -6,7 +6,8 @@ import type { PrItem, Verdict } from './types';
 
 /** A line of a diff around a comment's line, as `excerptAt` gives it. */
 export interface ExcerptLine {
-  /** Its number in the file's new version; none for a removed line. */
+  /** Its number in the version counted: the file's new one, or its old one for an excerpt
+   *  `before`; none for a line only the other version has. */
   n: number | null;
   kind: 'add' | 'ctx' | 'del';
   text: string;
@@ -22,7 +23,7 @@ export interface ExcerptLine {
  * written into the review's text).
  */
 export function excerptAt(patch: string, line: number, around = 2, before = false): ExcerptLine[] {
-  // Each line with its number in the side counted: the new version's, or the old one's.
+  // Each line with its number in the version counted: the new one's, or the old one's.
   const hunks: { l: ExcerptLine; at: number | null }[][] = [];
   let next: number | null = null;
   let old: number | null = null;
@@ -37,10 +38,8 @@ export function excerptAt(patch: string, line: number, around = 2, before = fals
     const hunk = hunks[hunks.length - 1];
     if (next === null || old === null || !hunk || raw.startsWith('\\')) continue;
     const kind = raw.startsWith('-') ? 'del' : raw.startsWith('+') ? 'add' : 'ctx';
-    const n = kind === 'del' ? null : next;
-    const o = kind === 'add' ? null : old;
-    const counted = before ? o : n;
-    hunk.push({ l: { n, kind, text: raw.slice(1), at: counted === line }, at: counted });
+    const counted = before ? (kind === 'add' ? null : old) : kind === 'del' ? null : next;
+    hunk.push({ l: { n: counted, kind, text: raw.slice(1), at: counted === line }, at: counted });
     if (kind !== 'del') next += 1;
     if (kind !== 'add') old += 1;
   }

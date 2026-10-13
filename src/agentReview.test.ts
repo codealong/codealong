@@ -15,10 +15,12 @@ describe('excerptAt', () => {
     expect(shown(excerptAt(PATCH, 5, 1))).toEqual(['4 ctx }', '5*ctx ']);
   });
   it('gives the lines around a line of the file as it was, for a thread on a removed line', () => {
-    // Line 2 of the old file is the removed `old();`, not the new file's `new();`.
-    expect(shown(excerptAt(PATCH, 2, 2, true))).toEqual(['1 ctx fn a() {', '-*del     old();', '2 add     new();', '3 add     more();', '4 ctx }', '5 ctx ']);
-    // The second hunk starts at line 20 of the old file: its removed `let y = 2;` is line 21.
-    expect(shown(excerptAt(PATCH, 21, 0, true))).toEqual(['-*del let y = 2;']);
+    // Line 2 of the old file is the removed `old();`, not the new file's `new();`, and the lines
+    // are numbered as the old file has them.
+    expect(shown(excerptAt(PATCH, 2, 2, true))).toEqual(['1 ctx fn a() {', '2*del     old();', '- add     new();', '- add     more();', '3 ctx }', '4 ctx ']);
+    // The second hunk starts at line 20 of the old file and 21 of the new: its removed
+    // `let y = 2;` is line 21 before, and the line after it 22.
+    expect(shown(excerptAt(PATCH, 21, 1, true))).toEqual(['20 ctx let x = 1;', '21*del let y = 2;', '- add let y = 3;', '22 ctx x + y']);
   });
   it('gives nothing for a line the patch doesn’t show', () => {
     expect(excerptAt(PATCH, 10)).toEqual([]);
