@@ -906,7 +906,9 @@ fn begin(h: &mut Hosted) -> Claim {
     let turn = Claim::default();
     h.running = true;
     h.turn = Some(turn.clone());
-    h.since = now_ms();
+    // After the last turn's begin and end, within a millisecond too: a turn's note in hosted.json
+    // is known by it (`note_turn`).
+    h.since = now_ms().max(h.since + 1);
     h.error = None;
     h.cut_off = None;
     h.text.clear();
@@ -1321,6 +1323,11 @@ mod tests {
         assert_eq!(shown(&Session { last_prompt_at: 1_000 + CUT_OFF_PROMPT_MS + 1, ..stopped.clone() }, 0), (None, Status::Idle), "it went on elsewhere");
         begin(state().sessions.get_mut(&key).unwrap());
         assert_eq!(state().sessions[&key].cut_off, None);
+        // Each turn begins after the last, so its note is its own.
+        let later = now_ms() + 60_000;
+        state().sessions.get_mut(&key).unwrap().since = later;
+        begin(state().sessions.get_mut(&key).unwrap());
+        assert_eq!(state().sessions[&key].since, later + 1);
         state().sessions.remove(&key);
     }
 

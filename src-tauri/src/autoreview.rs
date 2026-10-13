@@ -200,6 +200,12 @@ impl Part {
         let since = self.carried_on.last().copied().unwrap_or(self.at);
         !s.live && s.cut_off.is_some_and(|at| at >= since)
     }
+
+    /// Its session was told to carry on lately and `s`, a board from before, shows the cut that
+    /// answered: the turn that carries on is starting.
+    fn carrying_on(&self, s: &Session, now: i64) -> bool {
+        self.carried_on.last().is_some_and(|&at| now - at < SHOW_MS && !s.live && s.cut_off.is_some_and(|c| c < at))
+    }
 }
 
 fn fail(p: &mut Part, why: &str) {
@@ -696,9 +702,10 @@ impl Reviewer {
         self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wanted(&settings.reviews(cfg, p), &board.lanes, p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
         changed |= self.store.prs.len() != before;
         // A round holds a place while one of its sessions works, is starting, or was cut off
-        // partway, to be told to carry on.
+        // partway, to be told to carry on or just told.
         let holds_place = |r: &Round| {
-            r.stage == ReviewStage::Reviewing && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working || p.cut_off_in(s)), None => p.pending.is_some() })
+            r.stage == ReviewStage::Reviewing
+                && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working || p.cut_off_in(s) || p.carrying_on(s, now)), None => p.pending.is_some() })
         };
         let mut running = self.busy.len() + self.store.prs.iter().filter(|(k, t)| !self.busy.contains(*k) && t.rounds.last().is_some_and(holds_place)).count();
         let mut jobs = Vec::new();
@@ -2784,6 +2791,8 @@ mod tests {
         let mut r = asked();
         carried(&mut r, NOW + 60_000, S);
         assert!(r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 90_001).is_empty(), "told already");
+        let more = board(vec![pr(7, HEAD), pr(8, HEAD), pr(9, HEAD)], vec![cut(NOW + 60_000)]);
+        assert_eq!(kinds(&r.due(&more, &cfg, NOW + 90_002)), ["review 8 1111111 since None by auto opus"], "its place is kept while it starts");
         let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 120_000)]);
         assert_eq!(kinds(&r.due(&done, &cfg, NOW + 120_001)), [format!("read 7 part 0 in {S}")]);
 
