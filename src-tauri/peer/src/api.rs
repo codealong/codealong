@@ -687,6 +687,10 @@ pub struct Removal {
     /// for a background job that held it.
     #[serde(default)]
     pub steps: Vec<String>,
+    /// It went, but not all as asked: the rest of the repo's teardown failed, or a job's record
+    /// stayed. `message` says what, and it's worth showing where "removed" is said for several.
+    #[serde(default)]
+    pub noted: bool,
 }
 
 /// How a message sent to a session would reach it, for its box to say before you send: the first

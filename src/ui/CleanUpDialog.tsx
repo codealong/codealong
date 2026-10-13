@@ -19,11 +19,14 @@ interface Props {
   onDone: (message: string) => void;
 }
 
-/** What removing them did, for the window's toast: the one's own sentence, or how many went. */
+/** What removing them did, for the window's toast: the one's own sentence, or how many went and
+ *  what didn't go as asked for any that went (a repo's teardown that failed partway). */
 export function cleanedSummary(lanes: Lane[], out: (Removal | null)[]): string {
   const gone = out.filter((r) => r?.removed).length;
   if (lanes.length === 1) return out[0]?.message ?? '';
-  return gone > 0 ? `Removed ${count(gone, 'worktree')}.` : '';
+  if (gone === 0) return '';
+  const noted = out.filter((r) => r?.removed && r.noted).map((r) => r?.message);
+  return [`Removed ${count(gone, 'worktree')}.`, ...noted].join(' ');
 }
 
 export function CleanUpDialog({ lanes, onClose, onDone }: Props) {

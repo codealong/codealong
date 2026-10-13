@@ -1045,7 +1045,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     if let Some(words) = &helped {
         message = format!("{message} {words}");
     }
-    let noted = note.is_some() || worktree.is_some_and(|(_, stayed)| stayed);
+    let noted = note.is_some() || worktree.is_some_and(|(_, noted)| noted);
     let mut answer = to_value(api::Done { done: true, message, noted })?;
     answer["at"] = shown_at(c, at);
     Ok(answer)
@@ -1152,13 +1152,14 @@ pub fn end_after_turn(engine: &Handle, key: &str) -> Result<String, String> {
 /// Mark as done on a background job that holds the worktree its harness made for it, once the
 /// job has stopped (`stopped`): the worktree goes too when nothing in it would be lost, the
 /// job's record with it, or stays (cleanup.rs `after_job`). A terminal session's goes as its
-/// harness exits it (`idle::Ending::Exit`). What to say of it, and whether it stayed.
+/// harness exits it (`idle::Ending::Exit`). What to say of it, and whether that's worth saying
+/// where the session leaving its list says the rest: it stayed, or not all of it went.
 fn job_worktree(board: &crate::model::Board, cfg: &config::Config, s: &crate::model::Session, stopped: bool) -> Option<(String, bool)> {
     if !stopped {
         return None;
     }
     Some(match crate::cleanup::after_job(board, cfg, s)? {
-        Ok(words) => (words, false),
+        Ok(gone) => (gone.said, gone.partly),
         Err(words) => (words, true),
     })
 }
@@ -1363,20 +1364,23 @@ fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// answer to the question the menu and the command ask.
 fn remove_worktree(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Remove = c.read()?;
-    let plan = crate::cleanup::plan(&engine.board(), &cfg()?, c.key, None)?;
-    let steps = plan.steps();
-    if let Some(why) = &plan.kept {
-        return to_value(api::Removal { removed: false, message: format!("{} stays: {why}.", plan.name), steps });
-    }
     if p.dry_run {
-        let mut message = format!("{} can go: nothing in it would be lost.", plan.name);
-        if let Some(why) = &plan.skipped {
-            message.push_str(&format!(" The repo's WorktreeRemove hook won't run ({why}), so git removes it."));
-        }
-        return to_value(api::Removal { removed: true, message, steps });
+        let plan = crate::cleanup::plan(&engine.board(), &cfg()?, c.key, None)?;
+        let steps = plan.steps();
+        let message = match (&plan.kept, &plan.skipped) {
+            (Some(why), _) => format!("{} stays: {why}.", plan.name),
+            (None, Some(why)) => format!("{} can go: nothing in it would be lost. The repo's WorktreeRemove hook won't run ({why}), so git removes it.", plan.name),
+            (None, None) => format!("{} can go: nothing in it would be lost.", plan.name),
+        };
+        return to_value(api::Removal { removed: plan.kept.is_none(), message, steps, noted: false });
     }
-    let message = crate::cleanup::remove(&plan)?;
-    to_value(api::Removal { removed: true, message, steps })
+    // What failed partway, as what stays, is said, not an error: the worktree is still there.
+    let done = crate::cleanup::remove(&engine.board(), &cfg()?, c.key, None)?;
+    let steps = done.plan.steps();
+    to_value(match done.result {
+        Ok(gone) => api::Removal { removed: true, message: gone.said, steps, noted: gone.partly },
+        Err(why) => api::Removal { removed: false, message: why, steps, noted: false },
+    })
 }
 
 #[cfg(test)]

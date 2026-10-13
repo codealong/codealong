@@ -1607,12 +1607,13 @@ lists the same from the command line.
 *A worktree's right-click menu › Clean up worktree…*
 
 Removes a worktree whose work is done, only when nothing in it would be lost: no file uncommitted or
-untracked (whatever `status.showUntrackedFiles` says), no commit that isn't on some remote (as `git
-rev-list HEAD --not --remotes` counts them, Claude Code's own rule), no session running in it, no
-lock a running session holds on it, and no other worktree or repository inside it, ignored folders
-looked through too (not dependencies' and builds'). A git command that fails keeps it. A main
-checkout, a plain folder and a reusable worktree are never removed. Files git ignores, such as
-installed dependencies and env files, go with it. Where it can't go, the
+untracked (whatever `status.showUntrackedFiles` says, and tracked files git is told not to look at
+counted by their contents), no commit that isn't on some remote (as `git rev-list HEAD --not
+--remotes` counts them, Claude Code's own rule), no session running in it, no lock a running
+session holds on it, and no other worktree or repository inside it, ignored folders looked through
+too (folders of dependencies and builds, such as `node_modules` and `target`, only a level or two
+in). A git command that fails keeps it. A main checkout, a plain folder and a reusable worktree are
+never removed. Files git ignores, such as installed dependencies and env files, go with it. Where it can't go, the
 item is dimmed and says why: "3 uncommitted files", "2 commits on no remote", "a session is running
 in it", "the main checkout", "marked reusable". Worktrees picked together offer Clean up N
 worktrees… for the ones that can go.

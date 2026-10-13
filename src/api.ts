@@ -478,11 +478,14 @@ export async function setReusable(laneId: string, on: boolean): Promise<number |
 }
 
 /** What removing a worktree came to, or with `dryRun` would (actions.rs `remove_worktree`):
- *  whether it's gone (or can go), what happened in a sentence, and what ran (or would), in order. */
+ *  whether it's gone (or can go), what happened in a sentence, and what ran (or would), in order.
+ *  `noted` when it went but not all as asked (the rest of the repo's teardown failed), which the
+ *  message says. */
 export interface Removal {
   removed: boolean;
   message: string;
   steps: string[];
+  noted?: boolean;
 }
 
 /** Removes a worktree when nothing in it would be lost, through the repo's own WorktreeRemove
