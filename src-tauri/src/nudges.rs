@@ -12,7 +12,10 @@
 //! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
 //! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
 //! comments and reviews that ask for changes or say something, and failing checks if it says so,
-//! never an approval, a merge or a close.
+//! never an approval, a merge or a close. An agent's review that Codealong posted from someone's
+//! account (autoreview.rs `signed`), as a comment or submitted as their review, is told as their
+//! agent's, never as their own word (`agent_wrote`): it comes as a message of yours, and the
+//! session would otherwise take it for that person's say.
 //!
 //! What's seen on the board and what's been told are kept apart: an update is owed to each
 //! session from the board it shows on until a send to that session goes through. A session
@@ -224,7 +227,38 @@ impl Nudger {
 /// How much of what someone wrote goes in.
 const BODY_CHARS: usize = 600;
 
+/// The agent that wrote `body`, when it's an agent's review Codealong posted (autoreview.rs
+/// `signed`: its unseen mark, and a last line naming the agent): such a review goes from the
+/// reviewer's own account, as a comment or as their review, and only those tell it from their
+/// own words.
+fn agent_wrote(body: &str) -> Option<String> {
+    if !body.contains(crate::github::REVIEW_MARK) {
+        return None;
+    }
+    let named = body.lines().rev().find_map(|l| l.trim().strip_prefix(SIGNED)?.split_once(") of ").map(|(agent, _)| agent.trim().to_string()));
+    Some(named.filter(|a| !a.is_empty()).unwrap_or_else(|| "an agent".into()))
+}
+
+/// How the line autoreview.rs `signed` ends an agent's review with starts.
+const SIGNED: &str = "<sub>An agent's review (";
+
+/// `body` without what Codealong signs an agent's review with: the line naming the agent, which
+/// the message says in its own words, and the unseen mark.
+fn unsigned(body: &str) -> String {
+    body.lines().filter(|l| !l.trim_start().starts_with(SIGNED) && !l.trim_start().starts_with(crate::github::REVIEW_MARK)).collect::<Vec<_>>().join("\n")
+}
+
+/// Who said something on a PR, as the message names them: `author`, or for an agent's review
+/// posted from their account, their agent, said to be theirs and not their word.
+fn who(author: &str, body: &str, done: &str) -> String {
+    match agent_wrote(body) {
+        Some(agent) => format!("{author}'s agent ({agent}) {done}, from {author}'s account; an agent's review, not {author}'s word"),
+        None => format!("{author} {done}"),
+    }
+}
+
 fn excerpt(body: &str) -> String {
+    let body = unsigned(body);
     let body = body.trim();
     if body.chars().count() <= BODY_CHARS {
         return body.to_string();
@@ -272,7 +306,7 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
                 continue;
             }
             match body.and_then(|id| d.comments.iter().find(|c| c.id == id)) {
-                Some(c) => items.push(format!("{} {words}: “{}”", r.author, excerpt(&c.body))),
+                Some(c) => items.push(format!("{}: “{}”", who(&r.author, &c.body, words), excerpt(&c.body))),
                 None => items.push(format!("{} {words}.", r.author)),
             }
         }
@@ -280,8 +314,8 @@ pub fn words(pr: &PrItem, why: &Why, detail: Option<&PrDetail>, login: Option<&s
         comments.sort_by_key(|c| c.at);
         for c in comments {
             match &c.path {
-                Some(path) => items.push(format!("{} commented on {path}: “{}”", c.author, excerpt(&c.body))),
-                None => items.push(format!("{} commented: “{}”", c.author, excerpt(&c.body))),
+                Some(path) => items.push(format!("{}: “{}”", who(&c.author, &c.body, &format!("commented on {path}")), excerpt(&c.body))),
+                None => items.push(format!("{}: “{}”", who(&c.author, &c.body, "commented"), excerpt(&c.body))),
             }
         }
     }
@@ -688,6 +722,32 @@ mod tests {
         sent(&mut nudger, &in_repo(vec![open], Some(NudgeAbout::Everything)));
         let jobs = sent(&mut nudger, &in_repo(vec![approved], Some(NudgeAbout::Everything)));
         assert_eq!((jobs[0].why.approved, jobs[0].about), (true, NudgeAbout::Everything), "yours for the repo goes over the team's");
+    }
+
+    /// An agent's review Codealong posted from someone's account, as a comment or submitted as
+    /// their review, is told as their agent's, without its signature and mark; their own words
+    /// are told as theirs.
+    #[test]
+    fn an_agents_review_from_someones_account_is_told_as_their_agents() {
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let signed = |text: &str, how: &str| format!("{text}\n\n<sub>An agent's review (Claude Code, claude-opus-5-5) of 3af044a, {how} by Codealong.</sub>\n<!-- codealong-review o/r#1 3af044adb7a528d4b352bfcc26e4122ef59af1aa -->");
+        let d = detail(
+            vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 3), mine: false }],
+            vec![
+                comment("c1", "wes", &signed("Two points about the records.", "posted"), UPDATED + 1, None, false),
+                comment("c2", "wes", "Agreed, go ahead.", UPDATED + 2, None, false),
+                comment("c3", "ken", &signed("Fine.", "submitted"), UPDATED + 3, None, false),
+            ],
+        );
+        let text = words(&open, &Why { since: Some(UPDATED), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
+        assert!(text.contains("- ken's agent (Claude Code, claude-opus-5-5) approved it, from ken's account; an agent's review, not ken's word: “Fine.”\n"), "{text}");
+        assert!(text.contains("- wes's agent (Claude Code, claude-opus-5-5) commented, from wes's account; an agent's review, not wes's word: “Two points about the records.”\n"), "{text}");
+        assert!(text.contains("- wes commented: “Agreed, go ahead.”\n"), "{text}");
+        assert!(!text.contains("<sub>") && !text.contains("codealong-review"), "{text}");
+        // A mark without the line naming the agent still says it's an agent's.
+        let bare = detail(vec![], vec![comment("c4", "wes", "Looks off.\n<!-- codealong-review o/r#1 abc -->", UPDATED + 1, Some("main.tf"), false)]);
+        let text = words(&open, &Why { since: Some(UPDATED), ..Why::default() }, Some(&bare), Some("me"), NudgeAbout::Everything).unwrap();
+        assert!(text.contains("- wes's agent (an agent) commented on main.tf, from wes's account; an agent's review, not wes's word: “Looks off.”"), "{text}");
     }
 
     #[test]
