@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
-import { usageNote } from '../harness';
+import { hasNoLimits, usageNote } from '../harness';
 import type { Meter, Severity, Usage } from '../types';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -136,7 +136,8 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   }
   const stale = isStale(u);
   const about = [u.account, u.plan, asOfPhrase(u, now), stale ? plain : null].filter(Boolean).join(' · ');
-  const summary = u.meters.map((m) => meterTitle(m, now)).join('; ');
+  // The label stands in for everything the chip shows, the note in place of meters included.
+  const summary = u.meters.length ? u.meters.map((m) => meterTitle(m, now)).join('; ') : usageNote(u);
   const headline = collapsed ? headlineMeter(u.meters) : null;
   const shown = headline ? [headline] : u.meters;
   // A collapsed chip's card says everything its tooltip would, so it has none.
@@ -156,6 +157,11 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
       <span className="ca-uchip-name">{u.account}</span>
       {shown.length > 0 ? (
         shown.map((m) => <UsageMeter key={m.key} meter={m} now={now} titled={!measure && !peeks} />)
+      ) : hasNoLimits(u) ? (
+        // Nothing will ever show here, so it takes no room to say so; the words are on hover.
+        <span className="ca-uchip-none" title={measure ? undefined : usageNote(u)}>
+          <Icon name="gauge-off" size={14} />
+        </span>
       ) : (
         <span className="ca-uchip-note" title={measure ? undefined : plain || undefined}>
           {usageNote(u)}

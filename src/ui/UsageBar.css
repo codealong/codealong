@@ -105,6 +105,10 @@
   color: var(--ink-3);
   white-space: nowrap;
 }
+.ca-uchip-none {
+  display: inline-flex;
+  color: var(--ink-3);
+}
 .ca-uchip-signin {
   display: inline-flex;
   align-items: center;

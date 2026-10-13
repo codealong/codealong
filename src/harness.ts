@@ -71,12 +71,22 @@ export function nameShown(name: string): string {
   return chars.length <= 90 ? t : `${chars.slice(0, 89).join('').trimEnd()}…`;
 }
 
+/** The harnesses that keep no limits Codealong can read: OpenCode brings your own provider, and
+ *  Antigravity and Cursor keep their quotas in their apps. */
+const NO_LIMITS: readonly Harness[] = ['opencode', 'antigravity', 'cursor'];
+
+/** Whether an account will never have meters to show, as against ones not read yet. The usage
+ *  bar says it with a quiet icon rather than words. */
+export function hasNoLimits(u: Usage | undefined): boolean {
+  return !!u && !u.needsSignIn && !u.loading && NO_LIMITS.includes(u.harness);
+}
+
 /** Why an account shows no meters, when its harness has none to show. */
 export function usageNote(u: Usage | undefined): string {
   if (!u) return 'No usage yet';
   if (u.needsSignIn) return 'Not signed in';
   if (u.loading) return 'Reading…';
   if (u.harness === 'codex') return 'No turns yet';
-  if (u.harness === 'opencode' || u.harness === 'antigravity' || u.harness === 'cursor') return 'No limits to show';
+  if (hasNoLimits(u)) return 'No limits to show';
   return 'Usage unavailable';
 }

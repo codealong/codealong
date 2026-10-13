@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { harnessOfKey, nameShown, renames, sessionName } from './harness';
+import { harnessOfKey, hasNoLimits, nameShown, renames, sessionName, usageNote } from './harness';
+import type { Usage } from './types';
+
+describe('hasNoLimits', () => {
+  const usage = (u: Partial<Usage>): Usage => ({ account: 'a', harness: 'opencode', plan: null, meters: [], asOf: null, error: null, needsSignIn: false, loading: false, ...u });
+  it('marks the harnesses that keep no limits, once read and signed in', () => {
+    expect(hasNoLimits(usage({ harness: 'opencode' }))).toBe(true);
+    expect(hasNoLimits(usage({ harness: 'antigravity' }))).toBe(true);
+    expect(hasNoLimits(usage({ harness: 'cursor' }))).toBe(true);
+    expect(usageNote(usage({ harness: 'cursor' }))).toBe('No limits to show');
+    // Limits not read yet keep their words.
+    expect(hasNoLimits(usage({ harness: 'claude' }))).toBe(false);
+    expect(hasNoLimits(usage({ harness: 'codex' }))).toBe(false);
+    expect(hasNoLimits(usage({ loading: true }))).toBe(false);
+    expect(hasNoLimits(usage({ needsSignIn: true }))).toBe(false);
+    expect(hasNoLimits(undefined)).toBe(false);
+  });
+});
 
 describe('sessionName', () => {
   it('makes a name one line, as the engine does', () => {
