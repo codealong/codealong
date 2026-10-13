@@ -44,7 +44,7 @@ import { usePrLinks } from './PrLink';
 import { prPlaces, type PrRowItem } from './PrsView';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
-import { Tip } from './Tip';
+import { Reading } from './Tip';
 import { useNow } from './useNow';
 
 /** Where the sessions looked at here are kept, for ⌃- and ⌃⇧- (history.ts), apart from the other
@@ -353,19 +353,12 @@ export function Waiting() {
           onLaneMenu={(l) => showMenu(menus.laneMenu(l, { report, open: openHere, reveal: () => revealLane(l), editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop }))}
           onSessionMenu={(l, s) => showMenu(sessionMenu(l, s))}
         />
+      ) : !board || board.loading ? (
+        <Reading what="Reading sessions…" place="waiting" />
       ) : (
         <div className="ca-waiting-empty" role="status">
-          {!board || board.loading ? (
-            <>
-              <p>Reading sessions…</p>
-              <Tip place="waiting" />
-            </>
-          ) : (
-            <>
-              <h1>Nothing waits on you</h1>
-              <p>Sessions that need you, PRs waiting on your review and turns that ended show here, one at a time, as they come.</p>
-            </>
-          )}
+          <h1>Nothing waits on you</h1>
+          <p>Sessions that need you, PRs waiting on your review and turns that ended show here, one at a time, as they come.</p>
         </div>
       )}
     </div>

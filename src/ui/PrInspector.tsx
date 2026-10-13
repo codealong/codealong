@@ -507,7 +507,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
         <section className="ca-insp-sec" aria-label="Description">
           {error && <p className="ca-form-error">{error}</p>}
           {!detail && !error && <p className="ca-empty">Loading…</p>}
-          {!detail && !error && <Tip place="pr" />}
+          {!detail && !error && <Tip place="pr" className="ca-prinsp-tip" />}
           {detail &&
             (detail.bodyHtml.trim() ? (
               <div className="ca-prbody" onClick={onBodyClick} dangerouslySetInnerHTML={{ __html: detail.bodyHtml }} />

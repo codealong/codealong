@@ -802,7 +802,12 @@ chip that says how many.
 
 While a window waits on what it reads, a tip on using Codealong shows under what it's reading: the
 main window before its first read of your sessions, the waiting window and the quick panel at
-launch, a conversation or a PR's description that takes a moment to come. Each place has tips of
+launch, a conversation or a PR's description that takes a moment to come. Where the whole window
+or pane is waiting (the main window, the waiting window, a conversation), the Codealong mark and
+what's being read sit in the middle of it with the tip under them; the main window gives the
+board the panel's room too until it has read your sessions, since the panel has nothing to show
+before then. In the quick panel and a PR's description the tip is a short note under the line
+that says what's loading. Each place has tips of
 its own (the waiting window's are about its keys, the quick panel's about its own), with the keys
 as they are now and the shortcuts as Settings has them; a tip about a shortcut that's off doesn't
 show. At launch the tip comes with the line over it; a conversation or a description gets one only

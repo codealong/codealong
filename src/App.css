@@ -188,13 +188,6 @@
   padding: var(--space-8) var(--space-6);
   color: var(--ink-3);
 }
-/* Until the engine has read this Mac's board once: the working glyph with what it's reading, and
-   a tip under it (Tip.tsx). */
-.ca-board-reading {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 
 /* Toast */
 .ca-toast {
@@ -274,6 +267,22 @@
    middle, and the message box at the bottom. It opens wider than the worktree inspector. */
 .ca-win--app .ca-win-body.is-session {
   --panel-w: min(520px, 42vw);
+}
+
+/* Until the engine has read this Mac's board once, the panel has nothing to show either: the
+   board takes its room, and says what it's reading in the middle of it (Tip.tsx Reading). */
+.ca-win--app .ca-win-body.is-loading {
+  grid-template-columns:
+    max(var(--side-min), min(var(--sidebar-w), 100% - var(--board-min)))
+    0 minmax(0, 1fr);
+}
+.ca-win--app .ca-win-body.is-loading.is-railed {
+  grid-template-columns: 52px 0 minmax(0, 1fr);
+}
+.ca-win--app .ca-win-body.is-loading .ca-board {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
 }
 
 /* Expanded to the whole window (⇧⌘F; a session's panel in Sessions, a PR's in PRs): the sidebar

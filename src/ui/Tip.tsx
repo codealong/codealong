@@ -3,9 +3,8 @@
 // launch it shows with the line over it; a conversation or a description, which often come at
 // once, gets one only once its wait has gone on a moment, so switching between them doesn't
 // flash one. While the wait goes on another comes round every so often, and Next tip brings one
-// at once. Which tips
-// have shown is kept for every window together, so the next wait, here or in another window,
-// starts on one not seen yet. A window that can't be seen shows none, so none counts as seen.
+// at once. Which tips have shown is kept for every window together, so the next wait, here or in
+// another window, starts on one not seen yet. A window that can't be seen shows none, so none counts as seen.
 // The shortcuts that work in every app are asked of the engine as the wait starts, so a tip names
 // them only while they're on and work (a clash with another app's leaves them off).
 
@@ -15,6 +14,7 @@ import { useLatest } from '../latest';
 import { chordKeys } from '../menus';
 import { readStored, strings, writeStored } from '../stored';
 import { nextTip, shortcutCaps, shownNow, tipShows, TIPS, type Tip as TipData, type TipPlace, type TipShortcuts } from '../tips';
+import { MarkLive } from './MarkLive';
 import { cx, Icon, Kbd } from './primitives';
 
 /** The tips that have shown, the latest last (tips.ts `shownNow`). */
@@ -88,7 +88,6 @@ export function Tip({ place, className }: { place: TipPlace; className?: string 
   return (
     <div className={cx('ca-tip', className)} role="note" aria-label="Tip" data-tip={tip.id}>
       <div className="ca-tip-head">
-        <Icon name="bulb" size={13} />
         <span className="ca-label">Tip</span>
         {more && (
           <button
@@ -100,6 +99,7 @@ export function Tip({ place, className }: { place: TipPlace; className?: string 
             }}
           >
             Next tip
+            <Icon name="chevron-right" size={12} />
           </button>
         )}
       </div>
@@ -118,6 +118,25 @@ export function Tip({ place, className }: { place: TipPlace; className?: string 
           ),
         )}
       </p>
+    </div>
+  );
+}
+
+/**
+ * What a window or a pane shows while everything it would show is still being read: the mark at
+ * work and what's being read, with the tip under them, in the middle of the room it has (Tip.css
+ * sets the tip larger there, its Next tip under it). The main window's board, which takes the
+ * panel's room too while it reads (App.tsx), the waiting window before the board comes, and a
+ * conversation that takes a moment, which `late` keeps from flashing in for a read that doesn't.
+ */
+export function Reading({ what, place, late = false, className }: { what: string; place: TipPlace; late?: boolean; className?: string }) {
+  return (
+    <div className={cx('ca-reading', late && 'is-late', className)}>
+      <MarkLive size={36} status="working" moment={null} />
+      <p className="ca-reading-what" role="status">
+        {what}
+      </p>
+      <Tip place={place} />
     </div>
   );
 }

@@ -117,6 +117,7 @@
   --type-heading: 600 14px/18px var(--font-sans);
   --type-heading-sm: 600 13px/18px var(--font-sans);
   --type-heading-xs: 600 12px/16px var(--font-sans);
+  --type-lead: 400 15px/22px var(--font-sans);
   --type-reading: 400 13px/19px var(--font-sans);
   --type-body: 400 13px/18px var(--font-sans);
   --type-body-strong: 500 13px/18px var(--font-sans);

@@ -1,13 +1,10 @@
-/* A tip on using Codealong under what a window is reading (Tip.tsx): a quiet box, its keys as
-   caps, that fades in, since it comes a moment after the line over it. */
+/* A tip on using Codealong (Tip.tsx), two ways, neither in a box. Where a line says what a small
+   place is reading (the quick panel's list, a PR's description): Tip and Next tip over its words,
+   lined up with that line. Where a whole window or pane is reading (Reading): in the middle of
+   it, under the mark at work and what's being read, Tip over its words set larger and Next tip
+   under them. Either fades in. */
 
 .ca-tip {
-  max-width: 420px;
-  margin-top: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface);
   color: var(--ink-2);
   text-align: left;
   animation: ca-tip-in var(--dur-base) ease-out;
@@ -15,23 +12,83 @@
 .ca-tip-head {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-3);
   margin-bottom: var(--space-1);
-  color: var(--ink-3);
 }
 .ca-tip-next {
-  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 .ca-tip-text {
   margin: 0;
   font: var(--type-reading);
+  text-wrap: pretty;
   animation: ca-tip-in var(--dur-base) ease-out;
 }
-/* Caps sit on the line's text, as they do in an empty note. */
+/* Caps sit on the line's text, their middle on its x-height's (measured at 13 and 15px). */
 .ca-tip-text .ca-kbds {
   margin: 0 1px;
-  vertical-align: -3px;
+  vertical-align: -1px;
 }
+
+/* The whole room's: the mark, what's read, then the tip, together a little above the middle, as
+   the eye finds the middle of a screen. */
+.ca-reading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: var(--space-8) var(--space-6) calc(var(--space-8) * 3);
+  text-align: center;
+}
+.ca-reading-what {
+  margin: var(--space-3) 0 0;
+  font: var(--type-body);
+  color: var(--ink-3);
+}
+.ca-reading .ca-tip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 440px;
+  margin-top: var(--space-8);
+  text-align: center;
+}
+/* Its parts go in a column: Tip, the words, Next tip under them. Tip sits between two hairlines,
+   which set the tip apart from what's being read over it. */
+.ca-reading .ca-tip-head {
+  display: contents;
+}
+.ca-reading .ca-tip .ca-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.ca-reading .ca-tip .ca-label::before,
+.ca-reading .ca-tip .ca-label::after {
+  content: '';
+  width: var(--space-6);
+  height: 1px;
+  background: var(--line);
+}
+.ca-reading .ca-tip-text {
+  margin-top: var(--space-2);
+  font: var(--type-lead);
+  color: var(--ink-2);
+  text-wrap: balance;
+}
+.ca-reading .ca-tip-next {
+  order: 1;
+  margin: var(--space-4) 0 0;
+}
+/* One that may be over in a moment (a conversation) comes in only once it hasn't been. */
+.ca-reading.is-late {
+  animation: ca-tip-in var(--dur-base) ease-out 400ms backwards;
+}
+
 @keyframes ca-tip-in {
   from {
     opacity: 0;

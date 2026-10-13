@@ -60,7 +60,7 @@ import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
 import { FindContext, ThreadFind } from './ThreadFind';
-import { Tip } from './Tip';
+import { Reading } from './Tip';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -791,8 +791,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
               </button>
             )}
           </div>
-          {!loaded && <p className="ca-empty">Reading the conversation…</p>}
-          {!loaded && <Tip place="session" />}
+          {!loaded && <Reading what="Reading the conversation…" place="session" late />}
           {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
           {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
           {rows.map((r) => {

@@ -34,7 +34,7 @@ import type { HelperActions } from './ui/HelpersCard';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection } from './ui/PinnedSection';
 import { useRowDrag, type DragProps } from './ui/useRowDrag';
-import { BayHeader, Button, cx, Icon, Kbd, Seg, StatusGlyph } from './ui/primitives';
+import { BayHeader, Button, cx, Icon, Kbd, Seg } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
@@ -48,7 +48,7 @@ import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
-import { Tip } from './ui/Tip';
+import { Reading } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
 import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
@@ -1452,7 +1452,7 @@ export function App() {
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', loading && 'is-loading')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -1499,7 +1499,7 @@ export function App() {
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
         <main className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
-          {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
+          {view === 'sessions' && !loading && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
           {devices?.asks.map((a) => (
             <div key={a.key} className="ca-device-banner" role="alert">
               <Icon name="device-desktop" size={14} />
@@ -1520,15 +1520,7 @@ export function App() {
             </div>
           )}
           {loadError && <div className="ca-board-empty">{loadError}</div>}
-          {loading && (
-            <div className="ca-board-empty ca-board-loading">
-              <div className="ca-board-reading" role="status">
-                <StatusGlyph status="working" size={12} title="" />
-                <span>{READING[view]}</span>
-              </div>
-              <Tip place="board" />
-            </div>
-          )}
+          {loading && <Reading what={READING[view]} place="board" className="ca-board-loading" />}
           {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (
             <div className="ca-board-empty">
               {query
@@ -1743,58 +1735,61 @@ export function App() {
           </div>
           )}
         </main>
-        {panelKind && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}
-        <MainPanel
-          view={view}
-          selected={selected}
-          selectedLane={selectedLane}
-          canvasPicked={canvasPick}
-          board={board}
-          now={now}
-          loading={loading}
-          lanes={lanes}
-          laneById={laneById}
-          homes={homes}
-          devices={devices}
-          current={current}
-          projectTodos={projectTodos}
-          todoStore={todoStore}
-          todoLinks={todoLinks}
-          todosFor={todosFor}
-          prRowOf={prRowOf}
-          pickedRows={pickedRows}
-          picks={picks}
-          todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
-          approving={approving}
-          drill={drill}
-          setDrill={setDrill}
-          queue={queue}
-          boxFocus={boxFocus}
-          panelMax={panelMax}
-          togglePanelMax={togglePanelMax}
-          prPanelMax={prPanelMax}
-          togglePrPanelMax={togglePrPanelMax}
-          actionsRef={actionsRef}
-          open={open}
-          newSession={newSession}
-          showLaneFromPanel={showLaneFromPanel}
-          showSessionFromPanel={showSessionFromPanel}
-          showTodoFromPanel={showTodoFromPanel}
-          laneMenu={laneMenu}
-          sessionMenu={sessionMenu}
-          sessionMenuSpec={sessionMenuSpec}
-          lanePrMenu={lanePrMenu}
-          showPr={showPrOf}
-          prMenu={prMenu}
-          prChipMenu={prChipMenu}
-          approve={approve}
-          reviewMenuFrom={reviewMenuFrom}
-          snoozeMenuFrom={snoozeMenuFrom}
-          reviewedPr={reviewedPr}
-          setPreviewFor={setPreviewFor}
-          markSeen={markSeen}
-          setToast={setToast}
-        />
+        {/* Until the board is read the panel has nothing to show either: the board takes its room. */}
+        {panelKind && !loading && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}
+        {!loading && (
+          <MainPanel
+            view={view}
+            selected={selected}
+            selectedLane={selectedLane}
+            canvasPicked={canvasPick}
+            board={board}
+            now={now}
+            loading={loading}
+            lanes={lanes}
+            laneById={laneById}
+            homes={homes}
+            devices={devices}
+            current={current}
+            projectTodos={projectTodos}
+            todoStore={todoStore}
+            todoLinks={todoLinks}
+            todosFor={todosFor}
+            prRowOf={prRowOf}
+            pickedRows={pickedRows}
+            picks={picks}
+            todo={{ startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
+            approving={approving}
+            drill={drill}
+            setDrill={setDrill}
+            queue={queue}
+            boxFocus={boxFocus}
+            panelMax={panelMax}
+            togglePanelMax={togglePanelMax}
+            prPanelMax={prPanelMax}
+            togglePrPanelMax={togglePrPanelMax}
+            actionsRef={actionsRef}
+            open={open}
+            newSession={newSession}
+            showLaneFromPanel={showLaneFromPanel}
+            showSessionFromPanel={showSessionFromPanel}
+            showTodoFromPanel={showTodoFromPanel}
+            laneMenu={laneMenu}
+            sessionMenu={sessionMenu}
+            sessionMenuSpec={sessionMenuSpec}
+            lanePrMenu={lanePrMenu}
+            showPr={showPrOf}
+            prMenu={prMenu}
+            prChipMenu={prChipMenu}
+            approve={approve}
+            reviewMenuFrom={reviewMenuFrom}
+            snoozeMenuFrom={snoozeMenuFrom}
+            reviewedPr={reviewedPr}
+            setPreviewFor={setPreviewFor}
+            markSeen={markSeen}
+            setToast={setToast}
+          />
+        )}
       </div>
       {settings && (
         <SettingsDialog

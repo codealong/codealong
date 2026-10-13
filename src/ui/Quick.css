@@ -112,10 +112,9 @@ html.is-quick body {
   font: var(--type-meta);
   color: var(--ink-3);
 }
-/* A tip under Reading sessions… (Tip.tsx), lined up with it, as wide as the list. */
+/* A tip under Reading sessions… (Tip.tsx), lined up with it. */
 .ca-quick-scroll .ca-tip {
-  max-width: none;
-  margin: var(--space-2) 10px 10px;
+  margin: var(--space-3) 10px var(--space-2);
 }
 .ca-quick-glabel {
   display: flex;

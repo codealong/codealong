@@ -14,7 +14,7 @@ html.is-waiting body {
   background: var(--surface-raised);
   color: var(--ink);
 }
-/* Nothing waits on you, or the board isn't read yet. */
+/* Nothing waits on you. (Before the board is read, Tip.tsx Reading fills the window.) */
 .ca-waiting-empty {
   margin: auto;
   max-width: 360px;

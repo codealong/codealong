@@ -1,8 +1,8 @@
 // Checks what the windows show at launch, before the engine's first scan has finished: the main
 // window says it's reading rather than listing nothing, or only other devices' worktrees, selects
-// none of those, keeps its project and gives no counts, until the board comes, with a tip under
-// it meanwhile (tips-check.js has more of those); the floating bar says it's reading until its
-// feed comes.
+// none of those, keeps its project and gives no counts, until the board comes, the board taking
+// the panel's room meanwhile with the mark at work and a tip under it (tips-check.js has more of
+// those); the floating bar says it's reading until its feed comes.
 //   PREVIEW_LOADING=1 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/loading-check.js
 //   PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/loading-check.js
 (function () {
@@ -46,11 +46,11 @@
       return until(function () { return !!document.querySelector('.ca-tip'); }, 5000).catch(function () {});
     })
     .then(function () {
-      check('the list says it is reading', text('.ca-board-reading') === 'Reading sessions…', text('.ca-board-reading'));
-      check('with the working glyph', !!document.querySelector('.ca-board-reading .ca-g-arc'));
+      check('the list says it is reading', text('.ca-board-loading .ca-reading-what') === 'Reading sessions…', text('.ca-board-loading .ca-reading-what'));
+      check('with the mark at work', !!document.querySelector('.ca-board-loading .ca-lmark[data-status="working"]'));
       check('and a tip under it', !!document.querySelector('.ca-board-loading .ca-tip'));
       check('and lists nothing yet, other devices included', !document.querySelector('.ca-board-list') && all('[role="option"]').length === 0, String(all('[role="option"]').length));
-      check('nor selects any of theirs', !!document.querySelector('.ca-insp--empty'));
+      check('nor selects any of theirs, and the panel gives the board its room', !document.querySelector('.ca-insp'));
       var stored = localStorage.getItem('codealong.project');
       check('the header keeps the project', !stored || text('.ca-projswitch-name') === stored, text('.ca-projswitch-name'));
       check('the sidebar gives no counts', all('.ca-side-chip-count').length === 0 && all('.ca-side .ca-nav-count').length === 0, all('.ca-side-chip-count').length + '/' + all('.ca-side .ca-nav-count').length);
@@ -62,6 +62,7 @@
         return until(function () { return !document.querySelector('.ca-board-loading') && all('[role="option"]').length > 0; }, 10000).then(function () {
           check('the board comes in once read', true, all('[role="option"]').length + ' rows');
           check('and the tip goes with the line over it', !document.querySelector('.ca-tip'));
+          check('and the panel is back', !!document.querySelector('.ca-insp'));
           check('with its counts', all('.ca-side-chip-count').length > 0, String(all('.ca-side-chip-count').length));
           check('and this Mac working', mac() === '' || / working/.test(mac()), mac());
         });

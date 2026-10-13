@@ -332,3 +332,8 @@
 .ca-prbody input[type='checkbox'] {
   margin: 0 6px 0 0;
 }
+
+/* A tip under Loading… while the description comes from GitHub (Tip.tsx). */
+.ca-prinsp-tip {
+  margin-top: var(--space-4);
+}

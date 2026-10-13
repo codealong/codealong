@@ -10,7 +10,7 @@
   var quick = !!window.__CODEALONG_QUICK__;
   var where = quick ? 'quick panel' : window.__CODEALONG_WAITING__ ? 'waiting window' : 'main window';
   // Under the line that says what's being read, in each window.
-  var under = quick ? '.ca-quick-scroll' : window.__CODEALONG_WAITING__ ? '.ca-waiting-empty' : '.ca-board-loading';
+  var under = quick ? '.ca-quick-scroll' : window.__CODEALONG_WAITING__ ? '.ca-waiting .ca-reading' : '.ca-board-loading';
   var tip = function () { return document.querySelector(under + ' .ca-tip'); };
   var id = function () { var t = tip(); return t ? t.getAttribute('data-tip') : ''; };
   var said = function () { var t = tip(); return t ? t.querySelector('.ca-tip-text').textContent : ''; };
