@@ -9,15 +9,15 @@
 // its page back), so what its last render had can be hours old, or from before the first scan.
 
 import { useEffect } from 'react';
-import { canvasAnswer, canvasLoad, canvasSave, getBoard, onCanvasAsk, type CanvasAsk } from '../api';
+import { canvasAnswer, getBoard, onCanvasAsk, type CanvasAsk } from '../api';
 import { projectsOf, unarchived } from '../boardLists';
 import { withDevices, type DeviceFilter } from '../devices';
 import { useLatest } from '../latest';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { errorText } from '../report';
 import type { Lane } from '../types';
-import { arrange, emptyDoc, entitiesOf, outline, readDoc, type ArrangeFrame, type ArrangeRest } from './model';
-import { seed, type CanvasHandle } from './useCanvas';
+import { arrange, emptyDoc, entitiesOf, outline, type ArrangeFrame, type ArrangeRest } from './model';
+import { readCanvas, saveCanvas, seed, type CanvasHandle } from './useCanvas';
 
 /** What `codealong canvas …` asks for, as canvas.rs `Op` sends it. */
 type Op = { kind: 'show' } | { kind: 'arrange'; frames: ArrangeFrame[]; rest: ArrangeRest };
@@ -68,11 +68,12 @@ async function answer(ask: CanvasAsk, latest: { readonly current: CanvasOps }): 
   const lanes = unarchived(withDevices(board.lanes, deviceLanes, deviceFilter)).filter((l) => inProject(l, project));
   const e = entitiesOf(board, lanes, board.todos, (p) => project === ALL_PROJECTS || p === project);
   const pinned = new Set(board.pinnedWorktrees);
-  const file = await canvasLoad(project).then((raw) => (raw ? readDoc(raw) : null));
+  const file = await readCanvas(project);
   // The window's own document once it holds the project's, which may have a change still to save,
-  // else the file. Taken after every wait, with nothing waited on from here to the save, so a
-  // change made in the window meanwhile is in what's arranged, and the project is still the one
-  // the window shows if it's put there.
+  // else the file, read again if the window saved the project meanwhile (`readCanvas`). Taken
+  // after every wait, with nothing waited on from here to the save, so a change made in the window
+  // meanwhile is in what's arranged, and the project is still the one the window shows if it's
+  // put there.
   const o = latest.current;
   const here = project === o.current;
   const doc = here && o.canvas.loaded ? o.canvas.doc : file;
@@ -84,7 +85,7 @@ async function answer(ask: CanvasAsk, latest: { readonly current: CanvasOps }): 
     const done = arrange(doc ?? seed(e, now, pinned), e, op.frames, op.rest, now, pinned);
     // Saved before the command hears it's done, so a failure to save is its answer. The project
     // the window shows goes through its handle, so the window holds what was saved.
-    await (here ? o.canvas.put(done.doc) : canvasSave(project, done.doc));
+    await (here ? o.canvas.put(done.doc) : saveCanvas(project, done.doc));
     return { project, frames: done.frames, missing: done.missing, rest: done.rest };
   }
   throw new Error('This Codealong doesn’t know that canvas request: the command is newer than the app.');

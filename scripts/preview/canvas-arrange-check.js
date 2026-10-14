@@ -4,7 +4,7 @@
 // canvas; a reveal brings the canvas up with those frames in view; a project the window doesn't
 // show is arranged and saved without switching to it; a project there isn't is refused; and a
 // save from another window has this one read the canvas again, where its own doesn't.
-//   scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
+//   PREVIEW_WAIT=90000 scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
 (function () {
   var asked = 100;
   var ask = function (project, op) {
@@ -162,6 +162,37 @@
         await wait(500);
         check('an arrange the window moved on from is saved for its project', !left.error && saved(project).doc.items.some(function (it) { return it.kind === 'frame' && it.title === 'While away'; }), JSON.stringify(left).slice(0, 160));
         check('and leaves the canvas the window shows now', !!q('.ca-cv') && !all('.ca-cv-frame-title').some(function (el) { return el.textContent === 'While away'; }));
+
+        // An arrange whose read of the file is out while a note is added and the window leaves
+        // the project (which saves the note) reads the file again. The stub's reads answer from
+        // the last save, as the file would, and the arrange's first is held.
+        var stub = window.__TAURI_INTERNALS__.invoke;
+        var heldRead = null;
+        var armed = false;
+        window.__TAURI_INTERNALS__.invoke = function (c, args) {
+          if (c !== 'canvas_load') return stub.apply(this, arguments);
+          window.__calls.push([c, args]);
+          var file = saved(args.project) ? saved(args.project).doc : null;
+          if (!armed || args.project !== project || heldRead) return Promise.resolve(file);
+          return new Promise(function (res) { heldRead = function () { res(file); }; });
+        };
+        window.__emit('reveal', { kind: 'canvas', project: project });
+        await wait(1500);
+        var notesThen = userNotes();
+        armed = true;
+        var reading = ask(project, { kind: 'arrange', frames: [{ title: 'Read again', cards: [{ ref: 'session', key: session.key }] }], rest: 'keep' });
+        await until(function () { return heldRead; }, 3000, 'the file read held');
+        corner = q('.ca-cv').getBoundingClientRect();
+        await menuOf(q('.ca-cv'), { clientX: corner.left + 8, clientY: corner.top + 8 });
+        menuItem('Add note here')();
+        await wait(200);
+        window.__emit('reveal', { kind: 'canvas', project: other });
+        await wait(1500);
+        heldRead();
+        var readAgain = await reading;
+        await wait(300);
+        window.__TAURI_INTERNALS__.invoke = stub;
+        check('a read the window’s save overtook is read again', !readAgain.error && userNotes() === notesThen + 1 && saved(project).doc.items.some(function (it) { return it.kind === 'frame' && it.title === 'Read again'; }), notesThen + ' then ' + userNotes());
       }
     })
     .then(done)

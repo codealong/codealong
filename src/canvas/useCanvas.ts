@@ -31,6 +31,28 @@ export interface CanvasHandle {
   has: (ref: RefKind, key: string) => boolean;
 }
 
+/** Each project's saves from this window: how many were asked, and the last one's promise. */
+const saving = new Map<string, { asked: number; last: Promise<unknown> }>();
+
+/** Saves a project's canvas, as every save from this window goes, for `readCanvas`. */
+export function saveCanvas(project: string, doc: CanvasDoc): Promise<void> {
+  const last = canvasSave(project, doc);
+  saving.set(project, { asked: (saving.get(project)?.asked ?? 0) + 1, last: last.catch(() => null) });
+  return last;
+}
+
+/** A project's canvas as its file has it once this window's saves of it are written, read again
+ *  when the window asked for another save while it was read (it left the project, say, which
+ *  saves the change it had still to save), a few times at most. */
+export async function readCanvas(project: string): Promise<CanvasDoc | null> {
+  for (let tries = 1; ; tries++) {
+    const before = saving.get(project);
+    await before?.last;
+    const raw = await canvasLoad(project);
+    if (saving.get(project) === before || tries === 4) return raw ? readDoc(raw) : null;
+  }
+}
+
 /** The first document for a project: what's recent, tidied by worktree. */
 export function seed(e: Entities, now: number, pinned: Set<string>): CanvasDoc {
   return tidy(emptyDoc(), e, now, pinned);
@@ -57,7 +79,7 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
     const p = pending.current;
     pending.current = null;
     if (!p) return;
-    canvasSave(p.project, p.doc).then(
+    saveCanvas(p.project, p.doc).then(
       () => clearNotice('canvas'),
       (e: unknown) => reportNotice(failedNotice('canvas', 'The canvas isn’t saving', `Couldn’t save the ${p.project} canvas; it saves again with the next change`, e)),
     );
@@ -157,7 +179,7 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
       // been read yet: this is newer than what a read still out brings, which the read sees by
       // the count.
       if (projectNow.current === project) setHeld({ project, doc });
-      await canvasSave(project, doc);
+      await saveCanvas(project, doc);
       clearNotice('canvas');
     },
     [project, projectNow],
