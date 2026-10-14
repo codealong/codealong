@@ -66,6 +66,27 @@
         check('without the window leaving its project', all('.ca-cv-frame-title').some(function (el) { return el.textContent === 'Checked frame'; }));
       } else note('one project only: arranging another went unchecked');
 
+      // The board as the engine has it when asked, not as the window last drew it (a window that
+      // isn't drawn, hidden or behind a locked screen, has an old one): a session only the engine
+      // has yet is arranged, not missing.
+      var home = window.__board.lanes.filter(function (l) { return l.sessions.some(function (s) { return s.key === session.key; }); })[0];
+      var freshKey = 'claude:claude:fresh-from-engine';
+      var engineInvoke = window.__TAURI_INTERNALS__.invoke;
+      window.__TAURI_INTERNALS__.invoke = function (cmd) {
+        var got = engineInvoke.apply(this, arguments);
+        if (cmd !== 'get_board') return got;
+        window.__TAURI_INTERNALS__.invoke = engineInvoke;
+        return got.then(function (b) {
+          var lane = b.lanes.filter(function (l) { return l.id === home.id; })[0];
+          var copy = Object.assign({}, lane.sessions.filter(function (s) { return s.key === session.key; })[0], { key: freshKey, id: 'fresh-from-engine', title: 'Fresh from the engine' });
+          lane.sessions = lane.sessions.concat([copy]);
+          return b;
+        });
+      };
+      var fresh = await ask(null, { kind: 'arrange', frames: [{ title: 'Fresh', cards: [{ ref: 'session', key: freshKey }] }], rest: 'keep' });
+      window.__TAURI_INTERNALS__.invoke = engineInvoke;
+      check('a request reads the board when it’s asked', fresh.result && fresh.result.missing.length === 0 && fresh.result.frames[0].cards === 1, JSON.stringify(fresh).slice(0, 200));
+
       var wrong = await ask('No such project', { kind: 'show' });
       check('a project there isn’t is refused', wrong.error && wrong.error.indexOf("There's no project No such project") === 0, wrong.error);
 

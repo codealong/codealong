@@ -441,7 +441,7 @@ export function App() {
   );
   const canvas = useCanvas(current, view === 'canvas', !loading, canvasEntities, now, lanePins.set);
   // What `codealong canvas …` asks of the main window: a project's canvas, and arranging it.
-  useCanvasOps({ loading, board, lanes, todos: todoStore.todos, projects, current, canvas, entities: canvasEntities, pinned: lanePins.set });
+  useCanvasOps({ deviceLanes, deviceFilter, current, canvas });
   const [canvasFocus, setCanvasFocus] = useState<{ ids: string[]; n: number } | null>(null);
   const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
   // The one card selected on the canvas: its panel shows on the right, and ⌘N starts in its worktree.

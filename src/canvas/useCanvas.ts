@@ -80,9 +80,13 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
   useEffect(() => {
     let live = true;
     flush();
+    // What was put while it was read (an arrange, before the window first drew this project) is
+    // newer than what it read.
+    const at = changes.current;
+    const land = (doc: CanvasDoc | null) => live && setHeld((h) => (h?.project === project && changes.current !== at ? h : { project, doc }));
     canvasLoad(project)
-      .then((raw) => live && setHeld({ project, doc: raw ? readDoc(raw) : null }))
-      .catch(() => live && setHeld({ project, doc: null }));
+      .then((raw) => land(raw ? readDoc(raw) : null))
+      .catch(() => land(null));
     return () => {
       live = false;
     };
@@ -144,7 +148,9 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
       changes.current += 1;
       window.clearTimeout(timer.current);
       pending.current = null;
-      setHeld((h) => (h?.project === project ? { project, doc } : h));
+      // Whether or not the project's document has been read yet: this is newer than what a read
+      // still out brings, which the read sees by the count.
+      setHeld({ project, doc });
       await canvasSave(project, doc);
       clearNotice('canvas');
     },

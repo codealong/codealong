@@ -3,14 +3,20 @@
 // project's canvas holds, and arranging it in the frames an agent names, are worked out here. The
 // canvas this window shows changes through its own handle; another project's is read, changed and
 // saved, and a window showing that one reads it again (useCanvas.ts).
+//
+// A request is answered from the board as the engine has it when it's asked, not as the window
+// last drew it: a window that's hidden, covered or behind a locked screen isn't drawn (WebKit holds
+// its page back), so what its last render had can be hours old, or from before the first scan.
 
 import { useEffect } from 'react';
-import { canvasAnswer, canvasLoad, canvasSave, onCanvasAsk, type CanvasAsk } from '../api';
+import { canvasAnswer, canvasLoad, canvasSave, getBoard, onCanvasAsk, type CanvasAsk } from '../api';
+import { projectsOf, unarchived } from '../boardLists';
+import { withDevices, type DeviceFilter } from '../devices';
 import { useLatest } from '../latest';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { errorText } from '../report';
-import type { Board, Lane, Todo } from '../types';
-import { arrange, emptyDoc, entitiesOf, outline, readDoc, type ArrangeFrame, type ArrangeRest, type Entities } from './model';
+import type { Lane } from '../types';
+import { arrange, emptyDoc, entitiesOf, outline, readDoc, type ArrangeFrame, type ArrangeRest } from './model';
 import { seed, type CanvasHandle } from './useCanvas';
 
 /** What `codealong canvas …` asks for, as canvas.rs `Op` sends it. */
@@ -28,18 +34,12 @@ export function canvasProject(asked: string | null, current: string, projects: {
 }
 
 export interface CanvasOps {
-  /** The board isn't read yet: a canvas worked out now would leave this Mac's worktrees out. */
-  loading: boolean;
-  board: Board | null;
-  /** Every project's worktrees as this window lists them, and its todos. */
-  lanes: Lane[];
-  todos: Todo[];
-  projects: { name: string }[];
-  /** The project this window shows, its canvas and what that canvas can show. */
+  /** Other devices' worktrees, and the devices the window shows, which the board adds them to. */
+  deviceLanes: Lane[];
+  deviceFilter: DeviceFilter;
+  /** The project this window shows, and its canvas. */
   current: string;
   canvas: CanvasHandle;
-  entities: Entities;
-  pinned: Set<string>;
 }
 
 /** Answers each `codealong canvas …` request the engine hands this window. */
@@ -61,19 +61,24 @@ export function useCanvasOps(ops: CanvasOps): void {
 }
 
 async function answer(ask: CanvasAsk, o: CanvasOps): Promise<unknown> {
-  if (o.loading) throw new Error('Codealong is still reading the board. Ask again in a moment.');
-  const project = canvasProject(ask.project, o.current, o.projects);
+  const board = await getBoard();
+  if (board.loading) throw new Error('Codealong is still reading the board. Ask again in a moment.');
+  const project = canvasProject(ask.project, o.current, projectsOf(board.projects, o.deviceLanes));
+  const lanes = unarchived(withDevices(board.lanes, o.deviceLanes, o.deviceFilter)).filter((l) => inProject(l, project));
+  const e = entitiesOf(board, lanes, board.todos, (p) => project === ALL_PROJECTS || p === project);
+  const pinned = new Set(board.pinnedWorktrees);
   const here = project === o.current;
-  if (here && !o.canvas.loaded) throw new Error(`The ${project} canvas is still loading. Ask again in a moment.`);
-  const e = here ? o.entities : entitiesOf(o.board, o.lanes.filter((l) => inProject(l, project)), o.todos, (p) => project === ALL_PROJECTS || p === project);
-  const doc = here ? o.canvas.doc : await canvasLoad(project).then((raw) => (raw ? readDoc(raw) : null));
+  // The window's own document once it holds the project's, which may have a change still to save;
+  // else the file.
+  const doc = here && o.canvas.loaded ? o.canvas.doc : await canvasLoad(project).then((raw) => (raw ? readDoc(raw) : null));
   const op = ask.op as Op;
   if (op.kind === 'show') return { project, exists: !!doc, ...outline(doc ?? emptyDoc(), e) };
   if (op.kind === 'arrange') {
     const now = Date.now();
     // A project whose canvas was never shown starts as it would have: tidied.
-    const done = arrange(doc ?? seed(e, now, o.pinned), e, op.frames, op.rest, now, o.pinned);
-    // Saved before the command hears it's done, so a failure to save is its answer.
+    const done = arrange(doc ?? seed(e, now, pinned), e, op.frames, op.rest, now, pinned);
+    // Saved before the command hears it's done, so a failure to save is its answer. The project
+    // the window shows goes through its handle, so the window holds what was saved.
     await (here ? o.canvas.put(done.doc) : canvasSave(project, done.doc));
     return { project, frames: done.frames, missing: done.missing, rest: done.rest };
   }
