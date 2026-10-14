@@ -237,7 +237,7 @@ fn flash_focused(app: &tauri::AppHandle, engine: &engine::Handle, lane_id: &str,
 fn target_app(engine: &engine::Handle, lane_id: &str, target_id: &str) -> Option<&'static str> {
     let board = engine.board();
     let session = target_id.strip_prefix("s|").and_then(|t| t.rsplit_once('|')).and_then(|(key, action)| Some((board.lanes.iter().find(|l| l.id == lane_id)?.sessions.iter().find(|s| s.key == key)?, action)));
-    let host = session.and_then(|(s, _)| launch::terminal_kind(s.pid?)?.bundle());
+    let host = session.and_then(|(s, _)| launch::session_app(s.pid?));
     let own = session.and_then(|(s, action)| harness::adapter(s.harness).app_bundle(action));
     bar::target_app(target_id, &board.apps.terminal_id, host, own)
 }

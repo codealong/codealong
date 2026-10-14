@@ -34,8 +34,12 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   session's tab is its client's, the `tmux attach` process (named `tmux` too, so its terminal is
   the one above it), found by the client's TTY those same ways; a tmux session no client is
   attached to (`session_attached` 0, as `tmux new-session -d` leaves it) has no tab, and Show in
-  opens a new one attaching to it: `launch/tmux.rs` (`focus_session`, `attach_command`). Only
-  terminals Codealong doesn't script, and a tmux client in one, go by title.
+  opens a new one attaching to it: `launch/tmux.rs` (`focus_session`, `attach_command`). Not
+  said there: `list-panes -a` lists a window once per session it's in (linked, or a group made
+  with `new-session -t`), each line with that session's `session_attached`; `attach -t %<pane>`
+  shows that pane's window and selects the pane, where `attach -t <session>` shows the window
+  the session was on (tmux 3.7c, 2026-10-13). Only terminals Codealong doesn't script, and a
+  tmux client in one, go by title.
 - Holding windows, tabs and terminals by id, one question for an id with its own folder, and
   `current date` outside the tell: `launch/ghostty.rs` (`GHOSTTY_FOCUS`, `GHOSTTY_LIST`). Not
   said there: store a query's result before taking an item: `item 1 of (id of every terminal

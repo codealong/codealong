@@ -93,6 +93,12 @@ pub trait Terminal: Sync {
     /// tabs of its own (tmux) to look in when it can't tell where it shows.
     fn focus_session(&self, profile: &str, pid: u32, tty: &Path, title: &str, cwd: &Path) -> Result<Option<TerminalHost>>;
 
+    /// The app a session's tab is in, by bundle ID, to bring forward: its own, or for one that
+    /// runs inside another (tmux), that one's. None when it can't tell.
+    fn app_of(&self, _pid: u32) -> Option<&'static str> {
+        self.bundle()
+    }
+
     /// What a new terminal types to show a session's process when no tab shows it now (a tmux
     /// session no client is attached to), None while one does. An app's sessions are its tabs.
     fn attach_command(&self, _pid: u32) -> Option<String> {
@@ -486,16 +492,18 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
         // Clicked again while this one waited: the newer click decides what comes forward.
         return Ok(true);
     };
-    let terminal = terminal_kind(pid);
     // Asked before the tab is raised: `follow` is for an app that wasn't the active one then.
-    let behind = terminal.and_then(|t| t.bundle()).or_else(|| bundle_id(profile)).filter(|app| !app_active(app));
-    let raised = match terminal {
+    // Which app the tab is in is known only once it's found (a tmux session's is its client's).
+    let behind: Vec<&str> = TERMINALS.iter().filter_map(|t| t.bundle()).filter(|app| !app_active(app)).collect();
+    let raised = match terminal_kind(pid) {
         Some(terminal) => terminal.focus_session(profile, pid, &tty, title, cwd)?,
         None => focus_by_title(profile, title, cwd)?,
     };
     let found = raised.is_some();
-    if let (Some(raised), Some(app)) = (raised, behind) {
-        follow(ticket, app, raised);
+    if let Some(raised) = raised {
+        if let Some(app) = raised.terminal.bundle().filter(|app| behind.contains(app)) {
+            follow(ticket, app, raised);
+        }
     }
     Ok(found)
 }
@@ -504,6 +512,12 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
 /// shows now: a tmux session no client is attached to. None where a tab may show it.
 pub fn attach_command(pid: u32) -> Option<String> {
     terminal_kind(pid)?.attach_command(pid)
+}
+
+/// The app a live session's tab is in, by bundle ID: its terminal's, or for a session in tmux,
+/// the one its client runs in. None when it can't tell.
+pub fn session_app(pid: u32) -> Option<&'static str> {
+    terminal_kind(pid)?.app_of(pid)
 }
 
 /// A session's tab, found: the terminal it's in and what that terminal finds it again by
@@ -1617,17 +1631,24 @@ end run
     #[test]
     fn a_tmux_pane_is_found_by_its_tty() {
         let list = "/dev/ttys003 %0 1 main\n/dev/ttys012 %4 0 my agents\n";
-        assert_eq!(tmux_pane_for(list, "/dev/ttys012"), Some(TmuxPane { id: "%4".into(), session: "my agents".into(), shown: false }));
-        assert_eq!(tmux_pane_for(list, "/dev/ttys003"), Some(TmuxPane { id: "%0".into(), session: "main".into(), shown: true }));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys012"), Some(TmuxPane { id: "%4".into(), shown_in: vec![] }));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys003"), Some(TmuxPane { id: "%0".into(), shown_in: vec!["main".into()] }));
         assert_eq!(tmux_pane_for(list, "/dev/ttys01"), None);
+        // A window in several sessions (a group's, or linked) is listed once in each: it shows
+        // wherever any of them is attached, whichever comes first.
+        let grouped = "/dev/ttys025 %0 0 agents\n/dev/ttys029 %1 0 agents\n/dev/ttys025 %0 1 view\n/dev/ttys025 %0 2 also\n";
+        assert_eq!(tmux_pane_for(grouped, "/dev/ttys025"), Some(TmuxPane { id: "%0".into(), shown_in: vec!["view".into(), "also".into()] }));
     }
 
     #[test]
     fn a_tmux_sessions_client_is_the_one_used_last() {
         let list = "1760000100 501 /dev/ttys004 my agents\n1760000900 502 /dev/ttys005 main\n1760000300 503 /dev/ttys006 my agents\n";
-        assert_eq!(tmux_client_for(list, "my agents"), Some((503, PathBuf::from("/dev/ttys006"))));
-        assert_eq!(tmux_client_for(list, "main"), Some((502, PathBuf::from("/dev/ttys005"))));
-        assert_eq!(tmux_client_for(list, "my"), None);
-        assert_eq!(tmux_client_for("", "main"), None);
+        let on = |names: &[&str]| tmux_client_for(list, &names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+        assert_eq!(on(&["my agents"]), Some((503, PathBuf::from("/dev/ttys006"))));
+        assert_eq!(on(&["main"]), Some((502, PathBuf::from("/dev/ttys005"))));
+        assert_eq!(on(&["my agents", "main"]), Some((502, PathBuf::from("/dev/ttys005"))));
+        assert_eq!(on(&["my"]), None);
+        assert_eq!(on(&[]), None);
+        assert_eq!(tmux_client_for("", &["main".to_string()]), None);
     }
 }

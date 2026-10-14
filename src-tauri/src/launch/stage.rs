@@ -268,10 +268,12 @@ mod tests {
         (600_001, 1, "kitty", None),
         (600_002, 600_001, "zsh", Some("/dev/ttys601")),
         (600_010, 600_002, "claude", Some("/dev/ttys601")),
-        // Clients of tmux (`tmux attach`): in Ghostty, in kitty, and in a pane of tmux itself.
+        // Clients of tmux (`tmux attach`): in Ghostty, iTerm2 and kitty, and in a pane of tmux.
         (100_032, 100_001, "login", None),
         (100_033, 100_032, "zsh", Some("/dev/ttys103")),
         (100_030, 100_033, "tmux", Some("/dev/ttys103")),
+        (200_023, 200_002, "zsh", Some("/dev/ttys203")),
+        (200_030, 200_023, "tmux", Some("/dev/ttys203")),
         (600_013, 600_001, "zsh", Some("/dev/ttys602")),
         (600_030, 600_013, "tmux", Some("/dev/ttys602")),
         (400_013, 400_001, "zsh", Some("/dev/ttys402")),
@@ -666,6 +668,7 @@ mod tests {
                 ("GHOSTTY_LIST", _) => GHOSTTY_TABS.to_string(),
                 ("GHOSTTY_FOCUS", Some("tag")) => "T3\n".to_string(),
                 ("GHOSTTY_FOCUS", _) => format!("{}\n", s.args[1]),
+                ("ITERM_FOCUS+SESSION_ON", _) => format!("{}\n", s.args[0]),
                 _ => panic!("unexpected {} {:?}", s.what, s.args),
             })
         }
@@ -701,6 +704,13 @@ mod tests {
             assert_eq!(p.log, [TMUX_PANES, TMUX_CLIENTS, TMUX_SHOW[0], TMUX_SHOW[1], "GHOSTTY_LIST []", r#"GHOSTTY_FOCUS ["id", "T2"]"#]);
         }
 
+        // Its window is in two sessions (a group's), listed once in each: the one listed first
+        // isn't attached, the other is, by a client in iTerm2, whatever config.toml names.
+        let grouped = "/dev/ttys401 %3 0 my agents\n/dev/ttys401 %3 1 view\n";
+        let p = played(tmux_answers(grouped, "1760000300 200030 /dev/ttys203 view\n"), || terminal_focus_session("ghostty", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log, [TMUX_PANES, TMUX_CLIENTS, TMUX_SHOW[0], TMUX_SHOW[1], r#"ITERM_FOCUS+SESSION_ON ["/dev/ttys203"]"#]);
+
         // No client shows its session, so no tab can: none is asked for, and the title finds
         // only a tab that happens to be titled like it.
         let p = played(tmux_answers("/dev/ttys401 %3 0 my agents\n", ""), || terminal_focus_session("ghostty", IN_TMUX, "Something else", Path::new("/r/app")));
@@ -714,17 +724,37 @@ mod tests {
 
     #[test]
     fn a_tmux_session_no_client_shows_is_attached_to_in_a_new_tab() {
-        let p = played(tmux_answers("/dev/ttys400 %1 1 other\n/dev/ttys401 %3 0 Bob's agents\n", ""), || attach_command(IN_TMUX));
-        assert_eq!(p.got.as_deref(), Some(r#"/opt/homebrew/bin/tmux attach -t 'Bob'\''s agents'"#));
+        // By its pane, which brings up the pane's window and the pane, not the session's last.
+        let p = played(tmux_answers("/dev/ttys400 %1 1 other\n/dev/ttys401 %3 0 Bob's agents\n/dev/ttys401 %3 0 view\n", ""), || attach_command(IN_TMUX));
+        assert_eq!(p.got.as_deref(), Some("/opt/homebrew/bin/tmux attach -t '%3'"));
         assert_eq!(p.log, [TMUX_PANES]);
-        // A client shows it, or its pane isn't found: it may have a tab.
-        for panes in ["/dev/ttys401 %3 1 Bob's agents\n", "/dev/ttys400 %1 0 other\n"] {
+        // A client shows a session it's in, or its pane isn't found: it may have a tab.
+        for panes in ["/dev/ttys401 %3 0 Bob's agents\n/dev/ttys401 %3 1 view\n", "/dev/ttys400 %1 0 other\n"] {
             let p = played(tmux_answers(panes, ""), || attach_command(IN_TMUX));
             assert_eq!(p.got, None);
         }
         // An app's sessions are its tabs, and tmux isn't asked about them.
         let p = played(tmux_answers("", ""), || (attach_command(IN_GHOSTTY), attach_command(IN_ITERM), attach_command(IN_KITTY), attach_command(IN_BACKGROUND)));
         assert_eq!(p.got, (None, None, None, None));
+        assert!(p.log.is_empty());
+    }
+
+    #[test]
+    fn a_tmux_sessions_app_is_the_one_its_client_runs_in() {
+        let panes = "/dev/ttys401 %3 1 my agents\n";
+        for (client, app) in [("100030 /dev/ttys103", Some("com.mitchellh.ghostty")), ("200030 /dev/ttys203", Some("com.googlecode.iterm2")), ("600030 /dev/ttys602", None), ("400030 /dev/ttys402", None)] {
+            let clients: &'static str = Box::leak(format!("1760000300 {client} my agents\n").into_boxed_str());
+            let p = played(tmux_answers(panes, clients), || session_app(IN_TMUX));
+            assert_eq!(p.got, app, "client {client}");
+            assert_eq!(p.log, [TMUX_PANES, TMUX_CLIENTS]);
+        }
+        // No client shows it: a new tab opens in the profile's app, which the caller falls back on.
+        let p = played(tmux_answers("/dev/ttys401 %3 0 my agents\n", ""), || session_app(IN_TMUX));
+        assert_eq!(p.got, None);
+        assert_eq!(p.log, [TMUX_PANES]);
+        // A terminal's own sessions are in its app, and tmux isn't asked.
+        let p = played(tmux_answers("", ""), || (session_app(IN_GHOSTTY), session_app(IN_ITERM), session_app(IN_TERMINAL), session_app(IN_KITTY)));
+        assert_eq!(p.got, (Some("com.mitchellh.ghostty"), Some("com.googlecode.iterm2"), Some("com.apple.Terminal"), None));
         assert!(p.log.is_empty());
     }
 
