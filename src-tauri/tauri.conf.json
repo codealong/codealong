@@ -51,7 +51,8 @@
       "../plugin/.claude-plugin/plugin.json": "plugin-marketplace/plugin/.claude-plugin/plugin.json",
       "../plugin/bin/codealong": "plugin-marketplace/plugin/bin/codealong",
       "../plugin/hooks/hooks.json": "plugin-marketplace/plugin/hooks/hooks.json",
-      "../plugin/skills/orchestrate/SKILL.md": "plugin-marketplace/plugin/skills/orchestrate/SKILL.md"
+      "../plugin/skills/orchestrate/SKILL.md": "plugin-marketplace/plugin/skills/orchestrate/SKILL.md",
+      "../plugin/skills/visualize/SKILL.md": "plugin-marketplace/plugin/skills/visualize/SKILL.md"
     },
     "category": "DeveloperTool",
     "copyright": "Copyright © 2026 Gordon L. Hempton",

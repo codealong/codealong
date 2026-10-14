@@ -81,8 +81,9 @@ export interface CanvasViewProps {
   terminal: string;
   theme: Theme;
   project: string;
-  /** Select this item and bring it into view; `n` changes each time it's asked. */
-  focus: { id: string; n: number } | null;
+  /** Bring these items into view, selecting one when it's one (the frames an arrange made are
+   *  several); `n` changes each time it's asked. */
+  focus: { ids: string[]; n: number } | null;
   onOpen: (it: RefItem) => void;
   /** A click on a PR's chip in a card's popover, for a PR the canvas has no card of: the PR in
    *  PRs. */
@@ -319,7 +320,8 @@ export function CanvasView(props: CanvasViewProps) {
   };
 
   useEffect(() => {
-    if (focus) showItem(focus.id);
+    if (focus?.ids.length === 1) showItem(focus.ids[0]);
+    else if (focus) fit(bounds(focus.ids.flatMap((id) => (byId.get(id) ? [rectOf(byId.get(id) as CanvasItem)] : []))));
     // Only when asked again, not as the canvas changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- n counts the asks; fitting the card again as the canvas changes would take the view from where you moved it
   }, [focus?.n]);
@@ -1007,7 +1009,7 @@ export function CanvasView(props: CanvasViewProps) {
                   onFocus={(e) => e.currentTarget.select()}
                   onBlur={(e) => {
                     const title = e.currentTarget.value.trim() || 'Frame';
-                    if (title !== f.title) patch(f.id, { title, auto: false });
+                    if (title !== f.title) patch(f.id, { title, auto: false, arranged: false });
                     setEditing(null);
                   }}
                   onKeyDown={(e) => {
@@ -1041,7 +1043,7 @@ export function CanvasView(props: CanvasViewProps) {
                 autoFocus
                 defaultValue={n.text}
                 onBlur={(e) => {
-                  if (e.currentTarget.value !== n.text) patch(n.id, { text: e.currentTarget.value });
+                  if (e.currentTarget.value !== n.text) patch(n.id, { text: e.currentTarget.value, arranged: false });
                   setEditing(null);
                 }}
                 onKeyDown={(e) => {

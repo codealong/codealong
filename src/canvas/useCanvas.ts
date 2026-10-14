@@ -3,7 +3,7 @@
 // never had the Canvas view open has no document until it's first shown; it then starts tidied.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { canvasLoad, canvasSave } from '../api';
+import { canvasLoad, canvasSave, onCanvasSaved, windowLabel } from '../api';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { addRef, emptyDoc, itemId, readDoc, refId, sync, tidy, type CanvasDoc, type Entities, type RefKind } from './model';
 
@@ -18,6 +18,8 @@ interface Held {
 export interface CanvasHandle {
   /** The document, or null while it loads or before the canvas was ever shown here. */
   doc: CanvasDoc | null;
+  /** The project's document has been read: `doc` null then means it has none yet. */
+  loaded: boolean;
   update: (fn: (doc: CanvasDoc) => CanvasDoc) => void;
   /** Puts a thing on the canvas and keeps it there; returns its canvas id. */
   keep: (ref: RefKind, key: string) => string;
@@ -26,7 +28,7 @@ export interface CanvasHandle {
 }
 
 /** The first document for a project: what's recent, tidied by worktree. */
-function seed(e: Entities, now: number, pinned: Set<string>): CanvasDoc {
+export function seed(e: Entities, now: number, pinned: Set<string>): CanvasDoc {
   return tidy(emptyDoc(), e, now, pinned);
 }
 
@@ -79,6 +81,21 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
     };
   }, [project, flush]);
 
+  // Another window saved this project's canvas (a second window on the project, or the main
+  // window arranging it for `codealong canvas arrange`): read it again. A change made here that's
+  // still to be saved goes over it instead, and the other window reads that.
+  useEffect(
+    () =>
+      onCanvasSaved((saved) => {
+        if (saved.from === windowLabel() || saved.project !== project || pending.current?.project === project) return;
+        canvasLoad(project)
+          .then((raw) => setHeld((h) => (h?.project === project && raw ? { project, doc: readDoc(raw) } : h)))
+          // One that doesn't read now leaves this window with what it had, which it saves with its next change.
+          .catch(() => {});
+      }),
+    [project],
+  );
+
   // Brought up to date with the board as it changes, once the canvas exists.
   useEffect(() => {
     if (!held || held.project !== project || !read) return;
@@ -130,5 +147,5 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
 
   const doc = loaded ? (held?.doc ?? null) : null;
   const has = useCallback((ref: RefKind, key: string) => !!doc?.items.some((it) => it.kind === 'ref' && it.ref === ref && it.key === key), [doc]);
-  return { doc, update, keep, has };
+  return { doc, loaded, update, keep, has };
 }

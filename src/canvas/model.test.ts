@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import { NOW } from '../testing/fixtures';
 import type { Lane, PrItem, Session, Todo } from '../types';
-import { addRef, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
+import { addRef, arrange, contains, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, outline, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type NoteItem, type RefItem } from './model';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -382,5 +382,152 @@ describe('readDoc and links', () => {
       ['session:boss', 'session:fork'],
       ['session:boss', 'session:sent'],
     ]);
+  });
+});
+
+describe('arrange', () => {
+  const lanes = [lane('a', [session('s1'), session('s2')]), lane('b', [session('s3')]), lane('c', [session('s4')], { repo: 'site' })];
+  const e = ents(lanes, [todo('t1', { worktrees: ['b'] })]);
+  const tidied = tidy(sync(emptyDoc(), e, NOW), e, NOW);
+  const frames = (d: CanvasDoc) => d.items.filter((it): it is FrameItem => it.kind === 'frame');
+  const notes = (d: CanvasDoc) => d.items.filter((it): it is NoteItem => it.kind === 'note');
+  const card = (d: CanvasDoc, id: string) => at(d, id) as RefItem;
+  const s = (key: string) => ({ ref: 'session' as const, key });
+
+  it('puts what each frame names in it, in columns by worktree in the order given, and the frames in order', () => {
+    const r = arrange(
+      tidied,
+      e,
+      [
+        { title: 'Billing', note: 'Two sessions on the invoice fix.', cards: [s('s2'), { ref: 'worktree', key: 'a' }, s('s1')] },
+        { title: 'Site', color: 'teal', cards: [s('s4'), s('s3')] },
+      ],
+      'keep',
+      NOW,
+    );
+    expect(r.frames.map((f) => [f.title, f.cards])).toEqual([
+      ['Billing', 3],
+      ['Site', 2],
+    ]);
+    const [billing, site] = frames(r.doc).filter((f) => f.arranged);
+    expect(billing).toMatchObject({ title: 'Billing', arranged: true });
+    expect(billing.auto).toBeUndefined();
+    expect(site.color).toBe('teal');
+    expect(site.x).toBeGreaterThan(billing.x);
+    // The worktree heads its column, then its sessions in the order named.
+    const [w, s2, s1] = ['worktree:a', 'session:s2', 'session:s1'].map((id) => card(r.doc, id));
+    expect([s2.x, s1.x]).toEqual([w.x, w.x]);
+    expect(s2.y).toBeGreaterThan(w.y);
+    expect(s1.y).toBeGreaterThan(s2.y);
+    expect(s1.kept).toBe(true);
+    // A column per worktree, the one named first on the left.
+    expect(card(r.doc, 'session:s4').x).toBeLessThan(card(r.doc, 'session:s3').x);
+    // The note goes across the frame's top, the cards under it.
+    const [note] = notes(r.doc);
+    expect(note).toMatchObject({ text: 'Two sessions on the invoice fix.', arranged: true });
+    expect(contains(billing, note)).toBe(true);
+    expect(w.y).toBeGreaterThanOrEqual(note.y + note.h);
+    const solid = r.doc.items.filter((it) => it.kind !== 'frame').map(rectOf);
+    for (let i = 0; i < solid.length; i++) for (let j = i + 1; j < solid.length; j++) expect(overlaps(solid[i], solid[j])).toBe(false);
+  });
+
+  it('lays out the rest below the frames as a tidy would, or takes it off', () => {
+    const asked = [{ title: 'Billing', cards: [s('s1')] }];
+    const kept = arrange(tidied, e, asked, 'keep', NOW);
+    expect(kept.rest).toBe(refs(tidied).length - 1);
+    expect(refs(kept.doc)).toHaveLength(refs(tidied).length);
+    const billing = frames(kept.doc).find((f) => f.arranged) as FrameItem;
+    const autos = frames(kept.doc).filter((f) => f.auto);
+    expect(autos.length).toBeGreaterThan(0);
+    for (const f of autos) expect(f.y).toBeGreaterThan(billing.y + billing.h);
+    const off = arrange(tidied, e, asked, 'off', NOW);
+    expect(refs(off.doc).map(itemId)).toEqual(['session:s1']);
+    // Bring in doesn't bring them back until they move on.
+    expect(sync(off.doc, e, NOW)).toBe(off.doc);
+  });
+
+  it('replaces the frames and notes the last arrange made, which a tidy keeps as yours', () => {
+    const first = arrange(tidied, e, [{ title: 'Billing', note: 'Invoices', cards: [s('s1')] }], 'keep', NOW).doc;
+    const billing = frames(first).find((f) => f.arranged) as FrameItem;
+    const t = tidy(first, e, NOW + 1000);
+    expect(at(t, billing.id)).toEqual(billing);
+    expect(at(t, 'session:s1')).toEqual(at(first, 'session:s1'));
+    expect(notes(t)).toEqual(notes(first));
+    const second = arrange(t, e, [{ title: 'Site', cards: [s('s4')] }], 'keep', NOW + 2000).doc;
+    expect(frames(second).filter((f) => f.arranged).map((f) => f.title)).toEqual(['Site']);
+    expect(notes(second)).toEqual([]);
+    // Named by no frame now, it's with the rest.
+    expect(at(second, 'session:s1')).toBeTruthy();
+  });
+
+  it('leaves your frames and notes, and what is in them unless a frame names it', () => {
+    const s1 = card(tidied, 'session:s1');
+    const mine: FrameItem = { kind: 'frame', id: 'frame-mine', title: 'Mine', x: s1.x - 20, y: s1.y - 20, w: CARD_W + 40, h: CARD_H.session + 40, color: 'green' };
+    const note: NoteItem = { kind: 'note', id: 'note-mine', text: 'Ask about this', x: -1000, y: -1000, w: 220, h: 140, color: 'gray' };
+    const d = { ...tidied, items: [mine, note, ...tidied.items] };
+    const r = arrange(d, e, [{ title: 'Billing', cards: [s('s2')] }], 'off', NOW).doc;
+    expect(at(r, 'frame-mine')).toEqual(mine);
+    expect(at(r, 'note-mine')).toEqual(note);
+    expect(at(r, 'session:s1')).toEqual(s1);
+    // Named, it leaves your frame for the one that names it.
+    const again = arrange(d, e, [{ title: 'Billing', cards: [s('s1')] }], 'off', NOW).doc;
+    expect(at(again, 'frame-mine')).toEqual(mine);
+    expect(contains(mine, rectOf(card(again, 'session:s1')))).toBe(false);
+  });
+
+  it('leaves out what the board lacks, puts a card in the first frame that names it, and makes no empty frame', () => {
+    const r = arrange(
+      tidied,
+      e,
+      [
+        { title: 'A', cards: [s('s1'), s('gone'), s('gone')] },
+        { title: 'B', cards: [s('s1'), { ref: 'todo', key: 't1' }] },
+        { title: 'Empty', cards: [] },
+      ],
+      'keep',
+      NOW,
+    );
+    expect(r.missing).toEqual([s('gone')]);
+    expect(r.frames.map((f) => [f.title, f.cards])).toEqual([
+      ['A', 1],
+      ['B', 1],
+    ]);
+    expect(refs(r.doc).filter((c) => itemId(c) === 'session:s1')).toHaveLength(1);
+  });
+
+  it('brings on a named card that was off the canvas, and off the hidden list', () => {
+    const d = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s3'), hidden: ['session:s3'] };
+    const r = arrange(d, e, [{ title: 'B', cards: [s('s3')] }], 'keep', NOW).doc;
+    expect(at(r, 'session:s3')).toMatchObject({ kept: true, title: lanes[1].sessions[0].title });
+    expect(r.hidden).toEqual([]);
+  });
+
+  it('makes a note tall enough for its text', () => {
+    const r = arrange(emptyDoc(), e, [{ title: 'Notes', note: 'word '.repeat(200), cards: [] }], 'keep', NOW).doc;
+    const [n] = notes(r);
+    // A thousand characters, about 65 to a line two columns wide.
+    expect(n.h).toBeGreaterThanOrEqual(15 * 20);
+    expect(contains(frames(r)[0], n)).toBe(true);
+    expect(frames(r)[0].h).toBeGreaterThan(n.h);
+  });
+});
+
+describe('outline', () => {
+  it('says what each frame holds and who made it, and what the board no longer has', () => {
+    const e = ents([lane('a', [session('s1')])]);
+    let d = arrange(tidy(sync(emptyDoc(), e, NOW), e, NOW), e, [{ title: 'Billing', note: 'Invoices', cards: [{ ref: 'session', key: 's1' }] }], 'keep', NOW).doc;
+    d = { ...d, items: [...d.items, { kind: 'ref', ref: 'session', key: 'old', x: -5000, y: -5000, title: 'Old one' }] };
+    const o = outline(d, e);
+    const [billing, app] = o.frames;
+    expect(o.frames.map((f) => [f.title, f.by, f.frame])).toEqual([
+      ['Billing', 'arrange', null],
+      ['app', 'tidy', null],
+    ]);
+    expect(o.cards).toEqual([
+      { ref: 'session', key: 's1', title: e.sessions.get('s1')?.session.title, frame: billing.id, gone: false },
+      { ref: 'worktree', key: 'a', title: 'a', frame: app.id, gone: false },
+      { ref: 'session', key: 'old', title: 'Old one', frame: null, gone: true },
+    ]);
+    expect(o.notes).toEqual([{ id: expect.any(String), text: 'Invoices', frame: billing.id, by: 'arrange' }]);
   });
 });

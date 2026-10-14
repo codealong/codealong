@@ -10,10 +10,11 @@
 // canvas out once, taking off what's older and bringing on what's in. Bring in's say what new work
 // comes on by itself afterwards: whatever moves on after the last tidy or clear. Nothing leaves by
 // itself; what's on stays, drawn as gone once the board no longer has it, until a tidy or you take
-// it off.
+// it off. An agent can lay it out too, in frames by what the work is for (`arrange`, which
+// `codealong canvas arrange` asks the main window for: useCanvasOps.ts).
 
 import { sessionHomes, unattended, type Placed } from '../lanes';
-import type { Board, Lane, LabelColor, PrItem, Session, Todo } from '../types';
+import { LABEL_COLORS, type Board, type Lane, type LabelColor, type PrItem, type Session, type Todo } from '../types';
 
 export type RefKind = 'worktree' | 'session' | 'todo' | 'pr';
 
@@ -39,6 +40,9 @@ export interface NoteItem {
   w: number;
   h: number;
   color: LabelColor;
+  /** Written by `codealong canvas arrange` across its frame's top: the next arrange replaces it
+   *  with the frame. Editing it makes it yours. */
+  arranged?: boolean;
 }
 
 export interface FrameItem {
@@ -52,6 +56,9 @@ export interface FrameItem {
   color: LabelColor;
   /** Made by a tidy; the next tidy replaces it. Renaming it makes it yours. */
   auto?: boolean;
+  /** Made by `codealong canvas arrange`: a tidy leaves it, with what's in it, as one you drew,
+   *  and the next arrange replaces it. Renaming it makes it yours. */
+  arranged?: boolean;
 }
 
 export type CanvasItem = RefItem | NoteItem | FrameItem;
@@ -682,12 +689,15 @@ interface Column {
   indent?: boolean;
 }
 
+/** A frame's worth of columns. */
 interface Band {
   key: string;
   title: string;
   color: LabelColor;
   columns: Column[];
   activity: number;
+  /** A frame `codealong canvas arrange` asked for, with its note: made `arranged`, not `auto`. */
+  arranged?: { note: string | null };
 }
 
 function dayTitle(ts: number, now: number): string {
@@ -753,17 +763,26 @@ export function tidyPlan(doc: CanvasDoc, e: Entities, now: number, pinned: Set<s
  * what stayed. From then on Bring in adds only what moves on after it.
  */
 export function tidy(doc: CanvasDoc, e: Entities, now: number, pinned: Set<string> = new Set(), opts: TidyOptions = doc.tidy): CanvasDoc {
-  const mode = opts.layout;
   const plan = tidyPlan(doc, e, now, pinned, opts);
   const stay = plan.stay;
   const move = [...plan.move, ...plan.added];
   const { cleared: _, ...rest } = doc.scope;
   const scope: Scope = { ...rest, since: now };
   if (move.length === 0) return { ...doc, items: stay, scope, tidy: opts };
+  const { frames, placed } = pack(tidyBands(move, e, opts.layout, now).map(layBand), stay);
+  return { ...doc, items: [...frames, ...stay, ...placed], scope, tidy: opts };
+}
 
-  // Columns, one per worktree; things with none share a column per kind.
+const KIND_ORDER: Record<RefKind, number> = { worktree: 0, session: 1, todo: 2, pr: 3 };
+
+/**
+ * Cards in columns, one per worktree: its card, then its sessions, then its todos and PRs. Things
+ * with none share a column per kind. Within a kind the most recent comes first, or with `rank`,
+ * the lowest.
+ */
+function columnsOf(cards: RefItem[], e: Entities, rank?: (it: RefItem) => number): Column[] {
   const columns = new Map<string, Column>();
-  for (const it of move) {
+  for (const it of cards) {
     const lane = homeLane(e, it.ref, it.key);
     const key = lane ?? `loose:${it.ref}`;
     const col = columns.get(key) ?? { lane, items: [], activity: 0 };
@@ -771,14 +790,27 @@ export function tidy(doc: CanvasDoc, e: Entities, now: number, pinned: Set<strin
     col.activity = Math.max(col.activity, lastActivityOf(e, it.ref, it.key));
     columns.set(key, col);
   }
-  const order: Record<RefKind, number> = { worktree: 0, session: 1, todo: 2, pr: 3 };
-  for (const col of columns.values()) {
-    col.items.sort((a, b) => order[a.ref] - order[b.ref] || lastActivityOf(e, b.ref, b.key) - lastActivityOf(e, a.ref, a.key) || a.key.localeCompare(b.key));
-  }
+  const within = rank ? (a: RefItem, b: RefItem) => rank(a) - rank(b) : (a: RefItem, b: RefItem) => lastActivityOf(e, b.ref, b.key) - lastActivityOf(e, a.ref, a.key) || a.key.localeCompare(b.key);
+  for (const col of columns.values()) col.items.sort((a, b) => KIND_ORDER[a.ref] - KIND_ORDER[b.ref] || within(a, b));
+  return [...columns.values()];
+}
 
-  // Bands: a repo's worktrees, or a day's.
+/** A long column continues in the next one over, under the same worktree card. */
+function continued(columns: Column[]): Column[] {
+  return columns.flatMap((col) => {
+    const head = col.items[0]?.ref === 'worktree' ? [col.items[0]] : [];
+    const rest = col.items.slice(head.length);
+    if (rest.length <= COLUMN_MAX) return [col];
+    const parts: Column[] = [];
+    for (let i = 0; i < rest.length; i += COLUMN_MAX) parts.push({ ...col, items: [...(i === 0 ? head : []), ...rest.slice(i, i + COLUMN_MAX)], indent: i > 0 && head.length > 0 });
+    return parts;
+  });
+}
+
+/** The frames a tidy makes: a repo's worktrees, or a day's, the most recent first. */
+function tidyBands(move: RefItem[], e: Entities, mode: TidyMode, now: number): Band[] {
   const bands = new Map<string, Band>();
-  for (const col of columns.values()) {
+  for (const col of columnsOf(move, e)) {
     const lane = col.lane ? e.lanes.get(col.lane) : undefined;
     let key: string;
     let title: string;
@@ -794,54 +826,77 @@ export function tidy(doc: CanvasDoc, e: Entities, now: number, pinned: Set<strin
     band.activity = Math.max(band.activity, col.activity);
     bands.set(key, band);
   }
-  const sortedBands = [...bands.values()].sort((a, b) => (a.key === 'loose' ? 1 : 0) - (b.key === 'loose' ? 1 : 0) || b.activity - a.activity || a.title.localeCompare(b.title));
-  for (const b of sortedBands) b.columns.sort((x, y) => y.activity - x.activity || (x.lane ?? '').localeCompare(y.lane ?? ''));
+  const sorted = [...bands.values()].sort((a, b) => (a.key === 'loose' ? 1 : 0) - (b.key === 'loose' ? 1 : 0) || b.activity - a.activity || a.title.localeCompare(b.title));
+  for (const b of sorted) b.columns = continued(b.columns.sort((x, y) => y.activity - x.activity || (x.lane ?? '').localeCompare(y.lane ?? '')));
+  return sorted;
+}
 
-  // A long column continues in the next one over, under the same worktree card.
-  for (const band of bands.values()) {
-    band.columns = band.columns.flatMap((col) => {
-      const head = col.items[0]?.ref === 'worktree' ? [col.items[0]] : [];
-      const rest = col.items.slice(head.length);
-      if (rest.length <= COLUMN_MAX) return [col];
-      const parts: Column[] = [];
-      for (let i = 0; i < rest.length; i += COLUMN_MAX) parts.push({ ...col, items: [...(i === 0 ? head : []), ...rest.slice(i, i + COLUMN_MAX)], indent: i > 0 && head.length > 0 });
-      return parts;
+/** A band laid out in its frame: the frame's size, and where its cards (and note) go in it. */
+interface Laid {
+  band: Band;
+  w: number;
+  h: number;
+  place: { it: RefItem; dx: number; dy: number }[];
+  /** An arranged frame's note, in the frame. */
+  note: Rect | null;
+}
+
+/** An arranged frame's note is at least two columns wide. */
+const NOTE_W = CARD_W * 2 + COL_GAP;
+
+/** How tall a note must be for its text: lines at the note's 14/20 type and padding
+ *  (CanvasView.css), by an average character's width, and one to spare, since words wrap before
+ *  the edge. */
+function noteHeight(text: string, w: number): number {
+  const perLine = Math.max(1, Math.floor((w - 28) / 7.2));
+  const lines = text.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil(p.length / perLine)), 0);
+  return (lines + 1) * 20 + 24;
+}
+
+/** A band's columns, wrapping after a few so a repo with many worktrees makes a block, not a
+ *  line; an arranged frame's note goes across the top. */
+function layBand(band: Band): Laid {
+  const across = perRow(band.columns.length);
+  const place: Laid['place'] = [];
+  let rowTop = 0;
+  let w = 0;
+  for (let i = 0; i < band.columns.length; i += across) {
+    let rowH = 0;
+    band.columns.slice(i, i + across).forEach((col, j) => {
+      // A continued column starts level with the cards under the worktree, not with it.
+      let y = col.indent ? CARD_H.worktree + GAP : 0;
+      for (const it of col.items) {
+        place.push({ it, dx: FRAME_PAD + j * (CARD_W + COL_GAP), dy: FRAME_PAD + rowTop + y });
+        y += CARD_H[it.ref] + GAP;
+      }
+      rowH = Math.max(rowH, y - GAP);
+      w = Math.max(w, (j + 1) * (CARD_W + COL_GAP) - COL_GAP);
     });
+    rowTop += rowH + COL_GAP * 2;
   }
-
-  // Each band's columns wrap after a few, so a repo with many worktrees makes a block, not a line.
-  const laid: { band: Band; w: number; h: number; place: { it: RefItem; dx: number; dy: number }[] }[] = [];
-  for (const band of sortedBands) {
-    const across = perRow(band.columns.length);
-    const place: { it: RefItem; dx: number; dy: number }[] = [];
-    let rowTop = 0;
-    let w = 0;
-    for (let i = 0; i < band.columns.length; i += across) {
-      let rowH = 0;
-      band.columns.slice(i, i + across).forEach((col, j) => {
-        // A continued column starts level with the cards under the worktree, not with it.
-        let y = col.indent ? CARD_H.worktree + GAP : 0;
-        for (const it of col.items) {
-          place.push({ it, dx: FRAME_PAD + j * (CARD_W + COL_GAP), dy: FRAME_PAD + rowTop + y });
-          y += CARD_H[it.ref] + GAP;
-        }
-        rowH = Math.max(rowH, y - GAP);
-        w = Math.max(w, (j + 1) * (CARD_W + COL_GAP) - COL_GAP);
-      });
-      rowTop += rowH + COL_GAP * 2;
-    }
-    laid.push({ band, w: w + FRAME_PAD * 2, h: rowTop - COL_GAP * 2 + FRAME_PAD * 2, place });
+  let h = place.length > 0 ? rowTop - COL_GAP * 2 : 0;
+  let note: Rect | null = null;
+  const text = band.arranged?.note;
+  if (text) {
+    w = Math.max(w, NOTE_W);
+    note = { x: FRAME_PAD, y: FRAME_PAD, w, h: noteHeight(text, w) };
+    const down = note.h + (h > 0 ? COL_GAP : 0);
+    for (const p of place) p.dy += down;
+    h += down;
   }
+  return { band, w: w + FRAME_PAD * 2, h: h + FRAME_PAD * 2, place, note };
+}
 
-  // Frames packed in rows, left to right, below what stayed.
+/** Frames packed in rows, left to right, below what stayed: rows about as wide as a window's
+ *  shape needs for the whole to fill it. */
+function pack(laid: Laid[], stay: CanvasItem[]): { frames: FrameItem[]; placed: CanvasItem[] } {
   const kept = bounds(stay.map(rectOf));
   const x0 = kept ? kept.x : 0;
   let y = kept ? kept.y + kept.h + FRAME_GAP * 1.5 : 0;
-  // Rows about as wide as a window's shape needs for the whole to fill it.
   const area = laid.reduce((n, l) => n + (l.w + FRAME_GAP) * (l.h + FRAME_GAP), 0);
   const rowWidth = Math.max(2400, Math.sqrt(area * 1.7), ...laid.map((l) => l.w));
   const frames: FrameItem[] = [];
-  const cards: RefItem[] = [];
+  const placed: CanvasItem[] = [];
   let x = x0;
   let rowH = 0;
   for (const l of laid) {
@@ -850,12 +905,142 @@ export function tidy(doc: CanvasDoc, e: Entities, now: number, pinned: Set<strin
       y += rowH + FRAME_GAP;
       rowH = 0;
     }
-    frames.push({ kind: 'frame', id: `auto:${l.band.key}`, title: l.band.title, x, y, w: l.w, h: l.h, color: l.band.color, auto: true });
-    for (const p of l.place) cards.push({ ...p.it, x: x + p.dx, y: y + p.dy });
+    const { band } = l;
+    const at = { x, y, w: l.w, h: l.h, title: band.title, color: band.color };
+    frames.push(band.arranged ? { kind: 'frame', id: band.key, ...at, arranged: true } : { kind: 'frame', id: `auto:${band.key}`, ...at, auto: true });
+    if (l.note && band.arranged?.note) placed.push({ kind: 'note', id: `${band.key}:note`, text: band.arranged.note, x: x + l.note.x, y: y + l.note.y, w: l.note.w, h: l.note.h, color: 'gray', arranged: true });
+    for (const p of l.place) placed.push({ ...p.it, x: x + p.dx, y: y + p.dy });
     x += l.w + FRAME_GAP;
     rowH = Math.max(rowH, l.h);
   }
-  return { ...doc, items: [...frames, ...stay, ...cards], scope, tidy: opts };
+  return { frames, placed };
+}
+
+/* ---- Arranging by what the work is for ---- */
+
+/** A frame `codealong canvas arrange` asks for: its name, color and note, and the cards that go
+ *  in it, in order. */
+export interface ArrangeFrame {
+  title: string;
+  color?: LabelColor;
+  note?: string;
+  cards: { ref: RefKind; key: string }[];
+}
+
+/** What becomes of the cards on the canvas no frame names: laid out after the frames as a tidy
+ *  would lay them out, or taken off. */
+export type ArrangeRest = 'keep' | 'off';
+
+export interface Arranged {
+  doc: CanvasDoc;
+  /** Each frame made, with how many cards went in it. One with no cards and no note isn't made. */
+  frames: { id: string; title: string; cards: number }[];
+  /** Cards the board doesn't have in this canvas's project: left out. */
+  missing: { ref: RefKind; key: string }[];
+  /** How many cards on the canvas no frame named: laid out after the frames, or taken off. */
+  rest: number;
+}
+
+/**
+ * Lays the canvas out in the frames an agent asks for, by what the work is for: each frame's cards
+ * in columns by worktree, in the order given, its note across its top, and the frames in rows in
+ * the order given, below what stays. What stays is what a tidy leaves, frames you drew with what's
+ * in them and notes, less the cards a frame names, which move to it. The frames and notes the last
+ * arrange made are replaced; a tidy leaves them as frames you drew. A card named twice goes in the
+ * first frame that names it. The cards no frame names go below the frames, laid out as a tidy
+ * would, or with `rest` 'off' come off. Like a tidy, it sets where Bring in starts from.
+ */
+export function arrange(doc: CanvasDoc, e: Entities, asked: ArrangeFrame[], rest: ArrangeRest, now: number): Arranged {
+  const named = new Map<string, { ref: RefKind; key: string; frame: number; rank: number }>();
+  const missing: Arranged['missing'] = [];
+  asked.forEach((f, frame) => {
+    for (const { ref, key } of f.cards) {
+      const id = refId(ref, key);
+      if (named.has(id) || missing.some((m) => refId(m.ref, m.key) === id)) continue;
+      if (titleOf(e, ref, key) === null) missing.push({ ref, key });
+      else named.set(id, { ref, key, frame, rank: named.size });
+    }
+  });
+
+  const yours = doc.items.filter((it): it is FrameItem => it.kind === 'frame' && !it.auto && !it.arranged);
+  const inYours = (it: CanvasItem) => yours.some((f) => contains(rectOf(f), rectOf(it)));
+  const stay: CanvasItem[] = [];
+  const others: RefItem[] = [];
+  const on = new Map<string, RefItem>();
+  for (const it of doc.items) {
+    if (it.kind !== 'ref') {
+      if (!(it.kind === 'frame' && it.auto) && !it.arranged) stay.push(it);
+    } else if (named.has(itemId(it))) on.set(itemId(it), it);
+    else if (inYours(it)) stay.push(it);
+    else others.push(it);
+  }
+
+  const rank = (it: RefItem) => named.get(itemId(it))?.rank ?? Infinity;
+  const first = (col: Column) => Math.min(...col.items.map(rank));
+  const bands: Band[] = [];
+  const made: Arranged['frames'] = [];
+  asked.forEach((f, i) => {
+    const cards = [...named.values()]
+      .filter((n) => n.frame === i)
+      .map((n): RefItem => {
+        const title = titleOf(e, n.ref, n.key) ?? undefined;
+        return { ...(on.get(refId(n.ref, n.key)) ?? { kind: 'ref', ref: n.ref, key: n.key, x: 0, y: 0 }), kept: true, ...(title ? { title } : {}) };
+      });
+    const note = f.note?.trim() || null;
+    if (cards.length === 0 && !note) return;
+    const title = f.title.trim() || 'Frame';
+    const key = `arrange:${now}:${i}`;
+    const color = f.color && LABEL_COLORS.includes(f.color) ? f.color : FRAME_COLORS[hash(title) % FRAME_COLORS.length];
+    bands.push({ key, title, color, columns: continued(columnsOf(cards, e, rank).sort((a, b) => first(a) - first(b))), activity: 0, arranged: { note } });
+    made.push({ id: key, title, cards: cards.length });
+  });
+
+  // The rest starts a row of its own under the frames asked for, so those read as one picture.
+  const top = pack(bands.map(layBand), stay);
+  const below = rest === 'keep' && others.length > 0 ? pack(tidyBands(others, e, doc.tidy.layout, now).map(layBand), [...stay, ...top.frames]) : { frames: [], placed: [] };
+  const { cleared: _, ...scope } = doc.scope;
+  return {
+    doc: {
+      ...doc,
+      items: [...top.frames, ...below.frames, ...stay, ...top.placed, ...below.placed],
+      hidden: doc.hidden.filter((h) => !named.has(h)),
+      scope: { ...scope, since: now },
+    },
+    frames: made,
+    missing,
+    rest: others.length,
+  };
+}
+
+/** Who made a frame or a note: you, a tidy, or `codealong canvas arrange`. */
+export type Maker = 'you' | 'tidy' | 'arrange';
+
+/** What a canvas holds, as `codealong canvas show` tells it: frames in reading order, then cards
+ *  and notes by the frame each sits in (null for none) and where in it. */
+export interface Outline {
+  frames: { id: string; title: string; color: LabelColor; by: Maker; frame: string | null }[];
+  cards: { ref: RefKind; key: string; title: string | null; frame: string | null; gone: boolean }[];
+  notes: { id: string; text: string; frame: string | null; by: Maker }[];
+}
+
+export function outline(doc: CanvasDoc, e: Entities): Outline {
+  const items = doc.items;
+  const frames = items.filter((it): it is FrameItem => it.kind === 'frame').sort((a, b) => a.y - b.y || a.x - b.x);
+  const place = new Map(frames.map((f, i) => [f.id, i]));
+  const frameOf = (it: CanvasItem) => parentOf(items, it)?.id ?? null;
+  // In a frame's order, then a column at a time, top to bottom; what's in no frame last.
+  const inOrder = <T extends CanvasItem>(list: T[]) =>
+    list
+      .map((it) => ({ it, frame: frameOf(it) }))
+      .sort((a, b) => (a.frame === null ? frames.length : place.get(a.frame)!) - (b.frame === null ? frames.length : place.get(b.frame)!) || a.it.x - b.it.x || a.it.y - b.it.y);
+  return {
+    frames: frames.map((f) => ({ id: f.id, title: f.title, color: f.color, by: f.auto ? 'tidy' : f.arranged ? 'arrange' : 'you', frame: frameOf(f) })),
+    cards: inOrder(items.filter((it): it is RefItem => it.kind === 'ref')).map(({ it, frame }) => {
+      const title = titleOf(e, it.ref, it.key);
+      return { ref: it.ref, key: it.key, title: title ?? it.title ?? null, frame, gone: title === null };
+    }),
+    notes: inOrder(items.filter((it): it is NoteItem => it.kind === 'note')).map(({ it, frame }) => ({ id: it.id, text: it.text, frame, by: it.arranged ? 'arrange' : 'you' })),
+  };
 }
 
 /* ---- Links between cards ---- */

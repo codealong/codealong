@@ -20,6 +20,7 @@ use crate::actions::{self, params};
 use crate::api;
 use crate::attachments;
 use crate::board;
+use crate::canvas;
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
 use crate::insights;
@@ -140,6 +141,11 @@ enum Cmd {
     Changes(ChangesArgs),
     /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
+    /// A project's canvas, the app's Canvas view: what its frames hold (`show`), and laying it out in frames by what the work is for (`arrange`), so your user sees the work in progress as you sum it up. Needs the app running: its main window holds the canvas.
+    Canvas {
+        #[command(subcommand)]
+        cmd: CanvasCmd,
+    },
     /// The reference for the skill: every subcommand's help, as Markdown.
     #[command(hide = true)]
     Reference,
@@ -784,6 +790,37 @@ enum ReuseCmd {
     Off(ReuseAt),
 }
 
+#[derive(Subcommand, Debug)]
+enum CanvasCmd {
+    /// What a project's canvas holds: its frames in reading order, each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards (`ref`: worktree, session, todo or pr, with its key and title, `gone` once the board no longer has it) and the notes. `frame` is the id of the frame a card, note or frame sits in, null for none. `exists` is false for a project whose canvas was never shown or arranged.
+    Show(CanvasAt),
+    /// Lay a project's canvas out in frames you name, by what the work is for: a goal, a release, what waits on your user. Each frame's cards go in columns by worktree, in the order you give, its note across its top, and the frames go in rows in the order you give. Frames your user drew and notes stay where they are, with what's in them, unless a frame of yours names it. The frames and notes the last arrange made are replaced; a tidy leaves them as if your user drew them, and once they rename one it's theirs. The cards no frame names go below your frames, laid out by worktree, or come off with `--rest off`.
+    ///
+    /// The plan is JSON: {"frames": [{"title": "Release 0.8", "color": "blue", "note": "Two PRs open; the docs one waits on review.", "worktrees": ["~/src/app-release"], "sessions": ["claude:claude2:<uuid>"], "todos": ["t-abc"], "prs": ["acme/app#12"]}]}. A frame has a title and at least one card or a note; color is optional (gray, red, pink, purple, indigo, blue, teal, green). Name a worktree by its path, a session by its key or id, a todo by its id, a PR by its URL or owner/name#number; ids take a unique prefix. A worktree you list heads its sessions' column. A card named twice goes in the first frame that names it; one the board doesn't have in the project is left out and listed under `missing`. Prints each frame made with how many cards it holds (`frames`, with each frame's id) and how many other cards went below or came off (`rest`).
+    Arrange(CanvasArrangeArgs),
+}
+
+#[derive(Args, Debug)]
+struct CanvasAt {
+    /// The project, as the app names it, or `all` for every project's canvas. Without it, the project of the worktree the current folder is in, else the one the main window shows.
+    #[arg(long)]
+    project: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct CanvasArrangeArgs {
+    #[command(flatten)]
+    at: CanvasAt,
+    /// The plan: a JSON file, or `-` to read it from stdin.
+    plan: String,
+    /// What becomes of the cards on the canvas no frame names: laid out by worktree below your frames, or taken off (Bring in puts one back once it moves on).
+    #[arg(long, value_enum, default_value_t = canvas::Rest::Keep)]
+    rest: canvas::Rest,
+    /// Bring Codealong's main window forward on the canvas, with your frames in view.
+    #[arg(long)]
+    show: bool,
+}
+
 #[derive(Args, Debug)]
 struct ReuseAt {
     /// The worktree: its path, or `.` for the one the current folder is in.
@@ -1306,6 +1343,8 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Terminal { cmd } => terminal_cmd(c, cmd, json),
         Cmd::Changes(args) => changes(c, &args, json),
         Cmd::Hygiene(args) => hygiene(c, &args, json),
+        Cmd::Canvas { cmd: CanvasCmd::Show(a) } => canvas_show(c, a, json),
+        Cmd::Canvas { cmd: CanvasCmd::Arrange(a) } => canvas_arrange(c, a, json),
         Cmd::Reference => {
             print!("{}", reference_text());
             Ok(())
@@ -1335,6 +1374,234 @@ pub fn reference_text() -> String {
     cmd.build();
     let mut out = String::from("# codealong command reference\n\nGenerated from `codealong --help` by `scripts/skill-reference.sh`. Don't edit by hand.\n\n");
     walk(&mut cmd, "", &mut out);
+    out
+}
+
+// ---- the canvas ----
+
+/// The plan `canvas arrange` reads.
+#[derive(serde::Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+struct CanvasPlan {
+    frames: Vec<PlanFrame>,
+}
+
+/// A frame of the plan, with its cards by kind as an agent names them.
+#[derive(serde::Deserialize, Debug, Default)]
+#[serde(deny_unknown_fields)]
+struct PlanFrame {
+    title: String,
+    #[serde(default)]
+    color: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    worktrees: Vec<String>,
+    #[serde(default)]
+    sessions: Vec<String>,
+    #[serde(default)]
+    todos: Vec<String>,
+    #[serde(default)]
+    prs: Vec<String>,
+}
+
+/// What the main window says it arranged (useCanvasOps.ts).
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct CanvasArranged {
+    project: String,
+    frames: Vec<ArrangedFrame>,
+    missing: Vec<canvas::Card>,
+    rest: usize,
+}
+
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct ArrangedFrame {
+    id: String,
+    title: String,
+    cards: usize,
+}
+
+/// What a project's canvas holds, as the main window tells it (model.ts `outline`).
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct CanvasOutline {
+    project: String,
+    exists: bool,
+    frames: Vec<OutlineFrame>,
+    cards: Vec<OutlineCard>,
+    notes: Vec<OutlineNote>,
+}
+
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct OutlineFrame {
+    id: String,
+    title: String,
+    color: String,
+    by: String,
+    frame: Option<String>,
+}
+
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct OutlineCard {
+    #[serde(rename = "ref")]
+    kind: canvas::Kind,
+    key: String,
+    title: Option<String>,
+    frame: Option<String>,
+    gone: bool,
+}
+
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct OutlineNote {
+    id: String,
+    text: String,
+    frame: Option<String>,
+    by: String,
+}
+
+/// One of the main window's canvas requests (canvas.rs `ask`), about `project`, else the project
+/// of the worktree this runs in, else the one the window shows.
+fn ask_canvas(c: &mut Client, project: Option<String>, op: canvas::Op) -> Result<Value> {
+    c.note();
+    if c.app.is_none() {
+        bail!("Codealong isn't running, and the canvas is its main window's.");
+    }
+    let project = project.or_else(|| std::env::current_dir().ok().and_then(|d| lane_for_path(c.board().ok()?, &d).map(|l| l.project.clone())).filter(|p| !p.is_empty()));
+    match server::ask(&Request::Canvas { project, op }) {
+        Some(Ok(v)) => Ok(v),
+        Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => bail!("The Codealong that's running is older than this command and has no canvas requests. Update it, or quit it and open it again."),
+        Some(Err(e)) => bail!("{e}"),
+        None => bail!("The app stopped answering."),
+    }
+}
+
+fn canvas_show(c: &mut Client, a: CanvasAt, json: bool) -> Result<()> {
+    let out: CanvasOutline = serde_json::from_value(ask_canvas(c, a.project, canvas::Op::Show)?)?;
+    if json {
+        return print_json(&out);
+    }
+    print!("{}", outline_text(&out));
+    Ok(())
+}
+
+fn outline_text(o: &CanvasOutline) -> String {
+    if !o.exists {
+        return format!("The {} canvas was never shown: Codealong makes it, tidied, when it's first shown or arranged.\n", o.project);
+    }
+    let mut out = format!("The {} canvas\n", o.project);
+    let groups = o.frames.iter().map(Some).chain(std::iter::once(None));
+    for frame in groups {
+        let id = frame.map(|f| f.id.as_str());
+        let cards: Vec<&OutlineCard> = o.cards.iter().filter(|c| c.frame.as_deref() == id).collect();
+        let notes: Vec<&OutlineNote> = o.notes.iter().filter(|n| n.frame.as_deref() == id).collect();
+        if frame.is_none() && cards.is_empty() && notes.is_empty() {
+            continue;
+        }
+        out.push('\n');
+        match frame {
+            Some(f) => out.push_str(&format!("{} ({})\n", f.title, match f.by.as_str() {
+                "tidy" => "a tidy made it",
+                "arrange" => "arranged",
+                _ => "drawn",
+            })),
+            None => out.push_str("In no frame\n"),
+        }
+        for n in notes {
+            out.push_str(&format!("  Note: {}\n", truncate(&n.text.split_whitespace().collect::<Vec<_>>().join(" "), 100)));
+        }
+        let rows: Vec<Vec<String>> = cards
+            .iter()
+            .map(|c| {
+                let title = truncate(c.title.as_deref().unwrap_or("Untitled"), 60);
+                vec![format!("  {}", lower_debug(&c.kind)), if c.gone { format!("{title} (gone)") } else { title }, c.key.clone()]
+            })
+            .collect();
+        if !rows.is_empty() {
+            // Columns under the frame's name, without a heading row.
+            out.push_str(&table_text(&["", "", ""], rows).lines().skip(1).map(|l| format!("{}\n", l.trim_end())).collect::<String>());
+        }
+    }
+    out
+}
+
+/// The plan's frames as the app takes them, each card named by its key on the board. Every
+/// card that can't be named is said at once, so a plan is fixed in one go.
+fn plan_frames(c: &mut Client, plan: CanvasPlan) -> Result<Vec<canvas::Frame>> {
+    if plan.frames.is_empty() {
+        bail!("The plan has no frames.");
+    }
+    let todos = store_of(c.board()?);
+    let mut wrong = Vec::new();
+    let mut frames = Vec::new();
+    for f in plan.frames {
+        if f.title.trim().is_empty() {
+            wrong.push("A frame has no title.".to_string());
+        }
+        if let Some(color) = f.color.as_deref().filter(|col| !LABEL_COLORS.contains(col)) {
+            wrong.push(format!("{color} isn't a color. Give one of {}.", LABEL_COLORS.join(", ")));
+        }
+        let mut cards = Vec::new();
+        let mut add = |kind: canvas::Kind, key: Result<String>| match key {
+            Ok(key) => cards.push(canvas::Card { kind, key }),
+            Err(e) => wrong.push(e.to_string()),
+        };
+        for w in &f.worktrees {
+            add(canvas::Kind::Worktree, resolve_worktree(c, w));
+        }
+        for s in &f.sessions {
+            add(canvas::Kind::Session, resolve_session(c, s));
+        }
+        for t in &f.todos {
+            add(canvas::Kind::Todo, resolve_todo(&todos, t));
+        }
+        for p in &f.prs {
+            // As the board spells it: GitHub's names ignore case, and the window's keys don't.
+            let key = resolve_pr(c, p).map(|key| c.board().ok().and_then(|b| find_pr(b, &key)).map_or(key, |pr| pr.key.clone()));
+            add(canvas::Kind::Pr, key);
+        }
+        if cards.is_empty() && f.note.as_deref().map_or(true, |n| n.trim().is_empty()) {
+            wrong.push(format!("The frame {} has no cards and no note.", f.title.trim()));
+        }
+        frames.push(canvas::Frame { title: f.title.trim().to_string(), color: f.color, note: f.note, cards });
+    }
+    if !wrong.is_empty() {
+        bail!("{}", wrong.join("\n"));
+    }
+    Ok(frames)
+}
+
+fn canvas_arrange(c: &mut Client, a: CanvasArrangeArgs, json: bool) -> Result<()> {
+    let text = read_text(None, Some(a.plan))?.unwrap_or_default();
+    let plan: CanvasPlan = serde_json::from_str(&text).context("reading the plan, which is JSON as `codealong canvas arrange --help` shows")?;
+    let frames = plan_frames(c, plan)?;
+    let out: CanvasArranged = serde_json::from_value(ask_canvas(c, a.at.project, canvas::Op::Arrange { frames, rest: a.rest })?)?;
+    if a.show {
+        let focus: Vec<&str> = out.frames.iter().map(|f| f.id.as_str()).collect();
+        c.show(json!({ "kind": "canvas", "project": out.project, "focus": focus }))?;
+    }
+    if json {
+        return print_json(&out);
+    }
+    print!("{}", arranged_text(&out, a.rest));
+    Ok(())
+}
+
+fn arranged_text(a: &CanvasArranged, rest: canvas::Rest) -> String {
+    let cards = |n: usize| format!("{n} card{}", if n == 1 { "" } else { "s" });
+    let frames: Vec<String> = a.frames.iter().map(|f| format!("{} ({})", f.title, cards(f.cards))).collect();
+    let mut out = match frames.len() {
+        0 => format!("Made no frames on the {} canvas: nothing in the plan is on its board.\n", a.project),
+        n => format!("Arranged the {} canvas in {n} frame{}: {}.\n", a.project, if n == 1 { "" } else { "s" }, frames.join(", ")),
+    };
+    if a.rest > 0 {
+        out.push_str(&match rest {
+            canvas::Rest::Keep => format!("{} no frame named went below them, by worktree.\n", cards(a.rest)),
+            canvas::Rest::Off => format!("{} no frame named came off.\n", cards(a.rest)),
+        });
+    }
+    if !a.missing.is_empty() {
+        let missing: Vec<String> = a.missing.iter().map(|m| format!("{} {}", lower_debug(&m.kind), m.key)).collect();
+        out.push_str(&format!("Left out, as the {} canvas's board doesn't have them: {}.\n", a.project, missing.join(", ")));
+    }
     out
 }
 
@@ -5450,5 +5717,70 @@ mod tests {
         let text = table_text(&["A", "BB"], vec![vec!["x".into(), "y".into()], vec!["long".into(), "z".into()]]);
         assert_eq!(text, "A     BB\nx     y\nlong  z\n");
         assert!(table_text(&["A"], vec![]).contains("(none)"));
+    }
+
+    #[test]
+    fn a_canvas_plan_names_each_card_by_its_board_key_and_says_every_one_it_cannot() {
+        let mut b = Board::default();
+        b.lanes = vec![lane("/work/a", vec![crate::fixtures::session("claude:claude:abc123")])];
+        b.todos = vec![todo("t-abc", TodoStatus::Todo, &[], &[])];
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, said: false, me: None };
+        let plan = |v: Value| serde_json::from_value::<CanvasPlan>(v);
+        let card = |kind, key: &str| canvas::Card { kind, key: key.into() };
+        let good = plan(json!({ "frames": [{ "title": " Billing ", "color": "teal", "note": "Invoices", "prs": ["https://github.com/acme/app/pull/7"], "todos": ["t-a"], "sessions": ["claude:claude:abc"], "worktrees": ["/work/a"] }] })).unwrap();
+        assert_eq!(
+            plan_frames(&mut c, good).unwrap(),
+            vec![canvas::Frame {
+                title: "Billing".into(),
+                color: Some("teal".into()),
+                note: Some("Invoices".into()),
+                // Worktrees first, so each heads its column in the order given.
+                cards: vec![card(canvas::Kind::Worktree, "/work/a"), card(canvas::Kind::Session, "claude:claude:abc123"), card(canvas::Kind::Todo, "t-abc"), card(canvas::Kind::Pr, "acme/app#7")],
+            }]
+        );
+        let bad = plan(json!({ "frames": [{ "title": "", "color": "mauve", "sessions": ["nope"] }, { "title": "Note only", "note": "Fine" }] })).unwrap();
+        let said = plan_frames(&mut c, bad).unwrap_err().to_string();
+        for part in ["A frame has no title.", "mauve isn't a color", "There's no session nope", "The frame  has no cards and no note."] {
+            assert!(said.contains(part), "{part} in {said}");
+        }
+        assert!(!said.contains("Note only"));
+        // A misspelled field is an error, not a frame with nothing in it.
+        assert!(plan(json!({ "frames": [{ "title": "x", "session": ["a"] }] })).is_err());
+        assert!(plan_frames(&mut c, plan(json!({ "frames": [] })).unwrap()).is_err());
+    }
+
+    #[test]
+    fn a_canvas_reads_frame_by_frame() {
+        let out: CanvasOutline = serde_json::from_value(json!({
+            "project": "Acme", "exists": true,
+            "frames": [{ "id": "arrange:1:0", "title": "Billing", "color": "teal", "by": "arrange", "frame": null }, { "id": "auto:repo:app", "title": "app", "color": "blue", "by": "tidy", "frame": null }],
+            "cards": [
+                { "ref": "session", "key": "claude:claude:abc", "title": "Fix invoices", "frame": "arrange:1:0", "gone": false },
+                { "ref": "worktree", "key": "/work/a", "title": "a", "frame": "auto:repo:app", "gone": false },
+                { "ref": "session", "key": "claude:claude:old", "title": "Old", "frame": null, "gone": true }
+            ],
+            "notes": [{ "id": "arrange:1:0:note", "text": "Two\nsessions", "frame": "arrange:1:0", "by": "arrange" }]
+        }))
+        .unwrap();
+        assert_eq!(
+            outline_text(&out),
+            "The Acme canvas\n\nBilling (arranged)\n  Note: Two sessions\n  session  Fix invoices  claude:claude:abc\n\napp (a tidy made it)\n  worktree  a  /work/a\n\nIn no frame\n  session  Old (gone)  claude:claude:old\n"
+        );
+        assert!(outline_text(&CanvasOutline { exists: false, frames: vec![], cards: vec![], notes: vec![], ..out }).starts_with("The Acme canvas was never shown"));
+    }
+
+    #[test]
+    fn an_arrangement_says_what_went_where() {
+        let a = CanvasArranged {
+            project: "Acme".into(),
+            frames: vec![ArrangedFrame { id: "arrange:1:0".into(), title: "Billing".into(), cards: 3 }, ArrangedFrame { id: "arrange:1:1".into(), title: "Site".into(), cards: 1 }],
+            missing: vec![canvas::Card { kind: canvas::Kind::Session, key: "claude:claude:gone".into() }],
+            rest: 1,
+        };
+        assert_eq!(
+            arranged_text(&a, canvas::Rest::Keep),
+            "Arranged the Acme canvas in 2 frames: Billing (3 cards), Site (1 card).\n1 card no frame named went below them, by worktree.\nLeft out, as the Acme canvas's board doesn't have them: session claude:claude:gone.\n"
+        );
+        assert!(arranged_text(&a, canvas::Rest::Off).contains("1 card no frame named came off."));
     }
 }

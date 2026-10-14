@@ -896,6 +896,22 @@ in it, and grows to hold a card dropped over its edge. Clear canvas (in Tidy, or
 the canvas) takes everything off; Bring in adds work back as it moves on, and a tidy brings back
 what its settings hold.
 
+#### Arranged by an agent
+
+An agent can lay the canvas out by what the work is for, which Tidy's repos and days can't:
+`codealong canvas arrange` takes frames it names (a release, a fix, an investigation), each with
+the worktrees, sessions, todos and PRs that belong to it and a note saying where that work stands,
+and lays them out in that order, each frame's cards in columns by worktree and its note across its
+top. In Claude Code, `/codealong:visualize` has an agent do it for your recent and running
+sessions. Frames you drew and notes stay where they are, with what's in them, unless the agent
+names a card that's in one; the cards no frame names go below, laid out by worktree, or come off
+when it asks. Tidy leaves arranged frames and their notes as if you drew them; the next arrange
+replaces them, unless you renamed the frame or edited the note, which makes it yours. With
+`--show`, the main window comes forward on the canvas with the new frames in view.
+`codealong canvas show` lists a canvas's frames and what's in each. Both need the app running,
+and work on any project's canvas, whichever one the main window shows; a second window showing
+the same project's canvas follows the change.
+
 #### Controls
 
 Controls follow Figma: scroll or Space-drag to pan, pinch or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the

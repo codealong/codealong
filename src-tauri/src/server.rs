@@ -87,6 +87,13 @@ pub enum Request {
     /// it runs outside a bundle: macOS may not let an app come forward when nobody clicked in it,
     /// so the command opens it by that ID too.
     Show { reveal: Value },
+    /// What a project's canvas holds, or arranging it (canvas.rs `Op`): the main window works it
+    /// out, by the project's name or for none the one it shows, and the reply is its answer.
+    Canvas {
+        #[serde(default)]
+        project: Option<String>,
+        op: crate::canvas::Op,
+    },
     /// A permission request from Claude Code's `PermissionRequest` hook, its input as the hook
     /// got it, with the session's process and account folder: the connection is held until it's
     /// answered here or where the session runs, and the reply is the decision, or null for none
@@ -273,6 +280,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
             Err(e) => Reply::err(crate::util::words(e)),
         },
+        Request::Canvas { project, op } => answered(crate::canvas::ask(app, project, op)),
         // Held on their connection instead (`connection`).
         Request::PermissionAsk { .. } | Request::TerminalAsk { .. } => Reply::ok(Value::Null),
         Request::TerminalRuns { id: Some(id), .. } => answered(crate::terminal::status(&id).map_err(crate::util::words)),

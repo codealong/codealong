@@ -87,7 +87,8 @@ The orchestrator is part of the same skill, `references/orchestrate.md`, which S
 an agent at when it's asked to run as one, so every harness has it from the one copy. That file
 has a skill's frontmatter too, and `plugin/skills/orchestrate/SKILL.md` links to it, so the plugin
 offers it in Claude Code as `/codealong:orchestrate` (tauri.conf.json bundles the link's file as
-the plugin's).
+the plugin's). `references/visualize.md`, laying the work in progress out on the canvas, is
+packaged the same way, as `/codealong:visualize`.
 
 `plugin/` wraps the same skill as a Claude Code plugin (`.claude-plugin/plugin.json`, a
 `bin/codealong` shim that finds the app, a `SessionStart` hook that runs `codealong whoami
@@ -171,7 +172,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/actions.rs` | What Codealong does to a session or a worktree, or asks of a device, one table of requests: done here, or asked of the device it's on, for a window, another device and the `codealong` command alike, with what each may ask for and what each carries |
 | `src-tauri/src/snapshot.rs` | `codealong --snapshot`: the engine without a window, its modes in one table, for checking what it shows and does |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
-| `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board; Tidy's layouts), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |
+| `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board, and between windows; Tidy's layouts, and `codealong canvas arrange`'s, which the engine hands the main window, `useCanvasOps.ts`), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
 | `src-tauri/src/ledger.rs` | The token ledger behind the Usage window: every model call each harness recorded (`Adapter::token_files`, `token_use`, `token_uses_since`), read once per file and then from where it stopped into `ledger.sqlite`, one row per call however many records copy it; and reports of it by day, account, model, folder and session, priced as they're asked, with what was paid (plans a day's share at a time, Claude's extra usage readings, recorded and by-the-token costs) |
 | `src-tauri/src/prices.rs`, `prices.json` | What a model's tokens cost at API prices, by kind of token, with fast mode, priority and long-prompt prices; `prices.json` is written by `scripts/prices.mjs` from LiteLLM's list, and `[prices]` in config.toml goes over it |

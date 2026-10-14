@@ -976,7 +976,7 @@ export async function setTheme(theme: Theme): Promise<void> {
 }
 
 /** What the floating bar, the quick panel or a card on the desktop asks the main window to show. */
-export type Reveal = { kind: 'session'; laneId: string; key: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string } | { kind: 'todo'; id: string };
+export type Reveal = { kind: 'session'; laneId: string; key: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string } | { kind: 'todo'; id: string } | { kind: 'canvas'; project: string; focus?: string[] };
 
 /** Brings the main window forward, showing a session, worktree, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {
@@ -1626,6 +1626,31 @@ export async function canvasLoad(project: string): Promise<unknown> {
 export async function canvasSave(project: string, doc: unknown): Promise<void> {
   if (!inTauri) return;
   await invoke('canvas_save', { project, doc });
+}
+
+/** Calls `cb` when another window saved a project's canvas (lib.rs `canvas_save`), so one
+ *  showing the same project reads it again. */
+export function onCanvasSaved(cb: (saved: { project: string; from: string }) => void): () => void {
+  return onWindowEvent<{ project: string; from: string }>('canvas-saved', cb);
+}
+
+/** A `codealong canvas …` request, which the engine hands the main window (canvas.rs `ask`):
+ *  for a project by name, or the one the window shows when null. */
+export interface CanvasAsk {
+  id: number;
+  project: string | null;
+  op: unknown;
+}
+
+/** Calls `cb` with each `codealong canvas …` request the engine hands this window. */
+export function onCanvasAsk(cb: (ask: CanvasAsk) => void): () => void {
+  return onWindowEvent<CanvasAsk>('canvas-ask', cb);
+}
+
+/** Answers a `codealong canvas …` request: its result, or why there's none. */
+export async function canvasAnswer(id: number, answer: { result: unknown } | { error: string }): Promise<void> {
+  if (!inTauri) return;
+  await invoke('canvas_answer', { id, ...('error' in answer ? { result: null, error: answer.error } : { result: answer.result, error: null }) });
 }
 
 /** A page of a session's conversation (transcript.rs): the newest, or what came before `before`. */

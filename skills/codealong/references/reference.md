@@ -128,6 +128,10 @@ Commands:
              conversation and resumes as usual. It judges nothing, and kills nothing,
              when the app doesn't answer or is still reading after a start: without its
              board, every session would look old
+  canvas     A project's canvas, the app's Canvas view: what its frames hold (`show`),
+             and laying it out in frames by what the work is for (`arrange`), so your
+             user sees the work in progress as you sum it up. Needs the app running: its
+             main window holds the canvas
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3006,5 +3010,137 @@ Options:
 
   -h, --help
           Print help
+```
+
+## codealong canvas
+
+```
+A project's canvas, the app's Canvas view: what its frames hold (`show`), and laying it
+out in frames by what the work is for (`arrange`), so your user sees the work in
+progress as you sum it up. Needs the app running: its main window holds the canvas
+
+Usage: codealong canvas [OPTIONS] <COMMAND>
+
+Commands:
+  show     What a project's canvas holds: its frames in reading order, each with who
+           made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards
+           (`ref`: worktree, session, todo or pr, with its key and title, `gone` once
+           the board no longer has it) and the notes. `frame` is the id of the frame a
+           card, note or frame sits in, null for none. `exists` is false for a project
+           whose canvas was never shown or arranged
+  arrange  Lay a project's canvas out in frames you name, by what the work is for: a
+           goal, a release, what waits on your user. Each frame's cards go in columns by
+           worktree, in the order you give, its note across its top, and the frames go
+           in rows in the order you give. Frames your user drew and notes stay where
+           they are, with what's in them, unless a frame of yours names it. The frames
+           and notes the last arrange made are replaced; a tidy leaves them as if your
+           user drew them, and once they rename one it's theirs. The cards no frame
+           names go below your frames, laid out by worktree, or come off with `--rest
+           off`
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong canvas show
+
+```
+What a project's canvas holds: its frames in reading order, each with who made it (`by`:
+`you` drew it, a `tidy` made it, or `arrange` did), the cards (`ref`: worktree, session,
+todo or pr, with its key and title, `gone` once the board no longer has it) and the
+notes. `frame` is the id of the frame a card, note or frame sits in, null for none.
+`exists` is false for a project whose canvas was never shown or arranged
+
+Usage: codealong canvas show [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for every project's canvas. Without
+          it, the project of the worktree the current folder is in, else the one the
+          main window shows
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong canvas arrange
+
+```
+Lay a project's canvas out in frames you name, by what the work is for: a goal, a
+release, what waits on your user. Each frame's cards go in columns by worktree, in the
+order you give, its note across its top, and the frames go in rows in the order you
+give. Frames your user drew and notes stay where they are, with what's in them, unless a
+frame of yours names it. The frames and notes the last arrange made are replaced; a tidy
+leaves them as if your user drew them, and once they rename one it's theirs. The cards
+no frame names go below your frames, laid out by worktree, or come off with `--rest
+off`.
+
+The plan is JSON: {"frames": [{"title": "Release 0.8", "color": "blue", "note": "Two PRs
+open; the docs one waits on review.", "worktrees": ["~/src/app-release"], "sessions":
+["claude:claude2:<uuid>"], "todos": ["t-abc"], "prs": ["acme/app#12"]}]}. A frame has a
+title and at least one card or a note; color is optional (gray, red, pink, purple,
+indigo, blue, teal, green). Name a worktree by its path, a session by its key or id, a
+todo by its id, a PR by its URL or owner/name#number; ids take a unique prefix. A
+worktree you list heads its sessions' column. A card named twice goes in the first frame
+that names it; one the board doesn't have in the project is left out and listed under
+`missing`. Prints each frame made with how many cards it holds (`frames`, with each
+frame's id) and how many other cards went below or came off (`rest`).
+
+Usage: codealong canvas arrange [OPTIONS] <PLAN>
+
+Arguments:
+  <PLAN>
+          The plan: a JSON file, or `-` to read it from stdin
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for every project's canvas. Without
+          it, the project of the worktree the current folder is in, else the one the
+          main window shows
+
+      --rest <REST>
+          What becomes of the cards on the canvas no frame names: laid out by worktree
+          below your frames, or taken off (Bring in puts one back once it moves on)
+
+          Possible values:
+          - keep: Laid out below the frames, as a tidy lays them out
+          - off:  Taken off the canvas, as a tidy takes off what's older
+          
+          [default: keep]
+
+      --table
+          Tables, even when piped
+
+      --show
+          Bring Codealong's main window forward on the canvas, with your frames in view
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 

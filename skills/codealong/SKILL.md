@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, or when choosing which account to start something on.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, when asked to visualize or lay out their sessions on Codealong's canvas, or when choosing which account to start something on.
 ---
 
 # Codealong
@@ -256,6 +256,15 @@ Its two commands are for any watcher: `codealong changes --since <cursor>` says 
 since the last look (sessions, PRs, todos, worktrees two agents share) with what waits on the
 user now, and `codealong hygiene` lists the processes left over from old sessions, with this
 Mac's load, memory and swap (`--kill` ends them).
+
+## The canvas
+
+The app's Canvas view lays a project's work out in space: worktrees, sessions, todos and PRs as
+cards, in frames. `codealong canvas show` says what a project's canvas holds, and `codealong
+canvas arrange <plan.json>` lays it out in frames you name, each with the cards that belong to it
+and a note: grouping by what the work is for, which the app's own Tidy can't. When your user asks
+you to visualize, map or lay out their sessions or the work in progress (in Claude Code,
+`/codealong:visualize`), read `references/visualize.md` and follow it.
 
 ## PRs
 

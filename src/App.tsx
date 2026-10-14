@@ -48,6 +48,7 @@ import { TodoComposer, TodoView } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
+import { useCanvasOps } from './canvas/useCanvasOps';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { Reading } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
@@ -439,7 +440,9 @@ export function App() {
     [board, projectLanes, todoStore.todos, current],
   );
   const canvas = useCanvas(current, view === 'canvas', !loading, canvasEntities, now, lanePins.set);
-  const [canvasFocus, setCanvasFocus] = useState<{ id: string; n: number } | null>(null);
+  // What `codealong canvas …` asks of the main window: a project's canvas, and arranging it.
+  useCanvasOps({ loading, board, lanes, todos: todoStore.todos, projects, current, canvas, entities: canvasEntities, pinned: lanePins.set });
+  const [canvasFocus, setCanvasFocus] = useState<{ ids: string[]; n: number } | null>(null);
   const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
   // The one card selected on the canvas: its panel shows on the right, and ⌘N starts in its worktree.
   const [canvasSel, setCanvasSel] = useState<RefItem | null>(null);
@@ -450,7 +453,7 @@ export function App() {
   const showOnCanvas = (ref: RefKind, key: string) => {
     const id = canvas.keep(ref, key);
     setView('canvas');
-    setCanvasFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+    setCanvasFocus((f) => ({ ids: [id], n: (f?.n ?? 0) + 1 }));
   };
   /** The menu item that does that, in the other views' menus. */
   const canvasItem = (ref: RefKind, key: string): MenuSpec =>
@@ -586,6 +589,16 @@ export function App() {
   // PR or todo here: in its project, with no search hiding it, nor one of its sessions shown in
   // its panel's place (`drill`), which selecting what's selected already would leave.
   const reveal = useLatest((r: Reveal) => {
+    // A project's canvas `codealong canvas arrange --show` laid out, with the frames it made in view.
+    if (r.kind === 'canvas') {
+      if (current !== r.project) pickProject(r.project);
+      setQuery('');
+      setBayFilter([]);
+      setDrill(null);
+      setView('canvas');
+      if (r.focus?.length) setCanvasFocus((f) => ({ ids: r.focus ?? [], n: (f?.n ?? 0) + 1 }));
+      return;
+    }
     // A todo the quick panel found: the Todo view, in its project.
     if (r.kind === 'todo') {
       const t = todoStore.todos.find((x) => x.id === r.id);
@@ -1287,15 +1300,15 @@ export function App() {
 
   // In the canvas's panel, a worktree or todo it links to is shown on the canvas when it's there.
   const showLaneFromPanel = (lane: Lane) => {
-    if (view === 'canvas' && canvas.has('worktree', lane.id)) setCanvasFocus((f) => ({ id: refId('worktree', lane.id), n: (f?.n ?? 0) + 1 }));
+    if (view === 'canvas' && canvas.has('worktree', lane.id)) setCanvasFocus((f) => ({ ids: [refId('worktree', lane.id)], n: (f?.n ?? 0) + 1 }));
     else focusLane(lane);
   };
   const showSessionFromPanel = (lane: Lane, session: Session) => {
-    if (view === 'canvas' && canvas.has('session', session.key)) setCanvasFocus((f) => ({ id: refId('session', session.key), n: (f?.n ?? 0) + 1 }));
+    if (view === 'canvas' && canvas.has('session', session.key)) setCanvasFocus((f) => ({ ids: [refId('session', session.key)], n: (f?.n ?? 0) + 1 }));
     else reveal.current({ kind: 'session', laneId: lane.id, key: session.key });
   };
   const showTodoFromPanel = (t: Todo) => {
-    if (view === 'canvas' && canvas.has('todo', t.id)) setCanvasFocus((f) => ({ id: refId('todo', t.id), n: (f?.n ?? 0) + 1 }));
+    if (view === 'canvas' && canvas.has('todo', t.id)) setCanvasFocus((f) => ({ ids: [refId('todo', t.id)], n: (f?.n ?? 0) + 1 }));
     else {
       // From a session shown in this todo's own panel: back to the todo.
       setDrill(null);
