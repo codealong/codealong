@@ -1091,7 +1091,9 @@ Claude Code session, its agent's model for one Codealong runs), between turns. A
 quieter, is the effort it's on, for Claude Code and Codex sessions, as the harness writes the level
 (`low`, `medium`, `high`, `xhigh`, `max`; Codex's `minimal` and `none` too): the level its latest
 reply was made at, or one `/effort` set since. The chip switches only the model. A session that
-isn't running says the effort it goes on with the same way, once one is picked.
+isn't running says the effort it goes on with the same way, once one is picked. A Cursor app chat
+says the model it's set to by Cursor's name for it (Grok 4.7, Auto) and its effort, between turns
+too, since that's what its next turn goes on with; it's switched in Cursor.
 
 ### New session
 
@@ -1478,7 +1480,9 @@ nothing is attached to that session, a new terminal that attaches to it), the Cl
 session, the Codex thread (a CLI thread's terminal, or `codex resume` in a new one), an OpenCode
 session in its terminal (or resumed in a new one with `--session`), an Antigravity command line
 conversation in its terminal (or resumed in a new one with `agy --conversation`), the Antigravity
-app brought forward (it has no link to a conversation), a background job attached in a new terminal,
+app brought forward (it has no link to a conversation), a Cursor app chat in Cursor's Agents
+window, a Cursor command line chat in its terminal (or resumed in a new one with `cursor-agent
+--resume`), a background job attached in a new terminal,
 or the folder in your editor. A new terminal opens in the terminal app config.toml names, as a tab
 in the window already showing that worktree, repo or project (`new_terminal` in config.toml;
 Terminal can't open tabs for another app, so there it's a window). A worktree opens in your editor
@@ -1705,9 +1709,12 @@ Antigravity and Cursor don't say, so their print runs are sessions like any othe
 as Fable, and time to reset. When they don't all fit, each account shows the limit it's closest to
 running out of and the rest on hover, and the bar scrolls sideways. Antigravity's are its weekly
 limits for each group of models (Gemini; Claude and GPT), read through its command line, `agy`,
-every couple of minutes; with only the app installed it has none to show. Nor have OpenCode
-(bring your own provider) and Cursor (usage on cursor.com), and their chips say so with a
-crossed-out gauge after the name. Add accounts in Settings › Accounts.
+every couple of minutes; with only the app installed it has none to show. Cursor's are its monthly
+limits, asked of Cursor with the app's sign-in every couple of minutes: on a plan that spills over
+(Pro+, say), one for Cursor's own models (Auto, Composer and Cursor Grok) and one for the others,
+as the usage line under Cursor's chat box has them; on Express only the first; on any other plan
+the total Cursor's Settings shows; and on-demand spend once you've set a limit on it. OpenCode (bring your own provider) has none, and
+its chip says so with a crossed-out gauge after the name. Add accounts in Settings › Accounts.
 
 #### Training on what you send
 

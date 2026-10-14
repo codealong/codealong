@@ -74,7 +74,11 @@ pub struct Chat {
     /// Something in it waits on you: a call to allow, a question (`hasBlockingPendingActions`).
     pub blocking: bool,
     pub branch: Option<String>,
+    /// The model it's set to, by Cursor's id for it (`grok-4.7`, `default` for Auto); the
+    /// session says it by the name Cursor's picker does (`Reader::names`).
     pub model: Option<String>,
+    /// The effort that model is set to, as Cursor writes the level (`high`, `xhigh`).
+    pub effort: Option<String>,
     /// The mode it's in, as Cursor names it: the app's `unifiedMode` (`agent`, `chat` for Ask,
     /// `plan`…), the command line's `mode` (`default`, `plan`, `debug`, `search` for Ask).
     pub mode: Option<String>,
@@ -177,7 +181,7 @@ pub fn read_app_chats(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
 fn read_state(db: &Connection, c: &mut Chat) {
     let got = db.query_row(
         "SELECT json_extract(t, '$.status'), json_extract(t, '$.lastUpdatedAt'), json_extract(t, '$.name'), json_extract(t, '$.hasBlockingPendingActions'), \
-         json_extract(t, '$.gitWorktree.worktreePath'), json_extract(t, '$.gitWorktree.branchName'), json_extract(t, '$.modelConfig.modelName'), \
+         json_extract(t, '$.gitWorktree.worktreePath'), json_extract(t, '$.gitWorktree.branchName'), \
          json_array_length(t, '$.fullConversationHeadersOnly'), length(t), json_extract(t, '$.unifiedMode'), json_extract(t, '$.agentApprovalModeOverride') \
          FROM (SELECT CAST(value AS TEXT) AS t FROM cursorDiskKV WHERE key = ?1)",
         [format!("composerData:{}", c.id)],
@@ -189,15 +193,14 @@ fn read_state(db: &Connection, c: &mut Chat) {
                 r.get::<_, Option<i64>>(3)?,
                 r.get::<_, Option<String>>(4)?,
                 r.get::<_, Option<String>>(5)?,
-                r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<i64>>(6)?,
                 r.get::<_, Option<i64>>(7)?,
-                r.get::<_, Option<i64>>(8)?,
+                r.get::<_, Option<String>>(8)?,
                 r.get::<_, Option<String>>(9)?,
-                r.get::<_, Option<String>>(10)?,
             ))
         },
     );
-    let Ok((status, updated, name, blocking, worktree, branch, model, messages, written, mode, approval)) = got else { return };
+    let Ok((status, updated, name, blocking, worktree, branch, messages, written, mode, approval)) = got else { return };
     c.status = status.unwrap_or_default();
     c.last_updated = c.last_updated.max(updated.unwrap_or(0));
     if let Some(name) = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
@@ -209,12 +212,59 @@ fn read_state(db: &Connection, c: &mut Chat) {
         c.cwd = Some(w.trim_end_matches('/').to_string());
     }
     c.branch = branch.or(c.branch.take());
-    // "default" is Auto, the app's own pick each turn.
-    c.model = model.filter(|m| !m.is_empty() && m != "default");
     c.messages = messages.unwrap_or(0);
     c.written = written.unwrap_or(0);
     c.mode = mode.filter(|m| !m.is_empty());
     c.approval = approval.filter(|a| !a.is_empty());
+}
+
+/// What a model's effort is among its parameters, by model: `reasoning_effort`, `effort`, or
+/// `reasoning` (with `none` and `extra-high` among its levels). A `thinking` switch is no level.
+const EFFORT_PARAMETERS: [&str; 3] = ["reasoning_effort", "effort", "reasoning"];
+
+/// The model a chat's picker set and its effort, from composerData's `modelConfig`, as the app
+/// reads it: the first of `selectedModels` (`{modelId, parameters: [{id, value}]}`), else the
+/// `modelName` older chats keep alone (which can be a legacy one beside a newer pick). The effort
+/// is that model's effort parameter, None where the picker left the model's own.
+fn model_of(config: &Value) -> (Option<String>, Option<String>) {
+    let selected = config.pointer("/selectedModels/0").unwrap_or(&Value::Null);
+    let model = selected.get("modelId").or(config.get("modelName")).and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_string);
+    (model, effort_of(selected))
+}
+
+fn effort_of(selected: &Value) -> Option<String> {
+    let parameters = selected.get("parameters")?.as_array()?;
+    let value = |id: &str| parameters.iter().find(|p| p.get("id").and_then(Value::as_str) == Some(id))?.get("value")?.as_str().filter(|v| !v.is_empty()).map(str::to_string);
+    EFFORT_PARAMETERS.iter().find_map(|id| value(id))
+}
+
+/// The app's settings for the signed-in user, one JSON row of the ItemTable (half a megabyte,
+/// so SQLite walks it): the models it offers, and how it shows the account's usage.
+const APPLICATION_USER: &str = "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser";
+
+/// Cursor's names for its models by id, as its picker shows them (`grok-4.7` is Grok 4.7,
+/// `default` Auto): the list it keeps of the models it offers, `availableDefaultModels2` in its
+/// settings (`APPLICATION_USER`).
+fn model_names(db: &Connection) -> HashMap<String, String> {
+    let names = || -> rusqlite::Result<HashMap<String, String>> {
+        let mut stmt = db.prepare(
+            "SELECT json_extract(m.value, '$.name'), json_extract(m.value, '$.clientDisplayName') \
+             FROM ItemTable, json_each(CAST(ItemTable.value AS TEXT), '$.availableDefaultModels2') AS m \
+             WHERE ItemTable.key = ?1",
+        )?;
+        let rows = stmt.query_map([APPLICATION_USER], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))?;
+        Ok(rows.flatten().filter_map(|(id, name)| Some((id?, name.filter(|n| !n.trim().is_empty())?))).collect())
+    };
+    names().unwrap_or_default()
+}
+
+/// A model as a session says it: by Cursor's name for it, else by its id, Auto's included.
+fn model_name(id: &str, names: &HashMap<String, String>) -> String {
+    match names.get(id) {
+        Some(name) => name.clone(),
+        None if id == "default" => "Auto".to_string(),
+        None => id.to_string(),
+    }
 }
 
 /// The app's auto-run setting, which every chat runs by unless it has its own (`Chat::approval`):
@@ -313,16 +363,32 @@ pub fn chat_mode(c: &Chat, app: &AutoRun) -> Option<SessionMode> {
     Some(SessionMode::new(kind, &label, &detail))
 }
 
-/// How long each chat's composerData is, by chat: cheap to ask, as nothing is parsed.
-fn written(db: &Connection, ids: &[&str]) -> HashMap<String, i64> {
+/// What each chat's composerData is now, asked of every listed chat at each read: how long it
+/// is, which says whether to read the rest again without parsing it, and the model and effort its
+/// picker set (`model_of`), as a switch between two of one length (`grok-4.6` to `grok-4.7`, `low`
+/// to `max`) leaves the length as it was. Only `modelConfig` is pulled out, about 3 ms for all 124
+/// chats here (2026-10-14).
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Written {
+    length: i64,
+    model: Option<String>,
+    effort: Option<String>,
+}
+
+fn written(db: &Connection, ids: &[&str]) -> HashMap<String, Written> {
     if ids.is_empty() {
         return HashMap::new();
     }
     let keys: Vec<String> = ids.iter().map(|id| format!("composerData:{id}")).collect();
     let marks = vec!["?"; keys.len()].join(",");
-    let Ok(mut stmt) = db.prepare(&format!("SELECT key, length(CAST(value AS TEXT)) FROM cursorDiskKV WHERE key IN ({marks})")) else { return HashMap::new() };
-    let rows = stmt.query_map(rusqlite::params_from_iter(keys.iter()), |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)));
-    rows.map(|rows| rows.flatten().filter_map(|(k, n)| Some((k.strip_prefix("composerData:")?.to_string(), n))).collect()).unwrap_or_default()
+    let Ok(mut stmt) = db.prepare(&format!("SELECT key, length(t), json_extract(t, '$.modelConfig') FROM (SELECT key, CAST(value AS TEXT) AS t FROM cursorDiskKV WHERE key IN ({marks}))")) else { return HashMap::new() };
+    let rows = stmt.query_map(rusqlite::params_from_iter(keys.iter()), |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<String>>(2)?)));
+    let written = |(key, length, config): (String, i64, Option<String>)| {
+        let config: Value = config.as_deref().and_then(|c| serde_json::from_str(c).ok()).unwrap_or(Value::Null);
+        let (model, effort) = model_of(&config);
+        Some((key.strip_prefix("composerData:")?.to_string(), Written { length, model, effort }))
+    };
+    rows.map(|rows| rows.flatten().filter_map(written).collect()).unwrap_or_default()
 }
 
 /// The ids of a chat's messages, in order, with whether each is yours.
@@ -1003,6 +1069,10 @@ pub struct Reader {
     app_running: bool,
     /// The app's auto-run setting, by account, as last read.
     auto_run: HashMap<String, AutoRun>,
+    /// Cursor's names for its models (`model_names`), and when they were read: again only for
+    /// a model they lack, and not more than once a minute.
+    names: HashMap<String, String>,
+    names_at: Option<Instant>,
     looked_at: Option<Instant>,
     read_at: Option<Instant>,
 }
@@ -1023,20 +1093,26 @@ impl Reader {
         if let Some(db) = app_db(&home).and_then(|p| crate::harness::open_database(&p)) {
             self.auto_run.insert(a.name.clone(), AutoRun { enforced: enforced_approval(&home), ..read_auto_run(&db) });
             let mut app = read_app_chats(&db, look.since, &keep).unwrap_or_default();
-            let lengths = written(&db, &app.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
+            let now = written(&db, &app.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
             for c in &mut app {
-                let length = lengths.get(&c.id).copied().unwrap_or(0);
+                let w = now.get(&c.id).cloned().unwrap_or_default();
                 match before.get(&c.id) {
                     // Nothing written since: what was read stands, as the header may lag.
-                    Some(old) if old.written == length && length > 0 => {
+                    Some(old) if old.written == w.length && w.length > 0 => {
                         // A mode the header changed to since is one composerData's length hid.
                         let mode = if c.header_mode != old.header_mode { c.header_mode.clone().or(old.mode.clone()) } else { old.mode.clone() };
                         *c = Chat { archived: c.archived, header_mode: c.header_mode.clone(), mode, ..old.clone() };
                     }
                     _ => refresh(&db, c),
                 }
+                (c.model, c.effort) = (w.model, w.effort);
             }
             app.retain(|c| c.messages > 0 || c.generating());
+            let unnamed = app.iter().filter_map(|c| c.model.as_deref()).any(|m| !self.names.contains_key(m));
+            if self.names_at.map_or(true, |t| unnamed && t.elapsed() >= Duration::from_secs(60)) {
+                self.names = model_names(&db);
+                self.names_at = Some(Instant::now());
+            }
             rows.extend(app);
         }
         for mut c in read_cli_chats(&home, look.since, &keep) {
@@ -1152,6 +1228,7 @@ impl crate::harness::Reader for Reader {
                 let mut s = crate::board::cursor_session(account, c, self.held(&c.id), self.app_running, look.seen.seen_at(&key), look.now);
                 s.archived |= look.archived_here(&key, s.last_activity);
                 s.mode = chat_mode(c, self.auto_run.get(&account.name).unwrap_or(&AutoRun::default()));
+                s.model = c.model.as_deref().map(|m| model_name(m, &self.names));
                 s
             })
             .collect()
@@ -1182,22 +1259,35 @@ const NO_TRAINING: &str = "PRIVACY_MODE_NO_TRAINING";
 /// account's folder (`auth.json`, `{accessToken, refreshToken, apiKey…}`) or the keychain. The
 /// token is never logged, and Codealong never refreshes it.
 fn api_token(home: &Path) -> Option<String> {
+    let cli = || procs::run("/usr/bin/security", &["find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w"], None, Duration::from_secs(10)).ok();
+    saved_token(home).or_else(|| cli().and_then(usable_token))
+}
+
+/// The sign-in kept where Codealong reads it without asking the keychain: the app's, or the
+/// command line's file. What's read every couple of minutes goes by this alone, as the command
+/// line's keychain item is another program's, which macOS may ask you before handing over.
+fn saved_token(home: &Path) -> Option<String> {
     let file = || {
         let v: Value = serde_json::from_str(&std::fs::read_to_string(home.join("auth.json")).ok()?).ok()?;
         v.get("accessToken").and_then(Value::as_str).map(str::to_string)
     };
     let app = || app_db(home).and_then(|p| crate::harness::open_database(&p)).and_then(|db| db.query_row("SELECT CAST(value AS TEXT) FROM ItemTable WHERE key = 'cursorAuth/accessToken'", [], |r| r.get::<_, String>(0)).ok());
-    let cli = || procs::run("/usr/bin/security", &["find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w"], None, Duration::from_secs(10)).ok();
-    let usable = |t: String| Some(t.trim().to_string()).filter(|t| !t.is_empty());
-    app().and_then(usable).or_else(|| file().and_then(usable)).or_else(|| cli().and_then(usable))
+    app().and_then(usable_token).or_else(|| file().and_then(usable_token))
 }
+
+fn usable_token(t: String) -> Option<String> {
+    Some(t.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+/// What a call says when Cursor turned its sign-in away.
+const EXPIRED: &str = "the sign-in has expired: sign in to Cursor again";
 
 fn dashboard(token: &str, method: &str, body: &Value) -> Result<Value, String> {
     let headers = [format!("Authorization: Bearer {token}"), "Connect-Protocol-Version: 1".to_string()];
     let reply = crate::http::call("POST", &format!("{DASHBOARD}/{method}"), &headers, Some(body), Duration::from_secs(15))?;
     match reply.status {
         200..=299 => reply.json().ok_or_else(|| "unexpected response".to_string()),
-        401 | 403 => Err("the sign-in has expired: sign in to Cursor again".to_string()),
+        401 | 403 => Err(EXPIRED.to_string()),
         other => Err(format!("HTTP {other}")),
     }
 }
@@ -1239,13 +1329,122 @@ fn stop_privacy(account: &AccountCfg) -> anyhow::Result<()> {
     Ok(())
 }
 
+/* ---- Plan usage ---- */
+
+/// The account's usage this billing period, as Cursor's Settings and the usage line under its
+/// chat box read it (3.22.7): `GetCurrentPeriodUsage` on the same API, asked `{}`, and the
+/// plan's name from `GetPlanInfo` (`planInfo.planName`, `Pro+`). Blocks for a second or so;
+/// call it off the engine thread.
+fn read_usage(account: &AccountCfg, now: i64) -> crate::model::Usage {
+    let mut u = crate::model::Usage { loading: false, ..crate::usage::loading(account) };
+    let Some(token) = saved_token(&account.home_path()) else {
+        u.error = Some("Not signed in to Cursor".to_string());
+        u.needs_sign_in = true;
+        return u;
+    };
+    match dashboard(&token, "GetCurrentPeriodUsage", &serde_json::json!({})) {
+        Ok(v) => {
+            u.as_of = Some(now);
+            u.meters = usage_meters(&v, usage_display(&account.home_path()));
+            if u.meters.is_empty() {
+                u.error = Some("Cursor reports no usage limits for this plan.".to_string());
+            }
+            // Only the name, which nothing waits on: a plan read that fails leaves it out.
+            u.plan = dashboard(&token, "GetPlanInfo", &serde_json::json!({})).ok().and_then(|p| p.pointer("/planInfo/planName")?.as_str().map(str::to_string)).filter(|n| !n.is_empty());
+        }
+        Err(why) => {
+            u.needs_sign_in = why == EXPIRED;
+            u.error = Some(format!("Couldn't read usage: {why}"));
+        }
+    }
+    u
+}
+
+/// How Cursor shows an account's usage, as its Settings decides it (3.22.7's `usageDisplay`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum UsageDisplay {
+    /// One limit for everything the plan includes, the share of each kind of model beneath it.
+    Total,
+    /// A plan that spills over (Pro+ here): a limit for Cursor's own models, and one for the
+    /// models you name, which a Cursor model's use spills into past its own.
+    Split,
+    /// The Express plan: only Cursor's own models.
+    CursorModelsOnly,
+}
+
+/// The display the app's settings give the signed-in account: `membershipType` `express` is
+/// Cursor's models only; `hasTieredSelfServeTeamSpillover`, or `hasAutoSpillover` on a plan other
+/// than Enterprise, is split; anything else, and an account without the app's settings, total.
+fn usage_display(home: &Path) -> UsageDisplay {
+    let Some(db) = app_db(home).and_then(|p| crate::harness::open_database(&p)) else { return UsageDisplay::Total };
+    let got = db.query_row(
+        "SELECT json_extract(t, '$.membershipType'), json_extract(t, '$.hasAutoSpillover'), json_extract(t, '$.hasTieredSelfServeTeamSpillover') \
+         FROM (SELECT CAST(value AS TEXT) AS t FROM ItemTable WHERE key = ?1)",
+        [APPLICATION_USER],
+        |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?)),
+    );
+    let Ok((membership, auto, tiered)) = got else { return UsageDisplay::Total };
+    display_of(membership.as_deref(), auto == Some(1), tiered == Some(1))
+}
+
+fn display_of(membership: Option<&str>, auto_spillover: bool, tiered_spillover: bool) -> UsageDisplay {
+    match membership {
+        Some("express") => UsageDisplay::CursorModelsOnly,
+        _ if tiered_spillover || (auto_spillover && membership != Some("enterprise")) => UsageDisplay::Split,
+        _ => UsageDisplay::Total,
+    }
+}
+
+/// A meter for each limit in `GetCurrentPeriodUsage`'s answer as Cursor shows it (`display`):
+/// `{billingCycleStart, billingCycleEnd, planUsage, spendLimitUsage…}`, times as strings of epoch
+/// milliseconds, spends in cents, percents out of 100. Split, Cursor Models (Auto, Composer and
+/// its own Grok) are `autoPercentUsed` and Other Models, the ones you name, `apiPercentUsed`,
+/// as the usage line under its chat box says them; Express has the first alone. Total is
+/// `totalPercentUsed`, as Settings shows it, else what's spent of what the plan includes
+/// (`includedSpend` of `limit`). On-demand spend past the plan counts against a limit of its own
+/// once you set one (`spendLimitUsage.individualLimit`). Each resets as the billing cycle ends.
+fn usage_meters(v: &Value, display: UsageDisplay) -> Vec<crate::model::Meter> {
+    let Some(plan) = v.get("planUsage") else { return Vec::new() };
+    let resets_at = v.get("billingCycleEnd").and_then(|e| e.as_str().and_then(|s| s.parse().ok()).or_else(|| e.as_i64()));
+    let meter = |key: &str, label: &str, window: &str, percent: f64, model: Option<&str>| crate::model::Meter {
+        key: key.to_string(),
+        label: label.to_string(),
+        window: window.to_string(),
+        percent: percent.clamp(0.0, 100.0),
+        resets_at,
+        severity: crate::usage::severity(None, percent),
+        model: model.map(str::to_string),
+    };
+    let number = |v: &Value, key: &str| v.get(key).and_then(Value::as_f64);
+    let mut out = Vec::new();
+    let cursor_models = || meter("model:Cursor", "Cursor", "Monthly, Cursor models (Auto, Composer and Cursor Grok)", number(plan, "autoPercentUsed").unwrap_or(0.0), Some("Cursor"));
+    match display {
+        UsageDisplay::Split => {
+            out.push(cursor_models());
+            out.push(meter("model:Other", "Other", "Monthly, other models", number(plan, "apiPercentUsed").unwrap_or(0.0), Some("Other")));
+        }
+        UsageDisplay::CursorModelsOnly => out.push(cursor_models()),
+        UsageDisplay::Total => {
+            let limit = number(plan, "limit").unwrap_or(0.0);
+            let spent = (limit > 0.0).then(|| number(plan, "includedSpend").unwrap_or(0.0) / limit * 100.0);
+            out.extend(number(plan, "totalPercentUsed").or(spent).map(|p| meter("month", "Month", "Monthly, included usage", p, None)));
+        }
+    }
+    if let Some(spend) = v.get("spendLimitUsage").filter(|s| number(s, "individualLimit").is_some_and(|l| l > 0.0)) {
+        let (used, limit) = (number(spend, "individualUsed").unwrap_or(0.0), number(spend, "individualLimit").unwrap_or(0.0));
+        out.push(meter("spend", "On-demand", "On-demand spend", used / limit * 100.0, None));
+    }
+    out
+}
+
 /* ---- The adapter ---- */
 
-/// The only way in for an app chat: nothing there takes a prompt from outside, so the app comes
-/// forward on the chat's folder with the prompt on the clipboard to paste.
+/// The only way in for an app chat: nothing there takes a prompt from outside (a `/prompt` link
+/// makes a new chat), so the app comes forward on the chat with the prompt on the clipboard to
+/// paste.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OnClipboard {
-    pub folder: Option<String>,
+    pub chat: String,
 }
 
 impl crate::send::Own for OnClipboard {
@@ -1263,21 +1462,25 @@ impl crate::send::Own for OnClipboard {
 
     fn deliver(&self, d: &crate::send::Delivery) -> anyhow::Result<crate::send::Sent> {
         crate::send::copy(&crate::attachments::expand(d.text, crate::attachments::Style::Path))?;
-        open_app(self.folder.as_deref())?;
-        Ok(crate::send::opened(format!("Cursor is open on {}'s folder and the prompt is on the clipboard. Paste it into that chat to send it.", d.title())))
+        open_chat(&self.chat)?;
+        Ok(crate::send::opened(format!("Cursor is open on {} and the prompt is on the clipboard. Paste it to send it.", d.title())))
     }
 }
 
-/// Brings Cursor forward on a chat's folder: its window, which `open` makes when there's none.
-/// No link selects a chat in it.
-pub fn open_app(folder: Option<&str>) -> anyhow::Result<()> {
+/// The link that opens an app chat: the Agents window comes forward on it. The window looks the
+/// id up among the chats it lists, local ones included, and says it can't find it when it isn't
+/// one of them (3.22.7's `GlassDeeplinkHandler.handleAgentOpen`, tried 2026-10-14).
+fn chat_link(id: &str) -> String {
+    format!("cursor://anysphere.cursor-deeplink/agent?id={id}")
+}
+
+/// Brings Cursor forward on an app chat, in its Agents window (`chat_link`); the link opens
+/// Cursor when it isn't running.
+pub fn open_chat(id: &str) -> anyhow::Result<()> {
     let app = crate::detect::app("Cursor.app").ok_or_else(|| anyhow::anyhow!("Cursor isn't installed in Applications."))?;
     let app = app.to_string_lossy().into_owned();
-    let mut args = vec!["-a", app.as_str()];
-    if let Some(f) = folder.filter(|f| Path::new(f).is_dir()) {
-        args.push(f);
-    }
-    procs::open(&args, Duration::from_secs(10)).map_err(|e| anyhow::anyhow!("Couldn't open Cursor: {e}"))
+    let link = chat_link(id);
+    procs::open(&["-a", app.as_str(), link.as_str()], Duration::from_secs(10)).map_err(|e| anyhow::anyhow!("Couldn't open Cursor: {e}"))
 }
 
 /// Cursor (`harness::Adapter`): the app's chats, read from its database, and the command line's,
@@ -1368,8 +1571,8 @@ impl crate::harness::Adapter for Cursor {
     }
 
     /// The command line's chat opens in its terminal, or a new one that resumes it
-    /// (`cursor-agent --resume`); a print run has it until it ends. No link opens one of the
-    /// app's chats, so the app comes forward on its folder.
+    /// (`cursor-agent --resume`); a print run has it until it ends. The app's opens in Cursor's
+    /// Agents window (`chat_link`).
     fn targets(&self, s: &Session, o: &crate::harness::Opens) -> Vec<crate::model::Target> {
         let who = o.who.clone();
         match s.surface {
@@ -1377,13 +1580,13 @@ impl crate::harness::Adapter for Cursor {
                 let busy = s.live && s.pid.is_none();
                 vec![o.terminal(s, if busy { format!("{who} · a run without a terminal has it open") } else { who }, busy)]
             }
-            Surface::App => vec![o.way(s, "cursor", "app", "Open in Cursor".into(), format!("{who} · its folder's window, where the chat is in the list"), true, false)],
+            Surface::App => vec![o.way(s, "cursor", "app", "Open in Cursor".into(), format!("{who} · the chat, in Cursor's Agents window"), true, false)],
         }
     }
 
     fn open(&self, s: &Session, action: &str) -> anyhow::Result<()> {
         match action {
-            "cursor" => open_app(Some(s.cwd.as_str()).filter(|c| !c.is_empty())),
+            "cursor" => open_chat(&s.id),
             other => anyhow::bail!("Unknown action {other:?}"),
         }
     }
@@ -1464,8 +1667,19 @@ impl crate::harness::Adapter for Cursor {
         app.into_iter().chain(cli).filter_map(|c| c.cwd).collect()
     }
 
-    fn no_limits(&self, _account: &AccountCfg) -> Option<&'static str> {
-        Some("Cursor shows its usage on cursor.com.")
+    /// Usage is asked of Cursor's servers with a sign-in kept where Codealong reads it without
+    /// the keychain (`saved_token`): the app's, or the command line's file.
+    fn no_limits(&self, account: &AccountCfg) -> Option<&'static str> {
+        (!self.polls_usage(account)).then_some("Codealong reads Cursor's usage with the Cursor app's sign-in, which this account doesn't have.")
+    }
+
+    fn polls_usage(&self, account: &AccountCfg) -> bool {
+        let home = account.home_path();
+        app_db(&home).is_some_and(|db| db.is_file()) || home.join("auth.json").is_file()
+    }
+
+    fn read_usage(&self, account: &AccountCfg, now: i64) -> crate::model::Usage {
+        read_usage(account, now)
     }
 
     /// Privacy Mode, in the account's settings on Cursor's servers.
@@ -1507,7 +1721,7 @@ impl crate::harness::Adapter for Cursor {
             (Surface::Cli, Some(pid), _) => vec![crate::send::Route::Type { pid }],
             (Surface::Cli, None, false) => vec![crate::send::Route::Resume],
             (Surface::Cli, None, true) => Vec::new(),
-            _ => vec![OnClipboard { folder: Some(s.cwd.clone()).filter(|c| !c.is_empty()) }.into()],
+            _ => vec![OnClipboard { chat: s.id.clone() }.into()],
         }
     }
 
@@ -1594,8 +1808,11 @@ mod tests {
         let kv = |key: String, value: Value| {
             db.execute("INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)", rusqlite::params![key, value.to_string()]).unwrap();
         };
+        // Cursor's list of the models it offers, as its settings keep it.
+        let models = json!({ "availableDefaultModels2": [{ "name": "default", "clientDisplayName": "Auto" }, { "name": "grok-4.7", "clientDisplayName": "Grok 4.7" }, { "name": "gpt-5.5", "clientDisplayName": "" }] });
+        db.execute("INSERT INTO ItemTable (key, value) VALUES ('src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser', ?1)", [models.to_string()]).unwrap();
         let order = |ids: &[(&str, i64)]| ids.iter().map(|(id, t)| json!({ "bubbleId": id, "type": t })).collect::<Vec<_>>();
-        kv("composerData:c1".into(), json!({ "status": "generating", "lastUpdatedAt": 6_000, "name": "Fix the build", "hasBlockingPendingActions": true, "modelConfig": { "modelName": "gpt-5.5" }, "fullConversationHeadersOnly": order(&[("u1", 1), ("a1", 2), ("t1", 2), ("t2", 2)]) }));
+        kv("composerData:c1".into(), json!({ "status": "generating", "lastUpdatedAt": 6_000, "name": "Fix the build", "hasBlockingPendingActions": true, "modelConfig": { "modelName": "claude-4.5-sonnet", "selectedModels": [{ "modelId": "grok-4.7", "parameters": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "high" }, { "id": "fast", "value": "true" }] }] }, "fullConversationHeadersOnly": order(&[("u1", 1), ("a1", 2), ("t1", 2), ("t2", 2)]) }));
         kv("composerData:c2".into(), json!({ "status": "completed", "lastUpdatedAt": 4_000, "modelConfig": { "modelName": "default" }, "gitWorktree": { "worktreePath": "/Users/me/.cursor/worktrees/api/sky", "branchName": "sky" }, "fullConversationHeadersOnly": order(&[("u1", 1), ("a1", 2)]) }));
         let bubble = |chat: &str, id: &str, v: Value| kv(format!("bubbleId:{chat}:{id}"), v);
         bubble("c1", "u1", json!({ "type": 1, "bubbleId": "u1", "text": "Fix the build", "createdAt": "2026-09-02T23:21:44.459Z" }));
@@ -1611,8 +1828,11 @@ mod tests {
 
     fn read(db: &Connection) -> Vec<Chat> {
         let mut rows = read_app_chats(db, 1_000, &HashSet::new()).unwrap();
+        let now = written(db, &rows.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
         for c in &mut rows {
             refresh(db, c);
+            let w = &now[&c.id];
+            (c.model, c.effort) = (w.model.clone(), w.effort.clone());
         }
         rows
     }
@@ -1636,9 +1856,12 @@ mod tests {
         let (c1, c2) = (&rows[0], &rows[1]);
         assert!(c1.generating() && c1.blocking);
         // Its latest message, not `lastUpdatedAt`, which is when the last prompt was sent.
-        assert_eq!((c1.last_updated, c1.messages, c1.model.as_deref()), (parse_rfc3339_ms("2026-09-02T23:23:00.000Z").unwrap(), 4, Some("gpt-5.5")));
+        assert_eq!((c1.last_updated, c1.messages), (parse_rfc3339_ms("2026-09-02T23:23:00.000Z").unwrap(), 4));
+        // The model it's on is the one its picker selected, as the app reads it, over the name an
+        // older Cursor left beside it, and its effort is that model's.
+        assert_eq!((c1.model.as_deref(), c1.effort.as_deref()), (Some("grok-4.7"), Some("high")));
         assert!(c1.written > 0);
-        assert_eq!(written(&db, &["c1", "c2", "nope"]).get("c1"), Some(&c1.written));
+        assert_eq!(written(&db, &["c1", "c2", "nope"]).get("c1").map(|w| w.length), Some(c1.written));
         assert_eq!(c1.tail.first_prompt.as_deref(), Some("Fix the build"));
         assert_eq!(c1.tail.last_text.as_deref(), Some("I'll run the tests first."));
         assert_eq!(c1.tail.last_tool.as_deref(), Some("Run · `rm -rf target`"));
@@ -1646,10 +1869,47 @@ mod tests {
         assert!(c1.tail.open[0].waits && c1.tail.open[0].id == "tool_2");
         // Each command a vote for where it works.
         assert_eq!(c1.tail.work, ["/Users/me/app", "/Users/me/app"]);
-        // A worktree the app made for the chat is where it works; "default" is no model.
-        assert_eq!((c2.status.as_str(), c2.cwd.as_deref(), c2.branch.as_deref(), c2.model.as_deref()), ("completed", Some("/Users/me/.cursor/worktrees/api/sky"), Some("sky"), None));
+        // A worktree the app made for the chat is where it works; one on Auto has no effort.
+        assert_eq!((c2.status.as_str(), c2.cwd.as_deref(), c2.branch.as_deref()), ("completed", Some("/Users/me/.cursor/worktrees/api/sky"), Some("sky")));
+        assert_eq!((c2.model.as_deref(), c2.effort.as_deref()), (Some("default"), None));
         assert_eq!(c2.tail.last_prompt_at, parse_rfc3339_ms("2026-09-01T10:00:00.000Z"));
         assert!(c2.tail.open.is_empty() && c2.tail.error.is_none());
+    }
+
+    #[test]
+    fn says_a_model_and_its_effort_as_cursors_picker_does() {
+        let db = app_fixture();
+        let names = model_names(&db);
+        assert_eq!(names.get("grok-4.7").map(String::as_str), Some("Grok 4.7"));
+        // A model the list doesn't name, or names with nothing, goes by its id; Auto by its name.
+        assert_eq!(["grok-4.7", "default", "gpt-5.5", "composer-9"].map(|m| model_name(m, &names)), ["Grok 4.7", "Auto", "gpt-5.5", "composer-9"]);
+        assert_eq!(model_name("default", &HashMap::new()), "Auto");
+        // Each model calls its effort by a name of its own; a thinking switch isn't one.
+        let selected = |parameters: Value| json!({ "modelId": "m", "parameters": parameters });
+        assert_eq!(effort_of(&selected(json!([{ "id": "thinking", "value": "true" }, { "id": "effort", "value": "max" }]))).as_deref(), Some("max"));
+        assert_eq!(effort_of(&selected(json!([{ "id": "context", "value": "272k" }, { "id": "reasoning", "value": "extra-high" }]))).as_deref(), Some("extra-high"));
+        assert_eq!(effort_of(&selected(json!([{ "id": "thinking", "value": "true" }, { "id": "fast", "value": "false" }]))), None);
+        assert_eq!(effort_of(&selected(json!([]))), None);
+        assert_eq!(effort_of(&Value::Null), None);
+    }
+
+    /// A switch between two models, or two levels, of one length leaves composerData as long as
+    /// it was, so the reader's shortcut keeps what it read; what `written` says changes all the same.
+    #[test]
+    fn a_switch_of_model_or_effort_of_one_length_shows() {
+        let db = app_fixture();
+        let before = written(&db, &["c1"])["c1"].clone();
+        let data: String = db.query_row("SELECT CAST(value AS TEXT) FROM cursorDiskKV WHERE key = 'composerData:c1'", [], |r| r.get(0)).unwrap();
+        let switched = data.replace("\"grok-4.7\"", "\"grok-4.6\"").replace("\"high\"", "\"xlow\"");
+        db.execute("UPDATE cursorDiskKV SET value = ?1 WHERE key = 'composerData:c1'", [&switched]).unwrap();
+        let after = written(&db, &["c1"])["c1"].clone();
+        assert_eq!(after.length, before.length);
+        assert_eq!((after.model.as_deref(), after.effort.as_deref()), (Some("grok-4.6"), Some("xlow")));
+    }
+
+    #[test]
+    fn an_app_chat_opens_by_its_link() {
+        assert_eq!(chat_link("f39bf436-feba-4354-8eeb-904485dac943"), "cursor://anysphere.cursor-deeplink/agent?id=f39bf436-feba-4354-8eeb-904485dac943");
     }
 
     #[test]
@@ -1862,7 +2122,7 @@ mod tests {
         let started = Instant::now();
         let listed = read_app_chats(&db, 0, &HashSet::new()).unwrap();
         let lengths = written(&db, &listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
-        println!("a read with nothing new: {} µs for {} chats' lengths", started.elapsed().as_micros(), lengths.len());
+        println!("a read with nothing new: {} µs for {} chats' lengths and models", started.elapsed().as_micros(), lengths.len());
         chats.extend(read_cli_chats(&home, 0, &HashSet::new()).into_iter().map(|c| Chat { cwd: cli_cwd(&c), ..c }));
         let (procs, app_running) = processes(crate::procs::Listing::default().all());
         println!("{} chats ({app_ms} ms for the app's), the app {}running, {} command line processes", chats.len(), if app_running { "" } else { "not " }, procs.len());
@@ -1909,6 +2169,42 @@ mod tests {
         let team = read(json!({"privacyMode": "PRIVACY_MODE_USAGE_DATA_TRAINING_ALLOWED", "isEnforcedByTeam": true}));
         assert_eq!((team.state, team.can_stop), (State::On, false));
         assert!(team.note.ends_with("Your team sets it."));
+    }
+
+    /// As `GetCurrentPeriodUsage` answered a Pro+ account on 2026-10-14, and the other shapes
+    /// Cursor 3.22.7's usage line reads.
+    #[test]
+    fn reads_the_billing_periods_usage_as_meters() {
+        use crate::model::Severity;
+        let pro_plus = json!({
+            "billingCycleStart": "1790621503000", "billingCycleEnd": "1793213503000",
+            "planUsage": { "totalSpend": 138, "includedSpend": 138, "remaining": 6862, "limit": 7000, "autoPercentUsed": 0.05833333333333334, "apiPercentUsed": 0.6181818181818182, "totalPercentUsed": 0.10534351145038168 },
+            "spendLimitUsage": { "limitType": "user" }, "enabled": true
+        });
+        use UsageDisplay::*;
+        let shown = |v: &Value, d| usage_meters(v, d).iter().map(|m| (m.key.clone(), (m.percent * 100.0).round() / 100.0, m.resets_at, m.model.clone())).collect::<Vec<_>>();
+        // A plan that spills over has a limit for Cursor's own models and one for the rest.
+        let cursor = ("model:Cursor".to_string(), 0.06, Some(1_793_213_503_000), Some("Cursor".to_string()));
+        assert_eq!(shown(&pro_plus, Split), [cursor.clone(), ("model:Other".into(), 0.62, Some(1_793_213_503_000), Some("Other".into()))]);
+        assert_eq!(shown(&pro_plus, CursorModelsOnly), [cursor]);
+        // Any other has one, the total Settings shows, though the answer has the shares too.
+        assert_eq!(shown(&pro_plus, Total), [("month".into(), 0.11, Some(1_793_213_503_000), None)]);
+        // Without Cursor's total, what's spent of what the plan includes.
+        let month = usage_meters(&json!({ "planUsage": { "includedSpend": 1800, "limit": 2000 } }), Total);
+        assert_eq!((month.len(), month[0].percent.round(), month[0].severity), (1, 90.0, Severity::Critical));
+        // On-demand spend counts once you've set a limit on it.
+        let spend = json!({ "planUsage": { "limit": 2000 }, "spendLimitUsage": { "individualLimit": 5000, "individualUsed": 1250 } });
+        assert_eq!(usage_meters(&spend, Total).iter().map(|m| (m.key.as_str(), m.percent)).collect::<Vec<_>>(), [("month", 0.0), ("spend", 25.0)]);
+        // A plan with nothing to say says nothing.
+        assert!(usage_meters(&json!({ "enabled": false }), Split).is_empty());
+        assert!(usage_meters(&json!({ "planUsage": {} }), Total).is_empty());
+        // Which it is, as the app's settings say.
+        assert_eq!(display_of(Some("pro_plus"), true, false), Split);
+        assert_eq!(display_of(Some("enterprise"), true, false), Total);
+        assert_eq!(display_of(Some("enterprise"), false, true), Split);
+        assert_eq!(display_of(Some("express"), true, false), CursorModelsOnly);
+        assert_eq!(display_of(Some("pro"), false, false), Total);
+        assert_eq!(display_of(None, false, false), Total);
     }
 
     /// A folder the app doesn't use (not `~/.cursor`) has the command line's sign-in, from its

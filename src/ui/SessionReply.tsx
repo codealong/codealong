@@ -280,8 +280,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resuming?.places.find((p) => p.place === resumeHow.place)?.behind };
   // A running one says what model it's on, beside Send, and where Codealong can switch it
   // (SessionModel.tsx): one it runs, or one whose terminal it types into, by its harness's command.
+  // A Cursor app chat is set to its model, which its next turn goes on with, so it says it between
+  // turns too.
   const switches = here && s.live && !!account && (account.models?.length ?? 0) > 0 && (!!s.hosted || (way?.kind === 'typed' && !!account.switchesModel));
-  const saysModel = !resuming && s.live && (switches || !!s.model);
+  const saysModel = !resuming && (s.live || way?.kind === 'cursor') && (switches || !!s.model);
   const [switching, setSwitching] = useState(false);
   const switchModel = (model: string) => {
     setSwitching(true);

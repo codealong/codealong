@@ -372,7 +372,7 @@ session where it lives.**
 | **Codex app** | ✓ | Starts a new turn | In the app | ✓ | Its signed-in account | 5-hour, weekly |
 | **OpenCode** | ✓ | Its own service | ✓ | ✓ | — | You bring the provider |
 | **Antigravity** | ✓ | Opens it, prompt on the clipboard | In the app | In its own window | — | Shown in the app |
-| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats get the prompt on the clipboard | In Cursor | `cursor-agent` | — | — |
+| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | In Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
 | **In Codealong** (Claude Code, Codex or OpenCode) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
 Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), iTerm2 and tmux

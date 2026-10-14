@@ -745,9 +745,9 @@ pub enum Way {
     Opencode,
     /// Nothing takes a prompt from outside: the app comes forward with it on the clipboard.
     Antigravity,
-    /// Nothing takes a prompt from outside the Cursor app: it comes forward on the chat's folder
-    /// with it on the clipboard. Only a device that knows Cursor (`proto::CURSOR`) sees one of
-    /// its chats to ask.
+    /// Nothing takes a prompt from outside the Cursor app: it comes forward on the chat with it
+    /// on the clipboard. Only a device that knows Cursor (`proto::CURSOR`) sees one of its chats
+    /// to ask.
     Cursor,
 }
 

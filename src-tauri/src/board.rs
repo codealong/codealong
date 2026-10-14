@@ -667,6 +667,7 @@ pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Op
         excerpt,
         branch: c.branch.clone(),
         model: c.model.clone(),
+        effort: c.effort.clone(),
         archived: c.archived,
         resume_command: c.cli.then(|| format!("{} --resume {}", crate::cursor::cli_command(account), c.id)),
         ..known

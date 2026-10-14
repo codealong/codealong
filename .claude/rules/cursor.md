@@ -28,8 +28,13 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   bumped with each write.
 - `cursorDiskKV`'s `composerData:<id>`: `status` (`none`, `generating`, `completed`,
   `aborted`, the only four the code sets), `fullConversationHeadersOnly` (the messages' order),
-  `hasBlockingPendingActions`, `gitWorktree {worktreePath, branchName}`, `modelConfig.modelName`
-  (`default` is Auto), `generatingBubbleIds`: `cursor.rs` (`read_state`, `message_ids`). Its
+  `hasBlockingPendingActions`, `gitWorktree {worktreePath, branchName}`, `modelConfig`,
+  `generatingBubbleIds`: `cursor.rs` (`read_state`, `message_ids`). The model is
+  `modelConfig.selectedModels[0].modelId`, else `modelConfig.modelName` (`default` is Auto), as
+  the app reads it: older chats keep a legacy `modelName` (`claude-4.5-sonnet`) beside a newer
+  pick. The effort is that entry's `parameters` (`[{id, value}]`): `reasoning_effort`, `effort` or
+  `reasoning` by model (`effort_of`), beside `context`, `fast` and `thinking`; a model left at
+  its own levels has none listed. Its
   `lastUpdatedAt` is when you last sent something, not when the reply ended, so a chat's last
   activity is its newest message's time (`Tail::last_at`). It's rewritten with each message and
   every 30 seconds while a turn runs, so its length says whether to read it again (`written`).
@@ -97,8 +102,22 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `cursorAuth/stripeMembershipType`…); the command line in the keychain (account `cursor-user`,
   services `cursor-access-token`, `cursor-refresh-token`) or, with
   `AGENT_CLI_CREDENTIAL_STORE=file`, `~/.cursor/auth.json`: `cursor.rs` (`Cursor::signed_in`,
-  which reads the email only). Usage is asked of Cursor's servers with the token; nothing local
-  says it (`Cursor::no_limits`).
+  which reads the email only). The command line's keychain item is written by a keychain
+  module of its own, so the usage read every couple of minutes uses only the app's sign-in or
+  the file (`saved_token`).
+- Usage: `GetCurrentPeriodUsage` on the DashboardService with `{}`, as the app's
+  `UsageDataService` asks it, and `GetPlanInfo` for the plan's name: `cursor.rs` (Plan usage
+  section, `read_usage`, `usage_meters`). Spends are cents, percents out of 100, times strings of
+  epoch milliseconds. How Settings shows them is the app's settings' (`usage_display`, 3.22.7's
+  `usageDisplay`): a plan that spills over (`hasTieredSelfServeTeamSpillover`, or
+  `hasAutoSpillover` other than Enterprise's) as two bars, Cursor Models (Auto, Composer,
+  Cursor Grok; `autoPercentUsed`) and Other Models (`apiPercentUsed`), its chat box's line
+  saying "Cursor Models: N% used · Other Models: N% used" with 0 < N < 1 shown as 1; Express
+  (`membershipType` `express`) the first alone; any other as "Total N% used"
+  (`totalPercentUsed`) with the two shares beneath it, though the answer has them all whatever
+  the plan. `displayMessage` ("You've used 2% of your included usage") goes by spend. The titles can come from Cursor's server config (`auto_spillover_ui_config`); older
+  ones were "Auto + Composer" and "API". On 2026-10-14 a Pro+ account answered spend 138 of
+  7,000 cents, auto 0.06%, API 0.62%, total 0.11%.
 - Privacy Mode (whether Cursor trains on the account) is the account's on Cursor's servers,
   read and set with the app's token: `cursor.rs` (Privacy Mode section). The enum is
   `aiserver.v1.PrivacyMode`: 0 unspecified, 1 `NO_STORAGE` (Legacy, offered only to accounts
@@ -111,10 +130,12 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   goes by its teams' most private setting, and for Enterprise hides the picker.
 - Links: `cursor://anysphere.cursor-deeplink/…` (the built-in `cursor-deeplink` extension).
   `/prompt?text=&workspace=<folder name>&mode=` fills in a new chat after a confirmation dialog
-  and doesn't send it; `/agent?id=` opens the Agents window and asks `glass.openCloudAgentById`,
-  which wasn't shown to open a local chat. So an app chat opens as its folder's window
-  (`open -a Cursor <folder>`, `cursor.rs` `open_app`) and a prompt for it goes on the clipboard
-  (`OnClipboard`).
+  and doesn't send it, in the Agents window too; `/agent?id=<composer id>` opens the Agents
+  window on that chat (`glass.openCloudAgentById`, which looks the id up among the chats the
+  window lists, local ones included, and hydrates only `bc-` cloud ids; tried on a local chat
+  2026-10-14). So an app chat opens there (`cursor.rs` `chat_link`, `open_chat`) and a prompt
+  for it goes on the clipboard (`OnClipboard`). The extension activates `onUri`, so the link
+  opens Cursor when it isn't running.
 - The app runs Claude Code's hooks from `~/.claude/settings.json` and a project's
   `.claude/settings*.json` too, on by default (`UserPromptSubmit`, `Stop`, `PreToolUse`…, not
   `Notification` or `PermissionRequest`), with Cursor's payload; its own are in
@@ -122,8 +143,9 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `transcript_path`.
 - Models the app offers: ItemTable
   `src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser`
-  → `availableDefaultModels2` (half a megabyte: read with `json_extract`); the default is
-  `aiSettings.modelConfig.composer.modelName`. Whether the command line's `--model` takes the
+  → `availableDefaultModels2` (half a megabyte: read with `json_extract`), each with `name`, its
+  id, and `clientDisplayName`, which the picker shows and a session says (`model_names`); the
+  default is `aiSettings.modelConfig.composer.modelName`. Whether the command line's `--model` takes the
   same names wasn't checked, so a start takes no model from Codealong yet.
 
 ## Unchecked
@@ -134,5 +156,8 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
 - A chat generating or waiting on a call while Codealong read it: no chat ran during the work,
   so `generating`, `hasBlockingPendingActions` and `reviewData.status: "Requested"` are as the
   code and old chats have them.
-- Whether `/agent?id=<composer id>` opens a local chat; it would show an error notification in
-  Cursor when it doesn't.
+- `/agent?id=` with Cursor not running, and on a chat the Agents window doesn't list (an
+  archived one, say), which shows "We can't find this agent, or it doesn't exist on this
+  machine." in Cursor: only a listed chat, with the window open, was tried.
+- Usage on a plan without spillover, and with an on-demand limit set: read from the app's code
+  only (`usage_meters`).
