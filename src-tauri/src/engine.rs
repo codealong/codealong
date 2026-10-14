@@ -3196,14 +3196,25 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// Notes where sessions came from that starts from other sessions were waiting for.
     fn link_origins(&self, board: &Board) -> bool {
-        if origins::current().pending.is_empty() {
+        let store = origins::current();
+        if store.pending.is_empty() {
             return false;
         }
+        // When each process began, asked only of the accounts a start waits on.
+        let waited: HashSet<&str> = store.pending.iter().map(|p| p.account.as_str()).collect();
+        let launched = |s: &Session| s.pid.filter(|_| s.live && waited.contains(s.account.as_str())).and_then(procs::proc_start_ms);
         let sessions: Vec<origins::Candidate> = board
             .lanes
             .iter()
             .flat_map(|l| {
-                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| origins::Candidate { key: &s.key, lane: &l.id, account: &s.account, started: s.started_at.unwrap_or(s.last_activity), prompt: s.first_prompt.as_deref().or(s.last_prompt.as_deref()) })
+                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| origins::Candidate {
+                    key: &s.key,
+                    lane: &l.id,
+                    account: &s.account,
+                    started: s.started_at.unwrap_or(s.last_activity),
+                    prompt: s.first_prompt.as_deref().or(s.last_prompt.as_deref()),
+                    launched: launched(s),
+                })
             })
             .collect();
         let lanes = todos::LaneIndex::of(&board.lanes);

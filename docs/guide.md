@@ -1694,9 +1694,10 @@ made, as one in Codealong, in Claude Code's background service or in Claude Code
 does; a helper found afterwards as the next session in its worktree (Codex, OpenCode or
 Antigravity started in a terminal) could be another session started about then, so its message
 is held as any agent's is. Such a start takes the next session of its account in its worktree for
-half an hour, and after that, for up to a day, only one whose prompt is the one it was started
-with: a terminal UI can stop on a screen of its own before it makes its session (Codex's update
-offer) until you answer it. So is an automatic review's, whose reply reaches the PR's opener only
+half an hour, and after that, for up to a day, only one that opens with the prompt it was started
+with and whose process began as the start did: a terminal UI can stop on a screen of its own
+before it makes its session (Codex's update offer) until you answer it. A session whose process
+began before a start was asked for is never that start's. So is an automatic review's, whose reply reaches the PR's opener only
 as `[reviews.own] send` says, and that of a helper you made your own; a start another Mac asks
 for makes no helper. A message from any other agent is held there, as before, unless the agent's
 own session skips them too.
