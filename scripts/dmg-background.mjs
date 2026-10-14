@@ -38,8 +38,9 @@ try {
   const html = join(dir, 'background.html');
   writeFileSync(html, page);
   for (const [scale, name] of [[1, 'background.png'], [2, 'background@2x.png']]) {
+    // Its profile goes with `dir`: given none, headless Chrome leaves one in Application Support.
     execFileSync('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
-      '--headless=new', '--disable-gpu', '--hide-scrollbars', `--force-device-scale-factor=${scale}`,
+      '--headless=new', '--disable-gpu', '--hide-scrollbars', `--force-device-scale-factor=${scale}`, `--user-data-dir=${join(dir, 'profile')}`,
       `--window-size=${width},${height}`, '--virtual-time-budget=3000', `--screenshot=${join(out, name)}`, `file://${html}`,
     ], { stdio: 'ignore' });
   }

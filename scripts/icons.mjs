@@ -52,8 +52,9 @@ const dir = mkdtempSync(join(tmpdir(), 'codealong-icon-'));
 const html = join(dir, 'icon.html');
 function render(svg, png) {
   writeFileSync(html, `<!doctype html><html><body style="margin:0;background:transparent">${svg.replace('<svg ', '<svg style="display:block;width:1024px;height:1024px" ')}</body></html>`);
+  // Its profile goes with `dir`: given none, headless Chrome leaves one in Application Support.
   execFileSync('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
-    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
+    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1', `--user-data-dir=${join(dir, 'profile')}`,
     '--default-background-color=00000000', '--window-size=1024,1024', `--screenshot=${png}`, `file://${html}`,
   ], { stdio: 'ignore' });
 }

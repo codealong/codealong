@@ -313,11 +313,13 @@ report() {
   esac
 }
 
+# Chrome gets a profile of its own, which goes with the run: a headless Chrome given none leaves
+# one behind in ~/Library/Application Support/Google/Chrome-headless, which Spotlight indexes.
+work="$(mktemp -d)"
 if [ -n "$check" ]; then
   # Chrome runs beside this script, not under it, so a run that's stopped (checks.sh gives each
   # one so long) takes its browser and its server with it.
   trap 'exit 130' INT TERM HUP
-  work="$(mktemp -d)"
 fi
 # A check's window is a browser window, whose size takes in its frame: as an app window (the
 # real clock) a title bar, 32 points on Chrome 154, and on virtual time, where --dump-dom wants
@@ -368,6 +370,6 @@ elif [ -n "$check" ]; then
   title="$(python3 -c 'import html, re, sys; m = re.search(r"<title>(.*?)</title>", sys.stdin.read(), re.S); print(" ".join(html.unescape(m.group(1)).split()) if m else "")' <"$work/dom.html")"
   report "$title" || exit $?
 else
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --user-data-dir="$work/profile" --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"
 fi

@@ -207,12 +207,19 @@ function serve(dist, data, scenes) {
 async function launch() {
   const profile = mkdtempSync(join(tmpdir(), 'style-diff-'));
   const child = spawn(chrome, ['--headless=new', '--disable-gpu', '--enable-unsafe-swiftshader', '--force-device-scale-factor=1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+  // A Chrome that's stopped, even one that never got going, takes its profile with it.
+  const stop = () => {
+    child.kill('SIGKILL');
+    try {
+      rmSync(profile, { recursive: true, force: true });
+    } catch {}
+  };
   // Chrome writes its port and its socket's path to a file in the profile once it's listening.
   const portFile = join(profile, 'DevToolsActivePort');
   const listening = () => (existsSync(portFile) ? readFileSync(portFile, 'utf8').trim().split('\n') : []);
   for (let i = 0; i < 600 && listening().length < 2; i++) await new Promise((r) => setTimeout(r, 100));
   if (listening().length < 2) {
-    child.kill('SIGKILL');
+    stop();
     throw new Error('Chrome never opened its debugging port');
   }
   const [port, path] = listening();
@@ -222,7 +229,7 @@ async function launch() {
     ws.onerror = () => no(new Error("Chrome's debugging socket didn't open"));
     setTimeout(() => no(new Error("Chrome's debugging socket didn't open in a minute")), 60000);
   }).catch((e) => {
-    child.kill('SIGKILL');
+    stop();
     throw e;
   });
   let next = 0;
@@ -248,10 +255,7 @@ async function launch() {
     try {
       ws.close();
     } catch {}
-    child.kill('SIGKILL');
-    try {
-      rmSync(profile, { recursive: true, force: true });
-    } catch {}
+    stop();
   };
   return { send, listeners, close, pid: child.pid };
 }
