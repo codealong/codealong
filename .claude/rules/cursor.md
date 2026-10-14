@@ -81,7 +81,10 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   on load), and ones you make; `forceMode`, `isAgentic` and each message's `unifiedMode` number
   are kept in step with it and say nothing more. The agent's `switch_mode` tool changes it, and
   so does building a plan. A chat's `agentApprovalModeOverride` is written only as
-  `unrestricted`; a subagent's chat takes its parent's. With `cursor/sandboxAutoRunSettingEnabled`
+  `unrestricted`; a subagent's chat takes its parent's. `approvalMode` (`manual`, `allowlist`,
+  `unrestricted`) in `~/.cursor/permissions.json` wins over both (`enforced_approval`); a
+  project's `.cursor/permissions.json` can set one too, which isn't read, its precedence
+  unchecked. With `cursor/sandboxAutoRunSettingEnabled`
   on, the auto-run names say "(with Sandbox)". The command line's `approvalMode` is written by
   `-f/--force/--yolo` (`unrestricted`, after the screen first draws; with `-p` only
   `isRunEverything`), `--auto-review`, `/run-everything` and `/auto-review`;

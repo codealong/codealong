@@ -221,13 +221,30 @@ fn read_state(db: &Connection, c: &mut Chat) {
 /// the `agent` entry of `composerState.modes4` in its settings, whatever mode the chat is in, and
 /// the name each mode has there (3.22.7's code). Run Everything is `autoRun` with `fullAutoRun`,
 /// Auto-review `autoRun` with `smartModeAutoRun`, Allowlist `autoRun` alone, and Ask Every Time
-/// no `autoRun`. A team's settings, a policy, or `approvalMode` in `~/.cursor/permissions.json`
-/// can override it, and none of them is read.
+/// no `autoRun`. `approvalMode` in the account's `permissions.json` overrides it and a chat's own
+/// (`enforced`); a team's settings, a policy, or a project's `.cursor/permissions.json` can too,
+/// and none of them is read.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AutoRun {
     /// None when the app's settings say nothing of it.
     pub agent: Option<&'static str>,
     pub names: HashMap<String, String>,
+    /// What `permissions.json` sets for every chat: `manual` (as Ask Every Time),
+    /// `allowlist` or `unrestricted`.
+    pub enforced: Option<&'static str>,
+}
+
+/// The account's `permissions.json` `approvalMode`, which the app applies over its auto-run
+/// settings (3.22.7's code). None when there's no such file or it sets none.
+fn enforced_approval(home: &Path) -> Option<&'static str> {
+    let text = std::fs::read_to_string(home.join("permissions.json")).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    match v.get("approvalMode")?.as_str()? {
+        "manual" => Some("ask-every-time"),
+        "allowlist" => Some("allowlist"),
+        "unrestricted" => Some("unrestricted"),
+        _ => None,
+    }
 }
 
 /// The ItemTable key that holds the app's settings for its chats.
@@ -273,6 +290,7 @@ pub fn chat_mode(c: &Chat, app: &AutoRun) -> Option<SessionMode> {
         _ => {}
     }
     let approval = match (c.cli, c.approval.as_deref()) {
+        (false, _) if app.enforced.is_some() => app.enforced,
         (_, Some(a)) => Some(a),
         (true, None) if mode == "auto-run" => Some("unrestricted"),
         (true, None) => Some("allowlist"),
@@ -1003,7 +1021,7 @@ impl Reader {
         let before: HashMap<String, Chat> = self.chats.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
         let mut rows = Vec::new();
         if let Some(db) = app_db(&home).and_then(|p| crate::harness::open_database(&p)) {
-            self.auto_run.insert(a.name.clone(), read_auto_run(&db));
+            self.auto_run.insert(a.name.clone(), AutoRun { enforced: enforced_approval(&home), ..read_auto_run(&db) });
             let mut app = read_app_chats(&db, look.since, &keep).unwrap_or_default();
             let lengths = written(&db, &app.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
             for c in &mut app {
@@ -1779,6 +1797,13 @@ mod tests {
         // A chat's own setting wins, and with no settings the app's chats say nothing.
         assert_eq!(said(&chat(None, Some("ask-every-time"), false), &app), says(ModeKind::Asks, "Ask Every Time"));
         assert_eq!(said(&chat(Some("agent"), None, false), &AutoRun::default()), None);
+        // The account's permissions.json wins over the app's settings and the chat's own.
+        let home = crate::fixtures::scratch("cursor-permissions");
+        assert_eq!(enforced_approval(&home), None);
+        std::fs::write(home.join("permissions.json"), r#"{"approvalMode": "manual"}"#).unwrap();
+        let enforced = AutoRun { enforced: enforced_approval(&home), ..app.clone() };
+        assert_eq!(said(&chat(Some("agent"), Some("unrestricted"), false), &enforced), says(ModeKind::Asks, "Ask Every Time"));
+        assert_eq!(said(&chat(Some("default"), None, true), &enforced), says(ModeKind::Edits, "Allowlist"));
         // The command line's: Allowlist unless it says otherwise, `search` is Ask.
         assert_eq!(said(&chat(Some("default"), None, true), &AutoRun::default()), says(ModeKind::Edits, "Allowlist"));
         assert_eq!(said(&chat(Some("auto-run"), None, true), &AutoRun::default()), says(ModeKind::Skips, "Run Everything"));
