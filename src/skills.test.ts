@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillNamed, skillRows, skillStart, writtenFor } from './skills';
+import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillLeftOutWords, skillNamed, skillOffers, skillRows, skillStart, skillWhere, writtenFor } from './skills';
 import * as fx from './testing/fixtures';
 import type { Skill, SkillsListed } from './types';
 
@@ -190,7 +190,7 @@ describe('the quick panel’s skills', () => {
 
   it('lists every repo’s matches, the likeliest first', () => {
     const rows = skillRows(listed, [main, webMain], 'sh', false, 9);
-    expect(rows.map((r) => `${r.lane.repo}/${r.skill.name}`)).toEqual(['app/ship', 'app/shape', 'web/publish', 'web/ship']);
+    expect(rows.map((r) => `${skillWhere(r)}/${r.skill.name}`)).toEqual(['app/ship', 'app/shape', 'web/publish', 'web/ship']);
     expect(rows[0].marks).toEqual([[1, 3]]);
     // Ones kept off the menu come after the ones meant to be typed, however often they ran.
     expect(skillRows(listed, [main, webMain], '', false, 9).map((r) => r.skill.name)).toEqual(['ship', 'publish', 'shape', 'rules', 'ship']);
@@ -199,9 +199,43 @@ describe('the quick panel’s skills', () => {
   });
 
   it('with the name finished, lists only the skills of that name', () => {
-    expect(skillRows(listed, [main, webMain], 'ship', true, 9).map((r) => r.lane.repo)).toEqual(['app', 'web']);
-    expect(skillRows(listed, [main, webMain], 'shape', true, 9).map((r) => r.lane.repo)).toEqual(['app']);
+    expect(skillRows(listed, [main, webMain], 'ship', true, 9).map(skillWhere)).toEqual(['app', 'web']);
+    expect(skillRows(listed, [main, webMain], 'shape', true, 9).map(skillWhere)).toEqual(['app']);
     expect(skillRows(listed, [main, webMain], 'sh', true, 9)).toEqual([]);
+  });
+
+  it('lists the accounts’ own once by name, with the accounts that have each', () => {
+    const withAccounts: SkillsListed = {
+      ...listed,
+      accounts: [
+        { account: 'claude', skills: [skill('design', { description: 'Make a design', written: { claude: '/design' } }), skill('ship', { uses: 1, written: { claude: '/ship' } })] },
+        { account: 'claude2', skills: [skill('design', { description: 'the second’s', written: { claude: '/design' } })] },
+        // Each account's are its own harness's.
+        { account: 'codex', skills: [skill('shrink', { written: { codex: '$shrink' } })] },
+        { account: 'claude3', skills: [skill('shrink', { written: { claude: '/shrink' } })] },
+      ],
+    };
+    const rows = skillRows(withAccounts, [main, webMain], 'sh', false, 9);
+    // A repo's comes before an account's of the same name; every other name's first before it.
+    expect(rows.map((r) => `${skillWhere(r)}/${r.skill.name}`)).toEqual(['app/ship', 'app/shape', 'codex, claude3/shrink', 'web/publish', 'web/ship', 'claude/ship']);
+    const design = skillRows(withAccounts, [main], 'design', true, 9);
+    expect(design.map((r) => [r.lane, r.accounts, r.skill.description])).toEqual([[null, ['claude', 'claude2'], 'Make a design']]);
+    // A start with it is offered only on the accounts that have it, whose agent reads it.
+    const accounts = [
+      { name: 'claude', harness: 'claude' as const },
+      { name: 'claude2', harness: 'claude' as const },
+      { name: 'codex', harness: 'codex' as const },
+      { name: 'claude3', harness: 'claude' as const },
+    ];
+    expect(accounts.filter((a) => skillOffers(design[0], a)).map((a) => a.name)).toEqual(['claude', 'claude2']);
+    expect(skillLeftOutWords(design[0], accounts)).toBe('Only claude and claude2 have /design, so codex and claude3 aren’t offered.');
+    // One that accounts of two harnesses have is written for both.
+    const shrink = skillRows(withAccounts, [main], 'shrink', true, 9)[0];
+    expect(shrink.skill.written).toEqual({ codex: '$shrink', claude: '/shrink' });
+    expect(accounts.filter((a) => skillOffers(shrink, a)).map((a) => a.name)).toEqual(['codex', 'claude3']);
+    expect(skillLeftOutWords(shrink, accounts)).toBe('Only codex and claude3 have /shrink, so claude and claude2 aren’t offered.');
+    // A repo's goes by where its agent reads skills, as before.
+    expect(skillLeftOutWords(skillRows(withAccounts, [main], 'ship', true, 9)[0], accounts)).toBeNull();
   });
 
   it('starts in a free reusable worktree of the repo, else a new one', () => {

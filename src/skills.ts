@@ -1,10 +1,12 @@
-// Skills in the `/` lists: the quick panel's, where picking one also picks the repo a session
-// starts in, and a session's reply box's. The engine lists them (skills.rs): each once by name,
-// with what each harness that reads it writes in a prompt to run it (`/ship` for Claude Code,
-// `$ship` for Codex). Here: the `/name`s in the text and the one being typed at the caret, which
-// skills it could be, what goes to the session in their place, and which accounts a skill leaves out. A skill is offered only on
-// accounts whose harness reads the folder it's in (asked 2026-10-04): the others would get its
-// name as plain words. Kept free of React so the rules have tests.
+// Skills in the `/` lists: the quick panel's, where picking a repo's also picks the repo a
+// session starts in, and a session's reply box's. The engine lists them (skills.rs): each once by
+// name, with what each harness that reads it writes in a prompt to run it (`/ship` for Claude
+// Code, `$ship` for Codex), a repo's and an account's own (its folders', and what its harness
+// has built in, as Claude Code's `/design`). Here: the `/name`s in the text and the one being
+// typed at the caret, which skills it could be, what goes to the session in their place, and
+// which accounts a skill leaves out. A skill is offered only on accounts whose harness reads the
+// folder it's in (asked 2026-10-04), and an account's own only on the accounts that have it: the
+// others would get its name as plain words. Kept free of React so the rules have tests.
 
 import { HARNESS_WORD } from './harness';
 import { newWorkIn } from './reusable';
@@ -130,8 +132,27 @@ export function leftOutWords(skill: Skill, accounts: { name: string; harness: Ha
   const out = accounts.filter((a) => !takes(skill, a.harness));
   if (out.length === 0) return null;
   const harnesses = [...new Set(out.map((a) => HARNESS_WORD[a.harness]))];
-  const list = (words: string[]) => (words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`);
-  return `/${skill.name} isn’t where ${list(harnesses)} ${harnesses.length === 1 ? 'reads' : 'read'} skills, so ${list(out.map((a) => a.name))} ${out.length === 1 ? 'isn’t' : 'aren’t'} offered.`;
+  return `/${skill.name} isn’t where ${wordList(harnesses)} ${harnesses.length === 1 ? 'reads' : 'read'} skills, so ${wordList(out.map((a) => a.name))} ${out.length === 1 ? 'isn’t' : 'aren’t'} offered.`;
+}
+
+/** Whether a start with a quick panel row's skill is offered on `account`: its agent reads the
+ *  skill, and for an account's own skill, it's one of the accounts that have it. */
+export function skillOffers(row: SkillRow, account: { name: string; harness: Harness }): boolean {
+  return takes(row.skill, account.harness) && (!!row.lane || row.accounts.includes(account.name));
+}
+
+/** Why some accounts aren't offered with a quick panel row's skill, in a sentence; null when
+ *  all are. */
+export function skillLeftOutWords(row: SkillRow, accounts: { name: string; harness: Harness }[]): string | null {
+  if (row.lane) return leftOutWords(row.skill, accounts);
+  const out = accounts.filter((a) => !row.accounts.includes(a.name)).map((a) => a.name);
+  if (out.length === 0) return null;
+  return `Only ${wordList(row.accounts)} ${row.accounts.length === 1 ? 'has' : 'have'} /${row.skill.name}, so ${wordList(out)} ${out.length === 1 ? 'isn’t' : 'aren’t'} offered.`;
+}
+
+/** Words joined as a sentence lists them: "a, b and c". */
+function wordList(words: string[]): string {
+  return words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 }
 
 /* ---- The quick panel: a skill picks its repo ---- */
@@ -154,30 +175,55 @@ export interface SkillRow {
   key: string;
   group: 'skills';
   skill: Skill;
-  /** The repo it's in, by the worktree its skills were read from. */
-  lane: Lane;
+  /** The repo it's in, by the worktree its skills were read from; null for an account's own,
+   *  which picks no repo. */
+  lane: Lane | null;
+  /** For an account's own, the accounts that have it, by name: a start is offered only on them. */
+  accounts: string[];
   /** Where the typed name is in its title (`/name`), for underlining. */
   marks: [number, number][];
 }
 
-/** The quick panel's rows for a name typed so far: each repo's skills that could be it, the ones
- *  that start with it first, then the ones meant to be typed, then the most run. A skill in two
- *  repos is a row in each, the second after every other skill's first. With the name finished (`whole`), only the skills of exactly that
- *  name: one in several repos still has to be chosen. */
+/** Where a skill row's skill is, in a word or two: its repo, or the accounts that have it. */
+export function skillWhere(row: SkillRow): string {
+  return row.lane ? row.lane.repo : row.accounts.join(', ');
+}
+
+/** The quick panel's rows for a name typed so far: each repo's skills that could be it, and the
+ *  accounts' own (a row for each name, whichever of them have it), the ones that start with it
+ *  first, then the ones meant to be typed, then the most run. A skill in two repos is a row in
+ *  each, the second after every other skill's first. With the name finished (`whole`), only the
+ *  skills of exactly that name: one in several repos still has to be chosen. */
 export function skillRows(listed: SkillsListed | null, repos: Lane[], word: string, whole: boolean, limit: number): SkillRow[] {
   if (!listed) return [];
   const w = word.toLowerCase();
-  const rows = repos.flatMap((lane) => {
-    const skills = listed.folders.find((f) => f.folder === lane.path)?.skills ?? [];
-    const found = whole ? skills.filter((s) => s.name === word) : matching(skills, word);
-    return found.map((skill) => {
-      const at = skill.name.toLowerCase().indexOf(w);
-      const row: SkillRow = { kind: 'skill', key: `skill:${lane.id}:${skill.name}`, group: 'skills', skill, lane, marks: w && at >= 0 ? [[at + 1, at + 1 + w.length]] : [] };
-      return { row, rank: rankOf(skill, w) };
-    });
-  });
+  const found = (skills: Skill[]) => (whole ? skills.filter((s) => s.name === word) : matching(skills, word));
+  const row = (skill: Skill, key: string, lane: Lane | null, accounts: string[]) => {
+    const at = skill.name.toLowerCase().indexOf(w);
+    const r: SkillRow = { kind: 'skill', key, group: 'skills', skill, lane, accounts, marks: w && at >= 0 ? [[at + 1, at + 1 + w.length]] : [] };
+    return { row: r, rank: rankOf(skill, w) };
+  };
+  const ofRepos = repos.flatMap((lane) => found(listed.folders.find((f) => f.folder === lane.path)?.skills ?? []).map((skill) => row(skill, `skill:${lane.id}:${skill.name}`, lane, [])));
+  // An account's own, once by name: the first account's describes it, and each says how its
+  // agent is told to run it.
+  const own = new Map<string, { skill: Skill; accounts: string[] }>();
+  for (const a of listed.accounts) {
+    for (const skill of found(a.skills)) {
+      const have = own.get(skill.name);
+      if (have) {
+        have.accounts.push(a.account);
+        have.skill = { ...have.skill, written: { ...skill.written, ...have.skill.written } };
+      } else own.set(skill.name, { skill, accounts: [a.account] });
+    }
+  }
+  const ofAccounts = [...own.values()].map(({ skill, accounts }) => row(skill, `skill:@:${skill.name}`, null, accounts));
+  const rows = [...ofRepos, ...ofAccounts];
   const order = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
-    a.rank - b.rank || Number(b.row.skill.typed) - Number(a.row.skill.typed) || b.row.skill.uses - a.row.skill.uses || a.row.skill.name.localeCompare(b.row.skill.name) || b.row.lane.lastActivity - a.row.lane.lastActivity;
+    a.rank - b.rank ||
+    Number(b.row.skill.typed) - Number(a.row.skill.typed) ||
+    b.row.skill.uses - a.row.skill.uses ||
+    a.row.skill.name.localeCompare(b.row.skill.name) ||
+    (b.row.lane?.lastActivity ?? 0) - (a.row.lane?.lastActivity ?? 0);
   const sorted = rows.sort(order).map((x) => x.row);
   // Each name's first row before any name's second, so a skill many repos have doesn't fill
   // the list: typing more of its name leaves only its rows.

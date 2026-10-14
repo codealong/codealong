@@ -2,13 +2,16 @@
 //! `/` lists. A skill is a folder with a `SKILL.md` (the Agent Skills layout) or, for Claude
 //! Code, a command file; each harness reads its own folders of a worktree and of an account
 //! (`Adapter::worktree_skills`, `account_skills`) and has its own way to name one in a prompt
-//! (`Adapter::skill_mention`: `/name` for Claude Code, `$name` for Codex). What's listed here is
-//! each skill once by name, with how each harness that reads it is told to run it: a harness
-//! that doesn't read a skill's folder, or can't be told by name, isn't in its `written`, and
-//! the windows offer the skill only on the others' accounts.
+//! (`Adapter::skill_mention`: `/name` for Claude Code, `$name` for Codex). A harness can also
+//! hold skills and commands in its program, which no folder shows (`Adapter::builtin_skills`:
+//! Claude Code's `/design`, `/loop`, `/compact`); an account's list has those too. What's listed
+//! here is each skill once by name, with how each harness that reads it is told to run it: a
+//! harness that doesn't read a skill's folder, or can't be told by name, isn't in its
+//! `written`, and the windows offer the skill only on the others' accounts.
 //!
-//! Nothing is kept between asks but reads macOS is holding (held.rs): the files are small, and a
-//! skill added a moment ago should be there.
+//! Nothing is kept between asks but reads macOS is holding (held.rs) and what a harness's
+//! program lists, which is slow to ask: the files are small, and a skill added a moment ago
+//! should be there.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -95,6 +98,14 @@ pub struct Listed {
     pub accounts: Vec<AccountSkills>,
 }
 
+/// A skill or command a harness holds in its program, as it lists them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Builtin {
+    pub name: String,
+    pub description: String,
+    pub hint: Option<String>,
+}
+
 /// A skill's file, as read.
 #[derive(Clone, Debug, PartialEq)]
 struct File {
@@ -107,6 +118,9 @@ struct File {
 
 /// How long a list waits on a folder macOS is holding behind a privacy prompt.
 const HELD_WAIT: Duration = Duration::from_secs(2);
+/// How long a list waits for a harness to list what it holds, the first time it's asked: it's
+/// asked when Codealong starts (`warm`), so usually it's there already.
+const BUILTIN_WAIT: Duration = Duration::from_secs(5);
 
 /// A worktree's skills are read through `Held`: a worktree in Documents waits on a prompt.
 static WORKTREES: LazyLock<Held<Vec<(Harness, File)>>> = LazyLock::new(|| Held::new("skills", read_worktree, || {}));
@@ -157,9 +171,29 @@ fn read_worktree(folder: &Path) -> Vec<(Harness, File)> {
     harness::all().flat_map(|a| dirs.iter().flat_map(|dir| a.worktree_skills(dir)).flat_map(|root| read_root(&root)).map(|f| (a.harness(), f)).collect::<Vec<_>>()).collect()
 }
 
+/// An account's skills: its folders' first, which describe a name both have, then what its
+/// harness holds.
 fn read_account(account: &AccountCfg) -> Vec<(Harness, File)> {
     let Some(adapter) = harness::of(account) else { return Vec::new() };
-    adapter.account_skills(account).iter().flat_map(read_root).map(|f| (adapter.harness(), f)).collect()
+    let files = adapter.account_skills(account).iter().flat_map(read_root).collect::<Vec<_>>();
+    let held = adapter.builtin_skills(account, BUILTIN_WAIT).into_iter().filter_map(builtin_file);
+    files.into_iter().chain(held).map(|f| (adapter.harness(), f)).collect()
+}
+
+/// Has each account's harness list what it holds, in the background, so the first `/` after
+/// Codealong starts finds it.
+pub fn warm(cfg: &Config) {
+    for a in &cfg.accounts {
+        if let Some(adapter) = harness::of(a) {
+            adapter.builtin_skills(a, Duration::ZERO);
+        }
+    }
+}
+
+/// What a harness holds, as a skill: one you run by name. Whether the agent may run it itself
+/// isn't said. None for a name nobody could type.
+fn builtin_file(b: Builtin) -> Option<File> {
+    typeable(&b.name).then(|| File { name: b.name, description: one_line(&b.description), hint: b.hint.filter(|h| !h.is_empty()), typed: true, by_model: false })
 }
 
 /// Each skill once by name, with what each harness that read it writes for it. The first file

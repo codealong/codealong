@@ -5,10 +5,11 @@
 // chosen at the bottom.
 //
 // A slash and the start of a name, at the start or after a space, wherever the caret is, list
-// the skills of the project's repos instead (skills.ts): ⏎ or ⇥ finishes the name, and the
-// first skill named is the one whose repo is where the session starts, in a worktree
-// chosen as new work's is, on an account whose agent reads that skill. The prompt goes with the
-// skill's name written as that agent takes it.
+// the skills of the project's repos and of the accounts instead (skills.ts): ⏎ or ⇥ finishes
+// the name, and the first skill named is the one a start runs, on an account whose agent reads
+// it (one of the accounts that have it, for an account's own). A repo's picks where the session
+// starts, the repo, in a worktree chosen as new work's is. The prompt goes with the skill's name
+// written as that agent takes it.
 //
 // ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session or a PR shows it in Codealong,
 // with its conversation or its details, and ⌥⏎ opens it where it lives (a PR on GitHub); ⌥⏎ on a
@@ -82,7 +83,7 @@ import {
   withChosen,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { completed, leftOutWords, mentionAt, mentionsIn, namedBy, repoLanes, skillRows, skillStart, takes, writtenFor, type Mention, type SkillRow } from '../skills';
+import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
@@ -126,8 +127,6 @@ const ARCHIVED_KEY = 'codealong.quick.archived';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
-/** The quick panel lists repos' skills, not accounts' own. */
-const NO_ACCOUNTS: string[] = [];
 /** How long a read of where accounts can start is used without waiting for a new one. */
 const OPTIONS_FOR_MS = 60_000;
 /** How long after another Mac didn't say where its accounts can start it's asked again. */
@@ -528,15 +527,17 @@ export function Quick() {
   /* ---- A skill, which picks its repo ---- */
 
   // A slash and a name being typed, at the caret, list the skills of the project's repos on
-  // this Mac; the first skill the text names whole is the one a start runs, and its repo is
-  // where. A todo's prompt is words, and another Mac's folders aren't read from here.
+  // this Mac and the accounts' own; the first skill the text names whole is the one a start
+  // runs, and a repo's is where. A todo's prompt is words, and another Mac's folders and
+  // accounts aren't read from here.
   const mentions = useMemo(() => (todoIds.length === 0 && !deviceNow ? mentionsIn(text) : []), [text, todoIds.length, deviceNow]);
   // Where the caret is, moved as the text is typed, the caret moved, or a name finished.
   const [caret, setCaret] = useState(0);
   const typing: Mention | null = mentions.length > 0 ? mentionAt(text, Math.min(caret, text.length)) : null;
   const repos = useMemo(() => repoLanes(lanes), [lanes]);
   const repoPaths = useMemo(() => repos.map((l) => l.path), [repos]);
-  const listedSkills = useSkills(repoPaths, NO_ACCOUNTS, shown && mentions.length > 0);
+  const accountNames = useMemo(() => (options?.accounts ?? []).map((a) => a.name), [options?.accounts]);
+  const listedSkills = useSkills(repoPaths, accountNames, shown && mentions.length > 0);
   const typingName = typing?.name ?? null;
   const skillsFound = useMemo(() => (typingName === null ? [] : skillRows(listedSkills, repos, typingName, false, MAX_ROWS)), [listedSkills, repos, typingName]);
   // The first name that's a skill of some repo, with its rows (one a repo that has it). A full
@@ -582,12 +583,13 @@ export function Quick() {
     setLaneId(to.lane.id);
     setNewWorktree(to.newWorktree);
   }, [skillNowKey, skillLaneNow, lanesNow, laneIdNow, newWorktreeNow, setNewWorktree]);
-  // Only accounts whose agent reads the skill are offered (asked 2026-10-04).
+  // Only accounts whose agent reads the skill are offered (asked 2026-10-04), and for an
+  // account's own skill, only the accounts that have it.
   const optionsForStart = useMemo(
-    () => (skillNow && startOptionsNow ? { ...startOptionsNow, accounts: startOptionsNow.accounts.filter((a) => takes(skillNow.skill, a.harness)) } : startOptionsNow),
+    () => (skillNow && startOptionsNow ? { ...startOptionsNow, accounts: startOptionsNow.accounts.filter((a) => skillOffers(skillNow, a)) } : startOptionsNow),
     [skillNow, startOptionsNow],
   );
-  const skillLeftOut = skillNow && startOptionsNow ? leftOutWords(skillNow.skill, startOptionsNow.accounts) : null;
+  const skillLeftOut = skillNow && startOptionsNow ? skillLeftOutWords(skillNow, startOptionsNow.accounts) : null;
 
   /* ---- Who ---- */
 
@@ -1092,9 +1094,11 @@ export function Quick() {
     const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (choice) remember(choice, placeNow);
     if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
-    // Each skill's name goes as the account's agent takes it: the repo's skills, wherever they are
-    // in the prompt.
-    const written = skillNow && harness && !over ? writtenFor(text, listedSkills?.folders.find((f) => f.folder === skillNow.lane.path)?.skills ?? [skillNow.skill], harness) : text;
+    // Each skill's name goes as the account's agent takes it: the repo's skills and the account's
+    // own, wherever they are in the prompt.
+    const repoSkills = skillNow?.lane ? listedSkills?.folders.find((f) => f.folder === skillNow.lane?.path)?.skills : undefined;
+    const accountSkills = listedSkills?.accounts.find((a) => a.account === account)?.skills ?? [];
+    const written = skillNow && harness && !over ? writtenFor(text, [...(repoSkills ?? []), ...accountSkills, skillNow.skill], harness) : text;
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
@@ -1627,7 +1631,7 @@ export function Quick() {
                     Nothing needs you{attention.counts.working > 0 ? ` · ${attention.counts.working} working` : ''}.
                   </p>
                 )}
-                {typing && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No repo here to read skills from.' : `No skill of ${current === ALL_PROJECTS ? 'these repos' : `${current}’s repos`} starts like that.`) : 'Reading skills…'}</p>}
+                {typing && rows.length === 0 && <p className="ca-quick-note">{listedSkills ? (repos.length === 0 ? 'No skill of your accounts starts like that, and no repo here to read others from.' : `No skill of ${current === ALL_PROJECTS ? 'these repos' : `${current}’s repos`} or your accounts starts like that.`) : 'Reading skills…'}</p>}
                 {sections.map((s) => (
                   <div key={s.group} ref={s.group === 'suggested' ? suggestedGroup : undefined} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
                     <div className={`ca-quick-glabel is-${s.group}`}>
@@ -1706,7 +1710,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-skill', active === r.key && 'is-active')}
-                            title={`/${r.skill.name}${r.skill.hint ? ` ${r.skill.hint}` : ''}\n${r.skill.description}\nIn ${r.lane.repo}${r.skill.uses > 0 ? ` · run ${r.skill.uses} ${r.skill.uses === 1 ? 'time' : 'times'}` : ''}\n⏎ or ⇥ finishes the name; a session on it starts in ${r.lane.repo}`}
+                            title={`/${r.skill.name}${r.skill.hint ? ` ${r.skill.hint}` : ''}\n${r.skill.description}\n${r.lane ? `In ${r.lane.repo}` : `${r.accounts.join(', ')}’s own`}${r.skill.uses > 0 ? ` · run ${r.skill.uses} ${r.skill.uses === 1 ? 'time' : 'times'}` : ''}\n⏎ or ⇥ finishes the name; ${r.lane ? `a session on it starts in ${r.lane.repo}` : 'a session on it starts where it’s set to below'}`}
                             data-row={r.key}
                             onMouseDown={handlers.onMouseDown}
                             onClick={handlers.onClick}
@@ -1721,7 +1725,7 @@ export function Quick() {
                               </span>
                               <span className="ca-quick-row-why">{r.skill.description}</span>
                             </span>
-                            <span className="ca-quick-row-where">{r.lane.repo}</span>
+                            <span className="ca-quick-row-where">{skillWhere(r)}</span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
                         );
@@ -1867,7 +1871,7 @@ export function Quick() {
               <span className="ca-quick-row-why">
                 {/* The warning leads: the row's line is cut short when it's long. */}
                 {primaryRunningWords(held, forTodos.length)}
-                {skillNow && `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. `}
+                {skillNow && (skillNow.lane ? `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. ` : `Runs /${skillNow.skill.name}. `)}
                 {happens}
                 {skillLeftOut && ` ${skillLeftOut}`}
                 {alreadyOn}

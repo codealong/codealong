@@ -56,7 +56,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      records that are files of lines, `token_uses_since` for calls kept in a database, each call
      named the same in every record that copies it;
    - skills (skills.rs): `worktree_skills` and `account_skills` (the folders it reads them
-     from), `skill_mention` (how a prompt runs one by name) and `skill_uses`;
+     from), `builtin_skills` (the ones its program holds), `skill_mention` (how a prompt runs one
+     by name) and `skill_uses`;
    - its accounts: `installed`, `signed_in`, `sign_in_command`, `folder_use`, `skills_dir`,
      `installs_plugin` (Codealong goes in as a plugin, not a skill copy), `acp_command`,
      `session_cwds` (first run's projects), `chats` (the folder of sessions it starts without a

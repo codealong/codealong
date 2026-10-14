@@ -339,7 +339,7 @@ window.__TAURI_INTERNALS__ = {
         if (got[0]) {
           return {
             folders: folders.map(function (f, i) { return { folder: f, skills: (i === 0 ? got[0].first || [] : []).concat(got[0].every || []) }; }),
-            accounts: accounts.map(function (a) { return { account: a, skills: got[0].account || [] }; }),
+            accounts: accounts.map(function (a, i) { return { account: a, skills: (got[0].account || []).concat(i === 0 ? got[0].firstAccount || [] : []) }; }),
           };
         }
         var all = got[1] || none;

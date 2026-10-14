@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Result};
 
@@ -397,6 +397,13 @@ pub trait Adapter: Sync {
     /// The folders an account reads its own skills from, whatever folder a session runs in:
     /// its personal ones, and those of what's installed in it.
     fn account_skills(&self, _account: &AccountCfg) -> Vec<crate::skills::Root> {
+        Vec::new()
+    }
+
+    /// The skills and commands an account's harness holds in its program, which no folder
+    /// shows, waiting up to `wait` for a list it hasn't read yet. One that takes long to list
+    /// keeps what it read, and reads it again in the background.
+    fn builtin_skills(&self, _account: &AccountCfg, _wait: Duration) -> Vec<crate::skills::Builtin> {
         Vec::new()
     }
 

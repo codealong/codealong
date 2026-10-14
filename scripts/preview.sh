@@ -61,7 +61,8 @@
 #
 # PREVIEW_SKILLS=<file> lists the skills in it (scripts/preview/skills-sample.json has some) in
 # place of this Mac's: `every` in every folder asked about, `first` in the first of them only,
-# so one skill is in several repos and one in a single repo, and `account` for every account.
+# so one skill is in several repos and one in a single repo, `account` for every account, and
+# `firstAccount` for the first account asked about only.
 #
 # PREVIEW_INSIGHTS=<file> merges Jev's read of sessions and worktrees into the board
 # (scripts/preview/insights-sample.json has some: landing chips, a risk label, a question).

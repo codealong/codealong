@@ -14,6 +14,7 @@
 
 pub mod app;
 pub mod asks;
+mod builtin;
 mod conversation;
 pub mod daemon;
 pub mod held;
@@ -149,6 +150,10 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn account_skills(&self, account: &crate::config::AccountCfg) -> Vec<crate::skills::Root> {
         skills::of_account(&account.home_path())
+    }
+
+    fn builtin_skills(&self, account: &crate::config::AccountCfg, wait: std::time::Duration) -> Vec<crate::skills::Builtin> {
+        builtin::listed(&account.home_path(), wait)
     }
 
     /// A skill or a command is run as a slash command, as a first prompt or typed.
@@ -1361,15 +1366,18 @@ fn acp_launch(program: String, home: &Path) -> (String, Vec<(String, String)>) {
 /// A headless Claude Code on the account in `home`, run with `args` and talked to in `dialect`
 /// (a side conversation's copy, or a PR's conversation).
 fn headless(home: &Path, args: &[&str], dialect: SideCopy) -> crate::side::Recipe {
+    let (env, unset) = headless_env(home);
+    crate::side::Recipe { program: "claude".into(), args: args.iter().map(|a| a.to_string()).collect(), env, unset, dialect: Box::new(dialect) }
+}
+
+/// What a headless Claude Code for the account in `home` is given and mustn't inherit from the
+/// app: its folder, unless it's the usual one, which goes without.
+pub(crate) fn headless_env(home: &Path) -> (Vec<(String, String)>, Vec<&'static str>) {
     let usual = usual_folder(home);
-    crate::side::Recipe {
-        program: "claude".into(),
-        args: args.iter().map(|a| a.to_string()).collect(),
-        env: if usual { Vec::new() } else { vec![("CLAUDE_CONFIG_DIR".into(), home.to_string_lossy().into_owned())] },
-        // And it's no child of whatever session the app may have been started from.
-        unset: [usual.then_some("CLAUDE_CONFIG_DIR"), Some("CLAUDE_CODE_SESSION_ID"), Some("CLAUDE_CODE_CHILD_SESSION"), Some("CODEALONG_SESSION")].into_iter().flatten().collect(),
-        dialect: Box::new(dialect),
-    }
+    let env = if usual { Vec::new() } else { vec![("CLAUDE_CONFIG_DIR".into(), home.to_string_lossy().into_owned())] };
+    // And it's no child of whatever session the app may have been started from.
+    let unset = [usual.then_some("CLAUDE_CONFIG_DIR"), Some("CLAUDE_CODE_SESSION_ID"), Some("CLAUDE_CODE_CHILD_SESSION"), Some("CODEALONG_SESSION")].into_iter().flatten().collect();
+    (env, unset)
 }
 
 /// What `--resume` goes on from for a session under `account`: its ID, or, while it has no

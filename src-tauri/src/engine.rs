@@ -796,6 +796,7 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
             let mut engine = Engine::new(Box::new(emit), tx, board);
             engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
             engine.full_scan();
+            crate::skills::warm(&engine.cfg);
             engine.run(rx);
         })
         .expect("engine thread");

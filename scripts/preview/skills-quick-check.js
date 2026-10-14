@@ -1,10 +1,13 @@
 // Checks the quick panel's skills (Quick.tsx, skills.ts): a slash and the start of a name, first
-// or after other words, list the repos' skills, ⏎ finishes the name, the session starts in that skill's repo with the name
-// written as the account's agent takes it, and only accounts whose agent reads the skill are
-// offered. What starts with a slash but names no skill is words like any other.
+// or after other words, list the repos' skills and the accounts' own, ⏎ finishes the name, the
+// session starts in that skill's repo with the name written as the account's agent takes it, and
+// only accounts whose agent reads the skill are offered. An account's own skill starts where the
+// panel was set to, on the accounts that have it. What starts with a slash but names no skill is
+// words like any other.
 //   PREVIEW_WAIT=60000 PREVIEW_SKILLS=scripts/preview/skills-sample.json scripts/preview.sh quick '' scripts/preview/skills-quick-check.js
 // The sample puts `ship` in every repo and `shape-up` (Claude Code's only) and `probe` (Codex's
-// only) in the first. The board needs a repo on this Mac in a project.
+// only) in the first, `notes:tidy` in every account and `design` in the first account asked
+// about. The board needs a repo on this Mac in a project.
 (function () {
   localStorage.setItem('codealong.quick.project', 'All projects');
   var board = null;
@@ -25,6 +28,7 @@
   var startable = function (harness) { return options.accounts.some(function (a) { return a.harness === harness && a.places.length > 0; }); };
   var first = null;
   var startsBefore = 0;
+  var laneBefore = '';
 
   say('skills quick check: waiting for the panel');
   until(function () { return !!board && !!options && !!input() && sent('quick_ready').length > 0; }, 20000)
@@ -36,7 +40,8 @@
     .then(function () {
       var asked = sent('skills')[0];
       first = laneAt(asked.folders[0]);
-      check('the skills of the project’s repos are asked for, not accounts’', asked.folders.length > 0 && asked.accounts.length === 0, JSON.stringify(asked).slice(0, 200));
+      var mine = options.accounts.map(function (a) { return a.name; });
+      check('the skills of the project’s repos and of this Mac’s accounts are asked for', asked.folders.length > 0 && JSON.stringify(asked.accounts) === JSON.stringify(mine), JSON.stringify(asked).slice(0, 300));
       var got = names();
       check('a skill every repo has leads the list, and leaves the others room', got[0] === '/ship' && got[1] !== '/ship', got.join(' '));
       if (asked.folders.length > 1) check('and is a row for each repo after them', got.filter(function (n) { return n === '/ship'; }).length > 1, got.join(' '));
@@ -129,6 +134,43 @@
     })
     .then(function () {
       check('and goes as typed', last('start_from_quick').spec.prompt === '/tmp is full again', last('start_from_quick').spec.prompt);
+      // An account's own: every account's is one row, saying whose it is.
+      type(input(), '/tid');
+      return until(function () { return names().length === 1 && names()[0] === '/notes:tidy'; }, 3000, 'no /notes:tidy row: ' + names().join(' '));
+    })
+    .then(function () {
+      var mine = options.accounts.map(function (a) { return a.name; });
+      check('an account’s own skill is one row naming the accounts that have it', q('.ca-quick-row-where', rows()[0]).textContent.trim() === mine.join(', '), q('.ca-quick-row-where', rows()[0]).textContent);
+      // One only the first account has: it starts there, where the panel was set to.
+      laneBefore = (q('.ca-quick-compose .ca-quick-row-where') || { textContent: '' }).textContent;
+      type(input(), '/des');
+      return until(function () { return names().length === 1 && names()[0] === '/design'; }, 3000, 'no /design row: ' + names().join(' '));
+    })
+    .then(function () {
+      var firstAccount = options.accounts[0].name;
+      check('one only an account has names it', q('.ca-quick-row-where', rows()[0]).textContent.trim() === firstAccount, q('.ca-quick-row-where', rows()[0]).textContent);
+      key(input(), { key: 'Enter' });
+      return until(function () { return input().value === '/design '; }, 3000, 'the name wasn’t finished: ' + input().value);
+    })
+    .then(function () { return wait(300); })
+    .then(function () {
+      var text = q('.ca-quick-compose').textContent;
+      check('the start row says the skill, and no repo', text.indexOf('Runs /design. ') >= 0, text);
+      if (options.accounts.length > 1) check('and that the other accounts haven’t got it', text.indexOf('Only ' + options.accounts[0].name + ' has /design, so ') >= 0, text);
+      check('the worktree stays as it was', (q('.ca-quick-compose .ca-quick-row-where') || { textContent: '' }).textContent === laneBefore, laneBefore + ' → ' + (q('.ca-quick-compose .ca-quick-row-where') || { textContent: '' }).textContent);
+      type(input(), '/design a landing page');
+      return wait(300);
+    })
+    .then(function () {
+      startsBefore = sent('start_from_quick').length;
+      key(input(), { key: 'Enter', metaKey: true });
+      return until(function () { return sent('start_from_quick').length > startsBefore; }, 3000, 'no start on /design');
+    })
+    .then(function () {
+      var spec = last('start_from_quick').spec;
+      check('it starts on the account that has it', spec.account === options.accounts[0].name, spec.account);
+      var h = harnessOf(spec.account);
+      check('written as that account’s agent takes it', spec.prompt === (h === 'codex' ? '$design a landing page' : '/design a landing page'), h + ': ' + spec.prompt);
       done();
     })
     .catch(stopped);

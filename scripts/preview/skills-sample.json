@@ -9,5 +9,8 @@
   ],
   "account": [
     { "name": "notes:tidy", "description": "Tidy the notes of this conversation", "typed": true, "byModel": true, "written": { "claude": "/notes:tidy", "codex": "$notes:tidy" }, "uses": 2, "lastUsed": 0 }
+  ],
+  "firstAccount": [
+    { "name": "design", "description": "Make a new Design artifact from a brief", "hint": "[what to design]", "typed": true, "byModel": false, "written": { "claude": "/design", "codex": "$design" }, "uses": 0, "lastUsed": 0 }
   ]
 }
