@@ -128,9 +128,10 @@ impl Conversation {
 /// the rest of the row as it was, while the process that runs one goes on with its turn. That
 /// process writes the row only as a turn starts, waits on you and ends, and an ending writes
 /// the time and count of the latest step, which a turn always changes. So an idle row with the
-/// time and step count it had while running is another's doing, until the row is written again.
+/// time and step count it had while the turn was under way, by the row or by a step that ran,
+/// is another's doing, until the row is written again.
 pub fn idled_by_another(before: Option<&Conversation>, now: &Conversation) -> bool {
-    !now.running() && before.is_some_and(|b| (b.running() || b.idled_by_another) && b.last_modified == now.last_modified && b.step_count == now.step_count)
+    !now.running() && before.is_some_and(|b| (b.running() || b.idled_by_another || b.step_under_way) && b.last_modified == now.last_modified && b.step_count == now.step_count)
 }
 
 /// A folder's conversations changed since `since_ms`, plus any in `keep` (pinned ones), newest
@@ -1405,6 +1406,9 @@ mod tests {
         assert!(idled_by_another(Some(&running), &idle));
         // Read again unchanged, it's still the other's doing.
         assert!(idled_by_another(Some(&Conversation { idled_by_another: true, ..idle.clone() }), &idle));
+        // First read after the flip, a step that ran said the turn was under way: it still is
+        // while the model thinks before its next step.
+        assert!(idled_by_another(Some(&Conversation { step_under_way: true, ..idle.clone() }), &idle));
         // A turn that ends writes its latest step's time and count. A row that wasn't running
         // when last read, or wasn't read at all, is as it says.
         assert!(!idled_by_another(Some(&running), &Conversation { last_modified: 2_000, ..idle.clone() }));
@@ -1476,6 +1480,41 @@ mod tests {
         let c = &reader.conversations["antigravity"][0];
         assert!(!c.idled_by_another && !c.step_under_way && !c.waiting);
         assert_eq!(crate::board::antigravity_session(&account, c, reader.processes.first(), false, 0, look.now).status, crate::model::Status::Unread);
+    }
+
+    /// Read first after another `agy` marked it idle: a step that runs says the turn is under way,
+    /// and it still is while the model thinks once the step is done, until the turn's end writes
+    /// its row.
+    #[test]
+    fn a_turn_first_read_after_another_agy_marked_it_idle_goes_on() {
+        let root = crate::fixtures::scratch("antigravity-idled");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        summaries
+            .execute_batch(&format!(
+                "{SCHEMA}\
+                 INSERT INTO conversation_summaries (conversation_id, preview, step_count, last_modified_time, workspace_uris, status, not_fully_idle, last_user_input_time, app_data_dir) VALUES \
+                 ('c1', 'Fix the build', 3, '2026-10-01 16:55:24+00:00', '[]', 'CASCADE_RUN_STATUS_IDLE', 0, '2026-10-01 16:55:10+00:00', 'antigravity-cli');"
+            ))
+            .unwrap();
+        let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0); INSERT INTO steps VALUES (0, 14, 3), (1, 15, 3), (2, 132, 2);").unwrap();
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap(), ps: Default::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true }], looked_at: Some(Instant::now()), ..Reader::default() };
+        let status = |reader: &Reader| crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now).status;
+        reader.reread(&account, &look);
+        assert_eq!(status(&reader), crate::model::Status::Working);
+        steps.execute("UPDATE steps SET status = 3 WHERE idx = 2", []).unwrap();
+        reader.reread(&account, &look);
+        assert!(reader.conversations["antigravity"][0].idled_by_another);
+        assert_eq!(status(&reader), crate::model::Status::Working);
+        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 4", []).unwrap();
+        reader.reread(&account, &look);
+        assert_eq!(status(&reader), crate::model::Status::Unread);
     }
 
     #[test]
