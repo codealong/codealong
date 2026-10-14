@@ -472,7 +472,9 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         model: th.model.clone(),
         context: th.context.map(|(used, window)| ContextUse { used, window: window.or_else(|| th.model.as_deref().and_then(crate::prices::context_window)) }),
         cut_off,
-        headless: th.exec,
+        // `codex resume` goes on in the same rollout, which still says `exec`: someone is at it
+        // while a terminal has it, and it's headless again once that ends, as Claude's is.
+        headless: th.exec && terminal.is_none(),
         ..known
     }
 }
@@ -3372,6 +3374,7 @@ mod tests {
         assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
         assert!(!codex_session(&a, &th, None, None, None, 0, NOW).headless);
         assert!(codex_session(&a, &ThreadInfo { exec: true, ..th.clone() }, None, None, None, 0, NOW).headless, "a `codex exec` run");
+        assert!(!codex_session(&a, &ThreadInfo { exec: true, ..th.clone() }, None, Some(42), None, 0, NOW).headless, "resumed in a terminal");
         th.last_ts = NOW - CODEX_STALE_MS - 1;
         assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).status, Status::Idle);
         th.turn_open = false;
