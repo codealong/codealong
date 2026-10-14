@@ -82,6 +82,25 @@
       window.__emit('canvas-saved', { project: project, from: 'project-other' });
       await until(function () { return calls('canvas_load').length > loads; }, 3000, 'the canvas read again');
       check('another window’s save is read again', calls('canvas_load').length === loads + 1);
+
+      // A read of another window's save that an arrange overtakes doesn't put back what came
+      // before the arrange when it lands: the read is held until the arrange is saved.
+      var invoke = window.__TAURI_INTERNALS__.invoke;
+      var release = null;
+      window.__TAURI_INTERNALS__.invoke = function (cmd, args) {
+        if (cmd === 'canvas_load' && args && args.project === project && !release) {
+          window.__calls.push([cmd, args]);
+          return new Promise(function (res) { release = function () { res({ version: 1, items: [], hidden: [], camera: null }); }; });
+        }
+        return invoke.apply(this, arguments);
+      };
+      window.__emit('canvas-saved', { project: project, from: 'project-other' });
+      await until(function () { return release; }, 3000, 'the read held');
+      var overtaking = await ask(null, { kind: 'arrange', frames: [{ title: 'After the read', cards: [{ ref: 'session', key: session.key }] }], rest: 'keep' });
+      release();
+      await wait(500);
+      window.__TAURI_INTERNALS__.invoke = invoke;
+      check('a read an arrange overtook leaves the arrangement', !overtaking.error && all('.ca-cv-frame-title').some(function (el) { return el.textContent === 'After the read'; }));
     })
     .then(done)
     .catch(stopped);

@@ -46,6 +46,9 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
   // Saving: the latest document per project, written a moment after the last change.
   const pending = useRef<{ project: string; doc: CanvasDoc } | null>(null);
   const timer = useRef(0);
+  // Counts the changes made here, each of which is saved: a read of another window's save that
+  // one overtook would put back what came before it.
+  const changes = useRef(0);
   const flush = useCallback(() => {
     window.clearTimeout(timer.current);
     const p = pending.current;
@@ -58,6 +61,7 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
   }, []);
   const save = useCallback(
     (p: string, doc: CanvasDoc) => {
+      changes.current += 1;
       if (pending.current && pending.current.project !== p) flush();
       pending.current = { project: p, doc };
       window.clearTimeout(timer.current);
@@ -91,9 +95,10 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
     () =>
       onCanvasSaved((saved) => {
         if (saved.from === windowLabel() || saved.project !== project || pending.current?.project === project) return;
+        const at = changes.current;
         canvasLoad(project)
-          // Asked again as it lands: a change made here while it was read is still to be saved.
-          .then((raw) => setHeld((h) => (h?.project === project && raw && pending.current?.project !== project ? { project, doc: readDoc(raw) } : h)))
+          // Asked again as it lands: a change made here meanwhile is newer, saved or to be saved.
+          .then((raw) => setHeld((h) => (h?.project === project && raw && changes.current === at ? { project, doc: readDoc(raw) } : h)))
           // One that doesn't read now leaves this window with what it had, which it saves with its next change.
           .catch(() => {});
       }),
@@ -136,6 +141,7 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
     async (doc: CanvasDoc) => {
       // Another project's change still to save goes first; this project's is superseded.
       if (pending.current && pending.current.project !== project) flush();
+      changes.current += 1;
       window.clearTimeout(timer.current);
       pending.current = null;
       setHeld((h) => (h?.project === project ? { project, doc } : h));
