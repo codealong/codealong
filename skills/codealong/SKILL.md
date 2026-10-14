@@ -88,7 +88,8 @@ through the list for something to do. What follows is for when they've asked.
   wait on the user (needs, error, unread, not snoozed), as Codealong's queue has them.
 - `codealong sessions find <words>` searches titles, excerpts, worktrees, branches and PRs,
   and what was said (prompts and replies) in sessions active in the last two weeks (`[search]
-  days` in config.toml). Use it before re-deriving what another agent did in this repo.
+  days` in config.toml), leaving out your own session. Use it before re-deriving what another
+  agent did in this repo.
 - `codealong session show <key>` has one session in full: its folder, branch, PR, the
   command that resumes it, linked todos, and `records`: the paths of its own files. Claude
   Code and Codex records are JSONL you can grep; OpenCode's and Antigravity's are SQLite

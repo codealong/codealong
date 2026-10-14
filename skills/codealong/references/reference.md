@@ -857,7 +857,8 @@ Usage: codealong sessions [OPTIONS] [COMMAND]
 Commands:
   find        Sessions whose title, excerpt, account, worktree, branch or PR contains
               the words (all of them, any case), or whose prompts and replies do, for
-              sessions active in the last `[search] days`
+              sessions active in the last `[search] days`. The session running it is
+              left out: for whether another session covers something
   close-idle  Close the sessions that sat idle and want nothing from you: idle or
               unread, quiet for --after, nothing left running in the background, and a
               last reply that asks nothing (Jev's read with `[jev] sessions` on, else no
@@ -922,7 +923,8 @@ Options:
 ```
 Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all
 of them, any case), or whose prompts and replies do, for sessions active in the last
-`[search] days`
+`[search] days`. The session running it is left out: for whether another session covers
+something
 
 Usage: codealong sessions find [OPTIONS] [QUERY]...
 

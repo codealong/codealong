@@ -496,7 +496,7 @@ struct SessionsArgs {
 
 #[derive(Subcommand, Debug)]
 enum SessionsCmd {
-    /// Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all of them, any case), or whose prompts and replies do, for sessions active in the last `[search] days`.
+    /// Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all of them, any case), or whose prompts and replies do, for sessions active in the last `[search] days`. The session running it is left out: for whether another session covers something.
     Find {
         query: Vec<String>,
         #[command(flatten)]
@@ -1805,42 +1805,60 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     let since = parse_since(&f.since)?;
     let status = f.status.as_deref().map(parse_status).transpose()?;
     let worktree = f.worktree.as_deref().map(|w| resolve_worktree(c, w)).transpose()?;
-    let now = now_ms();
     let words: Vec<String> = query.iter().flat_map(|q| q.split_whitespace()).map(str::to_lowercase).collect();
     let said = if words.is_empty() { HashMap::new() } else { c.search_text(&words) };
+    let me = if words.is_empty() { None } else { find_me(c)?.0 };
+    let wanted = Wanted { status, worktree, since, words, said, me, now: now_ms() };
     let board = c.board()?;
-    let mut found: Vec<(&Session, &Lane)> = all_sessions(board)
-        .into_iter()
-        .filter(|(s, lane)| {
-            (f.archived || !s.archived)
-                && f.account.as_deref().map_or(true, |a| a == s.account)
-                && status.map_or(true, |st| st == s.status)
-                && (!f.waiting || (matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none()))
-                && f.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&lane.project))
-                && worktree.as_deref().map_or(true, |w| w == lane.id)
-                && (!f.live || s.live)
-                && since.map_or(true, |ms| now - s.last_activity <= ms)
-                && (words.is_empty() || {
-                    let hay = [s.title.as_str(), s.account.as_str(), s.excerpt.as_deref().unwrap_or(""), lane.callsign.as_str(), lane.repo.as_str(), lane.branch.as_deref().unwrap_or(""), &lane.pr.as_ref().map(|p| format!("#{} {}", p.number, p.title)).unwrap_or_default()].join(" ").to_lowercase();
-                    words.iter().all(|w| search::has_word(&hay, w, words.len())) || said.contains_key(&s.key)
-                })
-        })
-        .collect();
+    let mut found: Vec<(&Session, &Lane)> = all_sessions(board).into_iter().filter(|(s, lane)| wanted.lists(f, s, lane)).collect();
     // Those that need you first, the longest wait first as on the bar; then the one you last
     // prompted.
     let waited = |s: &Session| board::waiting_since(s).map_or((1, 0), |t| (0, t));
     found.sort_by(|(a, _), (b, _)| waited(a).cmp(&waited(b)).then(b.last_prompt_at.cmp(&a.last_prompt_at)));
     found.truncate(f.limit);
-    let rows: Vec<SessionRow> = found.into_iter().map(|(s, lane)| SessionRow { said: said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) }).collect();
+    let rows: Vec<SessionRow> = found.into_iter().map(|(s, lane)| SessionRow { said: wanted.said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) }).collect();
     if json {
         return print_json(&rows);
     }
     let table: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| vec![r.status.clone(), r.account.clone(), ago(now - r.last_activity), r.worktree_short(), truncate(&r.title, 50), truncate(r.said.as_deref().or(r.excerpt.as_deref()).unwrap_or(""), 60), r.key.clone()])
+        .map(|r| vec![r.status.clone(), r.account.clone(), ago(wanted.now - r.last_activity), r.worktree_short(), truncate(&r.title, 50), truncate(r.said.as_deref().or(r.excerpt.as_deref()).unwrap_or(""), 60), r.key.clone()])
         .collect();
     print!("{}", table_text(&["STATUS", "ACCOUNT", "AGO", "WORKTREE", "TITLE", "EXCERPT", "KEY"], table));
     Ok(())
+}
+
+/// What `sessions` was asked for, read: a filter's status, worktree and age, and for a search its
+/// words, the sessions whose prompts or replies have them (`said`, with where), and the session
+/// running it (`me`), which a search leaves out: its own conversation has the words it searches
+/// for, and the question is whether another session has them.
+struct Wanted {
+    status: Option<Status>,
+    worktree: Option<String>,
+    since: Option<i64>,
+    words: Vec<String>,
+    said: HashMap<String, String>,
+    me: Option<String>,
+    now: i64,
+}
+
+impl Wanted {
+    /// Whether `sessions` lists `s`, from `lane`.
+    fn lists(&self, f: &SessionFilter, s: &Session, lane: &Lane) -> bool {
+        (f.archived || !s.archived)
+            && self.me.as_deref() != Some(s.key.as_str())
+            && f.account.as_deref().map_or(true, |a| a == s.account)
+            && self.status.map_or(true, |st| st == s.status)
+            && (!f.waiting || (matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none()))
+            && f.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&lane.project))
+            && self.worktree.as_deref().map_or(true, |w| w == lane.id)
+            && (!f.live || s.live)
+            && self.since.map_or(true, |ms| self.now - s.last_activity <= ms)
+            && (self.words.is_empty() || {
+                let hay = [s.title.as_str(), s.account.as_str(), s.excerpt.as_deref().unwrap_or(""), lane.callsign.as_str(), lane.repo.as_str(), lane.branch.as_deref().unwrap_or(""), &lane.pr.as_ref().map(|p| format!("#{} {}", p.number, p.title)).unwrap_or_default()].join(" ").to_lowercase();
+                self.words.iter().all(|w| search::has_word(&hay, w, self.words.len())) || self.said.contains_key(&s.key)
+            })
+    }
 }
 
 #[derive(Serialize)]
@@ -5225,6 +5243,20 @@ mod tests {
         // Once the other session ends, the checkout's todos are this one's to see.
         let b = shared_and_own(false);
         assert_eq!(ids(my_todos(&b, Some("me"), Some(&b.lanes[0]))), ["a", "c"]);
+    }
+
+    #[test]
+    fn a_search_leaves_out_the_session_running_it() {
+        let streets = |key: &str| Session { title: "Complete streets pilot".into(), ..session(key, true, None) };
+        let b = Board { lanes: vec![lane("/r/main", vec![streets("me"), streets("other"), session("asked", true, None), session("quiet", true, None)])], ..Board::default() };
+        let Cmd::Sessions(SessionsArgs { cmd: Some(SessionsCmd::Find { filter, .. }), .. }) = Cli::try_parse_from(["codealong", "sessions", "find", "streets"]).unwrap().cmd else { panic!() };
+        // Its own conversation has the words too, as another's does.
+        let said = HashMap::from([("me".to_string(), "…the streets pilot…".to_string()), ("asked".to_string(), "…streets…".to_string())]);
+        let wanted = |me: Option<&str>| Wanted { status: None, worktree: None, since: None, words: vec!["streets".into()], said: said.clone(), me: me.map(String::from), now: 0 };
+        let found = |w: Wanted| all_sessions(&b).into_iter().filter(|(s, l)| w.lists(&filter, s, l)).map(|(s, _)| s.key.clone()).collect::<Vec<_>>();
+        assert_eq!(found(wanted(Some("me"))), ["other", "asked"]);
+        // Run from no session it knows, it lists them all.
+        assert_eq!(found(wanted(None)), ["me", "other", "asked"]);
     }
 
     #[test]
