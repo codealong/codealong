@@ -893,7 +893,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
             if searched.is_some_and(|found| found.iter().any(|x| x.number == p.number)) {
                 continue;
             }
-            let mut item = pr_item(lanes, slug, repo, p, login, links);
+            let mut item = pr_item(lanes, slug, repo, p, branch_freed(list, p), login, links);
             if searched.is_some() {
                 item.review_requested = false;
                 item.requested_by = None;
@@ -904,7 +904,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
     }
     for (slug, list) in requested {
         let Some(&repo) = repos.get(slug.as_str()).filter(|_| !polled.contains(slug)) else { continue };
-        out.extend(list.iter().map(|p| pr_item(lanes, slug, repo, p, login, links)));
+        out.extend(list.iter().map(|p| pr_item(lanes, slug, repo, p, branch_freed(list, p), login, links)));
     }
     out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     out
@@ -941,8 +941,8 @@ pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap
         s.eq_ignore_ascii_case(slug) || renamed.get(&s.to_ascii_lowercase()).is_some_and(|now| now.eq_ignore_ascii_case(slug))
     });
     match found {
-        Some((&local, &repo)) => pr_item(lanes, local, repo, p, login, links),
-        None => pr_item(lanes, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, login, links),
+        Some((&local, &repo)) => pr_item(lanes, local, repo, p, None, login, links),
+        None => pr_item(lanes, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, None, login, links),
     }
 }
 
@@ -957,20 +957,30 @@ fn repos_of(seeds: &[LaneSeed]) -> HashMap<&str, (&str, &str, Option<&str>)> {
     repos
 }
 
-/// A PR with its worktrees and sessions, as `pr_items` says.
-fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &str, Option<&str>), p: &PrRaw, login: Option<&str>, links: &PrLinks) -> PrItem {
+/// When the last PR from `p`'s branch before it ended, of the repo's `list`: a branch such as
+/// `yolo` serves one PR after another, and a push before then was for that one.
+fn branch_freed(list: &[PrRaw], p: &PrRaw) -> Option<i64> {
+    let before = list.iter().filter(|q| q.number != p.number && q.head_ref == p.head_ref);
+    before.filter_map(|q| q.merged_at.or(q.closed_at)).filter(|&end| end <= p.created_at).max()
+}
+
+/// A PR with its worktrees and sessions, as `pr_items` says. `freed` is when an earlier PR from
+/// its branch ended (`branch_freed`), when that's known.
+fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &str, Option<&str>), p: &PrRaw, freed: Option<i64>, login: Option<&str>, links: &PrLinks) -> PrItem {
     let here: Vec<&Lane> = lanes.iter().filter(|l| l.repo_slug.as_deref() == Some(slug)).collect();
     let head = p.head_ref.as_str();
     let (opened, ended) = (p.created_at, p.merged_at.or(p.closed_at));
     let before_end = move |s: &Session| ended.map_or(true, |end| s.started_at.unwrap_or(s.last_activity) <= end);
     let during = move |s: &Session| s.last_activity >= opened - 3_600_000 && before_end(s);
-    // How often a session pushed to the branch in the PR's time, as `during` has it: a branch
-    // used for one PR after another (`yolo`) has the earlier ones' pushes too. A PR from the
-    // default branch counts none, as it lists no sessions by branch.
+    // How often a session listed under a lane of the repo pushed to the branch in the PR's time,
+    // as `during` has it, and after an earlier PR from the branch ended: a branch used for one PR
+    // after another (`yolo`) has the earlier ones' pushes too, and one of the same name in another
+    // repo its own. A PR from the default branch counts none, as it lists no sessions by branch.
     let by_branch = default_branch != Some(head);
-    let pushes = move |k: &str| -> u32 {
-        let pushed = links.pushed.get(k).filter(|_| by_branch).into_iter().flatten();
-        pushed.filter(|(b, at)| b == head && *at >= opened - 3_600_000 && ended.map_or(true, |end| *at <= end)).count() as u32
+    let since = (opened - 3_600_000).max(freed.map_or(i64::MIN, |t| t + 1));
+    let pushes = move |l: &Lane, k: &str| -> u32 {
+        let pushed = links.pushed.get(k).filter(|_| by_branch && l.repo_slug.as_deref() == Some(slug)).into_iter().flatten();
+        pushed.filter(|(b, at)| b == head && *at >= since && ended.map_or(true, |end| *at <= end)).count() as u32
     };
     let mut sessions: Vec<PrSession> = Vec::new();
     if by_branch {
@@ -990,10 +1000,10 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
             };
             l.sessions.iter().filter(move |s| counts(s)).map(move |s| (l, s))
         });
-        let pushers = here.iter().flat_map(|&l| l.sessions.iter().filter(move |s| s.visitor.is_none() && during(s) && pushes(&s.key) > 0).map(move |s| (l, s)));
+        let pushers = here.iter().flat_map(|&l| l.sessions.iter().filter(move |s| s.visitor.is_none() && during(s) && pushes(l, &s.key) > 0).map(move |s| (l, s)));
         for (l, s) in own.chain(guests).chain(pushers) {
             if !s.archived && !sessions.iter().any(|x| x.key == s.key) {
-                sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(&s.key) });
+                sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key) });
             }
         }
     }
@@ -1005,7 +1015,7 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         // The lane it's in, else one it visited.
         let found = home(lanes, k);
         if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
-            sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(&s.key) });
+            sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key) });
         }
     }
     sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
@@ -2437,6 +2447,14 @@ mod tests {
         // Nor do pushes to the branch for an earlier PR from it.
         links.pushed.get_mut("fixer").unwrap().extend((0..4).map(|i| ("portal".to_string(), opened - 86_400_000 + i)));
         assert_eq!(card(&links).0, "opener");
+        // One in another repo, listed by its records, gets nothing for pushing to a branch of the
+        // same name there.
+        links.worked.get_mut(&key).unwrap().push("elsewhere".into());
+        links.made.get_mut(&key).unwrap().push(("elsewhere".into(), opened + 7_200_000));
+        links.pushed.insert("elsewhere".into(), pushed(9));
+        let (primary, _, listed) = card(&links);
+        assert_eq!(primary, "opener");
+        assert!(listed.contains(&("elsewhere".to_string(), 0)), "{listed:?}");
         // Pushes after it merged don't count.
         let mut merged = pr(PrState::Merged, 0);
         merged.merged_at = Some(opened + 3_600_000 * 2 + 1);
@@ -2449,6 +2467,19 @@ mod tests {
         // Without marks or pushes: the one that started first.
         let none = PrLinks::default();
         assert_eq!((card(&none).0.as_str(), card(&none).1), ("opener", Some(PrimaryBy::Started)));
+        // A branch an earlier PR freed half an hour before this one opened: the pushes before
+        // that were the earlier one's, though they're in the hour before this one.
+        let mut earlier = pr(PrState::Merged, 0);
+        earlier.number = 1036;
+        earlier.created_at = opened - 7_200_000;
+        earlier.merged_at = Some(opened - 1_800_000);
+        let mut router = (0..3).map(|i| ("portal".to_string(), opened - 2_400_000 + i)).collect::<Vec<_>>();
+        router.push(("portal".to_string(), opened - 1_200_000));
+        let reused = PrLinks { pushed: HashMap::from([("router".to_string(), router)]), ..Default::default() };
+        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![earlier, pr(PrState::Open, 0)])]);
+        let items = pr_items(&seeds, &lanes, &prs, &HashMap::new(), Some("gwen"), &reused);
+        let this = items.iter().find(|p| p.number == 1037).unwrap();
+        assert_eq!(this.sessions.iter().find(|x| x.key == "router").map(|x| x.pushes), Some(1));
     }
 
     #[test]
