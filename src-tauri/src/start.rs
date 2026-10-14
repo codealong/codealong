@@ -280,7 +280,7 @@ pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], usages: &[
         let model = limit.model.as_deref();
         let candidates: Vec<Candidate> = accounts
             .iter()
-            .filter(|a| a.name != s.account && Harness::from_config(&a.harness) == s.harness && !refused.contains(&a.name))
+            .filter(|a| a.name != s.account && !a.disabled && Harness::from_config(&a.harness) == s.harness && !refused.contains(&a.name))
             .filter(|a| !usages.iter().any(|u| u.account == a.name && near_limit(u, model)))
             .map(|a| Candidate { name: &a.name, preferred: a.preferred, model })
             .collect();
@@ -393,7 +393,7 @@ pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Opt
 /// another harness than the session that opened it (autoreview.rs).
 pub fn pick_account_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
     let home = home();
-    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter(|a| keep(a)).filter_map(|a| ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
+    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter(|a| !a.disabled && keep(a)).filter_map(|a| ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
     let preferred = preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
     let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)))).collect();
     let candidates: Vec<Candidate> = startable
@@ -424,10 +424,11 @@ pub fn effort_levels() -> Vec<&'static str> {
     out
 }
 
-/// The sheet's options for the accounts in `cfg`.
+/// The sheet's options for the accounts in `cfg` that aren't turned off.
 pub fn options_for(cfg: &Config) -> StartOptions {
-    let projects = cfg.accounts.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
-    options(&cfg.accounts, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)))
+    let on: Vec<AccountCfg> = cfg.accounts.iter().filter(|a| !a.disabled).cloned().collect();
+    let projects = on.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
+    options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)))
 }
 
 /// The sheet's options for the accounts config.toml has now: what a window's new-session sheet
@@ -545,6 +546,7 @@ fn make_chat_folder(folder: &Path) -> Result<()> {
 pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     let lane = board.lanes.iter().find(|l| l.id == spec.lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
     let account = cfg.accounts.iter().find(|a| a.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
+    account.ensure_on()?;
     let offered = ordered_places(account, &home());
     if !offered.as_ref().is_ok_and(|ps| ps.contains(&spec.place)) {
         bail!(offered.err().unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
@@ -800,6 +802,7 @@ pub fn note(engine: &Handle, spec: &StartSpec) {
 /// goes on in: the session's own, or its worktree's when that's gone.
 fn to_fork<'a>(board: &'a Board, cfg: &'a Config, key: &str) -> Result<(&'a crate::model::Session, &'a AccountCfg, &'a crate::model::Lane, PathBuf)> {
     let (s, account) = crate::harness::find(board, cfg, key)?;
+    account.ensure_on()?;
     // The id is typed into a shell, and the harnesses' ids are letters, digits, - and _.
     if s.id.is_empty() || !s.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         bail!("Codealong won't type {}'s id into a shell: {:?}.", s.title, s.id);
@@ -921,6 +924,7 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
 /// than move it, the copy's key comes back, and the caller hands the session's place over to it.
 pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> Result<Started> {
     let (s, account) = crate::harness::find(board, cfg, key)?;
+    account.ensure_on()?;
     // The id is typed into a shell, and the harnesses' ids are letters, digits, - and _.
     if s.id.is_empty() || !s.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         bail!("Codealong won't type {}'s id into a shell: {:?}.", s.title, s.id);
@@ -1013,6 +1017,7 @@ fn move_target<'a>(cfg: &'a Config, s: &crate::model::Session, account: &Account
     if crate::harness::of(target).map(|a| a.harness()) != Some(s.harness) {
         bail!("{to} isn't a {} account; a session moves only between accounts of its own harness.", s.harness.word());
     }
+    target.ensure_on()?;
     Ok(target)
 }
 
@@ -1053,7 +1058,7 @@ mod tests {
     }
 
     fn account(name: &str, harness: &str, home: &str, command: Option<&str>) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, preferred: false, acp: None, monthly: None, per_token: false }
+        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }
     }
 
     fn meter(key: &str, percent: f64, resets_at: Option<i64>) -> Meter {
@@ -1283,6 +1288,30 @@ mod tests {
         // What's asked of the command line is checked as a start's is.
         assert!(refused("stopped", ResumeIn { model: Some("opus; rm -rf ~".into()), ..to(Place::Terminal) }).contains("isn't a model name"));
         assert!(refused("stopped", ResumeIn { effort: Some("ludicrous".into()), ..to(Place::Background) }).contains("isn't an effort level"));
+    }
+
+    /// Nothing starts on an account turned off: Auto passes it by, the start options leave it
+    /// out, a session stopped at a limit doesn't move to it, and its own sessions don't go on.
+    #[test]
+    fn starts_nothing_on_an_account_turned_off() {
+        let dir = |name: &str| crate::fixtures::scratch(name).to_string_lossy().into_owned();
+        let off = AccountCfg { disabled: true, ..account("claude", "claude", &dir("off-claude"), None) };
+        let cfg = Config { accounts: vec![off, account("claude2", "claude", &dir("off-claude2"), None)], ..Config::default() };
+        assert_eq!(pick_account(&cfg, &[], &[], None, NOW).as_deref(), Some("claude2"));
+        assert_eq!(options_for(&cfg).accounts.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["claude2"]);
+
+        let mut accounts = claude_accounts();
+        accounts[2].disabled = true;
+        let mut s = [limited("claude:claude:a", NOW - MIN, Some(NOW + HOUR))];
+        let usages = [usage("claude", 100.0, 60.0, Some(30)), usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 10.0, 50.0, Some(20))];
+        limit_moves(&mut s, &accounts, &usages, |h| h == Harness::Claude, NOW);
+        assert_eq!(s[0].limit.as_ref().and_then(|l| l.move_to.as_deref()), Some("claude2"));
+
+        let stopped = crate::model::Session { live: false, ..crate::fixtures::session("stopped") };
+        let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![stopped])], ..Board::default() };
+        let how = ResumeIn { place: Place::Terminal, model: None, effort: None };
+        let e = resume(&board, &cfg, "stopped", &how, "", &crate::send::Sender::You).unwrap_err().to_string();
+        assert_eq!(e, "claude is turned off in Settings › Accounts.");
     }
 
     #[test]

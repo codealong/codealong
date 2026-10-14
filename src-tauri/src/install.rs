@@ -620,7 +620,7 @@ pub fn account_skill(source: Option<&Path>, a: &AccountCfg) -> AccountSkill {
     AccountSkill { name: a.name.clone(), harness: a.harness.clone(), path: dir.map(|d| d.to_string_lossy().into_owned()), installed: state.installed, current: state.current, edited: state.edited, plugin }
 }
 
-/// The command link and every account's skill, as things stand.
+/// The command link and the skill of every account that isn't turned off, as things stand.
 pub fn status() -> AgentsStatus {
     let source = skill_source();
     // Settings that don't parse list no accounts, and say why in place of them.
@@ -629,7 +629,7 @@ pub fn status() -> AgentsStatus {
         Err(e) => (config::Config::default(), vec![format!("{e:#}")]),
     };
     let plugin_version = shipped_version();
-    AgentsStatus { command: command_status(), skill_found: source.is_some(), plugin_version, accounts: cfg.accounts.iter().map(|a| account_skill(source.as_deref(), a)).collect(), errors }
+    AgentsStatus { command: command_status(), skill_found: source.is_some(), plugin_version, accounts: cfg.accounts.iter().filter(|a| !a.disabled).map(|a| account_skill(source.as_deref(), a)).collect(), errors }
 }
 
 /// What an install pass is asked to do.
@@ -760,7 +760,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(src.join("SKILL.md"), "---\nname: codealong\n---\n").unwrap();
-        let a = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: root.join("claude9").to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let a = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: root.join("claude9").to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let row = account_skill(Some(&src), &a);
         assert_eq!((row.installed, row.current), (false, false));
         assert!(row.path.as_deref().unwrap().ends_with("claude9/skills/codealong"));
@@ -769,13 +769,13 @@ mod tests {
         assert_eq!((row.installed, row.current, row.edited), (true, true, false));
         // Without a source nothing counts as installed, and an unknown harness has no path.
         assert_eq!(account_skill(None, &a).installed, false);
-        let other = AccountCfg { name: "x".into(), harness: "other".into(), home: "~/x".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let other = AccountCfg { name: "x".into(), harness: "other".into(), home: "~/x".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         assert!(account_skill(Some(&src), &other).path.is_none());
     }
 
     #[test]
     fn refreshes_copies_in_folders_config_toml_listed_before() {
-        let claude = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "/Users/me/.claude".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let claude = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "/Users/me/.claude".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let targets = refresh_targets(&[claude], &["/Users/me/.claude".to_string(), "/Users/me/.claude-old".to_string()]);
         assert_eq!(targets, vec![PathBuf::from("/Users/me/.claude/skills/codealong"), PathBuf::from("/Users/me/.claude-old/skills/codealong")]);
     }
@@ -860,7 +860,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!("codealong-plugin-home-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
-        let a = AccountCfg { name: "throwaway".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let a = AccountCfg { name: "throwaway".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         claude_plugin(&home, &["marketplace", "add", "codealong/codealong"]).unwrap();
         claude_plugin(&home, &["install", PLUGIN]).unwrap();
         assert_eq!(plugin_state(&home).from.as_deref(), Some("codealong/codealong"));
@@ -880,7 +880,7 @@ mod tests {
     }
 
     fn account(harness: &str, home: &str) -> AccountCfg {
-        AccountCfg { name: harness.into(), harness: harness.into(), home: home.into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false }
+        AccountCfg { name: harness.into(), harness: harness.into(), home: home.into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }
     }
 
     #[test]

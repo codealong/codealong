@@ -971,10 +971,10 @@ Dock icon or the bar brings it back, and ⌘Q quits.
 A form for everything in config.toml. General has the folders searched for repos, the quick panel's
 shortcut, the terminal and editor, and the theme; Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain)
-and a switch per feature, each saying what it sends; Accounts adds, edits, removes and signs in
-accounts, says how each pays (a plan's price a month, or by the token; see *What sessions used and
-cost*), and under Found on this Mac lists the ones Codealong could read but doesn't, to add with a
-click (with the agent skill, unless you untick it); Automation has what Codealong does by itself:
+and a switch per feature, each saying what it sends; Accounts adds, edits, turns off, removes and
+signs in accounts, says how each pays (a plan's price a month, or by the token; see *What sessions
+used and cost*), and under Found on this Mac lists the ones Codealong could read but doesn't, to add
+with a click (with the agent skill, unless you untick it); Automation has what Codealong does by itself:
 the agent that reviews the pull requests that wait on your review (the account and model it runs on
 and what it's told, in a box like a session's, and where its review goes), nudging the session that
 opened a pull request, moving a session that hits its usage limit, and telling one a lost connection
@@ -983,6 +983,15 @@ repo, and its team's*); Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are. Each change is saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
+
+An account's card in Settings › Accounts says who it's signed in as. OpenCode signs in to the
+providers you bring rather than to an account of its own, so its card names them (*Signed in to
+Anthropic and GitHub Copilot*), or says *Free models only* when it has none: OpenCode's own free
+models need no sign-in. **Turn off** keeps an account in config.toml (`disabled = true`) and has
+Codealong start nothing on it: no new session, resume, fork or move, no review, helper or question
+about a pull request, and no pick of it by Auto or in the quick panel. Its usage isn't read, and it
+leaves the usage bar and Settings › Agents. Its sessions still show on the board, and running ones
+still take what you send them. **Turn on** brings it back; **Remove** stops reading it at all.
 
 ## Finding and starting work
 
@@ -1722,7 +1731,8 @@ limits, asked of Cursor with the app's sign-in every couple of minutes: on a pla
 (Pro+, say), one for Cursor's own models (Auto, Composer and Cursor Grok) and one for the others,
 as the usage line under Cursor's chat box has them; on Express only the first; on any other plan
 the total Cursor's Settings shows; and on-demand spend once you've set a limit on it. OpenCode (bring your own provider) has none, and
-its chip says so with a crossed-out gauge after the name. Add accounts in Settings › Accounts.
+its chip says so with a crossed-out gauge after the name. Add accounts in Settings › Accounts, and
+turn off one you'd rather not see here.
 
 #### Training on what you send
 

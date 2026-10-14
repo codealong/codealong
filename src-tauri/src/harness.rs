@@ -360,6 +360,13 @@ pub trait Adapter: Sync {
         (false, None)
     }
 
+    /// What Settings says of an account's sign-in in place of an email, for a harness that's
+    /// signed in to other providers rather than to an account of its own: which ones, or that it
+    /// runs only models that need none. None says the email, or "Signed in".
+    fn sign_in_note(&self, _home: &Path) -> Option<String> {
+        None
+    }
+
     /// What signs an account in, typed into a new terminal.
     fn sign_in_command(&self, account: &AccountCfg) -> String {
         account.command().to_string()
@@ -1157,7 +1164,7 @@ mod tests {
     #[test]
     fn resumes_with_the_prompt_in_the_environment() {
         let ask = |prompt: &'static str, model: Option<&'static str>, effort: Option<&'static str>| StartAsk { prompt, session_id: "abc", model, effort, worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
-        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let claude = Session::new(Harness::Claude, "claude2", "abc");
         let (input, env) = adapter(Harness::Claude).resume(&account, &claude, &ask("-v please", None, None)).unwrap();
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", crate::start::PROMPT_VAR));
@@ -1165,7 +1172,7 @@ mod tests {
         // On another model and effort, or with nothing to say yet: it opens on the conversation.
         let tuned = adapter(Harness::Claude).resume(&account, &claude, &ask("", Some("opus[1m]"), Some("high"))).unwrap();
         assert_eq!(tuned, ("claude2 --model 'opus[1m]' --effort high --resume abc\n".to_string(), Vec::new()));
-        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let thread = Session::new(Harness::Codex, "codex", "01a0e379");
         let (input, env) = adapter(Harness::Codex).resume(&codex, &thread, &ask("-v please", None, None)).unwrap();
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));

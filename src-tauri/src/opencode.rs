@@ -458,15 +458,48 @@ fn tool_summary(part: &Value) -> Option<String> {
     })
 }
 
-/// Whether the account has a provider to talk to: a legacy `auth.json`, or credentials or an
-/// OpenCode account in its database.
-pub fn signed_in(home: &Path) -> bool {
-    if home.join("auth.json").is_file() {
-        return true;
+/// Whether the account can start sessions, and the email of the OpenCode account it's signed in
+/// to, if any. Once OpenCode has run here (its database is there) it can, since its free models
+/// (`opencode/…`) need no sign-in; an older OpenCode's sign-ins are a legacy `auth.json`.
+pub fn signed_in(home: &Path) -> (bool, Option<String>) {
+    let db = open(&home.join("opencode.db"));
+    let email = db.as_ref().and_then(|db| db.query_row("SELECT email FROM account ORDER BY time_updated DESC LIMIT 1", [], |r| r.get::<_, String>(0)).ok());
+    (db.is_some() || home.join("auth.json").is_file(), email)
+}
+
+/// What Settings says of the sign-in (`Adapter::sign_in_note`), from its database.
+pub fn sign_in_note(home: &Path) -> Option<String> {
+    let db = open(&home.join("opencode.db"))?;
+    sign_in_note_in(&db, home.join("auth.json").is_file())
+}
+
+/// The providers it's signed in to, else, with no OpenCode account and no legacy `auth.json`
+/// (`legacy`) either, that it runs only OpenCode's free models. None leaves it to the email.
+fn sign_in_note_in(db: &Connection, legacy: bool) -> Option<String> {
+    let providers = providers(db);
+    if !providers.is_empty() {
+        return Some(format!("Signed in to {}", crate::util::listed(&providers, "and")));
     }
-    let Some(db) = open(&home.join("opencode.db")) else { return false };
-    let count = |table: &str| db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get::<_, i64>(0)).unwrap_or(0);
-    count("credential") > 0 || count("account") > 0
+    let accounts = db.query_row("SELECT count(*) FROM account", [], |r| r.get::<_, i64>(0)).unwrap_or(0);
+    (!legacy && accounts == 0).then(|| "Free models only".to_string())
+}
+
+/// The providers it has a credential for, the first signed in to first, each by the name in
+/// the models.dev catalog OpenCode keeps (`kv`'s `models-dev:catalog`, whose `body` is the
+/// catalog's JSON as text), else by its id. A credential's `integration_id` is the provider's
+/// id (`anthropic`, `github-copilot`, `opencode` for OpenCode Zen), or a well-known source's
+/// URL; OpenCode 2.0's migration moved `auth.json`'s sign-ins there under the same keys.
+fn providers(db: &Connection) -> Vec<String> {
+    let Ok(mut q) = db.prepare("SELECT integration_id FROM credential GROUP BY integration_id ORDER BY min(time_created)") else { return Vec::new() };
+    let ids: Vec<String> = q.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
+    // A quote would end the path, so such an id keeps its own name.
+    let name = |id: &str| -> Option<String> {
+        if id.contains('"') {
+            return None;
+        }
+        db.query_row("SELECT json_extract(json_extract(value, '$.body'), ?1) FROM kv WHERE key = 'models-dev:catalog'", [format!("$.\"{id}\".name")], |r| r.get(0)).ok().flatten()
+    };
+    ids.into_iter().map(|id| name(&id).unwrap_or(id)).collect()
 }
 
 // ---- The background service ----
@@ -966,7 +999,12 @@ impl crate::harness::Adapter for OpenCode {
     }
 
     fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
-        (crate::opencode::signed_in(home), None)
+        crate::opencode::signed_in(home)
+    }
+
+    /// It signs in to the providers you bring, not to an account of its own.
+    fn sign_in_note(&self, home: &Path) -> Option<String> {
+        crate::opencode::sign_in_note(home)
     }
 
     fn sign_in_command(&self, account: &crate::config::AccountCfg) -> String {
@@ -1255,6 +1293,34 @@ mod tests {
         db
     }
 
+    /// Settings names the providers it's signed in to as models.dev does, and says when it runs
+    /// only the free models.
+    #[test]
+    fn says_which_providers_it_is_signed_in_to() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT NOT NULL, label TEXT NOT NULL, value TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);\
+             CREATE TABLE account (id TEXT PRIMARY KEY, email TEXT NOT NULL, url TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);\
+             CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);",
+        )
+        .unwrap();
+        assert_eq!(sign_in_note_in(&db, false).as_deref(), Some("Free models only"));
+        // An older OpenCode's sign-ins, or an OpenCode account, leave it to the email.
+        assert_eq!(sign_in_note_in(&db, true), None);
+        db.execute_batch("INSERT INTO account VALUES ('a', 'ana@example.com', 'https://opencode.ai', 1, 1);").unwrap();
+        assert_eq!(sign_in_note_in(&db, false), None);
+        // A provider the catalog doesn't name keeps its id; two credentials for one are one.
+        let catalog = serde_json::json!({ "anthropic": { "name": "Anthropic" }, "github-copilot": { "name": "GitHub Copilot" } }).to_string();
+        let kv = serde_json::json!({ "updatedAt": 1, "digest": "d", "body": catalog }).to_string();
+        db.execute("INSERT INTO kv VALUES ('models-dev:catalog', ?1, 1, 1)", [kv]).unwrap();
+        db.execute_batch(
+            "INSERT INTO credential VALUES ('c1', 'github-copilot', 'OAuth', '{}', 10, 10), ('c2', 'anthropic', 'API key', '{}', 20, 20), \
+             ('c3', 'anthropic', 'OAuth', '{}', 30, 30), ('c4', 'acme\"', 'API key', '{}', 40, 40);",
+        )
+        .unwrap();
+        assert_eq!(sign_in_note_in(&db, false).as_deref(), Some("Signed in to GitHub Copilot, Anthropic and acme\""));
+    }
+
     #[test]
     fn finds_the_tool_calls_a_session_is_running() {
         let part = |status: &str, command: &str| serde_json::json!({ "type": "tool", "name": "bash", "state": { "status": status, "input": { "command": command } } });
@@ -1476,7 +1542,7 @@ mod tests {
         let answer: Value = serde_json::from_str(r#"{"data":{"id":"ses_f15f6e5a9ffe57CibPTgUS3IlW","fork":{"sessionID":"ses_f15f72088ffep4qnjzWbYxa0w6","boundary":{"type":"through","messageID":"msg_0dee2f9b8001Pd8F98MdK1test"}},"projectID":"global","title":"orig (fork #1)"}}"#).unwrap();
         let id = forked_id(&answer).unwrap();
         assert_eq!(id, "ses_f15f6e5a9ffe57CibPTgUS3IlW");
-        let a = crate::config::AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let a = crate::config::AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let f = fork_into(&a, &id);
         assert_eq!(f.input, "opencode --session ses_f15f6e5a9ffe57CibPTgUS3IlW\n");
         assert_eq!(f.key.as_deref(), Some("opencode:opencode:ses_f15f6e5a9ffe57CibPTgUS3IlW"));
@@ -1487,7 +1553,7 @@ mod tests {
     #[test]
     fn a_prompt_is_posted_to_the_service_queued() {
         use crate::harness::Adapter as _;
-        let account = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let account = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let s = Session { status: crate::model::Status::Idle, live: true, pid: Some(7), ..Session::new(Harness::Opencode, "opencode", "ses_1") };
         assert_eq!(OpenCode.routes(&account, &s), vec![Posted.into()]);
         assert_eq!(prompt_body("two\nlines", false).to_string(), r#"{"delivery":"queue","text":"two\nlines"}"#);

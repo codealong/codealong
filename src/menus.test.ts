@@ -238,8 +238,12 @@ describe('sessionMenu', () => {
       sessionMenu(lane(), session(), base);
       await settled();
     };
+    const c2 = { name: 'c2', harness: 'claude' as const, home: '~/.claude-c2', command: 'claude-c2', folderExists: true, signedIn: true, email: null, signInNote: null };
     try {
-      await readAccounts([{ name: 'c2', harness: 'claude', home: '~/.claude-c2', command: 'claude-c2', folderExists: true, signedIn: true, email: null }], later);
+      // One turned off isn't offered.
+      await readAccounts([{ ...c2, disabled: true }], later);
+      expect(sessionActions(lane(), session({ key: 'claude:c:10' }), base).move).toBeUndefined();
+      await readAccounts([c2], later + 61_000);
       const run = async (key: string, can: Partial<SessionCan>) => {
         const left: string[] = [];
         const copies: (string | null)[] = [];
@@ -259,7 +263,7 @@ describe('sessionMenu', () => {
       to.mockResolvedValue({ key: null, message: 'Moved “Fix login” to c2: it goes on as a background job.' });
       expect(await run('claude:c:13', { moving: noop })).toEqual({ left: ['archived'], copies: [null] });
     } finally {
-      await readAccounts([], later + 61_000);
+      await readAccounts([], later + 122_000);
       vi.useRealTimers();
     }
   });

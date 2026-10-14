@@ -257,7 +257,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
   const movable = here && !movedHere.has(s.key);
   // Moving opens a terminal on this Mac, as a fork does, and closes the session's own.
-  const moveTo = movable && s.resumeCommand && MOVES_ACCOUNTS.includes(s.harness) ? accounts.filter((a) => a.harness === s.harness && a.name !== s.account && a.signedIn).map((a) => a.name) : [];
+  const moveTo = movable && s.resumeCommand && MOVES_ACCOUNTS.includes(s.harness) ? accounts.filter((a) => a.harness === s.harness && a.name !== s.account && a.signedIn && !a.disabled).map((a) => a.name) : [];
   const move = (to: string) => moved(`Moving ${s.title} to ${to}…`, () => moveSession(s.key, to), true);
   const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => move(to) });
   // Another folder: it's closed where it runs and goes on there as itself, so it stays on the

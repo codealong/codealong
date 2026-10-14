@@ -16,13 +16,19 @@ const NOW = Date.UTC(2026, 8, 25, 12);
 const DAY = 24 * 60 * 60 * 1000;
 
 function found(over: Partial<FoundAccount>): FoundAccount {
-  return { name: 'claude-work', harness: 'claude', home: '~/.claude-work', command: null, via: null, state: 'active', signedIn: false, folderExists: true, email: null, lastUsed: null, new: true, ...over };
+  return { name: 'claude-work', harness: 'claude', home: '~/.claude-work', command: null, via: null, state: 'active', signedIn: false, folderExists: true, email: null, signInNote: null, lastUsed: null, new: true, ...over };
 }
 
 describe('foundNote', () => {
   it('says who is signed in and when it was used', () => {
     expect(foundNote(found({ signedIn: true, email: 'me@example.com', lastUsed: NOW - 3 * DAY }), NOW)).toBe('Signed in as me@example.com, used 3d ago');
     expect(foundNote(found({ lastUsed: NOW - 2 * 60 * 60 * 1000 }), NOW)).toBe('Not signed in, used 2h ago');
+  });
+
+  it('says what a harness that brings other providers is signed in to', () => {
+    const opencode = { harness: 'opencode' as const, state: 'signedIn' as const, signedIn: true };
+    expect(foundNote(found({ ...opencode, signInNote: 'Free models only' }), NOW)).toBe('Free models only, no sessions yet');
+    expect(foundNote(found({ ...opencode, state: 'active', signInNote: 'Signed in to Anthropic', lastUsed: NOW - DAY }), NOW)).toBe('Signed in to Anthropic, used 1d ago');
   });
 
   it('says a quiet sign-in has no sessions lately', () => {

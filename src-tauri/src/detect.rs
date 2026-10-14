@@ -53,6 +53,8 @@ pub struct Found {
     /// The folder exists; an installed harness that never ran has none yet.
     pub folder_exists: bool,
     pub email: Option<String>,
+    /// What Settings says of its sign-in in place of the email (`Adapter::sign_in_note`).
+    pub sign_in_note: Option<String>,
     /// When its sessions last wrote, as far as its files say.
     pub last_used: Option<i64>,
     /// Codealong has never read this folder and nobody dismissed it, so it's worth suggesting.
@@ -61,7 +63,7 @@ pub struct Found {
 
 impl Found {
     pub fn account(&self) -> AccountCfg {
-        AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, preferred: false, acp: None, monthly: None, per_token: false }
+        AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }
     }
 }
 
@@ -272,6 +274,7 @@ pub struct Folder {
     pub exists: bool,
     pub signed_in: bool,
     pub email: Option<String>,
+    pub sign_in_note: Option<String>,
     pub last_used: Option<i64>,
 }
 
@@ -363,6 +366,7 @@ pub fn build(folders: &[Folder], installed: &dyn Fn(&str) -> bool, now: i64) -> 
             signed_in: f.signed_in,
             folder_exists: f.exists,
             email: f.email.clone(),
+            sign_in_note: f.sign_in_note.clone(),
             last_used: f.last_used,
             new: true,
         });
@@ -538,9 +542,10 @@ fn inspect(f: &mut Folder) {
     if !f.exists {
         return;
     }
-    let info = crate::usage::describe(&AccountCfg { name: String::new(), harness: f.harness.to_string(), home: d.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false });
+    let info = crate::usage::describe(&AccountCfg { name: String::new(), harness: f.harness.to_string(), home: d.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false });
     f.signed_in = info.signed_in;
     f.email = info.email;
+    f.sign_in_note = info.sign_in_note;
     let used = crate::harness::named(f.harness).map(|h| h.folder_use(&d)).unwrap_or_default();
     f.has_data = used.has_data;
     f.last_used = used.last_used;
@@ -729,14 +734,14 @@ MY_CLAUDE_CONFIG_DIR=~/.decoy
 
         // Against config.toml: listed folders drop out, clashing names get a number and keep
         // their command, and folders Codealong has read before aren't new.
-        let accounts = vec![AccountCfg { name: "claude-work".into(), harness: "claude".into(), home: "/Users/me/.claude-work-old".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false }];
+        let accounts = vec![AccountCfg { name: "claude-work".into(), harness: "claude".into(), home: "/Users/me/.claude-work-old".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }];
         let rest = not_configured(found, &accounts, &["/Users/me/.codex".to_string()]);
         let summary: Vec<(&str, Option<&str>, bool)> = rest.iter().map(|f| (f.name.as_str(), f.command.as_deref(), f.new)).collect();
         assert_eq!(
             summary,
             vec![("claude", Some("claude"), true), ("claude-work2", Some("CLAUDE_CONFIG_DIR=/Users/me/.claude-work claude"), true), ("codex", None, false)]
         );
-        let rest = not_configured(rest, &[AccountCfg { name: "x".into(), harness: "claude".into(), home: "/Users/me/.claude/".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false }], &[]);
+        let rest = not_configured(rest, &[AccountCfg { name: "x".into(), harness: "claude".into(), home: "/Users/me/.claude/".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }], &[]);
         assert!(rest.iter().all(|f| f.home != "/Users/me/.claude"));
     }
 

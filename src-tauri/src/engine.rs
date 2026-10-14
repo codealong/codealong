@@ -3284,10 +3284,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board
     }
 
+    /// The usage of each account that isn't turned off: one turned off has no place in the bar.
     fn compose_usage(&self, now: i64) -> Vec<Usage> {
-        self.cfg
-            .accounts
-            .iter()
+        let on: Vec<&AccountCfg> = self.cfg.accounts.iter().filter(|a| !a.disabled).collect();
+        on.iter()
             .map(|a| {
                 let adapter = harness::of(a);
                 if let Some(why) = adapter.and_then(|h| h.no_limits(a)) {
@@ -3298,7 +3298,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 read.unwrap_or_else(|| self.usage.get(&a.name).cloned().unwrap_or_else(|| usage::loading(a)))
             })
             // A read made before the star changed still carries the old one.
-            .zip(&self.cfg.accounts)
+            .zip(&on)
             .map(|(u, a)| Usage { preferred: a.preferred, ..u })
             .collect()
     }

@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn a_side_copy_runs_on_its_account_and_keeps_no_record() {
         use crate::harness::Adapter;
-        let account = |home: &str| crate::config::AccountCfg { name: "c".into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let account = |home: &str| crate::config::AccountCfg { name: "c".into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let mut s = Session { live: true, title: "t".into(), cwd: "/w".into(), ..Session::new(Harness::Claude, "c", "abc") };
         let usual = account("~/.claude");
         let r = ClaudeCode.side(&crate::harness::Ctx { account: &usual }, &s, Path::new("/w")).unwrap();
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn a_conversation_of_its_own_resumes_nothing() {
         use crate::harness::Adapter;
-        let other = crate::config::AccountCfg { name: "c2".into(), harness: "claude".into(), home: "/Users/me/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let other = crate::config::AccountCfg { name: "c2".into(), harness: "claude".into(), home: "/Users/me/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let mut r = ClaudeCode.fresh_side(&crate::harness::Ctx { account: &other }, Path::new("/w"), "About PR #7.", Path::new("/support/pr/7")).unwrap();
         assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --no-session-persistence --permission-mode default --add-dir=/support/pr/7");
         assert_eq!(r.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/me/.claude2".to_string())]);

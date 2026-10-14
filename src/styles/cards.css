@@ -15,6 +15,10 @@
 .ca-acct.is-focus {
   border-color: var(--focus);
 }
+/* Turned off: Codealong starts nothing on it, so its name steps back. */
+.ca-acct.is-off .ca-ucard-name {
+  color: var(--ink-3);
+}
 .ca-acct .ca-tag.is-ok {
   color: var(--ink-2);
 }

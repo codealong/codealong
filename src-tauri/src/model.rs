@@ -72,9 +72,13 @@ pub struct AccountInfo {
     pub monthly: Option<f64>,
     #[serde(rename = "per_token")]
     pub per_token: bool,
+    /// Turned off (config.toml's `disabled`): Codealong starts nothing on it.
+    pub disabled: bool,
     pub folder_exists: bool,
     pub signed_in: bool,
     pub email: Option<String>,
+    /// What Settings says of its sign-in in place of the email (`Adapter::sign_in_note`).
+    pub sign_in_note: Option<String>,
 }
 
 /// Something in the background that isn't working: a file that doesn't read, GitHub not

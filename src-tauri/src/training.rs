@@ -118,7 +118,7 @@ pub fn identity(a: &AccountCfg) -> String {
 impl TrainingPoll {
     /// The accounts to read now, at `now`: every one at first, once `EVERY` has passed or a
     /// refresh asked (at most every `AGAIN_AFTER`), and an account not read yet (one just added);
-    /// none while a read is under way. Marks a read under way when it hands one out; `on_read`
+    /// none while a read is under way, nor one turned off. Marks a read under way when it hands one out; `on_read`
     /// takes the mark off.
     pub fn due(&mut self, accounts: &[AccountCfg], now: Instant) -> Vec<AccountCfg> {
         if self.running {
@@ -126,7 +126,7 @@ impl TrainingPoll {
         }
         let since = self.last.map(|t| now.duration_since(t));
         let all = since.is_none_or(|s| s >= EVERY || (self.asked && s >= AGAIN_AFTER));
-        let asks: Vec<AccountCfg> = accounts.iter().filter(|a| all || !self.by_account.contains_key(&a.name)).cloned().collect();
+        let asks: Vec<AccountCfg> = accounts.iter().filter(|a| !a.disabled && (all || !self.by_account.contains_key(&a.name))).cloned().collect();
         if asks.is_empty() {
             return asks;
         }
@@ -196,9 +196,9 @@ impl TrainingPoll {
         self.by_account.retain(|name, _| accounts.iter().any(|a| &a.name == name));
     }
 
-    /// The readings, in config order; an account not read yet has none.
+    /// The readings, in config order; an account not read yet, or turned off, has none.
     pub fn list(&self, accounts: &[AccountCfg]) -> Vec<Training> {
-        accounts.iter().filter_map(|a| self.by_account.get(&a.name).cloned()).collect()
+        accounts.iter().filter(|a| !a.disabled).filter_map(|a| self.by_account.get(&a.name).cloned()).collect()
     }
 }
 
@@ -207,7 +207,7 @@ mod tests {
     use super::*;
 
     fn account(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }
     }
 
     fn reading(name: &str, state: State) -> Training {

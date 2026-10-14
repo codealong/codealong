@@ -184,23 +184,15 @@ pub fn default_terminal() -> &'static str {
     profiles().find(|(_, t)| t.installed()).map_or("terminal", |(profile, _)| profile)
 }
 
-/// Names as a sentence lists a choice of them: "a", "a or b", "a, b or c".
-fn any_of(names: &[String]) -> String {
-    match names {
-        [] => String::new(),
-        [one] => one.clone(),
-        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
-    }
-}
 
 /// The names of the terminals that can do something, as a sentence lists them.
 fn terminals_that(can: impl Fn(&dyn Terminal) -> bool) -> String {
-    any_of(&TERMINALS.iter().filter(|t| can(**t)).map(|t| t.name().to_string()).collect::<Vec<_>>())
+    crate::util::listed(&TERMINALS.iter().filter(|t| can(**t)).map(|t| t.name().to_string()).collect::<Vec<_>>(), "or")
 }
 
 /// The profiles `[apps] terminal` takes, as config.toml writes them, for messages.
 pub fn profile_names() -> String {
-    any_of(&profiles().map(|(profile, _)| format!("{profile:?}")).collect::<Vec<_>>())
+    crate::util::listed(&profiles().map(|(profile, _)| format!("{profile:?}")).collect::<Vec<_>>(), "or")
 }
 
 fn unknown_profile(profile: &str) -> anyhow::Error {

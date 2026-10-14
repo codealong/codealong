@@ -55,7 +55,9 @@ pub(crate) fn title(s: &str) -> String {
 /// whether it holds a sign-in, and the email comes from the account's own settings file.
 pub fn describe(a: &AccountCfg) -> AccountInfo {
     let dir = a.home_path();
-    let (signed_in, email) = crate::harness::of(a).map_or((false, None), |h| h.signed_in(&dir));
+    let harness = crate::harness::of(a);
+    let (signed_in, email) = harness.map_or((false, None), |h| h.signed_in(&dir));
+    let sign_in_note = harness.and_then(|h| h.sign_in_note(&dir));
     AccountInfo {
         name: a.name.clone(),
         harness: a.harness.clone(),
@@ -66,9 +68,11 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
         acp: a.acp.clone(),
         monthly: a.monthly,
         per_token: a.per_token,
+        disabled: a.disabled,
         folder_exists: dir.is_dir(),
         signed_in,
         email,
+        sign_in_note,
     }
 }
 
@@ -78,9 +82,9 @@ pub fn sign_in_command(a: &AccountCfg) -> String {
 }
 
 /// Reads the usage of every account whose harness keeps it somewhere slow to ask
-/// (`Adapter::polls_usage`), one after another. For the snapshot and the engine's background
-/// fetch.
+/// (`Adapter::polls_usage`), one after another, but those turned off. For the snapshot and the
+/// engine's background fetch.
 pub fn read_all(accounts: &[AccountCfg]) -> Vec<Usage> {
     let now = now_ms();
-    accounts.iter().filter_map(|a| crate::harness::of(a).filter(|h| h.polls_usage(a)).map(|h| h.read_usage(a, now))).collect()
+    accounts.iter().filter(|a| !a.disabled).filter_map(|a| crate::harness::of(a).filter(|h| h.polls_usage(a)).map(|h| h.read_usage(a, now))).collect()
 }

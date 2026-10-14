@@ -1538,6 +1538,9 @@ fn reviewer_place(cfg: &Config, board: &Board, account: Option<&str>, avoid: Opt
         Some(n) => n.to_string(),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
+    if a.disabled {
+        return Err(format!("{name} is turned off in Settings › Accounts"));
+    }
     let place = review_place(a, start).ok_or_else(|| format!("{name} can't start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
     Ok((name, place))
 }

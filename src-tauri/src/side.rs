@@ -388,6 +388,7 @@ fn forget_in(path: &Path, id: &str) -> Result<()> {
 /// folder is gone), and the session's title.
 fn recipe(board: &Board, cfg: &Config, key: &str) -> Result<(Recipe, PathBuf, String)> {
     let (s, account) = crate::harness::find(board, cfg, key)?;
+    account.ensure_on()?;
     let lane = board.lanes.iter().find(|l| l.sessions.iter().any(|x| x.key == key && x.visitor.is_none())).or_else(|| board.lanes.iter().find(|l| l.sessions.iter().any(|x| x.key == key)));
     let cwd = match lane {
         _ if Path::new(&s.cwd).is_dir() => PathBuf::from(&s.cwd),
@@ -407,6 +408,7 @@ fn recipe(board: &Board, cfg: &Config, key: &str) -> Result<(Recipe, PathBuf, St
 fn pr_recipe(board: &Board, cfg: &Config, key: &str, account: &str) -> Result<(Recipe, PathBuf, String)> {
     let Some(pr) = board.prs.iter().find(|p| p.key == key) else { bail!("Codealong doesn't list {key} any more.") };
     let Some(a) = cfg.accounts.iter().find(|a| a.name == account) else { bail!("There's no account named {account} in config.toml.") };
+    a.ensure_on()?;
     let Some(adapter) = crate::harness::of(a) else { bail!("Codealong doesn't know {account}'s harness, {}.", a.harness) };
     let (md, diff, _) = crate::github::for_reading(pr)?;
     let reads = reading_dir(pr);

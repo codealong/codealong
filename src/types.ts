@@ -582,6 +582,9 @@ export interface AccountCfg {
   monthly?: number | null;
   /** It pays for each token at API prices (an API key). */
   per_token?: boolean;
+  /** Turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions
+   *  still show. */
+  disabled?: boolean;
 }
 
 /** A `[[projects]]` table in config.toml. */
@@ -922,6 +925,9 @@ export interface AccountInfo extends AccountCfg {
   folderExists: boolean;
   signedIn: boolean;
   email: string | null;
+  /** What to say of its sign-in in place of the email: the providers OpenCode is signed in to,
+   *  or that it runs only free models. */
+  signInNote: string | null;
 }
 
 /** An account on this Mac that config.toml doesn't list (detect.rs). */
@@ -934,6 +940,7 @@ export interface FoundAccount extends AccountCfg {
   signedIn: boolean;
   folderExists: boolean;
   email: string | null;
+  signInNote: string | null;
   lastUsed: number | null;
   /** Codealong has never read this folder, and nobody took it out or dismissed it. */
   new: boolean;

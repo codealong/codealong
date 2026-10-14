@@ -57,8 +57,13 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
 - While a session runs only `opencode.db-wal` changes, which FSEvents doesn't report:
   `harness.rs` (`DatabaseMarks`), `opencode.rs` (`Reader::glance`), `engine.rs`
   (`DATABASES_EVERY`).
-- Sign-in and plan limits: `opencode.rs` (`signed_in`, `OpenCode::sign_in_command`,
-  `OpenCode::no_limits`).
+- Sign-in and plan limits: `opencode.rs` (`signed_in`, `sign_in_note_in`, `providers`,
+  `OpenCode::sign_in_command`, `OpenCode::no_limits`). Not said there: a credential's row is
+  `credential (id, integration_id, label, value, connector_id, method_id, active, time_created,
+  time_updated)`, `label` "OAuth" or "API key" (2.0.16's migration
+  `20260805200742_import_legacy_credentials`, which keeps `auth.json` where it was), and the
+  OpenCode account (`account`) has `email` and `url` beside its tokens. The models.dev catalog
+  in `kv` was 5.9 MB here; reading three providers' names from it took 60 ms (2026-10-14).
 - What each call used, for the token ledger: an assistant message's `tokens` and `cost`
   (`opencode.rs` `token_uses`). `session_v2` keeps a session's sums too (`cost`, `tokens_*`).
   The cost is OpenCode's, from models.dev's prices as it writes the message, and 0 for the free

@@ -293,6 +293,16 @@ pub(crate) fn today_local() -> i64 {
     days_from_civil(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64)
 }
 
+/// Names as a sentence lists them, the last after `last` ("and", "or"): "a", "a or b", "a, b
+/// or c".
+pub fn listed(names: &[String], last: &str) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., end] => format!("{} {last} {end}", rest.join(", ")),
+    }
+}
+
 /// First non-empty line, whitespace collapsed, markdown links reduced to their text, cut to
 /// `max` characters with an ellipsis. A line that only opens or closes a block a directive wraps
 /// (`:::writing{variant="email" id="83147"}`, `:::`, as Codex wraps a piece of writing) isn't

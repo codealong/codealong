@@ -1,6 +1,6 @@
 // Settings › Accounts: the Claude Code, Codex, OpenCode, Antigravity and Cursor accounts Codealong
-// reads, each with whether its provider may train on what it sends (training.ts), and under
-// Found on this Mac the ones it could (detect.rs). Saving rewrites the
+// reads, each with whether its provider may train on what it sends (training.ts) and a switch that
+// turns it off (config.toml's `disabled`), and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it. Adding an
 // account can put Codealong in it too (install.rs: the plugin in Claude Code, the skill elsewhere), as
 // Settings › Agents does; that page is where each account's plugin or skill shows.
@@ -30,6 +30,9 @@ interface Draft {
   /** Whether you typed in these fields; untouched ones follow the name. */
   touched: { home: boolean; command: boolean };
 }
+
+/** What turning an account off does. */
+const OFF_TITLE = 'Codealong starts nothing on it (no new session, review, helper or move) and leaves it out of the usage bar. Its sessions still show.';
 
 /** Where a harness keeps a second account's files, and the command that runs it there. */
 function defaultsFor(harness: Harness, name: string): { home: string; command: string } {
@@ -145,7 +148,7 @@ export function monthlyOf(typed: string): number | null {
 /** Where a found account stands, in words: its sign-in, when it was last used, and the
  * wrapper or alias that runs it. */
 export function foundNote(f: FoundAccount, now: number): string {
-  const who = f.signedIn ? (f.email ? `Signed in as ${f.email}` : 'Signed in') : null;
+  const who = f.signedIn ? (f.signInNote ?? (f.email ? `Signed in as ${f.email}` : 'Signed in')) : null;
   const used = f.lastUsed !== null ? `used ${agoPhrase(f.lastUsed, now)}` : null;
   let where: string;
   if (f.state === 'active') where = [who ?? 'Not signed in', used].filter(Boolean).join(', ');
@@ -158,7 +161,7 @@ export function foundNote(f: FoundAccount, now: number): string {
 /** An account as config.toml has it. Saving writes every account's table anew, so whatever the
  *  form doesn't edit (its ACP command) goes back as it came. */
 function toCfg(a: AccountCfg): AccountCfg {
-  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, preferred: a.preferred ?? false, acp: a.acp ?? null, monthly: a.monthly ?? null, per_token: a.per_token ?? false };
+  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, preferred: a.preferred ?? false, acp: a.acp ?? null, monthly: a.monthly ?? null, per_token: a.per_token ?? false, disabled: a.disabled ?? false };
 }
 
 interface AccountsSectionProps {
@@ -284,6 +287,7 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
       acp: was?.acp ?? null,
       monthly: draft.perToken ? null : monthlyOf(draft.monthly),
       per_token: draft.perToken,
+      disabled: was?.disabled ?? false,
     };
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
     if (await save(next)) {
@@ -305,6 +309,11 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
   const remove = async (name: string) => {
     if (!accounts) return;
     if (await save(accounts.filter((a) => a.name !== name))) setRemoving(null);
+  };
+
+  const turnOff = (name: string, off: boolean) => {
+    if (!accounts) return;
+    void save(accounts.map((a) => (a.name === name ? { ...a, disabled: off } : a)));
   };
 
   // The board shows the reading after; one that didn't take says why here.
@@ -431,9 +440,9 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
         const u = usage.find((x) => x.account === a.name);
         const t = trainingOf(training, a.name);
         const tag = trainingTag(t);
-        const status = a.signedIn ? (a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
+        const status = a.signedIn ? (a.signInNote ?? a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
         return (
-          <div key={a.name} id={`ca-acct-${a.name}`} className={cx('ca-ucard', 'ca-acct', focus === a.name && 'is-focus')}>
+          <div key={a.name} id={`ca-acct-${a.name}`} className={cx('ca-ucard', 'ca-acct', focus === a.name && 'is-focus', a.disabled && 'is-off')}>
             <div className="ca-ucard-head">
               <button
                 type="button"
@@ -449,6 +458,11 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
               <span className="ca-ucard-name">{a.name}</span>
               <span className="ca-ucard-plan">{[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')}</span>
               <span className="ca-acct-tags">
+                {a.disabled && (
+                  <span className="ca-tag" title={OFF_TITLE}>
+                    Turned off
+                  </span>
+                )}
                 <span className={['ca-tag', a.signedIn ? 'is-ok' : 'is-attn'].join(' ')}>
                   {a.signedIn && <Icon name="check" size={12} stroke={2} />}
                   {status}
@@ -531,6 +545,9 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
                 )}
                 <Button variant="ghost" size="sm" onClick={() => startEdit(a)}>
                   Edit
+                </Button>
+                <Button variant="ghost" size="sm" disabled={busy} title={a.disabled ? 'Codealong starts sessions on it again, and shows it in the usage bar.' : OFF_TITLE} onClick={() => turnOff(a.name, !a.disabled)}>
+                  {a.disabled ? 'Turn on' : 'Turn off'}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setRemoving(a.name)}>
                   Remove

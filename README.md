@@ -552,6 +552,7 @@ start = "background"           # where new sessions start: terminal, background,
 preferred = true               # Auto starts it over accounts without this while it has room
 monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Usage window
 # per_token = true             # it pays by the token (an API key): what its work cost at API prices was paid
+# disabled = true              # turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show
 
 [[accounts]]
 name = "opencode"
