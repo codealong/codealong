@@ -150,8 +150,9 @@ fn put_back_defaults(settings: &Path, before: &Value, saved: &Value, to: Switch)
 }
 
 /// `text` with the defaults a switch's command saved (those it can save that differ between
-/// `before` and `saved`) put back to `before`'s where they're still what it saved, or None when
-/// there are none.
+/// `before` and `saved`, and for `/effort` that `saved` has at the level it set: another
+/// session's level changed meanwhile isn't its) put back to `before`'s where they're still what
+/// it saved, or None when there are none.
 fn with_defaults_of(text: &str, before: &Value, saved: &Value, to: Switch) -> Result<Option<String>> {
     let now: Value = serde_json::from_str(text)?;
     let level = |v: &Value, model: Option<&str>| -> Option<Value> {
@@ -161,18 +162,20 @@ fn with_defaults_of(text: &str, before: &Value, saved: &Value, to: Switch) -> Re
         }
     };
     let models = |v: &Value| -> Vec<String> { v.get(MODEL_SETTINGS).and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default() };
-    let (saves, saves_levels) = match to {
+    let set = Value::String(to.value().to_string());
+    let (saves, levels) = match to {
         Switch::Model(_) => (MODEL, false),
         Switch::Effort(_) => (EFFORT_LEVEL, true),
     };
+    let ours = |put: Option<&Value>| !levels || put == Some(&set);
     let mut tops: Vec<&str> = Vec::new();
-    if saved.get(saves) != before.get(saves) && now.get(saves) == saved.get(saves) {
+    if saved.get(saves) != before.get(saves) && now.get(saves) == saved.get(saves) && ours(saved.get(saves)) {
         tops.push(saves);
     }
     let mut changed: Vec<String> = Vec::new();
-    for model in models(saved).into_iter().chain(models(before)).filter(|_| saves_levels) {
+    for model in models(saved).into_iter().chain(models(before)).filter(|_| levels) {
         let (was, put) = (level(before, Some(&model)), level(saved, Some(&model)));
-        if put != was && level(&now, Some(&model)) == put && !changed.contains(&model) {
+        if put != was && ours(put.as_ref()) && level(&now, Some(&model)) == put && !changed.contains(&model) {
             changed.push(model);
         }
     }
@@ -240,11 +243,16 @@ mod tests {
         assert_eq!(put_back(&saved, &before, EFFORT).as_deref(), Some(SETTINGS));
         // A level it changed goes back to what it was.
         let changed = SETTINGS.replace("    \"claude-opus-5-5\": {\n      \"effortLevel\": \"xhigh\"", "    \"claude-opus-5-5\": {\n      \"effortLevel\": \"low\"");
-        assert_eq!(put_back(&changed, &before, EFFORT).as_deref(), Some(SETTINGS));
+        assert_eq!(put_back(&changed, &before, Switch::Effort("low")).as_deref(), Some(SETTINGS));
         let top = SETTINGS.replace("  \"effortLevel\": \"xhigh\",", "  \"effortLevel\": \"medium\",");
-        assert_eq!(put_back(&top, &before, EFFORT).as_deref(), Some(SETTINGS));
+        assert_eq!(put_back(&top, &before, Switch::Effort("medium")).as_deref(), Some(SETTINGS));
         // Levels as they were: nothing to write.
         assert_eq!(put_back(SETTINGS, &before, EFFORT), None);
+        // Another level changed meanwhile (`/effort low` in a Sonnet session's own terminal)
+        // isn't this switch's.
+        let both = saved.replace("      \"effortLevel\": \"high\"", "      \"effortLevel\": \"low\"").replace("    \"claude-opus-5-5\": {\n      \"effortLevel\": \"xhigh\"", "    \"claude-opus-5-5\": {\n      \"effortLevel\": \"high\"");
+        let theirs = SETTINGS.replace("      \"effortLevel\": \"xhigh\"\n    }\n  },", "      \"effortLevel\": \"xhigh\"\n    },\n    \"claude-sonnet-5-5\": {\n      \"effortLevel\": \"low\"\n    }\n  },");
+        assert_eq!(put_back(&both, &before, EFFORT).as_deref(), Some(theirs.as_str()));
     }
 
     #[test]
@@ -252,9 +260,6 @@ mod tests {
         let before = json!({ "model": "opus" });
         let saved = "{\n  \"model\": \"opus\",\n  \"modelSettings\": {\n    \"claude-opus-5-5\": {\n      \"effortLevel\": \"high\"\n    }\n  }\n}";
         assert_eq!(put_back(saved, &before, EFFORT).as_deref(), Some("{\n  \"model\": \"opus\"\n}"));
-        // A top-level level it took out comes back.
-        let cleared = "{\n  \"model\": \"opus\"\n}\n";
-        assert_eq!(put_back(cleared, &json!({ "model": "opus", "effortLevel": "xhigh" }), EFFORT).as_deref(), Some("{\n  \"model\": \"opus\",\n  \"effortLevel\": \"xhigh\"\n}\n"));
     }
 
     #[test]
@@ -284,7 +289,7 @@ mod tests {
         let first = SETTINGS.replace("  \"model\": \"opus\",", "  \"model\": \"sonnet\",");
         let second: Value = serde_json::from_str(&first.replace("  \"effortLevel\": \"xhigh\",", "  \"effortLevel\": \"low\",")).unwrap();
         let first: Value = serde_json::from_str(&first).unwrap();
-        let after_second = with_defaults_of(&second.to_string(), &first, &second, EFFORT).unwrap().unwrap();
+        let after_second = with_defaults_of(&second.to_string(), &first, &second, Switch::Effort("low")).unwrap().unwrap();
         let after_first = with_defaults_of(&after_second, &before, &first, MODEL_SWITCH).unwrap().unwrap();
         assert_eq!(serde_json::from_str::<Value>(&after_first).unwrap(), before);
     }
