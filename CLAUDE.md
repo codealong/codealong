@@ -231,7 +231,8 @@ Each rule names the file whose header has the rest.
   device, `gh` or curl goes through lib.rs's `blocking`.
 - What goes between devices is codealong-peer (`src-tauri/peer/`, its `lib.rs` says what each
   module holds). A new field on a session or lane goes in `peer/src/model.rs`, with its neutral
-  value in `Session::new` or `Lane::new`, which everything that builds one starts from; tests
+  value in `Session::new` or `Lane::new`, which everything that builds one starts from, and bumps
+  `feed::READS` when another device shows it, so a kept copy without it is sent again; tests
   build them from the shared fixtures (`peer/src/fixtures.rs`). The iPhone app builds on the
   crate at a pinned commit and talks to Macs of other builds, so a new message goes only to
   peers that say they know it.

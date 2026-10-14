@@ -1117,6 +1117,17 @@ pub fn last_sentence(text: &str) -> String {
     truncate(t[cut..].trim(), 140)
 }
 
+/// The sessions a pin asked for from another device takes (`session-pin`): for a pin, only ones
+/// the board lists and hasn't archived, since a list shown a while ago could name one archived
+/// since, whose pin archiving took off, or none at all; for an unpin, any.
+pub fn pinnable<'a>(lanes: &[Lane], keys: &'a [String], pinned: bool) -> Vec<&'a String> {
+    if !pinned {
+        return keys.iter().collect();
+    }
+    let listed: std::collections::HashSet<&str> = lanes.iter().flat_map(|l| l.sessions.iter()).filter(|s| !s.archived).map(|s| s.key.as_str()).collect();
+    keys.iter().filter(|k| listed.contains(k.as_str())).collect()
+}
+
 /// Applies quiet from Codealong to a session, after its status and Jev's read of it and before a
 /// mark of unread or a snooze, before bays and headlines are worked out. A quiet session's turn
 /// that ended is idle rather than Your turn, so it's in no queue, on no pill and off the mark:
@@ -2909,6 +2920,16 @@ mod tests {
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));
+    }
+
+    #[test]
+    fn a_pin_from_another_device_takes_only_sessions_listed_and_not_archived() {
+        let archived = Session { archived: true, ..crate::fixtures::session("claude:claude:old") };
+        let lanes = vec![crate::fixtures::lane("/a", vec![crate::fixtures::session("claude:claude:a"), archived])];
+        let keys: Vec<String> = vec!["claude:claude:old".into(), "claude:claude:a".into(), "claude:claude:gone".into(), String::new()];
+        assert_eq!(pinnable(&lanes, &keys, true), [&keys[1]]);
+        // Any key comes off.
+        assert_eq!(pinnable(&lanes, &keys, false).len(), 4);
     }
 
     #[test]

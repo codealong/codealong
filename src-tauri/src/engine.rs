@@ -2098,6 +2098,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Pin(keys, pinned, reply)) => {
+                    let keys: Vec<String> = self.board.read().map(|b| board::pinnable(&b.lanes, &keys, pinned).into_iter().cloned().collect()).unwrap_or_default();
                     let mut changed = false;
                     // In reverse, so sessions pinned together keep the order they were asked in.
                     for k in keys.iter().rev() {

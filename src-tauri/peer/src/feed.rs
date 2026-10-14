@@ -56,6 +56,13 @@ pub struct FeedMsg {
     pub prs: Option<Vec<PrCard>>,
 }
 
+/// How this build reads a feed's lanes. A lane or a session that gains a field another device shows
+/// bumps it: a build from before reads such a feed without the field and keeps the sender's hashes
+/// all the same, so once it's updated, a resumed feed (`Replica::have`) would leave out every lane
+/// that hasn't changed since, the field missing from them until they do. A copy kept with another
+/// stamp is sent again whole instead. 1: `Session::pin`.
+pub const READS: u32 = 1;
+
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
 /// so a device that's asleep still shows as it was when last seen.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -72,12 +79,20 @@ pub struct Replica {
     /// Its PR list, as its feeds last said; none from a device that sends none.
     #[serde(default)]
     pub prs: Vec<PrCard>,
+    /// How the build that read its last whole feed reads them (`READS`); 0 from builds before the
+    /// stamp.
+    #[serde(default)]
+    pub reads: u32,
 }
 
 impl Replica {
     /// The lanes to tell the sender this device still has when it reconnects (`Msg::Have`): only
-    /// ones whose hash it sent, so a lane from a sender that sends none is sent again.
+    /// ones whose hash it sent, so a lane from a sender that sends none is sent again. None from a
+    /// copy another build read (`READS`), so it's sent again whole.
     pub fn have(&self) -> HashMap<String, u64> {
+        if self.reads != READS {
+            return HashMap::new();
+        }
         self.lanes.iter().filter_map(|l| self.hashes.get(&l.id).map(|h| (l.id.clone(), *h))).collect()
     }
 
@@ -91,7 +106,7 @@ impl Replica {
 
     pub fn apply(&mut self, msg: FeedMsg) {
         if msg.full {
-            *self = Replica::default();
+            *self = Replica { reads: READS, ..Replica::default() };
         }
         for id in &msg.gone {
             self.hashes.remove(id);
@@ -154,6 +169,19 @@ mod tests {
         replica.apply(FeedMsg { rev: 5, full: true, lanes: vec![lane("/old")], ..Default::default() });
         replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/new")], ..Default::default() });
         assert_eq!(replica.lanes.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["/new"]);
+    }
+
+    #[test]
+    fn a_copy_an_older_build_kept_is_sent_again_whole() {
+        // An older build read the feed without fields it didn't know, keeping the hashes; its
+        // copy, saved without the stamp, asks for nothing to be left out.
+        let older: Replica = serde_json::from_value(serde_json::json!({ "rev": 3, "generatedAt": 1, "device": { "name": "Mac", "app": "0.1.0", "remoteControl": false }, "lanes": [lane("/a")], "usage": [], "hashes": { "/a": 7 } })).unwrap();
+        assert!(older.have().is_empty());
+        // What this build reads whole it resumes from.
+        let mut replica = older;
+        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/a")], hashes: HashMap::from([("/a".to_string(), 8)]), ..Default::default() });
+        assert_eq!(replica.reads, READS);
+        assert_eq!(replica.have(), HashMap::from([("/a".to_string(), 8)]));
     }
 
     #[test]
