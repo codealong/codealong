@@ -1847,7 +1847,7 @@ pub fn run() {
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
             let chimer = std::sync::Mutex::new(sounds::Chimer::default());
             let shortcuts = config::shortcuts();
-            let shortcut = std::sync::Mutex::new((shortcuts.quick_panel.clone(), shortcuts.waiting.clone(), shortcuts.improve.clone()));
+            let shortcut = std::sync::Mutex::new(quick::Keys::ALL.map(|which| which.in_config(&shortcuts).to_string()));
             // Your other devices (peers.rs). They come before the engine, which publishes to them,
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
@@ -1895,11 +1895,11 @@ pub fn run() {
                 // Registering waits on the main thread, so it gets a thread of its own: this one
                 // may hold what a command on the main thread is waiting for.
                 if let Ok(mut shortcut) = shortcut.lock() {
-                    let (quick_was, waiting_was, improve_was) = &mut *shortcut;
-                    for (which, now, was) in [(quick::Keys::Quick, &board.quick_shortcut, quick_was), (quick::Keys::Waiting, &board.waiting_shortcut, waiting_was), (quick::Keys::Improve, &board.improve_shortcut, improve_was)] {
+                    for (which, was) in quick::Keys::ALL.into_iter().zip(shortcut.iter_mut()) {
+                        let now = which.on_board(board);
                         if was != now {
-                            *was = now.clone();
-                            let (app, wanted) = (emitter.clone(), now.clone());
+                            *was = now.to_string();
+                            let (app, wanted) = (emitter.clone(), now.to_string());
                             std::thread::spawn(move || quick::apply_shortcut(&app, which, &wanted));
                         }
                     }
@@ -2048,9 +2048,9 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let shortcuts = config::shortcuts();
-                quick::apply_shortcut(&handle, quick::Keys::Quick, &shortcuts.quick_panel);
-                quick::apply_shortcut(&handle, quick::Keys::Waiting, &shortcuts.waiting);
-                quick::apply_shortcut(&handle, quick::Keys::Improve, &shortcuts.improve);
+                for which in quick::Keys::ALL {
+                    quick::apply_shortcut(&handle, which, which.in_config(&shortcuts));
+                }
             });
             if let Err(e) = add_settings_menu(app.handle()) {
                 eprintln!("Couldn't add Settings to the menu: {e:#}");
@@ -2075,6 +2075,7 @@ pub fn run() {
             }
         }).build())
         .on_window_event(|window, event| {
+            front::on_window_event(window, event);
             bar::on_window_event(window, event);
             quick::on_window_event(window, event);
             waiting::on_window_event(window, event);

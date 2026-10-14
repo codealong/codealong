@@ -163,6 +163,9 @@ pub struct Board {
     /// Improve Codealong's shortcut, from config.toml; empty when it's off.
     #[serde(default)]
     pub improve_shortcut: String,
+    /// The shortcut that brings the board's window forward, from config.toml; empty when it's off.
+    #[serde(default)]
+    pub main_window_shortcut: String,
     /// Where a session that improves Codealong goes: its project and worktree, or its source in
     /// no project yet (improve.rs).
     #[serde(default)]

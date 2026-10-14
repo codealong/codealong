@@ -28,6 +28,7 @@ export interface TipShortcuts {
   quick?: string;
   waiting?: string;
   improve?: string;
+  main?: string;
 }
 
 /** A tip's words: text; a key or chord as the chord tables write them (`Shift+Cmd+E`); one of the
@@ -56,6 +57,7 @@ const code = (text: string) => ({ code: text });
 const QUICK = { shortcut: 'quick' } as const;
 const WAITING = { shortcut: 'waiting' } as const;
 const IMPROVE = { shortcut: 'improve' } as const;
+const MAIN = { shortcut: 'main' } as const;
 
 /** Every place, for the tests. */
 export const TIP_PLACES: readonly TipPlace[] = ['board', 'session', 'waiting', 'quick', 'pr'];
@@ -68,6 +70,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'quick-panel', places: ['board', 'session', 'waiting', 'pr'], says: says`${QUICK} opens the quick panel from any app: type a few words to find a session, or a prompt to start one.` },
   { id: 'improve', places: ['board', 'session', 'waiting', 'pr'], says: says`${IMPROVE} starts a session that improves Codealong itself, with pictures of its windows as they are: describe what to change.` },
   { id: 'waiting-window', places: ['board', 'session', 'quick', 'pr'], says: says`${WAITING} goes through what waits on you, one at a time, from any app.` },
+  { id: 'main-window', places: ['board', 'session', 'waiting', 'quick', 'pr'], says: says`${MAIN} brings Codealong's window to the front from any app, and hides Codealong when you're in it.` },
   { id: 'right-click', places: BOARD, says: says`Right-click a session, worktree, PR or todo for everything it can do, each action with its keys beside it.` },
   { id: 'view-letters', places: BOARD, says: says`${key(VIEW_CHORDS.sessions)} Sessions, ${key(VIEW_CHORDS.worktrees)} Worktrees, ${key(VIEW_CHORDS.prs)} PRs, ${key(VIEW_CHORDS.todo)} Todo and ${key(VIEW_CHORDS.canvas)} Canvas go straight to a view, from a text field too.` },
   { id: 'mark-done', places: SESSION_KEYS, says: says`${key(CHORDS.done)} marks a session done: it's closed where it runs, marked seen and archived.` },

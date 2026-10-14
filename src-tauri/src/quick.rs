@@ -4,7 +4,8 @@
 //! config.toml) opens it, and so do ⌘N and New session in the board's windows, at what's
 //! selected there. Answering what waits on you, one after another, is the waiting window's
 //! (waiting.rs), which a second shortcut (`[shortcuts] waiting`) brings up, unless the bar is
-//! docked in the notch: then the notch does that (`work_through`). Both shortcuts are kept here.
+//! docked in the notch: then the notch does that (`work_through`). Every shortcut that works in
+//! any app is kept here (`Keys`), whatever it opens.
 //!
 //! Like the floating bar it's a non-activating panel: macOS shows only those on another app's
 //! full-screen Space, and opening one leaves the app you're in active, with Codealong's windows
@@ -60,20 +61,43 @@ struct Quick {
     shortcut: Mutex<ShortcutState>,
     waiting_shortcut: Mutex<ShortcutState>,
     improve_shortcut: Mutex<ShortcutState>,
+    main_shortcut: Mutex<ShortcutState>,
 }
 
 /// Codealong's shortcuts that work in every app: the quick panel's, the one that goes through
-/// what waits on you, and Improve Codealong's (improve.rs).
+/// what waits on you, Improve Codealong's (improve.rs), and the one that brings the board's window
+/// forward (front.rs `toggle_board`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Keys {
     Quick,
     Waiting,
     Improve,
+    Main,
 }
 
 impl Keys {
-    pub const ALL: [Keys; 3] = [Keys::Quick, Keys::Waiting, Keys::Improve];
+    pub const ALL: [Keys; 4] = [Keys::Quick, Keys::Waiting, Keys::Improve, Keys::Main];
+
+    /// Its shortcut as `[shortcuts]` in config.toml has it.
+    pub fn in_config(self, cfg: &crate::config::ShortcutsCfg) -> &str {
+        match self {
+            Keys::Quick => &cfg.quick_panel,
+            Keys::Waiting => &cfg.waiting,
+            Keys::Improve => &cfg.improve,
+            Keys::Main => &cfg.main_window,
+        }
+    }
+
+    /// Its shortcut as the board has it, which follows config.toml as it's edited.
+    pub fn on_board(self, board: &crate::model::Board) -> &str {
+        match self {
+            Keys::Quick => &board.quick_shortcut,
+            Keys::Waiting => &board.waiting_shortcut,
+            Keys::Improve => &board.improve_shortcut,
+            Keys::Main => &board.main_window_shortcut,
+        }
+    }
 }
 
 impl Quick {
@@ -82,6 +106,7 @@ impl Quick {
             Keys::Quick => &self.shortcut,
             Keys::Waiting => &self.waiting_shortcut,
             Keys::Improve => &self.improve_shortcut,
+            Keys::Main => &self.main_shortcut,
         }
     }
 }
@@ -327,8 +352,8 @@ pub fn work_through(app: &AppHandle) {
     crate::waiting::toggle(app);
 }
 
-/// One of Codealong's shortcuts was pressed: the quick panel's opens or hides it, the other goes
-/// through what waits on you. On the main thread.
+/// One of Codealong's shortcuts was pressed: each opens what it's for, or puts it away when it's
+/// up and in front. On the main thread.
 pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
     let Some(state) = app.try_state::<Quick>() else { return };
     let is = |which: Keys| state.slot(which).lock().ok().is_some_and(|s| s.registered.as_ref() == Some(shortcut));
@@ -338,6 +363,8 @@ pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
         toggle(app);
     } else if is(Keys::Improve) {
         crate::improve::toggle(app);
+    } else if is(Keys::Main) {
+        crate::front::toggle_board(app);
     }
 }
 
@@ -474,6 +501,8 @@ mod tests {
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Slash));
         let s = parse_shortcut(crate::config::DEFAULT_WAITING).unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Period));
+        let s = parse_shortcut(crate::config::DEFAULT_MAIN_WINDOW).unwrap().unwrap();
+        assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Semicolon));
         assert!(parse_shortcut("").unwrap().is_none());
         assert!(parse_shortcut("  ").unwrap().is_none());
         // A function key can stand alone; Command and Space is allowed, for people who moved Spotlight.

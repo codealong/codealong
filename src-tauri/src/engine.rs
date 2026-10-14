@@ -778,9 +778,19 @@ pub fn link_opens_as(board: &Board, url: &str) -> Option<Lane> {
 
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
-    // The theme and zoom are on the board before the first scan finishes, so windows open in them.
+    // The theme, zoom and shortcuts are on the board before the first scan finishes, so windows
+    // open in them.
     let shortcuts = config::shortcuts();
-    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), zoom: config::zoom(), quick_shortcut: shortcuts.quick_panel, waiting_shortcut: shortcuts.waiting, ..Default::default() }));
+    let board = Arc::new(RwLock::new(Board {
+        loading: true,
+        theme: config::theme(),
+        zoom: config::zoom(),
+        quick_shortcut: shortcuts.quick_panel,
+        waiting_shortcut: shortcuts.waiting,
+        improve_shortcut: shortcuts.improve,
+        main_window_shortcut: shortcuts.main_window,
+        ..Default::default()
+    }));
     let handle = Handle { tx: tx.clone(), board: board.clone() };
     let ping = tx.clone();
     std::thread::spawn(move || loop {
@@ -3271,6 +3281,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();
         board.improve_shortcut = self.cfg.shortcuts.improve.clone();
+        board.main_window_shortcut = self.cfg.shortcuts.main_window.clone();
         // Codealong's own source's worktrees, and where a session that improves it goes.
         let sources: HashSet<PathBuf> = self.codealong_sources.iter().map(|(root, _)| root.clone()).collect();
         crate::improve::mark(&mut board.lanes, &self.lane_checkout, &sources);

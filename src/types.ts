@@ -606,7 +606,7 @@ export interface Config {
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   appearance: { theme: Theme; zoom?: number };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
-  shortcuts: { quick_panel: string; waiting: string; improve?: string };
+  shortcuts: { quick_panel: string; waiting: string; improve?: string; main_window?: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
   jev?: JevCfg;
   accounts: AccountCfg[];
@@ -1037,6 +1037,8 @@ export interface Board {
   waitingShortcut?: string;
   /** Improve Codealong's shortcut, as config.toml writes it; empty when off. Missing on older boards. */
   improveShortcut?: string;
+  /** The shortcut that brings the board's window forward, as config.toml writes it; empty when off. Missing on older boards. */
+  mainWindowShortcut?: string;
   /** Where a session that improves Codealong goes (improve.ts). Missing on older boards. */
   improve?: Improve;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
@@ -1584,8 +1586,9 @@ export interface StartSpec {
 
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */
 export interface ShortcutStatus {
-  /** The quick panel's, the one that goes through what waits on you, or Improve Codealong's. */
-  which: 'quick' | 'waiting' | 'improve';
+  /** The quick panel's, the one that goes through what waits on you, Improve Codealong's, or the
+   *  one that brings the board's window forward. */
+  which: 'quick' | 'waiting' | 'improve' | 'main';
   /** As config.toml writes it; empty when it's off. */
   shortcut: string;
   error: string | null;

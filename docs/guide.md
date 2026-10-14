@@ -978,14 +978,24 @@ default width. The PR panel keeps a width of its own.
 *File › New window, ⌘⇧N*
 
 One more window on the project you're looking at. Closing the main window hides it; New window, the
-Dock icon or the bar brings it back, and ⌘Q quits.
+Dock icon, the bar or ⌥⌘; brings it back, and ⌘Q quits.
+
+### Back to Codealong's window
+
+*⌥⌘; from any app, `[shortcuts] main_window`*
+
+Brings forward the window you were in last, the main window or a project's (the main window when
+that one's been closed since), out of the Dock if it's minimized. Pressed while you're in one of
+them, it hides Codealong as ⌘H does, and macOS goes back to the app you were in; the floating bar,
+the quick panel and the cards pinned to the desktop stay. Settings › General changes it or turns it
+off.
 
 ### Settings window
 
 *⌘, (comma), the app menu, or the foot of the sidebar*
 
-A form for everything in config.toml. General has the folders searched for repos, the quick panel's
-shortcut, the terminal and editor, and the theme; Sounds has the sound for each thing that starts to
+A form for everything in config.toml. General has the folders searched for repos, the shortcuts
+that work in any app, the terminal and editor, and the theme; Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain)
 and a switch per feature, each saying what it sends; Accounts adds, edits, turns off, removes and
 signs in accounts, says how each pays (a plan's price a month, or by the token; see *What sessions

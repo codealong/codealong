@@ -210,51 +210,20 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <ListField items={cfg.scan} placeholder="~/projects" addLabel="Add folder" onChange={(scan) => void onSave({ ...cfg, scan })} />
           <small>Three levels deep. Every repo and worktree found here is on the board; projects group them below.</small>
         </div>
-        <div className="ca-field">
-          <span>Quick panel</span>
-          <ShortcutField
-            which="quick"
-            name="Quick panel shortcut"
-            fallback={DEFAULT_QUICK_PANEL}
-            value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL}
-            others={[
-              { value: cfg.shortcuts?.waiting ?? DEFAULT_WAITING, name: 'the shortcut for what waits on you' },
-              { value: cfg.shortcuts?.improve ?? DEFAULT_IMPROVE, name: 'Improve Codealong’s shortcut' },
-            ]}
-            onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })}
-          />
-          <small>Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.</small>
-        </div>
-        <div className="ca-field">
-          <span>What waits on you</span>
-          <ShortcutField
-            which="waiting"
-            name="Shortcut for what waits on you"
-            fallback={DEFAULT_WAITING}
-            value={cfg.shortcuts?.waiting ?? DEFAULT_WAITING}
-            others={[
-              { value: cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL, name: 'the quick panel’s shortcut' },
-              { value: cfg.shortcuts?.improve ?? DEFAULT_IMPROVE, name: 'Improve Codealong’s shortcut' },
-            ]}
-            onChange={(waiting) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, waiting } })}
-          />
-          <small>Opens the first session that waits on you, from any app, to answer one after another: in the notch when the bar is docked there, else in a window of its own. Press it again to put it away.</small>
-        </div>
-        <div className="ca-field">
-          <span>Improve Codealong</span>
-          <ShortcutField
-            which="improve"
-            name="Improve Codealong’s shortcut"
-            fallback={DEFAULT_IMPROVE}
-            value={cfg.shortcuts?.improve ?? DEFAULT_IMPROVE}
-            others={[
-              { value: cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL, name: 'the quick panel’s shortcut' },
-              { value: cfg.shortcuts?.waiting ?? DEFAULT_WAITING, name: 'the shortcut for what waits on you' },
-            ]}
-            onChange={(improve) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, improve } })}
-          />
-          <small>Opens the quick panel on Codealong’s own project with a picture of every Codealong window as it is, to describe what to change: the session improves Codealong itself. The button beside New session does the same.</small>
-        </div>
+        {SHORTCUTS.map((field) => (
+          <div className="ca-field" key={field.which}>
+            <span>{field.title}</span>
+            <ShortcutField
+              which={field.which}
+              name={field.name}
+              fallback={field.fallback}
+              value={cfg.shortcuts?.[field.key] ?? field.fallback}
+              others={SHORTCUTS.filter((o) => o !== field).map((o) => ({ value: cfg.shortcuts?.[o.key] ?? o.fallback, name: o.called }))}
+              onChange={(shortcut) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, [field.key]: shortcut } })}
+            />
+            <small>{field.says}</small>
+          </div>
+        ))}
         <label className="ca-field">
           <span>Search what sessions said</span>
           <ProfileSelect value={String(searchDays)} profiles={dayOptions(searchDays)} onChange={(d) => void onSave({ ...cfg, search: { days: Number(d) } })} />
@@ -811,11 +780,46 @@ const NUDGE_ABOUT: (Profile & { id: NudgeAbout; says: string })[] = [
   { id: 'feedback-and-checks', name: 'Comments, requests for changes, checks and conflicts', says: 'When someone else comments on it, asks for changes, or reviews it with something to say, and when its checks fail or its branch comes to conflict with its base: what asks for work. Never for an approval, a merge or a close.' },
 ];
 
-/** config.rs's DEFAULT_QUICK_PANEL. */
-const DEFAULT_QUICK_PANEL = 'Option+Cmd+/';
-/** config.rs's DEFAULT_WAITING. */
-const DEFAULT_WAITING = 'Option+Cmd+.';
-const DEFAULT_IMPROVE = 'Option+Cmd+,';
+/** The shortcuts that work in every app, in General's order: `key` is config.toml's, `fallback`
+ *  config.rs's default, `called` what another field says when you press this one's keys there. */
+const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts']; title: string; name: string; called: string; fallback: string; says: string }[] = [
+  {
+    which: 'quick',
+    key: 'quick_panel',
+    title: 'Quick panel',
+    name: 'Quick panel shortcut',
+    called: 'the quick panel’s shortcut',
+    fallback: 'Option+Cmd+/',
+    says: 'Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.',
+  },
+  {
+    which: 'waiting',
+    key: 'waiting',
+    title: 'What waits on you',
+    name: 'Shortcut for what waits on you',
+    called: 'the shortcut for what waits on you',
+    fallback: 'Option+Cmd+.',
+    says: 'Opens the first session that waits on you, from any app, to answer one after another: in the notch when the bar is docked there, else in a window of its own. Press it again to put it away.',
+  },
+  {
+    which: 'improve',
+    key: 'improve',
+    title: 'Improve Codealong',
+    name: 'Improve Codealong’s shortcut',
+    called: 'Improve Codealong’s shortcut',
+    fallback: 'Option+Cmd+,',
+    says: 'Opens the quick panel on Codealong’s own project with a picture of every Codealong window as it is, to describe what to change: the session improves Codealong itself. The button beside New session does the same.',
+  },
+  {
+    which: 'main',
+    key: 'main_window',
+    title: 'Codealong’s window',
+    name: 'Shortcut for Codealong’s window',
+    called: 'the shortcut for Codealong’s window',
+    fallback: 'Option+Cmd+;',
+    says: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong, as ⌘H does, and go back to the app you were in.',
+  },
+];
 
 /** The board goes back this far, so searching further finds nothing more (config.rs). */
 const MAX_SEARCH_DAYS = 14;

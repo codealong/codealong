@@ -1590,7 +1590,7 @@ export function windowLabel(): string | null {
 /** One of the shortcuts that work in every app, the quick panel's unless `which` says, and
  *  whether it works. */
 export async function quickShortcut(which: ShortcutStatus['which'] = 'quick'): Promise<ShortcutStatus> {
-  const preview: ShortcutStatus = { which, shortcut: which === 'quick' ? 'Option+Cmd+/' : which === 'waiting' ? 'Option+Cmd+.' : 'Option+Cmd+,', error: null };
+  const preview: ShortcutStatus = { which, shortcut: { quick: 'Option+Cmd+/', waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;' }[which], error: null };
   if (!inTauri) return preview;
   return (await invoke<ShortcutStatus | null>('quick_shortcut', { which })) ?? preview;
 }

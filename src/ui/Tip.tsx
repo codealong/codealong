@@ -40,7 +40,7 @@ export function Tip({ place, className }: { place: TipPlace; className?: string 
         // Unasked, the tips that name it don't show: the rest still do.
         () => [],
       );
-    void Promise.all([ask('quick'), ask('waiting'), ask('improve')]).then((found) => on && setShortcuts(Object.fromEntries(found.flat())));
+    void Promise.all([ask('quick'), ask('waiting'), ask('improve'), ask('main')]).then((found) => on && setShortcuts(Object.fromEntries(found.flat())));
     return () => {
       on = false;
     };
