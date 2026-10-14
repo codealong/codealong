@@ -170,9 +170,13 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   version can't use the running app-server daemon (0.157.1 against 0.162.1 here; the hidden
   `--no-daemon` runs without it), and an "Update available" offer (Esc skips). 0.162.1's binary
   also has the first for "Background server has incompatible feature settings" (Run without
-  daemon this time, Restart with these settings), names `--no-daemon` in its own errors, and
-  reads `check_for_update_on_startup` in config.toml (checked with `strings`, 2026-10-14, not
-  run). Codealong can't read a Ghostty tab to tell which screen is up, so it answers none: a
+  daemon this time, Restart with these settings) and names `--no-daemon` in its own errors
+  (checked with `strings`, 2026-10-14). Its `check_for_update_on_startup` is a real setting: `-c
+  check_for_update_on_startup=notabool` fails ("failed to load bootstrap configuration") where a
+  key it doesn't know is ignored, and `-c` goes before `resume` and `fork`. Codealong passes it
+  as false to every terminal UI it opens (`codex/mod.rs` `terminal_ui`), so those never offer an
+  update; the background server is left as Codex sets it (asked 2026-10-14). Codealong can't
+  read a Ghostty tab to tell which screen is up, so it answers none: a
   start in a terminal still without its session three minutes on is said in a notice, and told
   to the session that started it as a reporting helper (origins.rs `Pending::stuck`,
   helpers.rs). A Codex review started in a terminal sat on one for 66 minutes (2026-10-14).

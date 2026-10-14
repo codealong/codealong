@@ -1689,8 +1689,9 @@ send that doesn't go is tried again a few times, then said in a notice.
 
 A start in a terminal whose harness names its own sessions (Codex, OpenCode, Antigravity) has no
 session until its terminal UI makes one, and the UI can first stop on a screen of its own (Codex's
-update offer, or its question about its background server) that Codealong can't read or answer,
-in a terminal that may be behind your windows. When one started with a prompt, by you or by an
+question about its background server) that Codealong can't read or answer, in a terminal that may
+be behind your windows. Codex's terminal UI as Codealong opens it (a start, a resume, a fork) never
+offers an update; Codex you run yourself still does. When one started with a prompt, by you or by an
 agent, has made no session three minutes on, a notice says where (*Codex hasn't started in …*)
 until its session shows, and a helper started with `--report` is told of to its session once, so
 its agent can tell you.
@@ -1705,7 +1706,7 @@ is held as any agent's is. Such a start takes the next session of its account in
 half an hour, and after that, for up to a day, only one that opens with the prompt it was started
 with and whose process began as the start did (or, its process gone, that began then itself, as
 one found only once the app is opened again): a terminal UI can stop on a screen of its own
-before it makes its session (Codex's update offer) until you answer it. A session whose process
+before it makes its session (Codex's question about its background server) until you answer it. A session whose process
 began before a start was asked for is never that start's. So is an automatic review's, whose reply reaches the PR's opener only
 as `[reviews.own] send` says, and that of a helper you made your own; a start another Mac asks
 for makes no helper. A message from any other agent is held there, as before, unless the agent's

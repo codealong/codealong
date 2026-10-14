@@ -269,9 +269,9 @@ impl crate::harness::Adapter for Codex {
     fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
         let prompt = crate::attachments::expand(ask.prompt, crate::attachments::Style::Path).trim().to_string();
         if prompt.is_empty() {
-            return Ok((format!("{} resume -- {}\n", account.command(), s.id), Vec::new()));
+            return Ok((format!("{} resume -- {}\n", terminal_ui(account), s.id), Vec::new()));
         }
-        let input = format!("{} resume -- {} \"${}\"\n", account.command(), s.id, crate::start::PROMPT_VAR);
+        let input = format!("{} resume -- {} \"${}\"\n", terminal_ui(account), s.id, crate::start::PROMPT_VAR);
         Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), prompt)]))
     }
 
@@ -371,7 +371,7 @@ impl crate::harness::Adapter for Codex {
         use crate::attachments::{self, Style};
         let prompt = attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, Style::Path);
         let prompt = prompt.trim();
-        let mut input = account.command().to_string();
+        let mut input = terminal_ui(account);
         let mut env = Vec::new();
         for rel in attachments::referenced(ask.prompt).iter().filter(|r| r.starts_with("images/")) {
             if let Some(name) = rel.strip_prefix("images/") {
@@ -710,7 +710,16 @@ fn let_go(open: &[(&Path, u64)], held: &HashSet<OsString>, len_now: impl Fn(&Pat
 }
 
 fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Typed {
-    crate::harness::Typed { input: format!("{} fork {id}\n", account.command()), env: Vec::new(), key: None }
+    crate::harness::Typed { input: format!("{} fork {id}\n", terminal_ui(account)), env: Vec::new(), key: None }
+}
+
+/// The account's command as Codealong types it to open Codex's terminal UI (a start, a resume, a
+/// fork), without the update offer the UI can stop on before it makes its session: in a terminal
+/// behind your windows nobody answers it, and a review sat 66 minutes on a screen of its own
+/// (2026-10-14). Codex you run yourself still offers updates. `-c` goes before a subcommand
+/// (0.162.1); a key Codex doesn't know is ignored, so an older one starts as before.
+fn terminal_ui(account: &AccountCfg) -> String {
+    format!("{} -c check_for_update_on_startup=false", account.command())
 }
 
 fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
@@ -756,10 +765,27 @@ mod tests {
     fn forks_a_thread_in_its_accounts_terminal_ui() {
         let a = crate::config::AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let f = fork_of(&a, "01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
-        assert_eq!(f.input, "CODEX_HOME=~/.codex2 codex fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b\n");
+        assert_eq!(f.input, "CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b\n");
         assert_eq!(f.key, None);
         // The terminal it opens is paired with its folder's newest thread, not the one it forked.
-        assert_eq!(terminal_args("codex fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((None, None)));
+        assert_eq!(terminal_args("codex -c check_for_update_on_startup=false fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((None, None)));
+    }
+
+    /// A Codex review started in a terminal behind your windows sat 66 minutes on a screen of its
+    /// own before it made its session (2026-10-14).
+    #[test]
+    fn its_terminal_ui_opens_without_the_update_offer_and_is_still_known() {
+        let a = crate::config::AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        use crate::harness::Adapter;
+        let ask = crate::harness::StartAsk { prompt: "Review the branch", session_id: "unused", model: None, effort: None, worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
+        let start = Codex.start_in_terminal(&a, &ask);
+        assert_eq!(start.input, "codex -c check_for_update_on_startup=false -- \"$CODEALONG_PROMPT\"\n");
+        let s = Session::new(Harness::Codex, "codex", "01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
+        let (resume, _) = Codex.resume(&a, &s, &ask).unwrap();
+        assert_eq!(resume, "codex -c check_for_update_on_startup=false resume -- 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b \"$CODEALONG_PROMPT\"\n");
+        // Its process is still Codex's terminal UI, on the thread it resumed.
+        assert_eq!(terminal_args("codex -c check_for_update_on_startup=false Review the branch"), Some((None, None)));
+        assert_eq!(terminal_args("codex -c check_for_update_on_startup=false resume 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((Some("01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b".into()), None)));
     }
 
     #[test]
