@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, macUnavailable, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount } from './quick';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
@@ -344,6 +344,22 @@ describe('prompt history', () => {
     expect(recallList('draft', ['a'])).toEqual(['draft', 'a']);
     expect(recallList('a', ['a', 'b'])).toEqual(['a', 'b']);
     expect(recallList(null, ['a'])).toEqual(['a']);
+  });
+  it('makes what is typed the draft, and keeps the last one when the input is emptied', () => {
+    const kept = { text: 'fix the bar', todos: ['t1'] };
+    expect(nextDraft('half a thought', [], kept)).toEqual({ text: 'half a thought', todos: [] });
+    expect(nextDraft('', [], kept)).toBe(kept);
+    expect(nextDraft('  ', ['t2'], null)).toBeNull();
+  });
+  it('keeps the draft across restarts, and nothing for no draft', () => {
+    const d = { text: 'fix the bar', todos: ['t1'] };
+    expect(draftCodec.parse(draftCodec.format(d)!)).toEqual(d);
+    expect(draftCodec.format(null)).toBeNull();
+    expect(draftCodec.format({ text: ' ', todos: [] })).toBeNull();
+    expect(draftCodec.parse('{"text":"x","todos":["a",3]}')).toEqual({ text: 'x', todos: ['a'] });
+    expect(draftCodec.parse('{"text":"x"}')).toEqual({ text: 'x', todos: [] });
+    expect(draftCodec.parse('{"todos":[]}')).toBeUndefined();
+    expect(draftCodec.parse('"x"')).toBeUndefined();
   });
 });
 

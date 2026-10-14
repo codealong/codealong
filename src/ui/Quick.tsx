@@ -64,7 +64,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   keepPlaceFailed,
@@ -119,6 +119,8 @@ declare global {
 
 const PROJECT_KEY = 'codealong.quick.project';
 const HISTORY_KEY = 'codealong.quick.history';
+/** What you'd typed and not acted on, so a relaunch (a new build) doesn't lose it. */
+const DRAFT_KEY = 'codealong.quick.draft';
 /** Whether a search lists archived sessions too, under the others. */
 const ARCHIVED_KEY = 'codealong.quick.archived';
 /** The input grows to this many lines, then scrolls. */
@@ -290,7 +292,9 @@ export function Quick() {
   const routes = useRef(new Map<string, Route>());
   // What you'd typed when you last closed the panel without acting on it. Every open starts empty,
   // so the list is what needs you and ⏎ goes to it; ↑ in the empty input brings the draft back.
-  const [draft, setDraft] = useState<{ text: string; todos: string[] } | null>(null);
+  // It's kept on every change as the next open would leave it (below), so a relaunch brings it
+  // back too.
+  const [draft, setDraft] = useState<QuickDraft | null>(() => readStored(DRAFT_KEY, draftCodec, null));
   // Prompts you sent, started or saved, newest first, kept across restarts. ↑ walks back through
   // the draft and then these; `recall` is where it is, and holds while the text is what it
   // brought back.
@@ -348,7 +352,9 @@ export function Quick() {
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
         setLaneId(at);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
-        if (textNow.current.trim()) setDraft({ text: textNow.current, todos: todoIdsNow.current });
+        const typed = textNow.current;
+        const typedFor = todoIdsNow.current;
+        setDraft((d) => nextDraft(typed, typedFor, d));
         setText(ctx.prompt ?? '');
         setRecall(null);
         setAgent(null);
@@ -824,6 +830,9 @@ export function Quick() {
     label: (key) => deskTitle(rowsNow.current.find((r) => r.key === key)),
   });
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
+  useEffect(() => {
+    writeStored(DRAFT_KEY, draftCodec, nextDraft(text, todoIds, draft));
+  }, [text, todoIds, draft]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
   useEffect(() => {

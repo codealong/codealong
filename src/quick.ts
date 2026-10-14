@@ -11,6 +11,7 @@ import { branchLabel, byStatusTime, sessionHomes, unattended } from './lanes';
 import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, type Reads } from './queue';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
+import type { Codec } from './stored';
 import type { Board, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
@@ -561,6 +562,30 @@ export function withPrompt(history: string[], text: string, max = HISTORY_MAX): 
 export function recallList(draft: string | null, history: string[]): string[] {
   return draft?.trim() && draft !== history[0] ? [draft, ...history] : history;
 }
+
+/** What you'd typed in the panel without acting on it, and the todos it was for. */
+export interface QuickDraft {
+  text: string;
+  todos: string[];
+}
+
+/** The draft the next open leaves: what's typed, or else the draft there already, since sending,
+ *  starting or saving empties the input without making a draft of nothing. */
+export function nextDraft(text: string, todos: string[], draft: QuickDraft | null): QuickDraft | null {
+  return text.trim() ? { text, todos } : draft;
+}
+
+/** A draft as it's kept across restarts, as JSON; no draft takes the key out. */
+export const draftCodec: Codec<QuickDraft | null> = {
+  parse: (raw) => {
+    const v: unknown = JSON.parse(raw);
+    if (typeof v !== 'object' || v === null) return undefined;
+    const { text, todos } = v as { text?: unknown; todos?: unknown };
+    if (typeof text !== 'string') return undefined;
+    return { text, todos: Array.isArray(todos) ? todos.filter((t): t is string => typeof t === 'string') : [] };
+  },
+  format: (draft) => (draft?.text.trim() ? JSON.stringify(draft) : null),
+};
 
 /** The start row's title: where it starts, as Jev's start suggestions say theirs (start.ts
  *  `startTitleWords`, null before there's a worktree), and the todos it's for. */

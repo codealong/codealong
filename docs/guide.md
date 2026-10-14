@@ -1012,8 +1012,9 @@ GitHub; the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Revi
 in the waiting window, and ⇥ on a session answers it there; the panel puts itself away. The last row
 starts a new session with what you typed as its prompt. ⏎ does the selected row, ⌘⏎ always starts,
 ⌥⏎ shows a todo or a PR under Review requested in Codealong, ⌘1 to ⌘9 do a row, Escape closes. Each
-open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then
-earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list
+open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing (kept
+as you type, so a relaunch doesn't lose it), then earlier prompts you sent, started or saved, and ↓
+goes forward again. While you type, the list
 doesn't shrink until you pause and the answers are in, so the panel holds still. A click does a row
 only when you moved the pointer onto it: one the list moved under a pointer that stayed put (as
 suggestions and what was said come in) is selected by the click, and a second click does it. A
