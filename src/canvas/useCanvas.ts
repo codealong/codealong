@@ -43,14 +43,16 @@ export function saveCanvas(project: string, doc: CanvasDoc): Promise<void> {
 
 /** A project's canvas as its file has it once this window's saves of it are written, read again
  *  when the window asked for another save while it was read (it left the project, say, which
- *  saves the change it had still to save), a few times at most. */
+ *  saves the change it had still to save). After a few reads every one of which a save overtook,
+ *  it fails rather than give what it knows is old. */
 export async function readCanvas(project: string): Promise<CanvasDoc | null> {
-  for (let tries = 1; ; tries++) {
+  for (let tries = 0; tries < 4; tries++) {
     const before = saving.get(project);
     await before?.last;
     const raw = await canvasLoad(project);
-    if (saving.get(project) === before || tries === 4) return raw ? readDoc(raw) : null;
+    if (saving.get(project) === before) return raw ? readDoc(raw) : null;
   }
+  throw new Error(`The ${project} canvas kept changing while it was read. Ask again in a moment.`);
 }
 
 /** The first document for a project: what's recent, tidied by worktree. */
