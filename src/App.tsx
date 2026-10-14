@@ -57,6 +57,7 @@ import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText } from './report';
+import { afterStop } from './training';
 import { reviewSnoozeMenu } from './snooze';
 import { useSessionHistory } from './history';
 import { QUEUE_CHORDS } from './queue';
@@ -1206,12 +1207,13 @@ export function App() {
   const startSignIn = (account: string) => {
     signIn(account).catch((e: unknown) => setToast(String(e)));
   };
-  // A turn-off that didn't take says why in the flag's card; one that did, here.
-  const turnOffTraining = (account: string) =>
-    stopTraining(account).then((after) => {
-      if (after.state === 'off') setToast(`Training is off for ${account}.`);
-      return after;
-    });
+  // The card it was asked from has gone by the time it's done, so how it went is a toast.
+  const turnOffTraining = (account: string) => {
+    track(`Turning off training for ${account}…`, stopTraining(account)).then(
+      (after) => setToast(afterStop(after) ?? `Training is off for ${account}.`),
+      (e: unknown) => setToast(errorText(e)),
+    );
+  };
 
   /** Opens a card on the canvas where it lives, as a double-click on its row would. */
   const openCard = (it: RefItem) => {

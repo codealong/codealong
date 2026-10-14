@@ -1,5 +1,5 @@
-/* Plan usage under the title bar (UsageBar.tsx): one chip per account, the meters, the popover,
-   and the training flags joined to their accounts' chips with their cards. */
+/* Plan usage under the title bar (UsageBar.tsx): one chip per account, the meters, and the
+   popover, which for an account its provider may train on says why and has buttons. */
 
 .ca-meter { display: grid; gap: 6px; min-width: 0; }
 .ca-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
@@ -87,9 +87,13 @@
   outline: none;
   box-shadow: var(--shadow-focus);
 }
-.ca-uchip.is-attn {
+.ca-uchip.is-attn,
+.ca-uchip.is-training {
   border-color: var(--attn-solid);
   background: var(--attn-tint);
+}
+.ca-uchip.is-training > .ca-icon {
+  color: var(--attn);
 }
 .ca-uchip.is-stale .ca-meter {
   opacity: 0.55;
@@ -116,88 +120,6 @@
   gap: var(--space-1);
   font: var(--type-meta-strong);
   color: var(--attn);
-}
-/* A training flag joined to the end of its account's chip, in the colors of one that needs
-   signing in. */
-.ca-uchip-pair {
-  display: inline-flex;
-  flex: none;
-}
-.ca-uchip.is-joined {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.ca-uchip-flag {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 26px;
-  margin-left: -1px;
-  padding: 0 11px 0 8px;
-  box-sizing: border-box;
-  border: 1px solid var(--attn-solid);
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-  background: var(--attn-tint);
-  color: var(--attn);
-  font: var(--type-meta-strong);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.ca-uchip-flag:hover > span,
-.ca-uchip-flag[aria-expanded='true'] > span {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.ca-uchip-flag:focus-visible {
-  position: relative;
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-.ca-training-card {
-  position: fixed;
-  z-index: var(--z-popover);
-  display: grid;
-  gap: var(--space-2);
-  width: 340px;
-  max-width: calc(100vw - 16px);
-  padding: var(--space-3);
-  box-sizing: border-box;
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-popover);
-  color: var(--ink);
-  font: var(--type-meta);
-}
-.ca-training-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: var(--type-heading-xs);
-}
-.ca-training-title > .ca-icon {
-  flex: none;
-  color: var(--attn);
-}
-.ca-training-text {
-  color: var(--ink-2);
-  overflow-wrap: anywhere;
-  -webkit-user-select: text;
-  user-select: text;
-}
-.ca-training-error {
-  color: var(--alert);
-  overflow-wrap: anywhere;
-}
-.ca-training-foot {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: var(--space-1);
-}
-.ca-training-asof {
-  margin-right: auto;
-  color: var(--ink-3);
 }
 .ca-uchip .ca-meter.is-compact {
   grid-template-columns: auto 30px auto auto;
@@ -302,6 +224,39 @@
 .ca-usage-popover .ca-ucard-error > .ca-icon {
   flex: none;
   margin-top: 2px;
+}
+/* With what to do about training, the card takes the pointer, and its words wrap. */
+.ca-usage-popover.is-training {
+  width: 340px;
+  pointer-events: auto;
+}
+.ca-training {
+  display: grid;
+  gap: var(--space-2);
+}
+.ca-training-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--type-heading-xs);
+}
+.ca-training-title > .ca-icon {
+  flex: none;
+  color: var(--attn);
+}
+.ca-training-text {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-training-asof {
+  color: var(--ink-3);
+}
+.ca-training-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .ca-acct-meters .ca-meter-value {

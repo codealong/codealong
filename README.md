@@ -146,7 +146,8 @@ Across the top, each account's plan limits. Click one for the Usage window: what
 used and what that would have cost at API prices, against what your plans and any extra usage
 actually cost, day by day and by account, model, project and session. An account whose provider
 may train its models on what you send (Help improve Claude, ChatGPT's Improve the model for
-everyone, Cursor's Share Data, Antigravity's telemetry) is flagged there, and a click turns it off.
+everyone, Cursor's Share Data, Antigravity's telemetry) has its chip in amber, and its card on hover
+turns that off.
 
 ### Answer agents without switching apps
 

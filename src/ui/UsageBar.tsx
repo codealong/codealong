@@ -8,15 +8,16 @@
 // hovering it shows all of them in a card. When even those don't fit, the row scrolls sideways
 // (the mouse wheel scrolls it too).
 //
-// An account whose provider may train on what it sends (training.ts) has a flag joined to its
-// chip; a click opens a card that says why, turns training off where Codealong can, and opens
-// the provider's settings page.
+// An account whose provider may train on what it sends (training.ts) has its chip in the
+// attention colors with a shield on it, and its hover card says why, turns training off where
+// Codealong can, and opens the provider's settings page; that card stays up while the pointer is
+// on it.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
-import { afterStop, cardTitle, flagged, flagLabel, readNote, trainingOf } from '../training';
+import { cardTitle, flagged, readNote, trainingOf } from '../training';
 import type { Meter, Severity, Training, Usage } from '../types';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -121,18 +122,19 @@ interface ChipProps {
   measure?: boolean;
   onOpen?: () => void;
   onSignIn?: () => void;
-  /** The pointer or keyboard focus arrived on a collapsed chip, or left it. */
+  /** The pointer or keyboard focus arrived on a chip with a card (collapsed, or flagged for
+   *  training), or left it. */
   onPeek?: (el: HTMLElement) => void;
   onUnpeek?: () => void;
-  /** A training flag is joined to its end. */
-  joined?: boolean;
+  /** Its provider may train on it (`flagged`): the chip says so, and its card says why. */
+  training?: Training;
 }
 
-function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek, joined = false }: ChipProps) {
+function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek, training }: ChipProps) {
   const plain = u.error?.replace(/`/g, '') ?? '';
   if (u.needsSignIn) {
     return (
-      <button type="button" className={cx('ca-uchip', 'is-attn', joined && 'is-joined')} title={measure ? undefined : `${plain}. Click to sign in`} onClick={onSignIn}>
+      <button type="button" className="ca-uchip is-attn" title={measure ? undefined : `${plain}. Click to sign in`} onClick={onSignIn}>
         <span className="ca-uchip-name">{u.account}</span>
         <span className="ca-uchip-signin">
           <Icon name="alert" size={12} stroke={2} />
@@ -147,14 +149,15 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   const summary = u.meters.length ? u.meters.map((m) => meterTitle(m, now)).join('; ') : usageNote(u);
   const headline = collapsed ? headlineMeter(u.meters) : null;
   const shown = headline ? [headline] : u.meters;
-  // A collapsed chip's card says everything its tooltip would, so it has none.
-  const peeks = !!headline && !measure;
+  // A chip with a card (collapsed, or flagged for training) says there everything its tooltip
+  // would, so it has none.
+  const peeks = (!!headline || !!training) && !measure;
   return (
     <button
       type="button"
-      className={cx('ca-uchip', stale && 'is-stale', joined && 'is-joined')}
+      className={cx('ca-uchip', stale && 'is-stale', training && 'is-training')}
       title={measure || peeks ? undefined : `${about}. Show what it used and cost`}
-      aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}`}
+      aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}${training ? `. ${cardTitle(training)}: ${training.note}` : ''}`}
       onClick={onOpen}
       onMouseEnter={peeks ? (e) => onPeek?.(e.currentTarget) : undefined}
       onMouseLeave={peeks ? onUnpeek : undefined}
@@ -176,13 +179,30 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
         </span>
       )}
       {stale && <Icon name="alert" size={12} />}
+      {training && <Icon name="shield-off" size={12} stroke={2} />}
     </button>
   );
 }
 
-/** A collapsed chip's limits, all of them, in a card under it. It's only a picture: the chip's
- *  label already reads them out. */
-function UsageCard({ usage: u, now, anchor }: { usage: Usage; now: number; anchor: HTMLElement }) {
+interface CardProps {
+  usage: Usage;
+  now: number;
+  anchor: HTMLElement;
+  /** Its limits are shown: the chip shows only the one closest to running out. */
+  meters: boolean;
+  /** Its provider may train on it: why, and what to do about it. */
+  training?: Training;
+  onStopTraining?: (account: string) => void;
+  onOpenUrl?: (url: string) => void;
+  /** The pointer came onto the card, or left it: one with buttons stays up while it's there. */
+  onEnter?: () => void;
+  onLeave?: () => void;
+}
+
+/** A chip's card under it: a collapsed chip's limits, all of them, and for an account its
+ *  provider may train on, why, with Turn off training and Open settings. Its limits are only a
+ *  picture: the chip's label already reads them out. */
+function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining, onOpenUrl, onEnter, onLeave }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
   // Under the chip, kept inside the window.
   useLayoutEffect(() => {
@@ -194,121 +214,76 @@ function UsageCard({ usage: u, now, anchor }: { usage: Usage; now: number; ancho
   });
   const stale = isStale(u);
   const asOf = asOfPhrase(u, now);
+  const read = t && readNote(t, now);
   return createPortal(
-    <div ref={ref} className={cx('ca-ucard', 'ca-usage-popover', stale && 'is-stale')} aria-hidden="true">
+    <div
+      ref={ref}
+      className={cx('ca-ucard', 'ca-usage-popover', stale && 'is-stale', t && 'is-training')}
+      role={t ? 'group' : undefined}
+      aria-label={t ? `${u.account}: ${cardTitle(t)}` : undefined}
+      aria-hidden={t ? undefined : true}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+    >
       <div className="ca-ucard-head">
         <span className="ca-uchip-name">{u.account}</span>
         {u.plan && <span className="ca-ucard-plan">{u.plan}</span>}
       </div>
-      <div className="ca-ucard-meters">
-        {u.meters.map((m) => (
-          <div key={m.key} className={cx('ca-meter', 'is-compact', `is-${m.severity}`, m.model && 'is-model')}>
-            <span className="ca-meter-label">
-              {m.model && <Icon name="sparkles" size={11} />}
-              <span>{m.label}</span>
-            </span>
-            <span className="ca-meter-track">
-              <span className="ca-meter-fill" style={{ width: `${Math.min(100, Math.max(0, m.percent))}%` }} />
-            </span>
-            <span className="ca-meter-value">{Math.round(m.percent)}%</span>
-            <span className="ca-ucard-reset">{resetNote(m, now)}</span>
+      {t && (
+        <div className="ca-training">
+          <div className="ca-training-title">
+            <Icon name="shield-off" size={14} stroke={2} />
+            <span>{cardTitle(t)}</span>
           </div>
-        ))}
-      </div>
+          <div className="ca-training-text">{t.note.replace(/`/g, '')}</div>
+          {read && <div className="ca-training-asof">{read}</div>}
+          {(t.url || t.canStop) && (
+            <div className="ca-training-foot">
+              {t.url && (
+                <Button size="sm" variant={t.canStop ? 'secondary' : 'primary'} icon="external" onClick={() => onOpenUrl?.(t.url as string)}>
+                  Open settings
+                </Button>
+              )}
+              {t.canStop && (
+                <Button size="sm" variant="primary" onClick={() => onStopTraining?.(t.account)}>
+                  Turn off training
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {meters && (
+        <div className="ca-ucard-meters">
+          {u.meters.map((m) => (
+            <div key={m.key} className={cx('ca-meter', 'is-compact', `is-${m.severity}`, m.model && 'is-model')}>
+              <span className="ca-meter-label">
+                {m.model && <Icon name="sparkles" size={11} />}
+                <span>{m.label}</span>
+              </span>
+              <span className="ca-meter-track">
+                <span className="ca-meter-fill" style={{ width: `${Math.min(100, Math.max(0, m.percent))}%` }} />
+              </span>
+              <span className="ca-meter-value">{Math.round(m.percent)}%</span>
+              <span className="ca-ucard-reset">{resetNote(m, now)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* The chip has no tooltip once it has a card, so a failed read is said here either way. */}
       {stale && (
         <div className="ca-ucard-error">
           <Icon name="alert" size={12} />
           <span>{u.error?.replace(/`/g, '')}</span>
         </div>
       )}
-      {asOf && <div className="ca-ucard-foot">{asOf}</div>}
+      {meters && asOf && <div className="ca-ucard-foot">{asOf}</div>}
     </div>,
     document.body,
   );
 }
 
-/** The flag joined to the chip of an account whose provider may train on it: a click opens its
- *  card. In the hidden copy that's measured, only its words. */
-function TrainingFlag({ training: t, now, measure = false, onStop, onOpenUrl }: { training: Training; now: number; measure?: boolean; onStop?: (account: string) => Promise<Training>; onOpenUrl?: (url: string) => void }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  useDismiss(ref, () => setOpen(false), { when: open, inside: '.ca-training-card' });
-  const words = (
-    <>
-      <Icon name="shield-off" size={12} stroke={2} />
-      <span>{flagLabel(t)}</span>
-    </>
-  );
-  if (measure) return <span className="ca-uchip-flag">{words}</span>;
-  return (
-    <>
-      <button ref={ref} type="button" className="ca-uchip-flag" aria-expanded={open} aria-label={`${cardTitle(t)}. ${t.note}`} title={open ? undefined : `${t.note} Click for what to do`} onClick={() => setOpen(!open)}>
-        {words}
-      </button>
-      {open && ref.current && <TrainingCard training={t} now={now} anchor={ref.current} onStop={onStop} onOpenUrl={onOpenUrl} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-/** What a training flag is for, and what to do about it: turn it off from here where Codealong
- *  can, or open the provider's page. A turn-off that didn't take says why here. */
-function TrainingCard({ training: t, now, anchor, onStop, onOpenUrl, onClose }: { training: Training; now: number; anchor: HTMLElement; onStop?: (account: string) => Promise<Training>; onOpenUrl?: (url: string) => void; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState<string | null>(null);
-  // Under the flag, kept inside the window.
-  useLayoutEffect(() => {
-    const card = ref.current;
-    if (!card) return;
-    const r = anchor.getBoundingClientRect();
-    card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - card.offsetWidth - 8))}px`;
-    card.style.top = `${r.bottom + 6}px`;
-  });
-  const stop = () => {
-    if (!onStop) return;
-    setBusy(true);
-    setFailed(null);
-    onStop(t.account).then(
-      (after) => {
-        setBusy(false);
-        const why = afterStop(after);
-        if (why) setFailed(why);
-        else onClose();
-      },
-      (e: unknown) => {
-        setBusy(false);
-        setFailed(String(e).replace(/^Error: /, ''));
-      },
-    );
-  };
-  return createPortal(
-    <div ref={ref} className="ca-training-card" role="dialog" aria-label={cardTitle(t)}>
-      <div className="ca-training-title">
-        <Icon name="shield-off" size={14} stroke={2} />
-        <span>{cardTitle(t)}</span>
-      </div>
-      <div className="ca-training-text">{t.note.replace(/`/g, '')}</div>
-      {failed && <div className="ca-training-error">{failed.replace(/`/g, '')}</div>}
-      {t.stale && <div className="ca-training-asof">{readNote(t, now)}</div>}
-      <div className="ca-training-foot">
-        {t.asOf && !t.stale && <span className="ca-training-asof">{readNote(t, now)}</span>}
-        {t.url && (
-          <Button size="sm" variant={t.canStop ? 'secondary' : 'primary'} icon="external" onClick={() => onOpenUrl?.(t.url as string)}>
-            Open settings
-          </Button>
-        )}
-        {t.canStop && (
-          <Button size="sm" variant="primary" disabled={busy} onClick={stop}>
-            {busy ? 'Turning off…' : 'Turn off training'}
-          </Button>
-        )}
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-/** Which collapsed chip's card is up, with the rest period before it shows and after it goes. */
+/** Which chip's card is up, with the rest period before it shows and after it goes. */
 function usePeek() {
   const [peek, setPeek] = useState<{ account: string; anchor: HTMLElement } | null>(null);
   const timer = useRef(0);
@@ -335,7 +310,9 @@ function usePeek() {
     if (now) go();
     else timer.current = window.setTimeout(go, HIDE_MS);
   }, []);
-  return { peek, show, hide };
+  // The pointer came onto the card on its way from the chip: it stays.
+  const keep = useCallback(() => window.clearTimeout(timer.current), []);
+  return { peek, show, hide, keep };
 }
 
 interface UsageBarProps {
@@ -350,8 +327,8 @@ interface UsageBarProps {
   onSignIn: (account: string) => void;
   /** Whether each account's provider may train on it, for the flags (training.ts). */
   training?: Training[];
-  /** Turns training off for an account, answering where it stands after. */
-  onStopTraining?: (account: string) => Promise<Training>;
+  /** Turns training off for an account; how it went is the caller's to say. */
+  onStopTraining?: (account: string) => void;
   /** Opens a provider's settings page. */
   onOpenUrl?: (url: string) => void;
   /** The board hasn't been read yet, so it lists no accounts, though config.toml may have some. */
@@ -368,7 +345,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
   const [collapsed, setCollapsed] = useState(false);
   // Which ends have chips scrolled past them, for the fades there.
   const [clipped, setClipped] = useState({ start: false, end: false });
-  const { peek, show, hide } = usePeek();
+  const { peek, show, hide, keep } = usePeek();
   const accounts = usage.map((u) => u.account).join('\n');
 
   // Every chip is measured with all its limits, in a hidden copy, against the room the row has.
@@ -418,9 +395,8 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
   useEffect(() => {
     if (!collapsed) hide(true);
   }, [collapsed, hide]);
-  // A press anywhere, the card included (it only shows), and any key, which goes on to do
-  // what it does.
-  useDismiss(null, () => hide(true), { when: !!peek, keys: 'any' });
+  // A press anywhere but on a card's buttons, and any key, which goes on to do what it does.
+  useDismiss(null, () => hide(true), { when: !!peek, keys: 'any', inside: '.ca-usage-popover.is-training' });
   useEffect(() => {
     const el = row.current;
     if (!el || !peek) return;
@@ -433,7 +409,10 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
     };
   }, [peek, hide]);
 
-  const peeked = collapsed && peek ? usage.find((u) => u.account === peek.account) : undefined;
+  const peeked = peek ? usage.find((u) => u.account === peek.account) : undefined;
+  const peekedTraining = peeked && trainingOf(training, peeked.account);
+  const flaggedPeek = flagged(peekedTraining) ? peekedTraining : undefined;
+  const peekMeters = collapsed && !!peeked && peeked.meters.length > 0;
   return (
     <div className="ca-usagebar" role="region" aria-label="Plan usage">
       <div
@@ -442,25 +421,18 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
       >
         {usage.map((u) => {
           const t = trainingOf(training, u.account);
-          const chip = (
+          return (
             <AccountChip
               key={u.account}
               usage={u}
               now={now}
               collapsed={collapsed}
-              joined={flagged(t)}
+              training={flagged(t) ? t : undefined}
               onOpen={() => onUsage(u.account)}
               onSignIn={() => onSignIn(u.account)}
               onPeek={(el) => show(u.account, el)}
               onUnpeek={() => hide()}
             />
-          );
-          if (!flagged(t)) return chip;
-          return (
-            <span key={u.account} className="ca-uchip-pair">
-              {chip}
-              <TrainingFlag training={t} now={now} onStop={onStopTraining} onOpenUrl={onOpenUrl} />
-            </span>
           );
         })}
         {usage.length === 0 && !loading && <span className="ca-uchip-note">No accounts yet.</span>}
@@ -468,17 +440,25 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
       <div ref={measure} className="ca-usagebar-measure" aria-hidden="true">
         {usage.map((u) => {
           const t = trainingOf(training, u.account);
-          return flagged(t) ? (
-            <span key={u.account} className="ca-uchip-pair">
-              <AccountChip usage={u} now={now} measure joined />
-              <TrainingFlag training={t} now={now} measure />
-            </span>
-          ) : (
-            <AccountChip key={u.account} usage={u} now={now} measure />
-          );
+          return <AccountChip key={u.account} usage={u} now={now} measure training={flagged(t) ? t : undefined} />;
         })}
       </div>
-      {peeked && peek && peeked.meters.length > 0 && <UsageCard usage={peeked} now={now} anchor={peek.anchor} />}
+      {peeked && peek && (peekMeters || flaggedPeek) && (
+        <UsageCard
+          usage={peeked}
+          now={now}
+          anchor={peek.anchor}
+          meters={peekMeters}
+          training={flaggedPeek}
+          onOpenUrl={onOpenUrl}
+          onStopTraining={(account) => {
+            hide(true);
+            onStopTraining?.(account);
+          }}
+          onEnter={flaggedPeek ? keep : undefined}
+          onLeave={flaggedPeek ? () => hide() : undefined}
+        />
+      )}
       <div className="ca-usagebar-end">
         {notices}
         <Button

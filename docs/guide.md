@@ -1635,11 +1635,12 @@ crossed-out gauge after the name. Add accounts in Settings › Accounts.
 
 Each account's provider may be allowed to train its models on what the account sends. Codealong
 asks every provider where it keeps that setting, at launch, every hour and when you click the
-bar's refresh, and an account whose provider may train on it has **Training on** joined to its
-chip (**Training not set** where nothing's been chosen yet). A click on the flag says which setting
-it is and when it was read; **Turn off training** turns it off from Codealong and reads it back to
-check, and **Open settings** opens the provider's page for it. Settings › Accounts says where every
-account stands (*Not trained on*, *Training on*) and offers the same.
+bar's refresh, and an account whose provider may train on it, or where nothing's been chosen yet,
+has its chip in amber with a crossed-out shield. Its card, on hover, says which setting it is and
+when it was read, and stays up while the pointer is on it: **Turn off training** turns it off from
+Codealong and reads it back to check (a toast says how it went), and **Open settings** opens the
+provider's page for it. A click on the chip still opens the Usage window. Settings › Accounts says
+where every account stands (*Not trained on*, *Training on*) and offers the same.
 
 - Claude (Pro and Max): *Help improve Claude* in claude.ai's privacy settings, one setting for the
   account in claude.ai, the Claude app and Claude Code. On, Anthropic keeps chats and coding

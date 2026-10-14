@@ -20,8 +20,8 @@ describe('training', () => {
   it('says what the flag is for', () => {
     expect(flagLabel(reading('on'))).toBe('Training on');
     expect(flagLabel(reading('unset'))).toBe('Training not set');
-    expect(cardTitle(reading('on'))).toBe('Training is on for claude');
-    expect(cardTitle(reading('unset'))).toBe("Training isn't turned off for claude");
+    expect(cardTitle(reading('on'))).toBe('Training is on');
+    expect(cardTitle(reading('unset'))).toBe("Training isn't turned off");
   });
 
   it('tags every account Settings can tell about', () => {
@@ -39,7 +39,7 @@ describe('training', () => {
 
   it('says when a turn-off did not take', () => {
     expect(afterStop(reading('off'))).toBeNull();
-    expect(afterStop(reading('on'))).toMatch(/^It was asked to turn off, but still reads as on/);
-    expect(afterStop({ ...reading('unknown'), note: 'Sign-in expired.' })).toBe("It was asked to turn off, but Codealong couldn't read it back to check: Sign-in expired.");
+    expect(afterStop(reading('on'))).toMatch(/^Training for claude was asked to turn off, but still reads as on/);
+    expect(afterStop({ ...reading('unknown'), note: 'Sign-in expired.' })).toBe("Training for claude was asked to turn off, but Codealong couldn't read it back to check: Sign-in expired.");
   });
 });

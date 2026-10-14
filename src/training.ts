@@ -20,9 +20,9 @@ export function flagLabel(t: Training): string {
   return t.state === 'unset' ? 'Training not set' : 'Training on';
 }
 
-/** The flag's card's heading. */
+/** Its heading in the chip's card, under the account's name. */
 export function cardTitle(t: Training): string {
-  return t.state === 'unset' ? `Training isn't turned off for ${t.account}` : `Training is on for ${t.account}`;
+  return t.state === 'unset' ? "Training isn't turned off" : 'Training is on';
 }
 
 /** What Settings › Accounts says of it, as a tag; nothing for an account it can't tell. */
@@ -44,8 +44,8 @@ export function afterStop(t: Training): string | null {
     case 'off':
       return null;
     case 'unknown':
-      return `It was asked to turn off, but Codealong couldn't read it back to check: ${t.note}`;
+      return `Training for ${t.account} was asked to turn off, but Codealong couldn't read it back to check: ${t.note}`;
     default:
-      return `It was asked to turn off, but still reads as on. ${t.note}`;
+      return `Training for ${t.account} was asked to turn off, but still reads as on. ${t.note}`;
   }
 }
