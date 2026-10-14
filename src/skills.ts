@@ -98,9 +98,11 @@ export function sessionSkills(listed: SkillsListed | null, harness: Harness): Sk
 }
 
 /** What goes to a session on `harness` for what's typed: each skill named as the harness wants
- *  it, in place of its `/name`. What names no skill the harness reads stays as typed. */
+ *  it, in place of its `/name`. What names no skill the harness reads stays as typed. Of two
+ *  skills of a name, the first the harness reads: a repo's that only another reads doesn't hide
+ *  the account's own. */
 export function writtenFor(text: string, skills: Skill[], harness: Harness): string {
-  const written = (name: string) => named(skills, name)?.written[harness];
+  const written = (name: string) => skills.find((s) => s.name === name && takes(s, harness))?.written[harness];
   let out = '';
   let at = 0;
   for (const m of mentionsIn(text)) {

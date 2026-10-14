@@ -252,6 +252,10 @@ describe('the quick panel’s skills', () => {
     // A repo's row goes by its own repo.
     const probe = skillRows(withAccounts, [main], 'probe', true, 9)[0];
     expect(writtenFor('/probe and /design', startSkills(withAccounts, probe, main, 'codex', [main]), 'codex')).toBe('$probe and $design');
+    // A repo's skill of the same name that only another harness reads doesn't hide the account's.
+    const clash: SkillsListed = { ...withAccounts, folders: [{ folder: '/r/app', skills: [skill('design', { written: { claude: '/design' } }), skill('probe', { written: { codex: '$probe' } })] }] };
+    const own = skillRows(clash, [], 'design', true, 9)[0];
+    expect(writtenFor('/design the UI then /probe', startSkills(clash, own, tree, 'codex', [main]), 'codex')).toBe('$design the UI then $probe');
   });
 
   it('starts in a free reusable worktree of the repo, else a new one', () => {

@@ -7,7 +7,7 @@
 //! runs, 2026-10-14); and `skillUsage` in the account's state file. What its program holds is
 //! claude/builtin.rs's.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -35,8 +35,8 @@ pub fn of_account(home: &Path) -> Vec<Root> {
     // is loaded: the others' folders stay after a switch.
     let Some(bucket) = synced_bucket(&read_at(state_file(home))) else { return out };
     out.push(Root::skills(home.join("skills/synced").join(&bucket), 1).of_plugin(SYNCED));
-    let plugins: Vec<PathBuf> = std::fs::read_dir(home.join("plugins/synced").join(&bucket)).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.join(".claude-plugin/plugin.json").is_file()).collect();
-    out.extend(synced_plugin_roots(&plugins, &settings));
+    let plugins = home.join("plugins/synced").join(&bucket);
+    out.extend(synced_plugin_roots(&plugins, &read_at(plugins.join("manifest.json")), &settings));
     out
 }
 
@@ -50,45 +50,32 @@ fn synced_bucket(state: &Value) -> Option<String> {
     Some(format!("{}_{}", org.to_lowercase(), account.to_lowercase()))
 }
 
-/// The skills and commands of the plugins claude.ai syncs into an account, a folder each under
-/// its sign-in's, less the ones its settings turn off: each by `enabledPlugins`
-/// (`<plugin>@synced: false`), and all of them by `syncClaudeAiPlugins: false`. An update
-/// that comes while the plugin is in use goes in a folder of its own, `<plugin>~g<n>` from 2 up,
-/// which Claude Code names without the `~g<n>` (2.1.299's code), so a plugin is the folder of
-/// its latest one.
-fn synced_plugin_roots(plugins: &[PathBuf], settings: &Value) -> Vec<Root> {
+/// The skills and commands of the plugins claude.ai syncs into an account, under its sign-in's
+/// folder (`bucket`), less the ones its settings turn off: each by `enabledPlugins`
+/// (`<plugin>@synced: false`), and all of them by `syncClaudeAiPlugins: false`. The folder's
+/// `manifest.json` lists the plugins in use, each `{name, generation}`, and a plugin's files are
+/// in the folder of that generation: `<name>` for the first (no `generation`), `<name>~g<n>`
+/// for another. A copy updated while a session used the old one goes in a free generation, the
+/// first included, and a plugin taken off the list keeps its folder while it's in use, so
+/// neither the folders there nor their numbers say which is current (2.1.299's code).
+fn synced_plugin_roots(bucket: &Path, manifest: &Value, settings: &Value) -> Vec<Root> {
     if settings["syncClaudeAiPlugins"] == Value::Bool(false) {
         return Vec::new();
     }
-    let mut latest: BTreeMap<String, (u32, &PathBuf)> = BTreeMap::new();
-    for dir in plugins {
-        let Some(folder) = dir.file_name().and_then(|n| n.to_str()) else { continue };
-        let (name, generation) = generation_of(folder);
-        if latest.get(name).is_none_or(|(had, _)| generation > *had) {
-            latest.insert(name.to_string(), (generation, dir));
-        }
-    }
     let mut out = Vec::new();
-    for (name, (_, dir)) in latest {
+    for plugin in manifest["plugins"].as_array().into_iter().flatten() {
+        let Some(name) = plugin["name"].as_str().filter(|n| !n.is_empty() && !n.contains(['/', '\\'])) else { continue };
         if settings["enabledPlugins"][format!("{name}@synced")] == Value::Bool(false) {
             continue;
         }
-        out.push(Root::skills(dir.join("skills"), 1).of_plugin(&name));
-        out.push(Root::commands(dir.join("commands")).of_plugin(&name));
+        let dir = match plugin["generation"].as_u64() {
+            Some(n) if n > 1 => bucket.join(format!("{name}~g{n}")),
+            _ => bucket.join(name),
+        };
+        out.push(Root::skills(dir.join("skills"), 1).of_plugin(name));
+        out.push(Root::commands(dir.join("commands")).of_plugin(name));
     }
     out
-}
-
-/// A synced folder's name and which update of it it is: `northwind~g3` is `northwind`'s third,
-/// `northwind` its first.
-fn generation_of(folder: &str) -> (&str, u32) {
-    match folder.rsplit_once("~g") {
-        Some((name, n)) if !n.starts_with('0') => match n.parse::<u32>() {
-            Ok(n) if n >= 2 => (name, n),
-            _ => (folder, 1),
-        },
-        _ => (folder, 1),
-    }
 }
 
 /// The skills and commands of the plugins an account has for every folder (`scope: "user"`),
@@ -141,23 +128,30 @@ mod tests {
 
     #[test]
     fn the_plugins_claude_ai_syncs_give_their_skills_unless_turned_off() {
-        let plugins = [PathBuf::from("/home/plugins/synced/org_me/northwind"), PathBuf::from("/home/plugins/synced/org_me/codex")];
+        let bucket = Path::new("/home/plugins/synced/org_me");
+        // As 2.1.299 writes it, cut short.
+        let manifest = json!({ "lastUpdated": 1790893702322i64, "plugins": [{ "pluginId": "plugin_01B", "name": "northwind", "version": "0002" }, { "pluginId": "plugin_015", "name": "codex", "version": "0001" }] });
         let settings = json!({ "enabledPlugins": { "codex@synced": false } });
-        assert_eq!(synced_plugin_roots(&plugins, &settings), vec![Root::skills(PathBuf::from("/home/plugins/synced/org_me/northwind/skills"), 1).of_plugin("northwind"), Root::commands(PathBuf::from("/home/plugins/synced/org_me/northwind/commands")).of_plugin("northwind")]);
-        assert_eq!(synced_plugin_roots(&plugins, &json!({ "syncClaudeAiPlugins": false })), vec![]);
-        assert_eq!(synced_plugin_roots(&plugins, &Value::Null).len(), 4);
+        assert_eq!(synced_plugin_roots(bucket, &manifest, &settings), vec![Root::skills(bucket.join("northwind/skills"), 1).of_plugin("northwind"), Root::commands(bucket.join("northwind/commands")).of_plugin("northwind")]);
+        assert_eq!(synced_plugin_roots(bucket, &manifest, &json!({ "syncClaudeAiPlugins": false })), vec![]);
+        assert_eq!(synced_plugin_roots(bucket, &manifest, &Value::Null).len(), 4);
+        assert_eq!(synced_plugin_roots(bucket, &Value::Null, &Value::Null), vec![]);
     }
 
     #[test]
-    fn a_synced_plugin_is_its_latest_update_by_its_own_name() {
-        let at = |folder: &str| PathBuf::from(format!("/b/{folder}"));
-        let plugins = [at("northwind~g3"), at("northwind"), at("northwind~g2"), at("odd~g1"), at("odd~gx")];
-        let roots = synced_plugin_roots(&plugins, &json!({ "enabledPlugins": { "northwind@synced": true } }));
-        let named: Vec<(String, PathBuf)> = roots.iter().filter(|r| matches!(r.kind, crate::skills::Kind::Skills { .. })).map(|r| (r.prefix.clone().unwrap(), r.dir.clone())).collect();
-        // `~g1` and `~gx` aren't updates: they're names of their own.
-        assert_eq!(named, vec![("odd~g1".to_string(), at("odd~g1/skills")), ("odd~gx".to_string(), at("odd~gx/skills")), ("northwind".to_string(), at("northwind~g3/skills"))]);
-        // Turned off by its own name, whichever update is latest.
-        assert!(synced_plugin_roots(&plugins[..3], &json!({ "enabledPlugins": { "northwind@synced": false } })).is_empty());
+    fn a_synced_plugin_is_the_generation_its_manifest_names() {
+        let bucket = Path::new("/b");
+        let skills_of = |manifest: Value| -> Vec<(String, PathBuf)> {
+            synced_plugin_roots(bucket, &manifest, &Value::Null).into_iter().filter(|r| matches!(r.kind, crate::skills::Kind::Skills { .. })).map(|r| (r.prefix.unwrap(), r.dir)).collect()
+        };
+        // Back at the first generation while a session still holds `northwind~g3`: the first's.
+        assert_eq!(skills_of(json!({ "plugins": [{ "name": "northwind" }] })), vec![("northwind".to_string(), bucket.join("northwind/skills"))]);
+        assert_eq!(skills_of(json!({ "plugins": [{ "name": "northwind", "generation": 1 }] })), vec![("northwind".to_string(), bucket.join("northwind/skills"))]);
+        // Another generation, under the plugin's own name.
+        assert_eq!(skills_of(json!({ "plugins": [{ "name": "northwind", "generation": 3 }] })), vec![("northwind".to_string(), bucket.join("northwind~g3/skills"))]);
+        // A plugin the manifest doesn't list isn't one, whatever folders are left; nor is a name
+        // that would leave the folder.
+        assert_eq!(skills_of(json!({ "plugins": [{ "name": "../x" }, { "generation": 2 }] })), vec![]);
     }
 
     #[test]
