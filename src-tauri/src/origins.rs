@@ -173,7 +173,11 @@ pub struct Candidate<'a> {
     pub started: i64,
     /// Its first prompt, else its latest, as its harness's reader keeps it.
     pub prompt: Option<&'a str>,
-    /// When the process running it began, where one is running it (`procs::proc_start_ms`).
+    /// When the process running it began, where one is running it (`procs::proc_start_ms`). Only
+    /// as sure as the session's `pid`: a Codex thread's terminal UI is inferred
+    /// (codex/terminals.rs `pair_terminals`, the newest terminal in a folder taking its newest
+    /// thread), so two of them stuck in one folder and answered oldest first are swapped, and the
+    /// older start's late session goes to the newer start (Codex's look, 2026-10-14).
     pub launched: Option<i64>,
 }
 
