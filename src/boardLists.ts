@@ -153,11 +153,18 @@ export interface HelperCount {
 
 /** Each session's helpers (`Session.helper`), by the session's key: the ones not archived. */
 export function helperCounts(items: SessionItem[]): Map<string, HelperCount> {
+  return countsBy(items, (s) => s.helper?.parent);
+}
+
+/** The sessions `items` holds under each session's key, by `parentOf`, the archived ones left
+ *  out, counted as a chip counts them and each as a row of its card (HelpersCard.tsx), the most
+ *  urgent first as a lane lists its sessions. */
+function countsBy(items: SessionItem[], parentOf: (s: Session) => string | undefined): Map<string, HelperCount> {
   const of = new Map<string, SessionItem[]>();
   const laneOf = new Map(items.map((r) => [r.session.key, r.lane.id]));
   for (const r of items) {
-    const parent = r.session.helper?.parent;
-    if (!parent || r.session.archived) continue;
+    const parent = r.session.archived ? undefined : parentOf(r.session);
+    if (!parent) continue;
     of.set(parent, [...(of.get(parent) ?? []), r]);
   }
   const out = new Map<string, HelperCount>();
@@ -186,25 +193,12 @@ export function helperCounts(items: SessionItem[]): Map<string, HelperCount> {
 }
 
 /** A session's headless runs on the board (`Session.headless`, lanes.ts `workingFor`), for the
- *  chip on its row (LaneRow.tsx `RunsChip`): how many, how many are at work, and what they run
- *  on, each account and model once. */
-export interface RunCount {
-  count: number;
-  working: number;
-  on: string[];
-}
+ *  chip on its row (LaneRow.tsx `RunsChip`) and its card, as a session's helpers are counted. */
+export type RunCount = HelperCount;
 
 /** Each session's headless runs, by the session's key: the ones not archived. */
 export function runCounts(items: SessionItem[]): Map<string, RunCount> {
-  const out = new Map<string, RunCount>();
-  for (const { session: s } of items) {
-    const parent = s.headless && !s.archived ? workingFor(s) : undefined;
-    if (!parent) continue;
-    const c = out.get(parent) ?? { count: 0, working: 0, on: [] };
-    const on = [s.account, s.model].filter(Boolean).join(' · ');
-    out.set(parent, { count: c.count + 1, working: c.working + (s.status === 'working' ? 1 : 0), on: c.on.includes(on) ? c.on : [...c.on, on] });
-  }
-  return out;
+  return countsBy(items, (s) => (s.headless ? workingFor(s) : undefined));
 }
 
 /** Whether a helper or a headless run is listed under its session however it stands: you asked
@@ -214,18 +208,23 @@ function listedAll(s: Session, shown: ReadonlySet<string>): boolean {
   return !!parent && shown.has(s.headless ? runsShownKey(parent) : parent);
 }
 
-/** The sessions whose every helper Sessions lists under them, with what it takes to list
- *  `helper`, which its session's chip's card shows or opens: its session added unless `rows`
- *  (what Sessions lists now) have the helper and it's at work or waiting on you, so stays listed
- *  under its session (`placeHelpers`) once opening one Codealong runs clears the search and the
- *  filters (App.tsx `reveal`). A finished one a search lists now would go with the search; an
- *  active one the search or a filter leaves out is listed from all of them (`placeHelpers`'s
- *  `all`). Unchanged otherwise, so the list stays as it is. */
+/** The sessions whose every helper (or headless run) Sessions lists under them, with what it
+ *  takes to list `helper`, which its session's chip's card shows or opens: its session added (its
+ *  `runsShownKey` for a run) unless `rows` (what Sessions lists now) have the helper and it's at
+ *  work or waiting on you (a run, waiting on you), so stays listed under its session
+ *  (`placeHelpers`) once opening one Codealong runs clears the search and the filters (App.tsx
+ *  `reveal`). A finished one a search lists now would go with the search; an active one the
+ *  search or a filter leaves out is listed from all of them (`placeHelpers`'s `all`). Unchanged
+ *  otherwise, so the list stays as it is. */
 export function showingHelper(shown: string[], rows: readonly ListRow[], helper: SessionItem): string[] {
-  const parent = helper.session.helper?.parent;
-  const listed = rows.some((r) => 'session' in r && r.session.key === helper.session.key);
-  if (!parent || shown.includes(parent) || (listed && AGENT_BAY[helper.session.status] != null)) return shown;
-  return toggleShown(shown, parent);
+  const s = helper.session;
+  const parent = workingFor(s);
+  // A run is listed with the search cleared only while it needs you (`placeHelpers`).
+  const stays = s.headless ? !unattended(s) : AGENT_BAY[s.status] != null;
+  const listed = rows.some((r) => 'session' in r && r.session.key === s.key);
+  const key = parent && (s.headless ? runsShownKey(parent) : parent);
+  if (!key || shown.includes(key) || (listed && stays)) return shown;
+  return toggleShown(shown, key);
 }
 
 /**

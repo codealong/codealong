@@ -367,7 +367,14 @@ describe('the Sessions view’s lists', () => {
     it('counts the runs a session started on its row rather than listing them, at work or done', () => {
       const items = sessionItemsOf([lane('/r/a', [boss, busy, busy2, ended])]);
       expect(keysOf(placeHelpers(items, false))).toEqual([boss.key]);
-      expect(runCounts(items).get(boss.key)).toEqual({ count: 3, working: 2, on: ['claude2 · claude-opus-5-5'] });
+      const c = runCounts(items).get(boss.key);
+      expect(c).toMatchObject({ count: 3, working: 2, waiting: 0 });
+      // Each for its chip's card, the ones at work first, saying who runs it on which model.
+      expect(c?.each.map((g) => [g.key, g.status, g.account, g.model])).toEqual([
+        [busy.key, 'working', 'claude2', 'claude-opus-5-5'],
+        [busy2.key, 'working', 'claude2', 'claude-opus-5-5'],
+        [ended.key, 'idle', 'claude2', 'claude-opus-5-5'],
+      ]);
       // Not on its helpers' chip, and not the archived ones.
       expect(helperCounts(items).size).toBe(0);
       expect(runCounts(sessionItemsOf([lane('/r/a', [boss, { ...ended, archived: true }])])).size).toBe(0);
@@ -389,6 +396,19 @@ describe('the Sessions view’s lists', () => {
         [busy.key, true],
         [ended.key, true],
       ]);
+    });
+
+    it('lists a run its chip’s card shows under its session, its runs’ key added', () => {
+      const items = sessionItemsOf([lane('/r/a', [boss, busy, ended, asks])]);
+      const row = (s: Session) => items.find((r) => r.session.key === s.key)!;
+      const listed = placeHelpers(items, false);
+      expect(showingHelper(['x'], listed, row(ended))).toEqual(['x', runsShownKey(boss.key)]);
+      expect(showingHelper(['x'], listed, row(busy))).toEqual(['x', runsShownKey(boss.key)]);
+      // One that waits on you is listed anyway; and with its runs listed, nothing to add.
+      const shown = ['x'];
+      expect(showingHelper(shown, listed, row(asks))).toBe(shown);
+      const all = [runsShownKey(boss.key)];
+      expect(showingHelper(all, listed, row(ended))).toBe(all);
     });
 
     it('lists a run or a finished helper a window asks to show, once the search clears', () => {

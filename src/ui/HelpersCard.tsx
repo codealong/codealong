@@ -4,7 +4,9 @@
 // it's doing, asking or last said, and who runs it, on which model, where. A click on one shows it in
 // Sessions, under the session, with its conversation in the panel; its arrow opens it where it
 // runs; a right-click has its menu. Its button lists them all under the session, or only the ones
-// at work, as the chip's double-click does.
+// at work, as the chip's double-click does. The headless runs chip (`RunsChip`) has the same card
+// for the runs its commands started (`kind`), which aren't listed while at work; an eval leaves
+// hundreds, so the card shows the first `MAX_ROWS`.
 
 import type { HelperCount } from '../boardLists';
 import { absolute } from '../format';
@@ -21,6 +23,27 @@ export interface HelperActions {
   menu: (key: string) => void;
 }
 
+/** How many rows the card shows: the rest are listed under the session from its button. */
+const MAX_ROWS = 20;
+
+/** What the card says of each kind: its heading, what they are, and its button. */
+const KINDS = {
+  helpers: {
+    icon: 'subtask',
+    label: 'Its helpers',
+    head: (n: number) => (n === 1 ? 'Its helper' : `Its ${n} helpers`),
+    meta: 'Working for this session: they’re listed under it while they work or wait on you.',
+    list: (shown: boolean) => (shown ? 'List only the ones at work' : 'List them all under it'),
+  },
+  runs: {
+    icon: 'robot',
+    label: 'Its headless runs',
+    head: (n: number) => (n === 1 ? 'Its headless run' : `Its ${n} headless runs`),
+    meta: 'Run by its commands with nobody at them (claude -p, codex exec), which read what they say: counted on its row, not listed, unless one waits on you.',
+    list: (shown: boolean) => (shown ? 'List none of them under it' : 'List them all under it'),
+  },
+} as const;
+
 /** Words that start a line, as a sentence does. */
 const sentence = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
@@ -32,23 +55,27 @@ interface HelpersCardProps {
   shown: boolean;
   onToggle?: () => void;
   actions: HelperActions;
+  /** Its session's helpers (the default), or the headless runs its commands started. */
+  kind?: keyof typeof KINDS;
 }
 
-export function HelpersCard({ card, helpers: h, now, shown, onToggle, actions }: HelpersCardProps) {
+export function HelpersCard({ card, helpers: h, now, shown, onToggle, actions, kind = 'helpers' }: HelpersCardProps) {
+  const k = KINDS[kind];
+  const more = h.each.length - MAX_ROWS;
   // Doing something from the card closes it first.
   const act = (f: () => void) => {
     card.close();
     f();
   };
   return (
-    <HoverCard card={card} label="Its helpers" className="ca-helperscard">
+    <HoverCard card={card} label={k.label} className="ca-helperscard">
       <div className="ca-hovercard-head">
-        <Icon name="subtask" size={14} />
-        <span className="ca-helperscard-count">{h.count === 1 ? 'Its helper' : `Its ${h.count} helpers`}</span>
+        <Icon name={k.icon} size={14} />
+        <span className="ca-helperscard-count">{k.head(h.count)}</span>
       </div>
-      <p className="ca-hovercard-meta">Working for this session: they're listed under it while they work or wait on you.</p>
+      <p className="ca-hovercard-meta">{k.meta}</p>
       <div className="ca-helperscard-list" role="list">
-        {h.each.map((g) => {
+        {h.each.slice(0, MAX_ROWS).map((g) => {
           const name = helperName(g);
           const runs = [g.account, g.model, g.worktree && `in ${g.worktree}`, g.reports && 'tells it when done'].filter(Boolean).join(' · ');
           return (
@@ -83,10 +110,11 @@ export function HelpersCard({ card, helpers: h, now, shown, onToggle, actions }:
           );
         })}
       </div>
+      {more > 0 && <p className="ca-hovercard-meta">And {more} more, which its button lists.</p>}
       {onToggle && (
         <div className="ca-hovercard-foot">
           <Button size="sm" icon="layout-rows" onClick={() => act(onToggle)}>
-            {shown ? 'List only the ones at work' : 'List them all under it'}
+            {k.list(shown)}
           </Button>
         </div>
       )}

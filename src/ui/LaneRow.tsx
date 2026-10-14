@@ -350,7 +350,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
           {where}
           <HelperChip session={s} />
           <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
-          <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} />
+          <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
           <SuggestedChip suggestions={s.suggestions} />
@@ -507,20 +507,29 @@ export function HelperChip({ session: s, nested }: { session: Session; nested?: 
 
 /** The chip on a session's row for the headless runs its commands started (boardLists.ts
  *  `runCounts`, an eval's judge calls, say): how many, with the working glyph while any is at
- *  work, and in its tooltip how many are and what they run on. They're counted here rather than
- *  listed, a row a call; a double-click lists them all under the row, or none again (`shown`). */
-export function RunsChip({ runs: r, shown = false, onToggle }: { runs: RunCount | undefined; shown?: boolean; onToggle?: () => void }) {
+ *  work. They're counted here rather than listed, a row a call. Resting the pointer on it brings
+ *  up the helpers' card for them (HelpersCard.tsx, `kind` runs), each to show or open; where
+ *  there's no card (`actions`), how many work is in its tooltip. A double-click lists them all
+ *  under the row, or none again (`shown`). */
+export function RunsChip({ runs: r, shown = false, onToggle, actions, now }: { runs: RunCount | undefined; shown?: boolean; onToggle?: () => void; actions?: HelperActions; now: number }) {
+  const card = useHoverCard();
   if (!r || r.count === 0) return null;
   const what = r.count === 1 ? 'A headless run' : `${r.count} headless runs`;
   const at = r.working > 0 ? `, ${r.working} at work` : '';
-  const on = r.on.length > 0 ? `\nOn ${r.on.join(', ')}.` : '';
   const how = onToggle ? `\nDouble-click to list ${shown ? 'none of them' : 'them all'} under it.` : '';
-  return (
-    <Chip className={cx('ca-runschip', shown && 'is-shown')} title={`${what} its commands started${at}: claude -p or codex exec, which what ran them reads, so they're counted here rather than listed.${on}${how}`} act={onToggle} inRow>
+  const chip = (
+    <Chip className={cx('ca-runschip', shown && 'is-shown')} title={actions ? undefined : `${what} its commands started${at}: claude -p or codex exec, which what ran them reads, so they're counted here rather than listed.${how}`} act={onToggle} inRow>
       <Icon name="robot" size={12} />
       {r.working > 0 && <SessionGlyph s={{ status: 'working' }} size={10} />}
       {r.count === 1 ? '1 run' : `${r.count} runs`}
     </Chip>
+  );
+  if (!actions) return chip;
+  return (
+    <span ref={(el) => void (card.anchor.current = el)} className="ca-helperschip-anchor" onMouseEnter={card.show} onMouseLeave={card.hide}>
+      {chip}
+      {card.open && <HelpersCard card={card} helpers={r} now={now} shown={shown} onToggle={onToggle} actions={actions} kind="runs" />}
+    </span>
   );
 }
 
@@ -612,7 +621,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             <span className="ca-chips ca-agentline-tags">
               <HelperChip session={s} nested={nested} />
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
-              <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} />
+              <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />

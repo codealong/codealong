@@ -1678,8 +1678,13 @@ of the run's parent processes that's a session's own, as a command an agent runs
 that agent (an eval's `claude -p` under python, under the shell the agent's tool opened). That
 session is where the run came from (its header says *Started by*), and Sessions counts its runs on
 its row rather than listing them, a row a call: a chip says how many, with the working glyph while
-any is at work, and its tooltip what they run on. Double-click it to list them all under the
-session, and again to put them away; that's kept apart from listing its helpers. A run no session
+any is at work. Rest the pointer on it for the helpers' card for them: each run (the first 20),
+the ones at work first, with where it stands since when, what it's doing or last said and what it
+runs on; a click on one lists it under the session with its conversation in the panel, its arrow
+opens it where it runs, and a right-click has its menu. Double-click the chip, or use the card's
+button, to list them all under the session, and again to put them away; that's kept apart from
+listing its helpers. A run started with `--no-session-persistence` keeps no conversation to read,
+and leaves the board as it ends. A run no session
 on the board ran (a script in a terminal of yours, or one that ended before Codealong saw it
 running) is listed as a session of its own, with a *Headless* chip; so, for now, is every `codex
 exec` run, whose process Codealong can't yet tell from its thread. A run's session is remembered
