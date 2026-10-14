@@ -1224,14 +1224,16 @@ pub fn helper_of(parent: Option<(&str, bool)>, on_board: impl Fn(&str) -> bool, 
 /// Code's scratchpad, a background job's folder) are that session's helpers, where nothing else
 /// says whose they are: its agent ran them there (test chats in tmux, say) and reads them itself,
 /// so their ended turns don't wait on you, as a helper's don't. None is told of, since none asked
-/// to be (`Helper::report`). Headless runs have their own rule, and a session you made your own
-/// (`own`) stays yours. `owner_of` names a folder's session by its harness and ID.
+/// to be (`Helper::report`). Only a session nothing says the origin of: a fork of one, or one
+/// started without `--helper`, was made for you. Headless runs have their own rule, and a
+/// session you made your own (`own`) stays yours. `owner_of` names a folder's session by its
+/// harness and ID.
 pub fn scratch_helpers(sessions: &mut [Session], owner_of: impl Fn(&Path) -> Option<(Harness, String)>, own: impl Fn(&str) -> bool) {
     let keys: HashMap<(Harness, String), String> = sessions.iter().map(|s| ((s.harness, s.id.clone()), s.key.clone())).collect();
-    for s in sessions.iter_mut().filter(|s| s.helper.is_none() && !s.headless && !own(&s.key)) {
+    for s in sessions.iter_mut().filter(|s| s.helper.is_none() && s.origin.is_none() && !s.headless && !own(&s.key)) {
         let Some(parent) = owner_of(Path::new(&s.cwd)).and_then(|o| keys.get(&o)).filter(|k| **k != s.key) else { continue };
         s.helper = Some(Helper { parent: Some(parent.clone()), pr: None, report: false });
-        s.origin.get_or_insert_with(|| SessionOrigin { key: parent.clone(), how: OriginHow::Started });
+        s.origin = Some(SessionOrigin { key: parent.clone(), how: OriginHow::Started });
     }
 }
 
@@ -4023,6 +4025,9 @@ mod tests {
             Session { headless: true, ..at("run", JOB) },
             at("mine", JOB),
             at("elsewhere", "/r/codealong"),
+            // A fork you made of one there, and one its agent started for you without --helper.
+            Session { origin: Some(SessionOrigin { key: "claude:claude:mine".into(), how: OriginHow::Fork }), ..at("fork", JOB) },
+            Session { origin: Some(SessionOrigin { key: "claude:claude:54a9a7a0-b633".into(), how: OriginHow::Started }), ..at("yours", JOB) },
         ];
         scratch_helpers(&mut sessions, owner_of, |k| k == "claude:claude:mine");
         let boss = "claude:claude:54a9a7a0-b633";
@@ -4031,6 +4036,7 @@ mod tests {
         assert_eq!(sessions[1].origin, Some(SessionOrigin { key: boss.into(), how: OriginHow::Started }));
         assert_eq!(helps("asked"), Some(("claude:claude:other".to_string(), true)));
         assert_eq!((helps("run"), helps("mine"), helps("elsewhere"), helps("54a9a7a0-b633")), (None, None, None, None));
+        assert_eq!((helps("fork"), helps("yours")), (None, None));
         // Its ended turn is its agent's to read.
         apply_helper(&mut sessions[1]);
         assert_eq!(sessions[1].status, Status::Idle);
