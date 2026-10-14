@@ -182,12 +182,17 @@ pub struct SessionRow {
     pub todos: Vec<String>,
     /// What it's doing or asking now, as its row in Codealong says.
     pub excerpt: Option<String>,
-    /// For `session suggest` and `session tag`: its `lastPromptAt` as this look read it.
+    /// For `session suggest` and `session tag`: its `lastPromptAt` as this look read it, when its
+    /// user last prompted it. A message from another session or from Codealong doesn't move it.
     pub last_prompt_at: i64,
-    /// Its latest prompt, and its last reply (the first line and the end of a long one), when
-    /// they were read: `codealong changes` reads them for the first `--texts` changes.
+    /// What began its latest turn, and its last reply (the first line and the end of a long one),
+    /// when they were read: `codealong changes` reads them for the first `--texts` changes. That's
+    /// its user's latest prompt, or a message sent after it (`prompt_from`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    /// Who sent `prompt`, when it wasn't its user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_from: Option<PromptFrom>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<String>,
     /// It has replies suggested to its user (`session suggest`), or is tagged by an agent
@@ -198,6 +203,16 @@ pub struct SessionRow {
     /// It works for another agent (`start --helper`, an automatic review), not for its user.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub helper: bool,
+}
+
+/// Who sent the message that began a session's latest turn, when it wasn't its user.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PromptFrom {
+    /// Another session: `codealong session send`, or Claude Code's own messages between sessions.
+    Agent,
+    /// Codealong by itself (send.rs `tell`): a PR's news, a helper's.
+    Codealong,
 }
 
 /// The headless runs in a worktree that changed since the earlier look (`Session::headless`), in
@@ -580,6 +595,7 @@ fn session_row(change: SessionChange, s: &Session, lane: &Lane, board: &Board) -
         excerpt: s.excerpt.clone(),
         last_prompt_at: s.last_prompt_at,
         prompt: None,
+        prompt_from: None,
         reply: None,
         suggested: s.suggestions.is_some(),
         tagged_by: s.insight.as_ref().and_then(|i| i.by.clone()),
@@ -659,15 +675,30 @@ fn working_here(s: &Session, now: i64) -> bool {
     s.visitor.is_none() && !s.archived && s.helper.is_none() && !s.headless && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || (s.live && now - s.last_activity < ACTIVE_MS))
 }
 
-/// The latest prompt in a page of a conversation, and the reply after it: the last thing its
-/// agent said since that prompt, whole when it's short, else its first line and its end, where a
-/// status line and a question go.
-pub fn texts(items: &[api::Item]) -> (Option<String>, Option<String>) {
-    let last_prompt = items.iter().rposition(|i| i.kind == "you" && !i.withdrawn);
-    let prompt = last_prompt.map(|i| crate::util::truncate(items[i].text.trim(), PROMPT_CUT)).filter(|p| !p.is_empty());
-    let after = last_prompt.map_or(0, |i| i + 1);
+/// The message that began the latest turn in a page of a conversation, who sent it when it wasn't
+/// the session's user, and the reply after it: the last thing its agent said since, whole when
+/// it's short, else its first line and its end, where a status line and a question go. Another
+/// session's message is a note of it where its harness records it as one (Claude Code), else a
+/// prompt led by the byline `session send` gave it; Codealong's own is `codealong`.
+pub fn texts(items: &[api::Item]) -> (Option<String>, Option<PromptFrom>, Option<String>) {
+    fn said(i: &api::Item) -> Option<(&str, Option<PromptFrom>)> {
+        match i.kind.as_str() {
+            "you" if i.withdrawn => None,
+            "you" => Some(match crate::send::from_an_agent(&i.text) {
+                Some(text) => (text, Some(PromptFrom::Agent)),
+                None => (i.text.as_str(), None),
+            }),
+            "note" if i.text.starts_with(crate::send::FROM_ANOTHER_SESSION) => Some((i.text.as_str(), Some(PromptFrom::Agent))),
+            "codealong" => Some((i.text.as_str(), Some(PromptFrom::Codealong))),
+            _ => None,
+        }
+    }
+    let last = items.iter().rposition(|i| said(i).is_some());
+    let (prompt, from) = last.and_then(|i| said(&items[i])).map_or((None, None), |(text, from)| (Some(crate::util::truncate(text.trim(), PROMPT_CUT)).filter(|p| !p.is_empty()), from));
+    let after = last.map_or(0, |i| i + 1);
     let reply = items[after..].iter().rev().find(|i| i.kind == "agent" && !i.text.trim().is_empty()).map(|i| cut_reply(i.text.trim()));
-    (prompt, reply)
+    let from = from.filter(|_| prompt.is_some());
+    (prompt, from, reply)
 }
 
 fn cut_reply(text: &str) -> String {
@@ -1105,13 +1136,34 @@ mod tests {
     fn a_page_gives_the_latest_prompt_and_the_reply_after_it() {
         let long = format!("Landed: abc is in main.\n{}\nShall I deploy it?", "x".repeat(2000));
         let page = vec![item("you", "First"), item("agent", "Old reply"), item("you", "Ship it"), item("tool", "Bash · `git push`"), item("agent", &long)];
-        let (prompt, reply) = texts(&page);
-        assert_eq!(prompt.as_deref(), Some("Ship it"));
+        let (prompt, from, reply) = texts(&page);
+        assert_eq!((prompt.as_deref(), from), (Some("Ship it"), None));
         let reply = reply.unwrap();
         assert!(reply.starts_with("Landed: abc is in main.\n…\n") && reply.ends_with("Shall I deploy it?"), "{reply}");
         // A turn that hasn't replied yet has no reply.
-        let (_, reply) = texts(&[item("agent", "Old reply"), item("you", "Next")]);
+        let (_, _, reply) = texts(&[item("agent", "Old reply"), item("you", "Next")]);
         assert_eq!(reply, None);
+    }
+
+    /// "Skanksa Review" answered another session's message with a review, and `changes` gave its
+    /// user's prompt of the day before as the turn's (2026-10-14).
+    #[test]
+    fn a_turn_another_session_began_gives_its_message_marked_as_theirs() {
+        let theirs = format!("{}, “Antigravity review”: Here's my review of #1227.", crate::send::FROM_ANOTHER_SESSION);
+        let page = vec![item("you", "its going now"), item("agent", "Watching it."), item("note", &theirs), item("agent", "Reviewed: two findings.")];
+        assert_eq!(texts(&page), (Some(theirs.clone()), Some(PromptFrom::Agent), Some("Reviewed: two findings.".into())));
+        // Typed in where its harness takes it so, without the byline `session send` led it with.
+        let typed = "This message is from another agent, “Review” (Codex on codex, session k), sent with `codealong session send`; it isn't from your user.\n\nWhich test fails?";
+        assert_eq!(texts(&[item("you", "Fix it"), item("you", typed)]).0.as_deref(), Some("Which test fails?"));
+        assert_eq!(texts(&[item("you", typed)]).1, Some(PromptFrom::Agent));
+        // Codealong's own, and a later prompt of the user's, which is theirs again.
+        assert_eq!(texts(&[item("codealong", "On your PR #7: ken approved it.")]).1, Some(PromptFrom::Codealong));
+        assert_eq!(texts(&[item("note", &theirs), item("you", "Thanks, merge it")]).0.as_deref(), Some("Thanks, merge it"));
+        assert_eq!(texts(&[item("note", &theirs), item("you", "Thanks, merge it")]).1, None);
+        // A note of something else begins no turn.
+        assert_eq!(texts(&[item("you", "Fix it"), item("note", "The conversation was compacted here")]).0.as_deref(), Some("Fix it"));
+        // Serialized as the help says.
+        assert_eq!(serde_json::to_value(PromptFrom::Agent).unwrap(), "agent");
     }
 
     #[test]

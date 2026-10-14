@@ -1964,7 +1964,8 @@ codealong skill.
 
 Its two commands are for any agent. `codealong changes` says what changed since the cursor an
 earlier run printed: sessions that started, began or ended a turn, wait on you or stopped, each with
-its latest prompt and reply; PRs opened, out of draft, approved, sent back, merged or closed; todos
+what began its latest turn and its reply (your latest prompt, or a message another session or
+Codealong sent after it, marked as theirs); PRs opened, out of draft, approved, sent back, merged or closed; todos
 added, started, done or set waiting; worktrees a second agent started working in (not an app's
 chats, listed together only for having no folder of yours); and how many headless runs (*Headless
 runs*) changed in each folder, rather than a line each. With them comes every session that waits on

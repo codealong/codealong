@@ -230,7 +230,7 @@ fn peer_item(at: i64, peer: &Peer) -> Item {
         return item(at, "codealong", crate::attachments::shorten(text));
     }
     let from = if peer.name.is_empty() { String::new() } else { format!(", “{}”", peer.name) };
-    item(at, "note", format!("From another session{from}: {}", one_line(crate::send::without_byline(&peer.body), 200)))
+    item(at, "note", format!("{}{from}: {}", crate::send::FROM_ANOTHER_SESSION, one_line(crate::send::without_byline(&peer.body), 200)))
 }
 
 /* ---- Prompts Claude Code took back ---- */

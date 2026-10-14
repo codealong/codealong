@@ -67,9 +67,10 @@ tick*. Otherwise start at *Starting*.
 
 1. `codealong changes --cursor-file <state>/cursor`. It prints JSON (piped): `sessions` that
    changed since the last tick (new, working, waiting, finished, stopped), each with its
-   `lastPromptAt` and, for the first dozen, its latest `prompt` and `reply`; `waiting`, every
-   session that waits on your user now, each saying whether it has suggestions or a tag; `prs`
-   opened, approved, sent back, merged or closed; `todos`; `shared`, worktrees a second agent
+   `lastPromptAt` and, for the first dozen, what began its latest turn (`prompt`; `promptFrom`
+   says when another session or Codealong sent it rather than your user) and its `reply`;
+   `waiting`, every session that waits on your user now, each saying whether it has suggestions
+   or a tag; `prs` opened, approved, sent back, merged or closed; `todos`; `shared`, worktrees a second agent
    started working in; and `headless`, how many headless runs (`claude -p`, `codex exec`, which a
    script or an agent ran and reads itself) changed in each folder. Those aren't sessions to read
    or overlaps: mention them only when they bear on something else, such as load or a folder's

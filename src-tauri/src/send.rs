@@ -132,16 +132,30 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
     }
 }
 
+/// How a conversation's note of another session's message begins, where its harness records the
+/// message as one (claude/conversation.rs, `peer_item`); the windows know it by this too
+/// (ahead.ts `said`).
+pub const FROM_ANOTHER_SESSION: &str = "From another session";
+
+/// How an agent's message begins, for each way `byline` words it.
+const AGENT_BYLINES: [&str; 2] = ["This message is from another agent, ", "This message was sent with `codealong session send`"];
+
 /// An agent's message without the byline it starts with, as a note of it shows it
 /// (claude/conversation.rs, `peer_item`): the byline says whose it is, which the note says
 /// already.
 pub fn without_byline(text: &str) -> &str {
     let t = text.trim();
-    let starts = ["This message is from another agent, ", "This message was sent with `codealong session send`", FROM_CODEALONG_ITSELF];
     match t.split_once("\n\n") {
-        Some((intro, rest)) if starts.iter().any(|s| intro.starts_with(s)) => rest.trim(),
+        Some((intro, rest)) if AGENT_BYLINES.iter().chain([&FROM_CODEALONG_ITSELF]).any(|s| intro.starts_with(s)) => rest.trim(),
         _ => t,
     }
+}
+
+/// Text an agent sent with `codealong session send`, as a session that takes it typed in records
+/// it, without its byline: what the agent said. None for anything else.
+pub fn from_an_agent(text: &str) -> Option<&str> {
+    let t = text.trim_start();
+    AGENT_BYLINES.iter().any(|s| t.starts_with(s)).then(|| without_byline(t))
 }
 
 /// What goes to the session: the text as it gets it, before its attachments are written out for
