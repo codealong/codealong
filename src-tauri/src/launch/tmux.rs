@@ -44,9 +44,9 @@ impl Terminal for Tmux {
     /// terminal Codealong doesn't know, or in tmux again, leaves the tab titled like the session
     /// in `profile`'s app. A session no client shows has no tab: `attach_command` makes one.
     fn focus_session(&self, profile: &str, pid: u32, _tty: &Path, title: &str, cwd: &Path) -> Result<Option<TerminalHost>> {
-        if let Some((pane, client, tty)) = shown_by(pid) {
-            show(&pane);
-            if let Some(found) = client_terminal(client).map(|t| t.focus_session(profile, client, &tty, title, cwd)).transpose()?.flatten() {
+        if let Some((pane, client)) = shown_by(pid) {
+            show(&pane, &client.session);
+            if let Some(found) = client_terminal(client.pid).map(|t| t.focus_session(profile, client.pid, &client.tty, title, cwd)).transpose()?.flatten() {
                 return Ok(Some(found));
             }
         }
@@ -56,7 +56,7 @@ impl Terminal for Tmux {
     /// The app its client runs in. None when no client shows its session, so a new tab opens in
     /// the terminal config.toml names.
     fn app_of(&self, pid: u32) -> Option<&'static str> {
-        shown_by(pid).and_then(|(_, client, _)| client_terminal(client)?.bundle())
+        shown_by(pid).and_then(|(_, client)| client_terminal(client.pid)?.bundle())
     }
 
     /// Attaching to the pane, not its session, brings up the pane's window and the pane, where a
@@ -109,16 +109,17 @@ fn bin() -> Option<PathBuf> {
     ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].iter().map(PathBuf::from).find(|p| p.is_file())
 }
 
-/// A pane, as `list-panes` says it: its id, and the sessions it's in that a client shows. A
-/// window can be in several sessions (linked, or a group's), and is listed once in each.
+/// A pane, as `list-panes` says it: its id, its window's, and the sessions it's in that a client
+/// shows. A window can be in several sessions (linked, or a group's), and is listed once in each.
 #[derive(Debug, PartialEq)]
 pub(super) struct Pane {
     pub id: String,
+    pub window: String,
     pub shown_in: Vec<String>,
 }
 
 /// What `list-panes` says of each pane, the session's name last since it may have spaces.
-const PANES: &str = "#{pane_tty} #{pane_id} #{session_attached} #{session_name}";
+const PANES: &str = "#{pane_tty} #{pane_id} #{window_id} #{session_attached} #{session_name}";
 
 /// The tmux pane whose TTY is the process's.
 fn pane_of(pid: u32) -> Option<Pane> {
@@ -132,12 +133,12 @@ fn pane_of(pid: u32) -> Option<Pane> {
 pub(super) fn pane_for(list: &str, tty: &str) -> Option<Pane> {
     let mut pane: Option<Pane> = None;
     for line in list.lines() {
-        let mut f = line.splitn(4, ' ');
-        let (Some(t), Some(id), Some(clients), Some(session)) = (f.next(), f.next(), f.next(), f.next()) else { continue };
+        let mut f = line.splitn(5, ' ');
+        let (Some(t), Some(id), Some(window), Some(clients), Some(session)) = (f.next(), f.next(), f.next(), f.next(), f.next()) else { continue };
         if t != tty {
             continue;
         }
-        let pane = pane.get_or_insert_with(|| Pane { id: id.to_string(), shown_in: Vec::new() });
+        let pane = pane.get_or_insert_with(|| Pane { id: id.to_string(), window: window.to_string(), shown_in: Vec::new() });
         if clients != "0" {
             pane.shown_in.push(session.to_string());
         }
@@ -145,27 +146,36 @@ pub(super) fn pane_for(list: &str, tty: &str) -> Option<Pane> {
     pane
 }
 
+/// A client of tmux (a terminal running `tmux attach`): its process, its TTY and the session it
+/// shows.
+#[derive(Debug, PartialEq)]
+pub(super) struct Client {
+    pub pid: u32,
+    pub tty: PathBuf,
+    pub session: String,
+}
+
 /// What `list-clients` says of each client, the session's name last since it may have spaces.
 const CLIENTS: &str = "#{client_activity} #{client_pid} #{client_tty} #{client_session}";
 
 /// Where a process's pane shows: the pane, and the client showing a session it's in that was
-/// used last, by its process and TTY. None when no client shows it.
-fn shown_by(pid: u32) -> Option<(String, u32, PathBuf)> {
+/// used last. None when no client shows it.
+fn shown_by(pid: u32) -> Option<(Pane, Client)> {
     let pane = pane_of(pid).filter(|p| !p.shown_in.is_empty())?;
     let bin = bin()?;
     let out = procs::run(&bin.to_string_lossy(), &["list-clients", "-F", CLIENTS], None, Duration::from_secs(5)).ok()?;
-    let (client, tty) = client_for(&out, &pane.shown_in)?;
-    Some((pane.id, client, tty))
+    let client = client_for(&out, &pane.shown_in)?;
+    Some((pane, client))
 }
 
 /// From `list-clients -F CLIENTS`, the client on one of `sessions` with the latest activity.
-pub(super) fn client_for(list: &str, sessions: &[String]) -> Option<(u32, PathBuf)> {
+pub(super) fn client_for(list: &str, sessions: &[String]) -> Option<Client> {
     let clients = list.lines().filter_map(|l| {
         let mut f = l.splitn(4, ' ');
         let (at, pid, tty, session) = (f.next()?.parse::<i64>().ok()?, f.next()?.parse::<u32>().ok()?, f.next()?, f.next()?);
-        sessions.iter().any(|s| s == session).then(|| (at, pid, PathBuf::from(tty)))
+        sessions.iter().any(|s| s == session).then(|| (at, Client { pid, tty: PathBuf::from(tty), session: session.to_string() }))
     });
-    clients.max_by_key(|c| c.0).map(|(_, pid, tty)| (pid, tty))
+    clients.max_by_key(|c| c.0).map(|(_, client)| client)
 }
 
 /// The terminal a client runs in. The client is a tmux process too, so it's the one above it.
@@ -174,12 +184,15 @@ fn client_terminal(client: u32) -> Option<&'static dyn Terminal> {
     super::parent_and_name(client).and_then(|(parent, _)| super::terminal_kind(parent)).filter(|t| t.kind() != HostKind::Tmux)
 }
 
-/// Makes the pane the one its session shows: its window the current one, and it the active pane
-/// there. Failing leaves the client as it was, and its tab still comes forward.
-fn show(pane: &str) {
+/// Makes the pane the one `session` shows: its window the current one there, and it the active
+/// pane in that window. The window is named in the session (`=` for its exact name): a pane
+/// alone names the session with it that was active last, which may be one no client shows.
+/// Failing leaves the client as it was, and its tab still comes forward.
+fn show(pane: &Pane, session: &str) {
     let Some(bin) = bin() else { return };
-    for command in ["select-window", "select-pane"] {
-        let _ = procs::run(&bin.to_string_lossy(), &[command, "-t", pane], None, Duration::from_secs(5));
+    let window = format!("={session}:{}", pane.window);
+    for (command, target) in [("select-window", window.as_str()), ("select-pane", pane.id.as_str())] {
+        let _ = procs::run(&bin.to_string_lossy(), &[command, "-t", target], None, Duration::from_secs(5));
     }
 }
 

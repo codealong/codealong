@@ -946,7 +946,7 @@ pub fn codex_review_url(pr_url: &str) -> String {
 mod tests {
     use super::ghostty::{osascript, terminal_of as ghostty_terminal_of, terminals as ghostty_terminals};
     use super::ghostty::{GHOSTTY_ACTION, GHOSTTY_CLOSE, GHOSTTY_FIND, GHOSTTY_FOCUS, GHOSTTY_IN_FRONT, GHOSTTY_KEY, GHOSTTY_LIST, GHOSTTY_NEW, GHOSTTY_TYPE};
-    use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, Pane as TmuxPane};
+    use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, Client as TmuxClient, Pane as TmuxPane};
     use super::*;
 
     #[test]
@@ -1630,23 +1630,24 @@ end run
 
     #[test]
     fn a_tmux_pane_is_found_by_its_tty() {
-        let list = "/dev/ttys003 %0 1 main\n/dev/ttys012 %4 0 my agents\n";
-        assert_eq!(tmux_pane_for(list, "/dev/ttys012"), Some(TmuxPane { id: "%4".into(), shown_in: vec![] }));
-        assert_eq!(tmux_pane_for(list, "/dev/ttys003"), Some(TmuxPane { id: "%0".into(), shown_in: vec!["main".into()] }));
+        let list = "/dev/ttys003 %0 @0 1 main\n/dev/ttys012 %4 @3 0 my agents\n";
+        assert_eq!(tmux_pane_for(list, "/dev/ttys012"), Some(TmuxPane { id: "%4".into(), window: "@3".into(), shown_in: vec![] }));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys003"), Some(TmuxPane { id: "%0".into(), window: "@0".into(), shown_in: vec!["main".into()] }));
         assert_eq!(tmux_pane_for(list, "/dev/ttys01"), None);
         // A window in several sessions (a group's, or linked) is listed once in each: it shows
         // wherever any of them is attached, whichever comes first.
-        let grouped = "/dev/ttys025 %0 0 agents\n/dev/ttys029 %1 0 agents\n/dev/ttys025 %0 1 view\n/dev/ttys025 %0 2 also\n";
-        assert_eq!(tmux_pane_for(grouped, "/dev/ttys025"), Some(TmuxPane { id: "%0".into(), shown_in: vec!["view".into(), "also".into()] }));
+        let grouped = "/dev/ttys025 %0 @0 0 agents\n/dev/ttys029 %1 @1 0 agents\n/dev/ttys025 %0 @0 1 view\n/dev/ttys025 %0 @0 2 also\n";
+        assert_eq!(tmux_pane_for(grouped, "/dev/ttys025"), Some(TmuxPane { id: "%0".into(), window: "@0".into(), shown_in: vec!["view".into(), "also".into()] }));
     }
 
     #[test]
     fn a_tmux_sessions_client_is_the_one_used_last() {
         let list = "1760000100 501 /dev/ttys004 my agents\n1760000900 502 /dev/ttys005 main\n1760000300 503 /dev/ttys006 my agents\n";
         let on = |names: &[&str]| tmux_client_for(list, &names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
-        assert_eq!(on(&["my agents"]), Some((503, PathBuf::from("/dev/ttys006"))));
-        assert_eq!(on(&["main"]), Some((502, PathBuf::from("/dev/ttys005"))));
-        assert_eq!(on(&["my agents", "main"]), Some((502, PathBuf::from("/dev/ttys005"))));
+        let client = |pid: u32, tty: &str, session: &str| Some(TmuxClient { pid, tty: PathBuf::from(tty), session: session.into() });
+        assert_eq!(on(&["my agents"]), client(503, "/dev/ttys006", "my agents"));
+        assert_eq!(on(&["main"]), client(502, "/dev/ttys005", "main"));
+        assert_eq!(on(&["my agents", "main"]), client(502, "/dev/ttys005", "main"));
         assert_eq!(on(&["my"]), None);
         assert_eq!(on(&[]), None);
         assert_eq!(tmux_client_for("", &["main".to_string()]), None);

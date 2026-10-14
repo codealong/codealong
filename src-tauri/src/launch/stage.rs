@@ -654,9 +654,10 @@ mod tests {
         assert!(p.log.is_empty());
     }
 
-    const TMUX_PANES: &str = r##"/opt/homebrew/bin/tmux ["list-panes", "-a", "-F", "#{pane_tty} #{pane_id} #{session_attached} #{session_name}"] (5s)"##;
+    const TMUX_PANES: &str = r##"/opt/homebrew/bin/tmux ["list-panes", "-a", "-F", "#{pane_tty} #{pane_id} #{window_id} #{session_attached} #{session_name}"] (5s)"##;
     const TMUX_CLIENTS: &str = r##"/opt/homebrew/bin/tmux ["list-clients", "-F", "#{client_activity} #{client_pid} #{client_tty} #{client_session}"] (5s)"##;
-    const TMUX_SHOW: [&str; 2] = [r#"/opt/homebrew/bin/tmux ["select-window", "-t", "%3"] (5s)"#, r#"/opt/homebrew/bin/tmux ["select-pane", "-t", "%3"] (5s)"#];
+    /// Pane %3 brought up in the session "my agents" shows.
+    const TMUX_SHOW: [&str; 2] = [r#"/opt/homebrew/bin/tmux ["select-window", "-t", "=my agents:@2"] (5s)"#, r#"/opt/homebrew/bin/tmux ["select-pane", "-t", "%3"] (5s)"#];
 
     /// tmux answering with `panes` and `clients`, and Ghostty with its tabs, T3 showing a mark.
     fn tmux_answers(panes: &'static str, clients: &'static str) -> impl Fn(&Sent) -> Result<String, String> {
@@ -678,7 +679,7 @@ mod tests {
     fn focusing_a_session_in_tmux_brings_up_its_pane_in_the_tab_its_client_runs_in() {
         // Two clients show its session and one another session: the one used last is the one in
         // Ghostty, whose tab is found by a mark on the client's TTY.
-        let panes = "/dev/ttys400 %1 1 other\n/dev/ttys401 %3 2 my agents\n";
+        let panes = "/dev/ttys400 %1 @1 1 other\n/dev/ttys401 %3 @2 2 my agents\n";
         let clients = "1760000300 100030 /dev/ttys103 my agents\n1760000400 600030 /dev/ttys602 other\n1760000100 400030 /dev/ttys402 my agents\n";
         let p = played(tmux_answers(panes, clients), || terminal_focus_session("iterm2", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
         assert!(p.got.unwrap());
@@ -705,19 +706,30 @@ mod tests {
         }
 
         // Its window is in two sessions (a group's), listed once in each: the one listed first
-        // isn't attached, the other is, by a client in iTerm2, whatever config.toml names.
-        let grouped = "/dev/ttys401 %3 0 my agents\n/dev/ttys401 %3 1 view\n";
+        // isn't attached, the other is, by a client in iTerm2, whatever config.toml names. The
+        // window comes up in the client's session: the pane alone would name the session with
+        // it that was active last, which can be the one nobody sees.
+        let grouped = "/dev/ttys401 %3 @2 0 my agents\n/dev/ttys401 %3 @2 1 view\n";
         let p = played(tmux_answers(grouped, "1760000300 200030 /dev/ttys203 view\n"), || terminal_focus_session("ghostty", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
         assert!(p.got.unwrap());
-        assert_eq!(p.log, [TMUX_PANES, TMUX_CLIENTS, TMUX_SHOW[0], TMUX_SHOW[1], r#"ITERM_FOCUS+SESSION_ON ["/dev/ttys203"]"#]);
+        assert_eq!(
+            p.log,
+            [
+                TMUX_PANES,
+                TMUX_CLIENTS,
+                r#"/opt/homebrew/bin/tmux ["select-window", "-t", "=view:@2"] (5s)"#,
+                TMUX_SHOW[1],
+                r#"ITERM_FOCUS+SESSION_ON ["/dev/ttys203"]"#,
+            ]
+        );
 
         // No client shows its session, so no tab can: none is asked for, and the title finds
         // only a tab that happens to be titled like it.
-        let p = played(tmux_answers("/dev/ttys401 %3 0 my agents\n", ""), || terminal_focus_session("ghostty", IN_TMUX, "Something else", Path::new("/r/app")));
+        let p = played(tmux_answers("/dev/ttys401 %3 @2 0 my agents\n", ""), || terminal_focus_session("ghostty", IN_TMUX, "Something else", Path::new("/r/app")));
         assert!(!p.got.unwrap());
         assert_eq!(p.log, [TMUX_PANES, "GHOSTTY_LIST []"]);
         // Its pane isn't on the server Codealong asks.
-        let p = played(tmux_answers("/dev/ttys400 %1 1 other\n", ""), || terminal_focus_session("ghostty", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
+        let p = played(tmux_answers("/dev/ttys400 %1 @1 1 other\n", ""), || terminal_focus_session("ghostty", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
         assert!(p.got.unwrap());
         assert_eq!(p.log, [TMUX_PANES, "GHOSTTY_LIST []", r#"GHOSTTY_FOCUS ["id", "T2"]"#]);
     }
@@ -725,11 +737,11 @@ mod tests {
     #[test]
     fn a_tmux_session_no_client_shows_is_attached_to_in_a_new_tab() {
         // By its pane, which brings up the pane's window and the pane, not the session's last.
-        let p = played(tmux_answers("/dev/ttys400 %1 1 other\n/dev/ttys401 %3 0 Bob's agents\n/dev/ttys401 %3 0 view\n", ""), || attach_command(IN_TMUX));
+        let p = played(tmux_answers("/dev/ttys400 %1 @1 1 other\n/dev/ttys401 %3 @2 0 Bob's agents\n/dev/ttys401 %3 @2 0 view\n", ""), || attach_command(IN_TMUX));
         assert_eq!(p.got.as_deref(), Some("/opt/homebrew/bin/tmux attach -t '%3'"));
         assert_eq!(p.log, [TMUX_PANES]);
         // A client shows a session it's in, or its pane isn't found: it may have a tab.
-        for panes in ["/dev/ttys401 %3 0 Bob's agents\n/dev/ttys401 %3 1 view\n", "/dev/ttys400 %1 0 other\n"] {
+        for panes in ["/dev/ttys401 %3 @2 0 Bob's agents\n/dev/ttys401 %3 @2 1 view\n", "/dev/ttys400 %1 @1 0 other\n"] {
             let p = played(tmux_answers(panes, ""), || attach_command(IN_TMUX));
             assert_eq!(p.got, None);
         }
@@ -741,7 +753,7 @@ mod tests {
 
     #[test]
     fn a_tmux_sessions_app_is_the_one_its_client_runs_in() {
-        let panes = "/dev/ttys401 %3 1 my agents\n";
+        let panes = "/dev/ttys401 %3 @2 1 my agents\n";
         for (client, app) in [("100030 /dev/ttys103", Some("com.mitchellh.ghostty")), ("200030 /dev/ttys203", Some("com.googlecode.iterm2")), ("600030 /dev/ttys602", None), ("400030 /dev/ttys402", None)] {
             let clients: &'static str = Box::leak(format!("1760000300 {client} my agents\n").into_boxed_str());
             let p = played(tmux_answers(panes, clients), || session_app(IN_TMUX));
@@ -749,7 +761,7 @@ mod tests {
             assert_eq!(p.log, [TMUX_PANES, TMUX_CLIENTS]);
         }
         // No client shows it: a new tab opens in the profile's app, which the caller falls back on.
-        let p = played(tmux_answers("/dev/ttys401 %3 0 my agents\n", ""), || session_app(IN_TMUX));
+        let p = played(tmux_answers("/dev/ttys401 %3 @2 0 my agents\n", ""), || session_app(IN_TMUX));
         assert_eq!(p.got, None);
         assert_eq!(p.log, [TMUX_PANES]);
         // A terminal's own sessions are in its app, and tmux isn't asked.
@@ -887,7 +899,7 @@ mod tests {
 
     #[test]
     fn typing_into_a_session_in_tmux_pastes_into_its_pane() {
-        let answer = |s: &Sent| Ok(if s.args[0] == "list-panes" { "/dev/ttys400 %1 1 other\n/dev/ttys401 %3 1 my agents\n".to_string() } else { String::new() });
+        let answer = |s: &Sent| Ok(if s.args[0] == "list-panes" { "/dev/ttys400 %1 @1 1 other\n/dev/ttys401 %3 @2 1 my agents\n".to_string() } else { String::new() });
         let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it\nand that", false, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
         assert_eq!(
@@ -910,10 +922,10 @@ mod tests {
         assert_eq!(p.log[3], r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "-H", "18", "13"] (5s)"#);
         assert_eq!(p.log.len(), 4);
 
-        let p = played(|_| Ok("/dev/ttys400 %1 1 other\n".into()), || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true, Submit::Return));
+        let p = played(|_| Ok("/dev/ttys400 %1 @1 1 other\n".into()), || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Nowhere("Codealong couldn't find its tmux pane".into()));
         assert_eq!(p.log.len(), 1);
-        let p = played(|s| if s.args[0] == "list-panes" { Ok("/dev/ttys401 %3 0 my agents\n".into()) } else { Err("no server".into()) }, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Return));
+        let p = played(|s| if s.args[0] == "list-panes" { Ok("/dev/ttys401 %3 @2 0 my agents\n".into()) } else { Err("no server".into()) }, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Return));
         assert_eq!(err(p.got), "no server");
 
         // In no terminal Codealong types into.
@@ -939,7 +951,7 @@ mod tests {
             Ok(match s.what.as_str() {
                 "GHOSTTY_LIST" => GHOSTTY_TABS.to_string(),
                 "GHOSTTY_FIND" => "T1\n".to_string(),
-                "/opt/homebrew/bin/tmux" if s.args[0] == "list-panes" => "/dev/ttys401 %3 1 my agents\n".to_string(),
+                "/opt/homebrew/bin/tmux" if s.args[0] == "list-panes" => "/dev/ttys401 %3 @2 1 my agents\n".to_string(),
                 _ => "ok\n".to_string(),
             })
         };
