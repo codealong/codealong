@@ -696,10 +696,11 @@ impl crate::harness::Adapter for ClaudeCode {
         Some("/effort")
     }
 
-    /// The question Claude Code asks before a switch, answered, and what `/effort` saved put
-    /// back: `switch::typed`.
+    /// The question Claude Code asks before a switch, answered, and the defaults `/model` and
+    /// `/effort` saved put back: `switch::typed`. What the command says is in the session's own
+    /// transcript, not one whose conversation it `continues`.
     fn type_switch(&self, account: &crate::config::AccountCfg, session: &crate::model::Session, to: crate::harness::Switch, text: &str, typ: &mut dyn FnMut(&str) -> anyhow::Result<bool>) -> anyhow::Result<Option<String>> {
-        switch::typed(account, session, &|| self.records(account, session), to, text, typ)
+        switch::typed(account, session, &|| transcripts_named(&account.home_path(), &session.id), to, text, typ)
     }
 
     /// `/exit` asks what to do with the worktree the session made, or removes it when nothing in

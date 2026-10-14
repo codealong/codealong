@@ -43,21 +43,30 @@ const ECHO_WAIT: Duration = Duration::from_secs(3);
 /// here meant. Both commands also save what they switch to as the account's default for new
 /// sessions (`/effort` only low to xhigh): what they saved is put back, and the session keeps what
 /// it was switched to (checked the same day). One switch at a time, so one doesn't take another's
-/// saved default for the account's own. Answers what it's on now: a level over the account's cap
-/// is set to the cap.
+/// saved default for the account's own; another asked meanwhile is refused rather than kept
+/// waiting, when the session it's for may have gone on to a turn. Answers what it's on now: a
+/// level over the account's cap is set to the cap. `records` are the session's own transcript,
+/// where the command writes, even for one whose conversation another's record holds until then.
 pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Vec<PathBuf>, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<String>> {
     static SWITCHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one_at_a_time = SWITCHING.lock().unwrap_or_else(|e| e.into_inner());
+    let _one_at_a_time = match SWITCHING.try_lock() {
+        Ok(held) => held,
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => bail!("Another switch is under way: try again in a few seconds."),
+    };
     // A session sent no prompt yet may have no transcript: the command starts one.
     let from = records().first().and_then(|t| std::fs::metadata(t).ok()).map_or(0, |m| m.len());
     let settings = account.home_path().join("settings.json");
     let before = settings_now(&settings);
-    if !typ(text)? {
+    // A typing that failed may still have gone in (`send::MayHaveArrived`): what it said and saved
+    // is looked for, and only a question it surely brought up is answered.
+    let typed = typ(text);
+    if matches!(typed, Ok(false)) {
         return Ok(None);
     }
     let mut said = said_after(records, from, SAID_WAIT);
     let mut pressed = Ok(());
-    if said.is_none() {
+    if said.is_none() && typed.is_ok() {
         pressed = press_return(session);
         if pressed.is_ok() {
             said = said_after(records, from, ANSWERED_WAIT);
@@ -65,8 +74,9 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
     }
     // What it saved is put back however the switch went.
     if let (Some(before), Some(saved)) = (before, settings_now(&settings)) {
-        put_back_defaults(&settings, &before, &saved)?;
+        put_back_defaults(&settings, &before, &saved, to)?;
     }
+    typed?;
     pressed?;
     let said = said.ok_or_else(|| anyhow!("Claude Code didn't say it took the switch: it may be asking about it in its terminal."))?;
     let now = match to {
@@ -124,24 +134,25 @@ fn settings_now(settings: &Path) -> Option<Value> {
 }
 
 /// Puts back the defaults a switch saved, from the account's settings before it (`before`) and
-/// after (`saved`), once Claude Code reads a change to them again (`ECHO_WAIT`): the model, the
-/// effort level at the top and each model's under `modelSettings`, each as it was, an entry the
-/// switch added taken out again. A default changed again since is left as it is now, and
-/// everything else keeps its text and its place. Settings the switch saved nothing in aren't
-/// waited on or written.
-fn put_back_defaults(settings: &Path, before: &Value, saved: &Value) -> Result<()> {
-    if with_defaults_of(&saved.to_string(), before, saved)?.is_none() {
+/// after (`saved`), once Claude Code reads a change to them again (`ECHO_WAIT`): for `/model`
+/// the model, for `/effort` the level at the top and each model's under `modelSettings`, each as
+/// it was, an entry the switch added taken out again. A default changed again since is left as it
+/// is now, and everything else keeps its text and its place. Settings the switch saved nothing in
+/// aren't waited on or written.
+fn put_back_defaults(settings: &Path, before: &Value, saved: &Value, to: Switch) -> Result<()> {
+    if with_defaults_of(&saved.to_string(), before, saved, to)?.is_none() {
         return Ok(());
     }
     std::thread::sleep(ECHO_WAIT);
     let Ok(text) = std::fs::read_to_string(settings) else { return Ok(()) };
-    let Some(next) = with_defaults_of(&text, before, saved)? else { return Ok(()) };
+    let Some(next) = with_defaults_of(&text, before, saved, to)? else { return Ok(()) };
     crate::util::write_whole(settings, &next)
 }
 
-/// `text` with the defaults a switch saved (those that differ between `before` and `saved`) put
-/// back to `before`'s where they're still what it saved, or None when there are none.
-fn with_defaults_of(text: &str, before: &Value, saved: &Value) -> Result<Option<String>> {
+/// `text` with the defaults a switch's command saved (those it can save that differ between
+/// `before` and `saved`) put back to `before`'s where they're still what it saved, or None when
+/// there are none.
+fn with_defaults_of(text: &str, before: &Value, saved: &Value, to: Switch) -> Result<Option<String>> {
     let now: Value = serde_json::from_str(text)?;
     let level = |v: &Value, model: Option<&str>| -> Option<Value> {
         match model {
@@ -150,14 +161,16 @@ fn with_defaults_of(text: &str, before: &Value, saved: &Value) -> Result<Option<
         }
     };
     let models = |v: &Value| -> Vec<String> { v.get(MODEL_SETTINGS).and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default() };
+    let (saves, saves_levels) = match to {
+        Switch::Model(_) => (MODEL, false),
+        Switch::Effort(_) => (EFFORT_LEVEL, true),
+    };
     let mut tops: Vec<&str> = Vec::new();
-    for key in [MODEL, EFFORT_LEVEL] {
-        if saved.get(key) != before.get(key) && now.get(key) == saved.get(key) {
-            tops.push(key);
-        }
+    if saved.get(saves) != before.get(saves) && now.get(saves) == saved.get(saves) {
+        tops.push(saves);
     }
     let mut changed: Vec<String> = Vec::new();
-    for model in models(saved).into_iter().chain(models(before)) {
+    for model in models(saved).into_iter().chain(models(before)).filter(|_| saves_levels) {
         let (was, put) = (level(before, Some(&model)), level(saved, Some(&model)));
         if put != was && level(&now, Some(&model)) == put && !changed.contains(&model) {
             changed.push(model);
@@ -210,11 +223,13 @@ mod tests {
     use serde_json::json;
 
     const SETTINGS: &str = "{\n  \"model\": \"opus\",\n  \"effortLevel\": \"xhigh\",\n  \"modelSettings\": {\n    \"claude-opus-5-5\": {\n      \"effortLevel\": \"xhigh\"\n    }\n  },\n  \"permissions\": {\n    \"defaultMode\": \"bypassPermissions\"\n  }\n}\n";
+    const EFFORT: Switch = Switch::Effort("high");
+    const MODEL_SWITCH: Switch = Switch::Model("sonnet");
 
     /// The settings `text` once what a switch saved in them (`text` itself) is put back to
     /// `before`'s.
-    fn put_back(text: &str, before: &Value) -> Option<String> {
-        with_defaults_of(text, before, &serde_json::from_str(text).unwrap()).unwrap()
+    fn put_back(text: &str, before: &Value, to: Switch) -> Option<String> {
+        with_defaults_of(text, before, &serde_json::from_str(text).unwrap(), to).unwrap()
     }
 
     #[test]
@@ -222,24 +237,24 @@ mod tests {
         let before: Value = serde_json::from_str(SETTINGS).unwrap();
         // As `/effort high` in a Sonnet session wrote it: an entry for its model.
         let saved = SETTINGS.replace("      \"effortLevel\": \"xhigh\"\n    }\n  },", "      \"effortLevel\": \"xhigh\"\n    },\n    \"claude-sonnet-5-5\": {\n      \"effortLevel\": \"high\"\n    }\n  },");
-        assert_eq!(put_back(&saved, &before).as_deref(), Some(SETTINGS));
+        assert_eq!(put_back(&saved, &before, EFFORT).as_deref(), Some(SETTINGS));
         // A level it changed goes back to what it was.
         let changed = SETTINGS.replace("    \"claude-opus-5-5\": {\n      \"effortLevel\": \"xhigh\"", "    \"claude-opus-5-5\": {\n      \"effortLevel\": \"low\"");
-        assert_eq!(put_back(&changed, &before).as_deref(), Some(SETTINGS));
+        assert_eq!(put_back(&changed, &before, EFFORT).as_deref(), Some(SETTINGS));
         let top = SETTINGS.replace("  \"effortLevel\": \"xhigh\",", "  \"effortLevel\": \"medium\",");
-        assert_eq!(put_back(&top, &before).as_deref(), Some(SETTINGS));
+        assert_eq!(put_back(&top, &before, EFFORT).as_deref(), Some(SETTINGS));
         // Levels as they were: nothing to write.
-        assert_eq!(put_back(SETTINGS, &before), None);
+        assert_eq!(put_back(SETTINGS, &before, EFFORT), None);
     }
 
     #[test]
     fn takes_out_what_effort_added_to_settings_without_levels() {
         let before = json!({ "model": "opus" });
         let saved = "{\n  \"model\": \"opus\",\n  \"modelSettings\": {\n    \"claude-opus-5-5\": {\n      \"effortLevel\": \"high\"\n    }\n  }\n}";
-        assert_eq!(put_back(saved, &before).as_deref(), Some("{\n  \"model\": \"opus\"\n}"));
+        assert_eq!(put_back(saved, &before, EFFORT).as_deref(), Some("{\n  \"model\": \"opus\"\n}"));
         // A top-level level it took out comes back.
         let cleared = "{\n  \"model\": \"opus\"\n}\n";
-        assert_eq!(put_back(cleared, &json!({ "model": "opus", "effortLevel": "xhigh" })).as_deref(), Some("{\n  \"model\": \"opus\",\n  \"effortLevel\": \"xhigh\"\n}\n"));
+        assert_eq!(put_back(cleared, &json!({ "model": "opus", "effortLevel": "xhigh" }), EFFORT).as_deref(), Some("{\n  \"model\": \"opus\",\n  \"effortLevel\": \"xhigh\"\n}\n"));
     }
 
     #[test]
@@ -247,26 +262,30 @@ mod tests {
         let before: Value = serde_json::from_str(SETTINGS).unwrap();
         // As `/model sonnet` wrote it: the default for new sessions, in its place.
         let saved = SETTINGS.replace("  \"model\": \"opus\",", "  \"model\": \"sonnet\",");
-        assert_eq!(put_back(&saved, &before).as_deref(), Some(SETTINGS));
+        assert_eq!(put_back(&saved, &before, MODEL_SWITCH).as_deref(), Some(SETTINGS));
         // Settings with no model of their own lose the one it added.
         let added = "{\n  \"model\": \"sonnet\",\n  \"theme\": \"dark\"\n}\n";
-        assert_eq!(put_back(added, &json!({ "theme": "dark" })).as_deref(), Some("{\n  \"theme\": \"dark\"\n}\n"));
+        assert_eq!(put_back(added, &json!({ "theme": "dark" }), MODEL_SWITCH).as_deref(), Some("{\n  \"theme\": \"dark\"\n}\n"));
     }
 
     #[test]
-    fn leaves_a_default_changed_again_since_the_switch_saved_it() {
+    fn leaves_a_default_the_switch_didnt_save() {
         let before: Value = serde_json::from_str(SETTINGS).unwrap();
         let saved: Value = serde_json::from_str(&SETTINGS.replace("  \"model\": \"opus\",", "  \"model\": \"sonnet\",")).unwrap();
         // You picked Haiku in its own picker meanwhile: that stays.
         let since = SETTINGS.replace("  \"model\": \"opus\",", "  \"model\": \"haiku\",");
-        assert_eq!(with_defaults_of(&since, &before, &saved).unwrap(), None);
+        assert_eq!(with_defaults_of(&since, &before, &saved, MODEL_SWITCH).unwrap(), None);
+        // A model changed while an effort switch waited isn't the effort switch's to put back.
+        let both = SETTINGS.replace("  \"model\": \"opus\",", "  \"model\": \"haiku\",").replace("  \"effortLevel\": \"xhigh\",", "  \"effortLevel\": \"high\",");
+        let kept = SETTINGS.replace("  \"model\": \"opus\",", "  \"model\": \"haiku\",");
+        assert_eq!(put_back(&both, &before, EFFORT).as_deref(), Some(kept.as_str()));
         // Switches one after another each put back only what they saved, so the account's own
         // comes back whatever their order.
         let first = SETTINGS.replace("  \"model\": \"opus\",", "  \"model\": \"sonnet\",");
         let second: Value = serde_json::from_str(&first.replace("  \"effortLevel\": \"xhigh\",", "  \"effortLevel\": \"low\",")).unwrap();
         let first: Value = serde_json::from_str(&first).unwrap();
-        let after_second = with_defaults_of(&second.to_string(), &first, &second).unwrap().unwrap();
-        let after_first = with_defaults_of(&after_second, &before, &first).unwrap().unwrap();
+        let after_second = with_defaults_of(&second.to_string(), &first, &second, EFFORT).unwrap().unwrap();
+        let after_first = with_defaults_of(&after_second, &before, &first, MODEL_SWITCH).unwrap().unwrap();
         assert_eq!(serde_json::from_str::<Value>(&after_first).unwrap(), before);
     }
 
@@ -274,7 +293,7 @@ mod tests {
     fn finds_what_a_switch_said_after_it_was_typed() {
         let dir = crate::store::test_dir("switch-said");
         let path = dir.join("t.jsonl");
-        let records = || vec![path.clone()];
+        let records = || vec![path.clone()].into_iter().filter(|p| p.is_file()).collect();
         // A session with no transcript yet says nothing until the command starts one.
         assert_eq!(said_after(&records, 0, Duration::ZERO), None);
         let line = |content: &str| format!("{}\n", json!({ "type": "user", "message": { "role": "user", "content": content } }));
