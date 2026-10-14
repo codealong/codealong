@@ -89,10 +89,14 @@ pub trait Terminal: Sync {
     }
 
     /// Brings forward the tab a live session's process runs in, and says which it is. None when
-    /// there's no such tab. The default is for a terminal with no tabs of its own to look in
-    /// (tmux): the one tab titled like the session in `profile`'s app.
-    fn focus_session(&self, profile: &str, _pid: u32, _tty: &Path, title: &str, cwd: &Path) -> Result<Option<TerminalHost>> {
-        focus_by_title(profile, title, cwd)
+    /// there's no such tab. `profile` is the terminal config.toml names, for a terminal with no
+    /// tabs of its own (tmux) to look in when it can't tell where it shows.
+    fn focus_session(&self, profile: &str, pid: u32, tty: &Path, title: &str, cwd: &Path) -> Result<Option<TerminalHost>>;
+
+    /// What a new terminal types to show a session's process when no tab shows it now (a tmux
+    /// session no client is attached to), None while one does. An app's sessions are its tabs.
+    fn attach_command(&self, _pid: u32) -> Option<String> {
+        None
     }
 
     /// Types `text` into the tab a session's process runs in and sends it with `submit`,
@@ -469,9 +473,10 @@ const MARK_PREFIX: &str = "/tmp/codealong-";
 /// no such property, so there it's found exactly another way: Codealong reports a unique folder
 /// (OSC 7) on the session's TTY, finds the Ghostty terminal showing that folder, selects its tab,
 /// then reports the real folder again. Claude Code rewrites tab titles as it works but never the
-/// folder, so the mark holds. Where neither can work (tmux, a terminal Codealong doesn't script),
-/// the tab is matched by title in `profile`'s app, then by folder, but only when that finds just
-/// one.
+/// folder, so the mark holds. A tmux session's tab is its client's, found by the client's TTY the
+/// same ways. Where none of that can work (a terminal Codealong doesn't script, or a tmux client
+/// in one), the tab is matched by title in `profile`'s app, then by folder, but only when that
+/// finds just one.
 pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) -> Result<bool> {
     let ticket = FOCUS_TURNS.ticket();
     let Some(tty) = tty_of(pid) else {
@@ -493,6 +498,12 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
         follow(ticket, app, raised);
     }
     Ok(found)
+}
+
+/// What a new terminal types (Return left off) to show a live session's process that no tab
+/// shows now: a tmux session no client is attached to. None where a tab may show it.
+pub fn attach_command(pid: u32) -> Option<String> {
+    terminal_kind(pid)?.attach_command(pid)
 }
 
 /// A session's tab, found: the terminal it's in and what that terminal finds it again by
@@ -921,7 +932,7 @@ pub fn codex_review_url(pr_url: &str) -> String {
 mod tests {
     use super::ghostty::{osascript, terminal_of as ghostty_terminal_of, terminals as ghostty_terminals};
     use super::ghostty::{GHOSTTY_ACTION, GHOSTTY_CLOSE, GHOSTTY_FIND, GHOSTTY_FOCUS, GHOSTTY_IN_FRONT, GHOSTTY_KEY, GHOSTTY_LIST, GHOSTTY_NEW, GHOSTTY_TYPE};
-    use super::tmux::pane_for as tmux_pane_for;
+    use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, Pane as TmuxPane};
     use super::*;
 
     #[test]
@@ -1605,8 +1616,18 @@ end run
 
     #[test]
     fn a_tmux_pane_is_found_by_its_tty() {
-        let list = "/dev/ttys003 %0\n/dev/ttys012 %4\n";
-        assert_eq!(tmux_pane_for(list, "/dev/ttys012").as_deref(), Some("%4"));
+        let list = "/dev/ttys003 %0 1 main\n/dev/ttys012 %4 0 my agents\n";
+        assert_eq!(tmux_pane_for(list, "/dev/ttys012"), Some(TmuxPane { id: "%4".into(), session: "my agents".into(), shown: false }));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys003"), Some(TmuxPane { id: "%0".into(), session: "main".into(), shown: true }));
         assert_eq!(tmux_pane_for(list, "/dev/ttys01"), None);
+    }
+
+    #[test]
+    fn a_tmux_sessions_client_is_the_one_used_last() {
+        let list = "1760000100 501 /dev/ttys004 my agents\n1760000900 502 /dev/ttys005 main\n1760000300 503 /dev/ttys006 my agents\n";
+        assert_eq!(tmux_client_for(list, "my agents"), Some((503, PathBuf::from("/dev/ttys006"))));
+        assert_eq!(tmux_client_for(list, "main"), Some((502, PathBuf::from("/dev/ttys005"))));
+        assert_eq!(tmux_client_for(list, "my"), None);
+        assert_eq!(tmux_client_for("", "main"), None);
     }
 }

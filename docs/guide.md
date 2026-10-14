@@ -1433,7 +1433,9 @@ Settings won't save one.
 
 ### Open where it lives
 
-The session's own terminal tab (Ghostty, iTerm2 or Terminal, whichever it runs in), the Claude app
+The session's own terminal tab (Ghostty, iTerm2 or Terminal, whichever it runs in; for a session in
+tmux, the tab running `tmux attach` on its tmux session, with its pane brought up there, or, when
+nothing is attached to that session, a new terminal that attaches to it), the Claude app
 session, the Codex thread (a CLI thread's terminal, or `codex resume` in a new one), an OpenCode
 session in its terminal (or resumed in a new one with `--session`), an Antigravity command line
 conversation in its terminal (or resumed in a new one with `agy --conversation`), the Antigravity

@@ -689,7 +689,10 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
             match *action {
                 "focus" => {
                     let pid = s.pid.ok_or_else(|| anyhow!("That session isn't running any more."))?;
-                    if !launch::terminal_focus_session(&apps.terminal_id, pid, &s.title, &cwd)? {
+                    // No tab shows it (a tmux session nothing is attached to): a new one does.
+                    if let Some(cmd) = launch::attach_command(pid) {
+                        launch::terminal_open(&apps.terminal_id, named, &cwd, Some(&format!("{cmd}\n")))?;
+                    } else if !launch::terminal_focus_session(&apps.terminal_id, pid, &s.title, &cwd)? {
                         // It's looked for in the app it runs under, whatever config.toml names.
                         let app = launch::terminal_kind(pid).filter(|k| k.bundle().is_some()).map_or(apps.terminal.as_str(), |k| k.name());
                         bail!("Couldn't find {}'s terminal in {app}. It's running as pid {pid}.", s.account);

@@ -30,8 +30,12 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
 - Finding and focusing a session's tab (an OSC 7 mark on its TTY, the 8 s wait, titles only as
   a fallback, focus requests taking turns and a stale one dropped): `launch.rs`
   (`terminal_focus_session`, `Turns`, `kind_by`), `launch/ghostty.rs` (`focus_session`,
-  `GHOSTTY_MARK_WAIT_SECS`). iTerm2 and Terminal find the tab by its TTY instead; only tmux and
-  terminals Codealong doesn't script go by title.
+  `GHOSTTY_MARK_WAIT_SECS`). iTerm2 and Terminal find the tab by its TTY instead. A tmux
+  session's tab is its client's, the `tmux attach` process (named `tmux` too, so its terminal is
+  the one above it), found by the client's TTY those same ways; a tmux session no client is
+  attached to (`session_attached` 0, as `tmux new-session -d` leaves it) has no tab, and Show in
+  opens a new one attaching to it: `launch/tmux.rs` (`focus_session`, `attach_command`). Only
+  terminals Codealong doesn't script, and a tmux client in one, go by title.
 - Holding windows, tabs and terminals by id, one question for an id with its own folder, and
   `current date` outside the tell: `launch/ghostty.rs` (`GHOSTTY_FOCUS`, `GHOSTTY_LIST`). Not
   said there: store a query's result before taking an item: `item 1 of (id of every terminal

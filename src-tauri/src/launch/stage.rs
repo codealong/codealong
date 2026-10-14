@@ -268,6 +268,14 @@ mod tests {
         (600_001, 1, "kitty", None),
         (600_002, 600_001, "zsh", Some("/dev/ttys601")),
         (600_010, 600_002, "claude", Some("/dev/ttys601")),
+        // Clients of tmux (`tmux attach`): in Ghostty, in kitty, and in a pane of tmux itself.
+        (100_032, 100_001, "login", None),
+        (100_033, 100_032, "zsh", Some("/dev/ttys103")),
+        (100_030, 100_033, "tmux", Some("/dev/ttys103")),
+        (600_013, 600_001, "zsh", Some("/dev/ttys602")),
+        (600_030, 600_013, "tmux", Some("/dev/ttys602")),
+        (400_013, 400_001, "zsh", Some("/dev/ttys402")),
+        (400_030, 400_013, "tmux", Some("/dev/ttys402")),
     ];
     const IN_GHOSTTY: u32 = 100_010;
     const ALSO_IN_GHOSTTY: u32 = 100_020;
@@ -612,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn focusing_a_session_in_tmux_or_an_unknown_terminal_goes_by_title_in_the_profiles_app() {
+    fn focusing_a_session_in_an_unknown_terminal_goes_by_title_in_the_profiles_app() {
         let answer = |s: &Sent| {
             Ok(match s.what.as_str() {
                 "GHOSTTY_LIST" => GHOSTTY_TABS.to_string(),
@@ -622,27 +630,101 @@ mod tests {
                 _ => panic!("unexpected {} {:?}", s.what, s.args),
             })
         };
-        for pid in [IN_TMUX, IN_KITTY] {
-            let p = played(answer, move || terminal_focus_session("ghostty", pid, "Bump dependencies", Path::new("/r/elsewhere")));
-            assert!(p.got.unwrap());
-            assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_FOCUS ["id", "T2"]"#]);
-            let p = played(answer, move || terminal_focus_session("ghostty", pid, "Something else", Path::new("/r/app")));
-            assert!(!p.got.unwrap());
-            assert_eq!(p.log, ["GHOSTTY_LIST []"]);
-            let p = played(answer, move || terminal_focus_session("iterm2", pid, "Something else", Path::new("/r/other")));
-            assert!(p.got.unwrap());
-            assert_eq!(p.log, ["ITERM_LIST []", r#"ITERM_FOCUS+SESSION_ON ["/dev/ttys202"]"#]);
-            // Terminal lists no titles or folders, and an unknown profile has no app to ask.
-            let p = played(answer, move || (terminal_focus_session("terminal", pid, "Fix the login", Path::new("/r/app")), terminal_focus_session("kitty", pid, "Fix the login", Path::new("/r/app"))));
-            assert!(!p.got.0.unwrap());
-            assert!(!p.got.1.unwrap());
-            assert!(p.log.is_empty());
-        }
+        let p = played(answer, || terminal_focus_session("ghostty", IN_KITTY, "Bump dependencies", Path::new("/r/elsewhere")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_FOCUS ["id", "T2"]"#]);
+        let p = played(answer, || terminal_focus_session("ghostty", IN_KITTY, "Something else", Path::new("/r/app")));
+        assert!(!p.got.unwrap());
+        assert_eq!(p.log, ["GHOSTTY_LIST []"]);
+        let p = played(answer, || terminal_focus_session("iterm2", IN_KITTY, "Something else", Path::new("/r/other")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log, ["ITERM_LIST []", r#"ITERM_FOCUS+SESSION_ON ["/dev/ttys202"]"#]);
+        // Terminal lists no titles or folders, and an unknown profile has no app to ask.
+        let p = played(answer, || (terminal_focus_session("terminal", IN_KITTY, "Fix the login", Path::new("/r/app")), terminal_focus_session("kitty", IN_KITTY, "Fix the login", Path::new("/r/app"))));
+        assert!(!p.got.0.unwrap());
+        assert!(!p.got.1.unwrap());
+        assert!(p.log.is_empty());
         // The tab gone between the list and the focus.
-        let p = played(|s| Ok(if s.what == "GHOSTTY_LIST" { GHOSTTY_TABS.to_string() } else { "\n".into() }), || terminal_focus_session("ghostty", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
+        let p = played(|s| Ok(if s.what == "GHOSTTY_LIST" { GHOSTTY_TABS.to_string() } else { "\n".into() }), || terminal_focus_session("ghostty", IN_KITTY, "Bump dependencies", Path::new("/r/elsewhere")));
         assert!(!p.got.unwrap());
         let p = played(answer, || terminal_focus_session("ghostty", IN_BACKGROUND, "Fix the login", Path::new("/r/app")));
         assert_eq!(err(p.got), "This session runs in the background, so it has no terminal tab.");
+        assert!(p.log.is_empty());
+    }
+
+    const TMUX_PANES: &str = r##"/opt/homebrew/bin/tmux ["list-panes", "-a", "-F", "#{pane_tty} #{pane_id} #{session_attached} #{session_name}"] (5s)"##;
+    const TMUX_CLIENTS: &str = r##"/opt/homebrew/bin/tmux ["list-clients", "-F", "#{client_activity} #{client_pid} #{client_tty} #{client_session}"] (5s)"##;
+    const TMUX_SHOW: [&str; 2] = [r#"/opt/homebrew/bin/tmux ["select-window", "-t", "%3"] (5s)"#, r#"/opt/homebrew/bin/tmux ["select-pane", "-t", "%3"] (5s)"#];
+
+    /// tmux answering with `panes` and `clients`, and Ghostty with its tabs, T3 showing a mark.
+    fn tmux_answers(panes: &'static str, clients: &'static str) -> impl Fn(&Sent) -> Result<String, String> {
+        move |s: &Sent| {
+            Ok(match (s.what.as_str(), s.args.first().map(String::as_str)) {
+                ("/opt/homebrew/bin/tmux", Some("list-panes")) => panes.to_string(),
+                ("/opt/homebrew/bin/tmux", Some("list-clients")) => clients.to_string(),
+                ("/opt/homebrew/bin/tmux", _) => String::new(),
+                ("GHOSTTY_LIST", _) => GHOSTTY_TABS.to_string(),
+                ("GHOSTTY_FOCUS", Some("tag")) => "T3\n".to_string(),
+                ("GHOSTTY_FOCUS", _) => format!("{}\n", s.args[1]),
+                _ => panic!("unexpected {} {:?}", s.what, s.args),
+            })
+        }
+    }
+
+    #[test]
+    fn focusing_a_session_in_tmux_brings_up_its_pane_in_the_tab_its_client_runs_in() {
+        // Two clients show its session and one another session: the one used last is the one in
+        // Ghostty, whose tab is found by a mark on the client's TTY.
+        let panes = "/dev/ttys400 %1 1 other\n/dev/ttys401 %3 2 my agents\n";
+        let clients = "1760000300 100030 /dev/ttys103 my agents\n1760000400 600030 /dev/ttys602 other\n1760000100 400030 /dev/ttys402 my agents\n";
+        let p = played(tmux_answers(panes, clients), || terminal_focus_session("iterm2", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
+        assert!(p.got.unwrap());
+        assert_eq!(
+            p.log,
+            [
+                TMUX_PANES,
+                TMUX_CLIENTS,
+                TMUX_SHOW[0],
+                TMUX_SHOW[1],
+                "GHOSTTY_LIST []",
+                "osc7 /dev/ttys103 /tmp/codealong-100030-NOW",
+                r#"GHOSTTY_FOCUS ["tag", "/tmp/codealong-100030-NOW", "8"]"#,
+                "osc7 /dev/ttys103 /r/app",
+            ]
+        );
+
+        // The client used last is in a terminal Codealong doesn't know, or in tmux again: its
+        // pane is brought up, and the tab is the one titled like the session in the profile's app.
+        for clients in ["1760000300 600030 /dev/ttys602 my agents\n1760000100 100030 /dev/ttys103 my agents\n", "1760000300 400030 /dev/ttys402 my agents\n"] {
+            let p = played(tmux_answers(panes, clients), || terminal_focus_session("ghostty", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
+            assert!(p.got.unwrap());
+            assert_eq!(p.log, [TMUX_PANES, TMUX_CLIENTS, TMUX_SHOW[0], TMUX_SHOW[1], "GHOSTTY_LIST []", r#"GHOSTTY_FOCUS ["id", "T2"]"#]);
+        }
+
+        // No client shows its session, so no tab can: none is asked for, and the title finds
+        // only a tab that happens to be titled like it.
+        let p = played(tmux_answers("/dev/ttys401 %3 0 my agents\n", ""), || terminal_focus_session("ghostty", IN_TMUX, "Something else", Path::new("/r/app")));
+        assert!(!p.got.unwrap());
+        assert_eq!(p.log, [TMUX_PANES, "GHOSTTY_LIST []"]);
+        // Its pane isn't on the server Codealong asks.
+        let p = played(tmux_answers("/dev/ttys400 %1 1 other\n", ""), || terminal_focus_session("ghostty", IN_TMUX, "Bump dependencies", Path::new("/r/elsewhere")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log, [TMUX_PANES, "GHOSTTY_LIST []", r#"GHOSTTY_FOCUS ["id", "T2"]"#]);
+    }
+
+    #[test]
+    fn a_tmux_session_no_client_shows_is_attached_to_in_a_new_tab() {
+        let p = played(tmux_answers("/dev/ttys400 %1 1 other\n/dev/ttys401 %3 0 Bob's agents\n", ""), || attach_command(IN_TMUX));
+        assert_eq!(p.got.as_deref(), Some(r#"/opt/homebrew/bin/tmux attach -t 'Bob'\''s agents'"#));
+        assert_eq!(p.log, [TMUX_PANES]);
+        // A client shows it, or its pane isn't found: it may have a tab.
+        for panes in ["/dev/ttys401 %3 1 Bob's agents\n", "/dev/ttys400 %1 0 other\n"] {
+            let p = played(tmux_answers(panes, ""), || attach_command(IN_TMUX));
+            assert_eq!(p.got, None);
+        }
+        // An app's sessions are its tabs, and tmux isn't asked about them.
+        let p = played(tmux_answers("", ""), || (attach_command(IN_GHOSTTY), attach_command(IN_ITERM), attach_command(IN_KITTY), attach_command(IN_BACKGROUND)));
+        assert_eq!(p.got, (None, None, None, None));
         assert!(p.log.is_empty());
     }
 
@@ -775,13 +857,13 @@ mod tests {
 
     #[test]
     fn typing_into_a_session_in_tmux_pastes_into_its_pane() {
-        let answer = |s: &Sent| Ok(if s.args[0] == "list-panes" { "/dev/ttys400 %1\n/dev/ttys401 %3\n".to_string() } else { String::new() });
+        let answer = |s: &Sent| Ok(if s.args[0] == "list-panes" { "/dev/ttys400 %1 1 other\n/dev/ttys401 %3 1 my agents\n".to_string() } else { String::new() });
         let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it\nand that", false, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
         assert_eq!(
             p.log,
             [
-                r##"/opt/homebrew/bin/tmux ["list-panes", "-a", "-F", "#{pane_tty} #{pane_id}"] (5s)"##,
+                TMUX_PANES,
                 r#"/opt/homebrew/bin/tmux ["load-buffer", "-b", "codealong", "-"] < "Fix it\nand that" (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["paste-buffer", "-p", "-d", "-b", "codealong", "-t", "%3"] (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Enter"] (5s)"#,
@@ -798,10 +880,10 @@ mod tests {
         assert_eq!(p.log[3], r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "-H", "18", "13"] (5s)"#);
         assert_eq!(p.log.len(), 4);
 
-        let p = played(|_| Ok("/dev/ttys400 %1\n".into()), || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true, Submit::Return));
+        let p = played(|_| Ok("/dev/ttys400 %1 1 other\n".into()), || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Nowhere("Codealong couldn't find its tmux pane".into()));
         assert_eq!(p.log.len(), 1);
-        let p = played(|s| if s.args[0] == "list-panes" { Ok("/dev/ttys401 %3\n".into()) } else { Err("no server".into()) }, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Return));
+        let p = played(|s| if s.args[0] == "list-panes" { Ok("/dev/ttys401 %3 0 my agents\n".into()) } else { Err("no server".into()) }, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Return));
         assert_eq!(err(p.got), "no server");
 
         // In no terminal Codealong types into.
@@ -827,7 +909,7 @@ mod tests {
             Ok(match s.what.as_str() {
                 "GHOSTTY_LIST" => GHOSTTY_TABS.to_string(),
                 "GHOSTTY_FIND" => "T1\n".to_string(),
-                "/opt/homebrew/bin/tmux" if s.args[0] == "list-panes" => "/dev/ttys401 %3\n".to_string(),
+                "/opt/homebrew/bin/tmux" if s.args[0] == "list-panes" => "/dev/ttys401 %3 1 my agents\n".to_string(),
                 _ => "ok\n".to_string(),
             })
         };
@@ -855,7 +937,7 @@ mod tests {
         assert_eq!(
             p.log,
             [
-                r##"/opt/homebrew/bin/tmux ["list-panes", "-a", "-F", "#{pane_tty} #{pane_id}"] (5s)"##,
+                TMUX_PANES,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "1"] (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Escape"] (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "C-c"] (5s)"#,
