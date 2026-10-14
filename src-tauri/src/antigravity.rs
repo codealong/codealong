@@ -330,6 +330,14 @@ fn steps_now(dir: &Path, id: &str) -> (bool, bool) {
     (!statuses.is_empty(), statuses.contains(&STEP_WAITING))
 }
 
+/// The steps of a conversation whose permission prompt is up (`STEP_WAITING`), by their index:
+/// a call's step is the one its result is written as (`Call::result_step`).
+fn waiting_steps(dir: &Path, id: &str) -> Vec<i64> {
+    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return Vec::new() };
+    let Ok(mut query) = db.prepare("SELECT idx FROM steps WHERE status = ?1 ORDER BY idx") else { return Vec::new() };
+    query.query_map([STEP_WAITING], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default()
+}
+
 /// A step that's your prompt (`CORTEX_STEP_TYPE_USER_INPUT`), which carries the settings its
 /// turn runs with.
 const STEP_USER_INPUT: i64 = 14;
@@ -1391,7 +1399,11 @@ impl crate::harness::Adapter for Antigravity {
     /// What its step waits on you to allow. The command line's terminal UI is answered here with
     /// a key (`answer`); the app takes nothing from outside.
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
-        let c = tail(&self.record(ctx, s).ok()?, None).open.into_iter().next()?;
+        let open = tail(&self.record(ctx, s).ok()?, None).open;
+        // Calls run side by side, so the first that hasn't finished may be one that still runs:
+        // the one whose step waits is the one asked about.
+        let waiting = waiting_steps(&folder_of(ctx.account, s), &s.id);
+        let c = open.iter().find(|c| waiting.contains(&c.result_step)).or(open.first())?.clone();
         let cannot = match (s.surface, s.pid) {
             (Surface::Cli, Some(_)) => None,
             (Surface::Cli, None) => Some("Antigravity asks in its terminal; answer it there.".to_string()),
@@ -1406,20 +1418,21 @@ impl crate::harness::Adapter for Antigravity {
     /// CLI do instead?"). Its other choices (always, for the conversation or in its settings, and
     /// No) are numbered differently from one prompt to another, a file outside its workspace
     /// having two or three, so they're left to its terminal. A key is pressed only while its
-    /// database says a step waits and its record's open call is the one you saw: a stray digit
-    /// lands in its input box.
+    /// database says the one step that waits is the call you saw: a stray digit lands in its
+    /// input box, and with several calls waiting the key would answer whichever is up.
     fn answer(&self, ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
         let (Surface::Cli, Some(pid)) = (s.surface, s.pid) else {
             anyhow::bail!("Antigravity asks in {}; answer it there.", if s.surface == Surface::Cli { "its terminal" } else { "its own window" });
         };
-        let call = tail(&self.record(ctx, s)?, None).open.into_iter().next();
-        let Some(call) = call.filter(|_| step_waits(&folder_of(ctx.account, s), &s.id)) else {
-            anyhow::bail!("It isn't waiting on a permission prompt any more.");
+        let open = tail(&self.record(ctx, s)?, None).open;
+        let label = |step: i64| open.iter().find(|c| c.result_step == step).map_or_else(|| "another call".to_string(), |c| c.label.clone());
+        let call = match waiting_steps(&folder_of(ctx.account, s), &s.id).as_slice() {
+            [] => anyhow::bail!("It isn't waiting on a permission prompt any more."),
+            [step] if step.to_string() == id => label(*step),
+            [step] => anyhow::bail!("It's waiting on a different call now: {}. Look again before answering.", label(*step)),
+            _ => anyhow::bail!("It waits on more than one call; answer them in its terminal."),
         };
-        if call.result_step.to_string() != id {
-            anyhow::bail!("It's waiting on a different call now: {}. Look again before answering.", call.label);
-        }
         let key = match answer {
             Answer::Allow => crate::launch::Key::Digit1,
             Answer::Deny => crate::launch::Key::Escape,
@@ -1430,8 +1443,8 @@ impl crate::harness::Adapter for Antigravity {
         };
         crate::launch::press_key(&host, key)?;
         Ok(match answer {
-            Answer::Deny => format!("Denied {}; it stops and waits for you.", call.label),
-            _ => format!("Allowed {}.", call.label),
+            Answer::Deny => format!("Denied {call}; it stops and waits for you."),
+            _ => format!("Allowed {call}."),
         })
     }
 
@@ -1688,6 +1701,15 @@ mod tests {
         assert!(answered("6", crate::harness::Answer::Always).contains("Allow or Deny only"));
         assert!(answered("6", crate::harness::Answer::Allow).starts_with("It isn't in a terminal Codealong can press keys in"));
         assert!(Antigravity.answer(&ctx, &session, "6", crate::harness::Answer::Allow).unwrap_err().to_string().contains("answer it there"));
+        // Calls run side by side: a key answers whichever prompt is up, so only the one step
+        // that waits is answered, and only as the call it is.
+        let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        steps.execute_batch("INSERT INTO steps VALUES (7, 132, 9);").unwrap();
+        assert!(answered("6", crate::harness::Answer::Allow).starts_with("It waits on more than one call"));
+        steps.execute_batch("UPDATE steps SET status = 2 WHERE idx = 6;").unwrap();
+        assert!(answered("6", crate::harness::Answer::Allow).starts_with("It's waiting on a different call now: another call."));
+        steps.execute_batch("DELETE FROM steps WHERE idx = 7; UPDATE steps SET status = 9 WHERE idx = 6;").unwrap();
+        drop(steps);
         assert_eq!(Antigravity.open_calls(&ctx, &session), ["ls /definitely-not-here"]);
         assert_eq!(Antigravity.records(&account, &session)[0], logs.join("transcript_full.jsonl"));
 

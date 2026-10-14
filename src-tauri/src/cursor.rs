@@ -82,6 +82,10 @@ pub struct Chat {
     /// (`unrestricted` once you pick Run Everything in it), the command line's `approvalMode`
     /// (`allowlist`, `unrestricted`, `auto-review`).
     pub approval: Option<String>,
+    /// The mode its header says (`composerHeaders.value.unifiedMode`), written up to a minute
+    /// after composerData's: a switch between two modes of one length leaves composerData as long
+    /// as it was, so it isn't read again, and this is how the switch shows.
+    pub header_mode: Option<String>,
     /// How many messages it has.
     pub messages: i64,
     /// How long its composerData is: the app rewrites it with every message, so a change says
@@ -161,7 +165,8 @@ pub fn read_app_chats(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
         // The branch it last worked on, of the repos it tracked.
         let branches = v.get("trackedGitRepos").and_then(Value::as_array).into_iter().flatten().flat_map(|r| r.get("branches").and_then(Value::as_array).into_iter().flatten());
         let branch = branches.max_by_key(|b| b.get("lastInteractionAt").and_then(Value::as_i64).unwrap_or(0)).and_then(|b| b.get("branchName")?.as_str()).map(str::to_string);
-        out.push(Chat { id, title: name, cwd, created_at, last_updated, archived: archived.unwrap_or(0) != 0, blocking: flag(&v, "hasBlockingPendingActions"), branch, ..Chat::default() });
+        let header_mode = v.get("unifiedMode").and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_string);
+        out.push(Chat { id, title: name, cwd, created_at, last_updated, archived: archived.unwrap_or(0) != 0, blocking: flag(&v, "hasBlockingPendingActions"), branch, header_mode, ..Chat::default() });
     }
     out.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));
     Ok(out)
@@ -1005,7 +1010,11 @@ impl Reader {
                 let length = lengths.get(&c.id).copied().unwrap_or(0);
                 match before.get(&c.id) {
                     // Nothing written since: what was read stands, as the header may lag.
-                    Some(old) if old.written == length && length > 0 => *c = Chat { archived: c.archived, ..old.clone() },
+                    Some(old) if old.written == length && length > 0 => {
+                        // A mode the header changed to since is one composerData's length hid.
+                        let mode = if c.header_mode != old.header_mode { c.header_mode.clone().or(old.mode.clone()) } else { old.mode.clone() };
+                        *c = Chat { archived: c.archived, header_mode: c.header_mode.clone(), mode, ..old.clone() };
+                    }
                     _ => refresh(&db, c),
                 }
             }
@@ -1716,6 +1725,37 @@ mod tests {
         let planned = parse_meta(r#"{"name":"n","mode":"plan","isRunEverything":true}"#);
         assert_eq!((planned.mode.as_deref(), planned.approval.as_deref()), (Some("plan"), Some("unrestricted")));
         assert_eq!(parse_meta(r#"{"approvalMode":"auto-review","isRunEverything":true}"#).approval.as_deref(), Some("auto-review"));
+    }
+
+    #[test]
+    fn a_switch_between_modes_of_one_length_shows_once_the_header_says_it() {
+        let root = crate::fixtures::scratch("cursor-mode-switch");
+        let home = root.join(".cursor");
+        std::fs::create_dir_all(&home).unwrap();
+        let path = app_db(&home).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let fixture = app_fixture();
+        fixture.execute_batch("UPDATE cursorDiskKV SET value = json_set(CAST(value AS TEXT), '$.unifiedMode', 'chat') WHERE key = 'composerData:c2'; UPDATE composerHeaders SET value = json_set(value, '$.unifiedMode', 'chat') WHERE composerId = 'c2';").unwrap();
+        fixture.execute("VACUUM INTO ?1", [path.to_string_lossy()]).unwrap();
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: 10_000, ps: Default::default() };
+        let mut reader = Reader::default();
+        let mode = |reader: &Reader| reader.chats["cursor"].iter().find(|c| c.id == "c2").and_then(|c| c.mode.clone());
+        reader.reread(&account, &look);
+        assert_eq!(mode(&reader).as_deref(), Some("chat"));
+        // Ask to Plan leaves composerData as long as it was, so it isn't read again; the header
+        // says it a minute later.
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch("UPDATE cursorDiskKV SET value = json_set(CAST(value AS TEXT), '$.unifiedMode', 'plan') WHERE key = 'composerData:c2';").unwrap();
+        reader.reread(&account, &look);
+        assert_eq!(mode(&reader).as_deref(), Some("chat"));
+        db.execute_batch("UPDATE composerHeaders SET value = json_set(value, '$.unifiedMode', 'plan') WHERE composerId = 'c2';").unwrap();
+        reader.reread(&account, &look);
+        assert_eq!(mode(&reader).as_deref(), Some("plan"));
+        // A header that's caught up with what composerData said leaves it.
+        reader.reread(&account, &look);
+        assert_eq!(mode(&reader).as_deref(), Some("plan"));
     }
 
     #[test]
