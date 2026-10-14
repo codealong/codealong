@@ -95,7 +95,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SessionCmd,
     },
-    /// Worktrees the board knows: each with its branch, PR, status, and the agents running in it now (`agents`: sessions a process has open, or that are working or waiting on you; `working`: those working or waiting on you). `sessions` counts every session that worked there, running or not: it's history, not who's there. `cleanup` says whether it can be removed with nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree remove` removes it.
+    /// Worktrees the board knows: each with its branch, PR, status, and the agents running in it now (`agents`: sessions a process has open, or that are working or waiting on you; `working`: those working or waiting on you). `sessions` counts every session that worked there, running or not: it's history, not who's there. `cleanup` says whether it can be removed with nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree remove` removes it. `improve` marks the one Improve Codealong starts its sessions in: a checkout of Codealong's own source.
     Worktrees(WorktreesArgs),
     /// One worktree: removing it (`remove`) once its work is done.
     Worktree {
@@ -2769,6 +2769,10 @@ struct LaneRow {
     /// Whether it can be removed with nothing in it lost (`codealong worktree remove`), or why it
     /// stays. None until its git is read.
     cleanup: Option<crate::model::Cleanup>,
+    /// Improve Codealong starts its sessions here (`Board::improve`): a checkout of Codealong's
+    /// own source, its main one when the board has it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    improve: bool,
 }
 
 /// Whether a session is running now: a process has it open (a terminal, the Claude app, a
@@ -2808,6 +2812,7 @@ fn lane_row(l: &Lane, board: &Board) -> LaneRow {
         preview_running: l.preview.as_ref().map(|p| p.server.is_some()),
         reuse: l.reuse.as_ref().map(lower_debug),
         cleanup: l.cleanup.clone(),
+        improve: board.improve.lane_id.as_deref() == Some(l.id.as_str()),
     }
 }
 
@@ -5314,6 +5319,10 @@ mod tests {
         let others: Vec<SessionRow> = others_in(l, Some("me")).map(|s| session_row(s, l, &b.todos)).collect();
         assert_eq!(others_text(&others, row.sessions - row.agents), "Also running here: open (claude on claude, idle) Title open\nAlso running here: asking (claude on claude, needs) Title asking");
         assert!(my_todos(&b, Some("me"), Some(l)).is_empty(), "the worktree's todo may be theirs");
+        // The worktree Improve Codealong starts in says so.
+        assert!(!row.improve);
+        let improve = Board { improve: crate::improve::Improve { lane_id: Some("/r/long".into()), ..Default::default() }, ..b };
+        assert!(lane_row(&improve.lanes[0], &improve).improve);
     }
 
     #[test]

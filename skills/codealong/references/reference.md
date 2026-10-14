@@ -51,7 +51,8 @@ Commands:
              `sessions` counts every session that worked there, running or not: it's
              history, not who's there. `cleanup` says whether it can be removed with
              nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree
-             remove` removes it
+             remove` removes it. `improve` marks the one Improve Codealong starts its
+             sessions in: a checkout of Codealong's own source
   worktree   One worktree: removing it (`remove`) once its work is done
   pr         A PR and the sessions that worked on it, and linking a session to a PR by
              hand. A session is linked by itself when its records show it made, edited
@@ -1698,7 +1699,8 @@ it now (`agents`: sessions a process has open, or that are working or waiting on
 `working`: those working or waiting on you). `sessions` counts every session that worked
 there, running or not: it's history, not who's there. `cleanup` says whether it can be
 removed with nothing in it lost (`ok`), or why it stays (`why`); `codealong worktree
-remove` removes it
+remove` removes it. `improve` marks the one Improve Codealong starts its sessions in: a
+checkout of Codealong's own source
 
 Usage: codealong worktrees [OPTIONS]
 

@@ -1843,7 +1843,11 @@ answers, its cursor and a running narrative of the work in `orchestrator/` in Co
 and schedules itself with its harness's scheduler. Each tick it reads what changed, tags what waits
 on you and suggests replies (*Suggested replies*), and points out agents getting in each other's
 way: two sessions in one worktree, two on one task, PRs touching the same code, a production change
-planned while a deploy runs. It never messages a session for you. If you say so, it also ends what's
+planned while a deploy runs. It never messages a session for you. Where Codealong itself gets in its
+way (a command that misleads, output it has to filter, a session shown in the wrong state), it
+notes it in `orchestrator/codealong-ideas.md` and suggests the fix once; with your go-ahead, each
+time or once for all of them, it starts a session for it where Improve Codealong would, after
+checking that no todo or session has it already. If you say so, it also ends what's
 left running of old sessions (`codealong hygiene --kill`), turns real action items in your email
 into a todo and a session that may only investigate and draft (with a Gmail connector), watches
 deploys where a repo has a watch of its own, and once a day looks at what's new in Codealong and
