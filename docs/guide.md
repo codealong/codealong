@@ -1646,8 +1646,9 @@ account stands (*Not trained on*, *Training on*) and offers the same.
   sessions for five years rather than 30 days. Team and Enterprise plans are under Anthropic's
   commercial terms, which don't train on what you send.
 - Codex: *Improve the model for everyone* in ChatGPT's data controls, and Codex's own training
-  setting beside it. ChatGPT Business, Enterprise and Edu workspaces aren't trained on, nor is an
-  API key.
+  setting beside it. ChatGPT Business, Enterprise and Edu workspaces aren't trained on. An API
+  key's calls aren't either unless its organization chose to share them, which only OpenAI's
+  dashboard says, so Codealong can't tell for one.
 - Cursor: *Privacy Mode*; *Share Data* lets Cursor keep and train on your prompts, edits and code.
   When your team sets it for you, the flag says so, and it can't be changed from here.
 - Antigravity: *Enable Telemetry* (its Settings › Account, and `/config` in `agy`), which lets

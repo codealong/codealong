@@ -148,8 +148,9 @@ pub enum Msg {
     /// The read of the accounts' data settings is over (training.rs): what it read, or none when
     /// it fell over or never started.
     TrainingRead(Option<Vec<training::Training>>),
-    /// One account's data setting, read again after Codealong turned training off.
-    TrainingOne(training::Training),
+    /// One account's data setting, read again after Codealong turned training off, for the
+    /// account the turn-off began on (`training::identity`).
+    TrainingOne(String, training::Training),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
     Read,
     /// The full pinned list, in order.
@@ -586,7 +587,7 @@ impl Handle {
         let cfg = config::current()?;
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
         let after = training::stop(a)?;
-        let _ = self.tx.send(Msg::TrainingOne(after.clone()));
+        let _ = self.tx.send(Msg::TrainingOne(training::identity(a), after.clone()));
         Ok(after)
     }
 
@@ -2077,7 +2078,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::UsageDone(list)) => self.on_usage(list),
                 Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
-                Ok(Msg::TrainingOne(t)) => self.dirty |= self.training.on_stopped(t),
+                Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_stopped(&asked_as, t),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {

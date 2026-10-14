@@ -1051,9 +1051,10 @@ const PRIVACY_PAGE: &str = "https://cursor.com/dashboard?tab=settings&openPrivac
 /// to accounts already on it.
 const NO_TRAINING: &str = "PRIVACY_MODE_NO_TRAINING";
 
-/// The sign-in to ask Cursor's API with: the command line's in the account's own folder, when it
-/// keeps it in a file (`auth.json`, `{accessToken, refreshToken, apiKey…}`), else the app's, else
-/// the command line's in the keychain. The token is never logged, and Codealong never refreshes it.
+/// The sign-in to ask Cursor's API with: the app's, whose email Settings shows for the account;
+/// for a folder the app doesn't use, or with the app signed out, the command line's, kept in the
+/// account's folder (`auth.json`, `{accessToken, refreshToken, apiKey…}`) or the keychain. The
+/// token is never logged, and Codealong never refreshes it.
 fn api_token(home: &Path) -> Option<String> {
     let file = || {
         let v: Value = serde_json::from_str(&std::fs::read_to_string(home.join("auth.json")).ok()?).ok()?;
@@ -1062,7 +1063,7 @@ fn api_token(home: &Path) -> Option<String> {
     let app = || app_db(home).and_then(|p| crate::harness::open_database(&p)).and_then(|db| db.query_row("SELECT CAST(value AS TEXT) FROM ItemTable WHERE key = 'cursorAuth/accessToken'", [], |r| r.get::<_, String>(0)).ok());
     let cli = || procs::run("/usr/bin/security", &["find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w"], None, Duration::from_secs(10)).ok();
     let usable = |t: String| Some(t.trim().to_string()).filter(|t| !t.is_empty());
-    file().and_then(usable).or_else(|| app().and_then(usable)).or_else(|| cli().and_then(usable))
+    app().and_then(usable).or_else(|| file().and_then(usable)).or_else(|| cli().and_then(usable))
 }
 
 fn dashboard(token: &str, method: &str, body: &Value) -> Result<Value, String> {
@@ -1715,9 +1716,10 @@ mod tests {
         assert!(team.note.ends_with("Your team sets it."));
     }
 
-    /// The command line's sign-in kept in a file is the account's own, read before the app's.
+    /// A folder the app doesn't use (not `~/.cursor`) has the command line's sign-in, from its
+    /// file when it keeps one.
     #[test]
-    fn a_sign_in_kept_in_a_file_is_used_first() {
+    fn a_command_line_sign_in_kept_in_a_file_is_read() {
         let dir = std::env::temp_dir().join(format!("codealong-cursor-auth-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("auth.json"), r#"{"accessToken": " tok ", "refreshToken": "r", "apiKey": null}"#).unwrap();

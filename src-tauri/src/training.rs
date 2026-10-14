@@ -111,7 +111,7 @@ pub struct TrainingPoll {
 }
 
 /// Which account a name stands for: its harness and folder.
-fn identity(a: &AccountCfg) -> String {
+pub fn identity(a: &AccountCfg) -> String {
     format!("{}\n{}", a.harness, a.home)
 }
 
@@ -154,8 +154,13 @@ impl TrainingPoll {
         list.into_iter().flatten().filter(|t| !before.contains(&t.account)).fold(false, |changed, t| self.take(t) || changed)
     }
 
-    /// An account's reading after Codealong turned training off. Says whether it changed.
-    pub fn on_stopped(&mut self, fresh: Training) -> bool {
+    /// An account's reading after Codealong turned training off, for the account `asked_as`
+    /// (`identity`) when the turn-off began. One whose name stands for another account by now,
+    /// or for none, is dropped. Says whether it changed.
+    pub fn on_stopped(&mut self, asked_as: &str, fresh: Training) -> bool {
+        if self.asked_as.get(&fresh.account).map(String::as_str) != Some(asked_as) {
+            return false;
+        }
         if self.running {
             self.pass_over.insert(fresh.account.clone());
         }
@@ -276,13 +281,28 @@ mod tests {
         let mut poll = TrainingPoll::default();
         let accounts = vec![account("claude"), account("codex")];
         poll.due(&accounts, Instant::now());
-        assert!(poll.on_stopped(reading("claude", State::Off)));
+        assert!(poll.on_stopped(&identity(&accounts[0]), reading("claude", State::Off)));
         poll.on_read(Some(vec![reading("claude", State::On), reading("codex", State::On)]));
         let states: Vec<State> = poll.list(&accounts).iter().map(|t| t.state).collect();
         assert_eq!(states, [State::Off, State::On], "the read began before the turn-off");
         poll.due(&accounts, Instant::now() + EVERY);
         poll.on_read(Some(vec![reading("claude", State::On)]));
         assert_eq!(poll.list(&accounts)[0].state, State::On, "a later read counts again");
+    }
+
+    #[test]
+    fn a_turn_off_for_an_account_changed_meanwhile_is_dropped() {
+        let mut poll = TrainingPoll::default();
+        let accounts = vec![account("claude")];
+        poll.due(&accounts, Instant::now());
+        poll.on_read(Some(vec![reading("claude", State::On)]));
+        let before = identity(&accounts[0]);
+        let moved = vec![AccountCfg { home: "~/.elsewhere".into(), ..account("claude") }];
+        poll.keep_only(&moved);
+        poll.due(&moved, Instant::now());
+        assert!(!poll.on_stopped(&before, reading("claude", State::Off)), "it was for the folder before");
+        poll.on_read(Some(vec![reading("claude", State::On)]));
+        assert_eq!(poll.list(&moved)[0].state, State::On, "the new folder's read isn't passed over");
     }
 
     #[test]
