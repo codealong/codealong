@@ -18,7 +18,9 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   `start`, `adopt`, `fork`, `load`, `run_turn`, `cancel`, `on_update`, `on_permission`, `answer`). Other
   updates it passes over include `usage_update` and `session_info_update`.
 - `@agentclientprotocol/claude-agent-acp` 0.81.2 (the Claude Agent SDK and its own `claude`),
-  run with `CLAUDE_CONFIG_DIR` (`claude/mod.rs`, `acp_command`): sign-in, settings (its mode
+  run with the account's folder as `CLAUDE_CONFIG_DIR`, but none for `~/.claude`, whose sign-in
+  a named folder's keychain item doesn't hold (`claude/mod.rs` `usual_folder`, `acp_launch`;
+  named, every turn ended "Not logged in"): sign-in, settings (its mode
   starts at the account's `defaultMode`, e.g. bypassPermissions) and skills are the account's.
   The ACP session id is the Claude session id, and the transcript is the usual
   `projects/<cwd>/<id>.jsonl`. Its `entrypoint` was `sdk-cli` in early runs; on 2026-10-13 a

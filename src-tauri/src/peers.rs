@@ -834,6 +834,7 @@ impl Inner {
             return Err(format!("Remote control is off on {me}; turn it on there in Settings › Devices."));
         }
         let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+        let started = std::time::Instant::now();
         let mut got = (self.hooks.answer)(method, params, watching);
         if older {
             if let Ok(v) = &mut got {
@@ -841,7 +842,7 @@ impl Inner {
             }
         }
         if acts {
-            audit(&them, short_of(from), method, &key, &got);
+            audit(&them, short_of(from), method, &key, &got, started.elapsed());
         }
         got
     }
@@ -1585,14 +1586,16 @@ fn iroh_loop(inner: Arc<Inner>, gen: u64) {
     }
 }
 
-/// Every request that acts on a session here from another device, what it was and how it went, in
+/// Every request that acts on a session here from another device, what it was, how it went and
+/// how long it took (the device stops waiting after a while: codealong-peer's `ACT_WAIT`), in
 /// `~/Library/Logs/Codealong/devices.log`. The prompt itself isn't written down.
-fn audit(from: &str, short: &str, method: &str, key: &str, got: &std::result::Result<Value, String>) {
+fn audit(from: &str, short: &str, method: &str, key: &str, got: &std::result::Result<Value, String>, took: std::time::Duration) {
     let dir = crate::util::home().join("Library/Logs/Codealong");
     let _ = std::fs::create_dir_all(&dir);
+    let took = format!("{:.1} s", took.as_secs_f64());
     let outcome = match got {
-        Ok(_) => "done".to_string(),
-        Err(e) => format!("refused: {e}"),
+        Ok(_) => format!("done in {took}"),
+        Err(e) => format!("refused after {took}: {e}"),
     };
     let line = format!("{} {from} ({short}) {method} {key}: {outcome}\n", crate::perf::stamp());
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("devices.log")) {

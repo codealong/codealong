@@ -15,8 +15,8 @@ mod tmux;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
+use std::sync::{Mutex, MutexGuard, TryLockError};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 
@@ -228,14 +228,22 @@ impl std::error::Error for NotAllowed {}
 
 /// Runs a script that talks to `app` (its name, for what goes wrong).
 pub fn osascript_in(app: &'static str, script: &str, args: &[&str]) -> Result<String> {
+    osascript_within(app, script, args, OSASCRIPT_TIMEOUT)
+}
+
+/// `osascript_in` given `timeout` rather than a minute: for a script that only asks something,
+/// which can be given up on without leaving anything half done.
+fn osascript_within(app: &'static str, script: &str, args: &[&str], timeout: Duration) -> Result<String> {
     let mut full = vec!["-"];
     full.extend_from_slice(args);
-    procs::run_stdin("/usr/bin/osascript", &full, script, OSASCRIPT_TIMEOUT).map_err(|e| {
+    procs::run_stdin("/usr/bin/osascript", &full, script, timeout).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("-1743") || msg.contains("Not authorized") {
             anyhow::Error::new(NotAllowed(app))
-        } else if msg.contains("timed out") {
+        } else if msg.contains("timed out") && timeout == OSASCRIPT_TIMEOUT {
             anyhow!("{app} didn't answer within a minute. It may still open the window; if macOS asked whether Codealong may control {app}, allow it and try again.")
+        } else if msg.contains("timed out") {
+            anyhow!("{app} didn't answer in time.")
         } else {
             anyhow!("{app} didn't respond: {msg}")
         }
@@ -425,6 +433,20 @@ impl Turns {
     fn wait(&self, ticket: u64) -> Option<MutexGuard<'_, ()>> {
         let turn = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         (self.newest.load(Ordering::SeqCst) == ticket).then_some(turn)
+    }
+
+    /// The turn without a ticket, as a send or a key press takes it, so a click waiting before
+    /// it doesn't lose its own. Waited for until `deadline` when there is one: None after it.
+    fn lock_by(&self, deadline: Option<Instant>) -> Option<MutexGuard<'_, ()>> {
+        let Some(deadline) = deadline else { return Some(self.lock.lock().unwrap_or_else(|e| e.into_inner())) };
+        loop {
+            match self.lock.try_lock() {
+                Ok(turn) => return Some(turn),
+                Err(TryLockError::Poisoned(e)) => return Some(e.into_inner()),
+                Err(TryLockError::WouldBlock) if Instant::now() >= deadline => return None,
+                Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(20)),
+            }
+        }
     }
 }
 
@@ -949,6 +971,20 @@ mod tests {
     use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, Client as TmuxClient, Pane as TmuxPane};
     use super::*;
 
+    /// A send waits its turn only as long as it has; a key press, or a send once the turn is
+    /// free, gets it.
+    #[test]
+    fn a_turn_is_waited_for_until_the_deadline() {
+        let turns = Turns::new();
+        let held = turns.lock.lock().unwrap();
+        let started = Instant::now();
+        assert!(turns.lock_by(Some(started + Duration::from_millis(60))).is_none());
+        assert!(started.elapsed() >= Duration::from_millis(60));
+        drop(held);
+        assert!(turns.lock_by(Some(Instant::now())).is_some());
+        assert!(turns.lock_by(None).is_some());
+    }
+
     #[test]
     fn builds_deep_links() {
         assert_eq!(codex_thread_url("01a0c4a6"), "codex://threads/01a0c4a6");
@@ -1285,7 +1321,7 @@ end run
         println!("terminal: {kind:?}, tty {:?}, in {:?}", tty_of(pid), t.elapsed());
         assert_eq!(kind, Some(HostKind::Ghostty));
         let t = std::time::Instant::now();
-        let id = ghostty_terminal_of(pid, Path::new("/")).unwrap();
+        let id = ghostty_terminal_of(pid, Path::new("/"), None).unwrap();
         println!("tab: {id:?}, in {:?}", t.elapsed());
         assert!(id.is_some());
     }

@@ -503,13 +503,17 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
 }
 
 /// Whether it waits on you to answer a prompt (a permission, or a turn stuck on a command), not
-/// only asking you something in its reply.
+/// only asking you something in its reply, nor stuck only on a command its turn left running in
+/// the background (`Session::background`, which Jev reads as stuck when it waits on a sign-in):
+/// that runs detached from the terminal and the turn is over, so the session sits at its prompt
+/// (board.rs `claude_busy_since`).
 pub(crate) fn waits_on_you(session: &Session) -> bool {
-    session.status == Status::Needs && !session.asks
+    session.status == Status::Needs && !session.asks && session.background.is_none()
 }
 
 /// A session waiting on you is never typed into: what's typed would answer its prompt. One that
-/// only asks you something in its reply (`Session::asks`) takes the answer like any prompt.
+/// only asks you something in its reply (`Session::asks`), or is stuck on a command in the
+/// background, takes what you send like any prompt.
 pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
     if waits_on_you(session) {
         match sender {
@@ -897,8 +901,12 @@ mod tests {
         let err = ensure_not_waiting(&s, &Sender::You).unwrap_err();
         assert!(err.to_string().contains("waiting on you"), "{err}");
         // One whose reply asks you something takes the answer like any prompt.
-        let asks = Session { asks: true, ..s };
+        let asks = Session { asks: true, ..s.clone() };
         assert!(ensure_not_waiting(&asks, &Sender::You).is_ok());
+        // So does one whose turn ended on a command in the background that waits on a sign-in.
+        let stuck = Session { background: Some("northwind login --device".into()), stalled_since: Some(1), ..s };
+        assert!(ensure_not_waiting(&stuck, &Sender::You).is_ok());
+        assert!(ensure_not_waiting(&stuck, &Sender::Agent(None)).is_ok());
     }
 
     /// A helper's message to the session that started it claims that session's class, as yours

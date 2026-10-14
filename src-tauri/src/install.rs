@@ -498,10 +498,10 @@ pub fn takes_plugin(a: &AccountCfg) -> bool {
 }
 
 /// Runs `claude plugin <args>` for an account: with its folder as `CLAUDE_CONFIG_DIR`, or without
-/// one for `~/.claude`, whatever the app was started with.
+/// one for `~/.claude` (claude/mod.rs `usual_folder`).
 fn claude_plugin(home: &Path, args: &[&str]) -> Result<String> {
     let config = format!("CLAUDE_CONFIG_DIR={}", home.display());
-    let mut all: Vec<&str> = if home == crate::util::home().join(".claude") { vec!["-u", "CLAUDE_CONFIG_DIR"] } else { vec![config.as_str()] };
+    let mut all: Vec<&str> = if crate::claude::usual_folder(home) { vec!["-u", "CLAUDE_CONFIG_DIR"] } else { vec![config.as_str()] };
     all.extend(["claude", "plugin"]);
     all.extend(args);
     crate::procs::run("/usr/bin/env", &all, Some(&crate::util::home()), std::time::Duration::from_secs(120))

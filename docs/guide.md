@@ -1535,7 +1535,8 @@ first prompt the session was started on, and the command a session runs or waits
 asks you something turns *Your turn* into *Needs you*, with the question; a busy session quiet on a
 long build stays *Working* instead of *stuck*; a command left running in the background says
 whether it polls for something, runs a job, is a server or watcher left running (no longer
-*Working*), or waits on you (a sign-in, a password). Rows show how far the work got (Landed, Pushed,
+*Working*), or waits on you (a sign-in, a password), which still takes what you send it, since its
+turn is over. Rows show how far the work got (Landed, Pushed,
 Committed, Not committed, Blocked) and how risky a command waiting for approval looks, judged from
 the whole call where its harness shows it (the arguments, not just the command's name); a worktree
 whose sessions all read as done says *Looks finished*. A reply whose first line opens with the

@@ -33,10 +33,12 @@ impl Default for Setup {
 }
 
 /// Something a program was sent: an AppleScript by its name in `SCRIPTS` (or `script#<hash>` for
-/// one that isn't there), or another program by its path, with the arguments as they were.
+/// one that isn't there), or another program by its path, with the arguments as they were, and
+/// how long it was given.
 pub struct Sent {
     pub what: String,
     pub args: Vec<String>,
+    pub timeout: Duration,
 }
 
 struct Stage {
@@ -106,10 +108,14 @@ pub fn play<T>(setup: Setup, answer: impl Fn(&Sent) -> Result<String, String> + 
     crate::procs::stand_in::set(Some(Box::new(move |program, args, input, timeout| {
         let sent = if program == "/usr/bin/osascript" {
             assert_eq!(args.first(), Some(&"-"), "the script goes in on stdin");
-            assert_eq!(timeout, Duration::from_secs(60), "how long a terminal app gets to answer");
-            Sent { what: script_name(input.expect("a script")), args: args[1..].iter().map(|a| a.to_string()).collect() }
+            let what = script_name(input.expect("a script"));
+            // A terminal app gets a minute to answer, but for finding a session's Ghostty tab to
+            // type a send into, which has another way to go (ghostty.rs `FIND_WAIT`).
+            let finding = matches!(what.as_str(), "GHOSTTY_LIST" | "GHOSTTY_FIND") && !timeout.is_zero() && timeout <= super::ghostty::FIND_WAIT;
+            assert!(timeout == Duration::from_secs(60) || finding, "{what} was given {timeout:?}");
+            Sent { what, args: args[1..].iter().map(|a| a.to_string()).collect(), timeout }
         } else {
-            Sent { what: program.to_string(), args: args.iter().map(|a| a.to_string()).collect() }
+            Sent { what: program.to_string(), args: args.iter().map(|a| a.to_string()).collect(), timeout }
         };
         let shown: Vec<String> = sent.args.iter().map(|a| tidy(a)).collect();
         let mut line = format!("{} {shown:?}", sent.what);
@@ -811,6 +817,21 @@ mod tests {
         let p = played(answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false, Submit::Keys("\x18\x13")));
         assert_eq!(p.got.unwrap(), Typed::Into("Ghostty"));
         assert_eq!(p.log[4], r#"GHOSTTY_TYPE ["T1", "Fix it", "", "text:\\x18\\x13"]"#);
+        // Finding the tab gets `FIND_WAIT` in all, since the send has another way to go; typing,
+        // once it's found, gets its minute.
+        let given = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let noted = given.clone();
+        played(
+            move |s: &Sent| {
+                noted.lock().unwrap().push((s.what.clone(), s.timeout));
+                answer(s)
+            },
+            || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false, Submit::Return),
+        );
+        let given = given.lock().unwrap();
+        assert_eq!(given.iter().map(|(what, _)| what.as_str()).collect::<Vec<_>>(), ["GHOSTTY_LIST", "GHOSTTY_FIND", "GHOSTTY_TYPE"]);
+        assert!(given[..2].iter().all(|(_, t)| *t <= super::super::ghostty::FIND_WAIT), "{given:?}");
+        assert_eq!(given[2].1, std::time::Duration::from_secs(60));
 
         // Nothing typed, and why: another way can take it.
         let nowhere = |find: Result<&'static str, &'static str>, typed: Result<&'static str, &'static str>| {

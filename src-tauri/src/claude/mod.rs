@@ -166,8 +166,7 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn acp_command(&self, account: &crate::config::AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
-        let program = crate::acp::package_program("claude-agent-acp", self.harness())?;
-        Ok((program, vec![("CLAUDE_CONFIG_DIR".into(), account.home_path().to_string_lossy().into_owned())]))
+        Ok(acp_launch(crate::acp::package_program("claude-agent-acp", self.harness())?, &account.home_path()))
     }
 
     /// The Claude app runs the account in `~/.claude`.
@@ -1324,12 +1323,31 @@ fn home_of_account(name: &str) -> Option<PathBuf> {
     crate::config::current().ok()?.accounts.into_iter().find(|a| a.name == name).map(|a| a.home_path())
 }
 
+/// Whether `home` is `~/.claude`, where Claude Code looks when no folder is named: it's never
+/// named, whatever the app was started with, but any `CLAUDE_CONFIG_DIR` is taken off. A named
+/// folder keeps its sign-in under a keychain item of its own (`Claude Code-credentials-` and
+/// the first 8 hex of the folder's sha256), so Claude Code told `~/.claude` looks for a sign-in
+/// that isn't there, and every turn ends "Not logged in · Please run /login" (2.1.280,
+/// 2026-10-13).
+pub(crate) fn usual_folder(home: &Path) -> bool {
+    home == crate::util::home().join(".claude")
+}
+
+/// How the adapter `program` starts for the account in `home`: its Claude Code told the folder,
+/// or for `~/.claude` (`usual_folder`) with none, through `env -u`, since the adapter's
+/// environment is only added to.
+fn acp_launch(program: String, home: &Path) -> (String, Vec<(String, String)>) {
+    if usual_folder(home) {
+        (format!("/usr/bin/env -u CLAUDE_CONFIG_DIR {program}"), Vec::new())
+    } else {
+        (program, vec![("CLAUDE_CONFIG_DIR".into(), home.to_string_lossy().into_owned())])
+    }
+}
+
 /// A headless Claude Code on the account in `home`, run with `args` and talked to in `dialect`
 /// (a side conversation's copy, or a PR's conversation).
 fn headless(home: &Path, args: &[&str], dialect: SideCopy) -> crate::side::Recipe {
-    // `~/.claude` is where Claude Code looks with no folder named, whatever the app was started
-    // with (install.rs runs `claude plugin` the same way).
-    let usual = home == crate::util::home().join(".claude");
+    let usual = usual_folder(home);
     crate::side::Recipe {
         program: "claude".into(),
         args: args.iter().map(|a| a.to_string()).collect(),
@@ -1597,6 +1615,17 @@ fn holds_in(mode: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sessions Codealong runs sign in as the account's terminal sessions do: `~/.claude` is
+    /// never named, and another folder always is.
+    #[test]
+    fn the_adapter_names_the_folder_only_when_it_isnt_the_usual_one() {
+        let usual = crate::util::home().join(".claude");
+        assert_eq!(acp_launch("'/a/claude-agent-acp'".into(), &usual), ("/usr/bin/env -u CLAUDE_CONFIG_DIR '/a/claude-agent-acp'".to_string(), Vec::new()));
+        let other = crate::util::home().join(".claude2");
+        let (program, env) = acp_launch("'/a/claude-agent-acp'".into(), &other);
+        assert_eq!((program.as_str(), env), ("'/a/claude-agent-acp'", vec![("CLAUDE_CONFIG_DIR".to_string(), other.to_string_lossy().into_owned())]));
+    }
 
     /// A session holds another's message in bypass, may in plan, which keeps the class it was
     /// entered from, and is taken to where its mode isn't known; in the others it doesn't.

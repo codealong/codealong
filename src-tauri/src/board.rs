@@ -3260,6 +3260,8 @@ mod tests {
         assert_eq!(s.status, Status::Needs);
         assert!(s.stalled_since.is_some());
         assert_eq!(session_headline(&s).0, "`claude2` is stuck · Portal daily log + photo sync");
+        // It needs you, but its turn is over: what you send it is a prompt, not an answer.
+        assert!(!crate::send::waits_on_you(&s));
     }
 
     #[test]

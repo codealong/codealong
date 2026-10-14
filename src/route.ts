@@ -68,7 +68,8 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   const toSession = (pick: RoutePick | undefined, p: number, find: boolean): Suggestion | null => {
     const found = pick && findSession(board, pick.id);
     if (!found) return null;
-    const open = find || (found.session.status === 'needs' && !found.session.asks);
+    // Opened when it waits on you to answer a prompt, as send.rs `waits_on_you` has it.
+    const open = find || (found.session.status === 'needs' && !found.session.asks && found.session.background == null);
     return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${found.session.key}`, ...found, p };
   };
   /** Starting new work from Jev's worktree pick, `actionP` as likely as the action. In the very

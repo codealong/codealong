@@ -4,7 +4,7 @@
 //! .claude/rules/terminals.md.
 
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
@@ -82,7 +82,7 @@ impl Terminal for Ghostty {
 
     /// Clearing the box first is Ghostty's own action for Ctrl+C, in the script that types.
     fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
-        let id = match terminal_of(pid, cwd) {
+        let id = match terminal_of(pid, cwd, Some(FIND_WAIT)) {
             Ok(Some(id)) => id,
             Ok(None) => return Ok(Typed::Nowhere(untyped("Codealong couldn't find its Ghostty tab"))),
             // Nothing was typed yet, so another way can take it; say why this one didn't.
@@ -106,7 +106,7 @@ impl Terminal for Ghostty {
     }
 
     fn key_target(&self, pid: u32, cwd: &Path) -> Result<Option<String>> {
-        terminal_of(pid, cwd)
+        terminal_of(pid, cwd, None)
     }
 
     fn press(&self, at: &str, key: Key) -> Result<()> {
@@ -391,6 +391,14 @@ fn text_action(chars: &str) -> String {
 /// second look.
 const GHOSTTY_MARK_WAIT_SECS: &str = "8";
 
+/// How long a send gives Ghostty to find the session's tab before the prompt goes another way
+/// (Claude Code's message socket). Giving up costs nothing: nothing is typed until the tab is
+/// found. Another device waits 40 s for a send's answer (codealong-peer `ACT_WAIT`),
+/// and on 2026-10-13, with the load near 100, a phone's send spent over a minute on Ghostty
+/// before it went by the socket: the phone said it hadn't gone, though it had. Found within
+/// this, the typing that follows is one question more.
+pub(super) const FIND_WAIT: Duration = Duration::from_secs(15);
+
 /// Whether macOS may nap Ghostty (App Nap): neither Ghostty's defaults nor the global ones set
 /// `NSAppSleepDisabled`. Behind other apps' windows Ghostty napped every minute or so, mostly for
 /// a few seconds, now and then for a minute or more (runningboardd's "Set AppNap state" lines).
@@ -489,7 +497,11 @@ end run
 
 /// Its terminals, each with its id.
 pub(super) fn terminals() -> Result<Vec<Tab>> {
-    Ok(osascript(GHOSTTY_LIST, &[])?
+    terminals_within(super::OSASCRIPT_TIMEOUT)
+}
+
+fn terminals_within(timeout: Duration) -> Result<Vec<Tab>> {
+    Ok(super::osascript_within(APP, GHOSTTY_LIST, &[], timeout)?
         .lines()
         .filter_map(|line| {
             let mut parts = line.splitn(3, '\t');
@@ -529,16 +541,22 @@ fn focus_session(pid: u32, tty: &Path, title: &str, cwd: &Path) -> Result<Option
 }
 
 /// The Ghostty terminal a process runs in, found by writing a unique folder report to its TTY
-/// and asking Ghostty which terminal shows it; then the real folder is reported again.
-pub(super) fn terminal_of(pid: u32, cwd: &Path) -> Result<Option<String>> {
+/// and asking Ghostty which terminal shows it; then the real folder is reported again. `within`
+/// is how long it may take, when the asker has another way to go; otherwise each question gets
+/// a minute.
+pub(super) fn terminal_of(pid: u32, cwd: &Path, within: Option<Duration>) -> Result<Option<String>> {
     let Some(tty) = tty_of(pid) else { return Ok(None) };
-    // A mark takes over the TTY's folder report, as focusing's does, so the two never run at
-    // once. A send takes no ticket: it mustn't make a click waiting before it lose its turn.
-    let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
-    let terminals = terminals()?;
+    let deadline = within.map(|w| Instant::now() + w);
+    let left = || match deadline {
+        None => Ok(super::OSASCRIPT_TIMEOUT),
+        Some(d) => d.checked_duration_since(Instant::now()).filter(|l| !l.is_zero()).ok_or_else(|| anyhow!("Ghostty didn't answer in time.")),
+    };
+    // A mark takes over the TTY's folder report, as focusing's does, so the two never run at once.
+    let _turn = FOCUS_TURNS.lock_by(deadline).ok_or_else(|| anyhow!("Ghostty was busy with another tab."))?;
+    let terminals = terminals_within(left()?)?;
     let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
     write_osc7(&tty, &mark)?;
-    let found = osascript(GHOSTTY_FIND, &[&mark, GHOSTTY_MARK_WAIT_SECS]);
+    let found = left().and_then(|t| super::osascript_within(APP, GHOSTTY_FIND, &[&mark, GHOSTTY_MARK_WAIT_SECS], t));
     let id = found.as_deref().map(str::trim).unwrap_or_default().to_string();
     let real = terminals
         .iter()
