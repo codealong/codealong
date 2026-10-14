@@ -169,9 +169,11 @@ pub trait Adapter: Sync {
     /// Types a switch (`model_command` or `effort_command`, and the value: `text`) into a running
     /// session's terminal by `typ`, which answers whether it went in, and sees it through: a
     /// question the harness asks before it takes the switch is answered, and what it keeps of the
-    /// switch beyond the session is put back. The default only types it.
-    fn type_switch(&self, _account: &AccountCfg, _session: &Session, _to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<bool> {
-        typ(text)
+    /// switch beyond the session is put back. Answers the model or level it's on now, which the
+    /// harness may have set to another than asked, or None when it couldn't be typed. The
+    /// default only types it.
+    fn type_switch(&self, _account: &AccountCfg, _session: &Session, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<String>> {
+        Ok(typ(text)?.then(|| to.value().to_string()))
     }
 
     /// The command that, typed into a running session's terminal, ends it the harness's own way,

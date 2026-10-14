@@ -788,13 +788,13 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
         bail!("{title} is in the middle of a turn: switch its {what} once the turn ends.");
     }
     ensure_not_waiting(session, &Sender::You)?;
-    let label = match to {
-        Switch::Model(model) => crate::start::model_label(adapter, account, model),
-        Switch::Effort(effort) => format!("{effort} effort"),
+    let label = |now: &str| match to {
+        Switch::Model(_) => crate::start::model_label(adapter, account, now),
+        Switch::Effort(_) => format!("{now} effort"),
     };
     if session.hosted {
         crate::acp::switch(account, key, to)?;
-        return Ok(format!("{title} is on {label} now."));
+        return Ok(format!("{title} is on {} now.", label(value)));
     }
     let Some(command) = command else {
         bail!("{} has no command to switch a running session's {what}.", adapter.harness().word());
@@ -811,8 +811,9 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
         }
         Ok(false)
     };
-    if adapter.type_switch(account, session, to, &text, &mut typ)? {
-        return Ok(format!("Switched {title} to {label}: `{text}` went into its terminal."));
+    if let Some(now) = adapter.type_switch(account, session, to, &text, &mut typ)? {
+        let capped = if now == value { String::new() } else { format!(" ({value} is over the account's cap)") };
+        return Ok(format!("Switched {title} to {}{capped}: `{text}` went into its terminal.", label(&now)));
     }
     bail!("Codealong can't type into {title}'s terminal{}, so its {what} wasn't switched. Run `{text}` there.", why.map(|w| format!(" ({w})")).unwrap_or_default())
 }

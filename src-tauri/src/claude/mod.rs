@@ -698,8 +698,8 @@ impl crate::harness::Adapter for ClaudeCode {
 
     /// The question Claude Code asks before a switch, answered, and what `/effort` saved put
     /// back: `switch::typed`.
-    fn type_switch(&self, account: &crate::config::AccountCfg, session: &crate::model::Session, to: crate::harness::Switch, text: &str, typ: &mut dyn FnMut(&str) -> anyhow::Result<bool>) -> anyhow::Result<bool> {
-        switch::typed(account, session, &self.records(account, session), to, text, typ)
+    fn type_switch(&self, account: &crate::config::AccountCfg, session: &crate::model::Session, to: crate::harness::Switch, text: &str, typ: &mut dyn FnMut(&str) -> anyhow::Result<bool>) -> anyhow::Result<Option<String>> {
+        switch::typed(account, session, &|| self.records(account, session), to, text, typ)
     }
 
     /// `/exit` asks what to do with the worktree the session made, or removes it when nothing in

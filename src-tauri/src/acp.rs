@@ -1181,6 +1181,12 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     if let Some(m) = current_option(&h.options, "model") {
         s.model = Some(m);
     }
+    // Its effort the same way, but for `default`, the account's own, which only a reply names.
+    // (claude-agent-acp would give its recommended level instead to a client that asked for one,
+    // which Codealong doesn't.)
+    if let Some(e) = current_option(&h.options, "thought_level").filter(|e| e != "default") {
+        s.effort = Some(e);
+    }
     if let Some(p) = &h.permission {
         s.status = Status::Needs;
         s.status_since = Some(p.asked_at);
@@ -1246,6 +1252,24 @@ mod tests {
         state().sessions.get_mut(&key).unwrap().permission = None;
         overlay(&mut s, 0);
         assert_eq!((s.status, s.status_since), (Status::Working, Some(1_000)));
+        state().sessions.remove(&key);
+    }
+
+    /// The effort its agent is set to is the one it's on before a reply says so, but for the
+    /// account's own, which only a reply names.
+    #[test]
+    fn a_hosted_session_is_on_the_effort_its_agent_is_set_to() {
+        let key = key_of(Harness::Claude, "test-effort", "s1");
+        let effort = |current: &str| json!([{ "id": "effort", "category": "thought_level", "type": "select", "currentValue": current, "options": [{ "value": "default" }, { "value": "high" }] }]);
+        state().sessions.insert(key.clone(), Hosted { account: "test-effort".into(), id: "s1".into(), cwd: "/w".into(), options: effort("high"), ..Default::default() });
+        let mut s = crate::fixtures::session(&key);
+        s.effort = Some("xhigh".into());
+        overlay(&mut s, 0);
+        assert_eq!(s.effort.as_deref(), Some("high"));
+        state().sessions.get_mut(&key).unwrap().options = effort("default");
+        s.effort = Some("xhigh".into());
+        overlay(&mut s, 0);
+        assert_eq!(s.effort.as_deref(), Some("xhigh"));
         state().sessions.remove(&key);
     }
 
