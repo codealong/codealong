@@ -13,7 +13,7 @@ import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../
 import { branchLabel, helperLine, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
-import type { HelperCount } from '../boardLists';
+import type { HelperCount, RunCount } from '../boardLists';
 import type { GitInfo, Lane, Session, Suggestions, Todo } from '../types';
 import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
@@ -327,6 +327,11 @@ interface SessionLinesProps {
   helpersShown?: boolean;
   onToggleHelpers?: () => void;
   helperActions?: HelperActions;
+  /** The headless runs its commands started, and whether all of them are listed under it, which
+   *  `onToggleRuns` turns on and off. */
+  runs?: RunCount;
+  runsShown?: boolean;
+  onToggleRuns?: () => void;
 }
 
 /**
@@ -334,7 +339,7 @@ interface SessionLinesProps {
  * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
  * quiet, todo and Jev's read, then its account), with `end` at the second line's end.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
@@ -345,6 +350,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
           {where}
           <HelperChip session={s} />
           <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
+          <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
           <SuggestedChip suggestions={s.suggestions} />
@@ -437,7 +443,13 @@ interface AgentRowProps {
   helpersShown?: boolean;
   onToggleHelpers?: () => void;
   helperActions?: HelperActions;
-  /** A helper listed under the session it works for: set in from the left, on one line. */
+  /** The headless runs its commands started (boardLists.ts `runCounts`), and whether all of them
+   *  are listed under it, which their chip's double-click turns on and off (`onToggleRuns`). */
+  runs?: RunCount;
+  runsShown?: boolean;
+  onToggleRuns?: () => void;
+  /** A helper or headless run listed under the session it works for: set in from the left, on
+   *  one line. */
   nested?: boolean;
   /** A nested helper in another worktree than its session's, which its row names. */
   elsewhere?: boolean;
@@ -467,10 +479,20 @@ export function QuietChip({ quiet }: { quiet: boolean | undefined }) {
   );
 }
 
-/** A helper's chip, where it isn't under the session it works for (SessionsView.tsx): what it
- *  helps, and in its tooltip why it's out of your lists. */
+/** A helper's or a headless run's chip, where it isn't under the session it works for
+ *  (SessionsView.tsx): what it helps, or that it's a run, and in its tooltip why it's out of
+ *  your lists. */
 export function HelperChip({ session: s, nested }: { session: Session; nested?: boolean }) {
-  if (!s.helper || nested) return null;
+  if (nested) return null;
+  if (!s.helper && s.headless) {
+    return (
+      <Chip className="ca-helperchip" title="A headless run: a script or an agent ran it on a prompt with nobody at it (claude -p, codex exec) and reads what comes back itself, so its turns don’t wait on you. It’s counted on the row of the session whose command ran it; it shows here when it needs you, or when no session here ran it.">
+        <Icon name="robot" size={12} />
+        Headless
+      </Chip>
+    );
+  }
+  if (!s.helper) return null;
   const pr = s.helper.pr?.split('#')[1];
   const [label, title] = pr
     ? [`Review of #${pr}`, `An automatic review of #${pr}: its turns are for Codealong to post, not for you, so it's listed on the PR. It shows here when it needs you.`]
@@ -479,6 +501,25 @@ export function HelperChip({ session: s, nested }: { session: Session; nested?: 
     <Chip className="ca-helperchip" title={title}>
       <Icon name="subtask" size={12} />
       {label}
+    </Chip>
+  );
+}
+
+/** The chip on a session's row for the headless runs its commands started (boardLists.ts
+ *  `runCounts`, an eval's judge calls, say): how many, with the working glyph while any is at
+ *  work, and in its tooltip how many are and what they run on. They're counted here rather than
+ *  listed, a row a call; a double-click lists them all under the row, or none again (`shown`). */
+export function RunsChip({ runs: r, shown = false, onToggle }: { runs: RunCount | undefined; shown?: boolean; onToggle?: () => void }) {
+  if (!r || r.count === 0) return null;
+  const what = r.count === 1 ? 'A headless run' : `${r.count} headless runs`;
+  const at = r.working > 0 ? `, ${r.working} at work` : '';
+  const on = r.on.length > 0 ? `\nOn ${r.on.join(', ')}.` : '';
+  const how = onToggle ? `\nDouble-click to list ${shown ? 'none of them' : 'them all'} under it.` : '';
+  return (
+    <Chip className={cx('ca-runschip', shown && 'is-shown')} title={`${what} its commands started${at}: claude -p or codex exec, which what ran them reads, so they're counted here rather than listed.${on}${how}`} act={onToggle} inRow>
+      <Icon name="robot" size={12} />
+      {r.working > 0 && <SessionGlyph s={{ status: 'working' }} size={10} />}
+      {r.count === 1 ? '1 run' : `${r.count} runs`}
     </Chip>
   );
 }
@@ -543,7 +584,7 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * line either way, and says only what the session's row doesn't: its worktree only when it works
  * in another, and no PR or diff.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, nested, elsewhere }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, nested, elsewhere }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
   const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
@@ -571,6 +612,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             <span className="ca-chips ca-agentline-tags">
               <HelperChip session={s} nested={nested} />
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
+              <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />
@@ -599,6 +641,9 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             helpersShown={helpersShown}
             onToggleHelpers={onToggleHelpers}
             helperActions={helperActions}
+            runs={runs}
+            runsShown={runsShown}
+            onToggleRuns={onToggleRuns}
           />
         </div>
       )}

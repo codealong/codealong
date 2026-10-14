@@ -7,7 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, bySession, filterByAge, helping, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, sessionHomes, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, bySession, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
@@ -185,6 +185,35 @@ export function helperCounts(items: SessionItem[]): Map<string, HelperCount> {
   return out;
 }
 
+/** A session's headless runs on the board (`Session.headless`, lanes.ts `workingFor`), for the
+ *  chip on its row (LaneRow.tsx `RunsChip`): how many, how many are at work, and what they run
+ *  on, each account and model once. */
+export interface RunCount {
+  count: number;
+  working: number;
+  on: string[];
+}
+
+/** Each session's headless runs, by the session's key: the ones not archived. */
+export function runCounts(items: SessionItem[]): Map<string, RunCount> {
+  const out = new Map<string, RunCount>();
+  for (const { session: s } of items) {
+    const parent = s.headless && !s.archived ? workingFor(s) : undefined;
+    if (!parent) continue;
+    const c = out.get(parent) ?? { count: 0, working: 0, on: [] };
+    const on = [s.account, s.model].filter(Boolean).join(' · ');
+    out.set(parent, { count: c.count + 1, working: c.working + (s.status === 'working' ? 1 : 0), on: c.on.includes(on) ? c.on : [...c.on, on] });
+  }
+  return out;
+}
+
+/** Whether a helper or a headless run is listed under its session however it stands: you asked
+ *  for every one of its kind there (`shown`). */
+function listedAll(s: Session, shown: ReadonlySet<string>): boolean {
+  const parent = workingFor(s);
+  return !!parent && shown.has(s.headless ? runsShownKey(parent) : parent);
+}
+
 /** The sessions whose every helper Sessions lists under them, with what it takes to list
  *  `helper`, which its session's chip's card shows or opens: its session added unless `rows`
  *  (what Sessions lists now) have the helper and it's at work or waiting on you, so stays listed
@@ -200,30 +229,37 @@ export function showingHelper(shown: string[], rows: readonly ListRow[], helper:
 }
 
 /**
- * The helpers Sessions lists (lanes.ts `helping`): under the session that started one, when that's
- * listed, while the helper works or waits on you (SessionsView.tsx `sessionSections` puts it
- * there), and every one of a session you asked to see them all of (`shown`, its chip's
- * double-click); the rest of a session's helpers are on its row's chip (`helperCounts`). Otherwise
- * a helper is listed on its own only while it waits on you: one whose session isn't listed, and a
- * review of a PR that waits on your review, which its PR lists. A search lists every helper it
- * finds. A helper's own helpers go under it in turn, so its chip's double-click does too; and the
- * helpers of a session you asked to see them all of come from `all` (every session not
- * archived), not only `rows`, since the age and status filters leave out ones its chip counts.
+ * The helpers and headless runs Sessions lists (lanes.ts `unattended`). A helper: under the
+ * session that started one, when that's listed, while the helper works or waits on you
+ * (SessionsView.tsx `sessionSections` puts it there), and every one of a session you asked to see
+ * them all of (`shown`, its chip's double-click); the rest of a session's helpers are on its row's
+ * chip (`helperCounts`). A headless run is only counted on its session's chip (`runCounts`),
+ * however it stands, unless you asked to see them all there, so an eval's judge doesn't list a
+ * row a call; one no session on the board started (a script in a terminal of yours) is listed as
+ * a session of its own. Otherwise a helper or a run is listed on its own only while it waits on
+ * you: one whose session isn't listed, and a review of a PR that waits on your review, which its
+ * PR lists. A search lists every one it finds. A helper's own helpers go under it in turn, so its
+ * chip's double-click does too; and the helpers of a session you asked to see them all of come
+ * from `all` (every session not archived), not only `rows`, since the age and status filters
+ * leave out ones its chip counts.
  */
 export function placeHelpers(rows: SessionItem[], searching: boolean, shown: ReadonlySet<string> = NONE, all: readonly SessionItem[] = rows): SessionItem[] {
   const inRows = new Set(rows.map((r) => r.session.key));
-  const more = shown.size === 0 ? [] : all.filter((r) => !inRows.has(r.session.key) && shown.has(r.session.helper?.parent ?? ''));
-  if (more.length === 0 && !rows.some((r) => r.session.helper)) return rows;
+  const more = shown.size === 0 ? [] : all.filter((r) => !inRows.has(r.session.key) && listedAll(r.session, shown));
+  if (more.length === 0 && !rows.some((r) => r.session.helper || r.session.headless)) return rows;
   const candidates = [...rows, ...more];
-  // Your own sessions, and helpers that need you or a search found, whatever's above them.
-  const listed = new Set(rows.filter(({ session: s }) => !s.helper || searching || !helping(s)).map((r) => r.session.key));
+  const onBoard = new Set(all.map((r) => r.session.key));
+  const orphan = (s: Session) => !!s.headless && !onBoard.has(workingFor(s) ?? '');
+  // Your own sessions, helpers and runs that need you or a search found, and runs no session
+  // here started, whatever's above them.
+  const listed = new Set(rows.filter(({ session: s }) => searching || !unattended(s) || orphan(s)).map((r) => r.session.key));
   // Then the helpers under a listed session, a level at a time: the ones at work, or all of them
-  // where you asked.
+  // where you asked; and its runs where you asked.
   for (let grew = true; grew; ) {
     grew = false;
     for (const { session: s } of candidates) {
-      const parent = s.helper?.parent;
-      if (listed.has(s.key) || !parent || !listed.has(parent) || !(AGENT_BAY[s.status] != null || shown.has(parent))) continue;
+      const parent = workingFor(s);
+      if (listed.has(s.key) || !parent || !listed.has(parent) || !(listedAll(s, shown) || (!s.headless && AGENT_BAY[s.status] != null))) continue;
       listed.add(s.key);
       grew = true;
     }
@@ -410,6 +446,8 @@ export function useBoardLists(input: ListsInput) {
   const shownSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter), !!query, helpersShown, sessionItems), [sessionItems, cutoff, sessionPins.set, query, filter, helpersShown]);
   const helpers = useMemo(() => helperCounts(sessionItems), [sessionItems]);
   const helpersOf = useCallback((k: string) => helpers.get(k), [helpers]);
+  const runs = useMemo(() => runCounts(sessionItems), [sessionItems]);
+  const runsOf = useCallback((k: string) => runs.get(k), [runs]);
   const shownSessionCount = useMemo(() => recentSessionCount(sessionItems, cutoff, sessionPins.set), [sessionItems, cutoff, sessionPins.set]);
   const pinnedRows = useMemo(() => inPinOrder(shownSessions, sessionPins.keys, (r) => r.session.key), [shownSessions, sessionPins.keys]);
   // A pinned session's helpers go under it among the pinned ones, not among the rest.
@@ -518,6 +556,7 @@ export function useBoardLists(input: ListsInput) {
     todoLinks,
     todosFor,
     helpersOf,
+    runsOf,
     counts,
     totalLanes,
     actions,

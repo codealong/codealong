@@ -41,6 +41,9 @@ describe('your other devices', () => {
     expect(needsOn(lanes, 'm2')).toBe(0);
     expect(workingOn(lanes, null)).toBe(1);
     expect(workingOn(lanes, 'm1')).toBe(0);
+    // A helper or a headless run at work isn't an agent of yours at work.
+    const runs = [lane('/a', [session('s2', 'working'), { ...session('r1', 'working'), headless: true }, { ...session('h1', 'working'), helper: { parent: 's2' } }])];
+    expect(workingOn(runs, null)).toBe(1);
   });
 
   it('names a device without its owner', () => {

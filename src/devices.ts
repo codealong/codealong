@@ -2,6 +2,7 @@
 // `@<short>:` in front of every lane id and session key, so which device something is on can be
 // read off its key, and a click on it goes back to that device.
 
+import { unattended } from './lanes';
 import type { DeviceView, DevicesView, Lane, Session } from './types';
 
 /** The short id of the device a lane id or session key is on; null when it's this device's. */
@@ -40,8 +41,10 @@ export function workingOn(lanes: Lane[], short: string | null): number {
   return countOn(lanes, short, (s) => s.status === 'working');
 }
 
+/** A helper or a headless run counts only once it needs you, as in the status filters' counts
+ *  (lanes.ts `inStatus`): a judge's runs a minute aren't agents at work. */
 function countOn(lanes: Lane[], short: string | null, counts: (s: Session) => boolean): number {
-  return lanes.filter((l) => shortOf(l.id) === short).reduce((n, l) => n + l.sessions.filter((s) => !s.visitor && !s.archived && counts(s)).length, 0);
+  return lanes.filter((l) => shortOf(l.id) === short).reduce((n, l) => n + l.sessions.filter((s) => !s.visitor && !s.archived && !unattended(s) && counts(s)).length, 0);
 }
 
 /** A device's name as its badge shows it: without its owner's name in front, so "Sam’s MacBook

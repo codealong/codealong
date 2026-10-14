@@ -127,9 +127,11 @@ export function lineageOf(session: Session, homes: Map<string, Placed>): Lineage
 }
 
 /** The sessions that came of `key`, among `sessions`: forks of it, ones its agent started, and its
- *  helpers, which include the automatic reviews of a PR it opened (autoreview.rs `nest_own`). */
+ *  helpers, which include the automatic reviews of a PR it opened (autoreview.rs `nest_own`). Not
+ *  the headless runs its commands started, which come by the hundred: its row counts those
+ *  (boardLists.ts `runCounts`). */
 export function cameOf<T extends { session: Session }>(key: string, sessions: Iterable<T>): T[] {
   const out: T[] = [];
-  for (const x of sessions) if (x.session.origin?.key === key || x.session.helper?.parent === key) out.push(x);
+  for (const x of sessions) if ((x.session.origin?.key === key && !x.session.headless) || x.session.helper?.parent === key) out.push(x);
   return out;
 }

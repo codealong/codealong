@@ -94,7 +94,8 @@ export interface Session {
    *  Code conversation moved to the background goes on in a job that writes nothing until its
    *  next prompt, and then starts its own with a copy of the conversation. */
   continues?: string;
-  /** The session it came from, when its harness or Codealong wrote that down. */
+  /** The session it came from, when its harness or Codealong wrote that down; a headless run's,
+   *  the session whose command ran it, when Codealong saw it running (board.rs `started_by`). */
   origin?: SessionOrigin;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
@@ -161,10 +162,12 @@ export interface Session {
   ownWorktree?: string;
   /** It works for an agent, not for you: a helper another session's agent started (`codealong
    *  start --helper`), or an automatic review's session. While it doesn't need you it's out of
-   *  the lists and queues, under what it helps (lanes.ts `helping`). Missing from older Macs. */
+   *  the lists and queues, under what it helps (lanes.ts `unattended`). Missing from older Macs. */
   helper?: Helper;
   /** A run nobody is at (`claude -p`, `codex exec`): a script or an agent ran it and reads what
-   *  comes back, so a turn it ends is idle (board.rs `apply_headless`). Missing otherwise. */
+   *  comes back, so a turn it ends is idle (board.rs `apply_headless`). While it doesn't need you
+   *  it's out of the lists and queues, counted on the row of the session it came from
+   *  (`origin`, lanes.ts `workingFor`). Missing otherwise. */
   headless?: boolean;
   /** The pages on the web it made or showed you (artifacts Claude Code published), the one it
    *  last published, updated or opened first (artifacts.rs). Missing when it has none, and from

@@ -7,7 +7,7 @@
 
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
-import { branchLabel, byStatusTime, helping, sessionHomes } from './lanes';
+import { branchLabel, byStatusTime, sessionHomes, unattended } from './lanes';
 import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, type Reads } from './queue';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
@@ -128,10 +128,11 @@ export const QUEUE_READS: Reads<QueueRow> = {
  *  notch (bar.ts `NOTCH_ORDER`); with none of those, the ones working, the longest running first.
  *  `counts` has every group's full size, for the headings. */
 export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'needs' | 'reviews' | 'unread' | 'working', number> } {
-  // A helper waits here only while it needs you, as on the floating bar (barfeed.rs).
+  // A helper or a headless run waits here only while it needs you, as on the floating bar
+  // (barfeed.rs).
   const sessions = sessionsIn(board, project)
     .flatMap(({ lane, session }) => {
-      const group = helping(session) ? null : groupOf(session.status);
+      const group = unattended(session) ? null : groupOf(session.status);
       return group ? [{ kind: 'session' as const, key: session.key, group, lane, session, marks: [] }] : [];
     })
     .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || byStatusTime(a.session, b.session) || a.key.localeCompare(b.key));
@@ -160,7 +161,7 @@ export function queueRows(board: Board, project: string): QueueRow[] {
  */
 export function recentRows(board: Board, project: string, shown: Set<string>, now: number, limit = RECENT_SESSIONS): { rows: SessionRow[]; count: number } {
   const recent = sessionsIn(board, project)
-    .filter(({ session: s }) => !shown.has(s.key) && !helping(s) && now - (s.startedAt ?? s.lastActivity) <= RECENT_MS)
+    .filter(({ session: s }) => !shown.has(s.key) && !unattended(s) && now - (s.startedAt ?? s.lastActivity) <= RECENT_MS)
     .sort((a, b) => statusTime(b.session) - statusTime(a.session) || a.session.key.localeCompare(b.session.key));
   const rows = recent.slice(0, limit).map(({ lane, session }): SessionRow => ({ kind: 'session', key: session.key, group: 'recent', lane, session, marks: [] }));
   return { rows, count: recent.length };

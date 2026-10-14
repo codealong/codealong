@@ -72,6 +72,9 @@ describe('cameOf', () => {
     const all = [s('a'), s('b', 'a'), s('c', 'b'), s('d', 'a')];
     expect(cameOf('a', all).map((x) => x.session.key)).toEqual(['b', 'd']);
     expect(cameOf('d', all)).toEqual([]);
+    // Not the headless runs its commands started, which its row counts.
+    const run = { session: fx.session({ key: 'r', headless: true, origin: { key: 'a', how: 'started' } }) };
+    expect(cameOf('a', [...all, run]).map((x) => x.session.key)).toEqual(['b', 'd']);
   });
 });
 

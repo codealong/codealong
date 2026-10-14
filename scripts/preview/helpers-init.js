@@ -15,7 +15,9 @@
     return p.then(function (board) {
       var own = [];
       board.lanes.forEach(function (l) {
-        if (!l.hidden) l.sessions.forEach(function (s) { if (!s.visitor && !s.archived) own.push(s); });
+        // Not ones that work for something else already (an automatic review, a headless run):
+        // Sessions doesn't list those as your own, whatever this makes of them.
+        if (!l.hidden) l.sessions.forEach(function (s) { if (!s.visitor && !s.archived && !s.helper && !s.headless) own.push(s); });
       });
       // The same four on every read of the board, picked by the first.
       var keys = window.__helpers ? [window.__helpers.boss.key].concat(window.__helpers.kids.map(function (k) { return k.key; })) : own.sort(function (a, b) { return b.lastActivity - a.lastActivity; }).slice(0, 4).map(function (s) { return s.key; });

@@ -208,7 +208,8 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continues: Option<String>,
     /// The session it came from, when its harness or Codealong wrote that down: a fork of it,
-    /// or started by it.
+    /// or started by it. A headless run's is the session whose process its own runs under, when
+    /// Codealong saw it running (`board::started_by`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<SessionOrigin>,
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
@@ -320,8 +321,10 @@ pub struct Session {
     pub helper: Option<Helper>,
     /// A run of its harness that nobody is at: a script or an agent ran it on a prompt and reads
     /// what comes back itself (`claude -p`, `codex exec`), often hundreds at a time. A turn it
-    /// ends is idle rather than Your turn, an error and all, and `codealong sessions` and
-    /// `changes` leave it out unless asked. False where its harness doesn't say (OpenCode,
+    /// ends is idle rather than Your turn, an error and all; while it doesn't need you it's out
+    /// of its worktree's status, the bar and the mark (`Session::unattended`), and counted on the
+    /// row of the session that started it (its `origin`) rather than listed. `codealong sessions`
+    /// and `changes` leave it out unless asked. False where its harness doesn't say (OpenCode,
     /// Antigravity, Cursor), for a session Codealong runs itself, and from Macs before
     /// 2026-10-13.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -444,6 +447,14 @@ impl Session {
     /// `src/lanes.ts` `helping` says the same for the windows.
     pub fn helping(&self) -> bool {
         self.helper.is_some() && !matches!(self.status, Status::Needs | Status::Error)
+    }
+
+    /// A helper (`helping`) or a headless run (`headless`) that doesn't need you: what started it
+    /// waits on it, not you, so it's out of its worktree's status, the bar, the mark and the
+    /// queue. One waiting on a call to allow waits on you as any session does. `src/lanes.ts`
+    /// `unattended` says the same for the windows.
+    pub fn unattended(&self) -> bool {
+        (self.helper.is_some() || self.headless) && !matches!(self.status, Status::Needs | Status::Error)
     }
 
     /// A session of which only whose it is is known: in a terminal, idle, not running, with no
@@ -654,7 +665,8 @@ pub enum OriginHow {
     /// (`fork_session_id`), and Codealong's Fork.
     Fork,
     /// That session's agent started it: `codealong start` run from it, a thread the Codex app
-    /// made for it (`create_thread`), or a task it offered in the Claude app (`spawn_task`).
+    /// made for it (`create_thread`), a task it offered in the Claude app (`spawn_task`), or a
+    /// headless run a command of its ran (`board::started_by`).
     Started,
 }
 

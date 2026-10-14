@@ -50,11 +50,27 @@ export function waitingSince(s: Session): number | null {
 /** When a session's status began. */
 const statusAt = (s: Session) => s.statusSince ?? s.lastActivity;
 
-/** A helper that doesn't need you: out of its worktree's status, the bar, the mark and the
- *  queues, and listed under what it helps. One that needs you (a call to allow, a question, an
- *  error) waits on you as any session does. The engine's `Session::helping` says the same. */
-export function helping(s: Pick<Session, 'helper' | 'status'>): boolean {
-  return s.helper != null && s.status !== 'needs' && s.status !== 'error';
+/** A helper or a headless run that doesn't need you: what started it waits on it, not you, so
+ *  it's out of its worktree's status, the bar, the mark and the queues, and Sessions lists it
+ *  under the session it works for (`workingFor`), or counts it there. One that needs you (a call
+ *  to allow, a question, an error) waits on you as any session does. The engine's
+ *  `Session::unattended` says the same. */
+export function unattended(s: Pick<Session, 'helper' | 'headless' | 'status'>): boolean {
+  return (s.helper != null || !!s.headless) && s.status !== 'needs' && s.status !== 'error';
+}
+
+/** The session a helper or a headless run works for, by its key: the one whose agent started it
+ *  as a helper, or the one a headless run came from, which for one Codealong saw running is the
+ *  session whose command ran it (board.rs `started_by`). */
+export function workingFor(s: Pick<Session, 'helper' | 'headless' | 'origin'>): string | undefined {
+  return s.helper?.parent ?? (s.headless ? s.origin?.key : undefined);
+}
+
+/** What Sessions keeps to list every headless run of a session under it (boardLists.ts
+ *  `placeHelpers`'s `shown`), beside the session's own key for its helpers: a judge's runs come
+ *  by the hundred, so listing its helpers doesn't list them too. */
+export function runsShownKey(parent: string): string {
+  return `runs:${parent}`;
 }
 
 /**
@@ -169,8 +185,8 @@ export function worktreeName(lane: Lane): string {
 
 /** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */
 export function lanePromptAt(lane: Lane): number {
-  // A helper's prompts are its agent's, not yours.
-  const own = lane.sessions.filter((s) => !s.visitor && !s.archived && !helping(s));
+  // A helper's prompts are its agent's, not yours, and a headless run's its script's.
+  const own = lane.sessions.filter((s) => !s.visitor && !s.archived && !unattended(s));
   return own.length > 0 ? Math.max(...own.map((s) => s.lastPromptAt)) : lane.lastActivity;
 }
 
@@ -396,10 +412,11 @@ function idleHeadline(lane: Lane, own: Session[]): [string, string | null] {
 }
 
 /** Whether a session counts toward its worktree's status, as board.rs has it: the worktree's own
- *  (not a visitor's), not archived, not a reusable worktree's earlier work, and not a helper that
- *  doesn't need you. The bays, the rows' lines, the status filters and their counts all go by it. */
+ *  (not a visitor's), not archived, not a reusable worktree's earlier work, and not a helper or
+ *  headless run that doesn't need you. The bays, the rows' lines, the status filters and their
+ *  counts all go by it. */
 function inStatus(s: Session): boolean {
-  return !s.visitor && !s.archived && !s.earlier && !helping(s);
+  return !s.visitor && !s.archived && !s.earlier && !unattended(s);
 }
 
 /**

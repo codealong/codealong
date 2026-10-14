@@ -1080,6 +1080,10 @@ struct Engine {
     logs_read: HashSet<PathBuf>,
     /// Session key → the Chrome tabs its records show it drove (chrometabs.rs).
     chrome_use: HashMap<String, chrometabs::Use>,
+    /// A headless run's key → the session that started it (`with_run_origins`), found while its
+    /// process runs and kept after, while it's on the board. Learned as the board is composed,
+    /// which only reads the engine, so behind a lock.
+    run_origins: Mutex<HashMap<String, String>>,
     /// Chrome's profiles, as of the last lookup of a session's.
     chrome_profiles: Vec<chrome::Profile>,
     /// Session key → the tab group its profile was last looked up for, and when.
@@ -1219,6 +1223,7 @@ impl Engine {
             artifacts: HashMap::new(),
             logs_read: HashSet::new(),
             chrome_use: HashMap::new(),
+            run_origins: Mutex::default(),
             chrome_profiles: Vec::new(),
             chrome_lookups: HashMap::new(),
             pr_store: prlinks::LinkStore::default(),
@@ -1601,6 +1606,32 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             if !self.seen.is_own(&s.key) {
                 s.helper = board::helper_of(store.helper_of(&s.key), |k| keys.contains(k), reviewers.get(s.key.as_str()).copied());
             }
+        }
+        sessions
+    }
+
+    /// Each headless run with the session that started it as its origin, where nothing else
+    /// said where it came from: the nearest of its process's parents that's a running session's
+    /// own (`board::started_by`). Looked up while it runs, a run's ancestry stays the same, and
+    /// it's kept once the run ends and has no process to climb from, until it leaves the board
+    /// or Codealong quits.
+    fn with_run_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        let mut known = self.run_origins.lock().unwrap_or_else(|e| e.into_inner());
+        if !sessions.iter().any(|s| s.headless) {
+            known.clear();
+            return sessions;
+        }
+        let by_pid: HashMap<u32, &str> = sessions.iter().filter(|s| s.live && !s.headless).filter_map(|s| Some((s.pid?, s.key.as_str()))).collect();
+        let found: Vec<(String, String)> = sessions
+            .iter()
+            .filter(|s| s.headless && s.live && s.origin.is_none() && !known.contains_key(&s.key))
+            .filter_map(|s| Some((s.key.clone(), board::started_by(s.pid?, procs::parent_pid, &by_pid)?.to_string())))
+            .collect();
+        known.extend(found);
+        let on_board: HashSet<&str> = sessions.iter().filter(|s| s.headless).map(|s| s.key.as_str()).collect();
+        known.retain(|k, _| on_board.contains(k.as_str()));
+        for s in sessions.iter_mut().filter(|s| s.headless && s.origin.is_none()) {
+            s.origin = known.get(&s.key).map(|from| SessionOrigin { key: from.clone(), how: OriginHow::Started });
         }
         sessions
     }
@@ -3191,7 +3222,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_origins(self.build_sessions(now))))), now)), now), &usage, now)),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(self.build_sessions(now)))))), now)), now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),

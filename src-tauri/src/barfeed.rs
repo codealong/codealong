@@ -164,9 +164,9 @@ pub fn feed(board: &Board) -> BarFeed {
     let mut snoozed: Vec<(i64, BarItem)> = Vec::new();
     for lane in &board.lanes {
         for s in &lane.sessions {
-            // A helper is on the bar only while it needs you (`Session::helping`): its agent waits
-            // on it, not you.
-            if s.visitor.is_some() || s.archived || s.helping() {
+            // A helper or a headless run is on the bar only while it needs you
+            // (`Session::unattended`): its agent or script waits on it, not you.
+            if s.visitor.is_some() || s.archived || s.unattended() {
                 continue;
             }
             let group = match group_of(s.status) {

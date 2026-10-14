@@ -8,9 +8,9 @@
 // mark done or archive together (picks.ts, SessionPickPanel.tsx).
 
 import { Fragment } from 'react';
-import { bySession, byStatusTime, startedOf, waitingSince } from '../lanes';
+import { bySession, byStatusTime, runsShownKey, startedOf, waitingSince, workingFor } from '../lanes';
 import type { SelectHow } from '../picks';
-import type { HelperCount } from '../boardLists';
+import type { HelperCount, RunCount } from '../boardLists';
 import type { Bay, DesktopPinned, Lane, Session, Status, Todo } from '../types';
 import type { HelperActions } from './HelpersCard';
 import { AgentRow } from './LaneRow';
@@ -23,7 +23,7 @@ export interface SessionItem {
   key: string;
   lane: Lane;
   session: Session;
-  /** A helper listed under the session that started it (`sessionSections`). */
+  /** A helper or a headless run listed under the session it works for (`sessionSections`). */
   nested?: boolean;
   /** A helper listed under a session in another worktree than its own, which its row then names. */
   elsewhere?: boolean;
@@ -112,10 +112,10 @@ function byDay(rows: SessionItem[], at: (r: SessionItem) => number, now: number)
  * active, each day the one you last sent a prompt first. By start: under the day each started,
  * the newest first.
  *
- * A helper listed with the session that started it goes under that session (`nested`), its own
- * the most urgent first. The two go where the session would, unless the helper waits on you and
- * the session doesn't: then they're in Needs you, by the helper's wait, so what it asks is seen
- * beside the work it's for.
+ * A helper or headless run listed with the session it works for (lanes.ts `workingFor`) goes
+ * under that session (`nested`), its own the most urgent first. The two go where the session
+ * would, unless the helper waits on you and the session doesn't: then they're in Needs you, by
+ * the helper's wait, so what it asks is seen beside the work it's for.
  */
 export function sessionSections(rows: SessionItem[], sort: SessionSort, now: number): SessionSection[] {
   const { top, under } = families(rows);
@@ -153,7 +153,8 @@ export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>): M
     if (heads.has(r.session.key)) continue;
     let at = r;
     for (let i = 0; i < 4; i++) {
-      const parent = at.session.helper?.parent ? byKey.get(at.session.helper.parent) : undefined;
+      const up = workingFor(at.session);
+      const parent = up ? byKey.get(up) : undefined;
       if (!parent || parent === r) break;
       if (heads.has(parent.session.key)) {
         under.set(parent.session.key, [...(under.get(parent.session.key) ?? []), { ...r, nested: true, elsewhere: r.lane.id !== parent.lane.id }]);
@@ -170,13 +171,14 @@ export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>): M
  *  first. Only one deep: a helper's own helpers go under the session at the top. */
 function families(rows: SessionItem[]): { top: SessionItem[]; under: Map<string, SessionItem[]> } {
   const under = new Map<string, SessionItem[]>();
-  if (!rows.some((r) => r.session.helper?.parent)) return { top: rows, under };
+  if (!rows.some((r) => workingFor(r.session))) return { top: rows, under };
   const byKey = new Map(rows.map((r) => [r.session.key, r]));
   // The listed session a row goes under, climbing past helpers to the one at the top.
   const headOf = (r: SessionItem): SessionItem | null => {
     let at = r;
     for (let i = 0; i < 4; i++) {
-      const parent = at.session.helper?.parent ? byKey.get(at.session.helper.parent) : undefined;
+      const up = workingFor(at.session);
+      const parent = up ? byKey.get(up) : undefined;
       if (!parent || parent === r) return at === r ? null : at;
       at = parent;
     }
@@ -255,13 +257,18 @@ interface SessionsViewProps {
    *  turns on and off (`onToggleHelpers`). */
   helpersShown?: ReadonlySet<string>;
   onToggleHelpers?: (sessionKey: string) => void;
+  /** A session's headless runs, for their chip on its row; all of them are listed under it while
+   *  `helpersShown` holds its `runsShownKey`, which their chip's double-click turns on and off
+   *  (`onToggleRuns`). */
+  runsOf?: (sessionKey: string) => RunCount | undefined;
+  onToggleRuns?: (sessionKey: string) => void;
   /** What a helpers chip's card does with a helper (HelpersCard.tsx). */
   helperActions?: HelperActions;
   onShowTodo?: (todo: Todo) => void;
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, helperActions, onShowTodo } = props;
+  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, helperActions, onShowTodo } = props;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
@@ -297,6 +304,9 @@ export function SessionsView(props: SessionsViewProps) {
       helpers={helpersOf?.(r.session.key)}
       helpersShown={!!helpersShown?.has(r.session.key)}
       onToggleHelpers={onToggleHelpers && (() => onToggleHelpers(r.session.key))}
+      runs={runsOf?.(r.session.key)}
+      runsShown={!!helpersShown?.has(runsShownKey(r.session.key))}
+      onToggleRuns={onToggleRuns && (() => onToggleRuns(r.session.key))}
       helperActions={helperActions}
       nested={r.nested}
       elsewhere={r.elsewhere}

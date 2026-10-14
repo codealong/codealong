@@ -25,6 +25,7 @@ import {
   prRowOf,
   prRowsOf,
   recentSessionCount,
+  runCounts,
   sessionIn,
   sessionIndexOf,
   sessionInFilter,
@@ -34,12 +35,12 @@ import {
   unarchived,
 } from './boardLists';
 import { needsOn } from './devices';
-import { bayOf } from './lanes';
+import { bayOf, runsShownKey } from './lanes';
 import { ALL_PROJECTS } from './quick';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
 import type { Lane, Pr, ProjectSummary, Session } from './types';
-import { helpersUnder, type SessionItem } from './ui/SessionsView';
+import { helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
 const DAY = 86_400_000;
@@ -348,6 +349,51 @@ describe('the Sessions view’s lists', () => {
       expect(placeHelpers(plain, false)).toBe(plain);
       // Archived helpers aren't counted.
       expect(helperCounts(sessionItemsOf([lane('/r/a', [boss, { ...done, archived: true }])])).size).toBe(0);
+    });
+  });
+
+  describe('headless runs', () => {
+    const boss = session('claude:claude2:boss', { status: 'working' });
+    const run = (key: string, status: Session['status'], over: Partial<Session> = {}) => session(key, { status, headless: true, origin: { key: boss.key, how: 'started' }, account: 'claude2', model: 'claude-opus-5-5', ...over });
+    const busy = run('claude:claude2:busy', 'working');
+    const busy2 = run('claude:claude2:busy2', 'working');
+    const ended = run('claude:claude2:ended', 'idle');
+    const asks = run('claude:claude2:asks', 'needs');
+    const keysOf = (rows: { session: Session }[]) => rows.map((r) => r.session.key);
+
+    it('counts the runs a session started on its row rather than listing them, at work or done', () => {
+      const items = sessionItemsOf([lane('/r/a', [boss, busy, busy2, ended])]);
+      expect(keysOf(placeHelpers(items, false))).toEqual([boss.key]);
+      expect(runCounts(items).get(boss.key)).toEqual({ count: 3, working: 2, on: ['claude2 · claude-opus-5-5'] });
+      // Not on its helpers' chip, and not the archived ones.
+      expect(helperCounts(items).size).toBe(0);
+      expect(runCounts(sessionItemsOf([lane('/r/a', [boss, { ...ended, archived: true }])])).size).toBe(0);
+    });
+
+    it('lists one that waits on you, all of them where you asked, under it, and the ones a search finds', () => {
+      const items = sessionItemsOf([lane('/r/a', [boss, busy, ended, asks])]);
+      expect(keysOf(placeHelpers(items, false))).toEqual([boss.key, asks.key]);
+      // Listing its helpers doesn't list its runs; asking for its runs does.
+      expect(keysOf(placeHelpers(items, false, new Set([boss.key])))).toEqual([boss.key, asks.key]);
+      const all = placeHelpers(items, false, new Set([runsShownKey(boss.key)]));
+      expect(keysOf(all)).toEqual([boss.key, busy.key, ended.key, asks.key]);
+      expect(keysOf(placeHelpers(items, true))).toEqual(keysOf(items));
+      // Listed, they go under it.
+      const rows = sessionSections(all, 'status', NOW).flatMap((s) => s.rows);
+      expect(rows.map((r) => [r.session.key, !!r.nested])).toEqual([
+        [boss.key, false],
+        [asks.key, true],
+        [busy.key, true],
+        [ended.key, true],
+      ]);
+    });
+
+    it('lists a run no session on the board started as a session of its own', () => {
+      const lone = run('claude:claude2:lone', 'working', { origin: undefined });
+      const gone = run('claude:claude2:gone', 'idle', { origin: { key: 'claude:claude2:closed', how: 'started' } });
+      const items = sessionItemsOf([lane('/r/a', [boss, lone, gone])]);
+      expect(keysOf(placeHelpers(items, false))).toEqual([boss.key, lone.key, gone.key]);
+      expect(runCounts(items).get(boss.key)).toBeUndefined();
     });
   });
 });

@@ -1669,13 +1669,28 @@ A script or an agent can run an agent on a prompt with nobody at it, and read wh
 itself: `claude -p`, or `codex exec`. An eval that runs its judge that way can start hundreds. Each
 is a session in Codealong all the same, marked headless (`headless` in `codealong sessions`
 JSON), but a turn one ends is idle rather than Your turn, an error and all, since what ran it
-reads how it ended. One waiting to have a call allowed still needs you. `codealong sessions`
-leaves them out unless you ask for them with `--headless`, and `codealong changes` counts them by
-the folder they ran in instead of listing them, and doesn't take several in one folder, or one
-beside an agent, for a shared worktree. Claude Code marks a run headless itself (it names it
-`sdk-cli`, and leaves it out of its own `/resume` list); a session started through the Agent SDK
-isn't one, since that's often a front end someone types into. OpenCode, Antigravity and Cursor
-don't say, so their print runs are sessions like any other.
+reads how it ended. One waiting to have a call allowed still needs you.
+
+While it doesn't need you, a headless run isn't an agent of yours at work: it's out of its
+worktree's status, the status filters and their counts, your devices' lines, the floating bar and
+the mark, as a helper is. Codealong looks for the session that ran it while it runs: the nearest
+of the run's parent processes that's a session's own, as a command an agent runs goes on under
+that agent (an eval's `claude -p` under python, under the shell the agent's tool opened). That
+session is where the run came from (its header says *Started by*), and Sessions counts its runs on
+its row rather than listing them, a row a call: a chip says how many, with the working glyph while
+any is at work, and its tooltip what they run on. Double-click it to list them all under the
+session, and again to put them away; that's kept apart from listing its helpers. A run no session
+on the board ran (a script in a terminal of yours, or one that ended before Codealong saw it
+running) is listed as a session of its own, with a *Headless* chip. A run's session is remembered
+once the run ends, until Codealong quits. A search finds every run, and a session's panel leaves
+them out of the sessions that came of it.
+
+`codealong sessions` leaves them out unless you ask for them with `--headless`, and `codealong
+changes` counts them by the folder they ran in instead of listing them, and doesn't take several
+in one folder, or one beside an agent, for a shared worktree. Claude Code marks a run headless
+itself (it names it `sdk-cli`, and leaves it out of its own `/resume` list); a session started
+through the Agent SDK isn't one, since that's often a front end someone types into. OpenCode,
+Antigravity and Cursor don't say, so their print runs are sessions like any other.
 
 ### Usage
 

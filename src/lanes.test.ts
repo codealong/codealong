@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, helping, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, seenable, sessionFlag, sessionHeadline, sessionPrs, stoppable, waitsInBackground, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, seenable, sessionFlag, sessionHeadline, sessionPrs, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -241,7 +241,7 @@ describe('a helper', () => {
   it('stays out of its worktree’s row, status and counts while it doesn’t need you, as board.rs has it', () => {
     const busy = helper('working');
     const l = { ...lane([boss], null), sessions: [boss, busy] };
-    expect(helping(busy)).toBe(true);
+    expect(unattended(busy)).toBe(true);
     expect(worktreeRow(l).lines.map((a) => a.session.key)).toEqual(['boss']);
     expect(relaned(l, l.sessions).bay).toBe('idle');
     expect(inboxCounts([l]).working).toBe(0);
@@ -263,11 +263,38 @@ describe('a helper', () => {
     for (const st of ['needs', 'error'] as const) {
       const asks = helper(st);
       const l = { ...lane([boss], null), sessions: [boss, asks] };
-      expect(helping(asks)).toBe(false);
+      expect(unattended(asks)).toBe(false);
       expect(relaned(l, l.sessions).bay).toBe('needs');
       expect(worktreeRow(l).lines.map((a) => a.session.key)).toEqual(['rev']);
       expect(inboxCounts([l]).needs).toBe(1);
     }
+  });
+});
+
+describe('a headless run', () => {
+  const boss = session('boss', 'idle', NOW - 60_000);
+  const run = (status: Session['status']) => ({ ...session('run', status, NOW, NOW), headless: true, origin: { key: 'boss', how: 'started' as const } });
+
+  it('stays out of its worktree’s row, status and counts while it doesn’t need you, and works for the session it came from', () => {
+    for (const st of ['working', 'idle'] as const) {
+      const r = run(st);
+      const l = { ...lane([boss], null), sessions: [boss, r] };
+      expect(unattended(r)).toBe(true);
+      expect(worktreeRow(l).lines.map((a) => a.session.key)).toEqual(['boss']);
+      expect(relaned(l, l.sessions).bay).toBe('idle');
+      expect(inboxCounts([l]).working).toBe(0);
+    }
+    expect(workingFor(run('working'))).toBe('boss');
+    // Where it came from goes for a run alone: a session you forked isn't working for another.
+    expect(workingFor({ ...run('working'), headless: false })).toBeUndefined();
+  });
+
+  it('is in Needs you like any session once it waits on a call to allow', () => {
+    const asks = run('needs');
+    const l = { ...lane([boss], null), sessions: [boss, asks] };
+    expect(unattended(asks)).toBe(false);
+    expect(relaned(l, l.sessions).bay).toBe('needs');
+    expect(inboxCounts([l]).needs).toBe(1);
   });
 });
 

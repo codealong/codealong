@@ -813,8 +813,8 @@ fn sort_sessions(sessions: &mut [Session]) {
 /// When you last sent a prompt to one of a lane's own sessions; for a lane with none, when
 /// anything last happened in it.
 fn lane_prompt_at(sessions: &[Session], last_activity: i64) -> i64 {
-    // A helper's prompts are its agent's, not yours.
-    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.helping()).map(|s| s.last_prompt_at).max().unwrap_or(last_activity)
+    // A helper's prompts are its agent's, not yours, and a headless run's its script's.
+    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.unattended()).map(|s| s.last_prompt_at).max().unwrap_or(last_activity)
 }
 
 /// How long a lane in Needs you has waited: since the longest wait of its own agents that need
@@ -1244,6 +1244,23 @@ pub fn apply_headless(s: &mut Session) {
     }
 }
 
+/// The session whose agent started a headless run, by the run's process: the nearest of its
+/// parents that's a session's own (`by_pid`), as a command an agent runs goes on under it (an
+/// eval's `claude -p` under python, under the shell Claude Code's Bash tool opened, under that
+/// session's claude). `parent` gives a process's parent, None once it's gone or isn't yours. A
+/// run a script in a terminal of yours started climbs to launchd without meeting one.
+pub fn started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, by_pid: &HashMap<u32, &'a str>) -> Option<&'a str> {
+    let mut at = pid;
+    // However deep a script nests, a climb this long is a loop in what `parent` said.
+    for _ in 0..64 {
+        at = parent(at).filter(|p| *p > 1)?;
+        if let Some(key) = by_pid.get(&at) {
+            return Some(key);
+        }
+    }
+    None
+}
+
 /// Whether replies suggested for a session still answer where it stands: it's been sent nothing
 /// since the prompt whose reply the suggester read (`prompt_at`; a prompt of yours, from Codealong
 /// or where it runs), and no turn of its has started since they were suggested. A turn that
@@ -1543,7 +1560,7 @@ pub fn looks_finished(origin: Origin, pr: Option<&Pr>, sessions: &[Session]) -> 
     if matches!(origin, Origin::Main | Origin::Folder) || pr.is_some_and(|p| !p.state.is_open()) {
         return false;
     }
-    let own: Vec<&Session> = sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.helping()).collect();
+    let own: Vec<&Session> = sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.unattended()).collect();
     !own.is_empty()
         && own.iter().all(|s| !matches!(s.status, Status::Working | Status::Needs) && s.insight.as_ref().and_then(|i| i.finished).is_some_and(|f| f >= FINISHED))
 }
@@ -1848,7 +1865,7 @@ pub fn compose(inp: Inputs) -> Board {
         let running = sessions.iter().filter(|s| s.live).count();
         // Archived sessions stay in the lane's list, last, and out of its status. In a reusable
         // worktree so do the ones from before its latest work, ahead of the archived ones; and
-        // helpers that don't need you, ahead of those (`Session::helping`).
+        // helpers and headless runs that don't need you, ahead of those (`Session::unattended`).
         let (mut sessions, archived): (Vec<Session>, Vec<Session>) = sessions.into_iter().partition(|s| !s.archived);
         sort_sessions(&mut sessions);
         let reset = g.as_ref().and_then(|g| g.reset_at).filter(|_| reuse_on);
@@ -1856,7 +1873,7 @@ pub fn compose(inp: Inputs) -> Board {
             s.earlier = earlier(s, reset);
         }
         // Stable: each part keeps its order.
-        sessions.sort_by_key(|s| (s.earlier, s.helping()));
+        sessions.sort_by_key(|s| (s.earlier, s.unattended()));
         let mut kept = 0;
         // A running session is never cut: it holds its worktree (`cleanup`), and Codealong's
         // removal looks for one on its lane's list.
@@ -1865,7 +1882,7 @@ pub fn compose(inp: Inputs) -> Board {
             kept += keep as usize;
             keep
         });
-        let current = sessions.iter().take_while(|s| !s.earlier && !s.helping()).count();
+        let current = sessions.iter().take_while(|s| !s.earlier && !s.unattended()).count();
         let pr = find_pr(seed, prs, now);
         // The bay and headline come from the lane's own current sessions; the maker is shown
         // after them.
@@ -2016,11 +2033,11 @@ pub fn compose(inp: Inputs) -> Board {
 pub use codealong_peer::model::ELSEWHERE;
 
 /// Match the floating bar's scope: all visible projects, without archived sessions, duplicate
-/// visitors or helpers that don't need you. An open review request you haven't snoozed also
-/// needs the user's attention.
+/// visitors, or helpers and headless runs that don't need you. An open review request you
+/// haven't snoozed also needs the user's attention.
 pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
     let sessions = lanes.iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
-        .filter(|s| !s.archived && s.visitor.is_none() && !s.helping())
+        .filter(|s| !s.archived && s.visitor.is_none() && !s.unattended())
         .map(|s| match s.status {
             Status::Working => LogoStatus::Working,
             // Snoozed, it's off the bar's Needs you and Your turn, so off the mark too.
@@ -3997,6 +4014,40 @@ mod tests {
         let mut yours = Session { status: Status::Error, ..Session::new(Harness::Claude, "claude", "y") };
         apply_headless(&mut yours);
         assert_eq!(yours.status, Status::Error);
+        // Out of what waits on you while it doesn't need you, as a helper is.
+        let run = |status| Session { status, headless: true, ..Session::new(Harness::Claude, "claude", "p") };
+        assert!(run(Status::Working).unattended() && run(Status::Idle).unattended());
+        assert!(!run(Status::Needs).unattended());
+        assert!(!Session { status: Status::Working, ..Session::new(Harness::Claude, "claude", "y") }.unattended());
+    }
+
+    #[test]
+    fn a_headless_run_was_started_by_the_nearest_session_above_its_process() {
+        // An eval's judge: claude -p (40) under python (30), under the shell the agent's Bash
+        // tool opened (20), under the agent's claude (10), under a background job's host (5).
+        let parents = HashMap::from([(40, 30), (30, 20), (20, 10), (10, 5), (5, 1), (77, 1), (90, 91), (91, 90)]);
+        let parent = |p: u32| parents.get(&p).copied();
+        let by_pid = HashMap::from([(10, "claude:claude2:agent"), (5, "claude:claude2:host")]);
+        assert_eq!(started_by(40, parent, &by_pid), Some("claude:claude2:agent"));
+        // Run from a script in a terminal of yours, it meets no session's process on the way up.
+        assert_eq!(started_by(77, parent, &by_pid), None);
+        // Nor once a process on the way is gone, nor round a loop.
+        assert_eq!(started_by(41, parent, &by_pid), None);
+        assert_eq!(started_by(90, parent, &by_pid), None);
+    }
+
+    #[test]
+    fn a_real_process_climbs_to_the_one_that_started_its_shell() {
+        // This test as the session, a shell its command opened, and a run the shell started.
+        let mut shell = std::process::Command::new("/bin/sh").args(["-c", "sleep 5 & echo $!; wait"]).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let mut line = String::new();
+        std::io::BufRead::read_line(&mut std::io::BufReader::new(shell.stdout.take().unwrap()), &mut line).unwrap();
+        let run: u32 = line.trim().parse().unwrap();
+        let by_pid = HashMap::from([(std::process::id(), "claude:claude:me")]);
+        let found = started_by(run, crate::procs::parent_pid, &by_pid);
+        let _ = std::process::Command::new("/bin/kill").arg(run.to_string()).status();
+        let _ = shell.wait();
+        assert_eq!(found, Some("claude:claude:me"));
     }
 
     #[test]
