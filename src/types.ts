@@ -349,6 +349,9 @@ export interface Lane {
   /** Codealong's own chats: a session started here gets a folder of its own, for a question
    *  that belongs to no project. It's on the board with no sessions too, hidden. */
   startsChats?: boolean;
+  /** The folder an app keeps the chats it starts with no folder of yours in, Codealong's own
+   *  among them: listed together for having no folder, so its sessions don't share a worktree. */
+  chats?: boolean;
   /** Codealong's own source: the worktree holds the app's tauri.conf.json (the engine's
    *  improve.rs). Improve Codealong starts its sessions here. */
   codealong?: boolean;

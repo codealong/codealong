@@ -1934,6 +1934,7 @@ pub fn compose(inp: Inputs) -> Board {
             reuse,
             looks_reusable,
             starts_chats: seed.starts_chats,
+            chats: seed.chats || seed.starts_chats,
             cleanup,
             ..Lane::new(&seed.path.to_string_lossy(), &seed.project, &seed.repo)
         });
@@ -3779,6 +3780,7 @@ mod tests {
             let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], auto_reviews: (&Default::default(), &Default::default(), &Default::default()) });
             let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().clone();
             assert!(!lane(root).looks_finished);
+            assert!(lane(root).chats && !lane("/Users/me/notes").chats);
             (lane(root).hidden, lane("/Users/me/notes").hidden)
         };
         let notes = session_in("notes", "/Users/me/notes", "idle");

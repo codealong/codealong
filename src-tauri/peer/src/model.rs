@@ -856,6 +856,11 @@ pub struct Lane {
     /// the board with no sessions too, hidden, so there's always one to start in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub starts_chats: bool,
+    /// The folder an app keeps the chats it starts with no folder of yours in (the engine's
+    /// `chat_roots`), Codealong's own among them: its sessions are listed together for having no
+    /// folder of yours, not for working on one thing, so they don't share a worktree.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chats: bool,
     /// Codealong's own source: the worktree holds the Codealong app's `src-tauri/tauri.conf.json`
     /// (the engine's improve.rs). Improve Codealong starts its sessions here, on every device.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -915,6 +920,7 @@ impl Lane {
             reuse: None,
             looks_reusable: false,
             starts_chats: false,
+            chats: false,
             codealong: false,
             cleanup: None,
         }

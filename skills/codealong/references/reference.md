@@ -100,7 +100,8 @@ Commands:
              prompt and reply; PRs in your repos opened, out of draft, approved, sent
              back, merged or closed, or asking your review (`prs`, null when they can't
              be read); todos added, started, done, reopened or set waiting; worktrees a
-             second agent started working in (`shared`). Headless runs (`claude -p`,
+             second agent started working in (`shared`; not an app's chats, which are
+             listed together for having no folder of yours). Headless runs (`claude -p`,
              `codex exec`, which a script or an agent started and reads itself) aren't
              sessions there, nor a second agent: they're counted by the worktree they
              ran in (`headless`). With them, every session that waits on you now
@@ -2914,16 +2915,17 @@ worktree, PRs, todos and `lastPromptAt` (for `session suggest` and `session tag`
 for the first --texts of them, waiting ones first, its latest prompt and reply; PRs in
 your repos opened, out of draft, approved, sent back, merged or closed, or asking your
 review (`prs`, null when they can't be read); todos added, started, done, reopened or
-set waiting; worktrees a second agent started working in (`shared`). Headless runs
-(`claude -p`, `codex exec`, which a script or an agent started and reads itself) aren't
-sessions there, nor a second agent: they're counted by the worktree they ran in
-(`headless`). With them, every session that waits on you now (`waiting`, as `sessions
---waiting` lists them), each saying whether it has suggested replies or a tag. It prints
-a `cursor`: give it to --since next time, and what changed is told by difference from
-what this look saw, so a busy app or a GitHub error never makes a session or a PR look
-new. What it couldn't read is said in `notes`, and told once it can be. Without --since,
-or with a duration, it goes by times alone, which can't tell a review's change. The
-session running it is left out
+set waiting; worktrees a second agent started working in (`shared`; not an app's chats,
+which are listed together for having no folder of yours). Headless runs (`claude -p`,
+`codex exec`, which a script or an agent started and reads itself) aren't sessions
+there, nor a second agent: they're counted by the worktree they ran in (`headless`).
+With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists
+them), each saying whether it has suggested replies or a tag. It prints a `cursor`: give
+it to --since next time, and what changed is told by difference from what this look saw,
+so a busy app or a GitHub error never makes a session or a PR look new. What it couldn't
+read is said in `notes`, and told once it can be. Without --since, or with a duration,
+it goes by times alone, which can't tell a review's change. The session running it is
+left out
 
 Usage: codealong changes [OPTIONS]
 

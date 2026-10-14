@@ -1877,12 +1877,13 @@ codealong skill.
 Its two commands are for any agent. `codealong changes` says what changed since the cursor an
 earlier run printed: sessions that started, began or ended a turn, wait on you or stopped, each with
 its latest prompt and reply; PRs opened, out of draft, approved, sent back, merged or closed; todos
-added, started, done or set waiting; worktrees a second agent started working in; and how many
-headless runs (*Headless runs*) changed in each folder, rather than a line each. With them comes
-every session that waits on you now, and whether each has suggestions or a tag. It tells by
-difference from what that run saw, kept for a week in `changes.json`, so a busy app or GitHub not
-answering never makes a session or a PR look new: what it couldn't read it says, and tells once it
-can. `--cursor-file` keeps the cursor in a file, so a tick is one command. `codealong hygiene` lists
+added, started, done or set waiting; worktrees a second agent started working in (not an app's
+chats, listed together only for having no folder of yours); and how many headless runs (*Headless
+runs*) changed in each folder, rather than a line each. With them comes every session that waits on
+you now, and whether each has suggestions or a tag. It tells by difference from what that run saw,
+kept for a week in `changes.json`, so a busy app or GitHub not answering never makes a session or a
+PR look new, nor a todo look removed while the app starts: what it couldn't read it says, and tells
+once it can. `--cursor-file` keeps the cursor in a file, so a tick is one command. `codealong hygiene` lists
 what's left running of old sessions, with the Mac's load, memory and swap: the agent process of a
 session quiet for a day (not one working or waiting on you, unless it's archived), older copies of
 a background job's attach client, a harness's background processes whose parent has gone, and dev

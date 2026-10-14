@@ -5,7 +5,8 @@
 //! second agent started working in. With it, the sessions that wait on the user now, so a quiet
 //! tick is one command. Headless runs (`Session::headless`: `claude -p`, `codex exec`) are
 //! counted by the worktree they ran in rather than told one by one, since a script or an agent
-//! can run hundreds and reads what they say itself, and they don't make a worktree shared.
+//! can run hundreds and reads what they say itself, and they don't make a worktree shared. Nor
+//! do an app's chats (`Lane::chats`), which are listed together for having no folder of yours.
 //!
 //! Each look is kept as a `Look` in changes.json, under the cursor it prints, and the next look
 //! says what differs from it. Differences, not times: a session's times are its harness's, and a
@@ -457,7 +458,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
     if sight.sessions {
         let part = earlier.and_then(|l| l.shared.as_ref());
         let mut marks = BTreeMap::new();
-        for lane in &board.lanes {
+        for lane in board.lanes.iter().filter(|l| !l.chats) {
             let here: Vec<&Session> = lane.sessions.iter().filter(|s| working_here(s, now)).collect();
             if here.is_empty() {
                 continue;
@@ -1002,6 +1003,15 @@ mod tests {
         assert_eq!(out.shared.len(), 1);
         assert_eq!(out.shared[0].joined, vec!["b".to_string()]);
         let (out, _) = compare(&sight(&both), Some(&second), second.at, NOW + MIN);
+        assert!(out.shared.is_empty());
+    }
+
+    #[test]
+    fn an_apps_chats_share_nothing() {
+        let chats = Lane { chats: true, ..lane("/Users/me/.gemini/antigravity-cli/scratch", vec![s("a", Status::Working, NOW - MIN), s("b", Status::Working, NOW - MIN)]) };
+        let b = Board { lanes: vec![chats], ..Board::default() };
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, None, NOW - 15 * MIN, NOW);
+        assert_eq!(out.sessions.len(), 2);
         assert!(out.shared.is_empty());
     }
 

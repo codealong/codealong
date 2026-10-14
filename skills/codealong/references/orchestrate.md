@@ -73,7 +73,7 @@ tick*. Otherwise start at *Starting*.
    script or an agent ran and reads itself) changed in each folder. Those aren't sessions to read
    or overlaps: mention them only when they bear on something else, such as load or a folder's
    owner. `notes` says what it couldn't read this time (PRs while GitHub doesn't answer, sessions
-   while the app starts); those come next tick, so their absence isn't news. If the command
+   and todos while the app starts); those come next tick, so their absence isn't news. If the command
    fails, say so in one line and stop: the cursor stays, and the next tick picks it all up.
 2. Run the modules that are on and due (*Modules*): with hygiene on, `codealong hygiene --kill
    --log <state>/kills.log`; email, the deploy watch, and once a day the Codealong review.
