@@ -173,8 +173,10 @@ pub struct Candidate<'a> {
 
 /// Gives each pending start the first session of its account that started after it, in its
 /// worktree, else in another worktree of the same repo (the apps can make their own), that came
-/// from nowhere yet: one that opens with its prompt first, and after `PENDING_MS` only such a
-/// one. Returns whether anything changed.
+/// from nowhere yet: one that opens with its prompt first. After `PENDING_MS` only such a one in
+/// its own worktree, and only when no other start waiting there could take it by its prompt
+/// too: helpers' prompts often open alike (a review's boilerplate), and a start stuck an hour
+/// mustn't take the session of one made since. Returns whether anything changed.
 pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
     if store.pending.is_empty() {
         return false;
@@ -182,20 +184,22 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
     let mut changed = false;
     let mut taken: HashSet<String> = store.sessions.keys().cloned().collect();
     let mut waiting = Vec::new();
+    let starts: Vec<Pending> = store.pending.iter().filter(|q| now - q.at <= q.waits()).cloned().collect();
+    let opens = |q: &Pending, s: &Candidate| q.opens.is_some() && s.prompt.and_then(opening) == q.opens;
+    let claims = |q: &Pending, s: &Candidate| opens(q, s) && q.account == s.account && q.lane == s.lane && s.started >= q.at - PENDING_SLACK_MS && s.key != q.from;
     for p in std::mem::take(&mut store.pending) {
         if now - p.at > p.waits() {
             changed = true;
             continue;
         }
         let repo = lanes.repo_of(&p.lane);
-        let opens = |s: &Candidate| p.opens.is_some() && s.prompt.and_then(opening) == p.opens;
         let late = now - p.at > PENDING_MS;
         let pick = sessions
             .iter()
             .filter(|s| s.account == p.account && s.started >= p.at - PENDING_SLACK_MS && s.key != p.from && !taken.contains(s.key))
             .filter(|s| s.lane == p.lane || (repo.is_some() && lanes.repo_of(s.lane) == repo))
-            .filter(|s| !late || opens(s))
-            .min_by_key(|s| (!opens(s), s.lane != p.lane, s.started));
+            .filter(|s| !late || (s.lane == p.lane && opens(&p, s) && starts.iter().filter(|q| claims(q, s)).count() == 1))
+            .min_by_key(|s| (!opens(&p, s), s.lane != p.lane, s.started));
         match pick {
             Some(s) => {
                 taken.insert(s.key.to_string());
@@ -454,6 +458,16 @@ mod tests {
         let sessions = [Candidate { started: 1_000_100, ..c("codex:codex:yours", Some("Fix the login bug")) }, Candidate { started: 1_000_200, ..c("codex:codex:review", Some(said)) }];
         assert!(resolve(&mut store, &sessions, &Repos, 1_000_300));
         assert_eq!(store.helper_of("codex:codex:review"), Some(("claude:claude:boss", true)));
+        // Late, only in its own worktree, not another of the repo's.
+        let mut store = Store { pending: vec![start()], ..Default::default() };
+        assert!(!resolve(&mut store, &[Candidate { lane: "/r/app-two", ..c("codex:codex:review", Some(said)) }], &Repos, late + 1000));
+        // Nor one another start since, with a prompt that opens alike, could be waiting for: a
+        // review stuck an hour doesn't take the next review's session. That start takes it.
+        let since = Pending { from: "claude:claude:other".into(), at: late - 60_000, ..start() };
+        let mut store = Store { pending: vec![start(), since], ..Default::default() };
+        assert!(resolve(&mut store, &[c("codex:codex:review", Some(said))], &Repos, late + 1000));
+        assert_eq!(store.helper_of("codex:codex:review"), Some(("claude:claude:other", true)));
+        assert_eq!(store.pending.iter().map(|p| p.from.as_str()).collect::<Vec<_>>(), ["claude:claude:boss"]);
         // It gives up after a day, and one without a prompt after the half hour.
         let mut store = Store { pending: vec![start(), pending("claude:claude:boss", "/r/app", "codex", 1_000_000)], ..Default::default() };
         assert!(resolve(&mut store, &[], &Repos, late));
