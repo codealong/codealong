@@ -707,9 +707,10 @@ fn open_with(board: &Board, cfg: &config::Config, lane_id: &str, target_id: &str
                     launch::terminal_open(&apps.terminal_id, named, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 "resume" => {
-                    let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
+                    let account = harness::find(board, cfg, key)?.1;
+                    let cmd = harness::adapter(s.harness).resume_typed(account, s).ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
                     // Going on starts it again, which nothing does on an account turned off.
-                    harness::find(board, cfg, key)?.1.ensure_on()?;
+                    account.ensure_on()?;
                     launch::terminal_open(&apps.terminal_id, named, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 // A new terminal in the folder it works in, beside the terminals already there

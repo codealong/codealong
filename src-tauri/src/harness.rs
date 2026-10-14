@@ -130,6 +130,14 @@ pub trait Adapter: Sync {
         bail!("{} can't go on with a session from a prompt.", self.harness().word())
     }
 
+    /// What a new terminal types to open a session that isn't running, as a click on it does:
+    /// the command that resumes it (`Session::resume_command`), which its header shows and its
+    /// menu copies for you to run yourself, unless the harness opens it otherwise when Codealong
+    /// does.
+    fn resume_typed(&self, _account: &AccountCfg, session: &Session) -> Option<String> {
+        session.resume_command.clone()
+    }
+
     /// Of the places its accounts start sessions in, the ones a session of its that isn't
     /// running can go on in (`start::resume`): a terminal, where `resume` says what to type
     /// (Background then a terminal behind your windows, or the background service where there's
@@ -1182,9 +1190,9 @@ mod tests {
         let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let thread = Session::new(Harness::Codex, "codex", "01a0e379");
         let (input, env) = adapter(Harness::Codex).resume(&codex, &thread, &ask("-v please", None, None)).unwrap();
-        assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
+        assert_eq!(input, format!("codex -c check_for_update_on_startup=false resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
-        assert_eq!(adapter(Harness::Codex).resume(&codex, &thread, &ask(" ", None, None)).unwrap(), ("codex resume -- 01a0e379\n".to_string(), Vec::new()));
+        assert_eq!(adapter(Harness::Codex).resume(&codex, &thread, &ask(" ", None, None)).unwrap(), ("codex -c check_for_update_on_startup=false resume -- 01a0e379\n".to_string(), Vec::new()));
     }
 
     /// Only Claude Code takes Codealong as a plugin; the others get a copy of its skill.

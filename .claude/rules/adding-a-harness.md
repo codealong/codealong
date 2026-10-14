@@ -32,7 +32,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      `open_calls`;
    - opening: `targets`, `open` for a way of its own and `app` for its app's name, `app_bundle`
      for the app a way lands in (so it can be brought forward); the engine does `focus`,
-     `resume` (`Session::resume_command`) and `attach` for every harness;
+     `resume` (`resume_typed`, `Session::resume_command` unless the harness types another) and
+     `attach` for every harness;
    - sending (send.rs): `routes`, best first: typing into its terminal and resuming it in a new
      one (`resume` for what that types) are send.rs's, and a way in of its own (its service, a
      socket, its app) is a type in its module that implements `send::Own` and sends by it, told

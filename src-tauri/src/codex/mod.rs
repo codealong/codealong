@@ -275,6 +275,13 @@ impl crate::harness::Adapter for Codex {
         Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), prompt)]))
     }
 
+    /// Its resume command without the update offer, as every terminal UI Codealong opens
+    /// (`terminal_ui`); the one its header shows and its menu copies is plain, for Codex you run
+    /// yourself.
+    fn resume_typed(&self, account: &AccountCfg, s: &Session) -> Option<String> {
+        s.resume_command.as_ref().map(|_| format!("{} resume {}", terminal_ui(account), s.id))
+    }
+
     /// A terminal (Background one behind your windows), the Codex app, which reads the same
     /// threads for the account it runs, and Codealong (codex-acp loads a thread by its ID).
     fn resumes_in(&self, place: crate::start::Place) -> bool {
@@ -783,6 +790,13 @@ mod tests {
         let s = Session::new(Harness::Codex, "codex", "01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
         let (resume, _) = Codex.resume(&a, &s, &ask).unwrap();
         assert_eq!(resume, "codex -c check_for_update_on_startup=false resume -- 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b \"$CODEALONG_PROMPT\"\n");
+        // A click on one that isn't running types it so too; the command shown and copied for you
+        // to run yourself stays plain.
+        let s = Session { resume_command: Some("codex resume 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b".into()), ..s };
+        assert_eq!(Codex.resume_typed(&a, &s).as_deref(), Some("codex -c check_for_update_on_startup=false resume 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"));
+        assert_eq!(Codex.resume_typed(&a, &Session { resume_command: None, ..s.clone() }), None);
+        let other = Session { resume_command: Some("claude --resume x".into()), ..Session::new(Harness::Claude, "claude", "x") };
+        assert_eq!(crate::harness::adapter(Harness::Claude).resume_typed(&a, &other).as_deref(), Some("claude --resume x"));
         // Its process is still Codex's terminal UI, on the thread it resumed.
         assert_eq!(terminal_args("codex -c check_for_update_on_startup=false Review the branch"), Some((None, None)));
         assert_eq!(terminal_args("codex -c check_for_update_on_startup=false resume 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((Some("01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b".into()), None)));

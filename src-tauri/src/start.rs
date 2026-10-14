@@ -1474,7 +1474,7 @@ mod tests {
         assert_eq!(input, "opencode\n");
         let cx = account("codex", "codex", "~/.codex", Some("codex"));
         let Plan::Terminal { input, .. } = plan(&cx, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high"), false) else { panic!() };
-        assert_eq!(input, "codex\n");
+        assert_eq!(input, "codex -c check_for_update_on_startup=false\n");
         let o = options(&[a], "Ghostty", Vec::new(), Path::new("/Users/me"), |_| None);
         assert_eq!(o.claude_efforts.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["low", "medium", "high", "xhigh", "max"]);
     }
@@ -1557,10 +1557,10 @@ mod tests {
         // The Codex CLI gets the image with -i as well as its path, `--` before the prompt.
         let cx2 = account("codex2", "codex", "~/.codex2", Some("CODEX_HOME=~/.codex2 codex"));
         let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), None, true, (dir, Path::new("/f"))) else { panic!() };
-        assert_eq!(input, format!("CODEX_HOME=~/.codex2 codex -i '{}/0123456789abcdef.png' -- \"$CODEALONG_PROMPT\"\n", dir.display()));
+        assert_eq!(input, format!("CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false -i '{}/0123456789abcdef.png' -- \"$CODEALONG_PROMPT\"\n", dir.display()));
         assert_eq!(env, vec![(PROMPT_VAR.to_string(), format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display()))]);
         let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), "", id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
-        assert_eq!((input.as_str(), env.len()), ("CODEX_HOME=~/.codex2 codex\n", 0));
+        assert_eq!((input.as_str(), env.len()), ("CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false\n", 0));
         // Codex opens the path; the Claude app gets the same mention the terminal does.
         let codex = account("codex", "codex", "~/.codex", None);
         let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
