@@ -206,10 +206,10 @@ pub struct Candidate<'a> {
 /// worktree, else in another worktree of the same repo (the apps can make their own), that came
 /// from nowhere yet: one that opens with its prompt first. A session whose process began before
 /// the start was asked for isn't its, however late the session showed. After `PENDING_MS`, only
-/// one in its own worktree that opens with its prompt and whose process began as the start did
-/// (`LAUNCH_MS`), and that no other start waiting there could take so too: helpers' prompts often
-/// open alike (a review's boilerplate), and a session you start later with the same words isn't
-/// a stuck start's. Returns whether anything changed.
+/// one in its own worktree that opens with its prompt and whose process, or the session itself,
+/// began as the start did (`LAUNCH_MS`), and that no other start waiting there could take so too:
+/// helpers' prompts often open alike (a review's boilerplate), and a session you start later with
+/// the same words isn't a stuck start's. Returns whether anything changed.
 pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
     if store.pending.is_empty() {
         return false;
@@ -219,9 +219,12 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
     let mut waiting = Vec::new();
     let starts: Vec<Pending> = store.pending.iter().filter(|q| now - q.at <= q.waits()).cloned().collect();
     let opens = |q: &Pending, s: &Candidate| q.opens.is_some() && s.prompt.and_then(opening) == q.opens;
+    // Its own, late: its process began as the start did; or, with no process left to say, the
+    // session itself did, which the first half hour would have taken had the board been looked
+    // at (the app closed meanwhile, say).
     let claims = |q: &Pending, s: &Candidate| {
-        let launched = s.launched.is_some_and(|l| l >= q.at - PENDING_SLACK_MS && l <= q.at + LAUNCH_MS);
-        launched && opens(q, s) && q.account == s.account && q.lane == s.lane && s.key != q.from
+        let soon = |t: i64| t >= q.at - PENDING_SLACK_MS && t <= q.at + LAUNCH_MS;
+        soon(s.launched.unwrap_or(s.started)) && opens(q, s) && q.account == s.account && q.lane == s.lane && s.key != q.from
     };
     // Agents' starts first: one from no session notes no origin, and mustn't take the session of
     // an agent's that opens alike before that start does.
@@ -564,6 +567,12 @@ mod tests {
         let mut store = Store { pending: vec![start()], ..Default::default() };
         let unproven = [c("codex:codex:other", Some("Fix the login bug"), AT - 2000), c("codex:codex:blank", None, AT - 2000), Candidate { launched: None, ..c("codex:codex:gone", Some(said), AT) }];
         assert!(!resolve(&mut store, &unproven, &Repos, late + 1000));
+        // One that began as the start did and has finished since, its process gone, found only
+        // now (the app was closed meanwhile): its own, and so not stuck.
+        let mut finished = Store { pending: vec![start()], ..Default::default() };
+        let done = Candidate { started: AT + 20_000, launched: None, ..c("codex:codex:done", Some(said), AT) };
+        assert!(resolve(&mut finished, &[done], &Repos, late + 1000));
+        assert_eq!(finished.helper_of("codex:codex:done"), Some(("claude:claude:boss", true)));
         // Nor one you started an hour on with the same words.
         assert!(!resolve(&mut store, &[c("codex:codex:yours", Some(said), late)], &Repos, late + 1000));
         assert_eq!(store.pending.len(), 1);
