@@ -414,6 +414,12 @@ impl Client {
         self.ask(device, api::SESSION_QUIET, of(params::Quiet { keys: keys.to_vec(), quiet }), ACT_WAIT).map(|_| ())
     }
 
+    /// Pins sessions on `device` at the top of its pinned ones, or unpins them: the Sessions view
+    /// there lists them first, and the devices it tells list them as pinned.
+    pub fn pin(&self, device: &str, keys: &[String], pinned: bool) -> std::result::Result<(), String> {
+        self.ask(device, api::SESSION_PIN, of(params::Pin { keys: keys.to_vec(), pinned }), ACT_WAIT).map(|_| ())
+    }
+
     /// A PR's description, reviews, comments and changed files, as `device`'s `gh` reads them
     /// from GitHub: two GitHub requests there, so it's given as long as an act.
     pub fn pr_detail(&self, device: &str, repo: &str, number: u64) -> std::result::Result<crate::pr::Detail, String> {

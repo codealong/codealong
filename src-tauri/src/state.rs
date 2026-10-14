@@ -203,6 +203,18 @@ impl SeenState {
         self.pinned = unique(keys);
     }
 
+    /// Pins a session at the top of the pinned ones, as the Sessions view's Pin does, or unpins
+    /// it. True when that changed anything.
+    pub fn pin(&mut self, key: &str, pinned: bool) -> bool {
+        let was = self.pinned.iter().any(|k| k == key);
+        if pinned && !was {
+            self.pinned.insert(0, key.to_string());
+        } else if !pinned && was {
+            self.pinned.retain(|k| k != key);
+        }
+        was != pinned
+    }
+
     /// Replaces the pinned worktrees, keeping the first of any repeats.
     pub fn set_pinned_worktrees(&mut self, ids: Vec<String>) {
         self.pinned_worktrees = unique(ids);
@@ -409,6 +421,18 @@ mod tests {
         assert!(serde_json::to_string(&s).unwrap().contains(r#""reviewSnoozes":[{"key":"o/r#12","at":20,"until":50}]"#));
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.review_snoozes.is_empty());
+    }
+
+    #[test]
+    fn a_pin_from_another_device_goes_on_top_as_the_sessions_views_does() {
+        let mut s = SeenState::default();
+        s.set_pinned(vec!["claude:claude:a".into(), "codex:codex:b".into()]);
+        assert!(s.pin("claude:claude:c", true));
+        assert!(!s.pin("claude:claude:c", true), "once");
+        assert_eq!(s.pinned, ["claude:claude:c", "claude:claude:a", "codex:codex:b"]);
+        assert!(s.pin("claude:claude:a", false));
+        assert!(!s.pin("claude:claude:a", false));
+        assert_eq!(s.pinned, ["claude:claude:c", "codex:codex:b"]);
     }
 
     #[test]

@@ -198,6 +198,8 @@ const REQUESTS: &[Request] = &[
     // So is quiet, which is the session's for as long as it lasts, and a helper made your own.
     Request { name: api::SESSION_QUIET, here: quiet, ..ANY },
     Request { name: api::SESSION_OWN, here: make_own, ..ANY },
+    // A pin is this Mac's, as it lists its sessions; another device asks for one here.
+    Request { name: api::SESSION_PIN, here: pin, ..ANY },
     // Replies suggested for a session are kept on its Mac too, and only shown: nothing reaches the
     // session until someone picks one, so an agent may suggest them through the command.
     Request { name: api::SESSION_SUGGEST, here: suggest, ..ANY },
@@ -1428,6 +1430,12 @@ fn quiet(engine: &Handle, c: &Call) -> Result<Value, String> {
     Ok(shown_at(c, engine.quiet(p.keys, p.quiet)))
 }
 
+/// Pins sessions (`keys`) at the top of the pinned ones, or unpins them with `pinned` false.
+fn pin(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Pin = c.read()?;
+    Ok(shown_at(c, engine.pin(p.keys, p.pinned)))
+}
+
 /// Makes helpers (`keys`) sessions of your own, for good.
 fn make_own(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Own = c.read()?;
@@ -1613,6 +1621,8 @@ mod tests {
         assert_eq!((snooze.there)(json!({ "keys": ["claude:claude:abc"], "until": 1 }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "until": 1 }));
         let quiet = find(api::SESSION_QUIET).unwrap();
         assert_eq!((quiet.there)(json!({ "keys": ["claude:claude:abc"], "quiet": true }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "quiet": true }));
+        let pin = find(api::SESSION_PIN).unwrap();
+        assert_eq!((pin.there)(json!({ "keys": ["claude:claude:abc"], "pinned": true }), "").unwrap(), json!({ "keys": ["claude:claude:abc"], "pinned": true }));
         // Suggested replies go with the session's key there, and the suggester as its own device
         // knows it.
         let suggest = find(api::SESSION_SUGGEST).unwrap();

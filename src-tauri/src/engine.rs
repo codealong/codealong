@@ -99,6 +99,7 @@ pub enum Msg {
     /// Sessions quieted, or made heard again. The reply is the time of the board that shows it,
     /// published at once.
     Quiet(Vec<String>, bool, Sender<i64>),
+    Pin(Vec<String>, bool, Sender<i64>),
     /// Helpers made sessions of your own. The reply is the time of the board that shows it,
     /// published at once.
     Own(Vec<String>, Sender<i64>),
@@ -300,6 +301,14 @@ impl Handle {
     pub fn quiet(&self, keys: Vec<String>, quiet: bool) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::Quiet(keys, quiet, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Pins sessions at the top of the pinned ones, or unpins them (`SeenState::pin`). Returns the
+    /// time of the board that shows it, as `quiet` does.
+    pub fn pin(&self, keys: Vec<String>, pinned: bool) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Pin(keys, pinned, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -2081,6 +2090,18 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     let mut changed = false;
                     for k in keys {
                         changed |= self.seen.set_quiet(&k, quiet);
+                    }
+                    if changed {
+                        self.save_state();
+                        self.publish();
+                    }
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Pin(keys, pinned, reply)) => {
+                    let mut changed = false;
+                    // In reverse, so sessions pinned together keep the order they were asked in.
+                    for k in keys.iter().rev() {
+                        changed |= self.seen.pin(k, pinned);
                     }
                     if changed {
                         self.save_state();

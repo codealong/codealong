@@ -1739,7 +1739,9 @@ act on its sessions (remote control, off by default) send it a message, answer a
 it done. Devices find each other on your tailnet when Tailscale runs, and reach linked devices
 anywhere through iroh; they talk directly, encrypted end to end, with no server of Codealong's in
 between. You link a device once: on your tailnet, both show the same six digits and you say yes on
-the other one; elsewhere, with a link code made on one device and entered on the other.
+the other one; elsewhere, with a link code made on one device and entered on the other. Each
+session goes out with its place among its Mac's pins, so the iPhone app lists a Mac's pinned
+sessions first, in that Mac's order, and pins or unpins one there, remote control or not.
 
 ## For agents
 

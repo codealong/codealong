@@ -41,7 +41,11 @@ pub struct Snapshot {
 }
 
 pub fn snapshot(board: &Board, device: DeviceInfo) -> Snapshot {
-    let lanes: Vec<Lane> = board.lanes.iter().map(shareable).collect();
+    let mut lanes: Vec<Lane> = board.lanes.iter().map(shareable).collect();
+    // Each session's place among the pins, which the board keeps apart from its sessions.
+    for s in lanes.iter_mut().flat_map(|l| l.sessions.iter_mut()) {
+        s.pin = board.pinned.iter().position(|k| *k == s.key).map(|i| i as u32);
+    }
     let usage = board.usage.clone();
     let prs = pr_cards(board);
     let prs_hash = hash_of(&prs);
@@ -293,6 +297,16 @@ mod tests {
 
     fn info(name: &str) -> DeviceInfo {
         DeviceInfo { name: name.into(), app: "0.1.0".into(), remote_control: false, loading: false }
+    }
+
+    #[test]
+    fn a_pinned_session_goes_out_with_its_place_among_the_pins() {
+        let b = Board { pinned: vec!["s3".into(), "s1".into()], ..board(vec![lane("/a", vec![session("s1", Status::Idle), session("s2", Status::Idle)]), lane("/b", vec![session("s3", Status::Idle)])]) };
+        let snap = snapshot(&b, info("Mac"));
+        let pins: Vec<(&str, Option<u32>)> = snap.lanes.iter().flat_map(|l| l.sessions.iter()).map(|s| (s.key.as_str(), s.pin)).collect();
+        assert_eq!(pins, [("s1", Some(1)), ("s2", None), ("s3", Some(0))]);
+        // The board's own sessions, which its windows show, carry none.
+        assert!(b.lanes.iter().flat_map(|l| l.sessions.iter()).all(|s| s.pin.is_none()));
     }
 
     #[test]

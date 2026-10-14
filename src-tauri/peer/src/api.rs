@@ -30,6 +30,10 @@ pub const SESSION_QUIET: &str = "session-quiet";
 /// counted as any of yours, there and everywhere, for good. Macs before 2026-10-10 refuse it as a
 /// request they don't know.
 pub const SESSION_OWN: &str = "session-own";
+/// Pins sessions (`keys`) at the top of the pinned ones, or unpins them with `pinned` false, as
+/// the Sessions view's Pin does there. Macs before 2026-10-13 refuse it as a request they don't
+/// know.
+pub const SESSION_PIN: &str = "session-pin";
 pub const SEARCH: &str = "search";
 pub const START_OPTIONS: &str = "start-options";
 pub const START: &str = "start";
@@ -385,6 +389,14 @@ pub mod params {
         pub quiet: bool,
     }
 
+    /// `session-pin`: pinned, or unpinned.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Pin {
+        pub keys: Vec<String>,
+        pub pinned: bool,
+    }
+
     /// `session-own`: the helpers to make sessions of your own.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -429,7 +441,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 34] = [
+pub const REQUESTS: [(&str, Reach); 35] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -446,6 +458,7 @@ pub const REQUESTS: [(&str, Reach); 34] = [
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
     (SESSION_QUIET, Reach::Organize),
+    (SESSION_PIN, Reach::Organize),
     (SESSION_OWN, Reach::Organize),
     (SESSION_ARCHIVE, Reach::Organize),
     (SESSION_RENAME, Reach::Organize),

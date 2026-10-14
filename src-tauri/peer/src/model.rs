@@ -258,6 +258,11 @@ pub struct Session {
     /// (`board::suggestions_hold`). None from Macs before 2026-10-09.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestions: Option<Suggestions>,
+    /// Its place among the sessions pinned on the device it's on, the first 0, in what that device
+    /// tells the others (peerfeed.rs `snapshot`); none when it isn't pinned. The device's own
+    /// windows go by the board's list (`Board::pinned`). None from Macs before 2026-10-13.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<u32>,
     /// It worked in a reusable worktree before that worktree last took new work
     /// (`board::earlier`): kept in the lane's list after its current sessions, and out of the
     /// lane's status.
@@ -473,6 +478,7 @@ impl Session {
             snoozed_until: None,
             quiet: false,
             suggestions: None,
+            pin: None,
             earlier: false,
             chrome: None,
             limit: None,
