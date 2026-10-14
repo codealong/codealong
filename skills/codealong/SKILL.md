@@ -344,6 +344,10 @@ user's sessions with nothing tying them to yours.
 - Or start it with `--report` too and end your turn: Codealong sends you a message when its
   turn ends or it waits on your user, naming it and the command that prints its reply. Use
   one or the other, not both, or you'll hear of it twice.
+- Started in a terminal on a harness that names its own sessions (Codex, OpenCode, Antigravity),
+  it has no key until it starts (`key` is null), so there's nothing to wait on: use `--report`.
+  You're told too if it hasn't started a few minutes on, when its terminal likely waits on your
+  user on a screen of its own: tell them.
 - Give it everything it needs in the prompt (paths, the diff, what to look for, what to
   answer with), and tell it to change nothing it wasn't asked to: nobody reads it as it goes.
   A call it can't make without asking stops it until your user answers.

@@ -30,6 +30,9 @@ const PROMPTED_MS: i64 = 24 * 60 * 60 * 1000;
 /// How long after a start its harness's process can begin: the terminal opens a tab and its shell
 /// starts first, slowly on a busy Mac.
 const LAUNCH_MS: i64 = 5 * 60 * 1000;
+/// How long a start in a terminal goes without its session before it's said to be stuck: its
+/// harness's UI makes one within seconds of its prompt, unless it waits on a screen of its own.
+const STUCK_MS: i64 = 3 * 60 * 1000;
 /// A session that says it started a little before the start was asked for can still be it.
 const PENDING_SLACK_MS: i64 = 60 * 1000;
 /// Entries are kept this long. Claude Code deletes transcripts after about 30 days.
@@ -87,12 +90,30 @@ pub struct Pending {
     /// How its prompt opens, as a harness records a prompt (`opening`), when it had one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opens: Option<String>,
+    /// Started in a terminal, whose UI can stop on a screen of its own before it makes its
+    /// session (`stuck`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub terminal: bool,
 }
 
 impl Pending {
     /// How long it waits: a start with a prompt a day, for a session that opens with it.
     fn waits(&self) -> i64 {
         if self.opens.is_some() { PROMPTED_MS } else { PENDING_MS }
+    }
+
+    /// Started in a terminal with a prompt `STUCK_MS` ago or more and still without its session,
+    /// while it's waited for: its UI is likely on a screen of its own (Codex's update offer, its
+    /// question about its background server), which nobody sees in a terminal behind your
+    /// windows, and which Codealong can't read or answer. One started without a prompt makes no
+    /// session until someone types one, so it isn't.
+    pub fn stuck(&self, now: i64) -> bool {
+        self.terminal && self.opens.is_some() && now - self.at >= STUCK_MS && now - self.at <= self.waits()
+    }
+
+    /// How many whole minutes ago it was started.
+    pub fn minutes(&self, now: i64) -> i64 {
+        (now - self.at).max(0) / 60_000
     }
 }
 
@@ -214,12 +235,18 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
             .filter(|s| s.account == p.account && s.started >= p.at - PENDING_SLACK_MS && s.key != p.from && !taken.contains(s.key))
             .filter(|s| s.launched.is_none_or(|l| l >= p.at - PENDING_SLACK_MS))
             .filter(|s| s.lane == p.lane || (repo.is_some() && lanes.repo_of(s.lane) == repo))
+            // One from no session notes no origin, so it takes only one that opens with its
+            // prompt, and never an agent's helper that shows first.
+            .filter(|s| !p.from.is_empty() || opens(&p, s))
             .filter(|s| !late || (claims(&p, s) && starts.iter().filter(|q| claims(q, s)).count() == 1))
             .min_by_key(|s| (!opens(&p, s), s.lane != p.lane, s.started));
         match pick {
             Some(s) => {
                 taken.insert(s.key.to_string());
-                store.sessions.insert(s.key.to_string(), Entry { from: p.from, how: p.how, at: p.at, helper: p.helper, report: p.report, known: false });
+                // A start from no session found its session, and has no origin to note.
+                if !p.from.is_empty() {
+                    store.sessions.insert(s.key.to_string(), Entry { from: p.from, how: p.how, at: p.at, helper: p.helper, report: p.report, known: false });
+                }
                 changed = true;
             }
             None => waiting.push(p),
@@ -284,32 +311,60 @@ pub fn forget(key: &str) -> Result<()> {
     change(|s| s.sessions.remove(key).is_some())
 }
 
-/// Notes a start from `from` whose session isn't known yet: the next one of `account` in `lane`,
-/// or a later one that opens with `prompt`.
-pub fn record_pending(from: &str, how: OriginHow, lane: &str, account: &str, prompt: &str, helper: bool, report: bool) {
-    let p = Pending { from: from.to_string(), how, lane: lane.to_string(), account: account.to_string(), at: crate::util::now_ms(), helper, report, opens: opening(prompt) };
-    if let Err(e) = change(|s| {
-        s.pending.push(p);
-        true
-    }) {
-        eprintln!("Couldn't note a start from {from}: {e:#}");
-    }
-}
-
 /// Notes where a start came from: the session that asked for it (`StartSpec::from`), by the new
-/// session's key when the start knew it, else by the next session of its account in its worktree,
-/// or one that opens with its `prompt`. `helper`: it was started as a helper of that session
-/// (`StartSpec::helper`), which `report` says is told what it does.
-pub fn started(from: Option<&str>, key: Option<&str>, lane: &str, account: &str, prompt: &str, helper: bool, report: bool) {
-    let Some(from) = from.filter(|f| !f.is_empty()) else { return };
+/// session's key when the start knew it, else as a start waiting for its session (`Pending`,
+/// `resolve`). `StartSpec::helper`: it was started as a helper of that session, which
+/// `StartSpec::report` says is told what it does. A start in a terminal from no session (yours,
+/// in Codealong) waits too, with no `from`, only so it's said when it's stuck (`stuck_notices`):
+/// it notes no origin.
+pub fn started(spec: &crate::start::StartSpec, key: Option<&str>) {
+    let from = spec.from.as_deref().unwrap_or_default();
+    let terminal = matches!(spec.place, crate::start::Place::Terminal | crate::start::Place::Background);
     match key {
-        Some(key) => {
-            if let Err(e) = write_as(key, from, OriginHow::Started, helper, report) {
+        Some(key) if !from.is_empty() => {
+            if let Err(e) = write_as(key, from, OriginHow::Started, spec.helper, spec.report) {
                 eprintln!("Couldn't note where {key} came from: {e:#}");
             }
         }
-        None => record_pending(from, OriginHow::Started, lane, account, prompt, helper, report),
+        Some(_) => {}
+        // Yours waits only to be said if it's stuck, which takes a terminal and a prompt.
+        None if from.is_empty() && !(terminal && opening(&spec.prompt).is_some()) => {}
+        None => {
+            let p = Pending { from: from.to_string(), how: OriginHow::Started, lane: spec.lane_id.clone(), account: spec.account.clone(), at: crate::util::now_ms(), helper: spec.helper && !from.is_empty(), report: spec.report && !from.is_empty(), opens: opening(&spec.prompt), terminal };
+            if let Err(e) = change(|s| {
+                s.pending.push(p);
+                true
+            }) {
+                eprintln!("Couldn't note a start from {from}: {e:#}");
+            }
+        }
     }
+}
+
+/// A notice for each start in a terminal that's stuck (`Pending::stuck`): it has no session on
+/// the board yet, and its terminal may be behind your windows. Each is named by where it started,
+/// so dismissing one doesn't hide the next, and goes once its session shows.
+pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: impl Fn(&str) -> String, now: i64) -> Vec<crate::model::Notice> {
+    pending
+        .iter()
+        .filter(|p| p.stuck(now))
+        .map(|p| {
+            let place = board.lanes.iter().find(|l| l.id == p.lane).map(|l| l.callsign.clone()).unwrap_or_else(|| crate::util::tilde(Path::new(&p.lane)));
+            let word = word_of(&p.account);
+            let asker = board.session(&p.from).map(|(_, s)| crate::send::quoted(&s.title)).unwrap_or_else(|| "another session".into());
+            let by = match (p.from.is_empty(), p.helper) {
+                (true, _) => String::new(),
+                (false, true) => format!(" as a helper of {asker},"),
+                (false, false) => format!(" by {asker},"),
+            };
+            let text = format!(
+                "{word} was started in {terminal} {mins} minutes ago, in {place},{by} and hasn't made its session yet: its terminal may be waiting on a screen of its own before it starts, such as an update offer or a question about its background server. Answer it in that tab; if you closed it, dismiss this.",
+                terminal = board.apps.terminal,
+                mins = p.minutes(now),
+            );
+            crate::model::Notice { key: "start".into(), title: format!("{word} hasn't started in {place}"), text, until: None }
+        })
+        .collect()
 }
 
 /// Matches pending starts to the sessions on the board and writes down what matched.
@@ -346,6 +401,7 @@ pub fn current() -> Arc<Store> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Board, Session};
 
     struct Repos;
     impl Lanes for Repos {
@@ -358,7 +414,7 @@ mod tests {
     }
 
     fn pending(from: &str, lane: &str, account: &str, at: i64) -> Pending {
-        Pending { from: from.into(), how: OriginHow::Started, lane: lane.into(), account: account.into(), at, helper: false, report: false, opens: None }
+        Pending { from: from.into(), how: OriginHow::Started, lane: lane.into(), account: account.into(), at, helper: false, report: false, opens: None, terminal: false }
     }
 
     #[test]
@@ -513,6 +569,46 @@ mod tests {
         assert!(store.pending.is_empty());
         // A start without a prompt notes none.
         assert_eq!(opening("  \n "), None);
+    }
+
+    /// A Codex helper's terminal UI sat on a screen of its own for an hour, behind your windows,
+    /// and nothing said so (2026-10-14).
+    #[test]
+    fn a_start_in_a_terminal_without_its_session_after_a_while_is_said_to_be_stuck() {
+        const AT: i64 = 1_000_000;
+        let start = Pending { helper: true, report: true, terminal: true, opens: opening("Review the branch"), ..pending("claude:claude:boss", "/r/app", "codex", AT) };
+        assert!(!start.stuck(AT + STUCK_MS - 1));
+        assert!(start.stuck(AT + STUCK_MS) && start.stuck(AT + 66 * 60_000));
+        // Not once it stops waiting, nor a start in an app, which shows you its prompt, nor one
+        // with no prompt, which waits for someone to type one.
+        assert!(!start.stuck(AT + PROMPTED_MS + 1));
+        assert!(!Pending { terminal: false, ..start.clone() }.stuck(AT + STUCK_MS));
+        assert!(!Pending { opens: None, ..start.clone() }.stuck(AT + STUCK_MS));
+        let boss = Session { title: "Dashboards".into(), ..crate::fixtures::session("claude:claude:boss") };
+        let mut board = Board { lanes: vec![crate::fixtures::lane("/r/app", vec![boss])], ..Board::default() };
+        board.apps.terminal = "Ghostty".into();
+        let word = |_: &str| "Codex".to_string();
+        assert!(stuck_notices(&[start.clone()], &board, word, AT + 60_000).is_empty());
+        let said = stuck_notices(&[start.clone()], &board, word, AT + 66 * 60_000);
+        assert_eq!((said.len(), said[0].key.as_str(), said[0].title.as_str()), (1, "start", format!("Codex hasn't started in {}", board.lanes[0].callsign).as_str()));
+        assert!(said[0].text.starts_with(&format!("Codex was started in Ghostty 66 minutes ago, in {}, as a helper of “Dashboards”, and hasn't made its session yet: its terminal may be waiting on a screen of its own", board.lanes[0].callsign)), "{}", said[0].text);
+        // Started by a session the board doesn't show, in a folder it doesn't either; and by you.
+        let other = Pending { helper: false, lane: "/r/gone".into(), from: "claude:claude:gone".into(), ..start.clone() };
+        assert!(stuck_notices(&[other], &board, word, AT + STUCK_MS)[0].text.contains("in /r/gone, by another session, and hasn't"));
+        let yours = Pending { helper: false, report: false, from: String::new(), ..start };
+        let said = stuck_notices(&[yours.clone()], &board, word, AT + STUCK_MS);
+        assert!(said[0].text.contains(&format!("in {}, and hasn't made its session yet", board.lanes[0].callsign)), "{}", said[0].text);
+        // Yours doesn't take an agent's helper that shows first, which its own start takes; it
+        // takes its own, and notes no origin.
+        let agents = Pending { from: "claude:claude:boss".into(), at: AT + 10, opens: opening("Check the migration"), ..yours.clone() };
+        let mut store = Store { pending: vec![yours, agents], ..Default::default() };
+        let helper = Candidate { key: "codex:codex:helper", lane: "/r/app", account: "codex", started: AT + 100, prompt: Some("Check the migration"), launched: Some(AT + 20) };
+        assert!(resolve(&mut store, &[helper], &Repos, AT + 200));
+        assert_eq!(store.origin_of("codex:codex:helper").map(|o| o.key), Some("claude:claude:boss".into()));
+        assert_eq!(store.pending.len(), 1);
+        let mine = Candidate { key: "codex:codex:mine", lane: "/r/app", account: "codex", started: AT + 300, prompt: Some("Review the branch"), launched: Some(AT + 50) };
+        assert!(resolve(&mut store, &[mine], &Repos, AT + 400));
+        assert!(store.pending.is_empty() && store.origin_of("codex:codex:mine").is_none());
     }
 
     #[test]

@@ -13,12 +13,17 @@
 //! answer a prompt isn't sent anything (what's typed would answer it) and is told once it isn't;
 //! what's owed to one session goes in one message; a send that fails is tried again a little
 //! later, a few times.
+//!
+//! A helper started in a terminal whose session hasn't shown a few minutes on is told of too,
+//! once (`origins::Pending::stuck`): its terminal UI likely sits on a screen of its own, and the
+//! session that started it, which has no key to wait on, would otherwise wait on it unseen.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
 
 use crate::engine::Handle;
 use crate::model::{Board, Session, Status};
+use crate::origins::Pending;
 
 /// How many times a send is tried before it's given up on, and how long after a failed one it's
 /// tried again: the first wait, doubled each time.
@@ -50,6 +55,9 @@ pub enum News {
     Ended,
     /// It waits on its user: what for, as the board says, when it does.
     OnUser(Option<String>),
+    /// Started in a terminal some minutes ago, it hasn't made its session yet
+    /// (`origins::Pending::stuck`): its terminal likely waits on its user.
+    Unstarted { account: String, place: String, terminal: String, minutes: i64 },
 }
 
 /// News of one helper.
@@ -87,6 +95,8 @@ pub struct Reporter {
     seen: HashMap<String, Stand>,
     /// By the session told.
     owed: HashMap<String, Owed>,
+    /// The stuck starts told of, by the session that asked and when it did.
+    told_stuck: HashSet<(String, i64)>,
 }
 
 impl Reporter {
@@ -94,9 +104,21 @@ impl Reporter {
     /// had it working or waiting on its user and this one has it still, or when it's still on
     /// both with a newer prompt it has answered since (a turn quicker than a board apart); a
     /// wait on its user begins when this board has it waiting and the last didn't, or not since
-    /// then. Each is owed to the helper's session while that runs on this Mac.
-    pub fn due(&mut self, board: &Board, now: i64) -> Vec<Job> {
+    /// then. A reporting helper started in a terminal that's stuck before it made its session
+    /// (`pending`, `Pending::stuck`) is told of once. Each is owed to the helper's session while
+    /// that runs on this Mac.
+    pub fn due(&mut self, pending: &[Pending], board: &Board, now: i64) -> Vec<Job> {
         let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived);
+        self.told_stuck.retain(|(from, at)| pending.iter().any(|p| &p.from == from && p.at == *at));
+        for p in pending.iter().filter(|p| p.report && p.stuck(now) && runs_here(&p.from)) {
+            if !self.told_stuck.insert((p.from.clone(), p.at)) {
+                continue;
+            }
+            let place = board.lanes.iter().find(|l| l.id == p.lane).map(|l| l.callsign.clone()).unwrap_or_else(|| crate::util::tilde(std::path::Path::new(&p.lane)));
+            let news = News::Unstarted { account: p.account.clone(), place, terminal: board.apps.terminal.clone(), minutes: p.minutes(now) };
+            let key = format!("start@{}", p.at);
+            self.owed.entry(p.from.clone()).or_default().notes.insert(key.clone(), Note { helper: key, title: String::new(), news });
+        }
         let mut seen_now = HashMap::new();
         for lane in board.lanes.iter().filter(|l| l.device.is_none()) {
             for s in lane.sessions.iter().filter(|s| s.visitor.is_none() && !s.archived) {
@@ -157,7 +179,7 @@ impl Reporter {
     }
 }
 
-/// One helper's news, as the message has it.
+/// One helper's news, as the message has it: what it's called, then what happened.
 fn line(n: &Note) -> String {
     let (title, key) = (n.title.trim(), &n.helper);
     match &n.news {
@@ -166,14 +188,21 @@ fn line(n: &Note) -> String {
             let what = what.as_deref().map(|w| format!(": {}", w.trim())).unwrap_or_default();
             format!("“{title}” ({key}) waits on your user{what}. They answer it in Codealong, so you may want to tell them; `codealong session wait {key} --until-done` waits on to the end of its turn.")
         }
+        News::Unstarted { account, place, terminal, minutes } => format!(
+            "you started on {account} in {terminal} {minutes} minutes ago, in {place}, hasn't made its session yet: its terminal may be waiting on your user on a screen of its own before it starts, such as an update offer or a question about its background server, which Codealong can't answer. Tell them to answer it in that tab. Once it starts, you're told when its turn ends."
+        ),
     }
 }
 
 /// The message for a session's helpers' news.
 pub fn words(notes: &[Note]) -> String {
+    let named = |n: &Note| match n.news {
+        News::Unstarted { .. } => format!("The helper {}", line(n)),
+        _ => line(n),
+    };
     match notes {
         [one] => format!("Your helper {}", line(one)),
-        _ => format!("About your helpers:\n{}", notes.iter().map(|n| format!("- {}", line(n))).collect::<Vec<_>>().join("\n")),
+        _ => format!("About your helpers:\n{}", notes.iter().map(|n| format!("- {}", named(n))).collect::<Vec<_>>().join("\n")),
     }
 }
 
@@ -228,64 +257,103 @@ mod tests {
     fn a_turn_that_ends_is_told_to_its_session_once() {
         let mut r = Reporter::default();
         // First seen working: only noted.
-        assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW).is_empty());
-        assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Working, 10, 30)]), NOW).is_empty());
-        let jobs = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW);
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW).is_empty());
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 30)]), NOW).is_empty());
+        let jobs = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW);
         assert_eq!(news(&jobs), [(BOSS.to_string(), News::Ended)]);
         assert!(words(&jobs[0].notes).starts_with("Your helper “Review the diff” (codex:codex:rev) ended its turn: `codealong session wait codex:codex:rev` prints its reply"));
         assert!(!r.told(&jobs[0], true, NOW));
-        assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW).is_empty(), "once");
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW).is_empty(), "once");
         // A turn quicker than a board apart: a newer prompt it has answered.
-        let jobs = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 50, 60)]), NOW);
+        let jobs = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 50, 60)]), NOW);
         assert_eq!(news(&jobs), [(BOSS.to_string(), News::Ended)]);
         r.told(&jobs[0], true, NOW);
         // A prompt it hasn't answered yet isn't a turn's end.
-        assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 70, 70)]), NOW).is_empty());
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 70, 70)]), NOW).is_empty());
     }
 
     #[test]
     fn a_wait_on_its_user_is_told_and_a_helper_first_seen_isnt() {
         let mut r = Reporter::default();
         // Ended already when first seen, as after a restart: nothing.
-        assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW).is_empty());
-        let jobs = r.due(&board(vec![boss(Status::Working), rev(Status::Needs, 50, 60)]), NOW);
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW).is_empty());
+        let jobs = r.due(&[], &board(vec![boss(Status::Working), rev(Status::Needs, 50, 60)]), NOW);
         assert_eq!(news(&jobs), [(BOSS.to_string(), News::OnUser(Some("Bash · `gh pr diff 12`".into())))]);
         assert!(words(&jobs[0].notes).contains("waits on your user: Bash · `gh pr diff 12`. They answer it in Codealong"));
         r.told(&jobs[0], true, NOW);
         // Still waiting: not again.
-        assert!(r.due(&board(vec![boss(Status::Working), rev(Status::Needs, 50, 60)]), NOW).is_empty());
+        assert!(r.due(&[], &board(vec![boss(Status::Working), rev(Status::Needs, 50, 60)]), NOW).is_empty());
     }
 
     #[test]
     fn only_a_reporting_helpers_running_session_is_told_and_not_while_it_waits_on_you() {
         let quiet = |s: Session| Session { helper: s.helper.map(|h| Helper { report: false, ..h }), ..s };
         let mut r = Reporter::default();
-        r.due(&board(vec![boss(Status::Idle), quiet(rev(Status::Working, 10, 20))]), NOW);
-        assert!(r.due(&board(vec![boss(Status::Idle), quiet(rev(Status::Idle, 10, 40))]), NOW).is_empty(), "started without --report");
+        r.due(&[], &board(vec![boss(Status::Idle), quiet(rev(Status::Working, 10, 20))]), NOW);
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), quiet(rev(Status::Idle, 10, 40))]), NOW).is_empty(), "started without --report");
         // Its session stopped: nobody to tell.
         let mut r = Reporter::default();
         let stopped = Session { live: false, ..boss(Status::Idle) };
-        r.due(&board(vec![stopped.clone(), rev(Status::Working, 10, 20)]), NOW);
-        assert!(r.due(&board(vec![stopped, rev(Status::Idle, 10, 40)]), NOW).is_empty());
+        r.due(&[], &board(vec![stopped.clone(), rev(Status::Working, 10, 20)]), NOW);
+        assert!(r.due(&[], &board(vec![stopped, rev(Status::Idle, 10, 40)]), NOW).is_empty());
         // Its session waits on you to answer a prompt: told once it doesn't.
         let mut r = Reporter::default();
-        r.due(&board(vec![boss(Status::Needs), rev(Status::Working, 10, 20)]), NOW);
-        assert!(r.due(&board(vec![boss(Status::Needs), rev(Status::Idle, 10, 40)]), NOW).is_empty());
-        assert_eq!(news(&r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW)), [(BOSS.to_string(), News::Ended)]);
+        r.due(&[], &board(vec![boss(Status::Needs), rev(Status::Working, 10, 20)]), NOW);
+        assert!(r.due(&[], &board(vec![boss(Status::Needs), rev(Status::Idle, 10, 40)]), NOW).is_empty());
+        assert_eq!(news(&r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW)), [(BOSS.to_string(), News::Ended)]);
+    }
+
+    /// A Codex helper started in a terminal sat an hour on a screen of its own before it made its
+    /// session, and the session that started it was never told (2026-10-14).
+    #[test]
+    fn a_reporting_helper_stuck_before_its_session_is_told_of_once() {
+        let start = Pending {
+            from: BOSS.into(),
+            how: crate::model::OriginHow::Started,
+            lane: "/r/app".into(),
+            account: "codex".into(),
+            at: NOW - 4 * 60_000,
+            helper: true,
+            report: true,
+            opens: Some("Review the branch".into()),
+            terminal: true,
+        };
+        let mut b = board(vec![boss(Status::Idle)]);
+        b.apps.terminal = "Ghostty".into();
+        let mut r = Reporter::default();
+        // Not yet stuck a minute after it was started.
+        assert!(r.due(&[Pending { at: NOW - 60_000, ..start.clone() }], &b, NOW).is_empty());
+        let jobs = r.due(&[start.clone()], &b, NOW);
+        let place = b.lanes[0].callsign.clone();
+        assert_eq!(news(&jobs), [(BOSS.to_string(), News::Unstarted { account: "codex".into(), place: place.clone(), terminal: "Ghostty".into(), minutes: 4 })]);
+        let text = words(&jobs[0].notes);
+        assert!(text.starts_with(&format!("Your helper you started on codex in Ghostty 4 minutes ago, in {place}, hasn't made its session yet: its terminal may be waiting on your user")), "{text}");
+        r.told(&jobs[0], true, NOW);
+        assert!(r.due(&[start.clone()], &b, NOW + 60_000).is_empty(), "once");
+        // Started without --report, or by a session that isn't running: nobody to tell.
+        let mut r = Reporter::default();
+        assert!(r.due(&[Pending { report: false, ..start.clone() }], &b, NOW).is_empty());
+        assert!(r.due(&[start.clone()], &board(vec![Session { live: false, ..boss(Status::Idle) }]), NOW).is_empty());
+        // With another helper's news it's a line of the one message.
+        let mut r = Reporter::default();
+        r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW);
+        let jobs = r.due(&[start], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40)]), NOW);
+        let text = words(&jobs[0].notes);
+        assert!(text.contains("\n- The helper you started on codex in") && text.contains("\n- “Review the diff” (codex:codex:rev) ended its turn"), "{text}");
     }
 
     #[test]
     fn a_send_that_fails_is_tried_again_later_and_several_go_in_one_message() {
         let mut r = Reporter::default();
         let other = |status, activity| Session { title: "Check the migration".into(), ..Session { key: "codex:codex:two".into(), ..rev(status, 10, activity) } };
-        r.due(&board(vec![boss(Status::Idle), rev(Status::Working, 10, 20), other(Status::Working, 20)]), NOW);
-        let jobs = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW);
+        r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20), other(Status::Working, 20)]), NOW);
+        let jobs = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW);
         assert_eq!(jobs.len(), 1);
         let text = words(&jobs[0].notes);
         assert!(text.starts_with("About your helpers:\n- “Review the diff” (codex:codex:rev) ended its turn") && text.contains("\n- “Check the migration” (codex:codex:two) waits on your user"), "{text}");
         assert!(r.told(&jobs[0], false, NOW));
-        assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW + 1).is_empty(), "not yet");
-        let again = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW + RETRY_MS);
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW + 1).is_empty(), "not yet");
+        let again = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), NOW + RETRY_MS);
         assert_eq!(again.len(), 1);
         assert_eq!(again[0].notes.len(), 2);
         // Given up on after a few.
@@ -296,8 +364,8 @@ mod tests {
                 break;
             }
             at += RETRY_MS << 10;
-            job = r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), at).pop().expect("tried again");
+            job = r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), at).pop().expect("tried again");
         }
-        assert!(r.due(&board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), at + (RETRY_MS << 10)).is_empty());
+        assert!(r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Idle, 10, 40), other(Status::Error, 40)]), at + (RETRY_MS << 10)).is_empty());
     }
 }

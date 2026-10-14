@@ -3258,6 +3258,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             review_snoozes: &self.seen.review_snoozes,
             auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
         });
+        // Starts in a terminal that never made their session: the board has nothing else of them.
+        let word_of = |account: &str| self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string());
+        let stuck = origins::stuck_notices(&origins::current().pending, &board, word_of, now);
+        board.notices.extend(stuck);
         board.usage = usage;
         board.training = self.training.list(&self.cfg.accounts);
         board.github_polled = self.github.polled();

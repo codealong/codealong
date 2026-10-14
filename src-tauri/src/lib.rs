@@ -1948,10 +1948,12 @@ pub fn run() {
                         std::thread::spawn(move || reconnect::send_now(&engine, &continuer, due));
                     }
                 }
-                // And sessions whose helpers report to them (helpers.rs): a turn that ended, or a
-                // wait on you that began. One thread for the batch, for the same reason.
+                // And sessions whose helpers report to them (helpers.rs): a turn that ended, a wait
+                // on you that began, or a start stuck before its session. One thread for the batch,
+                // for the same reason.
                 if let Some(engine) = reports_with.get() {
-                    let due = reporter.lock().map(|mut r| r.due(board, board.generated_at)).unwrap_or_default();
+                    let pending = &origins::current().pending;
+                    let due = reporter.lock().map(|mut r| r.due(pending, board, board.generated_at)).unwrap_or_default();
                     if !due.is_empty() {
                         let (engine, reporter) = (engine.clone(), reporter.clone());
                         std::thread::spawn(move || helpers::send_now(&engine, &reporter, due));

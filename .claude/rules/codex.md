@@ -168,7 +168,14 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   screens Codealong doesn't answer: "Cannot use the background server · Experimental feature
   request failed" (1 Run without daemon this time, 2 Cancel, picked to begin with), when its
   version can't use the running app-server daemon (0.157.1 against 0.162.1 here; the hidden
-  `--no-daemon` runs without it), and an "Update available" offer (Esc skips).
+  `--no-daemon` runs without it), and an "Update available" offer (Esc skips). 0.162.1's binary
+  also has the first for "Background server has incompatible feature settings" (Run without
+  daemon this time, Restart with these settings), names `--no-daemon` in its own errors, and
+  reads `check_for_update_on_startup` in config.toml (checked with `strings`, 2026-10-14, not
+  run). Codealong can't read a Ghostty tab to tell which screen is up, so it answers none: a
+  start in a terminal still without its session three minutes on is said in a notice, and told
+  to the session that started it as a reporting helper (origins.rs `Pending::stuck`,
+  helpers.rs). A Codex review started in a terminal sat on one for 66 minutes (2026-10-14).
 - The CLI (Homebrew cask `codex`, `/opt/homebrew/bin/codex`) runs its TUI against a shared
   app-server daemon it spawns, `~/.codex/packages/app-server-daemon/releases/<version>/bin/codex
   app-server --listen unix:// --managed-daemon`, beside a `codex app-server daemon

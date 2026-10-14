@@ -1687,6 +1687,14 @@ nothing the helper wrote is typed in as if you'd written it. It's sent while the
 this Mac and isn't waiting on you to answer a prompt, several helpers' news in one message, and a
 send that doesn't go is tried again a few times, then said in a notice.
 
+A start in a terminal whose harness names its own sessions (Codex, OpenCode, Antigravity) has no
+session until its terminal UI makes one, and the UI can first stop on a screen of its own (Codex's
+update offer, or its question about its background server) that Codealong can't read or answer,
+in a terminal that may be behind your windows. When one started with a prompt, by you or by an
+agent, has made no session three minutes on, a notice says where (*Codex hasn't started in …*)
+until its session shows, and a helper started with `--report` is told of to its session once, so
+its agent can tell you.
+
 A helper's message to the session that started it (`codealong session send`) isn't held for
 you to allow when that session is a Claude Code one that skips permission prompts: it's work the
 session asked for, and would read anyway. That holds only when the start said which session it
