@@ -89,6 +89,10 @@ pub fn trust_folder(settings: &Path, folder: &Path, user_home: &Path) -> anyhow:
     let given = folder.to_str().map(|p| p.trim_end_matches('/').to_string()).filter(|p| !p.is_empty()).ok_or_else(|| anyhow::anyhow!("{} isn't a folder Antigravity can keep", folder.display()))?;
     let real = std::fs::canonicalize(folder).ok().and_then(|p| p.to_str().map(String::from));
     let paths: Vec<String> = std::iter::once(given.clone()).chain(real.filter(|r| *r != given)).collect();
+    // Two starts at once would each write back the list they read, losing one folder. agy takes
+    // no lock of its own on the file, so only Codealong's writes wait for each other.
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let text = match std::fs::read_to_string(settings) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}\n".to_string(),

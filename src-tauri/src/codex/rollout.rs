@@ -337,29 +337,37 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
 }
 
 /// The events before `end` that `later` has no newer copy of: the last turn event (started,
-/// completed or aborted) and the last prompt, oldest first. Read backwards only as far as needed.
+/// completed or aborted), the last prompt and the last `turn_context` (its model and
+/// permissions), oldest first. Read backwards only as far as needed: a turn's context comes just
+/// after its start.
 fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Value> {
+    let is_context = |v: &Value| v.get("type").and_then(Value::as_str) == Some("turn_context");
     let mut need_turn = !later.iter().any(is_turn_event);
     let mut need_prompt = !later.iter().any(|v| event_payload(v).and_then(prompt_of).is_some());
+    let mut need_context = !later.iter().any(is_context);
     let mut found = Vec::new();
-    if !need_turn && !need_prompt {
+    if !need_turn && !need_prompt && !need_context {
         return found;
     }
     scan_lines_back(path, floor, end, |line| {
         // Cheap checks first: most bytes are tool output that none of these can match.
         let markers = ["\"task_started\"", "\"task_complete\"", "\"turn_aborted\"", "\"user_message\"", "\"UserMessage\""];
-        if !line.contains("\"event_msg\"") || !markers.iter().any(|m| line.contains(m)) {
+        let context = need_context && line.contains("\"turn_context\"");
+        if !context && (!line.contains("\"event_msg\"") || !markers.iter().any(|m| line.contains(m))) {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
-        if need_turn && is_turn_event(&v) {
+        if need_context && is_context(&v) {
+            need_context = false;
+            found.push(v);
+        } else if need_turn && is_turn_event(&v) {
             need_turn = false;
             found.push(v);
         } else if need_prompt && event_payload(&v).and_then(prompt_of).is_some() {
             need_prompt = false;
             found.push(v);
         }
-        !need_turn && !need_prompt
+        !need_turn && !need_prompt && !need_context
     });
     found.reverse();
     found
@@ -556,7 +564,8 @@ pub fn turn_mode(p: &Value) -> Option<SessionMode> {
     if sandbox.is_none() && approval.is_none() {
         return None;
     }
-    let reviewer = text("/approvals_reviewer") == Some("auto_review");
+    // `guardian_subagent` is its older name, which config.toml still takes.
+    let reviewer = matches!(text("/approvals_reviewer"), Some("auto_review" | "guardian_subagent"));
     let (kind, label, detail) = match (sandbox, approval) {
         (Some("danger-full-access"), _) => (ModeKind::Skips, "Full Access", "Edits files anywhere and uses the internet without asking."),
         (Some("read-only"), Some("on-request")) if reviewer => (ModeKind::ReadOnly, "Read Only", "Reads files, and a reviewer agent answers for you when it would edit files or use the internet."),
@@ -944,6 +953,17 @@ mod tests {
         let (dir, path) = long_rollout("context", &[TURN_STARTED, PROMPT_ITEM], &[TOKEN_COUNT, count]);
         let (info, _) = parse_rollout(&path, 0, None).unwrap();
         assert_eq!(info.context, Some((125100, Some(258400))));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn finds_the_model_and_permissions_of_a_turn_that_started_long_before_the_tail() {
+        let context = r#"{"timestamp":"2026-09-24T18:04:00.000Z","type":"turn_context","payload":{"model":"gpt-5.5","approval_policy":"on-request","approvals_reviewer":"user","sandbox_policy":{"type":"workspace-write"}}}"#;
+        let (dir, path) = long_rollout("turn-context", &[TURN_STARTED, context, PROMPT_ITEM], &[TOKEN_COUNT]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!(info.model.as_deref(), Some("gpt-5.5"));
+        assert_eq!(info.mode.map(|m| m.label).as_deref(), Some("Ask for approval"));
+        assert!(info.turn_open);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
