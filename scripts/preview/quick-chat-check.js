@@ -1,7 +1,9 @@
 // Checks starting a chat in no project from the quick panel (Quick.tsx): the worktree picker
 // offers No project ahead of the worktrees, picking it says so on the chip, turns New worktree
 // off and words the start row for a chat, and ⌘⏎ starts in Codealong's chats lane with no
-// worktree.
+// worktree. Opened as the chat shortcut opens it, the panel is on No project, also when it opened
+// before the first scan finished and the board came after, and its hint names that shortcut; an
+// ordinary open after is on a worktree again.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-chat-check.js
 // The board needs Codealong's chats lane, which an engine of this build always has.
 (function () {
@@ -10,6 +12,7 @@
   var chip = function () { return all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘T\)/.test(b.title); })[0]; };
   var options = function () { return all('.ca-picker-opt'); };
   var noProject = function () { return options().filter(function (o) { return o.textContent.indexOf('No project') >= 0; })[0]; };
+  var board;
 
   say('quick chat check: waiting for the panel');
   until(function () { return !!input() && !!chip() && !chip().disabled; }, 20000, 'the worktree chip')
@@ -45,6 +48,35 @@
       check('⌘⏎ starts in Codealong’s chats', /\/Codealong\/chats$/.test(spec.laneId), spec.laneId);
       check('with no worktree', spec.worktree === false, String(spec.worktree));
       check('on the question', /mutex/.test(spec.prompt), spec.prompt);
+      return window.__TAURI_INTERNALS__.invoke('get_board');
+    })
+    .then(function (b) {
+      board = b;
+      window.__quickOpen({ chat: true }, Object.assign({}, board, { loading: true, lanes: [] }));
+      check('opened before the first scan, no worktree yet', !/No project/.test(chip().textContent), chip().textContent);
+      // The panel listens for the board once it's up.
+      return wait(300);
+    })
+    .then(function () {
+      window.__emit('board', board);
+      return until(function () { return /No project/.test(chip().textContent); }, 5000, 'No project once the board has the chats');
+    })
+    .then(function () {
+      var hint = q('.ca-quick-hotkey');
+      check('the hint names the chat shortcut', !!hint && hint.textContent === '⌥⌘\'', hint && hint.textContent);
+      type(input(), 'How do I read a core dump?');
+      var starts = sent('start_from_quick').length;
+      key(input(), { key: 'Enter', metaKey: true });
+      return until(function () { return sent('start_from_quick').length > starts; }, 5000, 'the start');
+    })
+    .then(function () {
+      var spec = sent('start_from_quick').pop().spec;
+      check('the chat shortcut starts in Codealong’s chats', /\/Codealong\/chats$/.test(spec.laneId), spec.laneId);
+      window.__quickOpen({}, board);
+      return wait(300);
+    })
+    .then(function () {
+      check('an ordinary open after is on a worktree', !/No project/.test(chip().textContent), chip().textContent);
       done();
     })
     .catch(stopped);

@@ -268,7 +268,8 @@ export function Quick() {
   // Improve Codealong (improve.ts): the pictures of the windows the engine took as it opened the
   // panel, which go into the prompt; null when the panel is open for anything else.
   const [improve, setImprove] = useState<{ shots: Attachment[] } | null>(null);
-  // Opened by the chat shortcut, for the hint that names it.
+  // Opened by the chat shortcut: on Codealong's chats, which the worktree picker calls No project,
+  // until another is picked, and the hint names that shortcut.
   const [asChat, setAsChat] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // What a menu's action did (copied, closed), for a moment.
@@ -349,9 +350,8 @@ export function Quick() {
         const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
         setImprove(improving);
         improveFollowed.current = false;
-        // The chat shortcut opens on Codealong's chats, which the worktree picker calls No project.
         setAsChat(!!ctx.chat);
-        const at = improving ? (b?.improve?.laneId ?? null) : ctx.chat ? (b?.lanes.find((l) => l.startsChats)?.id ?? null) : (ctx.laneId ?? null);
+        const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
         setLaneId(at);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
@@ -521,10 +521,12 @@ export function Quick() {
     return { lanes: [...mine, ...extra], chatLane: all.find((l) => l.startsChats) ?? null };
   }, [board?.lanes, devices?.lanes, deviceNow, current, laneId]);
   const groups = useMemo(() => laneGroups(lanes, board?.pinnedWorktrees ?? []), [lanes, board?.pinnedWorktrees]);
-  // Without one asked for, the first on the list: a pinned one, else the latest.
+  // Without one asked for, the first on the list: a pinned one, else the latest. Opened by the
+  // chat shortcut, the chats lane, once the board has it: a panel opened before the first scan
+  // finished gets it with the board that has it.
   // Improving Codealong with no source on the board goes to no worktree by default (the note
   // says why), never to the project's first: that would start it in some other repo.
-  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && chatLane.id === laneId ? chatLane : null) ?? (improve ? null : (groups[0]?.lanes[0] ?? null));
+  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && (chatLane.id === laneId || (asChat && !laneId)) ? chatLane : null) ?? (improve ? null : (groups[0]?.lanes[0] ?? null));
 
   const shownNow = useLatest(shown);
 
