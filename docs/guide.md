@@ -1649,7 +1649,9 @@ any other agent's message.
 A helper is a session that works for an agent rather than for you: one an agent started with
 `codealong start --helper` (a review of its diff, a check, a second opinion on another account or
 model), and an automatic review's session, which helps its PR, and for a PR one of your sessions
-opened, that session too, as the review goes back to it. Nobody is expected to talk to it,
+opened, that session too, as the review goes back to it. So is a session an agent ran in its
+session's own scratch folder (Claude Code's scratchpad, or a background job's folder), a test chat
+in tmux, say: it helps that session, which isn't told of it. Nobody is expected to talk to it,
 so a turn it ends is idle rather than Your turn, and while it doesn't need you it's out of its
 worktree's status, the floating bar, the notch, the waiting window, the quick panel's lists and the
 mark. Started without `--in`, it runs out of sight, as automatic reviews do.

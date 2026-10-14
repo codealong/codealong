@@ -3,7 +3,8 @@
 //! `<home>/jobs/<job>/state.json`).
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -187,6 +188,36 @@ impl Forks {
     }
 }
 
+/// The session whose background job's own folder `path` is in, by its ID: `<home>/jobs/<job>/`,
+/// where the job's agent keeps its temporary files (`CLAUDE_JOB_DIR`), named for its session by
+/// the job's record. Known by the folder's shape rather than the accounts' homes, so it needs no
+/// settings; a job's record names its session as it starts and never changes it, so each is read
+/// once.
+pub fn job_folder_owner(path: &Path) -> Option<String> {
+    static KNOWN: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
+    // Asked of every session's folder as the board is composed: most have no jobs folder.
+    if !path.to_string_lossy().contains("/jobs/") {
+        return None;
+    }
+    let parts: Vec<_> = path.components().collect();
+    let at = parts.windows(2).position(|w| w[0].as_os_str() == "jobs" && is_job_id(&w[1].as_os_str().to_string_lossy()))?;
+    let folder: PathBuf = parts[..at + 2].iter().collect();
+    let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+    let known = known.get_or_insert_with(HashMap::new);
+    if let Some(id) = known.get(&folder) {
+        return Some(id.clone());
+    }
+    let (id, _) = parse_job_state(&std::fs::read(folder.join("state.json")).ok()?)?;
+    known.insert(folder, id.clone());
+    Some(id)
+}
+
+/// A background job's ID, as Claude Code names its folder: the first eight hex digits of the
+/// session it started with.
+fn is_job_id(name: &str) -> bool {
+    name.len() == 8 && name.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+}
+
 /// A job's session and the session it was forked from, from its record.
 pub fn parse_job_state(bytes: &[u8]) -> Option<(String, Option<String>)> {
     #[derive(Deserialize)]
@@ -297,6 +328,24 @@ mod tests {
         job("fresh", r#"{"sessionId":"cccc","forkParentSessionId":"dddd"}"#);
         assert!(forks.refresh(&home, crate::util::now_ms()));
         assert_eq!(forks.parent_of("cccc"), Some("dddd"));
+    }
+
+    /// A background job's agent ran test chats in tmux in its own folder, which nothing tied to
+    /// it (2026-10-14).
+    #[test]
+    fn a_folder_in_a_jobs_own_is_its_sessions() {
+        let home = crate::fixtures::scratch("job-folders");
+        let job = home.join("jobs").join("54a9a7a0");
+        std::fs::create_dir_all(job.join("tmp/efftest")).unwrap();
+        std::fs::write(job.join("state.json"), r#"{"state":"running","sessionId":"54a9a7a0-b633-489f-bc58-c57360fb877f"}"#).unwrap();
+        assert_eq!(job_folder_owner(&job.join("tmp/efftest")).as_deref(), Some("54a9a7a0-b633-489f-bc58-c57360fb877f"));
+        assert_eq!(job_folder_owner(&job).as_deref(), Some("54a9a7a0-b633-489f-bc58-c57360fb877f"));
+        // Not a job's folder: the jobs folder itself, a name that isn't a job's, or no record.
+        assert_eq!(job_folder_owner(&home.join("jobs")), None);
+        std::fs::create_dir_all(home.join("jobs/pins")).unwrap();
+        assert_eq!(job_folder_owner(&home.join("jobs/pins")), None);
+        assert_eq!(job_folder_owner(&home.join("jobs/0badcafe/tmp")), None);
+        assert_eq!(job_folder_owner(Path::new("/Users/me/projects/ci/jobs/build")), None);
     }
 
     #[test]

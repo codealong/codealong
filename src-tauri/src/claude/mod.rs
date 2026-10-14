@@ -730,18 +730,22 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     /// `/private/tmp/claude-<uid>/<encoded cwd>/<session id>/scratchpad`, which Claude Code makes
-    /// for each session.
+    /// for each session, and a background job's own folder, `<home>/jobs/<job>/`
+    /// (`registry::job_folder_owner`).
     fn scratch_owner(&self, path: &Path) -> Option<String> {
         let s = path.to_string_lossy();
-        let rest = s.strip_prefix("/private/tmp/").or_else(|| s.strip_prefix("/tmp/"))?;
-        let mut parts = rest.split('/');
-        if !parts.next()?.starts_with("claude-") {
-            return None;
-        }
-        let _cwd = parts.next()?;
-        let id = parts.next()?;
-        let is_uuid = id.len() == 36 && id.chars().filter(|c| *c == '-').count() == 4;
-        (parts.next()? == "scratchpad" && is_uuid).then(|| id.to_string())
+        let scratchpad = || {
+            let rest = s.strip_prefix("/private/tmp/").or_else(|| s.strip_prefix("/tmp/"))?;
+            let mut parts = rest.split('/');
+            if !parts.next()?.starts_with("claude-") {
+                return None;
+            }
+            let _cwd = parts.next()?;
+            let id = parts.next()?;
+            let is_uuid = id.len() == 36 && id.chars().filter(|c| *c == '-').count() == 4;
+            (parts.next()? == "scratchpad" && is_uuid).then(|| id.to_string())
+        };
+        scratchpad().or_else(|| registry::job_folder_owner(path))
     }
 
     /// A tool's result is a `user` line of its own.

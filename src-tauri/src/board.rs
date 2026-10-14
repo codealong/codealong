@@ -1220,6 +1220,21 @@ pub fn helper_of(parent: Option<(&str, bool)>, on_board: impl Fn(&str) -> bool, 
     (parent.is_some() || pr.is_some()).then_some(Helper { parent, pr, report })
 }
 
+/// Sessions started in another session's own scratch folder (`Adapter::scratch_owner`: Claude
+/// Code's scratchpad, a background job's folder) are that session's helpers, where nothing else
+/// says whose they are: its agent ran them there (test chats in tmux, say) and reads them itself,
+/// so their ended turns don't wait on you, as a helper's don't. None is told of, since none asked
+/// to be (`Helper::report`). Headless runs have their own rule, and a session you made your own
+/// (`own`) stays yours. `owner_of` names a folder's session by its harness and ID.
+pub fn scratch_helpers(sessions: &mut [Session], owner_of: impl Fn(&Path) -> Option<(Harness, String)>, own: impl Fn(&str) -> bool) {
+    let keys: HashMap<(Harness, String), String> = sessions.iter().map(|s| ((s.harness, s.id.clone()), s.key.clone())).collect();
+    for s in sessions.iter_mut().filter(|s| s.helper.is_none() && !s.headless && !own(&s.key)) {
+        let Some(parent) = owner_of(Path::new(&s.cwd)).and_then(|o| keys.get(&o)).filter(|k| **k != s.key) else { continue };
+        s.helper = Some(Helper { parent: Some(parent.clone()), pr: None, report: false });
+        s.origin.get_or_insert_with(|| SessionOrigin { key: parent.clone(), how: OriginHow::Started });
+    }
+}
+
 /// A session's helpers on the board (`Session::helper`): the sessions its agent started as
 /// helpers, each once, from the lane it runs in, the archived ones left out.
 pub fn helpers_of<'a>(lanes: &'a [Lane], key: &str) -> Vec<&'a Session> {
@@ -3991,6 +4006,38 @@ mod tests {
             apply_helper(&mut h);
             assert_eq!((h.status, h.helping()), (want, !matches!(want, Status::Needs | Status::Error)));
         }
+    }
+
+    /// A background job's agent tried effort levels on test chats in tmux, in its own folder, and
+    /// each one's ended turn waited on you under the job's name (2026-10-14).
+    #[test]
+    fn a_session_in_another_sessions_scratch_folder_is_its_helper() {
+        const JOB: &str = "/Users/me/.claude/jobs/54a9a7a0";
+        let at = |id: &str, cwd: &str| Session { cwd: cwd.into(), status: Status::Unread, ..Session::new(Harness::Claude, "claude", id) };
+        let owner_of = |p: &Path| p.starts_with(JOB).then(|| (Harness::Claude, "54a9a7a0-b633".to_string()));
+        let mut sessions = vec![
+            at("54a9a7a0-b633", "/r/codealong"),
+            at("test-chat", &format!("{JOB}/tmp/efftest")),
+            // Started there with `codealong start --helper`, it keeps what that said.
+            Session { helper: Some(Helper { parent: Some("claude:claude:other".into()), pr: None, report: true }), ..at("asked", JOB) },
+            Session { headless: true, ..at("run", JOB) },
+            at("mine", JOB),
+            at("elsewhere", "/r/codealong"),
+        ];
+        scratch_helpers(&mut sessions, owner_of, |k| k == "claude:claude:mine");
+        let boss = "claude:claude:54a9a7a0-b633";
+        let helps = |id: &str| sessions.iter().find(|s| s.id == id).and_then(|s| s.helper.as_ref()).map(|h| (h.parent.clone().unwrap_or_default(), h.report));
+        assert_eq!(helps("test-chat"), Some((boss.to_string(), false)));
+        assert_eq!(sessions[1].origin, Some(SessionOrigin { key: boss.into(), how: OriginHow::Started }));
+        assert_eq!(helps("asked"), Some(("claude:claude:other".to_string(), true)));
+        assert_eq!((helps("run"), helps("mine"), helps("elsewhere"), helps("54a9a7a0-b633")), (None, None, None, None));
+        // Its ended turn is its agent's to read.
+        apply_helper(&mut sessions[1]);
+        assert_eq!(sessions[1].status, Status::Idle);
+        // A session whose own folder it isn't on the board makes no helper.
+        let mut alone = vec![at("test-chat", &format!("{JOB}/tmp/efftest"))];
+        scratch_helpers(&mut alone, owner_of, |_| false);
+        assert_eq!(alone[0].helper, None);
     }
 
     #[test]

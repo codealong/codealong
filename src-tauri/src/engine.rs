@@ -1598,22 +1598,23 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// `codealong start`, or forked from Codealong where the harness doesn't say. What the
     /// harness recorded comes first. With it, what each helper helps (`board::helper_of`): the
     /// session that started it as one (origins.json), or the PR whose automatic review it is
-    /// (reviews.json), unless you made it your own (`SeenState::own`).
+    /// (reviews.json), else the session whose scratch folder it runs in
+    /// (`board::scratch_helpers`), unless you made it your own (`SeenState::own`).
     fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let store = origins::current();
         let reviewers = autoreview::reviewers(&self.reviews);
-        if store.sessions.is_empty() && reviewers.is_empty() {
-            return sessions;
-        }
-        let keys: HashSet<String> = sessions.iter().map(|s| s.key.clone()).collect();
-        for s in sessions.iter_mut() {
-            if s.origin.is_none() {
-                s.origin = store.origin_of(&s.key);
+        if !store.sessions.is_empty() || !reviewers.is_empty() {
+            let keys: HashSet<String> = sessions.iter().map(|s| s.key.clone()).collect();
+            for s in sessions.iter_mut() {
+                if s.origin.is_none() {
+                    s.origin = store.origin_of(&s.key);
+                }
+                if !self.seen.is_own(&s.key) {
+                    s.helper = board::helper_of(store.helper_of(&s.key), |k| keys.contains(k), reviewers.get(s.key.as_str()).copied());
+                }
             }
-            if !self.seen.is_own(&s.key) {
-                s.helper = board::helper_of(store.helper_of(&s.key), |k| keys.contains(k), reviewers.get(s.key.as_str()).copied());
-            }
         }
+        board::scratch_helpers(&mut sessions, crate::harness::scratch_owner, |k| self.seen.is_own(k));
         sessions
     }
 
