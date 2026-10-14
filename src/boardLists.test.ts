@@ -437,6 +437,14 @@ describe('the Sessions view’s lists', () => {
       const shown = revealing([], items, row);
       expect(shown).toEqual([runsShownKey(helper.key), boss.key]);
       expect(keysOf(placeHelpers(items, false, new Set(shown)))).toEqual([boss.key, helper.key, run2.key]);
+      // With as many kept as there can be, the ones it needs stay, its runs' among them, and the
+      // oldest others go.
+      const others = Array.from({ length: HELPERS_SHOWN_MAX - 1 }, (_, i) => `other${i}`);
+      const full = revealing([runsShownKey(helper.key), ...others], items, row);
+      expect(full).toHaveLength(HELPERS_SHOWN_MAX);
+      expect(full.slice(-2)).toEqual([runsShownKey(helper.key), boss.key]);
+      expect(full[0]).toBe('other1');
+      expect(keysOf(placeHelpers(items, false, new Set(full)))).toEqual([boss.key, helper.key, run2.key]);
     });
 
     it('lists a run no session on the board started as a session of its own', () => {

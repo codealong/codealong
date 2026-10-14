@@ -287,20 +287,22 @@ export function chainOf(item: SessionItem, all: readonly SessionItem[]): Session
  *  filters, and widens the age filter for its chain, `ageListingChain`): unchanged when Sessions
  *  lists it among `all` then, else with every helper or every headless run of its session listed
  *  (`listedAll`), as its chip's double-click would, and so on up its chain (`chainOf`) to a
- *  session that's listed: a run of a finished helper needs that helper listed too. Without it, a
- *  finished helper or a run the quick panel found would be selected and not listed, and the panel
- *  would show another session. */
+ *  session that's listed: a run of a finished helper needs that helper listed too. The keys it
+ *  needs go last together, ones there already moved there, so trimming to `HELPERS_SHOWN_MAX`
+ *  takes the oldest others, never one of them. Without it, a finished helper or a run the quick
+ *  panel found would be selected and not listed, and the panel would show another session. */
 export function revealing(shown: string[], all: readonly SessionItem[], item: SessionItem): string[] {
   const lists = (keys: string[]) => placeHelpers([...all], false, new Set(keys), all).some((r) => r.session.key === item.session.key);
-  let next = shown;
+  const need: string[] = [];
+  const withNeed = () => (need.length === 0 ? shown : [...shown.filter((k) => !need.includes(k)), ...need].slice(-HELPERS_SHOWN_MAX));
   for (const r of chainOf(item, all)) {
+    const next = withNeed();
     if (lists(next)) return next;
     const parent = workingFor(r.session);
     if (!parent) break;
-    const key = r.session.headless ? runsShownKey(parent) : parent;
-    if (!next.includes(key)) next = toggleShown(next, key);
+    need.push(r.session.headless ? runsShownKey(parent) : parent);
   }
-  return next;
+  return withNeed();
 }
 
 /** The sessions you asked to see all the helpers of, with `key` added or taken out: the latest
