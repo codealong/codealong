@@ -1,6 +1,6 @@
 // The mode a session runs in (`Session.mode`), as its harness names it: Claude Code's Manual,
-// Plan or Bypass Permissions, Codex's Approve for me or Full Access, OpenCode's agent, Cursor's
-// auto-run. It's said under the reply box beside its account, where Claude Code says its own
+// Plan or Bypass, Codex's Approve for me or Full Access, OpenCode's agent, Cursor's auto-run.
+// It's said under the reply box beside its account, lowercase, where Claude Code says its own
 // mode under its box (SessionReply.tsx), and in the header's Details for a session with no box;
 // what the mode means is its tooltip. Codealong only says it: the mode is changed where the
 // session runs.

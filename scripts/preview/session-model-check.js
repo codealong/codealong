@@ -3,7 +3,8 @@
 // terminal, its account's models are a menu, without the account's own (`/model` takes a name),
 // and picking one asks the engine to switch that session; the box stays the height it was; and
 // a session in the middle of a turn can't be switched until it ends. After the model, quieter,
-// is the effort it's on, which follows the session, and the longest of both isn't cut off.
+// is the effort it's on as its harness writes it, which follows the session, and the longest of
+// both isn't cut off; the mode under the box is lowercase.
 //   scripts/preview.sh peek '' scripts/preview/session-model-check.js
 (function () {
   // This runs before the app's script: pick a session on this Mac that's running in a terminal,
@@ -48,10 +49,12 @@
       check('the chip says the model it’s on', chip().textContent.trim().length > 0 && chip().textContent.indexOf('Model') < 0, chip().textContent);
       check('the box has no place to go on in beside it', !q('.ca-placemenu', field()), 'a place chip');
       check('the chip sits beside Send', !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')), 'apart');
-      if (picked.effort) check('after the model, the effort its latest reply was made at', / effort$/.test(effort()), effort() || 'none');
+      if (picked.effort) check('after the model, the effort its latest reply was made at, as its harness writes it', effort() === picked.effort, effort() || 'none');
+      var mode = q('.ca-peek .ca-composer-under .ca-mode-name');
+      if (mode) check('under the box the mode is said lowercase', mode.innerText === mode.innerText.toLowerCase(), mode.innerText);
       // `/effort` set another, on the longest name a model has.
       window.__emit('board', withSession(function (s) { s.effort = 'xhigh'; s.model = 'claude-fable-5-1[1m]'; }));
-      return until(function () { return effort() === 'Extra effort'; }, 3000, 'the effort didn’t follow the session: ' + effort());
+      return until(function () { return effort() === 'xhigh'; }, 3000, 'the effort didn’t follow the session: ' + effort());
     })
     .then(function () {
       var cut = all('span', chip()).filter(function (s) { return s.scrollWidth > s.clientWidth + 1; });

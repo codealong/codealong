@@ -59,7 +59,8 @@ export function ResumeModel({ account, picks, chosen, onPicks, onDone }: ResumeP
       models={models}
       value={chosen.agentNow ?? agentId(a.name, null)}
       label={chosen.modelShown}
-      detail={chosen.effortWord}
+      // The level as `--effort` takes it (`xhigh`), as a running session's chip says its own.
+      detail={chosen.effortNow}
       title="Model and effort it goes on with"
       foot={foot}
       onStep={foot ? (delta) => onPicks({ ...picks, effort: effortStep(efforts, picks.effort, delta) }) : undefined}

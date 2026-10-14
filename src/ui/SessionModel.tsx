@@ -1,20 +1,21 @@
 // The model a running session is on, beside Send in its box (SessionReply.tsx): the one its
 // latest reply came from, or that it was switched to since (`Session.model`), and after it,
-// quieter, the effort it's on where its harness says (`Session.effort`), as the chip of one that
-// isn't running says the effort it goes on with (ResumeBar.tsx). Where Codealong can switch the
-// model (one it runs, through its agent; one whose terminal it types into, by its harness's
-// command, `StartAccount.switchesModel`), it's a menu of its account's models, and picking one
-// switches that session alone (send.rs `switch_model`). Not while its turn runs or it waits on
-// you, where the command would go in as a prompt or answer it.
+// quieter, the effort it's on where its harness says (`Session.effort`), the level as its
+// harness writes it (`xhigh`), as the chip of one that isn't running says the effort it goes on
+// with (ResumeBar.tsx). Where Codealong can switch the model (one it runs, through its agent;
+// one whose terminal it types into, by its harness's command, `StartAccount.switchesModel`),
+// it's a menu of its account's models, and picking one switches that session alone (send.rs
+// `switch_model`). Not while its turn runs or it waits on you, where the command would go in as
+// a prompt or answer it.
 
-import { agentOptions, effortWords, modelName, parseAgent } from '../start';
+import { agentOptions, modelName, parseAgent } from '../start';
 import type { Session, StartAccount } from '../types';
 import { ModelMenu } from './ModelMenu';
 
 export function SessionModel({ session: s, account, switches, busy, onSwitch, onDone }: { session: Session; account: StartAccount | undefined; switches: boolean; busy: boolean; onSwitch: (model: string) => void; onDone: () => void }) {
   const models = account?.models ?? [];
   const label = s.model ? modelName(s.model, models) : 'Model';
-  const effort = s.effort ? effortWords(s.effort, account?.efforts ?? []) : null;
+  const effort = s.effort ?? null;
   if (!switches || !account) {
     return (
       <span className="ca-modelmenu-said" title={effort ? 'The model and effort its latest reply came from' : 'The model its latest reply came from'}>

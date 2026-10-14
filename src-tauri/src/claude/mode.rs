@@ -30,8 +30,9 @@ pub(super) fn permission_mode(registry: Option<&RegistryEntry>, transcripts: &[P
 }
 
 /// A mode as Claude Code writes it (`permissionMode`), named as its own terminal and the Claude
-/// app name it (2.1.296's table of modes: `default` is Manual, and `manual` is taken for it).
-/// None for a mode it didn't have then.
+/// app name it (2.1.296's table of modes: `default` is Manual, and `manual` is taken for it),
+/// Bypass Permissions shortened to Bypass for the line under the reply box. None for a mode it
+/// didn't have then.
 pub fn session_mode(raw: &str) -> Option<SessionMode> {
     let (kind, label, detail) = match raw {
         "default" | "manual" => (ModeKind::Asks, "Manual", "Asks before it edits files or runs commands that do more than look."),
@@ -39,7 +40,7 @@ pub fn session_mode(raw: &str) -> Option<SessionMode> {
         "acceptEdits" => (ModeKind::Edits, "Accept edits", "Edits files without asking, and asks before other commands."),
         "auto" => (ModeKind::Auto, "Auto", "A classifier allows what looks safe and asks you about the rest."),
         "dontAsk" => (ModeKind::Other, "Don't Ask", "Does only what its settings allow, and refuses the rest without asking."),
-        "bypassPermissions" => (ModeKind::Skips, "Bypass Permissions", "Does everything without asking."),
+        "bypassPermissions" => (ModeKind::Skips, "Bypass", "Bypasses permissions: does everything without asking."),
         _ => return None,
     };
     Some(SessionMode::new(kind, label, detail))
@@ -79,7 +80,7 @@ mod tests {
         let mode = |raw: &str| session_mode(raw).map(|m| (m.kind, m.label));
         assert_eq!(mode("default"), Some((ModeKind::Asks, "Manual".to_string())));
         assert_eq!(mode("manual"), mode("default"));
-        assert_eq!(mode("bypassPermissions"), Some((ModeKind::Skips, "Bypass Permissions".to_string())));
+        assert_eq!(mode("bypassPermissions"), Some((ModeKind::Skips, "Bypass".to_string())));
         assert_eq!(mode("acceptEdits").map(|m| m.0), Some(ModeKind::Edits));
         assert_eq!(mode("plan").map(|m| m.0), Some(ModeKind::Plan));
         assert_eq!(mode("auto").map(|m| m.0), Some(ModeKind::Auto));

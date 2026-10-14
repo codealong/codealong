@@ -360,9 +360,9 @@ that terminal clears Claude Code's copy first (not in Terminal, which can't pres
 
 Under the box at the right are the mode a running session is in, the session's account (its
 harness on hover), beside where you write to it, and a small pie for its context window. The mode
-is how much it does without asking you, in its harness's own words, with what
+is how much it does without asking you, in its harness's own words, said lowercase, with what
 that means on hover (and in the header's Details): Claude Code's Manual, Plan, Accept edits, Auto,
-Don't Ask or Bypass Permissions (a terminal session's from its transcript, where a switch shows
+Don't Ask or Bypass (a terminal session's from its transcript, where a switch shows
 from its next prompt; the Claude app's from the app's record); Codex's Read Only, Ask for approval,
 Approve for me (its reviewer agent answers for you) or Full Access, and Plan, from its latest
 turn; OpenCode's agent (Build, Plan or one of yours); Cursor's Ask or Plan, and in its other modes
@@ -1088,9 +1088,10 @@ A running session's box says the model it's on beside Send (the one its latest r
 that it was switched to since), and where Codealong types into its terminal or runs it, that's a
 menu of its account's models: picking one switches that session alone (`/model <name>` typed into a
 Claude Code session, its agent's model for one Codealong runs), between turns. After the model,
-quieter, is the effort it's on, for Claude Code and Codex sessions: Low, Medium, High, Extra or Max
-effort (Codex's Minimal too), the level its latest reply was made at, or one `/effort` set since.
-The chip switches only the model.
+quieter, is the effort it's on, for Claude Code and Codex sessions, as the harness writes the level
+(`low`, `medium`, `high`, `xhigh`, `max`; Codex's `minimal` and `none` too): the level its latest
+reply was made at, or one `/effort` set since. The chip switches only the model. A session that
+isn't running says the effort it goes on with the same way, once one is picked.
 
 ### New session
 

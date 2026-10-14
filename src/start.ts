@@ -257,17 +257,6 @@ export function modelName(model: string, models: ModelOption[]): string {
   return long ? `${name} 1M` : name;
 }
 
-/**
- * A session's effort level the way its chip says it, after its model: by the name its account's
- * starts give it where they list it, else as written with a capital, `xhigh` being Extra
- * wherever it's from, as Claude Code's picker has it. Codex's `none` is a turn without reasoning.
- */
-export function effortWords(effort: string, efforts: { id: string; label: string }[]): string {
-  if (effort === 'none') return 'No reasoning';
-  const name = efforts.find((e) => e.id === effort)?.label ?? (effort === 'xhigh' ? 'Extra' : `${effort[0].toUpperCase()}${effort.slice(1)}`);
-  return `${name} effort`;
-}
-
 /** The limit a model counts against beyond the account's own, like Fable's week. */
 export function modelMeter(u: Usage | undefined, model: string | null): Meter | null {
   const family = modelFamily(model);

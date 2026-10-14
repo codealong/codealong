@@ -1,5 +1,7 @@
 /* A session's mode (ModeLabel.tsx): said as quietly as its account beside it. */
 .ca-mode { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 100%; color: var(--ink-2); font: var(--type-caption); }
 .ca-mode.is-small { color: var(--ink-3); }
+/* Under the reply box it's said lowercase, as terse as the account and the effort near it. */
+.ca-mode.is-small .ca-mode-name { text-transform: lowercase; }
 .ca-mode .ca-icon { flex: none; color: var(--ink-3); }
 .ca-mode-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
