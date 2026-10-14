@@ -1909,7 +1909,8 @@ The `codealong` command and a skill that tells an agent when to use it. `codealo
 which session runs it (found by its processes, or for the Codex app and OpenCode by the session's
 own record of the command), the other agents running in its worktree, and its open todos (the
 worktree's too, when no other agent runs there); a worktree's agents are the sessions running in it,
-not every session that ever worked there; `codealong todo
+not every session that ever worked there, nor an app's unrelated chats in its chats folder or a
+headless run; `codealong todo
 add|start|done|update|move|wait|ready|link` work the todo list, dependencies, waits and order
 included (`todo list --ready` is what can start now, `--waiting` what's under Waiting), and starting
 or finishing a todo links the session that ran the command; `codealong sessions [find <words>]`,

@@ -3525,7 +3525,9 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
     }
     if let Some(w) = &out.worktree {
         println!("Worktree {} ({}{}){}", tilde(Path::new(&w.id)), w.callsign, w.branch.as_deref().map(|b| format!(", {b}")).unwrap_or_default(), w.pr.map(|n| format!(", PR #{n}")).unwrap_or_default());
-        println!("{}", others_text(&out.others, w.sessions.saturating_sub(w.agents)));
+        // The chats that ended in an app's chats folder were never this one's neighbours.
+        let ended = if lane.is_some_and(|l| l.chats) { 0 } else { w.sessions.saturating_sub(w.agents) };
+        println!("{}", others_text(&out.others, ended));
     }
     for t in &out.todos {
         let mine = key.as_deref().is_some_and(|k| t.sessions.iter().any(|s| s == k));
@@ -3534,9 +3536,12 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// The agents running in a worktree other than the caller.
+/// The agents running in a worktree other than the caller, as `changes` tells a worktree's
+/// agents (`shared`): none in an app's chats folder (`Lane::chats`), whose chats are there
+/// together for having no folder of yours, not for working with you; and no headless run, which
+/// a script or an agent runs and reads itself.
 fn others_in<'a>(l: &'a Lane, key: Option<&'a str>) -> impl Iterator<Item = &'a Session> {
-    agents_in(l).filter(move |s| Some(s.key.as_str()) != key)
+    agents_in(l).filter(move |s| !l.chats && !s.headless && Some(s.key.as_str()) != key)
 }
 
 /// `whoami`'s line under the worktree: the other agents running there, or that there are none
@@ -5610,6 +5615,19 @@ mod tests {
         assert!(!row.improve);
         let improve = Board { improve: crate::improve::Improve { lane_id: Some("/r/long".into()), ..Default::default() }, ..b };
         assert!(lane_row(&improve.lanes[0], &improve).improve);
+    }
+
+    /// Antigravity's command line runs every chat started with no folder in one scratch folder,
+    /// and `whoami` named the unrelated chats there as running beside a session (2026-10-14).
+    #[test]
+    fn an_apps_chats_and_headless_runs_are_no_one_running_beside_you() {
+        let with = |key: &str| Session { status: Status::Working, ..session(key, true, None) };
+        let chats = Lane { chats: true, ..lane("/Users/me/.gemini/antigravity-cli/scratch", vec![with("me"), with("plan-review"), with("harness-test")]) };
+        assert_eq!(others_in(&chats, Some("me")).count(), 0);
+        let b = Board { lanes: vec![chats], todos: vec![todo("t", TodoStatus::Todo, &[], &["/Users/me/.gemini/antigravity-cli/scratch"])], ..Board::default() };
+        assert_eq!(my_todos(&b, Some("me"), Some(&b.lanes[0])).len(), 1);
+        let runs = lane("/r/evals", vec![with("me"), Session { headless: true, ..with("judge") }, with("neighbour")]);
+        assert_eq!(others_in(&runs, Some("me")).map(|s| s.key.as_str()).collect::<Vec<_>>(), ["neighbour"]);
     }
 
     #[test]
