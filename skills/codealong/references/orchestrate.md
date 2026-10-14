@@ -66,8 +66,11 @@ tick*. Otherwise start at *Starting*.
    changed since the last tick (new, working, waiting, finished, stopped), each with its
    `lastPromptAt` and, for the first dozen, its latest `prompt` and `reply`; `waiting`, every
    session that waits on your user now, each saying whether it has suggestions or a tag; `prs`
-   opened, approved, sent back, merged or closed; `todos`; and `shared`, worktrees a second agent
-   started working in. `notes` says what it couldn't read this time (PRs while GitHub doesn't
+   opened, approved, sent back, merged or closed; `todos`; `shared`, worktrees a second agent
+   started working in; and `headless`, how many headless runs (`claude -p`, `codex exec`, which a
+   script or an agent ran and reads itself) changed in each folder. Those aren't sessions to read
+   or overlaps: mention them only when they bear on something else, such as load or a folder's
+   owner. `notes` says what it couldn't read this time (PRs while GitHub doesn't
    answer, sessions while the app starts); those come next tick, so their absence isn't news.
    If the command fails, say so in one line and stop: the cursor stays, and the next tick picks
    it all up.

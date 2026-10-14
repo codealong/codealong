@@ -157,6 +157,9 @@ export interface Session {
    *  start --helper`), or an automatic review's session. While it doesn't need you it's out of
    *  the lists and queues, under what it helps (lanes.ts `helping`). Missing from older Macs. */
   helper?: Helper;
+  /** A run nobody is at (`claude -p`, `codex exec`): a script or an agent ran it and reads what
+   *  comes back, so a turn it ends is idle (board.rs `apply_headless`). Missing otherwise. */
+  headless?: boolean;
   /** The pages on the web it made or showed you (artifacts Claude Code published), the one it
    *  last published, updated or opened first (artifacts.rs). Missing when it has none, and from
    *  older Macs. */

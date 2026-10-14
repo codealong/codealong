@@ -308,6 +308,14 @@ pub struct Session {
     /// 2026-10-10, whose helpers show as sessions of their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub helper: Option<Helper>,
+    /// A run of its harness that nobody is at: a script or an agent ran it on a prompt and reads
+    /// what comes back itself (`claude -p`, `codex exec`), often hundreds at a time. A turn it
+    /// ends is idle rather than Your turn, an error and all, and `codealong sessions` and
+    /// `changes` leave it out unless asked. False where its harness doesn't say (OpenCode,
+    /// Antigravity, Cursor), for a session Codealong runs itself, and from Macs before
+    /// 2026-10-13.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub headless: bool,
     /// The pages on the web it made or showed you (`Artifact`), the one it last published,
     /// updated or opened first. Empty where its harness makes none, and from Macs before
     /// 2026-10-12.
@@ -488,6 +496,7 @@ impl Session {
             context: None,
             own_worktree: None,
             helper: None,
+            headless: false,
             artifacts: Vec::new(),
             color: None,
             emblem: None,

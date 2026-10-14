@@ -3,7 +3,9 @@
 //! took a turn, ended one, wait on their user or stopped; PRs in the user's repos opened,
 //! reviewed, merged or closed; todos added, started, finished or set waiting; and worktrees a
 //! second agent started working in. With it, the sessions that wait on the user now, so a quiet
-//! tick is one command.
+//! tick is one command. Headless runs (`Session::headless`: `claude -p`, `codex exec`) are
+//! counted by the worktree they ran in rather than told one by one, since a script or an agent
+//! can run hundreds and reads what they say itself, and they don't make a worktree shared.
 //!
 //! Each look is kept as a `Look` in changes.json, under the cursor it prints, and the next look
 //! says what differs from it. Differences, not times: a session's times are its harness's, and a
@@ -196,6 +198,20 @@ pub struct SessionRow {
     pub helper: bool,
 }
 
+/// The headless runs in a worktree that changed since the earlier look (`Session::headless`), in
+/// one line rather than a row each.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HeadlessRow {
+    pub worktree: String,
+    pub callsign: String,
+    pub project: String,
+    /// How many started, took a turn, ended one or stopped.
+    pub runs: usize,
+    /// How many of those are working now.
+    pub working: usize,
+}
+
 /// A session that waits on its user now, as `sessions --waiting` lists it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -282,6 +298,9 @@ pub struct Changes {
     /// What couldn't be read, or read in full, this time.
     pub notes: Vec<String>,
     pub sessions: Vec<SessionRow>,
+    /// Headless runs that changed, by worktree, the most first; `sessions` leaves them out.
+    #[serde(default)]
+    pub headless: Vec<HeadlessRow>,
     pub waiting: Vec<WaitingRow>,
     /// None when PRs couldn't be read.
     pub prs: Option<Vec<PrRow>>,
@@ -290,7 +309,8 @@ pub struct Changes {
 }
 
 impl Changes {
-    /// Nothing changed and nothing waits on the user without a suggestion or a tag.
+    /// Nothing changed and nothing waits on the user without a suggestion or a tag. Headless
+    /// runs don't count: what ran them reads them.
     pub fn quiet(&self) -> bool {
         self.sessions.is_empty() && self.prs.as_ref().map_or(true, Vec::is_empty) && self.todos.is_empty() && self.shared.is_empty()
     }
@@ -332,13 +352,16 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             if sight.me == Some(s.key.as_str()) || !in_project(&lane.project) {
                 continue;
             }
-            if let Some(change) = session_change(s, part.and_then(|p| p.marks.get(&s.key)), from) {
-                out.sessions.push(session_row(change, s, lane, board));
+            match session_change(s, part.and_then(|p| p.marks.get(&s.key)), from) {
+                Some(_) if s.headless => count_headless(&mut out.headless, s, lane),
+                Some(change) => out.sessions.push(session_row(change, s, lane, board)),
+                None => {}
             }
         }
         look.sessions = Some(Part { at: now, marks, repos: BTreeMap::new() });
         // Most in need of the user first, then the newest.
         out.sessions.sort_by_key(|r| (rank(r.change), -r.last_prompt_at));
+        out.headless.sort_by(|a, b| b.runs.cmp(&a.runs).then_with(|| a.callsign.cmp(&b.callsign)));
     } else {
         look.sessions = earlier.and_then(|l| l.sessions.clone());
         out.notes.push("Sessions: the app is still reading them after a start; nothing about them is told until it's done.".into());
@@ -500,6 +523,19 @@ pub fn session_change(s: &Session, mark: Option<&SessionMark>, since: i64) -> Op
     }
 }
 
+/// Counts a headless run that changed into its worktree's line.
+fn count_headless(rows: &mut Vec<HeadlessRow>, s: &Session, lane: &Lane) {
+    let at = match rows.iter().position(|r| r.worktree == lane.id) {
+        Some(at) => at,
+        None => {
+            rows.push(HeadlessRow { worktree: lane.id.clone(), callsign: lane.callsign.clone(), project: lane.project.clone(), runs: 0, working: 0 });
+            rows.len() - 1
+        }
+    };
+    rows[at].runs += 1;
+    rows[at].working += usize::from(s.status == Status::Working);
+}
+
 /// The order changes are told in: what the user is needed for first.
 fn rank(c: SessionChange) -> u8 {
     match c {
@@ -601,9 +637,10 @@ fn todo_row(change: TodoChange, t: &Todo) -> TodoRow {
 }
 
 /// A session of a worktree's own that's at work there now: working or waiting on its user, or
-/// live and active within the hour. Helpers work for another session and aren't counted.
+/// live and active within the hour. Helpers work for another session and headless runs for
+/// what ran them, so neither is counted.
 fn working_here(s: &Session, now: i64) -> bool {
-    s.visitor.is_none() && !s.archived && s.helper.is_none() && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || (s.live && now - s.last_activity < ACTIVE_MS))
+    s.visitor.is_none() && !s.archived && s.helper.is_none() && !s.headless && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || (s.live && now - s.last_activity < ACTIVE_MS))
 }
 
 /// The latest prompt in a page of a conversation, and the reply after it: the last thing its
@@ -958,6 +995,30 @@ mod tests {
         assert_eq!(out.shared[0].joined, vec!["b".to_string()]);
         let (out, _) = compare(&sight(&both), Some(&second), second.at, NOW + MIN);
         assert!(out.shared.is_empty());
+    }
+
+    #[test]
+    fn headless_runs_are_counted_by_worktree_and_share_nothing() {
+        let run = |key: &str, status: Status| Session { headless: true, started_at: Some(NOW - 2 * MIN), ..s(key, status, NOW - 2 * MIN) };
+        let b = Board {
+            lanes: vec![
+                lane("/r", vec![s("a", Status::Working, NOW - MIN), run("p1", Status::Working)]),
+                lane("/tmp/judge", vec![run("j1", Status::Working), run("j2", Status::Working), run("j3", Status::Idle)]),
+            ],
+            ..Board::default()
+        };
+        let (out, look) = compare(&Sight { board: &b, sessions: true, prs: false, me: None, project: None }, None, NOW - 15 * MIN, NOW);
+        assert_eq!(out.sessions.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), vec!["a"]);
+        let counted: Vec<(&str, usize, usize)> = out.headless.iter().map(|h| (h.callsign.as_str(), h.runs, h.working)).collect();
+        assert_eq!(counted, vec![("tmp/judge", 3, 2), ("r", 1, 1)]);
+        // Several in one folder, or one beside an agent, isn't a shared worktree.
+        assert!(out.shared.is_empty());
+        assert!(!out.quiet());
+        assert!(Changes { sessions: vec![], ..out.clone() }.quiet(), "headless runs alone are quiet");
+        // Marked like any session, so the next look tells only what changed again.
+        assert!(look.sessions.as_ref().unwrap().marks.contains_key("j3"));
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, me: None, project: None }, Some(&look), look.at, NOW + MIN);
+        assert!(out.headless.is_empty());
     }
 
     #[test]

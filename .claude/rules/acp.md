@@ -21,8 +21,9 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   run with `CLAUDE_CONFIG_DIR` (`claude/mod.rs`, `acp_command`): sign-in, settings (its mode
   starts at the account's `defaultMode`, e.g. bypassPermissions) and skills are the account's.
   The ACP session id is the Claude session id, and the transcript is the usual
-  `projects/<cwd>/<id>.jsonl` with `entrypoint: "sdk-cli"`; there's no `sessions/<pid>.json`,
-  so the board only knows it's live from acp.rs (`overlay`). Modes `default` (asks),
+  `projects/<cwd>/<id>.jsonl`. Its `entrypoint` was `sdk-cli` in early runs; on 2026-10-13 a
+  0.81.2 session's transcript and its claude's (2.1.280) `sessions/<pid>.json` both said
+  `sdk-ts`, `kind: interactive`. acp.rs (`overlay`) marks it hosted, and never headless. Modes `default` (asks),
   `acceptEdits`, `plan`, `auto`, `bypassPermissions`; its `model` option takes `opus`,
   `sonnet`, `haiku`, `opus[1m]`… A denied call doesn't end the turn: the agent carries on and
   says so. A session its command line started (an `sdk-cli` one from `claude -p` among them)

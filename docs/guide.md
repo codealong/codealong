@@ -1634,6 +1634,20 @@ yours for good: listed, counted and waiting on you as any of yours, and no longe
 session that started it. A helper whose session is gone from the board is a session of your own
 again. Macs from before helpers show another Mac's helpers as sessions of their own.
 
+### Headless runs
+
+A script or an agent can run an agent on a prompt with nobody at it, and read what comes back
+itself: `claude -p`, or `codex exec`. An eval that runs its judge that way can start hundreds. Each
+is a session in Codealong all the same, marked headless (`headless` in `codealong sessions`
+JSON), but a turn one ends is idle rather than Your turn, an error and all, since what ran it
+reads how it ended. One waiting to have a call allowed still needs you. `codealong sessions`
+leaves them out unless you ask for them with `--headless`, and `codealong changes` counts them by
+the folder they ran in instead of listing them, and doesn't take several in one folder, or one
+beside an agent, for a shared worktree. Claude Code marks a run headless itself (it names it
+`sdk-cli`, and leaves it out of its own `/resume` list); a session started through the Agent SDK
+isn't one, since that's often a front end someone types into. OpenCode, Antigravity and Cursor
+don't say, so their print runs are sessions like any other.
+
 ### Usage
 
 **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model limits such
@@ -1839,7 +1853,8 @@ codealong skill.
 Its two commands are for any agent. `codealong changes` says what changed since the cursor an
 earlier run printed: sessions that started, began or ended a turn, wait on you or stopped, each with
 its latest prompt and reply; PRs opened, out of draft, approved, sent back, merged or closed; todos
-added, started, done or set waiting; worktrees a second agent started working in. With them comes
+added, started, done or set waiting; worktrees a second agent started working in; and how many
+headless runs (*Headless runs*) changed in each folder, rather than a line each. With them comes
 every session that waits on you now, and whether each has suggestions or a tag. It tells by
 difference from what that run saw, kept for a week in `changes.json`, so a busy app or GitHub not
 answering never makes a session or a PR look new: what it couldn't read it says, and tells once it

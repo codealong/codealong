@@ -40,6 +40,9 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `codex/mod.rs` (`runs_its_commands`). The app's `exec` tool's `input` is JavaScript holding
   the command in a string literal (`tools.exec_command({cmd:\"…\"})`); a `function_call`'s
   `arguments` are JSON.
+- `codex exec` runs (`originator: "codex_exec"`, `source: "exec"`, `thread_source: "user"`,
+  0.157.1) are threads like any other, with nobody at them: `codex/rollout.rs`
+  (`ThreadInfo::exec`), `board.rs` (`Session::headless`).
 - Forks (`forked_from_id`), threads the app's agent made (`thread_source:
   "agent_created_thread"`, named in the `<codex_delegation>` that opens them) and subagents,
   which aren't threads of their own: `codex/rollout.rs` (`ThreadInfo::forked_from`,

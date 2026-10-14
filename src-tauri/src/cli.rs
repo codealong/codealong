@@ -136,7 +136,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TerminalCmd,
     },
-    /// What changed since an earlier look, for an agent that keeps watch over every session on a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started (`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a question, an error), ended a turn (`finished`) or stopped (`stopped`), each with its worktree, PRs, todos and `lastPromptAt` (for `session suggest` and `session tag`), and for the first --texts of them, waiting ones first, its latest prompt and reply; PRs in your repos opened, out of draft, approved, sent back, merged or closed, or asking your review (`prs`, null when they can't be read); todos added, started, done, reopened or set waiting; worktrees a second agent started working in (`shared`). With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has suggested replies or a tag. It prints a `cursor`: give it to --since next time, and what changed is told by difference from what this look saw, so a busy app or a GitHub error never makes a session or a PR look new. What it couldn't read is said in `notes`, and told once it can be. Without --since, or with a duration, it goes by times alone, which can't tell a review's change. The session running it is left out.
+    /// What changed since an earlier look, for an agent that keeps watch over every session on a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started (`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a question, an error), ended a turn (`finished`) or stopped (`stopped`), each with its worktree, PRs, todos and `lastPromptAt` (for `session suggest` and `session tag`), and for the first --texts of them, waiting ones first, its latest prompt and reply; PRs in your repos opened, out of draft, approved, sent back, merged or closed, or asking your review (`prs`, null when they can't be read); todos added, started, done, reopened or set waiting; worktrees a second agent started working in (`shared`). Headless runs (`claude -p`, `codex exec`, which a script or an agent started and reads itself) aren't sessions there, nor a second agent: they're counted by the worktree they ran in (`headless`). With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has suggested replies or a tag. It prints a `cursor`: give it to --since next time, and what changed is told by difference from what this look saw, so a busy app or a GitHub error never makes a session or a PR look new. What it couldn't read is said in `notes`, and told once it can be. Without --since, or with a duration, it goes by times alone, which can't tell a review's change. The session running it is left out.
     Changes(ChangesArgs),
     /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
@@ -480,6 +480,9 @@ struct SessionFilter {
     /// Archived ones too.
     #[arg(long)]
     archived: bool,
+    /// Headless runs too: `claude -p` and `codex exec` runs that a script or an agent started and reads itself (`headless` on each), often hundreds at a time.
+    #[arg(long)]
+    headless: bool,
     /// At most this many, most recently prompted first.
     #[arg(long, default_value_t = 50)]
     limit: usize,
@@ -1745,6 +1748,9 @@ struct SessionRow {
     /// agent, not its user.
     #[serde(skip_serializing_if = "Option::is_none")]
     helper: Option<crate::model::Helper>,
+    /// A run nobody is at (`claude -p`, `codex exec`): what ran it reads its replies.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    headless: bool,
     /// Where a search found the words in what was said, when it did: a line of the message.
     #[serde(skip_serializing_if = "Option::is_none")]
     said: Option<String>,
@@ -1776,6 +1782,7 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
         suggestions: s.suggestions.clone(),
         insight: s.insight.clone(),
         helper: s.helper.clone(),
+        headless: s.headless,
         said: None,
     }
 }
@@ -1846,6 +1853,7 @@ impl Wanted {
     /// Whether `sessions` lists `s`, from `lane`.
     fn lists(&self, f: &SessionFilter, s: &Session, lane: &Lane) -> bool {
         (f.archived || !s.archived)
+            && (f.headless || !s.headless)
             && self.me.as_deref() != Some(s.key.as_str())
             && f.account.as_deref().map_or(true, |a| a == s.account)
             && self.status.map_or(true, |st| st == s.status)
@@ -4377,6 +4385,11 @@ fn print_changes(out: &crate::changes::Changes, now: i64) {
         let rows = out.sessions.iter().map(|r| vec![word(&r.change), r.account.clone(), r.callsign.clone(), truncate(&r.title, 40), truncate(r.excerpt.as_deref().unwrap_or(""), 60), r.key.clone()]).collect();
         print!("{}", table_text(&["CHANGE", "ACCOUNT", "WORKTREE", "TITLE", "NOW", "KEY"], rows));
     }
+    if !out.headless.is_empty() {
+        println!("\nHeadless runs");
+        let rows = out.headless.iter().map(|h| vec![h.runs.to_string(), h.working.to_string(), h.callsign.clone()]).collect();
+        print!("{}", table_text(&["RUNS", "WORKING", "WORKTREE"], rows));
+    }
     let bare: Vec<&crate::changes::WaitingRow> = out.waiting.iter().filter(|w| !w.suggested && !w.tagged).collect();
     if !out.waiting.is_empty() {
         println!("\nWaiting on you: {}, {} with no suggested replies or tag", out.waiting.len(), bare.len());
@@ -5257,6 +5270,19 @@ mod tests {
         assert_eq!(found(wanted(Some("me"))), ["other", "asked"]);
         // Run from no session it knows, it lists them all.
         assert_eq!(found(wanted(None)), ["me", "other", "asked"]);
+    }
+
+    #[test]
+    fn headless_runs_are_listed_only_when_asked_for() {
+        let b = Board { lanes: vec![lane("/r/main", vec![session("me", true, None), Session { headless: true, ..session("judge", true, None) }])], ..Board::default() };
+        let filter = |args: &[&str]| {
+            let Cmd::Sessions(SessionsArgs { filter, .. }) = Cli::try_parse_from([&["codealong", "sessions"], args].concat()).unwrap().cmd else { panic!() };
+            filter
+        };
+        let wanted = Wanted { status: None, worktree: None, since: None, words: vec![], said: HashMap::new(), me: None, now: 0 };
+        let found = |f: SessionFilter| all_sessions(&b).into_iter().filter(|(s, l)| wanted.lists(&f, s, l)).map(|(s, _)| s.key.clone()).collect::<Vec<_>>();
+        assert_eq!(found(filter(&[])), ["me"]);
+        assert_eq!(found(filter(&["--headless"])), ["me", "judge"]);
     }
 
     #[test]

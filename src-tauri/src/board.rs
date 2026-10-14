@@ -275,6 +275,12 @@ pub fn claude_session(
     let status = if (limit.is_some() || cut_off.is_some()) && status == Status::Unread { Status::Error } else { status };
     let entrypoint = reg.and_then(|r| r.entrypoint.clone()).or_else(|| tr.and_then(|t| t.entrypoint.clone())).unwrap_or_default();
     let surface = if entrypoint.contains("desktop") { Surface::App } else { Surface::Cli };
+    // Claude Code calls a run with no terminal at it `sdk-cli` (`-p`, or its output piped), and
+    // leaves those out of its own /resume list with the Agent SDK's (`sdk-ts`, `sdk-py`). The
+    // SDK's are often front ends someone types into, as Codealong's own sessions are, so only
+    // the command line's print runs are headless. One resumed in a terminal later is headless
+    // again once that ends: the transcript says how it began.
+    let headless = entrypoint == "sdk-cli";
     let user_named = reg
         .filter(|r| matches!(r.name_source.as_deref(), Some("user") | Some("peer")))
         .and_then(|r| r.name.clone());
@@ -372,6 +378,7 @@ pub fn claude_session(
         // Held only while it runs: the lock and the cleanup at exit are its process's.
         own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
         color: tr.and_then(|t| t.color.as_deref()).and_then(crate::emblems::palette_color).map(String::from),
+        headless,
         ..known
     })
 }
@@ -465,6 +472,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         model: th.model.clone(),
         context: th.context.map(|(used, window)| ContextUse { used, window: window.or_else(|| th.model.as_deref().and_then(crate::prices::context_window)) }),
         cut_off,
+        headless: th.exec,
         ..known
     }
 }
@@ -1214,6 +1222,16 @@ pub fn helpers_of<'a>(lanes: &'a [Lane], key: &str) -> Vec<&'a Session> {
 /// to allow, a question, an error) still does, and your own Mark as unread still brings it back.
 pub fn apply_helper(s: &mut Session) {
     if s.helper.is_some() && s.status == Status::Unread {
+        s.status = Status::Idle;
+    }
+}
+
+/// Applies a headless run's rule to it (`Session::headless`), with a helper's: a turn it ends is
+/// idle, an error too, as what ran it reads how it ended and nobody is at it to go on from
+/// there. One waiting to have a call allowed still needs you, and your own Mark as unread still
+/// brings it back.
+pub fn apply_headless(s: &mut Session) {
+    if s.headless && matches!(s.status, Status::Unread | Status::Error) {
         s.status = Status::Idle;
     }
 }
@@ -3352,6 +3370,8 @@ mod tests {
         let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), ..Default::default() };
         assert_eq!(codex_session(&a, &th, Some("Photo tools"), None, None, 0, NOW).status, Status::Working);
         assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
+        assert!(!codex_session(&a, &th, None, None, None, 0, NOW).headless);
+        assert!(codex_session(&a, &ThreadInfo { exec: true, ..th.clone() }, None, None, None, 0, NOW).headless, "a `codex exec` run");
         th.last_ts = NOW - CODEX_STALE_MS - 1;
         assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).status, Status::Idle);
         th.turn_open = false;
@@ -3939,6 +3959,30 @@ mod tests {
             apply_helper(&mut h);
             assert_eq!((h.status, h.helping()), (want, !matches!(want, Status::Needs | Status::Error)));
         }
+    }
+
+    #[test]
+    fn a_print_run_is_headless_and_never_waits_on_you_for_its_end() {
+        let a = acct("claude2");
+        let at = |entrypoint: &str| TranscriptInfo { entrypoint: Some(entrypoint.into()), ..tr() };
+        let headless = |r: Option<&RegistryEntry>, t: &TranscriptInfo| claude_session(&a, r, Some(t), 0, NOW, &Quiet::default()).unwrap().headless;
+        // `claude -p`'s, running or done; not a terminal's, the app's or the Agent SDK's.
+        assert!(headless(None, &at("sdk-cli")));
+        assert!(headless(Some(&RegistryEntry { entrypoint: Some("sdk-cli".into()), ..reg("busy", NOW) }), &tr()));
+        for e in ["cli", "claude-desktop", "sdk-ts"] {
+            assert!(!headless(None, &at(e)), "{e}");
+        }
+        // Resumed in a terminal, it's that while it runs there.
+        assert!(!headless(Some(&RegistryEntry { entrypoint: Some("cli".into()), ..reg("idle", NOW) }), &at("sdk-cli")));
+        // Its ended turn is idle, an error too; one waiting on a call to allow still needs you.
+        for (st, want) in [(Status::Unread, Status::Idle), (Status::Error, Status::Idle), (Status::Needs, Status::Needs), (Status::Working, Status::Working)] {
+            let mut s = Session { status: st, headless: true, ..Session::new(Harness::Claude, "claude", "p") };
+            apply_headless(&mut s);
+            assert_eq!(s.status, want);
+        }
+        let mut yours = Session { status: Status::Error, ..Session::new(Harness::Claude, "claude", "y") };
+        apply_headless(&mut yours);
+        assert_eq!(yours.status, Status::Error);
     }
 
     #[test]

@@ -1650,20 +1650,21 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         sessions
     }
 
-    /// Sessions with quiet and helpers' rule, their marks of unread and their snoozes applied
-    /// (board::apply_quiet, board::apply_helper, board::apply_unread, board::apply_snooze). A
-    /// snooze's time coming changes nothing on disk: the 30-second heartbeat's publish brings it
-    /// back.
+    /// Sessions with quiet, helpers' and headless runs' rules, their marks of unread and their
+    /// snoozes applied (board::apply_quiet, board::apply_helper, board::apply_headless,
+    /// board::apply_unread, board::apply_snooze). A snooze's time coming changes nothing on disk:
+    /// the 30-second heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
-        let helpers = sessions.iter().any(|s| s.helper.is_some());
-        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && !helpers {
+        let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless);
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && !unattended {
             return sessions;
         }
         for s in &mut sessions {
-            // Quiet and a helper's rule first, so that what you do to it yourself after (a mark
-            // of unread, a snooze that ends) still brings it back.
+            // Quiet and a helper's or headless run's rule first, so that what you do to it
+            // yourself after (a mark of unread, a snooze that ends) still brings it back.
             board::apply_quiet(s, self.seen.is_quiet(&s.key));
             board::apply_helper(s);
+            board::apply_headless(s);
             // A mark of unread next: a snooze keeps a session marked unread off the bar too.
             board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);

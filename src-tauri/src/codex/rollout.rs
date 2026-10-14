@@ -38,6 +38,9 @@ pub struct ThreadInfo {
     pub work: Vec<String>,
     /// Started in the Codex CLI (`codex` in a terminal), not the app.
     pub cli: bool,
+    /// Run by `codex exec` (`source: "exec"`, originator `codex_exec`): a prompt run with nobody
+    /// at it, whose output went to what ran it.
+    pub exec: bool,
     /// The thread it's a fork of (`forked_from_id`): `codex fork`, or the app's Fork.
     pub forked_from: Option<String>,
     /// The model its latest turn ran on, from its `turn_context`.
@@ -377,6 +380,7 @@ pub fn parse_meta(first_line: &str) -> Option<ThreadInfo> {
         branch: p.pointer("/git/branch").and_then(Value::as_str).map(String::from),
         // The app writes "Codex Desktop"; the terminal UI "codex-tui" (and "codex_cli_rs" before).
         cli: matches!(p.get("originator").and_then(Value::as_str), Some("codex-tui" | "codex_cli_rs")),
+        exec: p.get("source").and_then(Value::as_str) == Some("exec"),
         forked_from: p.get("forked_from_id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(String::from),
         // Found in the lines after this one (`delegated_by`); marked here so they're read.
         started_by: (source == Some("agent_created_thread")).then(String::new),
@@ -724,6 +728,10 @@ mod tests {
     #[test]
     fn keeps_only_threads_you_started() {
         assert!(parse_meta(META_USER).is_some());
+        // `codex exec`'s are kept, as runs nobody is at.
+        assert!(!parse_meta(META_USER).unwrap().exec);
+        let exec = r#"{"type":"session_meta","payload":{"id":"x","cwd":"/x","originator":"codex_exec","source":"exec","thread_source":"user"}}"#;
+        assert!(parse_meta(exec).is_some_and(|th| th.exec && !th.cli));
         let guardian = r#"{"type":"session_meta","payload":{"id":"x","cwd":"/x","source":{"subagent":{"other":"guardian"}},"thread_source":"guardian_review"}}"#;
         assert!(parse_meta(guardian).is_none());
         let spawned = r#"{"type":"session_meta","payload":{"id":"x","cwd":"/x","source":{"subagent":{"thread_spawn":{}}},"thread_source":"subagent"}}"#;

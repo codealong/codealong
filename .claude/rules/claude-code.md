@@ -158,6 +158,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   terminal transcripts here, a few turns had no `turn_duration` after a finished reply, never
   after a call or a result. A long foreground `sleep` is refused by Claude Code itself and run in
   the background instead; a `python3 -c 'time.sleep(…)'` isn't.
+- Who's at a session, by `entrypoint` (registry and transcript lines): Claude Code sets
+  `CLAUDE_CODE_ENTRYPOINT` to `sdk-cli` when it runs non-interactively (`-p`, or its output not a
+  terminal) and nothing set it already, `cli` otherwise; the Agent SDKs set `sdk-ts` and `sdk-py`.
+  Its own session picker leaves out those three and `sessionKind` `daemon`/`daemon-worker`
+  (`isHiddenFromSessionPicker`, 2.1.296). A `claude -p … --no-session-persistence` run writes no
+  transcript, only its `sessions/<pid>.json` while it runs, named from its folder (`judge-cwd-xx`,
+  `nameSource: derived`): an eval's judge made about 1,100 of them in one folder (2026-10-13).
+  Codealong calls only `sdk-cli` headless (`board.rs` `claude_session`, `apply_headless`): an SDK
+  program is often a front end someone types into, as Codealong's own sessions are.
 - A turn ended for want of a connection is an `assistant` line with `isApiErrorMessage`,
   `error: "server_error"` and no `apiErrorStatus`, its text "API Error: " and Claude Code's words
   ("Can't reach the API server — check your internet or DNS (ENOTFOUND)", "Your computer went to

@@ -1159,6 +1159,8 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     let st = state();
     let Some(h) = st.sessions.get(&s.key) else { return };
     s.hosted = true;
+    // You're at it here, whatever started it: one taken on from a `claude -p` run included.
+    s.headless = false;
     let alive = h.loaded && alive(&st, &h.account);
     // Live, but with no pid of its own: the adapter's process serves all the account's hosted
     // sessions, and a session's pid is taken for its own (closing idle terminals, finding the
