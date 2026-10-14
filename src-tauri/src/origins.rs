@@ -192,6 +192,9 @@ pub struct Candidate<'a> {
     pub account: &'a str,
     /// When it started, or its first activity.
     pub started: i64,
+    /// When it started where its harness records that (`Session::started_at`): never a time it
+    /// was active, which says nothing of when it began.
+    pub created: Option<i64>,
     /// Its first prompt, else its latest, as its harness's reader keeps it.
     pub prompt: Option<&'a str>,
     /// When the process running it began, where one is running it (`procs::proc_start_ms`). Only
@@ -220,11 +223,11 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
     let starts: Vec<Pending> = store.pending.iter().filter(|q| now - q.at <= q.waits()).cloned().collect();
     let opens = |q: &Pending, s: &Candidate| q.opens.is_some() && s.prompt.and_then(opening) == q.opens;
     // Its own, late: its process began as the start did; or, with no process left to say, the
-    // session itself did, which the first half hour would have taken had the board been looked
-    // at (the app closed meanwhile, say).
+    // session itself did by its harness's record, which the first half hour would have taken had
+    // the board been looked at (the app closed meanwhile, say).
     let claims = |q: &Pending, s: &Candidate| {
         let soon = |t: i64| t >= q.at - PENDING_SLACK_MS && t <= q.at + LAUNCH_MS;
-        soon(s.launched.unwrap_or(s.started)) && opens(q, s) && q.account == s.account && q.lane == s.lane && s.key != q.from
+        s.launched.or(s.created).is_some_and(soon) && opens(q, s) && q.account == s.account && q.lane == s.lane && s.key != q.from
     };
     // Agents' starts first: one from no session notes no origin, and mustn't take the session of
     // an agent's that opens alike before that start does.
@@ -389,6 +392,7 @@ pub fn candidates<'a>(board: &'a crate::model::Board, pending: &[Pending]) -> Ve
                 lane: &l.id,
                 account: &s.account,
                 started: s.started_at.unwrap_or(s.last_activity),
+                created: s.started_at,
                 prompt: s.first_prompt.as_deref().or(s.last_prompt.as_deref()),
                 launched: launched(s),
             })
@@ -486,7 +490,7 @@ mod tests {
     #[test]
     fn a_pending_start_takes_the_first_new_session_of_its_account_in_its_worktree() {
         let mut store = Store { pending: vec![pending("claude:claude:boss", "/r/app", "opencode", 1_000_000)], ..Default::default() };
-        let c = |key: &'static str, lane: &'static str, account: &'static str, started: i64| Candidate { key, lane, account, started, prompt: None, launched: None };
+        let c = |key: &'static str, lane: &'static str, account: &'static str, started: i64| Candidate { key, lane, account, started, created: Some(started), prompt: None, launched: None };
         let sessions = [
             // Before the start, another account, and the one that asked: none of them.
             c("opencode:opencode:old", "/r/app", "opencode", 1_000_000 - 2 * PENDING_SLACK_MS),
@@ -515,7 +519,7 @@ mod tests {
     fn a_helper_started_without_a_key_is_a_helper_once_found() {
         let helper = Pending { helper: true, report: true, ..pending("claude:claude:boss", "/r/app", "opencode", 1_000_000) };
         let mut store = Store { pending: vec![helper], ..Default::default() };
-        let sessions = [Candidate { key: "opencode:opencode:new", lane: "/r/app", account: "opencode", started: 1_000_100, prompt: None, launched: None }];
+        let sessions = [Candidate { key: "opencode:opencode:new", lane: "/r/app", account: "opencode", started: 1_000_100, created: Some(1_000_100), prompt: None, launched: None }];
         assert!(resolve(&mut store, &sessions, &Repos, 1_000_300));
         assert_eq!(store.helper_of("opencode:opencode:new"), Some(("claude:claude:boss", true)));
         assert_eq!(store.origin_of("opencode:opencode:new").map(|o| o.how), Some(OriginHow::Started));
@@ -559,7 +563,7 @@ mod tests {
         let start = || Pending { helper: true, report: true, opens: opening(PROMPT), ..pending("claude:claude:boss", "/r/app", "codex", AT) };
         let late = AT + 66 * 60 * 1000;
         // Each session showed an hour on, its process begun when `launched` says.
-        let c = |key: &'static str, prompt: Option<&'static str>, launched: i64| Candidate { key, lane: "/r/app", account: "codex", started: late, prompt, launched: Some(launched) };
+        let c = |key: &'static str, prompt: Option<&'static str>, launched: i64| Candidate { key, lane: "/r/app", account: "codex", started: late, created: Some(late), prompt, launched: Some(launched) };
         // As Codex's reader keeps a prompt: its first line.
         let said = "Review the commits on this branch that origin/main doesn't have.";
         // Past the half hour, a session that opens otherwise isn't it, nor one with no prompt yet,
@@ -570,9 +574,14 @@ mod tests {
         // One that began as the start did and has finished since, its process gone, found only
         // now (the app was closed meanwhile): its own, and so not stuck.
         let mut finished = Store { pending: vec![start()], ..Default::default() };
-        let done = Candidate { started: AT + 20_000, launched: None, ..c("codex:codex:done", Some(said), AT) };
+        let done = Candidate { started: AT + 20_000, created: Some(AT + 20_000), launched: None, ..c("codex:codex:done", Some(said), AT) };
         assert!(resolve(&mut finished, &[done], &Repos, late + 1000));
         assert_eq!(finished.helper_of("codex:codex:done"), Some(("claude:claude:boss", true)));
+        // Not one whose harness keeps no start time, and whose last activity only says it finished
+        // then (Antigravity's): that's no sign of when it began.
+        let mut finished = Store { pending: vec![start()], ..Default::default() };
+        let unknown = Candidate { started: AT + 20_000, created: None, launched: None, ..c("codex:codex:unknown", Some(said), AT) };
+        assert!(!resolve(&mut finished, &[unknown], &Repos, late + 1000));
         // Nor one you started an hour on with the same words.
         assert!(!resolve(&mut store, &[c("codex:codex:yours", Some(said), late)], &Repos, late + 1000));
         assert_eq!(store.pending.len(), 1);
@@ -656,18 +665,18 @@ mod tests {
         // takes its own, and notes no origin.
         let agents = Pending { from: "claude:claude:boss".into(), at: AT + 10, opens: opening("Check the migration"), ..yours.clone() };
         let mut store = Store { pending: vec![yours, agents], ..Default::default() };
-        let helper = Candidate { key: "codex:codex:helper", lane: "/r/app", account: "codex", started: AT + 100, prompt: Some("Check the migration"), launched: Some(AT + 20) };
+        let helper = Candidate { key: "codex:codex:helper", lane: "/r/app", account: "codex", started: AT + 100, created: Some(AT + 100), prompt: Some("Check the migration"), launched: Some(AT + 20) };
         assert!(resolve(&mut store, &[helper], &Repos, AT + 200));
         assert_eq!(store.origin_of("codex:codex:helper").map(|o| o.key), Some("claude:claude:boss".into()));
         assert_eq!(store.pending.len(), 1);
-        let mine = Candidate { key: "codex:codex:mine", lane: "/r/app", account: "codex", started: AT + 300, prompt: Some("Review the branch"), launched: Some(AT + 50) };
+        let mine = Candidate { key: "codex:codex:mine", lane: "/r/app", account: "codex", started: AT + 300, created: Some(AT + 300), prompt: Some("Review the branch"), launched: Some(AT + 50) };
         assert!(resolve(&mut store, &[mine], &Repos, AT + 400));
         assert!(store.pending.is_empty() && store.origin_of("codex:codex:mine").is_none());
         // Nor when it opens alike and was started first: the agent's start takes its helper.
         let yours = Pending { from: String::new(), helper: false, report: false, opens: opening("Review the branch"), ..pending("", "/r/app", "codex", AT) };
         let agents = Pending { from: "claude:claude:boss".into(), helper: true, report: true, at: AT + 10, ..yours.clone() };
         let mut store = Store { pending: vec![yours, agents], ..Default::default() };
-        let helper = Candidate { key: "codex:codex:helper", lane: "/r/app", account: "codex", started: AT + 100, prompt: Some("Review the branch"), launched: Some(AT + 20) };
+        let helper = Candidate { key: "codex:codex:helper", lane: "/r/app", account: "codex", started: AT + 100, created: Some(AT + 100), prompt: Some("Review the branch"), launched: Some(AT + 20) };
         let other = Candidate { key: "codex:codex:other", prompt: Some("Fix the login bug"), started: AT + 150, ..helper };
         assert!(resolve(&mut store, &[helper, other], &Repos, AT + 200));
         assert_eq!(store.helper_of("codex:codex:helper"), Some(("claude:claude:boss", true)));
