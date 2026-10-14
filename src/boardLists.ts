@@ -215,16 +215,29 @@ function listedAll(s: Session, shown: ReadonlySet<string>): boolean {
  *  (`placeHelpers`) once opening one Codealong runs clears the search and the filters (App.tsx
  *  `reveal`). A finished one a search lists now would go with the search; an active one the
  *  search or a filter leaves out is listed from all of them (`placeHelpers`'s `all`). Unchanged
- *  otherwise, so the list stays as it is. */
-export function showingHelper(shown: string[], rows: readonly ListRow[], helper: SessionItem): string[] {
+ *  otherwise, so the list stays as it is. The keys that list the sessions above it in `all`
+ *  (`chainOf`) that are kept already stay, as `revealing` keeps them. */
+export function showingHelper(shown: string[], rows: readonly ListRow[], helper: SessionItem, all: readonly SessionItem[] = []): string[] {
   const s = helper.session;
-  const parent = workingFor(s);
   // A run is listed with the search cleared only while it needs you (`placeHelpers`).
   const stays = s.headless ? !unattended(s) : AGENT_BAY[s.status] != null;
   const listed = rows.some((r) => 'session' in r && r.session.key === s.key);
-  const key = parent && (s.headless ? runsShownKey(parent) : parent);
+  const [key, ...above] = chainOf(helper, all).flatMap(listingKey);
   if (!key || shown.includes(key) || (listed && stays)) return shown;
-  return toggleShown(shown, key);
+  return keeping(shown, [...above.filter((k) => shown.includes(k)).reverse(), key]);
+}
+
+/** What `shown` holds to list `r` under the session it works for: its session's key for a
+ *  helper, its `runsShownKey` for a headless run; none for a session of yours. */
+function listingKey(r: SessionItem): string[] {
+  const parent = workingFor(r.session);
+  return parent ? [r.session.headless ? runsShownKey(parent) : parent] : [];
+}
+
+/** `shown` with `need` last, in its order, ones there already moved there, trimmed to
+ *  `HELPERS_SHOWN_MAX`: the oldest others go, never one of `need`. */
+function keeping(shown: string[], need: readonly string[]): string[] {
+  return need.length === 0 ? shown : [...shown.filter((k) => !need.includes(k)), ...need].slice(-HELPERS_SHOWN_MAX);
 }
 
 /**
@@ -293,15 +306,14 @@ export function chainOf(item: SessionItem, all: readonly SessionItem[]): Session
 export function revealing(shown: string[], all: readonly SessionItem[], item: SessionItem): string[] {
   const lists = (keys: string[]) => placeHelpers([...all], false, new Set(keys), all).some((r) => r.session.key === item.session.key);
   const need: string[] = [];
-  const withNeed = () => (need.length === 0 ? shown : [...shown.filter((k) => !need.includes(k)), ...need].slice(-HELPERS_SHOWN_MAX));
   for (const r of chainOf(item, all)) {
-    const next = withNeed();
+    const next = keeping(shown, need);
     if (lists(next)) return next;
-    const parent = workingFor(r.session);
-    if (!parent) break;
-    need.push(r.session.headless ? runsShownKey(parent) : parent);
+    const key = listingKey(r);
+    if (key.length === 0) break;
+    need.push(...key);
   }
-  return withNeed();
+  return keeping(shown, need);
 }
 
 /** The sessions you asked to see all the helpers of, with `key` added or taken out: the latest

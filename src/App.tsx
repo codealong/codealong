@@ -1045,14 +1045,14 @@ export function App() {
     show: (key) => {
       const r = helperRow(key);
       if (!r) return;
-      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r));
+      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r, sessionItemsOf(lanes)));
       picks.sessions.select(r, 'one');
       focusBox();
     },
     open: (key) => {
       const r = helperRow(key);
       if (!r) return;
-      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r));
+      setHelpersShownList((prev) => showingHelper(prev, sessionRows, r, sessionItemsOf(lanes)));
       openRow(r);
     },
     menu: (key) => {

@@ -411,6 +411,22 @@ describe('the Sessions view’s lists', () => {
       expect(showingHelper(all, listed, row(ended))).toBe(all);
     });
 
+    it('keeps what lists a run’s helper when its card lists the run, however many are kept', () => {
+      const helper = session('codex:codex:helper', { status: 'idle', helper: { parent: boss.key } });
+      const deep = run('claude:claude2:deep', 'idle', { origin: { key: helper.key, how: 'started' } });
+      const items = sessionItemsOf([lane('/r/a', [boss, helper, deep])]);
+      const row = (s: Session) => items.find((r) => r.session.key === s.key)!;
+      // Its helper listed (every helper of the session shown), the oldest of a full list.
+      const others = Array.from({ length: HELPERS_SHOWN_MAX - 1 }, (_, i) => `other${i}`);
+      const shown = [boss.key, ...others];
+      const listed = placeHelpers(items, false, new Set(shown));
+      expect(keysOf(listed)).toEqual([boss.key, helper.key]);
+      const next = showingHelper(shown, listed, row(deep), items);
+      expect(next).toHaveLength(HELPERS_SHOWN_MAX);
+      expect(next.slice(-2)).toEqual([boss.key, runsShownKey(helper.key)]);
+      expect(keysOf(placeHelpers(items, false, new Set(next)))).toEqual([boss.key, helper.key, deep.key]);
+    });
+
     it('lists a run or a finished helper a window asks to show, once the search clears', () => {
       const done = session('codex:codex:done', { status: 'idle', helper: { parent: boss.key } });
       const items = sessionItemsOf([lane('/r/a', [boss, busy, ended, asks, done])]);
