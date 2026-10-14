@@ -16,6 +16,17 @@
     var c = calls('canvas_save').filter(function (c) { return !project || c[1].project === project; });
     return c.length ? c[c.length - 1][1] : null;
   };
+  // Holds the next call of a command until release(), for what happens in the window meanwhile.
+  var hold = function (cmd) {
+    var real = window.__TAURI_INTERNALS__.invoke;
+    var held = null;
+    window.__TAURI_INTERNALS__.invoke = function (c) {
+      if (c !== cmd || held) return real.apply(this, arguments);
+      var got = real.apply(this, arguments);
+      return new Promise(function (res) { held = function () { window.__TAURI_INTERNALS__.invoke = real; res(got); }; });
+    };
+    return { waiting: function () { return !!held; }, release: function () { held(); } };
+  };
   var within = function (outer, inner) {
     var cx = inner.x + inner.w / 2, cy = inner.y + inner.h / 2;
     return cx >= outer.x && cx <= outer.x + outer.w && cy >= outer.y && cy <= outer.y + outer.h;
@@ -122,6 +133,36 @@
       await wait(500);
       window.__TAURI_INTERNALS__.invoke = invoke;
       check('a read an arrange overtook leaves the arrangement', !overtaking.error && all('.ca-cv-frame-title').some(function (el) { return el.textContent === 'After the read'; }));
+
+      // A note added while an arrange reads the board is in what's arranged.
+      var userNotes = function () { var s = saved(project); return s ? s.doc.items.filter(function (it) { return it.kind === 'note' && !it.arranged; }).length : 0; };
+      var notesBefore = userNotes();
+      var boardRead = hold('get_board');
+      var noting = ask(null, { kind: 'arrange', frames: [{ title: 'With the note', cards: [{ ref: 'session', key: session.key }] }], rest: 'keep' });
+      await until(boardRead.waiting, 3000, 'the board read held');
+      var corner = q('.ca-cv').getBoundingClientRect();
+      await menuOf(q('.ca-cv'), { clientX: corner.left + 8, clientY: corner.top + 8 });
+      menuItem('Add note here')();
+      await wait(200);
+      boardRead.release();
+      var noted = await noting;
+      await wait(300);
+      check('a note added while the board was read is kept', !noted.error && userNotes() === notesBefore + 1, notesBefore + ' then ' + userNotes());
+
+      // An arrange that the window moved on to another project from while it was out saves its
+      // project's canvas and leaves the one the window shows.
+      if (other) {
+        var away = hold('get_board');
+        var leaving = ask(project, { kind: 'arrange', frames: [{ title: 'While away', cards: [{ ref: 'session', key: session.key }] }], rest: 'keep' });
+        await until(away.waiting, 3000, 'the board read held');
+        window.__emit('reveal', { kind: 'canvas', project: other });
+        await wait(1500);
+        away.release();
+        var left = await leaving;
+        await wait(500);
+        check('an arrange the window moved on from is saved for its project', !left.error && saved(project).doc.items.some(function (it) { return it.kind === 'frame' && it.title === 'While away'; }), JSON.stringify(left).slice(0, 160));
+        check('and leaves the canvas the window shows now', !!q('.ca-cv') && !all('.ca-cv-frame-title').some(function (el) { return el.textContent === 'While away'; }));
+      }
     })
     .then(done)
     .catch(stopped);

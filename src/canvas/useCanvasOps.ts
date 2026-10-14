@@ -48,7 +48,7 @@ export function useCanvasOps(ops: CanvasOps): void {
   useEffect(
     () =>
       onCanvasAsk((ask) => {
-        answer(ask, latest.current)
+        answer(ask, latest)
           .then(
             (result) => canvasAnswer(ask.id, { result }),
             (e: unknown) => canvasAnswer(ask.id, { error: errorText(e) }),
@@ -60,17 +60,22 @@ export function useCanvasOps(ops: CanvasOps): void {
   );
 }
 
-async function answer(ask: CanvasAsk, o: CanvasOps): Promise<unknown> {
+async function answer(ask: CanvasAsk, latest: { readonly current: CanvasOps }): Promise<unknown> {
   const board = await getBoard();
   if (board.loading) throw new Error('Codealong is still reading the board. Ask again in a moment.');
-  const project = canvasProject(ask.project, o.current, projectsOf(board.projects, o.deviceLanes));
-  const lanes = unarchived(withDevices(board.lanes, o.deviceLanes, o.deviceFilter)).filter((l) => inProject(l, project));
+  const { deviceLanes, deviceFilter } = latest.current;
+  const project = canvasProject(ask.project, latest.current.current, projectsOf(board.projects, deviceLanes));
+  const lanes = unarchived(withDevices(board.lanes, deviceLanes, deviceFilter)).filter((l) => inProject(l, project));
   const e = entitiesOf(board, lanes, board.todos, (p) => project === ALL_PROJECTS || p === project);
   const pinned = new Set(board.pinnedWorktrees);
+  const file = await canvasLoad(project).then((raw) => (raw ? readDoc(raw) : null));
+  // The window's own document once it holds the project's, which may have a change still to save,
+  // else the file. Taken after every wait, with nothing waited on from here to the save, so a
+  // change made in the window meanwhile is in what's arranged, and the project is still the one
+  // the window shows if it's put there.
+  const o = latest.current;
   const here = project === o.current;
-  // The window's own document once it holds the project's, which may have a change still to save;
-  // else the file.
-  const doc = here && o.canvas.loaded ? o.canvas.doc : await canvasLoad(project).then((raw) => (raw ? readDoc(raw) : null));
+  const doc = here && o.canvas.loaded ? o.canvas.doc : file;
   const op = ask.op as Op;
   if (op.kind === 'show') return { project, exists: !!doc, ...outline(doc ?? emptyDoc(), e) };
   if (op.kind === 'arrange') {

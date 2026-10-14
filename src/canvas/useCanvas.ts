@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { canvasLoad, canvasSave, onCanvasSaved, windowLabel } from '../api';
+import { useLatest } from '../latest';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { addRef, emptyDoc, itemId, readDoc, refId, sync, tidy, type CanvasDoc, type Entities, type RefKind } from './model';
 
@@ -49,6 +50,8 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
   // Counts the changes made here, each of which is saved: a read of another window's save that
   // one overtook would put back what came before it.
   const changes = useRef(0);
+  // The project shown now, for a `put` asked before the window moved on to another.
+  const projectNow = useLatest(project);
   const flush = useCallback(() => {
     window.clearTimeout(timer.current);
     const p = pending.current;
@@ -143,18 +146,21 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
 
   const put = useCallback(
     async (doc: CanvasDoc) => {
-      // Another project's change still to save goes first; this project's is superseded.
-      if (pending.current && pending.current.project !== project) flush();
       changes.current += 1;
-      window.clearTimeout(timer.current);
-      pending.current = null;
-      // Whether or not the project's document has been read yet: this is newer than what a read
-      // still out brings, which the read sees by the count.
-      setHeld({ project, doc });
+      // This project's change still to save is superseded; another's, the window having moved on
+      // since this was asked, is saved as it would have been.
+      if (pending.current?.project === project) {
+        window.clearTimeout(timer.current);
+        pending.current = null;
+      }
+      // The window's document while it still shows the project, whether or not its document has
+      // been read yet: this is newer than what a read still out brings, which the read sees by
+      // the count.
+      if (projectNow.current === project) setHeld({ project, doc });
       await canvasSave(project, doc);
       clearNotice('canvas');
     },
-    [project, flush],
+    [project, projectNow],
   );
 
   const keep = useCallback(
