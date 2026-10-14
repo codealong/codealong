@@ -107,8 +107,10 @@ pub trait Terminal: Sync {
 
     /// Types `text` into the tab a session's process runs in and sends it with `submit`,
     /// pressing the key that clears the input box first for `clear`, where it can press one
-    /// (`terminal_type_session`).
-    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed>;
+    /// (`terminal_type_session`). `passes`: the send has another way in after this one, so where
+    /// finding the tab is a question of its own (Ghostty), a slow one gives up before anything
+    /// is typed rather than waiting.
+    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit, passes: bool) -> Result<Typed>;
 
     /// Whether Codealong can press a single key there. Terminal presses Return after whatever
     /// a script types, and Claude Code takes "1" and Return arriving together as typed text, not
@@ -647,11 +649,12 @@ pub enum Typed {
 /// before the paste: arriving together, Claude Code takes both for one paste.
 ///
 /// `submit` is what sends it once it's in: Return, or keys typed in its place, which a terminal
-/// that can't press keys alone (Terminal) has none of, so nothing is typed there.
-pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
+/// that can't press keys alone (Terminal) has none of, so nothing is typed there. `passes`: the
+/// send has another way in after this one (`Terminal::type_session`).
+pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit, passes: bool) -> Result<Typed> {
     match terminal_kind(pid) {
         Some(terminal) if matches!(submit, Submit::Keys(_)) && !terminal.presses_keys() => Ok(Typed::Nowhere(format!("{} can't press the keys that send it now", terminal.name()))),
-        Some(terminal) => terminal.type_session(pid, cwd, text, clear, submit),
+        Some(terminal) => terminal.type_session(pid, cwd, text, clear, submit, passes),
         None => Ok(Typed::Nowhere(format!("it isn't in a {} tab", terminals_that(|_| true)))),
     }
 }
@@ -1148,7 +1151,7 @@ end run
             terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }, &dir, &input, &[]).unwrap();
             let pid: u32 = written(&ready).and_then(|p| p.trim().parse().ok()).unwrap_or_else(|| panic!("{profile}'s shell never started"));
             let kind = terminal_kind(pid);
-            let typed = terminal_type_session(pid, &dir, "ab\ncd", false, Submit::Return).unwrap();
+            let typed = terminal_type_session(pid, &dir, "ab\ncd", false, Submit::Return, false).unwrap();
             if profile == "iterm2" {
                 let host = terminal_host(pid, &dir).unwrap().expect("iTerm2 presses keys");
                 press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape)).unwrap();

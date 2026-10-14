@@ -490,8 +490,9 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     let mut last_err = None;
     // Why typing into its terminal didn't work, for the note on the way it went instead.
     let mut untyped = None;
-    for route in routes {
-        match attempt(&route, board, session, account, cfg, &msg, untyped.as_deref()) {
+    let last = routes.len().saturating_sub(1);
+    for (i, route) in routes.into_iter().enumerate() {
+        match attempt(&route, board, session, account, cfg, &msg, untyped.as_deref(), i < last) {
             Ok(Tried::Sent(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
             Ok(Tried::Passed(why)) => untyped = why.or(untyped),
@@ -711,8 +712,10 @@ pub(crate) fn codealong_routes(session: &Session, routes: Vec<Route>) -> Result<
 }
 
 /// One way in: it went, or nothing went and the next way is tried, or it failed. `untyped` is
-/// why typing into the session's terminal didn't work, when that was tried first.
-fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg, cfg: &Config, msg: &Message, untyped: Option<&str>) -> Result<Tried> {
+/// why typing into the session's terminal didn't work, when that was tried first; `passes`,
+/// whether there's a way after this one, which typing gives up for sooner.
+#[allow(clippy::too_many_arguments)]
+fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg, cfg: &Config, msg: &Message, untyped: Option<&str>, passes: bool) -> Result<Tried> {
     let text: &str = &msg.text;
     let busy = session.status == Status::Working;
     let now = msg.now_for(session);
@@ -730,7 +733,7 @@ fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg
                 Some(k) if presses => launch::Submit::Keys(k),
                 _ => launch::Submit::Return,
             };
-            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &boxed(&attachments::expand(text, adapter.typed_attachments())), clear, submit) {
+            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &boxed(&attachments::expand(text, adapter.typed_attachments())), clear, submit, passes) {
                 Ok(launch::Typed::Into(app)) => Ok(Tried::Sent(sent(match (now, submit, keys) {
                     (true, launch::Submit::Keys(_), _) => format!("Typed into {title} in {app} and sent now: it reads it without waiting for its current step."),
                     (true, _, None) => format!("Typed into {title} in {app} and sent now: it takes it into the turn it's taking."),
@@ -779,7 +782,7 @@ pub fn switch_model(board: &Board, cfg: &Config, key: &str, model: &str) -> Resu
     let msg = Message::new(board, cfg, &text, &Sender::You, false);
     let mut why = None;
     for route in adapter.routes(account, session).iter().filter(|r| matches!(r, Route::Type { .. })) {
-        match attempt(route, board, session, account, cfg, &msg, None)? {
+        match attempt(route, board, session, account, cfg, &msg, None, false)? {
             Tried::Sent(_) => return Ok(format!("Switched {title} to {label}: `{text}` went into its terminal.")),
             Tried::Passed(passed) => why = passed.or(why),
         }
@@ -958,7 +961,7 @@ mod tests {
         assert_eq!(told(&Sender::Elsewhere), (None, false, false, Some("no tab".into())));
         assert_eq!(told(&AGENT), (Some("codealong".into()), false, true, Some("no tab".into())));
         let msg = Message::new(&board, &cfg, "hi", &Sender::You, false);
-        let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &board, &s, &account, &cfg, &msg, None).unwrap() else { panic!("it passed") };
+        let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &board, &s, &account, &cfg, &msg, None, false).unwrap() else { panic!("it passed") };
         assert_eq!(went.message, "Stood in for “Fix the build”.");
     }
 

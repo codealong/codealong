@@ -66,7 +66,7 @@ impl Terminal for Tmux {
         Some(format!("{} attach -t {}", bin()?.to_string_lossy(), sh_quote(&pane.id)))
     }
 
-    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool, submit: Submit, _passes: bool) -> Result<Typed> {
         match pane_of(pid) {
             Some(Pane { id: pane, .. }) => {
                 if clear {

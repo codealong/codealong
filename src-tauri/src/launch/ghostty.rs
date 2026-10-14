@@ -81,8 +81,8 @@ impl Terminal for Ghostty {
     }
 
     /// Clearing the box first is Ghostty's own action for Ctrl+C, in the script that types.
-    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
-        let id = match terminal_of(pid, cwd, Some(FIND_WAIT)) {
+    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit, passes: bool) -> Result<Typed> {
+        let id = match terminal_of(pid, cwd, passes.then_some(FIND_WAIT)) {
             Ok(Some(id)) => id,
             Ok(None) => return Ok(Typed::Nowhere(untyped("Codealong couldn't find its Ghostty tab"))),
             // Nothing was typed yet, so another way can take it; say why this one didn't.
@@ -391,9 +391,9 @@ fn text_action(chars: &str) -> String {
 /// second look.
 const GHOSTTY_MARK_WAIT_SECS: &str = "8";
 
-/// How long a send gives Ghostty to find the session's tab before the prompt goes another way
-/// (Claude Code's message socket). Giving up costs nothing: nothing is typed until the tab is
-/// found. Another device waits 40 s for a send's answer (codealong-peer `ACT_WAIT`),
+/// How long a send that has another way in (Claude Code's message socket) gives Ghostty to find
+/// the session's tab before it goes that way. Giving up costs nothing: nothing is typed until
+/// the tab is found. Another device waits 40 s for a send's answer (codealong-peer `ACT_WAIT`),
 /// and on 2026-10-13, with the load near 100, a phone's send spent over a minute on Ghostty
 /// before it went by the socket: the phone said it hadn't gone, though it had. Found within
 /// this, the typing that follows is one question more.

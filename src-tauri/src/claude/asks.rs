@@ -168,7 +168,10 @@ pub fn decision_json(d: &Decision, asked: &Asked) -> Value {
 
 /// Lays a held request over its session as the engine reads it: it needs you, for that call.
 /// The time changes with each new request, so a panel showing the session asks again what it
-/// waits on.
+/// waits on. A command its turn left running in the background is no longer what it waits on
+/// (a background subagent can ask while the registry still says `shell`), so it's taken off:
+/// otherwise the session would read as sitting at its prompt and take what's typed
+/// (send.rs `waits_on_you`), and Jev would read the command rather than the call.
 pub fn overlay(s: &mut Session) {
     if s.harness != Harness::Claude {
         return;
@@ -180,6 +183,7 @@ pub fn overlay(s: &mut Session) {
     s.excerpt = Some(asked_label(&a));
     s.stalled_since = None;
     s.asks = false;
+    s.background = None;
 }
 
 /// Where a held request's session is, to see whether it still asks.
@@ -658,6 +662,9 @@ mod tests {
     fn a_held_request_shows_its_session_as_needing_you() {
         let mut s = session("overlay-1");
         s.status = Status::Working;
+        // Its turn had ended on a command left in the background: a subagent's request is what
+        // it waits on now, and nothing is typed while it does.
+        s.background = Some("npm run dev".into());
         let (tx, _rx) = channel();
         let asked = Asked { id: "ask-o1".into(), session: "overlay-1".into(), agent: None, tool: "Bash".into(), input: json!({ "command": "make" }), suggestions: vec![], at: 42 };
         held().push(Held { asked, tx });
@@ -665,6 +672,8 @@ mod tests {
         held().retain(|h| h.asked.id != "ask-o1");
         assert_eq!((s.status, s.status_since), (Status::Needs, Some(42)));
         assert_eq!(s.excerpt.as_deref(), Some("Bash · `make`"));
+        assert_eq!(s.background, None);
+        assert!(crate::send::waits_on_you(&s));
     }
 
     #[test]

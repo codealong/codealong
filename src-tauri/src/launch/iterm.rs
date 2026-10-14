@@ -58,7 +58,7 @@ impl Terminal for ITerm2 {
         focus_on_tty(&ITerm2, tty)
     }
 
-    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool, submit: Submit, _passes: bool) -> Result<Typed> {
         type_on_tty(APP, pid, text, clear.then_some(press), |tty, text| type_text(tty, text, submit))
     }
 

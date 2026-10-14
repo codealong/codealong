@@ -451,7 +451,7 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
         .routes(account, s)
         .into_iter()
         .find_map(|route| match route {
-            crate::send::Route::Type { pid } => Some(crate::launch::terminal_type_session(pid, Path::new(&s.cwd), command, true, crate::launch::Submit::Return)),
+            crate::send::Route::Type { pid } => Some(crate::launch::terminal_type_session(pid, Path::new(&s.cwd), command, true, crate::launch::Submit::Return, false)),
             _ => None,
         })
         .unwrap_or_else(|| Ok(crate::launch::Typed::Nowhere("it isn't in a terminal Codealong can type into".into())));

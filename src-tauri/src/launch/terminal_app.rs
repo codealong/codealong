@@ -59,7 +59,7 @@ impl Terminal for AppleTerminal {
     /// Terminal can't press a key without Return, so there the box stays as it is.
     /// Terminal presses Return after whatever its script types, so it sends with nothing else
     /// (`terminal_type_session` asks it for nothing else).
-    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, _clear: bool, _submit: Submit) -> Result<Typed> {
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, _clear: bool, _submit: Submit, _passes: bool) -> Result<Typed> {
         type_on_tty(APP, pid, text, None, type_text)
     }
 
