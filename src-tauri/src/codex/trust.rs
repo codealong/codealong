@@ -43,8 +43,8 @@ fn trust_root(folder: &Path) -> Option<PathBuf> {
         return None;
     }
     let common = worktrees.parent()?;
-    let named = |file: &str| small_file(&real_git_dir.join(file)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
-    let backlink = real_git_dir.join(named("gitdir")?);
+    let named = |file: &str| small_file(&real_git_dir.join(file));
+    let backlink = tidy(&real_git_dir.join(named("gitdir")?));
     if backlink.file_name()? != ".git" || real(backlink.parent()?)? != real(&root)? || real(&real_git_dir.join(named("commondir")?))? != common {
         return None;
     }
@@ -54,17 +54,48 @@ fn trust_root(folder: &Path) -> Option<PathBuf> {
     (real(&main_git_dir)? == common).then_some(main)
 }
 
-/// A file of git's own, read only when it's a small plain file, as Codex reads them.
-fn small_file(path: &Path) -> Option<String> {
+/// A file of git's own that holds a path, read as Codex reads them: only a small plain file, its
+/// ASCII whitespace trimmed, the bytes otherwise as they are (a name needn't be UTF-8). None when
+/// it's empty.
+fn small_file(path: &Path) -> Option<PathBuf> {
     let meta = std::fs::symlink_metadata(path).ok()?;
-    (meta.is_file() && meta.len() <= 64 * 1024).then(|| std::fs::read_to_string(path).ok()).flatten()
+    if !meta.is_file() || meta.len() > 64 * 1024 {
+        return None;
+    }
+    as_path(std::fs::read(path).ok()?.trim_ascii())
+}
+
+fn as_path(bytes: &[u8]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    (!bytes.is_empty()).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
 }
 
 /// The git folder a `.git` file names (`gitdir: <path>`), from the folder it's in.
 fn gitdir_named_in(dot_git: &Path) -> Option<PathBuf> {
-    let text = small_file(dot_git)?;
-    let target = text.trim().strip_prefix("gitdir:")?.trim();
-    (!target.is_empty()).then(|| dot_git.parent().map(|p| p.join(target))).flatten()
+    let meta = std::fs::symlink_metadata(dot_git).ok()?;
+    if !meta.is_file() || meta.len() > 64 * 1024 {
+        return None;
+    }
+    let bytes = std::fs::read(dot_git).ok()?;
+    let target = as_path(bytes.trim_ascii().strip_prefix(b"gitdir:")?.trim_ascii())?;
+    Some(tidy(&dot_git.parent()?.join(target)))
+}
+
+/// `path` with its `.` and `..` worked out by name, its links left as they are, as Codex joins
+/// paths: a main checkout reached through a link keeps the link's spelling.
+fn tidy(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Where Codex looks for an entry for `folder`: the folder, then the repo it trusts it by, each
@@ -128,8 +159,17 @@ fn with_trust(text: &str, keys: &[String], target: &str) -> anyhow::Result<Optio
         Item::Table(t)
     });
     let Some(listed) = projects.as_table_like() else { anyhow::bail!("its `projects` isn't a table") };
-    if keys.iter().any(|k| listed.get(k).and_then(|p| p.get("trust_level")).is_some()) {
-        return Ok(None);
+    // Codex goes by the first of them it has an entry for, even one that says nothing, and then
+    // asks: that's the entry the answer has to go in.
+    if let Some(key) = keys.iter().find(|k| listed.get(k).is_some()).cloned() {
+        if listed.get(&key).and_then(|p| p.get("trust_level")).is_some() {
+            return Ok(None);
+        }
+        let Some(entry) = projects.as_table_like_mut().and_then(|t| t.get_mut(&key)).and_then(Item::as_table_like_mut) else {
+            anyhow::bail!("its entry for {key} isn't a table")
+        };
+        entry.insert("trust_level", value("trusted"));
+        return Ok(Some(doc.to_string()));
     }
     match projects {
         Item::Value(Value::InlineTable(inline)) => {
@@ -206,6 +246,15 @@ mod tests {
         let feature = home.join("repos/feature");
         worktree(&bare.join("worktrees/feature"), &feature, &feature);
         assert_eq!(trust_target(&feature), feature);
+        // A `.git` that names its git folder from where it is, through the link, spells the main
+        // checkout by the link, its `..` worked out.
+        let relative = home.join("r/wt-rel");
+        std::fs::create_dir_all(link.join(".git/worktrees/wt-rel")).unwrap();
+        std::fs::create_dir_all(&relative).unwrap();
+        std::fs::write(relative.join(".git"), "gitdir: ../alias/.git/worktrees/wt-rel\n").unwrap();
+        std::fs::write(link.join(".git/worktrees/wt-rel/commondir"), "../..\n").unwrap();
+        std::fs::write(link.join(".git/worktrees/wt-rel/gitdir"), format!("{}\n", relative.join(".git").display())).unwrap();
+        assert_eq!(trust_root(&relative), Some(link.clone()));
         // An answer kept under the link's spelling is found.
         let untrusted_link = format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", link.display());
         assert_eq!(with_trust(&untrusted_link, &lookup_keys(&by_link), &trust_target(&by_link).to_string_lossy()).unwrap(), None);
@@ -213,6 +262,11 @@ mod tests {
         // An answer of untrusted stands.
         let untrusted = format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", repo.display());
         assert_eq!(with_trust(&untrusted, &lookup_keys(&repo), &repo.to_string_lossy()).unwrap(), None);
+        // An entry for the folder that says nothing comes first, so it's the one that's answered.
+        let empty = format!("[projects.\"{}\"]\n[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", wt.display(), main.display());
+        let answered: toml::Table = with_trust(&empty, &lookup_keys(&wt), &trust_target(&wt).to_string_lossy()).unwrap().unwrap().parse().unwrap();
+        assert_eq!(answered["projects"][&wt.to_string_lossy().into_owned()]["trust_level"].as_str(), Some("trusted"));
+        assert_eq!(answered["projects"][&main.to_string_lossy().into_owned()]["trust_level"].as_str(), Some("untrusted"));
         // Projects written inline get one more the same way.
         let inline = "projects = { \"/r/a\" = { trust_level = \"trusted\" } }\n";
         assert_eq!(with_trust(inline, &["/r/a".into()], "/r/a").unwrap(), None);
