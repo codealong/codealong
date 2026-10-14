@@ -982,6 +982,12 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let to = c.read::<params::Move>()?;
     let cfg = cfg()?;
+    // A move an account turned off refuses stops nothing first.
+    let before = engine.board();
+    harness::find(&before, &cfg, key).map_err(words)?.1.ensure_on().map_err(words)?;
+    if let Some(target) = cfg.accounts.iter().find(|a| a.name == to.account) {
+        target.ensure_on().map_err(words)?;
+    }
     let stopped = stop_to_move(engine, &cfg, key)?;
     let board = engine.board();
     if !to.lane.is_empty() {

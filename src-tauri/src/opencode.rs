@@ -473,24 +473,31 @@ pub fn sign_in_note(home: &Path) -> Option<String> {
     sign_in_note_in(&db, home.join("auth.json").is_file())
 }
 
-/// The providers it's signed in to, else, with no OpenCode account and no legacy `auth.json`
-/// (`legacy`) either, that it runs only OpenCode's free models. None leaves it to the email.
+/// The providers it's signed in to, else, with no OpenCode account either, that it runs only
+/// OpenCode's free models. None leaves it to the email. An older OpenCode, whose database has
+/// no credentials, kept its sign-ins in `auth.json` (`legacy`); OpenCode 2.0 moved them into
+/// the database and left the file, so once the database has them the file says nothing.
 fn sign_in_note_in(db: &Connection, legacy: bool) -> Option<String> {
-    let providers = providers(db);
+    let providers = match providers(db) {
+        Some(p) => p,
+        None if legacy => return None,
+        None => Vec::new(),
+    };
     if !providers.is_empty() {
         return Some(format!("Signed in to {}", crate::util::listed(&providers, "and")));
     }
     let accounts = db.query_row("SELECT count(*) FROM account", [], |r| r.get::<_, i64>(0)).unwrap_or(0);
-    (!legacy && accounts == 0).then(|| "Free models only".to_string())
+    (accounts == 0).then(|| "Free models only".to_string())
 }
 
 /// The providers it has a credential for, the first signed in to first, each by the name in
 /// the models.dev catalog OpenCode keeps (`kv`'s `models-dev:catalog`, whose `body` is the
-/// catalog's JSON as text), else by its id. A credential's `integration_id` is the provider's
-/// id (`anthropic`, `github-copilot`, `opencode` for OpenCode Zen), or a well-known source's
-/// URL; OpenCode 2.0's migration moved `auth.json`'s sign-ins there under the same keys.
-fn providers(db: &Connection) -> Vec<String> {
-    let Ok(mut q) = db.prepare("SELECT integration_id FROM credential GROUP BY integration_id ORDER BY min(time_created)") else { return Vec::new() };
+/// catalog's JSON as text), else by its id; None for a database with no credentials (before
+/// 2.0). A credential's `integration_id` is the provider's id (`anthropic`, `github-copilot`,
+/// `opencode` for OpenCode Zen), or a well-known source's URL; 2.0's migration moved
+/// `auth.json`'s sign-ins there under the same keys.
+fn providers(db: &Connection) -> Option<Vec<String>> {
+    let mut q = db.prepare("SELECT integration_id FROM credential GROUP BY integration_id ORDER BY min(time_created)").ok()?;
     let ids: Vec<String> = q.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
     // A quote would end the path, so such an id keeps its own name.
     let name = |id: &str| -> Option<String> {
@@ -499,7 +506,7 @@ fn providers(db: &Connection) -> Vec<String> {
         }
         db.query_row("SELECT json_extract(json_extract(value, '$.body'), ?1) FROM kv WHERE key = 'models-dev:catalog'", [format!("$.\"{id}\".name")], |r| r.get(0)).ok().flatten()
     };
-    ids.into_iter().map(|id| name(&id).unwrap_or(id)).collect()
+    Some(ids.into_iter().map(|id| name(&id).unwrap_or(id)).collect())
 }
 
 // ---- The background service ----
@@ -1305,8 +1312,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sign_in_note_in(&db, false).as_deref(), Some("Free models only"));
-        // An older OpenCode's sign-ins, or an OpenCode account, leave it to the email.
-        assert_eq!(sign_in_note_in(&db, true), None);
+        // The `auth.json` 2.0's migration left behind says nothing once the database keeps them.
+        assert_eq!(sign_in_note_in(&db, true).as_deref(), Some("Free models only"));
+        // An OpenCode account leaves it to the email.
         db.execute_batch("INSERT INTO account VALUES ('a', 'ana@example.com', 'https://opencode.ai', 1, 1);").unwrap();
         assert_eq!(sign_in_note_in(&db, false), None);
         // A provider the catalog doesn't name keeps its id; two credentials for one are one.
@@ -1319,6 +1327,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sign_in_note_in(&db, false).as_deref(), Some("Signed in to GitHub Copilot, Anthropic and acme\""));
+        // An older OpenCode's database has no credentials: its `auth.json` says it's signed in.
+        let old = Connection::open_in_memory().unwrap();
+        old.execute_batch("CREATE TABLE account (id TEXT PRIMARY KEY, email TEXT NOT NULL, url TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);").unwrap();
+        assert_eq!(sign_in_note_in(&old, true), None);
+        assert_eq!(sign_in_note_in(&old, false).as_deref(), Some("Free models only"));
     }
 
     #[test]

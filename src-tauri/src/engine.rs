@@ -673,6 +673,10 @@ fn archive_in_harness(key: &str, archived: bool) -> Result<()> {
 
 /// Opens a lane's target on `board`. Returns the key of the session it opened, if any.
 pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<String>> {
+    open_with(board, &config::current()?, lane_id, target_id)
+}
+
+fn open_with(board: &Board, cfg: &config::Config, lane_id: &str, target_id: &str) -> Result<Option<String>> {
     let lane = board.lanes.iter().find(|l| l.id == lane_id).cloned().ok_or_else(|| anyhow!("That lane just changed. Try again."))?;
     let apps = board.apps.clone();
     let path = PathBuf::from(&lane.path);
@@ -704,6 +708,8 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 }
                 "resume" => {
                     let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
+                    // Going on starts it again, which nothing does on an account turned off.
+                    harness::find(board, cfg, key)?.1.ensure_on()?;
                     launch::terminal_open(&apps.terminal_id, named, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 // A new terminal in the folder it works in, beside the terminals already there
@@ -3852,6 +3858,19 @@ mod tests {
         let words = Engine::waiting_call(&crate::fixtures::session(key), None).unwrap();
         assert!(words.starts_with("Run in your terminal") && words.ends_with("echo tidying up\nrm -rf ~/projects"), "{words}");
         crate::terminal::deny(key, "run-engine-risk", None);
+    }
+
+    /// Resume in a terminal starts a session again, so an account turned off refuses it before
+    /// any terminal opens.
+    #[test]
+    fn resume_from_open_refuses_an_account_turned_off() {
+        use super::*;
+        let stopped = crate::model::Session { live: false, resume_command: Some("claude --resume stopped".into()), ..crate::fixtures::session("stopped") };
+        let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![stopped])], ..Board::default() };
+        let off = config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: true };
+        let cfg = config::Config { accounts: vec![off], ..config::Config::default() };
+        let e = open_with(&board, &cfg, "/r", "s|stopped|resume").unwrap_err().to_string();
+        assert_eq!(e, "claude is turned off in Settings › Accounts.");
     }
 
     #[test]

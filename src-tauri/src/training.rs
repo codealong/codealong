@@ -82,9 +82,10 @@ pub fn read(account: &AccountCfg) -> Training {
     }
 }
 
-/// Reads every account's, one after another: for the engine's background read and the snapshot.
+/// Reads every account's but those turned off, one after another: for the engine's background
+/// read and the snapshot.
 pub fn read_all(accounts: &[AccountCfg]) -> Vec<Training> {
-    accounts.iter().map(read).collect()
+    accounts.iter().filter(|a| !a.disabled).map(read).collect()
 }
 
 /// Turns training off for an account, then reads it again to see that it took.
@@ -212,6 +213,14 @@ mod tests {
 
     fn reading(name: &str, state: State) -> Training {
         Training { account: name.into(), state, note: String::new(), can_stop: false, url: None, as_of: Some(1), stale: None }
+    }
+
+    /// An account turned off isn't asked, by the engine's poll or by the snapshot.
+    #[test]
+    fn an_account_turned_off_is_never_asked() {
+        let off = AccountCfg { disabled: true, ..account("claude") };
+        assert!(read_all(std::slice::from_ref(&off)).is_empty());
+        assert!(TrainingPoll::default().due(&[off], Instant::now()).is_empty());
     }
 
     #[test]

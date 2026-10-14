@@ -407,6 +407,7 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
     if let Some(ag) = running(&a.name) {
         return Ok(ag);
     }
+    a.ensure_on()?;
     let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // Through a shell, so an account's command may set variables the way it does in a terminal.
     let mut cmd = Command::new("/bin/sh");
@@ -847,6 +848,11 @@ pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
         if h.deleting {
             bail!("It's being archived.");
+        }
+        // One not running in its adapter now is picked up again, which nothing does on an
+        // account turned off; a running one still takes what's sent.
+        if !(h.loaded && alive) {
+            a.ensure_on()?;
         }
         if h.running {
             h.queue.push(text.to_string());
