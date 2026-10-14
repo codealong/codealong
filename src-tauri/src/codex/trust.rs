@@ -2,20 +2,36 @@
 //! its terminal UI's first screen in a folder does (0.157.1's code).
 //!
 //! A folder is trusted by an entry `[projects."<path>"] trust_level = "trusted"` for the folder
-//! itself, or for the repo it's in, a worktree going by its repo's main checkout, each path as
-//! given or with its links resolved; a folder above one doesn't count (config's
-//! `get_active_project`, git-utils' `resolve_root_git_project_for_trust`). Without an entry the
+//! itself, or for the repo it's in (`trust_root`: a worktree goes by its main checkout, a bare
+//! repository's by itself), each path as given or with its links resolved; a folder above one
+//! doesn't count (config's `get_active_project`, git-utils' `resolve_root_git_project_for_trust`). Without an entry the
 //! terminal UI asks first; an `untrusted` entry is an answer too, and isn't asked again. Trust is
 //! written for the repo's main checkout, else the folder, by its real path (`project_trust_key`).
 
 use std::path::{Path, PathBuf};
 
-/// Where Codex looks for an entry for `folder`: the folder, then its repo's main checkout, each
+/// The repo Codex trusts `folder` by: the checkout whose `.git` folder it's in, or for a
+/// worktree its main checkout, but only when that checkout's own `.git` is the worktree's common
+/// folder (git-utils' `resolve_root_git_project_for_trust`). A bare repository's worktree, or one
+/// whose main checkout keeps its git folder elsewhere, has none, and goes by the folder itself.
+fn trust_root(folder: &Path) -> Option<PathBuf> {
+    let (root, main) = crate::repos::locate(folder)?;
+    if root == main {
+        return Some(root);
+    }
+    let gitdir = crate::repos::linked_gitdir(&root)?;
+    let common = gitdir.join(std::fs::read_to_string(gitdir.join("commondir")).ok()?.trim());
+    let main_git = main.join(".git");
+    let main_git = if main_git.is_dir() { main_git } else { crate::repos::linked_gitdir(&main)? };
+    (std::fs::canonicalize(main_git).ok()? == std::fs::canonicalize(common).ok()?).then_some(main)
+}
+
+/// Where Codex looks for an entry for `folder`: the folder, then the repo it trusts it by, each
 /// with its links resolved and as given.
 fn lookup_keys(folder: &Path) -> Vec<String> {
-    let main = crate::repos::locate(folder).map(|(_, main)| main);
+    let root = trust_root(folder);
     let mut keys = Vec::new();
-    for path in std::iter::once(folder).chain(main.as_deref()) {
+    for path in std::iter::once(folder).chain(root.as_deref()) {
         let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         for p in [real.as_path(), path] {
             let key = p.to_string_lossy().into_owned();
@@ -27,10 +43,10 @@ fn lookup_keys(folder: &Path) -> Vec<String> {
     keys
 }
 
-/// The folder Codex trusts for `folder`, as its own Trust writes it: its repo's main checkout,
-/// else the folder, with its links resolved.
+/// The folder Codex trusts for `folder`, as its own Trust writes it: the repo it trusts it by
+/// (`trust_root`), else the folder, with its links resolved.
 fn trust_target(folder: &Path) -> PathBuf {
-    let target = crate::repos::locate(folder).map_or_else(|| folder.to_path_buf(), |(_, main)| main);
+    let target = trust_root(folder).unwrap_or_else(|| folder.to_path_buf());
     std::fs::canonicalize(&target).unwrap_or(target)
 }
 
@@ -58,26 +74,35 @@ pub fn trust_folder(config: &Path, folder: &Path, user_home: &Path) -> anyhow::R
 }
 
 /// `text`, a Codex config.toml, with `target` trusted, or None when one of `keys` has an answer
-/// already. Everything else keeps its text, comments included.
+/// already. Everything else keeps its text, comments included. `projects` may be written as
+/// tables or inline (`projects = { "/r" = { trust_level = "trusted" } }`), which Codex takes too,
+/// and an entry is added in the same form.
 fn with_trust(text: &str, keys: &[String], target: &str) -> anyhow::Result<Option<String>> {
-    use toml_edit::{table, value, DocumentMut, Item, Table};
+    use toml_edit::{table, value, DocumentMut, InlineTable, Item, Table, Value};
     let mut doc: DocumentMut = text.parse()?;
-    let answered = |projects: &Table| keys.iter().any(|k| projects.get(k).and_then(|p| p.get("trust_level")).is_some());
-    match doc.get("projects") {
-        Some(Item::Table(projects)) if answered(projects) => return Ok(None),
-        Some(Item::Table(_)) | None => {}
-        Some(_) => anyhow::bail!("its `projects` isn't a table"),
-    }
     let projects = doc.entry("projects").or_insert_with(|| {
         let mut t = Table::new();
         // Each project its own `[projects."…"]`, as Codex writes them.
         t.set_implicit(true);
         Item::Table(t)
     });
-    let Some(projects) = projects.as_table_mut() else { anyhow::bail!("its `projects` isn't a table") };
-    let mut entry = table();
-    entry["trust_level"] = value("trusted");
-    projects.insert(target, entry);
+    let Some(listed) = projects.as_table_like() else { anyhow::bail!("its `projects` isn't a table") };
+    if keys.iter().any(|k| listed.get(k).and_then(|p| p.get("trust_level")).is_some()) {
+        return Ok(None);
+    }
+    match projects {
+        Item::Value(Value::InlineTable(inline)) => {
+            let mut entry = InlineTable::new();
+            entry.insert("trust_level", "trusted".into());
+            inline.insert(target, Value::InlineTable(entry));
+        }
+        _ => {
+            let Some(projects) = projects.as_table_mut() else { anyhow::bail!("its `projects` isn't a table") };
+            let mut entry = table();
+            entry["trust_level"] = value("trusted");
+            projects.insert(target, entry);
+        }
+    }
     Ok(Some(doc.to_string()))
 }
 
@@ -110,9 +135,32 @@ mod tests {
         std::fs::create_dir_all(&other).unwrap();
         assert!(trust_folder(&config, &other, &home).unwrap());
 
+        // A worktree goes by its main checkout; a bare repository's by itself.
+        let main = home.join("r/main");
+        std::fs::create_dir_all(main.join(".git/worktrees/wt")).unwrap();
+        let wt = home.join("r/wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", main.join(".git/worktrees/wt").display())).unwrap();
+        std::fs::write(main.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
+        assert_eq!(trust_target(&wt), main);
+        let bare = home.join("repos/project.git");
+        std::fs::create_dir_all(bare.join("worktrees/feature")).unwrap();
+        let feature = home.join("repos/feature");
+        std::fs::create_dir_all(&feature).unwrap();
+        std::fs::write(feature.join(".git"), format!("gitdir: {}\n", bare.join("worktrees/feature").display())).unwrap();
+        std::fs::write(bare.join("worktrees/feature/commondir"), "../..\n").unwrap();
+        assert_eq!(trust_target(&feature), feature);
+
         // An answer of untrusted stands.
         let untrusted = format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", repo.display());
         assert_eq!(with_trust(&untrusted, &lookup_keys(&repo), &repo.to_string_lossy()).unwrap(), None);
+        // Projects written inline get one more the same way.
+        let inline = "projects = { \"/r/a\" = { trust_level = \"trusted\" } }\n";
+        assert_eq!(with_trust(inline, &["/r/a".into()], "/r/a").unwrap(), None);
+        let added: toml::Table = with_trust(inline, &["/r/b".into()], "/r/b").unwrap().unwrap().parse().unwrap();
+        assert_eq!(added["projects"]["/r/a"]["trust_level"].as_str(), Some("trusted"));
+        assert_eq!(added["projects"]["/r/b"]["trust_level"].as_str(), Some("trusted"));
+        assert!(with_trust("projects = 3\n", &["/r/b".into()], "/r/b").is_err());
         // A config that isn't there yet, or has no projects.
         assert_eq!(with_trust("", &["/r/a".into()], "/r/a").unwrap().as_deref(), Some("[projects.\"/r/a\"]\ntrust_level = \"trusted\"\n"));
         // Never the home folder or above, nor a file that doesn't read.
