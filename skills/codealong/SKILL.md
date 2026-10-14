@@ -280,7 +280,8 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   its checks fail or its branch comes to conflict with its base, with where the PR stands;
   `[pull_requests] nudge_about` can keep that to comments and requests for changes
   (`"feedback"`), and failing checks and conflicts (`"feedback-and-checks"`).
-  What you do to it yourself through `gh` isn't told back. The primary session is the one that opened the PR; the PR's other sessions are never
+  What you do to it yourself through `gh` isn't told back. The primary session is the one that pushed to the PR's branch most, the one that opened
+  it winning a tie (`codealong pr show` says which and why); the PR's other sessions are never
   told. Run it from your session and you become the one told, unless another running session
   is the PR's primary (it says so): leave that one be unless the user asks you to take the PR
   over, then add `--take`. It's off for a PR until turned on for it (the user can also turn it

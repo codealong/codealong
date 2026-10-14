@@ -3,7 +3,7 @@
 // yours (Settings › Automation, `[pull_requests] nudge_by_default`). The first session a PR lists has
 // that PR made an open one with the nudge off, that session its primary, and another session listed
 // on it too: hovering its chip in the session's header shows the card with the primary session
-// first, tagged, and the switch off, naming it; a click turns it on for that PR alone (set_pr_nudge
+// first, tagged with why it's the one, and the switch off, naming it; a click turns it on for that PR alone (set_pr_nudge
 // with its key) and the card says so at once; a board that says the same keeps it on, and one that
 // says it's on by the setting says that; a second click turns it off. A merged PR's card has no
 // switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it.
@@ -44,7 +44,7 @@
         });
         b.prs.forEach(function (x) {
           if (x.key !== picked.pr.key) return;
-          Object.assign(x, { state: 'open', mergedAt: null, closedAt: null, nudge: false, nudgeByDefault: false, primary: picked.key });
+          Object.assign(x, { state: 'open', mergedAt: null, closedAt: null, nudge: false, nudgeByDefault: false, primary: picked.key, primaryBy: 'picked' });
           if (other && !x.sessions.some(function (y) { return y.key === other.key; })) x.sessions.push({ key: other.key, lane: other.lane });
         });
         // The session's header shows its worktree's PR and the PRs that list it: this one either way.
@@ -97,6 +97,8 @@
       var rows = all('.ca-psess', card());
       if (other) {
         check('its primary session comes first, tagged', rows.length >= 2 && rows[0].querySelector('.ca-psess-title').textContent === picked.title && !!rows[0].querySelector('.ca-psess-primary') && !rows[1].querySelector('.ca-psess-primary'), rows.map(function (r) { return r.textContent; }).join(' | '));
+        var tag = rows.length > 0 && rows[0].querySelector('.ca-psess-primary');
+        check('its Primary tag says why it is the one', !!tag && /^The PR’s primary session: .* It was picked as the primary one\. The PR’s menu picks another/.test(tag.title), tag ? tag.title : 'no tag');
         check('the switch says only the primary is nudged', /^Nudge its primary session on updates/.test(toggle().textContent), toggle().textContent);
       } else {
         note('no second session to list on the PR');

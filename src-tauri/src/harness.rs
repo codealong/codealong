@@ -474,8 +474,8 @@ pub trait Adapter: Sync {
     }
 
     /// Text a line of its records has when it may say the session made or changed a PR
-    /// (`pr_made`): the engine decodes only lines with one of these, as it reads a whole record
-    /// once for everything it looks for.
+    /// (`pr_made`) or pushed a branch (`pushed`): the engine decodes only lines with one of
+    /// these, as it reads a whole record once for everything it looks for.
     fn pr_needles(&self) -> &'static [&'static str] {
         &[]
     }
@@ -483,6 +483,13 @@ pub trait Adapter: Sync {
     /// The PR a line of its records says the session made or changed, by its URL, with the
     /// line's time (prlinks.rs).
     fn pr_made(&self, _line: &str) -> Option<(String, i64)> {
+        None
+    }
+
+    /// The branch a line of its records says the session pushed to, as the remote names it, with
+    /// the line's time (prlinks.rs `line_push`): how often a session pushed to a PR's branch says
+    /// whether it took the PR over (board.rs `pr_primary`).
+    fn pushed(&self, _line: &str) -> Option<(String, i64)> {
         None
     }
 

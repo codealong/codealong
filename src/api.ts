@@ -132,6 +132,13 @@ export async function setPrNudge(key: string, on: boolean): Promise<void> {
   await invoke('set_pr_nudge', { key, on });
 }
 
+/** Makes a session the PR's primary one, the one a nudge tells (prlinks.rs `set_primary`), by
+ *  their keys. The board that follows says so (`PrItem.primary`). */
+export async function setPrPrimary(key: string, session: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_pr_primary', { key, session });
+}
+
 export async function snoozeReviews(keys: string[], until: number | null): Promise<number | null> {
   if (!inTauri || keys.length === 0) return null;
   return (await invoke<number | null>('snooze_reviews', { keys, until })) ?? null;

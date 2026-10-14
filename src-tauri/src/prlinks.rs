@@ -173,6 +173,27 @@ pub fn mark_order(at: i64) -> (bool, i64) {
     (at == 0, at)
 }
 
+/// The branches each session's records show it pushed to, by session key: each push's branch,
+/// as the remote names it, and time, subagents' logs included. A PR's primary session goes by
+/// how often each of its sessions pushed to its branch (board.rs `pr_primary`).
+pub type Pushes = HashMap<String, Vec<(String, i64)>>;
+
+/// The branch a log line says its session pushed to, with when, from whichever harness's
+/// records the line is (`Adapter::pushed`), read from the lines `needles` finds.
+pub fn line_push(line: &str) -> Option<(String, i64)> {
+    crate::harness::all().find_map(|a| a.pushed(line))
+}
+
+/// Adds a push to a session's, once: the same log is read again whole when the readers scan
+/// again, and its new lines were read meanwhile. True when that changed them.
+pub fn add_push(have: &mut Vec<(String, i64)>, branch: String, at: i64) -> bool {
+    if have.iter().any(|(b, t)| *b == branch && *t == at) {
+        return false;
+    }
+    have.push((branch, at));
+    true
+}
+
 /// PR key → session keys, from what each session's records show and the links made by hand;
 /// the pairs unlinked by hand; and PR key → the sessions whose records show it, each with the
 /// time of its first mark, which says who opened it.
@@ -226,6 +247,23 @@ mod tests {
         let asked = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"run gh pr create, CommandExecution"}]}}}"#;
         let text = [claude, push, codex, codex_view, attach, asked, linked].join("\n");
         assert_eq!(pr_marks(&text), vec![("sprucehq/spark#1057".to_string(), 1000), ("o/infra#59".to_string(), 2000), ("o/infra#60".to_string(), 0), ("northwindai/osprey#83".to_string(), 3000)]);
+    }
+
+    #[test]
+    fn finds_the_branches_a_session_pushed_to() {
+        // `git push origin local-tiers:feature`: the remote's branch.
+        let push = r#"{"type":"user","timestamp":"1970-01-01T00:00:04.000Z","toolUseResult":{"stdout":"   5f94b35..f87a4f1  local-tiers -> feature","gitOperation":{"push":{"branch":"feature"}}}}"#;
+        let edit = r#"{"type":"user","timestamp":"1970-01-01T00:00:01.000Z","toolUseResult":{"gitOperation":{"pr":{"number":3,"url":"https://github.com/o/r/pull/3","action":"edited"}}}}"#;
+        let said = r#"{"type":"user","toolUseResult":{"stdout":"{\"gitOperation\":{\"push\":{\"branch\":\"other\"}}}"}}"#;
+        assert_eq!(line_push(push), Some(("feature".to_string(), 4000)));
+        assert_eq!(line_push(edit), None);
+        assert_eq!(line_push(said), None, "a command's output that only prints a push");
+        // Once each: a log read again doesn't count its pushes twice.
+        let mut have = Vec::new();
+        assert!(add_push(&mut have, "feature".into(), 4000));
+        assert!(!add_push(&mut have, "feature".into(), 4000));
+        assert!(add_push(&mut have, "feature".into(), 5000));
+        assert_eq!(have.len(), 2);
     }
 
     /// Only lines with one of a harness's marks are decoded.

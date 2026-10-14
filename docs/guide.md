@@ -482,10 +482,21 @@ it can't go ([Clean up worktrees](#clean-up-worktrees)).
 Every PR in the project's repos, with the worktree and sessions that worked on each: the ones that
 made, edited or commented on it, or pushed to it (from their own records: Claude Code's
 `gitOperation` results and its `pr-link` lines, Codex's commands and attached PRs), the ones on its
-branch while it was open, and any linked by hand (`codealong pr link|unlink`). One of them is the
-PR's primary session, listed first and tagged Primary on its card and in its panel: the one whose
-records show it opened the PR (the first to mark it), else the one that started first, unless
-another was made it with `codealong pr nudge --session`.
+branch while it was open, any in the repo whose records show they pushed to its branch from a
+branch of their own (`git push origin mine:theirs`), and any linked by hand (`codealong pr
+link|unlink`). One of them is the PR's primary session, listed first and tagged Primary on its card
+and in its panel, whose tooltip says why it's the one:
+
+- the one picked, under Primary session in the PR's menu or with `codealong pr nudge --session`;
+- else the one that pushed to the PR's branch most while it was open (each session's count is in
+  `codealong pr show`). The one that opened the PR (the first whose records mark it) counts as
+  having pushed once at least, since its push may have left no record (a quiet `git push -q`, a
+  harness that records none), and wins a tie: a session that pushes a fix or two to another's PR
+  doesn't take it over, but one that goes on with the work does;
+- else the one that started first.
+
+Pushes are read from Claude Code's records (`gitOperation.push`), which name the branch but not
+the repo, so only sessions in the PR's repo count.
 
 #### Nudging a PR's primary session
 

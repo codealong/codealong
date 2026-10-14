@@ -149,6 +149,9 @@ pub struct PrLinks {
     /// The sessions whose records show they made or changed the PR, each with the time of its
     /// first mark: the first made it.
     pub made: HashMap<String, Vec<(String, i64)>>,
+    /// The branches each session's records show it pushed to, by session key, each push with its
+    /// time (prlinks.rs `Pushes`).
+    pub pushed: HashMap<String, Vec<(String, i64)>>,
     /// The session picked by hand as the PR's primary.
     pub picked: HashMap<String, String>,
     /// PRs whose primary session is told of what happens on them (nudges.rs), turned on for
@@ -866,6 +869,11 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// in the same window as the rest. A PR from the default branch (a fork's `main`) links no
 /// sessions by branch: every session on `main` would match.
 ///
+/// So do sessions in the repo whose records show they pushed to the PR's branch while they
+/// worked in the PR's time (`links.pushed`): one in a worktree on a branch of its own that
+/// pushes it to the PR's (`git push origin local:<head>`) has none of the rest. A branch's name
+/// says nothing of its repo, so only sessions in the PR's repo count.
+///
 /// Then come the sessions whose records show they made or changed the PR, or that were linked
 /// to it by hand (`links.worked`), whatever their branch or time, each under the lane it's in.
 /// A session unlinked by hand is left off. One of them is the PR's primary (`pr_primary`).
@@ -956,8 +964,16 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
     let (opened, ended) = (p.created_at, p.merged_at.or(p.closed_at));
     let before_end = move |s: &Session| ended.map_or(true, |end| s.started_at.unwrap_or(s.last_activity) <= end);
     let during = move |s: &Session| s.last_activity >= opened - 3_600_000 && before_end(s);
+    // How often a session pushed to the branch in the PR's time, as `during` has it: a branch
+    // used for one PR after another (`yolo`) has the earlier ones' pushes too. A PR from the
+    // default branch counts none, as it lists no sessions by branch.
+    let by_branch = default_branch != Some(head);
+    let pushes = move |k: &str| -> u32 {
+        let pushed = links.pushed.get(k).filter(|_| by_branch).into_iter().flatten();
+        pushed.filter(|(b, at)| b == head && *at >= opened - 3_600_000 && ended.map_or(true, |end| *at <= end)).count() as u32
+    };
     let mut sessions: Vec<PrSession> = Vec::new();
-    if default_branch != Some(head) {
+    if by_branch {
         // Sessions in their own lanes first, then ones that came to a worktree on the branch.
         let own = here.iter().flat_map(|&l| {
             // A session that works here from another folder records that folder's branch,
@@ -974,9 +990,10 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
             };
             l.sessions.iter().filter(move |s| counts(s)).map(move |s| (l, s))
         });
-        for (l, s) in own.chain(guests) {
+        let pushers = here.iter().flat_map(|&l| l.sessions.iter().filter(move |s| s.visitor.is_none() && during(s) && pushes(&s.key) > 0).map(move |s| (l, s)));
+        for (l, s) in own.chain(guests).chain(pushers) {
             if !s.archived && !sessions.iter().any(|x| x.key == s.key) {
-                sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
+                sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(&s.key) });
             }
         }
     }
@@ -988,11 +1005,11 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         // The lane it's in, else one it visited.
         let found = home(lanes, k);
         if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
-            sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
+            sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(&s.key) });
         }
     }
     sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
-    let primary = pr_primary(lanes, &sessions, &key, links);
+    let (primary, primary_by) = pr_primary(lanes, &sessions, &key, links).unzip();
     let mine = login.is_some() && p.author.as_deref() == login;
     let by_hand = links.nudged.contains(&key);
     let by_default = links.nudge_by_default_in.get(slug).copied().unwrap_or(links.nudge_by_default);
@@ -1016,6 +1033,7 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         nudge,
         nudge_by_default: nudge && !by_hand,
         primary,
+        primary_by,
         head: p.head_ref.clone(),
         base: p.base_ref.clone(),
         checks: p.checks.clone(),
@@ -1034,22 +1052,35 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
     }
 }
 
-/// The PR's primary session, of the ones listed on it: the one picked by hand, else the one
-/// whose records show it first (the one that opened it, since a session that later pushes to it,
-/// comments or edits it is marked after), else the one that started first. A copy of a
-/// conversation (a fork, a move to another account) carries its marks with their times, so the
-/// one that started first wins a tie. An archived session isn't listed, so the next takes over.
-fn pr_primary(lanes: &[Lane], sessions: &[PrSession], key: &str, links: &PrLinks) -> Option<String> {
-    let listed = |k: &str| sessions.iter().any(|s| s.key == k);
-    if let Some(k) = links.picked.get(key).filter(|k| listed(k)) {
-        return Some(k.clone());
+/// The PR's primary session, of the ones listed on it, and why: the one picked by hand; else the
+/// one that pushed to its branch most often (`PrSession::pushes`); else the one that started
+/// first. The one that opened it, whose records show it first (a session that later pushes to
+/// it, comments or edits it is marked after), counts as having pushed once at least, since its
+/// push may have left no record (a quiet `git push -q`, a harness that records none), and wins a
+/// tie: a session that pushes a fix or two to another's PR doesn't take it over, and one that
+/// goes on with the work does. Without pushes that's the one that opened it. A copy of a
+/// conversation (a fork, a move to another account) carries its marks and pushes with their
+/// times, so the one that started first wins a tie. An archived session isn't listed, so the
+/// next takes over.
+fn pr_primary(lanes: &[Lane], sessions: &[PrSession], key: &str, links: &PrLinks) -> Option<(String, PrimaryBy)> {
+    if let Some(k) = links.picked.get(key).filter(|k| sessions.iter().any(|s| &s.key == *k)) {
+        return Some((k.clone(), PrimaryBy::Picked));
     }
     let started = |k: &str| home(lanes, k).map_or(i64::MAX, |(_, s)| s.started_at.unwrap_or(s.last_activity));
-    let made = links.made.get(key).into_iter().flatten().filter(|(k, _)| listed(k));
-    if let Some((k, _)) = made.min_by_key(|(k, at)| (crate::prlinks::mark_order(*at), started(k), k.clone())) {
-        return Some(k.clone());
-    }
-    sessions.iter().min_by_key(|s| (started(&s.key), s.key.clone())).map(|s| s.key.clone())
+    // When its records first show it.
+    let mark = |k: &str| links.made.get(key).into_iter().flatten().find(|(m, _)| m == k).map(|(_, at)| crate::prlinks::mark_order(*at));
+    let opener = sessions.iter().filter_map(|s| Some((mark(&s.key)?, started(&s.key), s.key.as_str()))).min().map(|(_, _, k)| k);
+    let pushes = |s: &PrSession| if Some(s.key.as_str()) == opener { s.pushes.max(1) } else { s.pushes };
+    // A session without a mark after every one with one.
+    let best = sessions.iter().min_by_key(|s| (Reverse(pushes(s)), mark(&s.key).unwrap_or((true, i64::MAX)), started(&s.key), s.key.as_str()))?;
+    let by = if Some(best.key.as_str()) == opener {
+        PrimaryBy::Opened
+    } else if best.pushes > 0 {
+        PrimaryBy::Pushed
+    } else {
+        PrimaryBy::Started
+    };
+    Some((best.key.clone(), by))
 }
 
 /// The first rule that matches. See *The model*, Lane status. Needs you, Working and Your turn
@@ -2302,7 +2333,7 @@ mod tests {
         assert_eq!(p.key, "sprucehq/spark#1037");
         assert!(p.mine);
         assert_eq!(p.lanes, vec!["/r/spark-portal".to_string()]);
-        assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/spark-portal".into() }]);
+        assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/spark-portal".into(), pushes: 0 }]);
         assert_eq!(board.github_login.as_deref(), Some("gwen"));
     }
 
@@ -2337,8 +2368,8 @@ mod tests {
     fn a_prs_primary_is_the_one_picked_else_the_one_that_opened_it_else_the_first_started() {
         let s = |key: &str, started: i64| Session { started_at: Some(started), ..crate::fixtures::session(key) };
         let lanes = vec![crate::fixtures::lane("/w", vec![s("a", 30), s("b", 10), s("c", 20), s("copy", 40)])];
-        let listed = |keys: &[&str]| keys.iter().map(|k| PrSession { key: (*k).into(), lane: "/w".into() }).collect::<Vec<_>>();
-        let primary = |keys: &[&str], links: &PrLinks| pr_primary(&lanes, &listed(keys), "o/r#1", links);
+        let listed = |keys: &[&str]| keys.iter().map(|k| PrSession { key: (*k).into(), lane: "/w".into(), pushes: 0 }).collect::<Vec<_>>();
+        let primary = |keys: &[&str], links: &PrLinks| pr_primary(&lanes, &listed(keys), "o/r#1", links).map(|(k, _)| k);
         let mut links = PrLinks::default();
         // Nothing in the records: the one that started first.
         assert_eq!(primary(&["a", "b", "c"], &links).as_deref(), Some("b"));
@@ -2353,6 +2384,71 @@ mod tests {
         links.picked.insert("o/r#1".into(), "a".into());
         assert_eq!(primary(&["a", "b", "c"], &links).as_deref(), Some("a"));
         assert_eq!(primary(&["b", "c"], &links).as_deref(), Some("c"));
+    }
+
+    /// northwindai/atlas#1203: one session opened a small PR from its worktree, with a quiet
+    /// push that left no record, and another, in a worktree on a branch of its own, took the work
+    /// over, pushing it to the PR's branch again and again (`git push origin tiers:portal`).
+    #[test]
+    fn a_session_that_pushes_to_a_pr_more_than_its_opener_becomes_its_primary() {
+        let s = |key: &str, cwd: &str, branch: &str, started: i64| Session { cwd: cwd.into(), branch: Some(branch.into()), started_at: Some(started), last_activity: NOW, ..crate::fixtures::session(key) };
+        let lane = |id: &str, slug: &str, branch: &str, sessions: Vec<Session>| Lane { repo_slug: Some(slug.into()), branch: Some(branch.into()), ..crate::fixtures::lane(id, sessions) };
+        let opened = NOW - 86_400_000;
+        let lanes = vec![
+            lane("/r/spark-portal", "sprucehq/spark", "portal", vec![s("opener", "/r/spark-portal", "portal", opened - 3_600_000)]),
+            // Another clone on the PR's branch too.
+            lane("/r/spark-portal2", "sprucehq/spark", "portal", vec![s("fixer", "/r/spark-portal2", "portal", opened + 1_000)]),
+            lane("/r/spark-tiers", "sprucehq/spark", "tiers", vec![s("router", "/r/spark-tiers", "tiers", opened + 2_000)]),
+            // A branch of the same name in another repo.
+            lane("/r/tool", "acme/tool", "portal", vec![s("elsewhere", "/r/tool", "portal", opened)]),
+        ];
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let pushed = |n: usize| (0..n).map(|i| ("portal".to_string(), opened + 3_600_000 * (i as i64 + 1))).collect::<Vec<_>>();
+        let card = |links: &PrLinks| {
+            let p = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Open, 0), Some("gwen"), links);
+            let listed: Vec<(String, u32)> = p.sessions.iter().map(|x| (x.key.clone(), x.pushes)).collect();
+            (p.primary.unwrap_or_default(), p.primary_by, listed)
+        };
+        let key = "sprucehq/spark#1037".to_string();
+        // The opener's records show it made the PR; the router's that it edited it later.
+        let mut links = PrLinks {
+            worked: HashMap::from([(key.clone(), vec!["opener".to_string(), "router".to_string()])]),
+            made: HashMap::from([(key.clone(), vec![("opener".to_string(), opened), ("router".to_string(), opened + 3_600_000)])]),
+            pushed: HashMap::from([("router".to_string(), pushed(1)), ("elsewhere".to_string(), pushed(5))]),
+            ..Default::default()
+        };
+        // One push each, the opener's left no record: it stays the opener's.
+        let (primary, by, listed) = card(&links);
+        assert_eq!((primary.as_str(), by), ("opener", Some(PrimaryBy::Opened)));
+        assert_eq!(listed, vec![("opener".to_string(), 0), ("fixer".to_string(), 0), ("router".to_string(), 1)], "not the other repo's");
+        // A second push takes it over.
+        links.pushed.insert("router".into(), pushed(3));
+        assert_eq!(card(&links).0, "router");
+        assert_eq!(card(&links).1, Some(PrimaryBy::Pushed));
+        // As it does without a mark of its own, listed by its pushes alone.
+        links.worked.get_mut(&key).unwrap().retain(|k| k != "router");
+        links.made.get_mut(&key).unwrap().retain(|(k, _)| k != "router");
+        assert_eq!(card(&links).0, "router");
+        // An opener that pushed as often keeps it, and one that pushed a fix or two to another's
+        // PR doesn't take it.
+        links.pushed.insert("opener".into(), pushed(3));
+        links.pushed.insert("fixer".into(), pushed(2));
+        assert_eq!((card(&links).0.as_str(), card(&links).1), ("opener", Some(PrimaryBy::Opened)));
+        // Nor do pushes to the branch for an earlier PR from it.
+        links.pushed.get_mut("fixer").unwrap().extend((0..4).map(|i| ("portal".to_string(), opened - 86_400_000 + i)));
+        assert_eq!(card(&links).0, "opener");
+        // Pushes after it merged don't count.
+        let mut merged = pr(PrState::Merged, 0);
+        merged.merged_at = Some(opened + 3_600_000 * 2 + 1);
+        links.pushed.insert("opener".into(), vec![]);
+        let p = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &merged, Some("gwen"), &links);
+        assert_eq!(p.sessions.iter().find(|x| x.key == "router").map(|x| x.pushes), Some(2));
+        // Picked by hand wins.
+        links.picked.insert(key.clone(), "fixer".into());
+        assert_eq!((card(&links).0.as_str(), card(&links).1), ("fixer", Some(PrimaryBy::Picked)));
+        // Without marks or pushes: the one that started first.
+        let none = PrLinks::default();
+        assert_eq!((card(&none).0.as_str(), card(&none).1), ("opener", Some(PrimaryBy::Started)));
     }
 
     #[test]
@@ -2541,7 +2637,7 @@ mod tests {
             review_snoozes: &[],
             auto_reviews: (&Default::default(), &Default::default(), &Default::default()),
         });
-        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/spark-portal".into() }]);
+        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/spark-portal".into(), pushes: 0 }]);
     }
 
     #[test]
@@ -2589,7 +2685,7 @@ mod tests {
             auto_reviews: (&Default::default(), &Default::default(), &Default::default()),
         });
         let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
-        let listed = |key: &str| PrSession { key: key.into(), lane: "/r/spark-portal".into() };
+        let listed = |key: &str| PrSession { key: key.into(), lane: "/r/spark-portal".into(), pushes: 0 };
         assert_eq!(get(1037).lanes, vec!["/r/spark-portal".to_string()]);
         assert_eq!(get(1037).sessions, vec![listed(&latest.key)]);
         assert!(get(1015).lanes.is_empty(), "the worktree holds the newer PR, as the Worktrees view shows");
@@ -2642,7 +2738,7 @@ mod tests {
                 auto_reviews: (&Default::default(), &Default::default(), &Default::default()),
             })
         };
-        let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into() };
+        let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into(), pushes: 0 };
         let board = board_with(pr(PrState::Open, 0));
         assert_eq!(board.prs[0].lanes, vec![scratch.to_string()]);
         // The maker, and the session that worked there while the PR was open, listed under the

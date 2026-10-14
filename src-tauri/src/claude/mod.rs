@@ -744,6 +744,10 @@ impl crate::harness::Adapter for ClaudeCode {
         transcript::pr_made(line)
     }
 
+    fn pushed(&self, line: &str) -> Option<(String, i64)> {
+        transcript::pushed(line)
+    }
+
     fn artifact_needles(&self) -> &'static [&'static str] {
         &conversation::ARTIFACT_NEEDLES
     }

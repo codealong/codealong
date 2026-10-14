@@ -766,6 +766,7 @@ mod tests {
             nudge: false,
             nudge_by_default: false,
             primary: None,
+            primary_by: None,
             head: "b".into(),
             base: Some("main".into()),
             checks: Checks::default(),

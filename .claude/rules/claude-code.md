@@ -103,7 +103,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `runs_its_commands`), `cli.rs` (`find_me`).
 - A PR a session made or changed, from `toolUseResult.gitOperation.pr` or a `pr-link` line:
   `claude/transcript.rs` (`pr_made`); `prlinks.rs` links the session to it, subagents' logs
-  included (`engine.rs`). `gitOperation` also has `push`, `commit` and `branch`. Its `pr` is
+  included (`engine.rs`). `gitOperation` also has `push`, `commit` and `branch`; `push.branch`,
+  the remote's branch, is how often a session pushed to a PR's (`claude/transcript.rs` `pushed`,
+  board.rs `pr_primary`), though a quiet push leaves none. Its `pr` is
   written only for commands Claude Code reads as acting on a PR (`gh pr create`…): a PR made
   with `gh api repos/<owner>/<name>/pulls`, or by a script, gets none. A `pr-link` line is
   `{"type":"pr-link","sessionId","prNumber","prUrl","prRepository","timestamp"}`, "last-wins"

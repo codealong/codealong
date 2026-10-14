@@ -493,6 +493,7 @@ mod tests {
             nudge: state.is_open(),
             nudge_by_default: false,
             primary: sessions.first().map(|k| k.to_string()),
+            primary_by: None,
             head: "photos".into(),
             base: Some("main".into()),
             checks: Checks::default(),
@@ -505,7 +506,7 @@ mod tests {
             merged_at: None,
             closed_at: None,
             lanes: vec!["/work".into()],
-            sessions: sessions.iter().map(|k| PrSession { key: (*k).into(), lane: "/work".into() }).collect(),
+            sessions: sessions.iter().map(|k| PrSession { key: (*k).into(), lane: "/work".into(), pushes: 0 }).collect(),
             head_oid: None,
             auto_review: None,
         }

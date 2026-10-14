@@ -254,10 +254,13 @@ pub struct PrItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub nudge_by_default: bool,
     /// The session that's the PR's own, of `sessions`, by key: the one picked as its primary,
-    /// else the one whose records show it opened it, else the one that started first
-    /// (board.rs `pr_primary`). Only it is nudged.
+    /// else the one that pushed to its branch most, the one that opened it winning a tie, else
+    /// the one that started first (board.rs `pr_primary`). Only it is nudged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary: Option<String>,
+    /// Why `primary` is the one it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary_by: Option<PrimaryBy>,
     pub head: String,
     pub base: Option<String>,
     pub checks: Checks,
@@ -397,4 +400,22 @@ pub struct PrSession {
     pub key: String,
     /// The lane it's listed under: its own, or the worktree it made or worked in.
     pub lane: String,
+    /// How often its records show it pushed to the PR's branch before the PR ended.
+    #[serde(default)]
+    pub pushes: u32,
+}
+
+/// Why a PR's primary session is the one it is (board.rs `pr_primary`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PrimaryBy {
+    /// It was picked (`codealong pr nudge --session`, the PR's menu).
+    Picked,
+    /// It pushed to the PR's branch more often than the session that opened it, or, with no
+    /// session known to have opened it, more often than the rest.
+    Pushed,
+    /// It opened the PR, and no other session pushed to it more.
+    Opened,
+    /// No session's records show it opened the PR or pushed to it: it started first.
+    Started,
 }

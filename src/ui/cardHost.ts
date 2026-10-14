@@ -225,7 +225,7 @@ export function useCardHost({ sessionKey, anchor, live, apps, terminal, away }: 
       void showContextMenu(menus.sessionMenu(l, s, can)).catch((e: unknown) => report.error(errorText(e)));
     },
     prMenu: (url, pr) => {
-      const spec = menus.prMenu(pr ?? { url, number: prRefOf(url)?.number ?? 0 }, { report, reveal: pr ? () => showPr(pr) : undefined });
+      const spec = menus.prMenu(pr ?? { url, number: prRefOf(url)?.number ?? 0 }, { report, reveal: pr ? () => showPr(pr) : undefined, lanes: live.board?.lanes });
       void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
     },
     needBoard: live.needBoard,

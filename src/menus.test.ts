@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
-import { getAccounts, moveSession, moveSessionTo, type Done } from './api';
+import { getAccounts, moveSession, moveSessionTo, setPrPrimary, type Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
@@ -12,7 +12,7 @@ import type { Label, Lane, PrItem, Session, Todo } from './types';
 // What the engine says to Mark as done: done, unless a test says otherwise.
 vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), quietAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
-vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn() }));
+vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
 
 const report: Report = { error: () => {}, info: () => {} };
 const noop = () => {};
@@ -578,6 +578,29 @@ describe('prMenu and todoMenu', () => {
     // Not once it's merged, nor for a PR the board doesn't list (no key).
     expect(item({ state: 'merged', nudge: true })).toBeUndefined();
     expect(item({ state: 'open', key: undefined })).toBeUndefined();
+  });
+
+  it('offers Primary session where an open PR has more than one session here, its primary checked', () => {
+    const routing = fx.session({ key: 'claude:claude:a', title: 'Routing', account: 'claude' });
+    const review = fx.session({ key: 'claude:claude2:b', title: 'Review', account: 'claude2' });
+    const lanes = [fx.lane({ id: '/r/a', sessions: [routing] }), fx.lane({ id: '/r/b', sessions: [review] })];
+    const sessions = [
+      { key: routing.key, lane: '/r/a' },
+      { key: review.key, lane: '/r/b' },
+    ];
+    const pr = { url: 'https://github.com/acme/api/pull/7', number: 7, key: 'acme/api#7', state: 'open' as const, primary: review.key, sessions };
+    const group = (over: object, here: Lane[] | null = lanes) => prMenu({ ...pr, ...over }, { report, lanes: here ?? undefined }).find((i): i is MenuGroup => i !== 'separator' && 'items' in i && i.label === 'Primary session');
+    const items = group({})?.items as MenuAction[];
+    expect(items.map((i) => [i.label, i.checked])).toEqual([
+      ['Routing · claude', false],
+      ['Review · claude2', true],
+    ]);
+    items[0].run();
+    expect(setPrPrimary).toHaveBeenCalledWith('acme/api#7', routing.key);
+    // Not with one session here, once it's merged, nor where the window has no lanes to name them.
+    expect(group({ sessions: sessions.slice(0, 1) })).toBeUndefined();
+    expect(group({ state: 'merged' })).toBeUndefined();
+    expect(group({}, null)).toBeUndefined();
   });
 
   it('puts Snooze review beside Approve, where the review waits on you', () => {

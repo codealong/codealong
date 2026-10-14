@@ -773,6 +773,7 @@ nudge_about = "feedback-and-checks"
             nudge: false,
             nudge_by_default: false,
             primary: None,
+            primary_by: None,
             head: "teams".into(),
             base: Some(base.into()),
             checks: Checks::default(),

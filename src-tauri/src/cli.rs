@@ -706,7 +706,7 @@ enum TokensBy {
 
 #[derive(Subcommand, Debug)]
 enum PrCmd {
-    /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it and which is its primary one (`primary`), and whether that one is nudged (`nudge`). Needs the app, which reads GitHub.
+    /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it (each with how often its records show it pushed to the PR's branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started), and whether that one is nudged (`nudge`). Needs the app, which reads GitHub.
     Show {
         /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
         pr: String,
@@ -715,7 +715,7 @@ enum PrCmd {
     Link(PrLinkArgs),
     /// Take a session off a PR it's listed on but didn't work on. It stays off, however it matched, until linked again.
     Unlink(PrLinkArgs),
-    /// Have a PR's primary session told of what happens on it: while it runs, it gets a message when someone else reviews the PR, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail or its branch comes to conflict with its base, with where the PR stands. Its primary session is the one that opened it, unless another was made it here; the PR's other sessions aren't told. What the signed-in user did, which is what its own agent did through gh, isn't told. Run from a session, that session becomes the one told, unless another running session is the PR's primary (--take). Off for a PR until turned on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of yours; one turned on approved already tells its session that now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for changes ("feedback"), and failing checks and conflicts ("feedback-and-checks").
+    /// Have a PR's primary session told of what happens on it: while it runs, it gets a message when someone else reviews the PR, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail or its branch comes to conflict with its base, with where the PR stands. Its primary session is the one that pushed to its branch most, the one that opened it counting as once at least and winning a tie, unless another was made it here or from the PR's menu in the app (Primary session); the PR's other sessions aren't told. What the signed-in user did, which is what its own agent did through gh, isn't told. Run from a session, that session becomes the one told, unless another running session is the PR's primary (--take). Off for a PR until turned on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of yours; one turned on approved already tells its session that now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for changes ("feedback"), and failing checks and conflicts ("feedback-and-checks").
     Nudge(PrNudgeArgs),
 }
 
@@ -2502,8 +2502,15 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
         println!("Worktree: {}", tilde(Path::new(l)));
     }
     for r in &rows {
-        let primary = if p.primary.as_deref() == Some(r.key.as_str()) { ", primary" } else { "" };
-        println!("Session: {} {} ({}, {}{primary})", r.key, r.title, r.status, tilde(Path::new(&r.worktree)));
+        let pushes = p.sessions.iter().find(|s| s.key == r.key).map_or(0, |s| s.pushes);
+        let pushed = if pushes > 0 { format!(", pushed {pushes}×") } else { String::new() };
+        let primary = match p.primary_by {
+            _ if p.primary.as_deref() != Some(r.key.as_str()) => String::new(),
+            Some(by) => format!(", primary: {}", primary_why(by)),
+            // An app from before says no why.
+            None => ", primary".to_string(),
+        };
+        println!("Session: {} {} ({}, {}{pushed}{primary})", r.key, r.title, r.status, tilde(Path::new(&r.worktree)));
     }
     if rows.is_empty() {
         println!("No session is linked. `codealong pr link {} --session <key>` links one.", p.key);
@@ -2513,6 +2520,17 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
         println!("Its primary session is told of what happens on it while it runs ({why}`codealong pr nudge {} --off` stops that).", p.key);
     }
     Ok(())
+}
+
+/// Why a PR's primary session is the one it is, as `pr show` says it.
+fn primary_why(by: crate::model::PrimaryBy) -> &'static str {
+    use crate::model::PrimaryBy::*;
+    match by {
+        Picked => "picked",
+        Pushed => "pushed to its branch most",
+        Opened => "opened it",
+        Started => "started first",
+    }
 }
 
 #[derive(Serialize)]
@@ -2616,7 +2634,7 @@ fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, json: bool) -> Result<()> {
     match (on, &session) {
         (false, _) => println!("Nobody is told of what happens on {key}{already}."),
         (true, Some(k)) => println!("{} is told of what happens on {key} while it runs{already}.", session_words(c, k)),
-        (true, None) => println!("The session that opened {key} is told of what happens on it while it runs{already}."),
+        (true, None) => println!("{key}'s primary session is told of what happens on it while it runs{already}."),
     }
     Ok(())
 }

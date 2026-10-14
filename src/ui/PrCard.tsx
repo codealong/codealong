@@ -150,6 +150,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
         approve: actions.approve?.run,
         snooze: actions.snooze,
         desktop: onDesktop,
+        lanes,
       }),
       at,
     );

@@ -7,7 +7,7 @@
 // says how it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, doneAhead, quietAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -1058,6 +1058,8 @@ export interface PrCan {
    *  has a key. */
   desktop?: ReadonlySet<string>;
   canvas?: MenuSpec;
+  /** The board's lanes, for Primary session's choices: the PR's sessions in them. */
+  lanes?: readonly Lane[];
 }
 
 /** Nudge its session on updates, checked while it's on: for a PR the board lists, which has a
@@ -1070,10 +1072,22 @@ function nudgeItem(pr: { key?: string; state?: Pr['state']; nudge?: boolean }, r
   return { label: 'Nudge its session on updates', checked: on, run: () => void setPrNudge(key, !on).catch((e: unknown) => report.error(errorText(e))) };
 }
 
+/** Primary session: an open PR's sessions on this Mac, its primary one checked, when it has more
+ *  than one (board.rs `pr_primary`). The one picked is the one a nudge tells, as `codealong pr
+ *  nudge --session` makes it, and stays so until another is. */
+function primaryItem(pr: { key?: string; state?: Pr['state']; primary?: string; sessions?: PrItem['sessions'] }, lanes: readonly Lane[] | undefined, report: Report): MenuGroup | undefined {
+  const { key, state } = pr;
+  if (!key || !lanes || !state || state === 'merged' || state === 'closed') return undefined;
+  const sessions = (pr.sessions ?? []).flatMap((x) => lanes.find((l) => l.id === x.lane && !l.device)?.sessions.find((s) => s.key === x.key) ?? []);
+  if (sessions.length < 2) return undefined;
+  const pick = (s: Session) => void setPrPrimary(key, s.key).catch((e: unknown) => report.error(errorText(e)));
+  return { label: 'Primary session', items: sessions.map((s) => ({ label: `${s.title} · ${s.account}`, checked: s.key === pr.primary, run: () => pick(s) })) };
+}
+
 /** A PR's menu: opening it, its session, reviewing it, showing it; approving it, snoozing your
- *  review and having its sessions told of what happens on it; pinning it; its worktree and copying
- *  its link and branch. */
-export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; key?: string; state?: Pr['state']; nudge?: boolean }, can: PrCan): MenuSpec {
+ *  review, having its sessions told of what happens on it and which one; pinning it; its worktree
+ *  and copying its link and branch. */
+export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; key?: string; state?: Pr['state']; nudge?: boolean; primary?: string; sessions?: PrItem['sessions'] }, can: PrCan): MenuSpec {
   const { report } = can;
   const s = can.session;
   return sections(
@@ -1083,7 +1097,7 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; 
       ...(can.review ? [{ label: 'Review with', items: can.review }] : []),
       ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
     ],
-    [...(can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : []), ...some(can.snooze), ...some(nudgeItem(pr, report))],
+    [...(can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : []), ...some(can.snooze), ...some(nudgeItem(pr, report)), ...some(primaryItem(pr, can.lanes, report))],
     [...some(can.pin), ...(can.desktop && pr.key ? [desktopItem('pr', pr.key, can.desktop, report)] : [])],
     [
       ...(can.showLane ? [{ label: `Show worktree ${can.showLane.lane.callsign}`, run: can.showLane.run }] : []),

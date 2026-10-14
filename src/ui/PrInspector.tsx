@@ -28,7 +28,7 @@ import { useEditorIcons } from '../editors';
 import { absolute, ago } from '../format';
 import { prFileMenu } from '../menus';
 import { fileOnGitHub, firstChanged, parsePatch } from '../prFiles';
-import { asksFor, commentsToAsk, mayApprove } from '../prStatus';
+import { asksFor, commentsToAsk, mayApprove, primaryWords } from '../prStatus';
 import { openFromOthers, reviewersOf, reviewsCount } from '../prReviews';
 import { useYourReview, verdictWords } from '../prDraft';
 import type { Report } from '../report';
@@ -36,7 +36,7 @@ import type { Board, Lane, PrDetail, PrFile, PrItem, Session, TeamFile, Usage } 
 import { PrReview } from './AgentReview';
 import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
-import { DetailsButton, PanelPlaces, PR_PRIMARY, useDetailsOpen } from './PanelSession';
+import { DetailsButton, PanelPlaces, useDetailsOpen } from './PanelSession';
 import { PrFiles, type FileOpener, type FilesFinder } from './PrFiles';
 import { PrPills } from './PrPills';
 import { PrReviewers } from './PrReviewers';
@@ -310,7 +310,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
   // Where it lives on this Mac: chips under the header, the tree with its details.
   const places = item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p, pr.number, pr.head) }));
-  const placesProps = { places, label: 'On this Mac', now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: PR_PRIMARY } : null };
+  const placesProps = { places, label: 'On this Mac', now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: primaryWords(pr) } : null };
 
   // Links in the description open in the browser rather than inside the app.
   const onBodyClick = (e: ReactMouseEvent<HTMLDivElement>) => {

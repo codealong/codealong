@@ -111,8 +111,8 @@ pub enum Msg {
     /// (`Visitors::begin`).
     Visitors(u64, HashMap<PathBuf, Vec<String>>),
     /// Session key → the PRs its records show it made or changed, each with its first mark's
-    /// time (prlinks.rs).
-    PrMarks(prlinks::Marks),
+    /// time, and the branches they show it pushed to (prlinks.rs).
+    PrMarks(prlinks::Marks, prlinks::Pushes),
     /// Session key → the pages on the web its records show it made or showed you, the latest
     /// first (artifacts.rs).
     Artifacts(artifacts::Made),
@@ -1070,6 +1070,8 @@ struct Engine {
     needles: Vec<(PathBuf, String, i64)>,
     /// Session key → the PRs its records show it made or changed, each with its first mark's time.
     pr_marks: prlinks::Marks,
+    /// Session key → the branches its records show it pushed to, each push with its time.
+    pr_pushes: prlinks::Pushes,
     /// Session key → the pages on the web its records show it made or showed you, the latest
     /// first (artifacts.rs).
     artifacts: artifacts::Made,
@@ -1213,6 +1215,7 @@ impl Engine {
             visitors: Visitors::default(),
             needles: Vec::new(),
             pr_marks: HashMap::new(),
+            pr_pushes: HashMap::new(),
             artifacts: HashMap::new(),
             logs_read: HashSet::new(),
             chrome_use: HashMap::new(),
@@ -1927,12 +1930,18 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Visitors(scan, found)) => self.dirty |= self.visitors.scanned(scan, found),
-                Ok(Msg::PrMarks(found)) => {
-                    // Marks read from new lines while the scan ran are kept.
+                Ok(Msg::PrMarks(found, pushed)) => {
+                    // Marks and pushes read from new lines while the scan ran are kept.
                     for (key, prs) in found {
                         let have = self.pr_marks.entry(key).or_default();
                         for (pr, at) in prs {
                             prlinks::add_mark(have, pr, at);
+                        }
+                    }
+                    for (key, pushes) in pushed {
+                        let have = self.pr_pushes.entry(key).or_default();
+                        for (branch, at) in pushes {
+                            prlinks::add_push(have, branch, at);
                         }
                     }
                     self.dirty = true;
@@ -2789,8 +2798,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let files = self.session_logs();
         self.logs_read.extend(files.iter().map(|(p, _)| p.clone()));
         if sync {
-            let (prs, made, used, profiles) = read_logs(files);
+            let ((prs, pushes), made, used, profiles) = read_logs(files);
             self.pr_marks = prs;
+            self.pr_pushes = pushes;
             self.artifacts = made;
             self.take_chrome_use(used, profiles);
         } else {
@@ -2813,8 +2823,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn read_logs_off_thread(&self, files: Vec<(PathBuf, String)>) {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let (prs, made, used, profiles) = read_logs(files);
-            let _ = tx.send(Msg::PrMarks(prs));
+            let ((prs, pushes), made, used, profiles) = read_logs(files);
+            let _ = tx.send(Msg::PrMarks(prs, pushes));
             let _ = tx.send(Msg::Artifacts(made));
             let _ = tx.send(Msg::ChromeUse(used, profiles));
         });
@@ -2872,6 +2882,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             worked,
             unlinked,
             made,
+            pushed: self.pr_pushes.clone(),
             picked,
             nudged: self.pr_store.nudges.iter().cloned().collect(),
             not_nudged: self.pr_store.nudges_off.iter().cloned().collect(),
@@ -2901,6 +2912,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         for (pr, at) in prlinks::pr_marks(&text) {
             let have = self.pr_marks.entry(key.to_string()).or_default();
             self.dirty |= prlinks::add_mark(have, pr, at);
+        }
+        for (branch, at) in text.lines().filter_map(prlinks::line_push) {
+            let have = self.pr_pushes.entry(key.to_string()).or_default();
+            self.dirty |= prlinks::add_push(have, branch, at);
         }
         for a in artifacts::in_text(&text) {
             let have = self.artifacts.entry(key.to_string()).or_default();
@@ -3496,20 +3511,27 @@ fn line_time(line: &str) -> Option<i64> {
     crate::util::parse_rfc3339_ms(&line[start..end])
 }
 
-/// The PRs sessions' records show they made or changed, the pages on the web they made and the
-/// Chrome tabs they drove, by session key, from one read of each record (`file_marks`), with
-/// Chrome's profiles.
-fn read_logs(files: Vec<(PathBuf, String)>) -> (prlinks::Marks, artifacts::Made, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
+/// The PRs sessions' records show they made or changed and the branches they pushed to, the
+/// pages on the web they made and the Chrome tabs they drove, by session key, from one read of
+/// each record (`file_marks`), with Chrome's profiles.
+fn read_logs(files: Vec<(PathBuf, String)>) -> ((prlinks::Marks, prlinks::Pushes), artifacts::Made, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
     let mut out: prlinks::Marks = HashMap::new();
+    let mut pushed: prlinks::Pushes = HashMap::new();
     let mut made: artifacts::Made = HashMap::new();
     let mut used: HashMap<String, chrometabs::Use> = HashMap::new();
-    for (key, marks, pages, chrome) in parallel_map(files, |(path, key)| {
-        let (marks, pages, chrome) = file_marks(&path);
-        (!marks.is_empty() || !pages.is_empty() || !chrome.is_empty()).then(|| (key, marks, pages, chrome))
+    for (key, marks, pushes, pages, chrome) in parallel_map(files, |(path, key)| {
+        let (marks, pushes, pages, chrome) = file_marks(&path);
+        (!marks.is_empty() || !pushes.is_empty() || !pages.is_empty() || !chrome.is_empty()).then(|| (key, marks, pushes, pages, chrome))
     }) {
         let have = out.entry(key.clone()).or_default();
         for (pr, at) in marks {
             prlinks::add_mark(have, pr, at);
+        }
+        if !pushes.is_empty() {
+            let have = pushed.entry(key.clone()).or_default();
+            for (branch, at) in pushes {
+                prlinks::add_push(have, branch, at);
+            }
         }
         if !pages.is_empty() {
             let have = made.entry(key.clone()).or_default();
@@ -3530,14 +3552,15 @@ fn read_logs(files: Vec<(PathBuf, String)>) -> (prlinks::Marks, artifacts::Made,
             u.profile = clues.profile_of(u);
         }
     }
-    (out, made, used, chrome::profiles())
+    ((out, pushed), made, used, chrome::profiles())
 }
 
-/// A log's PR marks, the pages on the web it made (in the order its lines name them) and the
-/// Chrome tabs it drove, from one read of it.
-fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<crate::model::Artifact>, chrometabs::Use) {
+/// A log's PR marks and pushes, the pages on the web it made (in the order its lines name them)
+/// and the Chrome tabs it drove, from one read of it.
+fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<(String, i64)>, Vec<crate::model::Artifact>, chrometabs::Use) {
     let needles: Vec<&str> = prlinks::needles().chain(artifacts::needles()).chain(chrometabs::NEEDLES.iter().copied()).collect();
     let mut marks: Vec<(String, i64)> = Vec::new();
+    let mut pushes = Vec::new();
     let mut made = Vec::new();
     let mut chrome = chrometabs::Use::default();
     crate::util::each_line_with(path, &needles, |line| {
@@ -3546,10 +3569,11 @@ fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<crate::model::Artifact>, 
                 marks.push(m);
             }
         }
+        pushes.extend(prlinks::line_push(line));
         made.extend(artifacts::line_artifact(line));
         chrometabs::fold(&mut chrome, line);
     });
-    (marks, made, chrome)
+    (marks, pushes, made, chrome)
 }
 
 /// A hash of everything the UI shows except the timestamp, so identical boards aren't resent.

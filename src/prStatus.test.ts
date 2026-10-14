@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, reviewMark, reviewersWords, type PrFacts } from './prStatus';
+import { asksFor, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -81,6 +81,21 @@ describe('mayApprove', () => {
     expect(mayApprove(item({ mine: true }))).toBe(false);
     expect(mayApprove(item({ mine: false, state: 'merged' }))).toBe(false);
     expect(mayApprove(item({ mine: false, state: 'closed' }))).toBe(false);
+  });
+});
+
+describe('primaryWords', () => {
+  const sessions = [
+    { key: 'a', lane: '/r', pushes: 11 },
+    { key: 'b', lane: '/r' },
+  ];
+  it('says why the primary session is the one, and where to pick another', () => {
+    expect(primaryWords({ primary: 'a', primaryBy: 'pushed', sessions })).toBe('The PR’s primary session: when the PR is nudged, only this one is told what happens on it. It pushed to the PR’s branch most, 11 times. The PR’s menu picks another (Primary session).');
+    expect(primaryWords({ primary: 'b', primaryBy: 'opened', sessions })).toMatch(/ It opened the PR, and no other session pushed to it more\. /);
+    expect(primaryWords({ primary: 'b', primaryBy: 'picked', sessions })).toMatch(/ It was picked as the primary one\. /);
+    expect(primaryWords({ primary: 'b', primaryBy: 'started', sessions })).toMatch(/ so it’s the one that started first\. /);
+    // An engine from before says no why.
+    expect(primaryWords({ primary: 'b', sessions })).toBe('The PR’s primary session: when the PR is nudged, only this one is told what happens on it. The PR’s menu picks another (Primary session).');
   });
 });
 

@@ -2,6 +2,7 @@
 // its checks, and one for anything else that keeps GitHub from merging it. When nothing does,
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
+import { count } from './format';
 import type { AutoReview, Checks, Merge, NudgeAbout, PrComment, PrItem, PrState } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
@@ -179,6 +180,19 @@ export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boo
   return pr.state === 'approved' && about === 'everything'
     ? `Off for this PR. It’s approved already: turning this on tells ${who} that now, then of what happens on it next.`
     : `Off for this PR. Turned on, ${who} is told of ${said.of}.`;
+}
+
+/** What a PR's Primary tag says (board.rs `pr_primary`): what being its primary session means,
+ *  why this one is (`primaryBy`), and where to pick another. */
+export function primaryWords(pr: Pick<PrItem, 'primary' | 'primaryBy' | 'sessions'>): string {
+  const pushes = pr.sessions.find((s) => s.key === pr.primary)?.pushes ?? 0;
+  const why = {
+    picked: 'It was picked as the primary one.',
+    pushed: `It pushed to the PR’s branch most, ${count(pushes, 'time')}.`,
+    opened: 'It opened the PR, and no other session pushed to it more.',
+    started: 'No session’s records show it opened the PR or pushed to it, so it’s the one that started first.',
+  }[pr.primaryBy ?? 'started'];
+  return `The PR’s primary session: when the PR is nudged, only this one is told what happens on it. ${pr.primaryBy ? `${why} ` : ''}The PR’s menu picks another (Primary session).`;
 }
 
 /* ---- Review comments ---- */

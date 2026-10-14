@@ -842,6 +842,22 @@ pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
     Some((v.pointer("/toolUseResult/gitOperation/pr/url")?.as_str()?.to_string(), at))
 }
 
+/// The branch a transcript line says the session pushed to, with the line's time: a command's
+/// result with `toolUseResult.gitOperation.push.branch`, the branch as the remote has it (a push
+/// of `local-tiers:feature` names `feature`). Nothing on it says which remote or repo. Claude Code
+/// writes it from what `git push` printed, so a quiet push (`git push -q`) gets none, and not
+/// every push whose output a pipe cut short does either: of one session's 11 pushes to a branch,
+/// 10 had it (2.1.296, 2026-10-13).
+pub(super) fn pushed(line: &str) -> Option<(String, i64)> {
+    if !(line.contains("\"gitOperation\"") && line.contains("\"push\":{")) {
+        return None;
+    }
+    let v: Value = serde_json::from_str(line).ok()?;
+    let branch = v.pointer("/toolUseResult/gitOperation/push/branch")?.as_str().filter(|b| !b.is_empty())?;
+    let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+    Some((branch.to_string(), at))
+}
+
 /// What a reply's call used, for the token ledger: an `assistant` line's `message.usage`
 /// (`input_tokens` not read from or into the cache, `cache_read_input_tokens`,
 /// `cache_creation_input_tokens` split by how long they're kept in `cache_creation`, and

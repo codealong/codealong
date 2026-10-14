@@ -940,6 +940,7 @@ export function App() {
       pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
       desktop: onDesktop,
       canvas: canvasItem('pr', p.key),
+      lanes,
     });
   };
   const prMenu = (r: PrRowItem, at?: { x: number; y: number }) => void showContextMenu(prMenuSpec(r), at).catch((e: unknown) => setToast(String(e)));

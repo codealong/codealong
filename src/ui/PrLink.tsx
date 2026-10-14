@@ -16,12 +16,12 @@ import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactN
 import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { prIndex, prRefOf, type PrRef } from '../prLinks';
-import { nudgeWords, reviewersWords } from '../prStatus';
+import { nudgeWords, primaryWords, reviewersWords } from '../prStatus';
 import { errorText } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
 import { HoverCard, useHoverCard, type HoverCardState } from './HoverCard';
-import { PanelSession, PR_PRIMARY } from './PanelSession';
+import { PanelSession } from './PanelSession';
 import { PrPills } from './PrPills';
 import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
 
@@ -332,7 +332,7 @@ function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
                 onShow={(l, s) => act((a) => a.showSession(l, s))}
                 onOpen={(l, s) => act((a) => a.openSession(l, s))}
                 onMenu={(l, s) => host.actions?.sessionMenu(l, s)}
-                primary={isPrimary(session) && sessions.length > 1 ? PR_PRIMARY : undefined}
+                primary={pr && isPrimary(session) && sessions.length > 1 ? primaryWords(pr) : undefined}
               />
             ))}
           </div>

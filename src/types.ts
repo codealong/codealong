@@ -1225,10 +1225,12 @@ export interface PrItem {
   nudge?: boolean;
   /** The nudge is on through `[pull_requests] nudge_by_default`, not turned on for this PR. */
   nudgeByDefault?: boolean;
-  /** The key of its primary session, of `sessions`: the one picked (`codealong pr nudge`), else
-   *  the one that opened it, else the one that started first (board.rs `pr_primary`). Only it is
-   *  nudged. */
+  /** The key of its primary session, of `sessions`: the one picked (`codealong pr nudge`, its
+   *  menu's Primary session), else the one that pushed to its branch most, the one that opened it
+   *  winning a tie, else the one that started first (board.rs `pr_primary`). Only it is nudged. */
   primary?: string;
+  /** Why `primary` is the one it is. */
+  primaryBy?: PrimaryBy;
   head: string;
   base: string | null;
   checks: Checks;
@@ -1360,7 +1362,14 @@ export interface PrSession {
   key: string;
   /** The lane it's listed under: its own, or the worktree it made or worked in. */
   lane: string;
+  /** How often its records show it pushed to the PR's branch in the PR's time. */
+  pushes?: number;
 }
+
+/** Why a PR's primary session is the one it is (model.rs `PrimaryBy`): it was picked; it pushed
+ *  to the branch more often than the session that opened it; it opened it; or no session's
+ *  records show either, and it started first. */
+export type PrimaryBy = 'picked' | 'pushed' | 'opened' | 'started';
 
 export interface PrReview {
   author: string;

@@ -15,9 +15,6 @@ import { Button, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, 
 /** What the Primary tag on a todo's session means. */
 export const TODO_PRIMARY = "The todo's primary session: where the work on it goes on. Sessions started for it while this one runs work alongside it.";
 
-/** What it means on a PR's (board.rs `pr_primary`). */
-export const PR_PRIMARY = 'The PR’s primary session: the one that opened it, unless another was made it (codealong pr nudge --session). When the PR is nudged, only this one is told what happens on it.';
-
 interface PanelSessionProps {
   lane: Lane;
   session: Session;
