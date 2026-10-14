@@ -6,9 +6,10 @@
 //! for and how to answer, where it opens, how a prompt reaches it, how it's forked, stopped and
 //! renamed; of a start, what its command line takes and what a terminal types; of a search,
 //! what its records say in prose; and of an account, whether it's installed and signed in, how
-//! it signs in, what its folders hold, where its skills go and which it reads, how Codealong runs it itself, and
-//! whether it has plan limits. The rest of the app asks `adapter(session.harness)` or
-//! `of(account)` and never branches on which harness it is. A new harness is a module with an
+//! it signs in, what its folders hold, where its skills go and which it reads, how Codealong runs it itself,
+//! whether it has plan limits, and whether its provider may train on what it sends. The rest of
+//! the app asks `adapter(session.harness)` or `of(account)` and never branches on which harness
+//! it is. A new harness is a module with an
 //! `Adapter`, a line in `ADAPTERS`, and a variant of `Harness`; each method a harness can't do
 //! has a default that says so. .claude/rules/adding-a-harness.md lists the methods by what asks.
 //!
@@ -612,6 +613,17 @@ pub trait Adapter: Sync {
     /// Reads an account's plan usage where `polls_usage` says it is. It can take seconds.
     fn read_usage(&self, account: &AccountCfg, _now: i64) -> Usage {
         crate::usage::loading(account)
+    }
+
+    /// Whether the account's provider may train its models on what the account sends, as the
+    /// provider says now (training.rs). It can take seconds.
+    fn training(&self, account: &AccountCfg) -> crate::training::Training {
+        crate::training::Training::unknown(account, format!("Codealong can't read {}'s data settings yet.", self.harness().word()))
+    }
+
+    /// Turns training off for the account at its provider, where `training` says Codealong can.
+    fn stop_training(&self, account: &AccountCfg) -> Result<()> {
+        bail!("Codealong can't turn training off for {}; its provider's settings can.", account.name)
     }
 
     /// Archives a session in the harness itself, or takes it out of its archive, where the

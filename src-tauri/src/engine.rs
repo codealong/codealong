@@ -18,6 +18,7 @@ use crate::artifacts;
 use crate::chrometabs;
 use crate::prlinks;
 use crate::teamfile;
+use crate::training;
 use crate::previews;
 use crate::reusable;
 use crate::origins;
@@ -144,6 +145,11 @@ pub enum Msg {
     /// The read of repos' team files is over (teamfile.rs): what it read, or none when it fell
     /// over or never started.
     TeamFiles(Option<Vec<teamfile::Answer>>),
+    /// The read of the accounts' data settings is over (training.rs): what it read, or none when
+    /// it fell over or never started.
+    TrainingRead(Option<Vec<training::Training>>),
+    /// One account's data setting, read again after Codealong turned training off.
+    TrainingOne(training::Training),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
     Read,
     /// The full pinned list, in order.
@@ -572,6 +578,16 @@ impl Handle {
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
         let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false, label: None };
         launch::terminal_open(&cfg.apps.terminal, place, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
+    }
+
+    /// Turns training off for an account at its provider, and answers where it stands after:
+    /// read again, which goes on the board at once. Blocks for the calls.
+    pub fn stop_training(&self, name: &str) -> Result<training::Training> {
+        let cfg = config::current()?;
+        let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
+        let after = training::stop(a)?;
+        let _ = self.tx.send(Msg::TrainingOne(after.clone()));
+        Ok(after)
     }
 
     /// Opens config.toml in the configured editor.
@@ -1119,6 +1135,8 @@ struct Engine {
     usage_backoff: bool,
     /// Each repo's team settings, `.codealong/config.toml` on its branches (teamfile.rs).
     team_files: teamfile::TeamFiles,
+    /// Whether each account's provider may train on it (training.rs).
+    training: training::TrainingPoll,
     dirty: bool,
     /// Only git results changed since the last publish; they go out in batches.
     dirty_git: bool,
@@ -1228,6 +1246,7 @@ impl Engine {
             usage_last: None,
             usage_backoff: false,
             team_files: teamfile::TeamFiles::default(),
+            training: training::TrainingPoll::default(),
             dirty: false,
             loading: true,
             dirty_git: false,
@@ -1772,6 +1791,23 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
     }
 
+    /// Reads the data settings of the accounts that are due (`TrainingPoll::due`), on a
+    /// background thread.
+    fn read_training(&mut self) {
+        if self.passing {
+            return;
+        }
+        let asks = self.training.due(&self.cfg.accounts, Instant::now());
+        if asks.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        // `on_read` hears that the read is over however it ends, so the next one can go.
+        throttle::background("codealong-training", move || training::read_all(&asks), move |list| {
+            let _ = tx.send(Msg::TrainingRead(list));
+        });
+    }
+
     /// The team files due to be read now (`TeamFiles::due`), marked under way.
     fn team_file_asks(&mut self) -> Vec<teamfile::Ask> {
         let repos: Vec<teamfile::Repo> = self
@@ -1839,6 +1875,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.github.poll(&self.seeds, true, Now::real());
         self.usage.retain(|name, _| self.cfg.accounts.iter().any(|a| &a.name == name));
         self.usage_inflight = false;
+        self.training.keep_only(&self.cfg.accounts);
         self.fetch_usage();
         self.watch();
         self.dirty = true;
@@ -1917,7 +1954,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         }
                     }
                 }
-                Ok(Msg::RefreshUsage) => self.fetch_usage(),
+                Ok(Msg::RefreshUsage) => {
+                    self.fetch_usage();
+                    self.training.on_refresh();
+                    self.read_training();
+                }
                 Ok(Msg::LimitMoved(why)) => {
                     self.limit_move_warning = why;
                     self.dirty = true;
@@ -2035,6 +2076,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::TodoStarted { ids, lane, session, pending }) => self.todos_started(ids, lane, session, pending),
                 Ok(Msg::UsageDone(list)) => self.on_usage(list),
                 Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
+                Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
+                Ok(Msg::TrainingOne(t)) => self.dirty |= self.training.take(t),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {
@@ -2474,6 +2517,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             self.fetch_usage();
         }
         self.read_team_files();
+        self.read_training();
         // A new account's folder appears when it first signs in; start reading it.
         if self.missing_homes.iter().any(|p| p.exists()) {
             self.reload();
@@ -3145,6 +3189,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
         });
         board.usage = usage;
+        board.training = self.training.list(&self.cfg.accounts);
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;

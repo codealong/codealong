@@ -4,7 +4,8 @@
 //! board. Beside it: rollouts and the thread index (rollout.rs), the conversation a rollout
 //! holds (conversation.rs), its app-server, for what Codex does itself (appserver.rs), the
 //! socket the app's windows talk on (ipc.rs), its terminal UIs (terminals.rs), side
-//! conversations (side.rs) and plan usage (usage.rs). See .claude/rules/codex.md.
+//! conversations (side.rs), plan usage (usage.rs) and whether OpenAI may train on the account
+//! (training.rs). See .claude/rules/codex.md.
 
 mod appserver;
 mod conversation;
@@ -12,6 +13,7 @@ pub mod ipc;
 mod rollout;
 mod side;
 mod terminals;
+mod training;
 mod usage;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -65,6 +67,15 @@ impl crate::harness::Adapter for Codex {
     /// Codex wants its folder to exist before it will use it.
     fn sign_in_command(&self, account: &crate::config::AccountCfg) -> String {
         format!("mkdir -p {} && {} login", account.home, codex_cli(account.command()))
+    }
+
+    /// Improve the model for everyone, in ChatGPT's data controls.
+    fn training(&self, account: &crate::config::AccountCfg) -> crate::training::Training {
+        training::read(account)
+    }
+
+    fn stop_training(&self, account: &crate::config::AccountCfg) -> anyhow::Result<()> {
+        training::stop(account)
     }
 
     fn installed(&self, _home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {

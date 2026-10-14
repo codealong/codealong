@@ -1010,6 +1010,11 @@ impl crate::harness::Adapter for OpenCode {
         Some("OpenCode bills the provider you bring, so it has no plan limits to show.")
     }
 
+    /// The provider it sends your work to keeps that setting, not OpenCode.
+    fn training(&self, account: &AccountCfg) -> crate::training::Training {
+        crate::training::Training::unknown(account, "OpenCode sends your work to the providers it's signed in to, and each one's own settings say whether it trains on it.")
+    }
+
     fn records(&self, account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<PathBuf> {
         vec![account.home_path().join("opencode.db")]
     }

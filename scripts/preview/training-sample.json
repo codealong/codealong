@@ -1,0 +1,9 @@
+{
+  "training": [
+    { "account": "claude", "state": "on", "note": "Help improve Claude is on: Anthropic may train its models on this account's chats and coding sessions, and keeps them for five years rather than 30 days.", "canStop": true, "url": "https://claude.ai/settings/data-privacy-controls", "readAgo": 3 },
+    { "account": "claude2", "state": "unset", "note": "Help improve Claude isn't chosen yet: Claude asks the next time it starts. Turning it off now settles it.", "canStop": true, "url": "https://claude.ai/settings/data-privacy-controls", "readAgo": 3, "stopsTo": "on" },
+    { "account": "codex", "state": "off", "note": "Improve the model for everyone is off in ChatGPT's data controls.", "url": "https://chatgpt.com/#settings/DataControls", "readAgo": 3 },
+    { "account": "opencode", "state": "unknown", "note": "OpenCode sends your work to the providers it's signed in to, and each one's own settings say whether it trains on it." },
+    { "account": "cursor", "state": "off", "note": "Privacy Mode is on: Cursor doesn't train on your code.", "url": "https://cursor.com/dashboard?tab=settings&openPrivacy=true", "readAgo": 3 }
+  ]
+}

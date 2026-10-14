@@ -107,6 +107,14 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels` and its language server has
   `GetUserStatus` and `RetrieveUserQuotaSummary`, both behind its CSRF token, so without the
   command line there's nothing Codealong reads (`Antigravity::no_limits`).
+- Enable Telemetry (whether Google collects interactions to improve its models) is the
+  account's on Google's servers, which the app and `agy` read as they start and change in their
+  settings: `antigravity.rs` (Enable Telemetry section). `agy` never writes it to its
+  `settings.json`, whatever the docs list there (its field is `json:"-"`), and reads it as off
+  when the read fails. Google turns away a call whose User-Agent doesn't say Antigravity. Gemini
+  Code Assist for individuals has an opt-out of its own on the same backend
+  (`getCodeAssistGlobalUserSetting`, `freeTierDataCollectionOptin`), which nothing in Antigravity
+  calls; it read false here (2026-10-13).
 
 ## Unchecked
 

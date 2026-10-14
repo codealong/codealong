@@ -57,6 +57,15 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - A prompt's images, which are in the rollout twice: `codex/conversation.rs` (the comment above
   `prompt_images`, and `sent_images`). A pasted one's `local_image` path is
   `$TMPDIR/codex-clipboard-<uuid>.png`.
+- Whether OpenAI trains on the account, read and changed with `auth.json`'s token on
+  chatgpt.com's backend: `codex/training.rs`, and `http.rs` for why calls go over HTTP/1.1
+  (Cloudflare challenges curl's HTTP/2 to `/settings/*` whatever it sends; `/me` and `/wham/*`
+  pass). The token's audience is `api.openai.com/v1` with none of the web app's scopes, yet
+  `/settings/user`, `/me`, `/accounts/check/v4-2023-04-27` and `/accounts/data_usage_for_training`
+  answered 200 (2026-10-13). A workspace's switch is hidden in ChatGPT unless
+  `GET /accounts/data_usage_for_training` (with `ChatGPT-Account-Id`) says `permitted`; a personal
+  Pro account said `permitted`. The plan is the token's `chatgpt_plan_type` claim, which reads
+  `business` for Enterprise too.
 - Plan usage, from each turn's `token_count` event: `codex/rollout.rs` (`RateLimit`,
   `parse_rate_limit`), `codex/usage.rs`. The same event's `info` has the thread's context meter:
   `last_token_usage.total_tokens` and `model_context_window` (258,400 for gpt-6-astra on

@@ -1631,6 +1631,31 @@ every couple of minutes; with only the app installed it has none to show. Nor ha
 (bring your own provider) and Cursor (usage on cursor.com), and their chips say so with a
 crossed-out gauge after the name. Add accounts in Settings › Accounts.
 
+#### Training on what you send
+
+Each account's provider may be allowed to train its models on what the account sends. Codealong
+asks every provider where it keeps that setting, at launch, every hour and when you click the
+bar's refresh, and an account whose provider may train on it has **Training on** joined to its
+chip (**Training not set** where nothing's been chosen yet). A click on the flag says which setting
+it is and when it was read; **Turn off training** turns it off from Codealong and reads it back to
+check, and **Open settings** opens the provider's page for it. Settings › Accounts says where every
+account stands (*Not trained on*, *Training on*) and offers the same.
+
+- Claude (Pro and Max): *Help improve Claude* in claude.ai's privacy settings, one setting for the
+  account in claude.ai, the Claude app and Claude Code. On, Anthropic keeps chats and coding
+  sessions for five years rather than 30 days. Team and Enterprise plans are under Anthropic's
+  commercial terms, which don't train on what you send.
+- Codex: *Improve the model for everyone* in ChatGPT's data controls, and Codex's own training
+  setting beside it. ChatGPT Business, Enterprise and Edu workspaces aren't trained on, nor is an
+  API key.
+- Cursor: *Privacy Mode*; *Share Data* lets Cursor keep and train on your prompts, edits and code.
+  When your team sets it for you, the flag says so, and it can't be changed from here.
+- Antigravity: *Enable Telemetry* (its Settings › Account, and `/config` in `agy`), which lets
+  Google collect your interactions to improve Antigravity and the models behind it. Its sign-in is
+  refreshed as `agy` runs, so while that hasn't run for an hour it may not be read.
+- OpenCode sends your work to whichever providers it's signed in to, and each one's own settings
+  say whether it trains on it; Codealong doesn't read them.
+
 #### What sessions used and cost
 
 *View › Usage… (⇧⌘U), the bar's Usage button, or a click on an account's chip*

@@ -1,14 +1,16 @@
 // Settings › Accounts: the Claude Code, Codex, OpenCode, Antigravity and Cursor accounts Codealong
-// reads, and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
+// reads, each with whether its provider may train on what it sends (training.ts), and under
+// Found on this Mac the ones it could (detect.rs). Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it. Adding an
 // account can put Codealong in it too (install.rs: the plugin in Claude Code, the skill elsewhere), as
 // Settings › Agents does; that page is where each account's plugin or skill shows.
 
 import { useEffect, useState } from 'react';
-import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, setPreferred, signIn } from '../api';
+import { agentsStatus, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, setPreferred, signIn, stopTraining } from '../api';
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
-import type { AccountCfg, AccountInfo, FoundAccount, Harness, StartPlace, Usage } from '../types';
+import { afterStop, flagged, trainingOf, trainingTag } from '../training';
+import type { AccountCfg, AccountInfo, FoundAccount, Harness, StartPlace, Training, Usage } from '../types';
 import { Button, cx, Icon, Rich, Seg } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
@@ -163,13 +165,14 @@ interface AccountsSectionProps {
   /** The account to scroll to, from a click on its chip. */
   focus: string | null;
   usage: Usage[];
+  training?: Training[];
   terminal: string;
   now: number;
   /** Something was saved: the settings behind the other sections changed too. */
   onSaved: () => void;
 }
 
-export function AccountsSection({ focus, usage, terminal, now, onSaved }: AccountsSectionProps) {
+export function AccountsSection({ focus, usage, training, terminal, now, onSaved }: AccountsSectionProps) {
   const [accounts, setAccounts] = useState<AccountInfo[] | null>(null);
   const [found, setFound] = useState<FoundAccount[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -304,6 +307,20 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     if (await save(accounts.filter((a) => a.name !== name))) setRemoving(null);
   };
 
+  // The board shows the reading after; one that didn't take says why here.
+  const turnOffTraining = async (name: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const why = afterStop(await stopTraining(name));
+      if (why) setError(why);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const startSignIn = (name: string) => {
     signIn(name).catch((e: unknown) => setError(String(e)));
   };
@@ -412,6 +429,8 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
       {(accounts ?? []).map((a) => {
         if (draft?.original === a.name) return <div key={a.name}>{form}</div>;
         const u = usage.find((x) => x.account === a.name);
+        const t = trainingOf(training, a.name);
+        const tag = trainingTag(t);
         const status = a.signedIn ? (a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
         return (
           <div key={a.name} id={`ca-acct-${a.name}`} className={cx('ca-ucard', 'ca-acct', focus === a.name && 'is-focus')}>
@@ -434,6 +453,12 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
                   {a.signedIn && <Icon name="check" size={12} stroke={2} />}
                   {status}
                 </span>
+                {tag && t && (
+                  <span className={cx('ca-tag', tag.ok ? 'is-ok' : 'is-attn')} title={t.note}>
+                    <Icon name={tag.ok ? 'shield-check' : 'shield-off'} size={12} stroke={2} />
+                    {tag.word}
+                  </span>
+                )}
               </span>
             </div>
             {u && u.meters.length > 0 && (
@@ -457,6 +482,12 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
                 <>
                   <dt>Starts in</dt>
                   <dd>{a.start ? placeName(a.start, terminal) : 'Last used'}</dd>
+                </>
+              )}
+              {t && (
+                <>
+                  <dt>Training</dt>
+                  <dd className="ca-acct-training">{t.note.replace(/`/g, '')}</dd>
                 </>
               )}
               {(a.per_token || a.monthly != null) && (
@@ -483,6 +514,16 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
                 {!a.signedIn && (
                   <Button size="sm" icon="terminal" onClick={() => startSignIn(a.name)}>
                     Sign in with {terminal}
+                  </Button>
+                )}
+                {flagged(t) && t.canStop && (
+                  <Button size="sm" icon="shield-off" disabled={busy} onClick={() => void turnOffTraining(a.name)}>
+                    Turn off training
+                  </Button>
+                )}
+                {flagged(t) && t.url && (
+                  <Button variant="ghost" size="sm" icon="external" onClick={() => void openUrl(t.url as string).catch((e: unknown) => setError(String(e)))}>
+                    Open settings
                   </Button>
                 )}
                 <Button variant="ghost" size="sm" onClick={() => startEdit(a)}>

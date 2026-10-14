@@ -207,6 +207,7 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./route-fixture.json'),
         optionalJson('./insights-fixture.json'),
         optionalJson('./notices-fixture.json'),
+        optionalJson('./training-fixture.json'),
       ]).then(function (all) {
         var board = all[1] ? withFixture(all[0], all[1]) : all[0];
         // Background failures from notices-fixture.json (PREVIEW_NOTICES), `untilIn` minutes
@@ -214,6 +215,13 @@ window.__TAURI_INTERNALS__ = {
         if (all[5]) {
           board.notices = all[5].notices.map(function (n) {
             return Object.assign({}, n, { until: n.untilIn == null ? null : Date.now() + n.untilIn * 60e3 });
+          });
+        }
+        // Which accounts' providers may train on them, from training-fixture.json
+        // (PREVIEW_TRAINING), each read `readAgo` minutes ago.
+        if (all[6]) {
+          board.training = all[6].training.map(function (t) {
+            return Object.assign({ canStop: false, url: null }, t, { asOf: t.readAgo == null ? null : Date.now() - t.readAgo * 60e3 });
           });
         }
         if (all[4]) board = withInsights(board, all[4]);
@@ -240,6 +248,15 @@ window.__TAURI_INTERNALS__ = {
           l.sessions.forEach(function (s) { if (!found && s.key === args.key && !s.visitor) found = { lane: l, session: s, apps: board.apps }; });
         });
         return found;
+      });
+    }
+    // Training turned off at an account's provider (lib.rs `stop_training`): the reading after
+    // is off, or what the fixture's `stopsTo` says, for a turn-off that didn't take.
+    if (cmd === 'stop_training') {
+      return optionalJson('./training-fixture.json').then(function (f) {
+        var t = ((f && f.training) || []).filter(function (x) { return x.account === args.name; })[0];
+        if (!t) return Promise.reject('There\'s no account named ' + args.name + '.');
+        return Object.assign({ url: null }, t, { state: t.stopsTo || 'off', canStop: false, asOf: Date.now() });
       });
     }
     // With a devices fixture, Settings reads `[devices]` from it.

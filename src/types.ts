@@ -524,6 +524,20 @@ export interface Usage {
   preferred?: boolean;
 }
 
+/** Where an account stands on its provider training on what it sends (training.rs). */
+export interface Training {
+  account: string;
+  /** `unset`: nothing's chosen yet, and the provider asks the next time it's used. */
+  state: 'on' | 'off' | 'unset' | 'unknown';
+  /** Why, in words. */
+  note: string;
+  /** Codealong can turn training off itself. */
+  canStop: boolean;
+  /** The provider's page where it's changed by hand. */
+  url: string | null;
+  asOf: number | null;
+}
+
 /** An `[[accounts]]` table in config.toml. */
 export interface AccountCfg {
   name: string;
@@ -958,6 +972,9 @@ export interface Board {
   loading: boolean;
   githubAt: number | null;
   usage: Usage[];
+  /** Whether each account's provider may train on what it sends (training.rs), for the accounts
+   *  read so far. Absent from engines of older builds. */
+  training?: Training[];
   /** Pinned session keys, in order. */
   pinned: string[];
   /** Pinned worktrees (lane ids), in order. */

@@ -8,7 +8,8 @@
 //! the background service's socket in daemon.rs, a session's own in peer.rs, or the app), starting,
 //! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), what a
 //! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs), the skills it
-//! reads (skills.rs), plan usage (usage.rs), and a repo's hooks and a job's record as a worktree
+//! reads (skills.rs), plan usage (usage.rs), whether Anthropic may train on the account
+//! (training.rs), and a repo's hooks and a job's record as a worktree
 //! is removed (teardown.rs). See .claude/rules/claude-code.md.
 
 pub mod app;
@@ -26,6 +27,7 @@ mod side;
 mod skills;
 mod start;
 mod teardown;
+mod training;
 mod transcript;
 mod trust;
 mod usage;
@@ -883,6 +885,15 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn read_usage(&self, account: &AccountCfg, now: i64) -> Usage {
         usage::claude(account, now)
+    }
+
+    /// Help improve Claude, in the account's privacy settings.
+    fn training(&self, account: &AccountCfg) -> crate::training::Training {
+        training::read(account)
+    }
+
+    fn stop_training(&self, account: &AccountCfg) -> anyhow::Result<()> {
+        training::stop(account)
     }
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {

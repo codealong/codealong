@@ -7,12 +7,17 @@
 // When the chips don't all fit, each shows only the limit it's closest to running out of, and
 // hovering it shows all of them in a card. When even those don't fit, the row scrolls sideways
 // (the mouse wheel scrolls it too).
+//
+// An account whose provider may train on what it sends (training.ts) has a flag joined to its
+// chip; a click opens a card that says why, turns training off where Codealong can, and opens
+// the provider's settings page.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
-import type { Meter, Severity, Usage } from '../types';
+import { afterStop, cardTitle, flagged, flagLabel, trainingOf } from '../training';
+import type { Meter, Severity, Training, Usage } from '../types';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
 
@@ -119,13 +124,15 @@ interface ChipProps {
   /** The pointer or keyboard focus arrived on a collapsed chip, or left it. */
   onPeek?: (el: HTMLElement) => void;
   onUnpeek?: () => void;
+  /** A training flag is joined to its end. */
+  joined?: boolean;
 }
 
-function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek }: ChipProps) {
+function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek, joined = false }: ChipProps) {
   const plain = u.error?.replace(/`/g, '') ?? '';
   if (u.needsSignIn) {
     return (
-      <button type="button" className="ca-uchip is-attn" title={measure ? undefined : `${plain}. Click to sign in`} onClick={onSignIn}>
+      <button type="button" className={cx('ca-uchip', 'is-attn', joined && 'is-joined')} title={measure ? undefined : `${plain}. Click to sign in`} onClick={onSignIn}>
         <span className="ca-uchip-name">{u.account}</span>
         <span className="ca-uchip-signin">
           <Icon name="alert" size={12} stroke={2} />
@@ -145,7 +152,7 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   return (
     <button
       type="button"
-      className={cx('ca-uchip', stale && 'is-stale')}
+      className={cx('ca-uchip', stale && 'is-stale', joined && 'is-joined')}
       title={measure || peeks ? undefined : `${about}. Show what it used and cost`}
       aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}`}
       onClick={onOpen}
@@ -220,6 +227,86 @@ function UsageCard({ usage: u, now, anchor }: { usage: Usage; now: number; ancho
   );
 }
 
+/** The flag joined to the chip of an account whose provider may train on it: a click opens its
+ *  card. In the hidden copy that's measured, only its words. */
+function TrainingFlag({ training: t, now, measure = false, onStop, onOpenUrl }: { training: Training; now: number; measure?: boolean; onStop?: (account: string) => Promise<Training>; onOpenUrl?: (url: string) => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  useDismiss(ref, () => setOpen(false), { when: open, inside: '.ca-training-card' });
+  const words = (
+    <>
+      <Icon name="shield-off" size={12} stroke={2} />
+      <span>{flagLabel(t)}</span>
+    </>
+  );
+  if (measure) return <span className="ca-uchip-flag">{words}</span>;
+  return (
+    <>
+      <button ref={ref} type="button" className="ca-uchip-flag" aria-expanded={open} aria-label={`${cardTitle(t)}. ${t.note}`} title={open ? undefined : `${t.note} Click for what to do`} onClick={() => setOpen(!open)}>
+        {words}
+      </button>
+      {open && ref.current && <TrainingCard training={t} now={now} anchor={ref.current} onStop={onStop} onOpenUrl={onOpenUrl} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/** What a training flag is for, and what to do about it: turn it off from here where Codealong
+ *  can, or open the provider's page. A turn-off that didn't take says why here. */
+function TrainingCard({ training: t, now, anchor, onStop, onOpenUrl, onClose }: { training: Training; now: number; anchor: HTMLElement; onStop?: (account: string) => Promise<Training>; onOpenUrl?: (url: string) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  // Under the flag, kept inside the window.
+  useLayoutEffect(() => {
+    const card = ref.current;
+    if (!card) return;
+    const r = anchor.getBoundingClientRect();
+    card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - card.offsetWidth - 8))}px`;
+    card.style.top = `${r.bottom + 6}px`;
+  });
+  const stop = () => {
+    if (!onStop) return;
+    setBusy(true);
+    setFailed(null);
+    onStop(t.account).then(
+      (after) => {
+        setBusy(false);
+        const why = afterStop(after);
+        if (why) setFailed(why);
+        else onClose();
+      },
+      (e: unknown) => {
+        setBusy(false);
+        setFailed(String(e).replace(/^Error: /, ''));
+      },
+    );
+  };
+  return createPortal(
+    <div ref={ref} className="ca-training-card" role="dialog" aria-label={cardTitle(t)}>
+      <div className="ca-training-title">
+        <Icon name="shield-off" size={14} stroke={2} />
+        <span>{cardTitle(t)}</span>
+      </div>
+      <div className="ca-training-text">{t.note.replace(/`/g, '')}</div>
+      {failed && <div className="ca-training-error">{failed.replace(/`/g, '')}</div>}
+      <div className="ca-training-foot">
+        {t.asOf && <span className="ca-training-asof">Read {agoPhrase(t.asOf, now)}</span>}
+        {t.url && (
+          <Button size="sm" variant={t.canStop ? 'secondary' : 'primary'} icon="external" onClick={() => onOpenUrl?.(t.url as string)}>
+            Open settings
+          </Button>
+        )}
+        {t.canStop && (
+          <Button size="sm" variant="primary" disabled={busy} onClick={stop}>
+            {busy ? 'Turning off…' : 'Turn off training'}
+          </Button>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** Which collapsed chip's card is up, with the rest period before it shows and after it goes. */
 function usePeek() {
   const [peek, setPeek] = useState<{ account: string; anchor: HTMLElement } | null>(null);
@@ -260,13 +347,19 @@ interface UsageBarProps {
    *  cost. */
   onUsage: (account?: string) => void;
   onSignIn: (account: string) => void;
+  /** Whether each account's provider may train on it, for the flags (training.ts). */
+  training?: Training[];
+  /** Turns training off for an account, answering where it stands after. */
+  onStopTraining?: (account: string) => Promise<Training>;
+  /** Opens a provider's settings page. */
+  onOpenUrl?: (url: string) => void;
   /** The board hasn't been read yet, so it lists no accounts, though config.toml may have some. */
   loading?: boolean;
   /** What isn't working in the background (`ui/Notices.tsx`), at the bar's end. */
   notices?: ReactNode;
 }
 
-export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn, loading, notices }: UsageBarProps) {
+export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices }: UsageBarProps) {
   const reads = usage.filter((u) => u.harness === 'claude' && u.asOf).map((u) => u.asOf as number);
   const lastRead = reads.length ? Math.max(...reads) : null;
   const row = useRef<HTMLDivElement>(null);
@@ -346,24 +439,43 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
         ref={row}
         className={cx('ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end')}
       >
-        {usage.map((u) => (
-          <AccountChip
-            key={u.account}
-            usage={u}
-            now={now}
-            collapsed={collapsed}
-            onOpen={() => onUsage(u.account)}
-            onSignIn={() => onSignIn(u.account)}
-            onPeek={(el) => show(u.account, el)}
-            onUnpeek={() => hide()}
-          />
-        ))}
+        {usage.map((u) => {
+          const t = trainingOf(training, u.account);
+          const chip = (
+            <AccountChip
+              key={u.account}
+              usage={u}
+              now={now}
+              collapsed={collapsed}
+              joined={flagged(t)}
+              onOpen={() => onUsage(u.account)}
+              onSignIn={() => onSignIn(u.account)}
+              onPeek={(el) => show(u.account, el)}
+              onUnpeek={() => hide()}
+            />
+          );
+          if (!flagged(t)) return chip;
+          return (
+            <span key={u.account} className="ca-uchip-pair">
+              {chip}
+              <TrainingFlag training={t} now={now} onStop={onStopTraining} onOpenUrl={onOpenUrl} />
+            </span>
+          );
+        })}
         {usage.length === 0 && !loading && <span className="ca-uchip-note">No accounts yet.</span>}
       </div>
       <div ref={measure} className="ca-usagebar-measure" aria-hidden="true">
-        {usage.map((u) => (
-          <AccountChip key={u.account} usage={u} now={now} measure />
-        ))}
+        {usage.map((u) => {
+          const t = trainingOf(training, u.account);
+          return flagged(t) ? (
+            <span key={u.account} className="ca-uchip-pair">
+              <AccountChip usage={u} now={now} measure joined />
+              <TrainingFlag training={t} now={now} measure />
+            </span>
+          ) : (
+            <AccountChip key={u.account} usage={u} now={now} measure />
+          );
+        })}
       </div>
       {peeked && peek && peeked.meters.length > 0 && <UsageCard usage={peeked} now={now} anchor={peek.anchor} />}
       <div className="ca-usagebar-end">

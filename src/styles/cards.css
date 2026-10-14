@@ -72,6 +72,11 @@
   font: var(--type-meta);
   color: var(--ink-3);
 }
+/* Whether its provider trains on it is a sentence, so it wraps where the other values are cut. */
+.ca-kv dd.ca-acct-training {
+  overflow: visible;
+  white-space: normal;
+}
 .ca-acct-actions {
   display: flex;
   align-items: center;

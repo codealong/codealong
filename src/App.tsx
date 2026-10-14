@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -1206,6 +1206,12 @@ export function App() {
   const startSignIn = (account: string) => {
     signIn(account).catch((e: unknown) => setToast(String(e)));
   };
+  // A turn-off that didn't take says why in the flag's card; one that did, here.
+  const turnOffTraining = (account: string) =>
+    stopTraining(account).then((after) => {
+      if (after.state === 'off') setToast(`Training is off for ${account}.`);
+      return after;
+    });
 
   /** Opens a card on the canvas where it lives, as a double-click on its row would. */
   const openCard = (it: RefItem) => {
@@ -1506,6 +1512,9 @@ export function App() {
         onAccounts={(account) => openSettings('accounts', account ?? null)}
         onUsage={(account) => setUsageOf({ account: account ?? null })}
         onSignIn={startSignIn}
+        training={board?.training}
+        onStopTraining={turnOffTraining}
+        onOpenUrl={(url) => openUrl(url).catch((e: unknown) => setToast(String(e)))}
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
@@ -1854,6 +1863,7 @@ export function App() {
           onSection={(section) => setSettings({ section, focus: null })}
           focus={settings.focus}
           usage={board?.usage ?? []}
+          training={board?.training}
           apps={board?.apps ?? { terminal: 'Terminal', editor: 'Editor' }}
           theme={theme}
           onPickTheme={pickTheme}

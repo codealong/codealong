@@ -2,11 +2,9 @@
 //! Code reads it, sent to the endpoint behind Claude Code's `/usage`. Codealong never refreshes
 //! or writes a sign-in: refreshing rotates the token and would sign Claude Code out. An expired
 //! one shows as expired until the account's command runs again. The token goes to curl on
-//! stdin, never on a command line, and is never logged.
+//! stdin (http.rs), never on a command line, and is never logged.
 
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -52,13 +50,15 @@ pub fn claude_signed_in(config_dir: &Path) -> bool {
         .any(|svc| procs::run("/usr/bin/security", &["find-generic-password", "-a", &account, "-s", svc], None, KEYCHAIN_TIMEOUT).is_ok())
 }
 
-struct SignIn {
-    token: String,
-    expires_at: Option<i64>,
-    plan: Option<String>,
+pub(super) struct SignIn {
+    pub token: String,
+    pub expires_at: Option<i64>,
+    pub plan: Option<String>,
+    /// `pro`, `max`, `team`, `enterprise`: which terms the account is under.
+    pub subscription: Option<String>,
 }
 
-fn read_sign_in(config_dir: &Path) -> Option<SignIn> {
+pub(super) fn read_sign_in(config_dir: &Path) -> Option<SignIn> {
     let account = keychain_account();
     for svc in keychain_services(config_dir) {
         // Fails on a missing item (exit 44); stdout, the secret, is never part of an error.
@@ -68,10 +68,12 @@ fn read_sign_in(config_dir: &Path) -> Option<SignIn> {
         let Ok(v) = serde_json::from_str::<Value>(out.trim()) else { continue };
         let Some(oauth) = v.get("claudeAiOauth") else { continue };
         let Some(token) = oauth.get("accessToken").and_then(Value::as_str).filter(|t| !t.is_empty()) else { continue };
+        let subscription = oauth.get("subscriptionType").and_then(Value::as_str);
         return Some(SignIn {
             token: token.to_string(),
             expires_at: oauth.get("expiresAt").and_then(Value::as_i64),
-            plan: claude_plan(oauth.get("subscriptionType").and_then(Value::as_str), oauth.get("rateLimitTier").and_then(Value::as_str)),
+            plan: claude_plan(subscription, oauth.get("rateLimitTier").and_then(Value::as_str)),
+            subscription: subscription.map(str::to_string),
         });
     }
     None
@@ -104,7 +106,7 @@ pub fn claude(account: &AccountCfg, now: i64) -> Usage {
         u.needs_sign_in = true;
         return u;
     }
-    match fetch(&sign_in.token) {
+    match request(&sign_in.token, "GET", USAGE_URL, None) {
         Ok(v) => {
             u.meters = claude_meters(&v);
             u.as_of = Some(now);
@@ -128,41 +130,21 @@ pub fn claude(account: &AccountCfg, now: i64) -> Usage {
     u
 }
 
-enum Fetch {
+pub(super) enum Fetch {
     SignedOut,
     RateLimited,
     Failed(String),
 }
 
-fn fetch(token: &str) -> Result<Value, Fetch> {
-    if token.chars().any(|c| c == '"' || c == '\\' || c.is_control()) {
-        return Err(Fetch::Failed("the stored sign-in is unreadable".into()));
-    }
-    let mut child = Command::new("/usr/bin/curl")
-        .args(["-sS", "-m", "15", "-w", "\n%{http_code}", "-K", "-", USAGE_URL])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| Fetch::Failed(format!("curl: {e}")))?;
-    let config = format!(
-        "header = \"Authorization: Bearer {token}\"\nheader = \"anthropic-beta: oauth-2025-04-20\"\nheader = \"Accept: application/json\"\nheader = \"User-Agent: codealong/{}\"\n",
-        env!("CARGO_PKG_VERSION")
-    );
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(config.as_bytes());
-    }
-    let out = child.wait_with_output().map_err(|e| Fetch::Failed(format!("curl: {e}")))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (body, status) = text.rsplit_once('\n').unwrap_or(("", &text));
-    match status.trim() {
-        "200" => serde_json::from_str(body).map_err(|_| Fetch::Failed("unexpected response".into())),
-        "401" | "403" => Err(Fetch::SignedOut),
-        "429" => Err(Fetch::RateLimited),
-        "000" | "" => {
-            let err = String::from_utf8_lossy(&out.stderr);
-            Err(Fetch::Failed(err.trim().trim_start_matches("curl: ").chars().take(120).collect()))
-        }
+/// One call to Anthropic's API as the account, with `body` as JSON when there is one: plan usage
+/// here, its privacy settings in training.rs.
+pub(super) fn request(token: &str, method: &str, url: &str, body: Option<&Value>) -> Result<Value, Fetch> {
+    let headers = [format!("Authorization: Bearer {token}"), "anthropic-beta: oauth-2025-04-20".to_string()];
+    let reply = crate::http::call(method, url, &headers, body, Duration::from_secs(15)).map_err(Fetch::Failed)?;
+    match reply.status {
+        200..=299 => reply.json().ok_or_else(|| Fetch::Failed("unexpected response".into())),
+        401 | 403 => Err(Fetch::SignedOut),
+        429 => Err(Fetch::RateLimited),
         other => Err(Fetch::Failed(format!("HTTP {other}"))),
     }
 }

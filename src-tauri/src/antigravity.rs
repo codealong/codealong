@@ -712,6 +712,89 @@ fn group_label(name: &str) -> String {
     cut.trim().replace(" and ", " & ")
 }
 
+/* ---- Enable Telemetry ---- */
+
+/// Google's API behind Antigravity's account settings, where Enable Telemetry is kept: on, Google
+/// collects the account's interactions "for use in evaluating, developing, and improving
+/// Antigravity and models that support Antigravity", and Antigravity's terms say to opt out of
+/// that in its settings. The app (2.23.0's language server) and `agy` 1.3.4 read it here as they
+/// start (`fetchUserInfo`, `{}`, answered with `userSettings {telemetryEnabled,
+/// marketingEmailsEnabled, userDataCollectionForceDisabled}`, fields that are false left out)
+/// and change it with `setUserSettings {userSettings}`, which has no update mask, so what's
+/// there is sent back with it. A running copy keeps the old value until it starts again.
+const CLOUD_CODE: &str = "https://daily-cloudcode-pa.googleapis.com/v1internal";
+/// Google turns away a call whose User-Agent doesn't say Antigravity (403, "The caller does not
+/// have permission"), whatever its sign-in; one that names Codealong and says Antigravity is
+/// let through (2026-10-13).
+const TELEMETRY_AGENT: &str = concat!("User-Agent: codealong/", env!("CARGO_PKG_VERSION"), " (antigravity)");
+
+/// The access token in the keychain's sign-in, which `agy` refreshes as it runs (Codealong
+/// never does, and never writes the item): go-keyring's `go-keyring-base64:` (or `-encoded:`,
+/// hex) and JSON `{token: {access_token, expiry}, …}`. None when it's missing or has expired.
+fn access_token() -> Option<Result<String, &'static str>> {
+    let raw = procs::run("/usr/bin/security", &["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"], None, KEYCHAIN_TIMEOUT).ok()?;
+    let raw = raw.trim();
+    let bytes = match (raw.strip_prefix("go-keyring-base64:"), raw.strip_prefix("go-keyring-encoded:")) {
+        (Some(b64), _) => data_encoding::BASE64.decode(b64.as_bytes()).ok(),
+        (_, Some(hex)) => data_encoding::HEXLOWER_PERMISSIVE.decode(hex.as_bytes()).ok(),
+        _ => Some(raw.as_bytes().to_vec()),
+    };
+    let v: Value = bytes.and_then(|b| serde_json::from_slice(&b).ok())?;
+    let token = v.pointer("/token/access_token").and_then(Value::as_str).filter(|t| !t.is_empty())?;
+    let expired = v.pointer("/token/expiry").and_then(Value::as_str).and_then(parse_rfc3339_ms).is_some_and(|t| t <= crate::util::now_ms() + 60_000);
+    Some(if expired { Err("expired") } else { Ok(token.to_string()) })
+}
+
+fn cloud_code(token: &str, method: &str, body: &Value) -> Result<Value, String> {
+    let headers = [format!("Authorization: Bearer {token}"), TELEMETRY_AGENT.to_string()];
+    let reply = crate::http::call("POST", &format!("{CLOUD_CODE}:{method}"), &headers, Some(body), Duration::from_secs(15))?;
+    match reply.status {
+        200..=299 => reply.json().ok_or_else(|| "unexpected response".to_string()),
+        401 => Err("the sign-in has expired".to_string()),
+        other => Err(format!("HTTP {other}")),
+    }
+}
+
+/// Where the account stands from `fetchUserInfo`'s answer.
+fn telemetry_training(account: &AccountCfg, v: &Value) -> crate::training::Training {
+    use crate::training::{State, Training};
+    let set = |name: &str| v.pointer(&format!("/userSettings/{name}")).and_then(Value::as_bool) == Some(true);
+    if set("userDataCollectionForceDisabled") {
+        Training::new(account, State::Off, "Google keeps data collection off for this account: its organization's terms apply.")
+    } else if set("telemetryEnabled") {
+        Training::new(account, State::On, "Enable Telemetry is on: Google may collect this account's Antigravity interactions to improve Antigravity and the models behind it. It's in Antigravity's Settings › Account, and agy's /config.").stoppable()
+    } else {
+        Training::new(account, State::Off, "Enable Telemetry is off in Antigravity's account settings.")
+    }
+}
+
+fn read_telemetry(account: &AccountCfg) -> crate::training::Training {
+    use crate::training::Training;
+    let cli = cli_command(account);
+    match access_token() {
+        None => Training::unknown(account, format!("Not signed in: run {} once to sign in.", code(cli))),
+        Some(Err(_)) => Training::unknown(account, format!("Its sign-in needs refreshing, which {} does as it runs.", code(cli))),
+        Some(Ok(token)) => match cloud_code(&token, "fetchUserInfo", &serde_json::json!({})) {
+            Ok(v) => telemetry_training(account, &v),
+            Err(why) => Training::unknown(account, format!("Couldn't read its account settings: {why}.")),
+        },
+    }
+}
+
+fn stop_telemetry(account: &AccountCfg) -> anyhow::Result<()> {
+    let cli = cli_command(account);
+    let token = match access_token() {
+        Some(Ok(t)) => t,
+        Some(Err(_)) => anyhow::bail!("{}'s sign-in needs refreshing: run {} once, then try again.", account.name, code(cli)),
+        None => anyhow::bail!("{} isn't signed in: run {} once to sign in.", account.name, code(cli)),
+    };
+    let now = cloud_code(&token, "fetchUserInfo", &serde_json::json!({})).map_err(|why| anyhow::anyhow!("Couldn't read {}'s account settings: {why}.", account.name))?;
+    let emails = now.pointer("/userSettings/marketingEmailsEnabled").and_then(Value::as_bool).unwrap_or(false);
+    let body = serde_json::json!({ "userSettings": { "telemetryEnabled": false, "marketingEmailsEnabled": emails } });
+    cloud_code(&token, "setUserSettings", &body).map_err(|why| anyhow::anyhow!("Couldn't turn off Enable Telemetry for {}: {why}.", account.name))?;
+    Ok(())
+}
+
 /* ---- Reading conversations for the board ---- */
 
 /// Antigravity's conversations for the board (`harness::Reader`): each account's summary tables
@@ -1032,6 +1115,16 @@ impl crate::harness::Adapter for Antigravity {
 
     fn read_usage(&self, account: &AccountCfg, now: i64) -> crate::model::Usage {
         read_usage(account, now)
+    }
+
+    /// Enable Telemetry, in the account's settings on Google's servers, which the app and `agy`
+    /// share.
+    fn training(&self, account: &AccountCfg) -> crate::training::Training {
+        read_telemetry(account)
+    }
+
+    fn stop_training(&self, account: &AccountCfg) -> anyhow::Result<()> {
+        stop_telemetry(account)
     }
 
     fn records(&self, account: &AccountCfg, s: &Session) -> Vec<PathBuf> {
@@ -1496,5 +1589,18 @@ mod tests {
             assert_eq!(first_request(&path).map(|(asked, _)| asked).as_deref(), Some("Count the lines, then fix notes.txt"), "lead {lead:?}");
             assert_eq!(tail(&path, None).last_text.as_deref(), Some("Done: one line, and notes.txt is fixed."), "lead {lead:?}");
         }
+    }
+
+    /// As `fetchUserInfo` answered on 2026-10-13, and with the switches Antigravity 2.23.0 knows.
+    #[test]
+    fn reads_enable_telemetry_as_whether_google_trains_on_the_account() {
+        use crate::training::State;
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let read = |v: Value| telemetry_training(&account, &v);
+        let off = read(serde_json::json!({"userSettings": {}, "regionCode": "US"}));
+        assert_eq!((off.state, off.can_stop), (State::Off, false));
+        let on = read(serde_json::json!({"userSettings": {"telemetryEnabled": true}}));
+        assert_eq!((on.state, on.can_stop), (State::On, true));
+        assert_eq!(read(serde_json::json!({"userSettings": {"telemetryEnabled": true, "userDataCollectionForceDisabled": true}})).state, State::Off);
     }
 }

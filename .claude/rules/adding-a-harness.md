@@ -60,8 +60,9 @@ a change to what's sent shows there. What each harness records and accepts is in
    - its accounts: `installed`, `signed_in`, `sign_in_command`, `folder_use`, `skills_dir`,
      `installs_plugin` (Codealong goes in as a plugin, not a skill copy), `acp_command`,
      `session_cwds` (first run's projects), `chats` (the folder of sessions it starts without a
-     folder of yours, which get one lane), `no_limits`, and `polls_usage` with `read_usage` for
-     usage asked from somewhere slow;
+     folder of yours, which get one lane), `no_limits`, `polls_usage` with `read_usage` for
+     usage asked from somewhere slow, and `training` with `stop_training` for whether its
+     provider may train on what the account sends (training.rs);
    - the engine: `scratch_owner` (the session a scratch folder of its own is for, whose worktrees
      show it), `databases` (the ones in WAL mode, whose `-wal` the watcher keeps), and, for its
      records read as text without parsing, `output_marks` and `folder_marks` (a tool's output,

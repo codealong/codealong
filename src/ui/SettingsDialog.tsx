@@ -11,7 +11,7 @@ import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Usage, Verdict, WhenLimited } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -56,6 +56,8 @@ interface SettingsDialogProps {
    *  from the project switcher's Add project…. */
   focus: string | null;
   usage: Usage[];
+  /** Whether each account's provider may train on it (training.ts), for Accounts. */
+  training?: Training[];
   /** The terminal's and editor's names, for copy. */
   apps: { terminal: string; editor: string };
   theme: Theme;
@@ -70,7 +72,7 @@ interface SettingsDialogProps {
   teamFiles: TeamFile[];
 }
 
-export function SettingsDialog({ section, onSection, focus, usage, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes, teamFiles }: SettingsDialogProps) {
+export function SettingsDialog({ section, onSection, focus, usage, training, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes, teamFiles }: SettingsDialogProps) {
   const [view, setView] = useState<ConfigView | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What you've typed in the config.toml section, kept while you look at another section.
@@ -124,7 +126,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   if (section === 'accounts') {
     pane = (
       <>
-        <AccountsSection focus={focus} usage={usage} terminal={apps.terminal} now={now} onSaved={() => void load()} />
+        <AccountsSection focus={focus} usage={usage} training={training} terminal={apps.terminal} now={now} onSaved={() => void load()} />
       </>
     );
   } else if (section === 'agents') {

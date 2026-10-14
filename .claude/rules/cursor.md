@@ -85,6 +85,16 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `AGENT_CLI_CREDENTIAL_STORE=file`, `~/.cursor/auth.json`: `cursor.rs` (`Cursor::signed_in`,
   which reads the email only). Usage is asked of Cursor's servers with the token; nothing local
   says it (`Cursor::no_limits`).
+- Privacy Mode (whether Cursor trains on the account) is the account's on Cursor's servers,
+  read and set with the app's token: `cursor.rs` (Privacy Mode section). The enum is
+  `aiserver.v1.PrivacyMode`: 0 unspecified, 1 `NO_STORAGE` (Legacy, offered only to accounts
+  already on it), 2 `NO_TRAINING` (Privacy Mode), 3 `USAGE_DATA_TRAINING_ALLOWED` and 4
+  `USAGE_CODEBASE_TRAINING_ALLOWED` (Share Data). The answer can also carry
+  `hoursRemainingInGracePeriod`, `isEnforcedByTeam` and `partnerDataShare` (prompts shared with
+  a model's provider when you pick its model), and an `accountPrivacyMode` the app's code doesn't
+  define. The app sends `x-ghost-mode` on every request by it; the command line caches it in
+  `cli-config.json` as `privacyCache` and picks private or other agent servers by it. The app
+  goes by its teams' most private setting, and for Enterprise hides the picker.
 - Links: `cursor://anysphere.cursor-deeplink/…` (the built-in `cursor-deeplink` extension).
   `/prompt?text=&workspace=<folder name>&mode=` fills in a new chat after a confirmation dialog
   and doesn't send it; `/agent?id=` opens the Agents window and asks `glass.openCloudAgentById`,

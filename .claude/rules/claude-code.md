@@ -449,6 +449,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - Sign-in in the login keychain (its services, the account, reading it without a prompt) and
   never refreshing, logging or passing the token in arguments: `claude/usage.rs` (module header,
   `keychain_services`, `read_sign_in`, `fetch`).
+- Help improve Claude (whether Anthropic trains on the account), read and changed through the
+  account's settings: `claude/training.rs`. The settings answer holds much else (dismissed
+  banners, feature flags) and `grove_updated_at`, `grove_notice_viewed_at`. Claude Code's notice
+  of the new terms also reads `GET /api/claude_code_grove` (`grove_enabled` there is whether the
+  notice applies, with `domain_excluded` for emails whose domain is left out of training,
+  `notice_is_grace_period`, `notice_reminder_frequency`); it answered 403 to both accounts'
+  OAuth tokens here (2026-10-13), so Codealong goes by the account settings alone.
 - Plan usage, `GET https://api.anthropic.com/api/oauth/usage`: the request and its `limits`
   list in `claude/usage.rs` (`fetch`, `claude_meters`), how often the app asks and how it backs
   off in `engine.rs` (`USAGE_EVERY`, `USAGE_BACKOFF`, `keep_last_good`). It returns 429 when

@@ -1036,6 +1036,76 @@ impl crate::harness::Reader for Reader {
     }
 }
 
+/* ---- Privacy Mode ---- */
+
+/// Cursor's API, where the account's Privacy Mode is read and set, as Cursor 3.22.7's Settings
+/// and `cursor-agent` 2026.08.11 do: Connect's JSON over HTTP, `{}` to `GetUserPrivacyMode` and
+/// `{privacyMode}` to `SetUserPrivacyMode`. The app keeps a copy in its ItemTable
+/// (`cursorai/donotchange/newPrivacyMode2`) that it reads again every five minutes; writing it
+/// changes nothing on the server.
+const DASHBOARD: &str = "https://api2.cursor.sh/aiserver.v1.DashboardService";
+/// Where a person changes it by hand.
+const PRIVACY_PAGE: &str = "https://cursor.com/dashboard?tab=settings&openPrivacy=true";
+/// Privacy Mode as the Settings picker sets it: not trained on, though code may be kept for
+/// features that need it (Background Agents). `PRIVACY_MODE_NO_STORAGE` (Legacy) is offered only
+/// to accounts already on it.
+const NO_TRAINING: &str = "PRIVACY_MODE_NO_TRAINING";
+
+/// The sign-in to ask Cursor's API with: the app's, else the command line's in the keychain. The
+/// token is never logged, and Codealong never refreshes it.
+fn api_token(home: &Path) -> Option<String> {
+    let app = app_db(home).and_then(|p| crate::harness::open_database(&p)).and_then(|db| db.query_row("SELECT CAST(value AS TEXT) FROM ItemTable WHERE key = 'cursorAuth/accessToken'", [], |r| r.get::<_, String>(0)).ok());
+    let cli = || procs::run("/usr/bin/security", &["find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w"], None, Duration::from_secs(10)).ok();
+    app.or_else(cli).map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+fn dashboard(token: &str, method: &str, body: &Value) -> Result<Value, String> {
+    let headers = [format!("Authorization: Bearer {token}"), "Connect-Protocol-Version: 1".to_string()];
+    let reply = crate::http::call("POST", &format!("{DASHBOARD}/{method}"), &headers, Some(body), Duration::from_secs(15))?;
+    match reply.status {
+        200..=299 => reply.json().ok_or_else(|| "unexpected response".to_string()),
+        401 | 403 => Err("the sign-in has expired: sign in to Cursor again".to_string()),
+        other => Err(format!("HTTP {other}")),
+    }
+}
+
+/// Where the account stands from `GetUserPrivacyMode`'s answer: `privacyMode`, and
+/// `isEnforcedByTeam` when a team sets it. Fields at their defaults are left out.
+fn privacy_training(account: &AccountCfg, v: &Value) -> crate::training::Training {
+    use crate::training::{State, Training};
+    let team = v.get("isEnforcedByTeam").and_then(Value::as_bool).unwrap_or(false);
+    let reading = match v.get("privacyMode").and_then(Value::as_str).unwrap_or("PRIVACY_MODE_UNSPECIFIED") {
+        "PRIVACY_MODE_NO_TRAINING" => Training::new(account, State::Off, "Privacy Mode is on: Cursor doesn't train on your code."),
+        "PRIVACY_MODE_NO_STORAGE" => Training::new(account, State::Off, "Privacy Mode (Legacy) is on: Cursor doesn't train on or keep your code."),
+        "PRIVACY_MODE_USAGE_DATA_TRAINING_ALLOWED" => Training::new(account, State::On, "Share Data is on: Cursor keeps and trains on your prompts, edits and usage.").stoppable(),
+        "PRIVACY_MODE_USAGE_CODEBASE_TRAINING_ALLOWED" => Training::new(account, State::On, "Share Data is on: Cursor keeps and trains on your prompts, edits, usage and codebase.").stoppable(),
+        _ => Training::new(account, State::Unset, "Cursor has no Privacy Mode set for this account. Turning training off sets it.").stoppable(),
+    }
+    .at(PRIVACY_PAGE);
+    if team {
+        // A team's setting can't be changed from a member's account.
+        return Training { can_stop: false, note: format!("{} Your team sets it.", reading.note), ..reading };
+    }
+    reading
+}
+
+fn read_privacy(account: &AccountCfg) -> crate::training::Training {
+    use crate::training::Training;
+    let Some(token) = api_token(&account.home_path()) else {
+        return Training::unknown(account, "Not signed in to Cursor.").at(PRIVACY_PAGE);
+    };
+    match dashboard(&token, "GetUserPrivacyMode", &serde_json::json!({})) {
+        Ok(v) => privacy_training(account, &v),
+        Err(why) => Training::unknown(account, format!("Couldn't read its Privacy Mode: {why}.")).at(PRIVACY_PAGE),
+    }
+}
+
+fn stop_privacy(account: &AccountCfg) -> anyhow::Result<()> {
+    let token = api_token(&account.home_path()).ok_or_else(|| anyhow::anyhow!("{} isn't signed in to Cursor.", account.name))?;
+    dashboard(&token, "SetUserPrivacyMode", &serde_json::json!({ "privacyMode": NO_TRAINING })).map_err(|why| anyhow::anyhow!("Couldn't turn on Privacy Mode for {}: {why}.", account.name))?;
+    Ok(())
+}
+
 /* ---- The adapter ---- */
 
 /// The only way in for an app chat: nothing there takes a prompt from outside, so the app comes
@@ -1263,6 +1333,16 @@ impl crate::harness::Adapter for Cursor {
 
     fn no_limits(&self, _account: &AccountCfg) -> Option<&'static str> {
         Some("Cursor shows its usage on cursor.com.")
+    }
+
+    /// Privacy Mode, in the account's settings on Cursor's servers.
+    fn training(&self, account: &AccountCfg) -> crate::training::Training {
+        read_privacy(account)
+    }
+
+    /// Turns Privacy Mode on, as Cursor's Settings does.
+    fn stop_training(&self, account: &AccountCfg) -> anyhow::Result<()> {
+        stop_privacy(account)
     }
 
     fn records(&self, account: &AccountCfg, s: &Session) -> Vec<PathBuf> {
@@ -1610,5 +1690,22 @@ mod tests {
         assert_eq!(Cursor.start_in_terminal(&account, &ask("", None, false)).input, format!("cursor-agent --new-session-id {id}\n"));
         let s = Session::new(Harness::Cursor, "cursor", "abc");
         assert_eq!(Cursor.resume(&account, &s, &ask("", None, false)).unwrap(), ("cursor-agent --resume abc\n".to_string(), Vec::new()));
+    }
+
+    /// As `GetUserPrivacyMode` answered on 2026-10-13, and the other modes Cursor 3.22.7 knows.
+    #[test]
+    fn reads_privacy_mode_as_whether_cursor_trains_on_the_account() {
+        use crate::training::State;
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false };
+        let read = |v: Value| privacy_training(&account, &v);
+        let off = read(json!({"privacyMode": "PRIVACY_MODE_NO_TRAINING", "accountPrivacyMode": "PRIVACY_MODE_NO_TRAINING"}));
+        assert_eq!((off.state, off.can_stop, off.url.as_deref()), (State::Off, false, Some(PRIVACY_PAGE)));
+        assert_eq!(read(json!({"privacyMode": "PRIVACY_MODE_NO_STORAGE"})).state, State::Off);
+        let on = read(json!({"privacyMode": "PRIVACY_MODE_USAGE_CODEBASE_TRAINING_ALLOWED"}));
+        assert_eq!((on.state, on.can_stop), (State::On, true));
+        assert_eq!(read(json!({})).state, State::Unset, "a mode left out is unspecified");
+        let team = read(json!({"privacyMode": "PRIVACY_MODE_USAGE_DATA_TRAINING_ALLOWED", "isEnforcedByTeam": true}));
+        assert_eq!((team.state, team.can_stop), (State::On, false));
+        assert!(team.note.ends_with("Your team sets it."));
     }
 }

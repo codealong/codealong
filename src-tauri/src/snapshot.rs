@@ -83,6 +83,8 @@ const MODES: &[Mode] = &[
     Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
     Mode { flag: "--found", takes: "", run: |_, _| Ok(pretty(&detect::unlisted().map_err(|e| Stop::Failed(format!("{e:#}")))?)) },
     Mode { flag: "--accounts", takes: "", run: accounts },
+    Mode { flag: "--training-off", takes: "<account>", run: training_off },
+    Mode { flag: "--training", takes: "", run: |_, _| Ok(pretty(&crate::training::read_all(&config::current().map_err(failed)?.accounts))) },
     Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr-draft", takes: "<owner/name> <number>", run: |_, rest| { let (repo, number) = repo_and_number(rest)?; Ok(pretty(&crate::github::your_review(repo, number).map_err(failed)?)) } },
@@ -95,6 +97,15 @@ const MODES: &[Mode] = &[
     Mode { flag: "--improve", takes: "", run: |_, _| Ok(pretty(&board_now().read(|b| b.improve.clone()))) },
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
 ];
+
+/// `codealong --snapshot --training-off <account>`: turns training off for the account at its
+/// provider, as the usage bar's flag does, and prints where it stands after. Real.
+fn training_off(_: &Args, rest: &[String]) -> Done {
+    let [name] = rest else { return Err(Stop::Usage) };
+    let cfg = config::current().map_err(failed)?;
+    let a = cfg.accounts.iter().find(|a| &a.name == name).ok_or_else(|| Stop::Failed(format!("There's no account named {name}.")))?;
+    Ok(pretty(&crate::training::stop(a).map_err(failed)?))
+}
 
 /// `codealong --snapshot --tokens [days]`: what the Usage window shows for the last `days` days
 /// (30 unless given), from this Mac's records read afresh into a ledger of the check's own (a

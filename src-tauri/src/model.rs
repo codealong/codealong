@@ -122,6 +122,10 @@ pub struct Board {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub github_current: std::collections::BTreeMap<String, Option<i64>>,
     pub usage: Vec<Usage>,
+    /// Whether each account's provider may train on what it sends (training.rs), for the
+    /// accounts read so far, in config order. This Mac's own: not sent to other devices.
+    #[serde(default)]
+    pub training: Vec<crate::training::Training>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
     /// Pinned worktrees (lane ids), in order.

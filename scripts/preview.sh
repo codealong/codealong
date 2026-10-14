@@ -79,6 +79,9 @@
 # --tokens [days] > file` prints this Mac's); without one it gets a report made up from the board.
 # PREVIEW_NOTICES=<file> shows the background failures in it (scripts/preview/notices-sample.json
 # has two) in the accounts bar, in place of the snapshot's, which usually has none.
+# PREVIEW_TRAINING=<file> says which accounts' providers may train on them (training-sample.json
+# has some), for the accounts bar's flags and Settings › Accounts: the snapshot reads none, since
+# that asks every provider (`codealong --snapshot --training` does).
 # PREVIEW_DEVICES=<file> shows your other devices from it (scripts/preview/devices-sample.json
 # has some): Settings › Devices, the sidebar's Devices, and a few of the board's own worktrees
 # shown as if they were on those devices.
@@ -162,6 +165,7 @@ fixture canvas "${PREVIEW_CANVAS:-}"
 fixture usage "${PREVIEW_USAGE:-}"
 fixture devices "${PREVIEW_DEVICES:-}"
 fixture notices "${PREVIEW_NOTICES:-}"
+fixture training "${PREVIEW_TRAINING:-}"
 fixture skills "${PREVIEW_SKILLS:-}"
 fixture tokens "${PREVIEW_TOKENS:-}"
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"
