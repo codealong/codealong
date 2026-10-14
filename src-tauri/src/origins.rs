@@ -223,7 +223,11 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
         let launched = s.launched.is_some_and(|l| l >= q.at - PENDING_SLACK_MS && l <= q.at + LAUNCH_MS);
         launched && opens(q, s) && q.account == s.account && q.lane == s.lane && s.key != q.from
     };
-    for p in std::mem::take(&mut store.pending) {
+    // Agents' starts first: one from no session notes no origin, and mustn't take the session of
+    // an agent's that opens alike before that start does.
+    let mut all = std::mem::take(&mut store.pending);
+    all.sort_by_key(|p| p.from.is_empty());
+    for p in all {
         if now - p.at > p.waits() {
             changed = true;
             continue;
@@ -342,8 +346,9 @@ pub fn started(spec: &crate::start::StartSpec, key: Option<&str>) {
 }
 
 /// A notice for each start in a terminal that's stuck (`Pending::stuck`): it has no session on
-/// the board yet, and its terminal may be behind your windows. Each is named by where it started,
-/// so dismissing one doesn't hide the next, and goes once its session shows.
+/// the board yet, and its terminal may be behind your windows. Each has a key of its own (`start:`
+/// and when it was started), so dismissing one doesn't hide the next, even in the same worktree,
+/// and goes once its session shows.
 pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: impl Fn(&str) -> String, now: i64) -> Vec<crate::model::Notice> {
     pending
         .iter()
@@ -362,9 +367,45 @@ pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: 
                 terminal = board.apps.terminal,
                 mins = p.minutes(now),
             );
-            crate::model::Notice { key: "start".into(), title: format!("{word} hasn't started in {place}"), text, until: None }
+            crate::model::Notice { key: format!("start:{}", p.at), title: format!("{word} hasn't started in {place}"), text, until: None }
         })
         .collect()
+}
+
+/// The board's sessions as pending starts are matched against them, each its own lane's (not a
+/// visitor), with when its process began asked only of the accounts a start waits on.
+pub fn candidates<'a>(board: &'a crate::model::Board, pending: &[Pending]) -> Vec<Candidate<'a>> {
+    let waited: HashSet<&str> = pending.iter().map(|p| p.account.as_str()).collect();
+    let launched = |s: &crate::model::Session| s.pid.filter(|_| s.live && waited.contains(s.account.as_str())).and_then(crate::procs::proc_start_ms);
+    board
+        .lanes
+        .iter()
+        .flat_map(|l| {
+            l.sessions.iter().filter(|s| s.visitor.is_none()).map(|s| Candidate {
+                key: &s.key,
+                lane: &l.id,
+                account: &s.account,
+                started: s.started_at.unwrap_or(s.last_activity),
+                prompt: s.first_prompt.as_deref().or(s.last_prompt.as_deref()),
+                launched: launched(s),
+            })
+        })
+        .collect()
+}
+
+/// The starts still waiting for their session as of this board: what's pending, less what its
+/// sessions settle (`resolve`, on a copy). The app writes that down as it publishes; a board
+/// made without it (a snapshot with the app closed) would otherwise call a start stuck whose
+/// session it lists.
+pub fn waiting_for(board: &crate::model::Board, now: i64) -> Vec<Pending> {
+    let current = current();
+    if current.pending.is_empty() {
+        return Vec::new();
+    }
+    let mut store = (*current).clone();
+    let sessions = candidates(board, &store.pending);
+    resolve(&mut store, &sessions, &crate::todos::LaneIndex::of(&board.lanes), now);
+    store.pending
 }
 
 /// Matches pending starts to the sessions on the board and writes down what matched.
@@ -590,7 +631,11 @@ mod tests {
         let word = |_: &str| "Codex".to_string();
         assert!(stuck_notices(&[start.clone()], &board, word, AT + 60_000).is_empty());
         let said = stuck_notices(&[start.clone()], &board, word, AT + 66 * 60_000);
-        assert_eq!((said.len(), said[0].key.as_str(), said[0].title.as_str()), (1, "start", format!("Codex hasn't started in {}", board.lanes[0].callsign).as_str()));
+        assert_eq!((said.len(), said[0].key.as_str(), said[0].title.as_str()), (1, "start:1000000", format!("Codex hasn't started in {}", board.lanes[0].callsign).as_str()));
+        // Two stuck in one worktree are two notices, one dismissed apart from the other.
+        let again = Pending { at: AT + 60_000, ..start.clone() };
+        let two = stuck_notices(&[start.clone(), again], &board, word, AT + 66 * 60_000);
+        assert!(two.len() == 2 && two[0].key != two[1].key);
         assert!(said[0].text.starts_with(&format!("Codex was started in Ghostty 66 minutes ago, in {}, as a helper of “Dashboards”, and hasn't made its session yet: its terminal may be waiting on a screen of its own", board.lanes[0].callsign)), "{}", said[0].text);
         // Started by a session the board doesn't show, in a folder it doesn't either; and by you.
         let other = Pending { helper: false, lane: "/r/gone".into(), from: "claude:claude:gone".into(), ..start.clone() };
@@ -609,6 +654,15 @@ mod tests {
         let mine = Candidate { key: "codex:codex:mine", lane: "/r/app", account: "codex", started: AT + 300, prompt: Some("Review the branch"), launched: Some(AT + 50) };
         assert!(resolve(&mut store, &[mine], &Repos, AT + 400));
         assert!(store.pending.is_empty() && store.origin_of("codex:codex:mine").is_none());
+        // Nor when it opens alike and was started first: the agent's start takes its helper.
+        let yours = Pending { from: String::new(), helper: false, report: false, opens: opening("Review the branch"), ..pending("", "/r/app", "codex", AT) };
+        let agents = Pending { from: "claude:claude:boss".into(), helper: true, report: true, at: AT + 10, ..yours.clone() };
+        let mut store = Store { pending: vec![yours, agents], ..Default::default() };
+        let helper = Candidate { key: "codex:codex:helper", lane: "/r/app", account: "codex", started: AT + 100, prompt: Some("Review the branch"), launched: Some(AT + 20) };
+        let other = Candidate { key: "codex:codex:other", prompt: Some("Fix the login bug"), started: AT + 150, ..helper };
+        assert!(resolve(&mut store, &[helper, other], &Repos, AT + 200));
+        assert_eq!(store.helper_of("codex:codex:helper"), Some(("claude:claude:boss", true)));
+        assert_eq!(store.origin_of("codex:codex:other"), None);
     }
 
     #[test]

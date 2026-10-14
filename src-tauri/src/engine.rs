@@ -3200,25 +3200,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if store.pending.is_empty() {
             return false;
         }
-        // When each process began, asked only of the accounts a start waits on.
-        let waited: HashSet<&str> = store.pending.iter().map(|p| p.account.as_str()).collect();
-        let launched = |s: &Session| s.pid.filter(|_| s.live && waited.contains(s.account.as_str())).and_then(procs::proc_start_ms);
-        let sessions: Vec<origins::Candidate> = board
-            .lanes
-            .iter()
-            .flat_map(|l| {
-                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| origins::Candidate {
-                    key: &s.key,
-                    lane: &l.id,
-                    account: &s.account,
-                    started: s.started_at.unwrap_or(s.last_activity),
-                    prompt: s.first_prompt.as_deref().or(s.last_prompt.as_deref()),
-                    launched: launched(s),
-                })
-            })
-            .collect();
         let lanes = todos::LaneIndex::of(&board.lanes);
-        origins::resolve_pending(&sessions, &lanes, now_ms())
+        origins::resolve_pending(&origins::candidates(board, &store.pending), &lanes, now_ms())
     }
 
     fn compose(&self) -> Board {
@@ -3260,7 +3243,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
         // Starts in a terminal that never made their session: the board has nothing else of them.
         let word_of = |account: &str| self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string());
-        let stuck = origins::stuck_notices(&origins::current().pending, &board, word_of, now);
+        let stuck = origins::stuck_notices(&origins::waiting_for(&board, now), &board, word_of, now);
         board.notices.extend(stuck);
         board.usage = usage;
         board.training = self.training.list(&self.cfg.accounts);

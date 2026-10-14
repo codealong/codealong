@@ -110,6 +110,11 @@ impl Reporter {
     pub fn due(&mut self, pending: &[Pending], board: &Board, now: i64) -> Vec<Job> {
         let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived);
         self.told_stuck.retain(|(from, at)| pending.iter().any(|p| &p.from == from && p.at == *at));
+        // One not told yet whose start found its session (or stopped waiting) has nothing to say:
+        // its session was waiting on you, say, while the helper started and ran.
+        for (from, o) in self.owed.iter_mut() {
+            o.notes.retain(|_, n| !matches!(n.news, News::Unstarted { .. }) || pending.iter().any(|p| &p.from == from && n.helper == format!("start@{}", p.at) && p.stuck(now)));
+        }
         for p in pending.iter().filter(|p| p.report && p.stuck(now) && runs_here(&p.from)) {
             if !self.told_stuck.insert((p.from.clone(), p.at)) {
                 continue;
@@ -334,6 +339,12 @@ mod tests {
         let mut r = Reporter::default();
         assert!(r.due(&[Pending { report: false, ..start.clone() }], &b, NOW).is_empty());
         assert!(r.due(&[start.clone()], &board(vec![Session { live: false, ..boss(Status::Idle) }]), NOW).is_empty());
+        // Due while its session waited on you to answer a prompt, and the helper started meanwhile:
+        // nothing's left to say.
+        let mut r = Reporter::default();
+        let waiting = board(vec![boss(Status::Needs)]);
+        assert!(r.due(&[start.clone()], &waiting, NOW).is_empty());
+        assert!(r.due(&[], &b, NOW + 60_000).is_empty());
         // With another helper's news it's a line of the one message.
         let mut r = Reporter::default();
         r.due(&[], &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW);
