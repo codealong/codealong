@@ -49,7 +49,8 @@ through the list for something to do. What follows is for when they've asked.
   one that took over is told which session had the todo before, whose records show its work.
 - **When the work is done:** `codealong todo done <id>`, once it's merged or the user says
   it's done. It links your session to the todo too, if it wasn't already. Don't mark a todo
-  done on your own guess that it is; ask.
+  done on your own guess that it is; ask. Closing todos other sessions worked on, because your
+  user asked you to close the finished ones, add `--no-link`: your session didn't work on them.
 - **Look before adding:** `codealong todo list` shows open todos (`--status all` for every
   one, `--mine` for yours, `--worktree .` for this worktree's). `codealong todo show <id>` has
   the description with attachments as full paths you can read.

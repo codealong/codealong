@@ -484,6 +484,9 @@ Options:
           and its worktree, as `todo start` does; done links the session, as `todo done`
           does
 
+      --no-link
+          With --status, link nothing: a status changed for todos other sessions work on
+
       --project <PROJECT>
           
 
@@ -558,6 +561,10 @@ Arguments:
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --no-link
+          Don't link the session running this command: closing a todo other sessions
+          worked on, when your user asks you to close finished ones
 
       --table
           Tables, even when piped

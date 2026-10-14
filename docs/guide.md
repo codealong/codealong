@@ -1913,7 +1913,8 @@ not every session that ever worked there, nor an app's unrelated chats in its ch
 headless run; `codealong todo
 add|start|done|update|move|wait|ready|link` work the todo list, dependencies, waits and order
 included (`todo list --ready` is what can start now, `--waiting` what's under Waiting), and starting
-or finishing a todo links the session that ran the command; `codealong sessions [find <words>]`,
+or finishing a todo links the session that ran the command, unless `--no-link` says it closes a
+todo for you that other sessions worked on; `codealong sessions [find <words>]`,
 `session show`, `worktrees` and `accounts --usage` answer what else is running, what it did, where
 it lives, and which account has room; `codealong session open` brings the main window up on a
 session's conversation; `codealong session transcript` reads a session's conversation whatever its

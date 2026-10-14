@@ -290,7 +290,12 @@ enum TodoCmd {
         take: bool,
     },
     /// Mark a todo done, and link the session running this command to it: finishing a todo says you worked on it.
-    Done { id: String },
+    Done {
+        id: String,
+        /// Don't link the session running this command: closing a todo other sessions worked on, when your user asks you to close finished ones.
+        #[arg(long)]
+        no_link: bool,
+    },
     /// Put a done or in-progress todo back to todo.
     Reopen { id: String },
     /// Mark a todo as waiting, on something outside the list: a person's answer, a release, a date. It stays under Waiting until `todo ready`, until it's started, or until it's done.
@@ -403,6 +408,9 @@ struct TodoUpdateArgs {
     /// todo, in-progress or done. in-progress links the session running this command and its worktree, as `todo start` does; done links the session, as `todo done` does.
     #[arg(long)]
     status: Option<String>,
+    /// With --status, link nothing: a status changed for todos other sessions work on.
+    #[arg(long, requires = "status")]
+    no_link: bool,
     #[arg(long)]
     project: Option<String>,
     /// Add a label by name (made if new). Repeatable.
@@ -3907,7 +3915,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             };
             let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, due };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
-            if let Some(s) = status {
+            if let Some(s) = status.filter(|_| !a.no_link) {
                 link_caller(c, &id, s, json);
             }
             show_after(c, &id, json)
@@ -3957,8 +3965,8 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             c.apply(TodoOp::Order { ids })?;
             show_after(c, &id, json)
         }
-        TodoCmd::Done { id } => set_status(c, &id, TodoStatus::Done, json),
-        TodoCmd::Reopen { id } => set_status(c, &id, TodoStatus::Todo, json),
+        TodoCmd::Done { id, no_link } => set_status(c, &id, TodoStatus::Done, !no_link, json),
+        TodoCmd::Reopen { id } => set_status(c, &id, TodoStatus::Todo, false, json),
         TodoCmd::Wait(a) => {
             let store = c.todos()?;
             let id = resolve_todo(&store, &a.id)?;
@@ -4070,11 +4078,14 @@ fn warn_blocked(store: &TodoStore, id: &str, with: &[String]) {
     }
 }
 
-fn set_status(c: &mut Client, id: &str, status: TodoStatus, json: bool) -> Result<()> {
+/// Sets a todo's status, and links the session running this command to it when `link` says so.
+fn set_status(c: &mut Client, id: &str, status: TodoStatus, link: bool, json: bool) -> Result<()> {
     let store = c.todos()?;
     let id = resolve_todo(&store, id)?;
     c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { status: Some(status), ..Default::default() } })?;
-    link_caller(c, &id, status, json);
+    if link {
+        link_caller(c, &id, status, json);
+    }
     show_after(c, &id, json)
 }
 
@@ -5346,6 +5357,17 @@ mod tests {
         assert_eq!((s.prompt.as_deref(), s.account.as_str()), (Some("--help isn't what I mean: fix the flag"), "codex"));
         let Cmd::Terminal { cmd: TerminalCmd::Read(r) } = cmd(&["terminal", "read", "mg3", "--grep", "--verbose", "--wait", "10s"]) else { panic!() };
         assert_eq!((r.grep.as_deref(), r.wait.as_deref()), (Some("--verbose"), Some("10s")));
+    }
+
+    /// An orchestrator closing finished todos for its user didn't work on them (2026-10-14).
+    #[test]
+    fn a_todo_is_closed_without_linking_when_asked() {
+        let cmd = |a: &[&str]| Cli::try_parse_from(std::iter::once("codealong").chain(a.iter().copied())).map(|c| c.cmd);
+        assert!(matches!(cmd(&["todo", "done", "t-1"]), Ok(Cmd::Todo { cmd: TodoCmd::Done { no_link: false, .. } })));
+        assert!(matches!(cmd(&["todo", "done", "t-1", "--no-link"]), Ok(Cmd::Todo { cmd: TodoCmd::Done { no_link: true, .. } })));
+        let Ok(Cmd::Todo { cmd: TodoCmd::Update(u) }) = cmd(&["todo", "update", "t-1", "--status", "done", "--no-link"]) else { panic!() };
+        assert!(u.no_link);
+        assert!(cmd(&["todo", "update", "t-1", "--title", "x", "--no-link"]).is_err(), "--no-link goes with --status");
     }
 
     #[test]
