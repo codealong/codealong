@@ -239,9 +239,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   as the config option `effort` (category `thought_level`), listed only once the session's model
   takes one, so it's set after the model (`acp.rs` `start`). Its `currentValue` is `default`
   where nothing set one, or the model's recommended level, so it doesn't say what a session is on.
-- The effort a reply was made at is on its assistant line: `perTurnEffort`, else `effort` (older
-  lines, and the Claude app's, have only `effort`), as Claude Code reads its own back; it can be
-  a number. `/effort` writes "Set effort level to <level> (this session only): …" and "Effort
+- The effort a reply was made at is on its assistant line: `perTurnEffort` where it's there, else
+  `effort` (older lines, and the Claude app's, have only `effort`), as Claude Code reads its own
+  back; it can be a number. A model that takes none (Haiku 4.5) gets `perTurnEffort: null` and
+  no `effort`. `/effort` writes "Set effort level to <level> (this session only): …" and "Effort
   level set to auto" (2.1.299's code): `claude/transcript.rs` (`reply_effort`, `effort_set`).
 - `-w/--worktree [name]` makes a worktree for the session (read from 2.1.282's code): folder
   `.claude/worktrees/<name>` under the checkout, branch `worktree-<name>`, a word-pair name when

@@ -405,9 +405,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                         let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
                         info.context = Some(n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")).filter(|c| *c > 0).or(info.context);
                     }
-                    if let Some(e) = reply_effort(&v) {
-                        info.effort = Some(e);
-                    }
+                    info.effort = reply_effort(&v);
                 }
                 let Some(items) = v.pointer("/message/content").and_then(Value::as_array) else { continue };
                 // The shell's folder when the call was made: a `cd` inside the session's
@@ -502,14 +500,15 @@ fn model_set(content: &str) -> Option<String> {
 }
 
 /// The effort level a reply was made at, as Claude Code reads it back for its own (2.1.299's
-/// code): `perTurnEffort`, else `effort`, which may be a number. A reply with neither leaves the
-/// one before.
+/// code): `perTurnEffort` where the line has it, else `effort`, either of which may be a number.
+/// A model that takes none (Haiku 4.5) gets `perTurnEffort: null` and no `effort`, as do replies
+/// from before effort was written.
 fn reply_effort(v: &Value) -> Option<String> {
-    ["perTurnEffort", "effort"].iter().find_map(|k| match v.get(*k)? {
+    match v.get("perTurnEffort").or_else(|| v.get("effort"))? {
         Value::String(e) => Some(e.trim().to_string()).filter(|e| !e.is_empty()),
         Value::Number(n) => Some(n.to_string()),
         _ => None,
-    })
+    }
 }
 
 /// The effort level `/effort` set, from what it wrote (2.1.299): "Set effort level to high (this
@@ -998,9 +997,13 @@ mod tests {
         // The turn's own level wins over the one set; older replies name only `effort`.
         assert_eq!(parse_lines("", &reply(r#""effort":"high","perTurnEffort":"low","#)).effort.as_deref(), Some("low"));
         assert_eq!(parse_lines("", &reply(r#""effort":"xhigh","#)).effort.as_deref(), Some("xhigh"));
-        // `/effort` is the level until the next reply; a reply that names none leaves it.
+        // `/effort` is the level until the next reply.
         assert_eq!(parse_lines("", &[reply(r#""effort":"xhigh","#), set("max")].join("\n")).effort.as_deref(), Some("max"));
-        assert_eq!(parse_lines("", &[reply(r#""effort":"xhigh","#), reply("")].join("\n")).effort.as_deref(), Some("xhigh"));
+        // A switch to a model that takes none: its replies' `perTurnEffort` is null, and the
+        // level before isn't its.
+        let haiku = r#"{"type":"assistant","perTurnEffort":null,"message":{"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"Hi."}]}}"#;
+        assert_eq!(parse_lines("", &[reply(r#""effort":"max","perTurnEffort":"max","#), haiku.to_string()].join("\n")).effort, None);
+        assert_eq!(parse_lines("", &[reply(r#""effort":"xhigh","#), reply("")].join("\n")).effort, None);
         // A refusal written as a reply isn't one the model made.
         let refused = r#"{"type":"assistant","isApiErrorMessage":true,"perTurnEffort":"max","message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error"}]}}"#;
         assert_eq!(parse_lines("", &[reply(r#""effort":"high","#), refused.to_string()].join("\n")).effort.as_deref(), Some("high"));
