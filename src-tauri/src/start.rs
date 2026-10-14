@@ -765,7 +765,7 @@ fn linked(spec: &StartSpec, started: &Started, harness: &str, now: i64) -> Optio
 /// when the app is closed.
 pub fn start_and_link(board: &Board, cfg: &Config, spec: &StartSpec, record: impl FnOnce(Linked) -> Result<()>) -> Result<Started> {
     let started = start(board, cfg, spec)?;
-    crate::origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account, spec.helper, spec.report);
+    crate::origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account, &spec.prompt, spec.helper, spec.report);
     // `start` found the account, or it would have failed.
     let harness = cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.as_str());
     if let Some(link) = harness.and_then(|h| linked(spec, &started, h, now_ms())) {

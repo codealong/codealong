@@ -18,8 +18,14 @@ use crate::model::{OriginHow, SessionOrigin};
 use crate::store;
 use crate::todos::Lanes;
 
-/// How long a start whose session wasn't known waits for it to show up.
+/// How long a start whose session wasn't known waits for the next new session of its account in
+/// its worktree.
 const PENDING_MS: i64 = 30 * 60 * 1000;
+/// How long after that a start with a prompt still waits for a session that opens with it. A
+/// terminal UI can stop on a screen of its own before it makes its session, until you answer it:
+/// a Codex helper started in a terminal sat on one for 66 minutes and was never its session's
+/// (2026-10-14; codex.md has the screens). The prompt says it's the one, however late.
+const PROMPTED_MS: i64 = 24 * 60 * 60 * 1000;
 /// A session that says it started a little before the start was asked for can still be it.
 const PENDING_SLACK_MS: i64 = 60 * 1000;
 /// Entries are kept this long. Claude Code deletes transcripts after about 30 days.
@@ -74,6 +80,22 @@ pub struct Pending {
     /// (`codealong start --helper --report`, helpers.rs).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub report: bool,
+    /// How its prompt opens, as a harness records a prompt (`opening`), when it had one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opens: Option<String>,
+}
+
+impl Pending {
+    /// How long it waits: a start with a prompt a day, for a session that opens with it.
+    fn waits(&self) -> i64 {
+        if self.opens.is_some() { PROMPTED_MS } else { PENDING_MS }
+    }
+}
+
+/// How a prompt opens, as the harnesses' readers keep one (`Session::first_prompt`,
+/// `last_prompt`): its first line, cut short.
+pub fn opening(prompt: &str) -> Option<String> {
+    Some(crate::util::one_line(prompt, 140)).filter(|o| !o.is_empty())
 }
 
 impl Store {
@@ -122,7 +144,7 @@ impl Store {
 
     fn prune(&mut self, now: i64) {
         self.sessions.retain(|_, e| now - e.at < KEEP_MS);
-        self.pending.retain(|p| now - p.at < PENDING_MS);
+        self.pending.retain(|p| now - p.at < p.waits());
     }
 }
 
@@ -145,11 +167,14 @@ pub struct Candidate<'a> {
     pub account: &'a str,
     /// When it started, or its first activity.
     pub started: i64,
+    /// Its first prompt, else its latest, as its harness's reader keeps it.
+    pub prompt: Option<&'a str>,
 }
 
 /// Gives each pending start the first session of its account that started after it, in its
 /// worktree, else in another worktree of the same repo (the apps can make their own), that came
-/// from nowhere yet. Returns whether anything changed.
+/// from nowhere yet: one that opens with its prompt first, and after `PENDING_MS` only such a
+/// one. Returns whether anything changed.
 pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
     if store.pending.is_empty() {
         return false;
@@ -158,16 +183,19 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
     let mut taken: HashSet<String> = store.sessions.keys().cloned().collect();
     let mut waiting = Vec::new();
     for p in std::mem::take(&mut store.pending) {
-        if now - p.at > PENDING_MS {
+        if now - p.at > p.waits() {
             changed = true;
             continue;
         }
         let repo = lanes.repo_of(&p.lane);
+        let opens = |s: &Candidate| p.opens.is_some() && s.prompt.and_then(opening) == p.opens;
+        let late = now - p.at > PENDING_MS;
         let pick = sessions
             .iter()
             .filter(|s| s.account == p.account && s.started >= p.at - PENDING_SLACK_MS && s.key != p.from && !taken.contains(s.key))
             .filter(|s| s.lane == p.lane || (repo.is_some() && lanes.repo_of(s.lane) == repo))
-            .min_by_key(|s| (s.lane != p.lane, s.started));
+            .filter(|s| !late || opens(s))
+            .min_by_key(|s| (!opens(s), s.lane != p.lane, s.started));
         match pick {
             Some(s) => {
                 taken.insert(s.key.to_string());
@@ -236,9 +264,10 @@ pub fn forget(key: &str) -> Result<()> {
     change(|s| s.sessions.remove(key).is_some())
 }
 
-/// Notes a start from `from` whose session isn't known yet: the next one of `account` in `lane`.
-pub fn record_pending(from: &str, how: OriginHow, lane: &str, account: &str, helper: bool, report: bool) {
-    let p = Pending { from: from.to_string(), how, lane: lane.to_string(), account: account.to_string(), at: crate::util::now_ms(), helper, report };
+/// Notes a start from `from` whose session isn't known yet: the next one of `account` in `lane`,
+/// or a later one that opens with `prompt`.
+pub fn record_pending(from: &str, how: OriginHow, lane: &str, account: &str, prompt: &str, helper: bool, report: bool) {
+    let p = Pending { from: from.to_string(), how, lane: lane.to_string(), account: account.to_string(), at: crate::util::now_ms(), helper, report, opens: opening(prompt) };
     if let Err(e) = change(|s| {
         s.pending.push(p);
         true
@@ -248,10 +277,10 @@ pub fn record_pending(from: &str, how: OriginHow, lane: &str, account: &str, hel
 }
 
 /// Notes where a start came from: the session that asked for it (`StartSpec::from`), by the new
-/// session's key when the start knew it, else by the next session of its account in its worktree.
-/// `helper`: it was started as a helper of that session (`StartSpec::helper`), which `report`
-/// says is told what it does.
-pub fn started(from: Option<&str>, key: Option<&str>, lane: &str, account: &str, helper: bool, report: bool) {
+/// session's key when the start knew it, else by the next session of its account in its worktree,
+/// or one that opens with its `prompt`. `helper`: it was started as a helper of that session
+/// (`StartSpec::helper`), which `report` says is told what it does.
+pub fn started(from: Option<&str>, key: Option<&str>, lane: &str, account: &str, prompt: &str, helper: bool, report: bool) {
     let Some(from) = from.filter(|f| !f.is_empty()) else { return };
     match key {
         Some(key) => {
@@ -259,7 +288,7 @@ pub fn started(from: Option<&str>, key: Option<&str>, lane: &str, account: &str,
                 eprintln!("Couldn't note where {key} came from: {e:#}");
             }
         }
-        None => record_pending(from, OriginHow::Started, lane, account, helper, report),
+        None => record_pending(from, OriginHow::Started, lane, account, prompt, helper, report),
     }
 }
 
@@ -309,7 +338,7 @@ mod tests {
     }
 
     fn pending(from: &str, lane: &str, account: &str, at: i64) -> Pending {
-        Pending { from: from.into(), how: OriginHow::Started, lane: lane.into(), account: account.into(), at, helper: false, report: false }
+        Pending { from: from.into(), how: OriginHow::Started, lane: lane.into(), account: account.into(), at, helper: false, report: false, opens: None }
     }
 
     #[test]
@@ -337,7 +366,7 @@ mod tests {
     #[test]
     fn a_pending_start_takes_the_first_new_session_of_its_account_in_its_worktree() {
         let mut store = Store { pending: vec![pending("claude:claude:boss", "/r/app", "opencode", 1_000_000)], ..Default::default() };
-        let c = |key: &'static str, lane: &'static str, account: &'static str, started: i64| Candidate { key, lane, account, started };
+        let c = |key: &'static str, lane: &'static str, account: &'static str, started: i64| Candidate { key, lane, account, started, prompt: None };
         let sessions = [
             // Before the start, another account, and the one that asked: none of them.
             c("opencode:opencode:old", "/r/app", "opencode", 1_000_000 - 2 * PENDING_SLACK_MS),
@@ -366,7 +395,7 @@ mod tests {
     fn a_helper_started_without_a_key_is_a_helper_once_found() {
         let helper = Pending { helper: true, report: true, ..pending("claude:claude:boss", "/r/app", "opencode", 1_000_000) };
         let mut store = Store { pending: vec![helper], ..Default::default() };
-        let sessions = [Candidate { key: "opencode:opencode:new", lane: "/r/app", account: "opencode", started: 1_000_100 }];
+        let sessions = [Candidate { key: "opencode:opencode:new", lane: "/r/app", account: "opencode", started: 1_000_100, prompt: None }];
         assert!(resolve(&mut store, &sessions, &Repos, 1_000_300));
         assert_eq!(store.helper_of("opencode:opencode:new"), Some(("claude:claude:boss", true)));
         assert_eq!(store.origin_of("opencode:opencode:new").map(|o| o.how), Some(OriginHow::Started));
@@ -398,6 +427,41 @@ mod tests {
         let mut store = Store { pending: vec![pending("claude:claude:boss", "/r/app", "opencode", 0)], ..Default::default() };
         assert!(!resolve(&mut store, &[], &Repos, PENDING_MS - 1));
         assert_eq!(store.pending.len(), 1);
+    }
+
+    /// A Codex helper started in a terminal whose UI sat on a screen of its own for an hour
+    /// before it made its session (2026-10-14).
+    #[test]
+    fn a_start_with_a_prompt_takes_a_session_that_opens_with_it_however_late() {
+        const PROMPT: &str = "Review the commits on this branch that origin/main doesn't have.\n\nCLAUDE.md has the rules.";
+        let start = || Pending { helper: true, report: true, opens: opening(PROMPT), ..pending("claude:claude:boss", "/r/app", "codex", 1_000_000) };
+        let late = 1_000_000 + 66 * 60 * 1000;
+        let c = |key: &'static str, prompt: Option<&'static str>| Candidate { key, lane: "/r/app", account: "codex", started: late, prompt };
+        // As Codex's reader keeps a prompt: its first line.
+        let said = "Review the commits on this branch that origin/main doesn't have.";
+        // Past the half hour, a session of yours that opens otherwise isn't it, and one with no
+        // prompt yet isn't either; the start waits on.
+        let mut store = Store { pending: vec![start()], ..Default::default() };
+        assert!(!resolve(&mut store, &[c("codex:codex:yours", Some("Fix the login bug")), c("codex:codex:blank", None)], &Repos, late + 1000));
+        assert_eq!(store.pending.len(), 1);
+        // The one that opens with its prompt is its helper, told of as it asked.
+        assert!(resolve(&mut store, &[c("codex:codex:yours", Some("Fix the login bug")), c("codex:codex:review", Some(said))], &Repos, late + 2000));
+        assert!(store.pending.is_empty());
+        assert_eq!(store.helper_of("codex:codex:review"), Some(("claude:claude:boss", true)));
+        assert_eq!(store.origin_of("codex:codex:yours"), None);
+        // Within the half hour it prefers that one too, over one that started first.
+        let mut store = Store { pending: vec![start()], ..Default::default() };
+        let sessions = [Candidate { started: 1_000_100, ..c("codex:codex:yours", Some("Fix the login bug")) }, Candidate { started: 1_000_200, ..c("codex:codex:review", Some(said)) }];
+        assert!(resolve(&mut store, &sessions, &Repos, 1_000_300));
+        assert_eq!(store.helper_of("codex:codex:review"), Some(("claude:claude:boss", true)));
+        // It gives up after a day, and one without a prompt after the half hour.
+        let mut store = Store { pending: vec![start(), pending("claude:claude:boss", "/r/app", "codex", 1_000_000)], ..Default::default() };
+        assert!(resolve(&mut store, &[], &Repos, late));
+        assert_eq!(store.pending.iter().map(|p| p.opens.is_some()).collect::<Vec<_>>(), vec![true]);
+        assert!(resolve(&mut store, &[], &Repos, 1_000_000 + PROMPTED_MS + 1));
+        assert!(store.pending.is_empty());
+        // A start without a prompt notes none.
+        assert_eq!(opening("  \n "), None);
     }
 
     #[test]

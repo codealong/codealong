@@ -3202,7 +3202,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             .lanes
             .iter()
             .flat_map(|l| {
-                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| origins::Candidate { key: &s.key, lane: &l.id, account: &s.account, started: s.started_at.unwrap_or(s.last_activity) })
+                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| origins::Candidate { key: &s.key, lane: &l.id, account: &s.account, started: s.started_at.unwrap_or(s.last_activity), prompt: s.first_prompt.as_deref().or(s.last_prompt.as_deref()) })
             })
             .collect();
         let lanes = todos::LaneIndex::of(&board.lanes);
