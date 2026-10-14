@@ -289,6 +289,11 @@ pub struct Session {
     /// say, and from Macs before 2026-10-06.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// How it goes about what would need your say (`SessionMode`): Claude Code's manual, plan or
+    /// bypass permissions, Codex's Default or Full Access, as its harness last wrote it. None
+    /// where the harness doesn't say, and from Macs before 2026-10-13.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<SessionMode>,
     /// How much of its model's context window its conversation fills now, as its latest call
     /// sent it. None where the harness doesn't say, before its first reply, and from Macs before
     /// 2026-10-12.
@@ -493,6 +498,7 @@ impl Session {
             connection_lost: None,
             cut_off: None,
             model: None,
+            mode: None,
             context: None,
             own_worktree: None,
             helper: None,
@@ -501,6 +507,45 @@ impl Session {
             color: None,
             emblem: None,
         }
+    }
+}
+
+/// The mode a session runs in, as its harness has it: what it does without asking you.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMode {
+    pub kind: ModeKind,
+    /// The harness's own name for it, as its own window shows it: "Manual", "Accept edits",
+    /// "Full Access", "Approve for me".
+    pub label: String,
+    /// What that means, in a sentence.
+    pub detail: String,
+}
+
+/// How much a mode lets a session do without asking you, from the least.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModeKind {
+    /// It plans, and changes nothing until you take the plan.
+    Plan,
+    /// It reads, and changes nothing without asking.
+    ReadOnly,
+    /// It asks before it edits files or runs commands that do more than look.
+    Asks,
+    /// It edits files without asking, and asks before other commands.
+    Edits,
+    /// Something other than you answers what it would ask: a reviewer or a classifier.
+    Auto,
+    /// It does everything without asking.
+    Skips,
+    /// One a later version names, or one its harness has that none of these says.
+    #[serde(other)]
+    Other,
+}
+
+impl SessionMode {
+    pub fn new(kind: ModeKind, label: &str, detail: &str) -> Self {
+        SessionMode { kind, label: label.to_string(), detail: detail.to_string() }
     }
 }
 

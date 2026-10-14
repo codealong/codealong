@@ -358,8 +358,20 @@ its prompt back, so the agent never sees it: the panel shows that prompt faint, 
 and puts it back in the box, as Claude Code does in its own. The next message Codealong types into
 that terminal clears Claude Code's copy first (not in Terminal, which can't press a single key).
 
-Under the box at the right are the session's account (its harness on hover), beside where you
-write to it, and a small pie that says how full its context window is, as its latest call left
+Under the box at the right are the mode a running session is in, the session's account (its
+harness on hover), beside where you write to it, and a small pie for its context window. The mode
+is how much it does without asking you, in its harness's own words, with what
+that means on hover (and in the header's Details): Claude Code's Manual, Plan, Accept edits, Auto,
+Don't Ask or Bypass Permissions (a terminal session's from its transcript, where a switch shows
+from its next prompt; the Claude app's from the app's record); Codex's Read Only, Ask for approval,
+Approve for me (its reviewer agent answers for you) or Full Access, and Plan, from its latest
+turn; OpenCode's agent (Build, Plan or one of yours); Cursor's Ask or Plan, and in its other modes
+its auto-run setting (Run Everything, Auto-review, Allowlist, Ask Every Time), the chat's own or
+the app's; Antigravity's tool permission from its latest turn (Request review, Strict, Auto, Proceed
+in sandbox, Always proceed, which `--dangerously-skip-permissions` also gives). Antigravity's
+accept-edits and plan modes aren't written where Codealong reads, so they don't show. Codealong only
+says the mode: it's changed where the session runs. The pie says how full the context window is,
+as its latest call left
 it, counted as its harness counts it for its own meter: Claude Code's input,
 cache reads and cache writes against the model's window (a million tokens for the 1M models),
 Codex's tokens against the window its rollout names, OpenCode's last message. It turns amber past
@@ -376,7 +388,12 @@ instead): OpenCode's are answered through its service, Claude Code's through the
 `PermissionRequest` hook when the account has the plugin (wherever the session runs: any terminal,
 the Claude app), with Always too where Claude Code offers to allow calls like it from now on (its
 button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2 or tmux tab, only
-while its own record says the prompt is up for that call. Questions a Claude Code session asks you
+while its own record says the prompt is up for that call. An Antigravity command line conversation
+in a terminal is answered the same way, by a keypress there while its database says the call
+waits: Allow is its prompt's first choice (run the command, read the file) and Deny cancels the
+prompt, which ends its turn; its other choices (always, for the conversation or in its settings)
+are left to its terminal, since they're numbered differently from one prompt to another.
+Questions a Claude Code session asks you
 (its `AskUserQuestion`) show the same way through the plugin, one at a time under a strip of their
 headers, each with its choices listed as Claude Code lists them, what each says about itself under it,
 and a box for your own answer, and Answer sends your picks. Claude Code's own prompt stays up all the while, and
@@ -1104,7 +1121,10 @@ the prompt, on the account's default model; without a prompt it opens the app's 
 OpenCode starts in your terminal on your prompt (`--prompt`), and so does the Codex CLI, for any
 Codex account (`codex -- <prompt>`, images with `-i`), and Antigravity's command line, `agy`, once
 it's installed (`agy -i <prompt>`, on one of the models it lists); the Antigravity app starts
-conversations only in its own window.
+conversations only in its own window. Codealong trusts the folder for `agy` first (its settings'
+`trustedWorkspaces`, the folder exactly as it's started in), as it trusts it for Claude Code: in a
+folder it hasn't trusted, `agy` stops to ask, and the prompt runs meanwhile with no workspace,
+asking before it reads each file of yours.
 
 #### In Codealong
 

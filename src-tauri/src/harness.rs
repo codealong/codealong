@@ -555,7 +555,7 @@ pub trait Adapter: Sync {
     }
 
     /// Gets a folder ready for a session of the account to start in, where the harness would
-    /// otherwise stop to ask about it.
+    /// otherwise stop to ask about it: the folder it runs in, a chat's own folder for a chat.
     fn before_start(&self, _account: &AccountCfg, _folder: &Path) {}
 
     /// What a new terminal types to start a session (`Place::Terminal`).

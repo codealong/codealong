@@ -72,5 +72,15 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   assistant message that has them, after the latest `compaction` message whose `status` is
   `completed` (`running`, then `completed` or `failed`), as OpenCode's own
   meter has it. An assistant row has no `tokens` until its step ends.
+- A session's mode is its agent, which OpenCode's own ACP server lists as its modes:
+  `opencode.rs` (`SessionRow::agent`, `agent_mode`). `session_v2.agent` is the one its next
+  turn runs as (NULL for the config's `default_agent`, else `build`), moved by a prompt with
+  another agent, ACP's mode, `opencode run --agent` and `POST /api/session/<id>/agent`, each
+  writing an `agent-switched` message (`data.agent`, `data.previous`); every assistant message's
+  `data.agent` says the agent it ran as. A session's own rules are `session_v2.permission`
+  (always NULL here); an Always is kept per project in the `permission` table. `--auto` (hidden
+  aliases `--yolo`, `--dangerously-skip-permissions`) in the TUI, `cli.json`'s
+  `session.permissions: "autoaccept"`, and the desktop app's own setting answer every request
+  and leave no trace in the database (2.0.16's code, 2026-10-13).
 - Creating a session through the API in a folder made OpenCode point its `global` project
   (its project for folders without version control) at that folder.

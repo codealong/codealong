@@ -336,8 +336,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   "system","subtype":"peer_message_hold","state":"held"}` line to the app, which (2.9939.2) has
   no code for it: the message is never shown or delivered, and the sender never hears.
 - A Claude app session's permission mode is in the app's record of it, a terminal session's on
-  its transcript's prompt lines: `claude/mode.rs` (`permission_mode`), `claude/app.rs`
-  (`permission_mode`).
+  its transcript's prompt lines and its `permission-mode` line: `claude/mode.rs`
+  (`permission_mode`, `session_mode` with the names Claude Code's own table gives them),
+  `claude/app.rs` (`permission_mode`, `Records::modes`), `claude/transcript.rs`
+  (`TranscriptInfo::permission_mode`). `permission-mode` (and `mode`, `normal` here) are
+  last-wins metadata re-stamped with the title and the rest; a switch sets the stamp without
+  writing it (2.1.296's code). Of this Mac's 300 latest transcripts on 2026-10-13, 296 ended in
+  `bypassPermissions`.
 - Background jobs through the account's daemon, `/tmp/cc-daemon-<uid>/<first 8 hex of
   sha256(config dir)>/control.sock`: `reply` hands a job a prompt (pasted, then Return), and
   `attach` types into its terminal, an Escape that stops its turn included: `claude/daemon.rs`,

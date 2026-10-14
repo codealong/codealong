@@ -29,8 +29,9 @@
 // The box is laid out as chat apps' are: the send button sits inside it, at its corner, and the
 // placeholder says how a message gets there (typed into its Ghostty tab, a message from
 // Codealong, its app: send.rs `way_in`). What else it has to say (how a send went, the keys that
-// aren't the usual ones) goes on a line below it, which ends with the session's account and how
-// full its context is (ContextMeter.tsx): who the message goes to, beside where you write it.
+// aren't the usual ones) goes on a line below it, which ends with the mode it runs in
+// (ModeLabel.tsx), the session's account and how full its context is (ContextMeter.tsx): who the
+// message goes to and what it may do about it, beside where you write it.
 //
 // A few of Codealong's own slash commands work in the box (slash.ts): `/fork [prompt]` forks the
 // session into a copy that goes on in the background, on the prompt when there is one, and you
@@ -91,6 +92,7 @@ import { CodeBlock } from './CopyButton';
 import { bangCommand } from './RunButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
+import { ModeLabel } from './ModeLabel';
 import { AccountLabel, BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
 import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
@@ -842,6 +844,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             {said}
           </span>
         )}
+        {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
+        {s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
         {/* A side conversation's copy runs on the session's account too, so it stays. */}
         <AccountLabel session={s} small />
         {!aside && <ContextMeter session={s} />}

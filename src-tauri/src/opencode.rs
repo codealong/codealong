@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use crate::config::AccountCfg;
 use crate::harness::{Applied, Look, Said, Wake};
-use crate::model::{Harness, Session};
+use crate::model::{Harness, ModeKind, Session, SessionMode};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
 use crate::util::{code, home, one_line, truncate};
@@ -48,6 +48,9 @@ pub struct SessionRow {
     pub last_ts: i64,
     /// The session it's a fork of (`fork_session_id`), which OpenCode's fork copies it from.
     pub fork_of: Option<String>,
+    /// The agent its next turn runs as (`agent`), else the one its latest reply ran as: `build`,
+    /// `plan` or one of yours.
+    pub agent: Option<String>,
 }
 
 impl SessionRow {
@@ -122,6 +125,17 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
             }
         }
     }
+    // The agent picked for its next turn; NULL is the config's `default_agent`, which its replies
+    // name. Asked apart, as forks are: older databases have no such column.
+    if let Ok(mut stmt) = db.prepare("SELECT id, agent FROM session_v2 WHERE agent IS NOT NULL AND agent != ''") {
+        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+            for (id, agent) in rows.flatten() {
+                if let Some(row) = by_id.get_mut(&id) {
+                    row.agent = Some(agent);
+                }
+            }
+        }
+    }
     // The newest user and assistant message of each session; `seq` counts up within a session.
     let mut stmt = db.prepare(
         "SELECT m.session_id, m.type, m.time_created, m.time_updated, m.data FROM session_message m \
@@ -143,6 +157,9 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
                 row.last_text = text;
                 row.last_text_tail = last_text_part(&v).map(|t| crate::jev::tail(t, 600)).filter(|t| !t.is_empty());
                 row.last_tool = tool;
+                if row.agent.is_none() {
+                    row.agent = v.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty()).map(str::to_string);
+                }
             }
             _ => {}
         }
@@ -153,6 +170,25 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
     let mut out: Vec<SessionRow> = by_id.into_values().collect();
     out.sort_by(|a, b| b.last_ts.cmp(&a.last_ts));
     Ok(out)
+}
+
+/// A session's agent as its mode: OpenCode names its primary agents its modes (its ACP server
+/// lists them as the session's modes), Tab switches between them, and each has permissions of
+/// its own. In 2.0.16 every agent starts from allowing everything but folders outside the
+/// project and `.env` files, `plan` denies edits outside its plan folder, and config files can
+/// change any of it (`permission`), so only `plan` is said to change nothing. `--auto` in a
+/// terminal answers every request there, which only its arguments say.
+pub fn agent_mode(agent: &str) -> SessionMode {
+    let name = agent.trim();
+    match name {
+        "plan" => SessionMode::new(ModeKind::Plan, "Plan", "OpenCode's plan agent: it plans without editing files, and runs commands as its permission settings allow."),
+        "build" => SessionMode::new(ModeKind::Other, "Build", "OpenCode's build agent: it does what its permission settings allow (by default everything in the project) and asks about the rest."),
+        _ => {
+            let mut label: String = name.chars().take(1).flat_map(char::to_uppercase).collect();
+            label.push_str(&name.chars().skip(1).collect::<String>());
+            SessionMode::new(ModeKind::Other, &label, &format!("OpenCode's {name} agent: it does what its permission settings allow and asks about the rest."))
+        }
+    }
 }
 
 /// How full a session's context is, as OpenCode's own meter has it: every token of its latest
@@ -1308,6 +1344,22 @@ mod tests {
         let got = rows(&forked);
         assert_eq!(got["ses_a"], None);
         assert_eq!(got["ses_b"].as_deref(), Some("ses_a"));
+    }
+
+    #[test]
+    fn its_mode_is_the_agent_picked_else_the_one_its_latest_reply_ran_as() {
+        let agents = |db: &Connection| read_sessions_from(db, 0, &HashSet::new()).unwrap().into_iter().map(|r| (r.id, r.agent)).collect::<HashMap<_, _>>();
+        let replies = "INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1), ('ses_b', '/r', 1, 1);\
+             INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES \
+             ('m1', 'ses_a', 'assistant', 1, 2, 2, '{\"agent\":\"build\"}'), ('m2', 'ses_b', 'assistant', 1, 2, 2, '{\"agent\":\"build\"}');";
+        // A database from before the column goes by the replies.
+        let got = agents(&db_with(replies));
+        assert_eq!(got["ses_a"].as_deref(), Some("build"));
+        let picked = db_with(&format!("ALTER TABLE session_v2 ADD COLUMN agent TEXT; {replies} UPDATE session_v2 SET agent = 'plan' WHERE id = 'ses_b';"));
+        let got = agents(&picked);
+        assert_eq!((got["ses_a"].as_deref(), got["ses_b"].as_deref()), (Some("build"), Some("plan")));
+        assert_eq!(agent_mode("plan").kind, ModeKind::Plan);
+        assert_eq!((agent_mode("build").label, agent_mode("review").label), ("Build".to_string(), "Review".to_string()));
     }
 
     #[test]

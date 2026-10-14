@@ -155,8 +155,12 @@
   gap: var(--space-2);
   min-width: 0;
 }
-.ca-composer-under .ca-account {
+.ca-composer-under .ca-account,
+.ca-composer-under .ca-mode {
   margin-left: auto;
+}
+.ca-composer-under .ca-mode + .ca-account {
+  margin-left: 0;
 }
 .ca-composer-note {
   flex: 1;

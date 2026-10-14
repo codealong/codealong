@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use crate::config::AccountCfg;
 use crate::harness::{Applied, Ctx, Look};
-use crate::model::{Harness, Session, Status, Surface};
+use crate::model::{Harness, ModeKind, Session, SessionMode, Status, Surface};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, placed, Item, Page};
 use crate::util::{code, command_dir, file_name, note_work, one_line, only_looks, parse_rfc3339_ms};
@@ -75,6 +75,13 @@ pub struct Chat {
     pub blocking: bool,
     pub branch: Option<String>,
     pub model: Option<String>,
+    /// The mode it's in, as Cursor names it: the app's `unifiedMode` (`agent`, `chat` for Ask,
+    /// `plan`…), the command line's `mode` (`default`, `plan`, `debug`, `search` for Ask).
+    pub mode: Option<String>,
+    /// Its own auto-run setting, where it has one: the app's `agentApprovalModeOverride`
+    /// (`unrestricted` once you pick Run Everything in it), the command line's `approvalMode`
+    /// (`allowlist`, `unrestricted`, `auto-review`).
+    pub approval: Option<String>,
     /// How many messages it has.
     pub messages: i64,
     /// How long its composerData is: the app rewrites it with every message, so a change says
@@ -166,7 +173,8 @@ fn read_state(db: &Connection, c: &mut Chat) {
     let got = db.query_row(
         "SELECT json_extract(t, '$.status'), json_extract(t, '$.lastUpdatedAt'), json_extract(t, '$.name'), json_extract(t, '$.hasBlockingPendingActions'), \
          json_extract(t, '$.gitWorktree.worktreePath'), json_extract(t, '$.gitWorktree.branchName'), json_extract(t, '$.modelConfig.modelName'), \
-         json_array_length(t, '$.fullConversationHeadersOnly'), length(t) FROM (SELECT CAST(value AS TEXT) AS t FROM cursorDiskKV WHERE key = ?1)",
+         json_array_length(t, '$.fullConversationHeadersOnly'), length(t), json_extract(t, '$.unifiedMode'), json_extract(t, '$.agentApprovalModeOverride') \
+         FROM (SELECT CAST(value AS TEXT) AS t FROM cursorDiskKV WHERE key = ?1)",
         [format!("composerData:{}", c.id)],
         |r| {
             Ok((
@@ -179,10 +187,12 @@ fn read_state(db: &Connection, c: &mut Chat) {
                 r.get::<_, Option<String>>(6)?,
                 r.get::<_, Option<i64>>(7)?,
                 r.get::<_, Option<i64>>(8)?,
+                r.get::<_, Option<String>>(9)?,
+                r.get::<_, Option<String>>(10)?,
             ))
         },
     );
-    let Ok((status, updated, name, blocking, worktree, branch, model, messages, written)) = got else { return };
+    let Ok((status, updated, name, blocking, worktree, branch, model, messages, written, mode, approval)) = got else { return };
     c.status = status.unwrap_or_default();
     c.last_updated = c.last_updated.max(updated.unwrap_or(0));
     if let Some(name) = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
@@ -198,6 +208,86 @@ fn read_state(db: &Connection, c: &mut Chat) {
     c.model = model.filter(|m| !m.is_empty() && m != "default");
     c.messages = messages.unwrap_or(0);
     c.written = written.unwrap_or(0);
+    c.mode = mode.filter(|m| !m.is_empty());
+    c.approval = approval.filter(|a| !a.is_empty());
+}
+
+/// The app's auto-run setting, which every chat runs by unless it has its own (`Chat::approval`):
+/// the `agent` entry of `composerState.modes4` in its settings, whatever mode the chat is in, and
+/// the name each mode has there (3.22.7's code). Run Everything is `autoRun` with `fullAutoRun`,
+/// Auto-review `autoRun` with `smartModeAutoRun`, Allowlist `autoRun` alone, and Ask Every Time
+/// no `autoRun`. A team's settings, a policy, or `approvalMode` in `~/.cursor/permissions.json`
+/// can override it, and none of them is read.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AutoRun {
+    /// None when the app's settings say nothing of it.
+    pub agent: Option<&'static str>,
+    pub names: HashMap<String, String>,
+}
+
+/// The ItemTable key that holds the app's settings for its chats.
+const APP_SETTINGS: &str = "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser";
+
+fn read_auto_run(db: &Connection) -> AutoRun {
+    let mut out = AutoRun::default();
+    let Ok(mut stmt) = db.prepare(
+        "SELECT json_extract(m.value, '$.id'), json_extract(m.value, '$.name'), json_extract(m.value, '$.autoRun'), json_extract(m.value, '$.fullAutoRun'), json_extract(m.value, '$.smartModeAutoRun') \
+         FROM ItemTable, json_each(CAST(ItemTable.value AS TEXT), '$.composerState.modes4') AS m WHERE ItemTable.key = ?1",
+    ) else {
+        return out;
+    };
+    let on = |v: Option<i64>| v.is_some_and(|v| v != 0);
+    let rows = stmt.query_map([APP_SETTINGS], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<i64>>(2)?, r.get::<_, Option<i64>>(3)?, r.get::<_, Option<i64>>(4)?)));
+    for (id, name, auto, full, smart) in rows.into_iter().flatten().flatten() {
+        let Some(id) = id else { continue };
+        if id == "agent" {
+            out.agent = Some(match (on(auto), on(full), on(smart)) {
+                (false, _, _) => "ask-every-time",
+                (true, true, _) => "unrestricted",
+                (true, false, true) => "auto-review",
+                (true, false, false) => "allowlist",
+            });
+        }
+        if let Some(name) = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
+            out.names.insert(id, name);
+        }
+    }
+    out
+}
+
+/// A chat's mode, as the app or the command line has it. Ask and Plan change nothing (the
+/// command line calls Ask `search`, and once called Run Everything a mode, `auto-run`); in every
+/// other mode its auto-run setting says what it does without asking: its own, else the app's.
+pub fn chat_mode(c: &Chat, app: &AutoRun) -> Option<SessionMode> {
+    let mode = c.mode.as_deref().unwrap_or(if c.cli { "default" } else { "agent" });
+    let named = |id: &str, plain: &str| app.names.get(id).cloned().unwrap_or_else(|| plain.to_string());
+    match mode {
+        "chat" | "search" => return Some(SessionMode::new(ModeKind::ReadOnly, &named("chat", "Ask"), "Cursor's Ask mode: it reads and answers, and changes nothing.")),
+        "plan" => return Some(SessionMode::new(ModeKind::Plan, &named("plan", "Plan"), "Cursor's Plan mode: it plans without changing anything, until you build the plan.")),
+        "edit" => return Some(SessionMode::new(ModeKind::Other, &named("edit", "Manual"), "Cursor's Manual mode: it edits only the files you give it, with no tools.")),
+        _ => {}
+    }
+    let approval = match (c.cli, c.approval.as_deref()) {
+        (_, Some(a)) => Some(a),
+        (true, None) if mode == "auto-run" => Some("unrestricted"),
+        (true, None) => Some("allowlist"),
+        (false, None) => app.agent,
+    }?;
+    let (kind, run, detail) = match approval {
+        "unrestricted" => (ModeKind::Skips, "Run Everything", "runs every command without asking"),
+        "auto-review" => (ModeKind::Auto, "Auto-review", "a reviewer decides which commands run without asking you"),
+        "allowlist" => (ModeKind::Edits, "Allowlist", "runs the commands on its allowlist without asking, and asks before the rest"),
+        "ask-every-time" => (ModeKind::Asks, "Ask Every Time", "asks before it runs any command"),
+        _ => return None,
+    };
+    // Agent is the usual mode, so its auto-run is what's said; another names itself first.
+    let label = match mode {
+        "agent" | "default" | "auto-run" | "background" => run.to_string(),
+        "debug" => named("debug", "Debug"),
+        other => named(other, other),
+    };
+    let detail = format!("Auto-run is {run}: it {detail}.");
+    Some(SessionMode::new(kind, &label, &detail))
 }
 
 /// How long each chat's composerData is, by chat: cheap to ask, as nothing is parsed.
@@ -538,6 +628,10 @@ pub struct Meta {
     pub name: Option<String>,
     pub created_at: Option<i64>,
     pub model: Option<String>,
+    pub mode: Option<String>,
+    /// `approvalMode`, else `unrestricted` where `isRunEverything` says so, as the command line
+    /// reads them (2026.08.11's code).
+    pub approval: Option<String>,
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
@@ -553,7 +647,8 @@ pub fn parse_meta(value: &str) -> Meta {
     let json = decode_hex(value).and_then(|b| String::from_utf8(b).ok()).unwrap_or_else(|| value.to_string());
     let v: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
     let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-    Meta { name: text("name"), created_at: v.get("createdAt").and_then(Value::as_i64), model: text("lastUsedModel") }
+    let approval = text("approvalMode").or_else(|| (v.get("isRunEverything").and_then(Value::as_bool) == Some(true)).then(|| "unrestricted".to_string()));
+    Meta { name: text("name"), created_at: v.get("createdAt").and_then(Value::as_i64), model: text("lastUsedModel"), mode: text("mode"), approval }
 }
 
 fn read_meta(store: &Path) -> Meta {
@@ -626,7 +721,7 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
                 continue;
             }
             let meta = read_meta(&store);
-            out.push(Chat { id, title: meta.name, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, cli: true, dir: Some(dir), transcript, ..Chat::default() });
+            out.push(Chat { id, title: meta.name, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, ..Chat::default() });
         }
     }
     out.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));
@@ -883,6 +978,8 @@ pub struct Reader {
     marks: crate::harness::DatabaseMarks,
     processes: Vec<Process>,
     app_running: bool,
+    /// The app's auto-run setting, by account, as last read.
+    auto_run: HashMap<String, AutoRun>,
     looked_at: Option<Instant>,
     read_at: Option<Instant>,
 }
@@ -901,6 +998,7 @@ impl Reader {
         let before: HashMap<String, Chat> = self.chats.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
         let mut rows = Vec::new();
         if let Some(db) = app_db(&home).and_then(|p| crate::harness::open_database(&p)) {
+            self.auto_run.insert(a.name.clone(), read_auto_run(&db));
             let mut app = read_app_chats(&db, look.since, &keep).unwrap_or_default();
             let lengths = written(&db, &app.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
             for c in &mut app {
@@ -1026,6 +1124,7 @@ impl crate::harness::Reader for Reader {
                 let key = Session::key_for(Harness::Cursor, &account.name, &c.id);
                 let mut s = crate::board::cursor_session(account, c, self.held(&c.id), self.app_running, look.seen.seen_at(&key), look.now);
                 s.archived |= look.archived_here(&key, s.last_activity);
+                s.mode = chat_mode(c, self.auto_run.get(&account.name).unwrap_or(&AutoRun::default()));
                 s
             })
             .collect()
@@ -1612,8 +1711,39 @@ mod tests {
     fn reads_a_command_line_chats_meta() {
         let text = r#"{"agentId":"a","name":"Fix the build","createdAt":1790000000000,"lastUsedModel":"gpt-5.5"}"#;
         let hex: String = text.bytes().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(parse_meta(&hex), Meta { name: Some("Fix the build".into()), created_at: Some(1_790_000_000_000), model: Some("gpt-5.5".into()) });
+        assert_eq!(parse_meta(&hex), Meta { name: Some("Fix the build".into()), created_at: Some(1_790_000_000_000), model: Some("gpt-5.5".into()), ..Meta::default() });
         assert_eq!(parse_meta(text).name.as_deref(), Some("Fix the build"));
+        let planned = parse_meta(r#"{"name":"n","mode":"plan","isRunEverything":true}"#);
+        assert_eq!((planned.mode.as_deref(), planned.approval.as_deref()), (Some("plan"), Some("unrestricted")));
+        assert_eq!(parse_meta(r#"{"approvalMode":"auto-review","isRunEverything":true}"#).approval.as_deref(), Some("auto-review"));
+    }
+
+    #[test]
+    fn a_chats_mode_is_its_own_then_the_apps_auto_run() {
+        let db = app_fixture();
+        let modes = json!({ "composerState": { "modes4": [
+            { "id": "agent", "name": "Agent", "autoRun": 1, "fullAutoRun": 1, "smartModeAutoRun": 0 },
+            { "id": "chat", "name": "Ask", "autoRun": 0 },
+            { "id": "debug", "name": "Debug" },
+        ] } });
+        db.execute("INSERT INTO ItemTable (key, value) VALUES (?1, ?2)", rusqlite::params![APP_SETTINGS, modes.to_string()]).unwrap();
+        let app = read_auto_run(&db);
+        assert_eq!(app.agent, Some("unrestricted"));
+        let said = |c: &Chat, app: &AutoRun| chat_mode(c, app).map(|m| (m.kind, m.label));
+        let says = |kind: ModeKind, label: &str| Some((kind, label.to_string()));
+        let chat = |mode: Option<&str>, approval: Option<&str>, cli: bool| Chat { mode: mode.map(String::from), approval: approval.map(String::from), cli, ..Chat::default() };
+        assert_eq!(said(&chat(Some("agent"), None, false), &app), says(ModeKind::Skips, "Run Everything"));
+        // Ask changes nothing, whatever auto-run says; another mode names itself.
+        assert_eq!(said(&chat(Some("chat"), None, false), &app), says(ModeKind::ReadOnly, "Ask"));
+        assert_eq!(said(&chat(Some("debug"), None, false), &app), says(ModeKind::Skips, "Debug"));
+        // A chat's own setting wins, and with no settings the app's chats say nothing.
+        assert_eq!(said(&chat(None, Some("ask-every-time"), false), &app), says(ModeKind::Asks, "Ask Every Time"));
+        assert_eq!(said(&chat(Some("agent"), None, false), &AutoRun::default()), None);
+        // The command line's: Allowlist unless it says otherwise, `search` is Ask.
+        assert_eq!(said(&chat(Some("default"), None, true), &AutoRun::default()), says(ModeKind::Edits, "Allowlist"));
+        assert_eq!(said(&chat(Some("auto-run"), None, true), &AutoRun::default()), says(ModeKind::Skips, "Run Everything"));
+        assert_eq!(said(&chat(Some("search"), None, true), &AutoRun::default()), says(ModeKind::ReadOnly, "Ask"));
+        assert_eq!(said(&chat(Some("default"), Some("auto-review"), true), &AutoRun::default()), says(ModeKind::Auto, "Auto-review"));
     }
 
     #[test]

@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::model::{ModeKind, SessionMode};
+
 use crate::util::{command_dir, file_name, mtime_ms, note_work, one_line, only_looks, parse_rfc3339_ms, read_first_line, read_range, read_tail, resolve, scan_lines_back, work_before};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -45,6 +47,8 @@ pub struct ThreadInfo {
     pub forked_from: Option<String>,
     /// The model its latest turn ran on, from its `turn_context`.
     pub model: Option<String>,
+    /// The permissions its latest turn ran with, from its `turn_context` (`turn_mode`).
+    pub mode: Option<SessionMode>,
     /// The tokens in its context after its latest call and its model's window: the last
     /// `token_count`'s `last_token_usage.total_tokens` (what went in and what came out) and
     /// `model_context_window`, which Codex's own context meter is worked out from.
@@ -533,6 +537,40 @@ pub(super) fn file_path_of(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// The permissions a turn ran with, from its `turn_context`, named as Codex's own status line
+/// names them (0.157.1's tui `permissions_display` and `approval_mode_display`): the sandbox
+/// (`sandbox_policy.type`: Read Only, Workspace, Full Access) and who answers what goes past it
+/// (`approval_policy`, and `approvals_reviewer`: `auto_review` for Approve for me, a reviewer
+/// agent, or `user`). The Plan collaboration mode (`collaboration_mode.mode`) changes nothing
+/// whatever the sandbox. Every turn writes all of them (this Mac's 348 latest threads on
+/// 2026-10-13: on-request with auto_review in workspace-write, never in read-only, a few asking
+/// you or with full access); a turn that says none of them says nothing.
+pub fn turn_mode(p: &Value) -> Option<SessionMode> {
+    let text = |at: &str| p.pointer(at).and_then(Value::as_str);
+    if text("/collaboration_mode/mode") == Some("plan") {
+        return Some(SessionMode::new(ModeKind::Plan, "Plan", "Plans without changing anything, until you take the plan."));
+    }
+    let sandbox = text("/sandbox_policy/type");
+    // A policy of its own rules is an object (`{"granular": …}`).
+    let approval = p.get("approval_policy").map(|a| a.as_str().unwrap_or("custom"));
+    if sandbox.is_none() && approval.is_none() {
+        return None;
+    }
+    let reviewer = text("/approvals_reviewer") == Some("auto_review");
+    let (kind, label, detail) = match (sandbox, approval) {
+        (Some("danger-full-access"), _) => (ModeKind::Skips, "Full Access", "Edits files anywhere and uses the internet without asking."),
+        (Some("read-only"), Some("on-request")) if reviewer => (ModeKind::ReadOnly, "Read Only", "Reads files, and a reviewer agent answers for you when it would edit files or use the internet."),
+        (Some("read-only"), Some("on-request")) => (ModeKind::ReadOnly, "Read Only", "Reads files, and asks before it edits files or uses the internet."),
+        (Some("read-only"), Some("never")) => (ModeKind::ReadOnly, "Read Only", "Reads files, and refuses anything more without asking."),
+        (_, Some("on-request")) if reviewer => (ModeKind::Auto, "Approve for me", "Edits files in its workspace and runs commands there; a reviewer agent answers for you when it would use the internet or edit other files."),
+        (Some("workspace-write"), Some("on-request")) => (ModeKind::Edits, "Ask for approval", "Edits files in its workspace and runs commands there, and asks before it uses the internet or edits other files."),
+        (_, Some("untrusted")) => (ModeKind::Asks, "Untrusted", "Asks before any command it doesn't know to be safe."),
+        (Some("workspace-write"), Some("never")) => (ModeKind::Other, "Never ask", "Edits files in its workspace and runs commands there, and refuses anything more without asking."),
+        _ => (ModeKind::Other, "Custom permissions", "Runs with permissions set up its own way."),
+    };
+    Some(SessionMode::new(kind, label, detail))
+}
+
 fn apply_event(info: &mut ThreadInfo, v: &Value) {
     let ts = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms);
     if let Some(t) = ts {
@@ -547,6 +585,9 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
     if v.get("type").and_then(Value::as_str) == Some("turn_context") {
         if let Some(m) = v.pointer("/payload/model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
             info.model = Some(m.to_string());
+        }
+        if let Some(p) = v.get("payload") {
+            info.mode = turn_mode(p).or(info.mode.take());
         }
         return;
     }
@@ -712,6 +753,26 @@ mod tests {
         let turn = |model: &str| format!(r#"{{"timestamp":"2026-10-06T10:00:00.000Z","type":"turn_context","payload":{{"model":"{model}","effort":"high"}}}}"#);
         apply_events(&mut info, &[turn("gpt-5.4"), turn("gpt-5.5")].join("\n"));
         assert_eq!(info.model.as_deref(), Some("gpt-5.5"));
+    }
+
+    #[test]
+    fn names_the_permissions_its_latest_turn_ran_with_as_codex_does() {
+        let mode = |payload: &str| turn_mode(&serde_json::from_str(payload).unwrap()).map(|m| (m.kind, m.label));
+        let says = |kind: ModeKind, label: &str| Some((kind, label.to_string()));
+        assert_eq!(mode(r#"{"approval_policy":"on-request","approvals_reviewer":"auto_review","sandbox_policy":{"type":"workspace-write"},"collaboration_mode":{"mode":"default"}}"#), says(ModeKind::Auto, "Approve for me"));
+        assert_eq!(mode(r#"{"approval_policy":"on-request","approvals_reviewer":"user","sandbox_policy":{"type":"workspace-write"}}"#), says(ModeKind::Edits, "Ask for approval"));
+        assert_eq!(mode(r#"{"approval_policy":"never","approvals_reviewer":"user","sandbox_policy":{"type":"danger-full-access"}}"#), says(ModeKind::Skips, "Full Access"));
+        assert_eq!(mode(r#"{"approval_policy":"never","approvals_reviewer":"auto_review","sandbox_policy":{"type":"read-only"}}"#), says(ModeKind::ReadOnly, "Read Only"));
+        assert_eq!(mode(r#"{"approval_policy":{"granular":{}},"sandbox_policy":{"type":"external-sandbox"}}"#), says(ModeKind::Other, "Custom permissions"));
+        // Plan changes nothing, whatever the sandbox.
+        assert_eq!(mode(r#"{"approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"collaboration_mode":{"mode":"plan"}}"#), says(ModeKind::Plan, "Plan"));
+        assert_eq!(mode(r#"{"model":"gpt-5.5"}"#), None);
+
+        // A turn that says nothing of it leaves the one before.
+        let mut info = ThreadInfo::default();
+        let turn = |payload: &str| format!(r#"{{"timestamp":"2026-10-13T10:00:00.000Z","type":"turn_context","payload":{payload}}}"#);
+        apply_events(&mut info, &[turn(r#"{"approval_policy":"on-request","approvals_reviewer":"user","sandbox_policy":{"type":"read-only"}}"#), turn(r#"{"model":"gpt-5.5"}"#)].join("\n"));
+        assert_eq!(info.mode.map(|m| m.label).as_deref(), Some("Read Only"));
     }
 
     const META_USER: &str = r#"{"timestamp":"2026-09-21T15:47:36.000Z","type":"session_meta","payload":{"id":"01a0c4a6-bc7b-7212-b766-77fcc7a15d43","cwd":"/Users/me/projects/sparkhq/spark-infra","originator":"Codex Desktop","source":"vscode","thread_source":"user","git":{"branch":"main"}}}"#;

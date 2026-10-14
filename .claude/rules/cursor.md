@@ -75,6 +75,17 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `resume` (pickers only), `create-chat`, `models`, and a hidden `acp` command, a full Agent
   Client Protocol server (`loadSession`, `unstable_listSessions`, permission options
   `allow-once`, `allow-always`, `reject-once`).
+- A chat's mode and auto-run setting: `cursor.rs` (`Chat::mode`, `Chat::approval`, `AutoRun`,
+  `read_auto_run`, `chat_mode`). The app's modes are `agent`, `chat` (Ask), `edit` (Manual),
+  `plan`, `spec`, `debug`, `multitask`, `triage`, `project` and `background` (read as `agent`
+  on load), and ones you make; `forceMode`, `isAgentic` and each message's `unifiedMode` number
+  are kept in step with it and say nothing more. The agent's `switch_mode` tool changes it, and
+  so does building a plan. A chat's `agentApprovalModeOverride` is written only as
+  `unrestricted`; a subagent's chat takes its parent's. With `cursor/sandboxAutoRunSettingEnabled`
+  on, the auto-run names say "(with Sandbox)". The command line's `approvalMode` is written by
+  `-f/--force/--yolo` (`unrestricted`, after the screen first draws; with `-p` only
+  `isRunEverything`), `--auto-review`, `/run-everything` and `/auto-review`;
+  `~/.cursor/cli-config.json` holds the defaults (3.22.7's and 2026.08.11's code, 2026-10-13).
 - The terminal UI's permission prompt takes `y`, `n` or Escape (skip and say what to do
   instead), `p`, Tab (allow from now on), Shift+Tab (run everything) and arrows with Return; a
   call waiting there isn't written anywhere, so Codealong shows no prompt for the command line's

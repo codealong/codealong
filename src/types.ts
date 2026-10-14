@@ -145,6 +145,9 @@ export interface Session {
   /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
    *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
   model?: string;
+  /** The mode it runs in, as its harness names it (peer model.rs `SessionMode`): what it does
+   *  without asking you. Missing where the harness doesn't say, and from older Macs. */
+  mode?: SessionMode;
   /** How full its model's context window is, as its latest call sent it (peer model.rs
    *  `ContextUse`). Missing where the harness doesn't say, before its first reply, and from
    *  older Macs. */
@@ -411,6 +414,17 @@ export interface ProjectSummary {
 }
 
 export type Severity = 'normal' | 'warning' | 'critical';
+
+/** A session's mode: how much it does without asking you, from the least (`plan` changes nothing,
+ *  `skips` asks nothing), its harness's own name for it, and what that means in a sentence. A kind
+ *  a later Mac adds comes as `other`. */
+export type ModeKind = 'plan' | 'read-only' | 'asks' | 'edits' | 'auto' | 'skips' | 'other';
+
+export interface SessionMode {
+  kind: ModeKind;
+  label: string;
+  detail: string;
+}
 
 /** How full a session's context window is: the tokens its latest call sent, counted as its
  *  harness counts them for its own context meter, and the window where it's known. */

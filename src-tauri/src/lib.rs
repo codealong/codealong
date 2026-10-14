@@ -55,6 +55,7 @@ mod emblems;
 // codealong-peer (peer/), which the phone app builds on too.
 use codealong_peer::net as irohnet;
 mod jev;
+mod jsonedit;
 mod kept;
 mod launch;
 mod ledger;

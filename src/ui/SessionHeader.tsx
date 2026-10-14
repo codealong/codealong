@@ -45,6 +45,7 @@ import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { ArtifactChip, ArtifactList } from './ArtifactBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
+import { ModeLabel } from './ModeLabel';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
 import { PrChipCard } from './PrLink';
@@ -485,6 +486,14 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           <dd>
             <HarnessChip session={s} withStatus={false} />
           </dd>
+          {s.live && s.mode && (
+            <>
+              <dt>Mode</dt>
+              <dd>
+                <ModeLabel mode={s.mode} /> <span className="ca-meta">{s.mode.detail}</span>
+              </dd>
+            </>
+          )}
           <dt>Folder</dt>
           <dd className="ca-code" title={lane.path}>
             {middleTruncate(tildePath(lane.path), 60)}

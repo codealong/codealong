@@ -374,6 +374,7 @@ pub fn claude_session(
         connection_lost,
         cut_off,
         model: tr.and_then(|t| t.model.clone()),
+        mode: tr.and_then(|t| t.permission_mode.as_deref()).and_then(crate::claude::session_mode),
         context: tr.and_then(|t| t.context).map(|used| ContextUse { used, window: tr.and_then(|t| t.window_model.as_deref().or(t.model.as_deref())).and_then(crate::prices::context_window) }),
         // Held only while it runs: the lock and the cleanup at exit are its process's.
         own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
@@ -470,6 +471,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         branch: th.branch.clone(),
         origin: codex_origin(account, th),
         model: th.model.clone(),
+        mode: th.mode.clone(),
         context: th.context.map(|(used, window)| ContextUse { used, window: window.or_else(|| th.model.as_deref().and_then(crate::prices::context_window)) }),
         cut_off,
         // `codex resume` goes on in the same rollout, which still says `exec`: someone is at it
@@ -533,6 +535,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         archived: row.archived_at.is_some(),
         origin: row.fork_of.as_ref().map(|id| SessionOrigin { key: Session::key_for(Harness::Opencode, &account.name, id), how: OriginHow::Fork }),
         context: row.context.as_ref().map(|(used, model)| ContextUse { used: *used, window: model.as_deref().and_then(crate::prices::context_window) }),
+        mode: row.agent.as_deref().map(crate::opencode::agent_mode),
         ..known
     }
 }
@@ -597,6 +600,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         last_activity: c.last_modified,
         excerpt,
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
+        mode: c.mode.clone(),
         ..known
     }
 }

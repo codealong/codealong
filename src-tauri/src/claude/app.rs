@@ -37,6 +37,8 @@ pub struct Record {
     pub archived: bool,
     /// The session this one came from, by the app's ID, and how.
     pub came_from: Option<(String, OriginHow)>,
+    /// The permission mode you picked for it in the app (`permissionMode`).
+    pub permission_mode: Option<String>,
 }
 
 fn subdirs(p: &Path) -> Vec<PathBuf> {
@@ -85,6 +87,7 @@ pub fn parse_record(text: &str, path: &Path) -> Option<Record> {
         cli_session_id: v.get("cliSessionId").and_then(Value::as_str)?.to_string(),
         archived: v.get("isArchived").and_then(Value::as_bool).unwrap_or(false),
         came_from: came_from(&v),
+        permission_mode: v.get("permissionMode").and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_string),
     })
 }
 
@@ -128,6 +131,12 @@ impl Records {
     /// CLI session IDs you archived in the Claude app.
     pub fn archived(&self) -> HashSet<String> {
         self.cache.values().filter_map(|(_, r)| r.as_ref()).filter(|r| r.archived).map(|r| r.cli_session_id.clone()).collect()
+    }
+
+    /// By CLI session ID, the permission mode each of the app's sessions runs in, where its
+    /// record says.
+    pub fn modes(&self) -> HashMap<String, String> {
+        self.cache.values().filter_map(|(_, r)| r.as_ref()).filter_map(|r| Some((r.cli_session_id.clone(), r.permission_mode.clone()?))).collect()
     }
 
     /// By CLI session ID, the CLI session each of the app's sessions came from and how, for the

@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use crate::config::AccountCfg;
 use crate::harness::{Applied, Ctx, Look};
-use crate::model::{Harness, Session, Surface};
+use crate::model::{Harness, ModeKind, Session, SessionMode, Surface};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
 use crate::util::{code, command_dir, file_name, note_work, one_line, only_looks, parse_rfc3339_ms};
@@ -61,6 +61,76 @@ pub fn folders(home: &Path) -> Vec<Folder> {
         out.push(Folder { path: parent.join(CLI_DIR), cli: true });
     }
     out
+}
+
+/// The command line's settings: what its `/config` saves, the permissions you allowed for good,
+/// and the folders it trusts. None when the account has no command line folder: it has never
+/// run.
+fn cli_settings(home: &Path) -> Option<PathBuf> {
+    folders(home).into_iter().find(|f| f.cli && f.path.is_dir()).map(|f| f.path.join("settings.json"))
+}
+
+/// The folders the command line trusts, in its settings. Each is the very folder it started in:
+/// one under a trusted folder, or in a trusted repo, is asked about again, and `--add-dir`
+/// folders aren't asked about at all (1.3.4, tried in a home of its own on 2026-10-13). The
+/// folder is the shell's `PWD`, cleaned of `.`, `..` and a trailing slash but with its links
+/// kept, or the real path when there's no `PWD`; Yes at its prompt adds that, as it is. A print
+/// run (`-p`) never asks.
+const TRUSTED_WORKSPACES: &str = "trustedWorkspaces";
+
+/// Trusts `folder` for the command line, as Yes at its trust prompt does: by the path it's
+/// started with, and by its real path too, which it goes by when the shell has no `PWD`. False
+/// when it trusts both already, and then the file isn't touched. Not the home folder or one
+/// above it, which it would then read and run things in unasked wherever you started it.
+pub fn trust_folder(settings: &Path, folder: &Path, user_home: &Path) -> anyhow::Result<bool> {
+    if user_home.starts_with(folder) {
+        anyhow::bail!("{} holds the home folder", folder.display());
+    }
+    let given = folder.to_str().map(|p| p.trim_end_matches('/').to_string()).filter(|p| !p.is_empty()).ok_or_else(|| anyhow::anyhow!("{} isn't a folder Antigravity can keep", folder.display()))?;
+    let real = std::fs::canonicalize(folder).ok().and_then(|p| p.to_str().map(String::from));
+    let paths: Vec<String> = std::iter::once(given.clone()).chain(real.filter(|r| *r != given)).collect();
+    let text = match std::fs::read_to_string(settings) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}\n".to_string(),
+        Err(e) => return Err(e.into()),
+    };
+    let Some(next) = with_trusted(&text, &paths)? else { return Ok(false) };
+    crate::jsonedit::write_whole(settings, &next)?;
+    Ok(true)
+}
+
+/// The command line's settings, `text`, with `paths` added to the folders it trusts, or None
+/// when they're all there. The rest keeps its text and its order; the command line writes the
+/// file indented by two spaces, as serde_json's pretty printer does, and so the list too.
+fn with_trusted(text: &str, paths: &[String]) -> anyhow::Result<Option<String>> {
+    use crate::jsonedit::Node;
+    let mut top = Node::entries(text)?;
+    let at = top.iter().rposition(|(k, _)| k == TRUSTED_WORKSPACES);
+    let mut trusted: Vec<String> = match at.map(|i| &top[i].1) {
+        Some(Node::Raw(raw)) if raw.get() != "null" => serde_json::from_str(raw.get())?,
+        _ => Vec::new(),
+    };
+    let before = trusted.len();
+    for p in paths {
+        if !trusted.contains(p) {
+            trusted.push(p.clone());
+        }
+    }
+    if trusted.len() == before {
+        return Ok(None);
+    }
+    // Indented as a value one level in.
+    let list = serde_json::to_string_pretty(&trusted)?.replace('\n', "\n  ");
+    let list = Node::Raw(serde_json::value::RawValue::from_string(list)?);
+    match at {
+        Some(i) => top[i].1 = list,
+        None => top.push((TRUSTED_WORKSPACES.to_string(), list)),
+    }
+    let mut out = serde_json::to_string_pretty(&Node::Object(top))?;
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    Ok(Some(out))
 }
 
 /// The command that runs an account's command line: its own, when config.toml gives one.
@@ -113,6 +183,8 @@ pub struct Conversation {
     /// Its summary says idle only because another `agy` started, while the process that has it
     /// goes on with its turn (`idled_by_another`).
     pub idled_by_another: bool,
+    /// The permissions its latest turn ran with (`turn_mode`).
+    pub mode: Option<SessionMode>,
 }
 
 impl Conversation {
@@ -252,6 +324,97 @@ fn steps_now(dir: &Path, id: &str) -> (bool, bool) {
     let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false) };
     let statuses: Vec<i64> = query.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
     (!statuses.is_empty(), statuses.contains(&STEP_WAITING))
+}
+
+/// A step that's your prompt (`CORTEX_STEP_TYPE_USER_INPUT`), which carries the settings its
+/// turn runs with.
+const STEP_USER_INPUT: i64 = 14;
+
+/// Where a prompt's step (`gemini_coder.Step`, 1.3.4's definitions) keeps its turn's tool
+/// settings: `user_input` (19) → `user_config` (12) → `planner_config` (1) → `tool_config` (13).
+const TOOL_CONFIG: [u64; 4] = [19, 12, 1, 13];
+
+/// The permissions a conversation's latest turn ran with, from its prompt's step: the tool
+/// config's `auto_execution_policy` (8 → 3 → 6), and its `default_grants` (42 → 3), whose asks
+/// (3) tell `strict` from `request-review`, the settings' `toolPermission`. `always-proceed`
+/// and `--dangerously-skip-permissions` are both EAGER (3). `accept-edits` and `plan` (the
+/// settings' `agentMode`, `--mode`, Shift+Tab) aren't written there: the command line's log
+/// says them (`SetCycleMode called`), and Codealong doesn't read it.
+fn turn_mode(dir: &Path, id: &str) -> Option<SessionMode> {
+    let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
+    let step: Vec<u8> = db.query_row("SELECT step_payload FROM steps WHERE step_type = ?1 ORDER BY idx DESC LIMIT 1", [STEP_USER_INPUT], |r| r.get(0)).ok()?;
+    let config = proto_at(&step, &TOOL_CONFIG).into_iter().next()?;
+    let policy = proto_ints(config, &[8, 3, 6]).into_iter().next()?;
+    let asks_to_read = proto_at(config, &[42, 3]).into_iter().flat_map(|grants| proto_at(grants, &[3])).any(|g| g == b"read_file(/)");
+    policy_mode(policy, asks_to_read)
+}
+
+/// A turn's `auto_execution_policy` as a mode: OFF (1), AUTO (2), EAGER (3) or
+/// PROCEED_IN_SANDBOX (4), named as the settings name them.
+fn policy_mode(policy: u64, asks_to_read: bool) -> Option<SessionMode> {
+    let (kind, label, detail) = match policy {
+        1 if asks_to_read => (ModeKind::Asks, "Strict", "Asks before it reads or writes files, runs commands or goes on the web."),
+        1 => (ModeKind::Asks, "Request review", "Asks before it runs commands or writes files, and before it reads outside its workspace."),
+        2 => (ModeKind::Auto, "Auto", "Edits files and runs the commands it takes for safe without asking, and asks about the rest."),
+        3 => (ModeKind::Skips, "Always proceed", "Runs commands and edits files without asking (always-proceed, or --dangerously-skip-permissions)."),
+        4 => (ModeKind::Edits, "Proceed in sandbox", "Runs commands in its sandbox without asking, and asks before one that would leave it."),
+        _ => return None,
+    };
+    Some(SessionMode::new(kind, label, detail))
+}
+
+/// A protobuf message's fields: each number with its varint, or the bytes of a length-delimited
+/// one. Stops at a field it can't read.
+fn proto_fields(b: &[u8]) -> Vec<(u64, Result<u64, &[u8]>)> {
+    fn varint(b: &[u8], i: &mut usize) -> Option<u64> {
+        let mut n = 0u64;
+        for shift in (0..64).step_by(7) {
+            let c = *b.get(*i)?;
+            *i += 1;
+            n |= u64::from(c & 0x7f) << shift;
+            if c < 0x80 {
+                return Some(n);
+            }
+        }
+        None
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let Some(key) = varint(b, &mut i) else { break };
+        let field = key >> 3;
+        match key & 7 {
+            0 => match varint(b, &mut i) {
+                Some(v) => out.push((field, Ok(v))),
+                None => break,
+            },
+            2 => {
+                let Some(len) = varint(b, &mut i).and_then(|l| usize::try_from(l).ok()) else { break };
+                let Some(bytes) = i.checked_add(len).and_then(|end| b.get(i..end)) else { break };
+                out.push((field, Err(bytes)));
+                i += len;
+            }
+            1 => i += 8,
+            5 => i += 4,
+            _ => break,
+        }
+    }
+    out
+}
+
+/// The length-delimited fields at `path`, each step a field number, every repeat followed.
+fn proto_at<'a>(b: &'a [u8], path: &[u64]) -> Vec<&'a [u8]> {
+    let mut at = vec![b];
+    for &field in path {
+        at = at.into_iter().flat_map(|m| proto_fields(m).into_iter().filter_map(move |(f, v)| (f == field).then_some(v).and_then(Result::err))).collect();
+    }
+    at
+}
+
+/// The numbers at `path`: the messages along it, then the last field's varints.
+fn proto_ints(b: &[u8], path: &[u64]) -> Vec<u64> {
+    let Some((last, along)) = path.split_last() else { return Vec::new() };
+    proto_at(b, along).into_iter().flat_map(|m| proto_fields(m).into_iter().filter_map(|(f, v)| (f == *last).then_some(v).and_then(Result::ok))).collect()
 }
 
 /* ---- A conversation's record: its steps as JSON lines ---- */
@@ -855,10 +1018,14 @@ impl Reader {
         for c in &mut rows {
             let held = self.processes.iter().any(|p| p.conversation.as_deref() == Some(c.id.as_str()));
             match before.get(&c.id) {
-                Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => c.tail = old.tail.clone(),
+                Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
+                    c.tail = old.tail.clone();
+                    c.mode = old.mode.clone();
+                }
                 old => {
                     added |= old.is_none();
                     c.tail = transcript_file(&c.dir, &c.id).map(|p| tail(&p, c.cwd.as_deref())).unwrap_or_default();
+                    c.mode = turn_mode(&c.dir, &c.id);
                 }
             }
             if c.running() || held {
@@ -996,6 +1163,18 @@ impl Antigravity {
 }
 
 impl crate::harness::Adapter for Antigravity {
+    /// Trusts the folder for the command line (`trust_folder`). In a folder it hasn't trusted,
+    /// `agy` stops at "Do you trust the contents of this project?", and a prompt given with `-i`
+    /// runs behind it in its `scratch` folder with no workspace, where it asks before it reads
+    /// each file of the folder it was started in (two helpers' reviews, 2026-10-13). You chose
+    /// the folder, as answering the prompt would. A start goes ahead without it, and agy asks.
+    fn before_start(&self, account: &AccountCfg, folder: &Path) {
+        let Some(settings) = cli_settings(&account.home_path()) else { return };
+        if let Err(e) = trust_folder(&settings, folder, &crate::util::home()) {
+            eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(folder), account.name);
+        }
+    }
+
     fn harness(&self) -> Harness {
         Harness::Antigravity
     }
@@ -1205,12 +1384,51 @@ impl crate::harness::Adapter for Antigravity {
         matches!(place, Place::Terminal | Place::Background)
     }
 
-    /// What its step waits on you to allow. It's answered where the conversation runs: nothing
-    /// outside takes an answer.
+    /// What its step waits on you to allow. The command line's terminal UI is answered here with
+    /// a key (`answer`); the app takes nothing from outside.
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
         let c = tail(&self.record(ctx, s).ok()?, None).open.into_iter().next()?;
-        let cannot = format!("Antigravity asks in {}; answer it there.", if s.surface == Surface::Cli { "its terminal" } else { "its own window" });
-        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.label, input: Some(c.input), cannot: Some(cannot), always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
+        let cannot = match (s.surface, s.pid) {
+            (Surface::Cli, Some(_)) => None,
+            (Surface::Cli, None) => Some("Antigravity asks in its terminal; answer it there.".to_string()),
+            _ => Some("Antigravity asks in its own window; answer it there.".to_string()),
+        };
+        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.label, input: Some(c.input), cannot, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
+    }
+
+    /// Its terminal UI's permission prompt, with a key (1.3.4, in tmux, 2026-10-13): `1`, with no
+    /// Return, is the first choice of every prompt, Yes (run the command, read the file); Escape
+    /// cancels it, which denies the call and ends the turn ("Interrupted · What should Antigravity
+    /// CLI do instead?"). Its other choices (always, for the conversation or in its settings, and
+    /// No) are numbered differently from one prompt to another, a file outside its workspace
+    /// having two or three, so they're left to its terminal. A key is pressed only while its
+    /// database says a step waits and its record's open call is the one you saw: a stray digit
+    /// lands in its input box.
+    fn answer(&self, ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        use crate::harness::Answer;
+        let (Surface::Cli, Some(pid)) = (s.surface, s.pid) else {
+            anyhow::bail!("Antigravity asks in {}; answer it there.", if s.surface == Surface::Cli { "its terminal" } else { "its own window" });
+        };
+        let call = tail(&self.record(ctx, s)?, None).open.into_iter().next();
+        let Some(call) = call.filter(|_| step_waits(&folder_of(ctx.account, s), &s.id)) else {
+            anyhow::bail!("It isn't waiting on a permission prompt any more.");
+        };
+        if call.result_step.to_string() != id {
+            anyhow::bail!("It's waiting on a different call now: {}. Look again before answering.", call.label);
+        }
+        let key = match answer {
+            Answer::Allow => crate::launch::Key::Digit1,
+            Answer::Deny => crate::launch::Key::Escape,
+            Answer::Always => anyhow::bail!("Antigravity's prompt is answered here with Allow or Deny only."),
+        };
+        let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+            anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
+        };
+        crate::launch::press_key(&host, key)?;
+        Ok(match answer {
+            Answer::Deny => format!("Denied {}; it stops and waits for you.", call.label),
+            _ => format!("Allowed {}.", call.label),
+        })
     }
 
     fn open_calls(&self, ctx: &Ctx, s: &Session) -> Vec<String> {
@@ -1458,6 +1676,14 @@ mod tests {
         assert_eq!(page.items.iter().map(|i| i.kind).collect::<Vec<_>>(), ["you", "agent", "tool", "result", "result", "tool", "tool"]);
         let waits = Antigravity.pending(&ctx, &session).unwrap();
         assert_eq!((waits.label.as_str(), waits.id.as_str(), waits.cannot.is_some()), ("Run command · `ls /definitely-not-here`", "6", true));
+        // In a terminal UI it's answered here, with a key, and only the call that waits.
+        let in_terminal = Session { pid: Some(999_999), ..session.clone() };
+        assert_eq!(Antigravity.pending(&ctx, &in_terminal).unwrap().cannot, None);
+        let answered = |id: &str, a: crate::harness::Answer| Antigravity.answer(&ctx, &in_terminal, id, a).unwrap_err().to_string();
+        assert!(answered("5", crate::harness::Answer::Allow).starts_with("It's waiting on a different call now"));
+        assert!(answered("6", crate::harness::Answer::Always).contains("Allow or Deny only"));
+        assert!(answered("6", crate::harness::Answer::Allow).starts_with("It isn't in a terminal Codealong can press keys in"));
+        assert!(Antigravity.answer(&ctx, &session, "6", crate::harness::Answer::Allow).unwrap_err().to_string().contains("answer it there"));
         assert_eq!(Antigravity.open_calls(&ctx, &session), ["ls /definitely-not-here"]);
         assert_eq!(Antigravity.records(&account, &session)[0], logs.join("transcript_full.jsonl"));
 
@@ -1542,6 +1768,90 @@ mod tests {
         assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
         // On another model, or with nothing to say yet: it opens on the conversation.
         assert_eq!(Antigravity.resume(&own, &conversation, &ask("", Some("gemini-3.8-flash-low"))).unwrap(), ("agy --sandbox --conversation 88db39ed --model 'gemini-3.8-flash-low'\n".to_string(), Vec::new()));
+    }
+
+    #[test]
+    fn trusts_a_folder_by_its_own_path_keeping_the_rest_of_the_settings() {
+        let dir = crate::fixtures::scratch("agy-trust");
+        let home = dir.join("home");
+        let folder = home.join("r/app");
+        std::fs::create_dir_all(&folder).unwrap();
+        let folder = std::fs::canonicalize(&folder).unwrap();
+        let settings = dir.join("settings.json");
+        // As the command line writes it.
+        let written = "{\n  \"model\": \"Gemini 3.8 Flash (High)\",\n  \"permissions\": {\n    \"allow\": [\n      \"command(pwd)\"\n    ]\n  },\n  \"trustedWorkspaces\": [\n    \"/r/other\"\n  ]\n}\n";
+        std::fs::write(&settings, written).unwrap();
+        assert!(trust_folder(&settings, &folder, &home).unwrap());
+        let text = std::fs::read_to_string(&settings).unwrap();
+        let want = written.replace("\"/r/other\"\n", &format!("\"/r/other\",\n    \"{}\"\n", folder.display()));
+        assert_eq!(text, want);
+        // Trusted already: the file is left alone.
+        assert!(!trust_folder(&settings, &folder, &home).unwrap());
+        // A link to it is trusted by the path it's started with, and by where it leads.
+        let link = home.join("link");
+        std::os::unix::fs::symlink(&folder, &link).unwrap();
+        assert!(trust_folder(&settings, &link, &home).unwrap());
+        let listed: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert_eq!(listed["trustedWorkspaces"].as_array().unwrap().len(), 3);
+        // None yet, and a file that isn't there.
+        assert_eq!(with_trusted("{\"model\": \"m\"}", &["/r/a".into()]).unwrap().as_deref(), Some("{\n  \"model\": \"m\",\n  \"trustedWorkspaces\": [\n    \"/r/a\"\n  ]\n}"));
+        let fresh = dir.join("fresh.json");
+        assert!(trust_folder(&fresh, &folder, &home).unwrap());
+        assert!(std::fs::read_to_string(&fresh).unwrap().ends_with("]\n}\n"));
+        // Never the home folder or above, nor a file that doesn't read.
+        assert!(trust_folder(&settings, &home, &home).is_err());
+        assert!(trust_folder(&settings, &dir, &home).is_err());
+        std::fs::write(&settings, "{ not json").unwrap();
+        assert!(trust_folder(&settings, &folder, &home).is_err());
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{ not json");
+    }
+
+    #[test]
+    fn reads_the_permissions_its_latest_turn_ran_with() {
+        // A message of `(field, bytes)` parts, each length-delimited, and a varint field.
+        fn varint(mut n: u64, out: &mut Vec<u8>) {
+            while n >= 0x80 {
+                out.push((n as u8) | 0x80);
+                n >>= 7;
+            }
+            out.push(n as u8);
+        }
+        fn message(parts: &[(u64, Vec<u8>)]) -> Vec<u8> {
+            let mut out = Vec::new();
+            for (field, bytes) in parts {
+                varint(field << 3 | 2, &mut out);
+                varint(bytes.len() as u64, &mut out);
+                out.extend(bytes);
+            }
+            out
+        }
+        let number = |field: u64, n: u64| {
+            let mut out = Vec::new();
+            varint(field << 3, &mut out);
+            varint(n, &mut out);
+            out
+        };
+        let step = |policy: u64, asks: &[&str]| {
+            let grants = message(&asks.iter().map(|a| (3, a.as_bytes().to_vec())).collect::<Vec<_>>());
+            let tools = message(&[(8, message(&[(3, number(6, policy))])), (42, message(&[(3, grants)]))]);
+            message(&[(19, message(&[(12, message(&[(1, message(&[(13, tools)]))]))]))])
+        };
+        let dir = crate::fixtures::scratch("agy-mode");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        let db = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        db.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB);").unwrap();
+        let insert = |idx: i64, kind: i64, payload: Vec<u8>| db.execute("INSERT INTO steps VALUES (?1, ?2, 3, ?3)", rusqlite::params![idx, kind, payload]).unwrap();
+        insert(0, STEP_USER_INPUT, step(3, &[]));
+        insert(1, 132, step(1, &[]));
+        let mode = || turn_mode(&dir, "c1").map(|m| (m.kind, m.label));
+        assert_eq!(mode(), Some((ModeKind::Skips, "Always proceed".to_string())));
+        // The latest prompt's settings are the ones that hold.
+        insert(2, STEP_USER_INPUT, step(1, &["write_file(/)"]));
+        assert_eq!(mode(), Some((ModeKind::Asks, "Request review".to_string())));
+        insert(3, STEP_USER_INPUT, step(1, &["command(*)", "read_file(/)", "write_file(/)"]));
+        assert_eq!(mode(), Some((ModeKind::Asks, "Strict".to_string())));
+        assert_eq!(turn_mode(&dir, "gone"), None);
+        assert_eq!(proto_fields(&[0x08]), []);
     }
 
     #[test]

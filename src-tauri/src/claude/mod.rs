@@ -50,6 +50,7 @@ use conversation::{idle_since, last_prompt_taken_back, mark_taken_back, open_pro
 use daemon::{daemon_press_escape, daemon_socket, daemon_type};
 use held::held_in;
 use mode::permission_mode;
+pub use mode::session_mode;
 use names::name_transcript;
 use registry::{read_registry, registry_of, session_entry, Forks, INPUT_NEEDED, PERMISSION_PROMPT};
 use routes::claude_routes;
@@ -804,8 +805,11 @@ impl crate::harness::Adapter for ClaudeCode {
     /// Trusts the folder for the account (`trust_folder`): Claude Code stops a new session at
     /// its trust prompt in a folder it hasn't trusted, where the default answer quits, and
     /// `--bg` refuses to start there. You chose the folder, as answering the prompt would. A
-    /// start goes ahead without it, and Claude Code asks.
+    /// start goes ahead without it, and Claude Code asks. A chat of Codealong's goes by its
+    /// chats folder, where trust goes by the folders above: trusting it trusts every chat in it.
     fn before_start(&self, account: &AccountCfg, folder: &Path) {
+        let chats = crate::config::chats_dir();
+        let folder = if folder.starts_with(&chats) { chats.as_path() } else { folder };
         if let Err(e) = trust_folder(&account.home_path(), folder) {
             eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(folder), account.name);
         }
@@ -1150,6 +1154,7 @@ impl crate::harness::Reader for Reader {
         let mut out = Vec::new();
         let app_archived = self.app_records.archived();
         let app_origins = self.app_records.origins();
+        let app_modes = self.app_records.modes();
         let mut by_id: HashMap<&str, (Option<&RegistryEntry>, Option<(&Path, &TranscriptInfo)>)> = HashMap::new();
         for r in self.registry.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]) {
             by_id.entry(r.session_id.as_str()).or_default().0 = Some(r);
@@ -1207,6 +1212,10 @@ impl crate::harness::Reader for Reader {
             if let Some(mut s) = board::claude_session(a, reg, info, seen_at, now, &quiet) {
                 // Archived here until it's active again, or archived in the Claude app.
                 s.archived = look.archived_here(&key, s.last_activity) || app_archived.contains(id);
+                // The app keeps the mode you pick for a session it runs (`permission_mode`).
+                if reg.is_some_and(|r| r.host_session.is_some()) {
+                    s.mode = app_modes.get(id).and_then(|m| session_mode(m)).or(s.mode);
+                }
                 s.continues = from.map(|f| f.id);
                 // A job's record says what it's a fork of; the roster says for a
                 // running one whose record hasn't been read yet. The Claude app's record says

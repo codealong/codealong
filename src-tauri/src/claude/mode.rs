@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 use super::registry::RegistryEntry;
+use crate::model::{ModeKind, SessionMode};
 use crate::util::scan_lines_back;
 
 /// How far back a transcript is read for the mode its latest prompt went in.
@@ -26,6 +27,22 @@ pub(super) fn permission_mode(registry: Option<&RegistryEntry>, transcripts: &[P
         mode.is_some()
     });
     mode
+}
+
+/// A mode as Claude Code writes it (`permissionMode`), named as its own terminal and the Claude
+/// app name it (2.1.296's table of modes: `default` is Manual, and `manual` is taken for it).
+/// None for a mode it didn't have then.
+pub fn session_mode(raw: &str) -> Option<SessionMode> {
+    let (kind, label, detail) = match raw {
+        "default" | "manual" => (ModeKind::Asks, "Manual", "Asks before it edits files or runs commands that do more than look."),
+        "plan" => (ModeKind::Plan, "Plan", "Plans without changing anything, until you take the plan."),
+        "acceptEdits" => (ModeKind::Edits, "Accept edits", "Edits files without asking, and asks before other commands."),
+        "auto" => (ModeKind::Auto, "Auto", "A classifier allows what looks safe and asks you about the rest."),
+        "dontAsk" => (ModeKind::Other, "Don't Ask", "Does only what its settings allow, and refuses the rest without asking."),
+        "bypassPermissions" => (ModeKind::Skips, "Bypass Permissions", "Does everything without asking."),
+        _ => return None,
+    };
+    Some(SessionMode::new(kind, label, detail))
 }
 
 /// A transcript line's own `permissionMode`. A quote inside a string is escaped, so the key
@@ -55,5 +72,17 @@ mod tests {
         assert_eq!(permission_mode(None, std::slice::from_ref(&t)).as_deref(), Some("bypassPermissions"));
         assert_eq!(line_mode(lines[2]), None);
         assert_eq!(permission_mode(None, &[]), None);
+    }
+
+    #[test]
+    fn names_each_mode_as_claude_code_does() {
+        let mode = |raw: &str| session_mode(raw).map(|m| (m.kind, m.label));
+        assert_eq!(mode("default"), Some((ModeKind::Asks, "Manual".to_string())));
+        assert_eq!(mode("manual"), mode("default"));
+        assert_eq!(mode("bypassPermissions"), Some((ModeKind::Skips, "Bypass Permissions".to_string())));
+        assert_eq!(mode("acceptEdits").map(|m| m.0), Some(ModeKind::Edits));
+        assert_eq!(mode("plan").map(|m| m.0), Some(ModeKind::Plan));
+        assert_eq!(mode("auto").map(|m| m.0), Some(ModeKind::Auto));
+        assert_eq!(mode("someday"), None);
     }
 }

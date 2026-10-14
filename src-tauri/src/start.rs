@@ -564,9 +564,8 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     if chat.is_some() {
         make_chat_folder(folder)?;
     }
-    // Trusting the chats folder trusts every chat in it, where trust goes by the folders above.
     if on_command_line {
-        adapter.before_start(account, if chat.is_some() { Path::new(&lane.path) } else { folder });
+        adapter.before_start(account, folder);
     }
     let id = new_session_id();
     let dirs = (attachments::images_dir(), attachments::files_dir());
@@ -951,7 +950,7 @@ pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> 
     if to.starts_chats {
         make_chat_folder(&folder)?;
     }
-    adapter.before_start(account, if to.starts_chats { Path::new(&to.path) } else { &folder });
+    adapter.before_start(account, &folder);
     let in_background = s.live && s.attach_command.is_some();
     if s.live {
         crate::idle::close_one(board, cfg, key).map_err(|e| anyhow!("Couldn't close “{}” where it runs, so it stays where it is: {e:#}", s.title))?;

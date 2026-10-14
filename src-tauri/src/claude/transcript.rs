@@ -91,6 +91,11 @@ pub struct TranscriptInfo {
     /// `context_window.total_input_tokens`, `used_percentage` of the model's window). A compaction
     /// since then says what's left (`compact_boundary`'s `compactMetadata.postTokens`).
     pub context: Option<u64>,
+    /// The permission mode it runs in, as Claude Code writes it (`acceptEdits`): from the
+    /// `permission-mode` line it re-stamps with its other metadata, and the mode each prompt went
+    /// in. A mode switched to sets the stamp without writing it, so it shows from the next prompt
+    /// or re-stamp (2.1.296's code).
+    pub permission_mode: Option<String>,
     /// The model whose window that fills: `model`, or one `/model` switched to with a context
     /// size (`claude-sonnet-4-5[1m]`) while replies name its model without it.
     pub window_model: Option<String>,
@@ -343,6 +348,12 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         }
         if let Some(step) = turn_step(&v) {
             info.unfinished = step;
+        }
+        // A subagent's prompt, in transcripts from before their own logs, went in its mode.
+        if matches!(kind, Some("permission-mode") | Some("user")) && v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
+            if let Some(mode) = str_of(&v, "permissionMode").filter(|m| !m.is_empty()) {
+                info.permission_mode = Some(mode);
+            }
         }
         match kind {
             Some("continued-in") => {
@@ -982,6 +993,16 @@ mod tests {
         std::fs::write(&path, format!("{HEAD}{}\n{big}\n{}\n", lines[0], lines[1])).unwrap();
         let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
         assert_eq!(info.window_model.as_deref(), Some("claude-sonnet-4-5[1m]"));
+    }
+
+    #[test]
+    fn the_mode_is_the_latest_stamp_or_prompt_of_its_own() {
+        let stamped = r#"{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"s"}
+{"type":"user","isSidechain":true,"permissionMode":"plan","message":{"role":"user","content":"a subagent's prompt"}}
+"#;
+        assert_eq!(parse_lines(HEAD, stamped).permission_mode.as_deref(), Some("bypassPermissions"));
+        let prompted = format!("{stamped}{}\n", r#"{"type":"user","permissionMode":"acceptEdits","message":{"role":"user","content":"go on"}}"#);
+        assert_eq!(parse_lines(HEAD, &prompted).permission_mode.as_deref(), Some("acceptEdits"));
     }
 
     #[test]

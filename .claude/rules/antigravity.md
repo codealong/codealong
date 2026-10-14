@@ -82,11 +82,36 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   (`cache/onboarding.json`). A prompt given with `-i` runs behind those screens, in the
   command line's `scratch` folder with no workspace on its row (`Antigravity::chats`).
 - In the terminal UI (1.3.4, 2026-10-13, in tmux), a folder not in `settings.json`'s
-  `trustedWorkspaces` is asked about first, and a yes adds it there. A permission prompt is a
-  menu: 1 run it, 2 always in this conversation for commands that start the same way, 3 always
-  (written to `settings.json`), 4 no, cancel; ↑/↓ and Enter pick, Tab amends, Escape cancels.
-  Escape stops a turn ("Interrupted · What should Antigravity CLI do instead?"). Codealong
-  doesn't answer its prompts or stop its turns.
+  `trustedWorkspaces` is asked about first (↑/↓ and Return, no digits), and a yes adds it there.
+  A permission prompt is a menu: for a command 1 run it, 2 always in this conversation for
+  commands that start the same way, 3 always (written to `settings.json`), 4 no, cancel; for a
+  file outside the workspace 1 allow, 2 always allow non-workspace access (not always there), then
+  no. ↑/↓ and Enter pick, the digit alone answers, Tab amends a command and Ctrl+G edits it,
+  Escape cancels. The call's step is waiting (9) while it's up. Escape stops a turn
+  ("Interrupted · What should Antigravity CLI do instead?"). Codealong answers a prompt with 1 or
+  Escape (`Antigravity::answer`) and doesn't stop its turns.
+- Workspace trust: which folders count, how the path is taken, and trusting one before a start:
+  `antigravity.rs` (`TRUSTED_WORKSPACES`, `trust_folder`, `Antigravity::before_start`). The
+  settings are `settings.json` in the command line's folder, written by agy indented by two
+  spaces with a newline at the end, mode 600. A signed-out agy shows its sign-in before the trust
+  question; a hub project's `folderUri` (`~/.gemini/config/projects/<id>.json`) is trusted too.
+  Behind the trust question a `-i` prompt ran with no workspace at all, and asked before reading
+  each file of the folder it was started in (two helpers' reviews on 2026-10-13); one started
+  in a folder trusted from outside went straight in (1.3.4, in tmux). In a home of its own agy
+  is signed out: it reads the keychain through `/usr/bin/security`, which follows `HOME`.
+- The permissions a turn ran with, in its prompt's step (`steps.step_payload`, a
+  `gemini_coder.Step`; step type 14 is a prompt): `antigravity.rs` (`turn_mode`, `TOOL_CONFIG`,
+  `policy_mode`, `proto_at`). The settings' keys (`/config` writes them, a default removes its
+  key): `agentMode` (`accept-edits`, `plan`), `toolPermission` (`strict`, `always-proceed`,
+  `proceed-in-sandbox`; `request-review` when absent), `enableTerminalSandbox`,
+  `allowNonWorkspaceAccess`, `artifactReviewPolicy`, `permissions {allow, deny, ask}`. Shift+Tab
+  cycles default, accept-edits, plan and isn't saved; `--mode`, `--sandbox` and
+  `--dangerously-skip-permissions` are never saved. The command line's log names its process
+  (`Starting language server process with pid N`) and says `toolPermission` as it starts, each
+  override a flag made, and `SetCycleMode called: <mode>` at every switch; nothing writes the
+  agent mode to the conversation (plan puts `/plan ` before the prompt, by its code, unseen).
+  The hub app's own settings are `userSettings` in `~/.gemini/config/config.json`, per project
+  under `settings` in `projects/<id>.json`; its conversations seen had only the model per turn.
 - It has no Agent Client Protocol mode, so Codealong can't run it itself. Google says running
   the binary as a child process on the user's sign-in is supported and counts against the same
   limits.
@@ -140,6 +165,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 
 - How the terminal UI takes a paste, though Codealong types into a command line conversation's
   terminal (`Antigravity::routes`, `Route::Type`).
+- A plan-mode turn's record, and the `strict`, `proceed-in-sandbox` and `auto` policies on a real
+  turn: read from its code only.
 - What the app writes mid-turn.
 - Where the conversations that Remote Control's daemon starts are written, and how they'd
   show on the board: starting the daemon registers the Mac with Google, so it wasn't run.

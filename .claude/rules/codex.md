@@ -27,6 +27,10 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   Experimental feature request failed", offering "Run without daemon this time"), so whether the
   daemon finishes a turn whose terminal UI died is unchecked; it holds the rollout while it runs
   one, so it isn't taken as cut off meanwhile.
+- The permissions a turn ran with, as Codex's own status line names them (0.157.1's tui
+  `permissions_display`, `approval_mode_display`): `codex/rollout.rs` (`turn_mode`). A
+  `turn_context` also has `permission_profile` and `file_system_sandbox_policy`; `approvals_reviewer`
+  is `auto_review` where config.toml says `guardian_subagent`.
 - Approvals aren't recorded anywhere on disk: not in the rollout, `logs_2.sqlite` or the app's
   logs. A call left without its output past its tool's limit is taken as Needs you:
   `codex/rollout.rs` (`ThreadInfo::pending_calls`, `call_limit_ms`), `board.rs`
